@@ -2,9 +2,11 @@
 and valuation signals for all NSE EQ stocks.
 
 Flow for each run:
-  1. Call nidp.populate_stock_features_extended(target_date) — fills PE, PB,
-     ROE, D/E, growth metrics, sector, shareholding into stock_features_daily
-     (existing SQL function from migration 029).
+  1. Call nidp.populate_stock_features_extended(target_date) — fills ROE, D/E,
+     market_cap_bucket, promoter_pct, sector, shareholding into stock_features_daily.
+  1b. Call nidp.populate_stock_features_v3(target_date) — fills 3Y CAGR metrics
+     (revenue_growth_3y_cagr_pct, profit_margin_trend_pct, debt_trend_pct) from
+     annual Screener.in P&L data. V3 Health score primitives.
   2. Fetch latest + prior-year quarterly financials from v_stock_fundamentals_latest
      and nse_financials_quarterly for multi-quarter signals.
   3. Compute Piotroski F-Score and Altman Z-Score in Python.
@@ -81,6 +83,25 @@ async def _populate_extended(conn: asyncpg.Connection, target_date: date) -> int
         return rows or 0
     except Exception as exc:
         logger.error("fund_engine_populate_extended_error date=%s error=%s", target_date, exc)
+        return 0
+
+
+async def _populate_v3(conn: asyncpg.Connection, target_date: date) -> int:
+    """Call populate_stock_features_v3 — computes 3Y CAGR metrics from annual P&L.
+
+    Fills revenue_growth_3y_cagr_pct, profit_margin_trend_pct, debt_trend_pct
+    in stock_features_daily. Must run after _populate_extended (which fills the
+    balance sheet columns that debt_trend uses).
+    """
+    try:
+        rows = await conn.fetchval(
+            "SELECT nidp.populate_stock_features_v3($1)",
+            target_date,
+        )
+        logger.info("fund_engine_populate_v3 date=%s rows_updated=%s", target_date, rows)
+        return rows or 0
+    except Exception as exc:
+        logger.error("fund_engine_populate_v3_error date=%s error=%s", target_date, exc)
         return 0
 
 
@@ -212,6 +233,10 @@ async def compute_for_date(
         # Step 1: populate standard fundamental columns via SQL function
         if not skip_populate:
             await _populate_extended(conn, target_date)
+            # Also populate V3-specific 3Y CAGR metrics (revenue growth, margin trend,
+            # debt trend) from annual Screener P&L data. Must run after _populate_extended
+            # so balance sheet debt columns are current.
+            await _populate_v3(conn, target_date)
 
         # Find all symbols with stock_features_daily rows for target_date
         if only_symbols:

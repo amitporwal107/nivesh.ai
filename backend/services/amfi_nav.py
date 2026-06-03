@@ -14,6 +14,35 @@ _nav_cache = {}
 _cache_timestamp = 0
 CACHE_TTL = 3600  # 1 hour
 
+# ETF detection: AMFI NAVAll.txt includes ETFs (Gold ETF, Nifty ETF, Bank ETF, etc.)
+# because SEBI requires AMFI to publish their iNAV. However ETFs are equity instruments
+# that trade on NSE/BSE — their prices come from prices_eod (security_master), not
+# from AMFI NAV. Any holding matching an ETF scheme must use the equity price path.
+# Substring matching on scheme_name is sufficient — AMFI always includes "ETF" in the name.
+_ETF_NAME_MARKERS = ("ETF", "EXCHANGE TRADED FUND", " BEES", " BEES ")
+
+
+def _is_etf_scheme(scheme_name: str) -> bool:
+    """Return True if the AMFI scheme is a true ETF equity instrument.
+
+    A Fund of Funds (FoF) that *invests in* ETFs is still a mutual fund —
+    it has AMFI NAV, AMFI ISIN, and belongs in the MF benchmark pipeline.
+    e.g. "Mirae Asset NYSE FANG+ ETF Fund of Fund" → MF, NOT an ETF.
+    Only schemes that ARE the exchange-traded instrument itself are ETFs.
+
+    Names from MongoDB holdings often contain commas from CAS parsing
+    (e.g. "FANG+ ETF Fund, of Fund") — normalise before checking.
+    """
+    # Normalise: remove commas and collapse multiple spaces so
+    # "Fund, of Fund" and "Fund of Fund" both match the same pattern.
+    normalised = scheme_name.upper().replace(",", " ")
+    while "  " in normalised:
+        normalised = normalised.replace("  ", " ")
+    # FoF schemes — exclude regardless of other keywords
+    if "FUND OF FUND" in normalised or " FOF" in normalised:
+        return False
+    return any(marker in normalised for marker in _ETF_NAME_MARKERS)
+
 
 async def fetch_nav_data() -> dict:
     """Fetch and parse all NAV data from AMFI. Returns dict keyed by ISIN and scheme name."""
@@ -54,6 +83,9 @@ async def fetch_nav_data() -> dict:
                     "date": nav_date,
                     "isin_growth": isin_growth,
                     "isin_reinvest": isin_reinvest,
+                    # ETF flag — callers must route ETF ISINs to the equity price
+                    # pipeline (security_master → prices_eod), not to MF NAV logic.
+                    "is_etf": _is_etf_scheme(scheme_name),
                 }
 
                 # Key by ISIN (both growth and reinvest)

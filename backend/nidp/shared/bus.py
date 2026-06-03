@@ -262,15 +262,19 @@ def get_bus() -> EventBus:
         return _bus
     choice = (os.environ.get("NIDP_EVENT_BUS") or "local").lower()
     if choice == "kafka":
-        # Kafka path was deprecated 2026-05-09 after the Redpanda broker on
-        # the GCE VM proved unreliable and stalled every Cloud Run job at
-        # bus.flush() with broker-timeout errors. We force the local bus
-        # regardless of NIDP_EVENT_BUS to keep ingestion green.
-        # Re-enable by reverting this block once a managed broker
-        # (Pub/Sub or Confluent Cloud) is in place.
-        logger.warning(
-            "Event bus: NIDP_EVENT_BUS=kafka requested but Kafka path is "
-            "DISABLED. Falling back to local-log bus.")
+        try:
+            _bus = KafkaBus()
+            logger.info(
+                "Event bus: kafka (brokers=%s, schema_registry=%s)",
+                _bus.brokers, _bus.schema_registry_url,
+            )
+            return _bus
+        except Exception as e:                                      # noqa: BLE001
+            logger.warning(
+                "Event bus: KafkaBus init failed (%s) — falling back to "
+                "local-log bus. Set NIDP_EVENT_BUS=local to silence this.",
+                e,
+            )
     _bus = LocalLogBus()
     logger.info("Event bus: local-log (path=%s)", _bus.log_file)
     return _bus

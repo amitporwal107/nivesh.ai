@@ -25,11 +25,23 @@ from typing import Final
 
 # ── Paths ───────────────────────────────────────────────────────────
 NIDP_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
+
+# T08 fix: default raw-archive path.
+# On the production VM NIDP_HOME=/opt/nidp is set by the cron environment,
+# so raw archives land in the persistent /opt/nidp/raw_archives/ volume
+# (writable host mount) instead of the read-only Docker layer.
+# In dev (no NIDP_HOME), falls back to <repo>/data/nidp_raw.
+_nidp_home = os.environ.get("NIDP_HOME", "").strip()
 NIDP_RAW_DIR: Final[Path] = Path(
     os.environ.get("NIDP_RAW_DIR")
-    or (NIDP_ROOT.parent / "data" / "nidp_raw")
+    or (f"{_nidp_home}/raw_archives" if _nidp_home else str(NIDP_ROOT.parent / "data" / "nidp_raw"))
 )
-NIDP_RAW_DIR.mkdir(parents=True, exist_ok=True)
+# mkdir is best-effort: skip silently on read-only filesystems so that
+# import-time failures don't break services that never call store().
+try:
+    NIDP_RAW_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
 
 MIGRATIONS_DIR: Final[Path] = NIDP_ROOT / "migrations"
 
@@ -196,6 +208,13 @@ AMFI_CIRCULARS_URL: Final[str] = (
 MF_AMC_TOP10: Final[tuple[str, ...]] = (
     "sbi", "icici_pru", "hdfc", "nippon", "kotak",
     "absl", "uti", "axis", "tata", "mirae",
+)
+
+# Tier-2 AMCs with working portfolio adapters (added 2026-05-27).
+# Included in nightly mf_holdings run alongside MF_AMC_TOP10.
+MF_AMC_TIER2: Final[tuple[str, ...]] = (
+    "quant",
+    "jm_financial",
 )
 
 # ── Per-ingester source-class metadata (mirrors schema seed) ────────

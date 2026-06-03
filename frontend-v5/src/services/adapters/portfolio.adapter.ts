@@ -1,0 +1,167 @@
+/**
+ * Portfolio adapter — composes PortfolioSummary from real endpoints.
+ *
+ * Real endpoints (portfolio.yaml v2.0.0):
+ *   GET  /api/portfolios                          → Portfolio[]
+ *   GET  /api/portfolio/holdings                  → Holding[]
+ *   POST /api/portfolio/holdings                  → Holding
+ *   PUT  /api/portfolio/holdings/{id}             → Holding
+ *   DELETE /api/portfolio/holdings/{id}
+ *   GET  /api/portfolio/holdings-enriched         → enriched with V3 / badges
+ *   GET  /api/search/instruments?q
+ *   GET  /api/portfolio/trend?days                → {series:[{date, value_rs}]}
+ *   GET  /api/portfolio/sips                      → detected SIPs
+ *   GET  /api/portfolio/exposure/concentration    → AMC/sector/company breakdown
+ *
+ * Pairs with /api/insights/analysis for the health score.
+ */
+import { http } from "@/services/api/http";
+import { ApiError } from "@/services/api/errors";
+import {
+  HoldingsListRes,
+  TrendRes,
+  EnrichedHoldingsRes,
+  InstrumentSearchRes,
+  SipsListRes,
+} from "@/services/contracts/portfolio.contract";
+import { mapHoldings } from "@/services/mappers/portfolio.mapper";
+import { realInsightsAdapter } from "./insights.adapter";
+import type { Holding } from "@/types/fund";
+import type { PortfolioSummary, NavPoint } from "@/types/portfolio";
+
+export interface PortfolioAdapter {
+  listHoldings(portfolioId?: string, assetType?: string): Promise<Holding[]>;
+  listHoldingsEnriched(fresh?: boolean): Promise<import("@/services/contracts/portfolio.contract").EnrichedHoldingsRes>;
+  getSummary(): Promise<PortfolioSummary>;
+  getNavHistory(range: "1m" | "3m" | "6m" | "1y" | "all"): Promise<NavPoint[]>;
+  searchInstruments(q: string): Promise<import("@/services/contracts/portfolio.contract").InstrumentSearchRes>;
+  listSips(): Promise<import("@/services/contracts/portfolio.contract").SipsListRes>;
+}
+
+const DAYS_BY_RANGE: Record<string, number> = {
+  "1m": 31, "3m": 92, "6m": 183, "1y": 365, "all": 365 * 5,
+};
+
+export const realPortfolioAdapter: PortfolioAdapter = {
+  async listHoldings(portfolioId, assetType) {
+    const res = await http({
+      path: "/api/portfolio/holdings",
+      query: { portfolio_id: portfolioId, asset_type: assetType },
+    });
+    const parsed = HoldingsListRes.safeParse(res.data);
+    if (!parsed.success) throw ApiError.contractDrift(`portfolio.listHoldings: ${parsed.error.message}`);
+    return mapHoldings(parsed.data);
+  },
+
+  async listHoldingsEnriched(fresh = false) {
+    const res = await http({ path: "/api/portfolio/holdings-enriched", query: { fresh } });
+    const parsed = EnrichedHoldingsRes.safeParse(res.data);
+    if (!parsed.success) throw ApiError.contractDrift(`portfolio.enriched: ${parsed.error.message}`);
+    return parsed.data;
+  },
+
+  async getSummary() {
+    // Compose: enriched-holdings (totals) + insights/analysis (health score)
+    // + CAS statement summary (fallback when enrichment prices aren't fetched yet).
+    const [enriched, health, casState] = await Promise.all([
+      this.listHoldingsEnriched().catch(() => null),
+      realInsightsAdapter.analysis().catch(() => null),
+      fetch("/api/onboarding/state", { credentials: "include" })
+        .then((r) => r.ok ? r.json() as Promise<{ cas_portfolio_value_rs?: number | null; cas_statement_date?: string | null }> : null)
+        .catch(() => null),
+    ]);
+
+    // Use CAS summary value when holdings-enriched hasn't fetched live NAVs yet
+    const enrichedValue = (enriched?.totals?.value_rs ?? 0) * 100;
+    const casValue      = (casState?.cas_portfolio_value_rs ?? 0) * 100;
+    const totalValue    = enrichedValue > 0 ? enrichedValue : casValue;
+
+    const totalCost  = (enriched?.totals?.invested_rs ?? 0) * 100;
+    const pnl    = totalValue - totalCost;
+    const pnlPct = totalCost === 0 ? 0 : pnl / totalCost;
+
+    return {
+      asOf: casState?.cas_statement_date ?? new Date().toISOString(),
+      totalValue,
+      dayChange:  { abs: 0, pct: 0 },
+      weekChange: { abs: 0, pct: 0 },
+      yearChange: { abs: pnl, pct: pnlPct },
+      healthScore: health?.health.health_score ?? health?.health.score ?? 0,
+      riskBucket: "moderate" as const,
+      riskBucketIndex: 3,
+      allocation: [],
+      topInsights: [],
+    };
+  },
+
+  async getNavHistory(range) {
+    const days = DAYS_BY_RANGE[range] ?? 365;
+    const [trendRes, casState] = await Promise.all([
+      http({ path: "/api/portfolio/trend", query: { days } }).catch(() => ({ data: null })),
+      fetch("/api/onboarding/state", { credentials: "include" })
+        .then((r) => r.ok ? r.json() as Promise<{
+          cas_portfolio_value_rs?: number | null;
+          cas_statement_date?: string | null;
+          cas_monthly_values?: Array<{ month: string; value_rs: number }> | null;
+        }> : null)
+        .catch(() => null),
+    ]);
+    const parsed = TrendRes.safeParse(trendRes.data);
+    const trendSeries = parsed.success
+      ? parsed.data.series.map((p) => ({
+          date:  p.date ?? p.snapshot_date ?? "",
+          value: Math.round((p.value_rs ?? p.total_value ?? 0) * 100),
+        })).filter(p => p.date)
+      : [];
+
+    // Prefer CAS monthly values (from Vision API) when available — they are
+    // the authoritative time-series straight from the PDF Summary section.
+    const monthly = casState?.cas_monthly_values;
+    if (monthly && monthly.length > 0) {
+      // Convert "Apr 2025" → ISO date "2025-04-01" for the chart
+      const MONTHS: Record<string, string> = {
+        Jan:"01", Feb:"02", Mar:"03", Apr:"04", May:"05", Jun:"06",
+        Jul:"07", Aug:"08", Sep:"09", Oct:"10", Nov:"11", Dec:"12",
+      };
+      const casSeries = monthly.map(({ month, value_rs }) => {
+        const [m, y] = month.split(" ");
+        const mm = MONTHS[m] ?? "01";
+        return { date: `${y}-${mm}-01`, value: Math.round(value_rs * 100) };
+      });
+      return casSeries;
+    }
+
+    // Trend series from portfolio snapshots (good once daily cron runs)
+    if (trendSeries.length > 0) return trendSeries;
+
+    // Last resort: single data point from CAS statement date + value.
+    // Backend stores date as "DD-MMM-YYYY" (e.g. "30-Apr-2026"); convert to
+    // ISO "YYYY-MM-DD" so Recharts/Date can parse it correctly.
+    if (casState?.cas_statement_date && casState?.cas_portfolio_value_rs) {
+      const MONTHS: Record<string, string> = {
+        Jan:"01", Feb:"02", Mar:"03", Apr:"04", May:"05", Jun:"06",
+        Jul:"07", Aug:"08", Sep:"09", Oct:"10", Nov:"11", Dec:"12",
+      };
+      const raw = casState.cas_statement_date;
+      const m = raw.match(/^(\d{2})-([A-Za-z]{3})-(\d{4})$/);
+      const isoDate = m ? `${m[3]}-${MONTHS[m[2]] ?? "01"}-${m[1]}` : raw;
+      return [{ date: isoDate, value: Math.round(casState.cas_portfolio_value_rs * 100) }];
+    }
+    return [];
+  },
+
+  async searchInstruments(q) {
+    if (!q || q.length < 2) return [];
+    const res = await http({ path: "/api/search/instruments", query: { q } });
+    const parsed = InstrumentSearchRes.safeParse(res.data);
+    if (!parsed.success) throw ApiError.contractDrift(`portfolio.searchInstruments: ${parsed.error.message}`);
+    return parsed.data;
+  },
+
+  async listSips() {
+    const res = await http({ path: "/api/portfolio/sips" });
+    const parsed = SipsListRes.safeParse(res.data);
+    if (!parsed.success) throw ApiError.contractDrift(`portfolio.listSips: ${parsed.error.message}`);
+    return parsed.data;
+  },
+};

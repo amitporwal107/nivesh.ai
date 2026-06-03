@@ -1,4 +1,4 @@
-# Staging stack for the portfolio_ingestion service.
+# Staging stack: V2 backend (with CAS ingestion mounted in-process) + V2/V4 frontend.
 #
 # Runs on nivesh-app-vm alongside the production stack, fully isolated:
 #   - Separate docker network        (nivesh-staging)
@@ -46,11 +46,12 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${PI_MONGO_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${PI_MONGO_PASSWORD}
-      MONGO_INITDB_DATABASE:      ${PI_MONGO_DB}
+      MONGO_INITDB_DATABASE:      ${MONGO_DB:-nivesh_staging}
     ports:
       - "127.0.0.1:27117:27017"
     volumes:
       - /opt/nivesh-staging/data/mongo:/data/db
+      - ../nivesh-app/mongo-init.js:/docker-entrypoint-initdb.d/init.js:ro
     networks: [nivesh-staging]
     logging: *default-logging
     healthcheck:
@@ -76,47 +77,152 @@ services:
       timeout: 3s
       retries: 6
 
-  # ── Portfolio ingestion service ──────────────────────────────────────────
+  # ── Main app backend (mirror of prod nivesh-backend) ─────────────────────
+  # Same code as prod, plus the CAS ingestion module (used to be a separate
+  # 'ingestion' container — now mounted in-process; same DB, same endpoints).
+  # Points at the staging Postgres/Mongo/Redis containers.
 
-  ingestion:
+  app-backend:
     build:
       context: ../../
-      dockerfile: deploy/nivesh-staging/Dockerfile.ingestion
-    image: nivesh/portfolio-ingestion:staging
-    container_name: nivesh-staging-ingestion
+      dockerfile: deploy/nivesh-app/Dockerfile.backend.prod
+    image: nivesh/backend:staging
+    container_name: nivesh-staging-app-backend
     restart: unless-stopped
     env_file: /opt/nivesh-staging/.env.staging
     environment:
-      PI_POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
-      PI_MONGO_URL:    mongodb://${PI_MONGO_USER}:${PI_MONGO_PASSWORD}@mongo:27017/${PI_MONGO_DB}?authSource=admin
-      PI_REDIS_URL:    redis://:${PI_REDIS_PASSWORD}@redis:6379/0
-      APP_ENV:         staging
-      LOG_LEVEL:       INFO
-      # Outbound to PROD shared services (per user direction):
-      NIDP_DAAS_BASE_URL: https://data.niveshcopilot.com
-      # T2.3 PAN encryption key — set per-env; staging falls back to a
-      # placeholder if unset (see migration 002_pgcrypto_pan.sql).
-      PI_PAN_ENCRYPTION_KEY: ${PI_PAN_ENCRYPTION_KEY:-pi-staging-pan-key-rotate-me}
-      # T3.1 GCS upload — stub mode in staging until bucket + ADC are wired.
-      PI_GCS_STUB:       ${PI_GCS_STUB:-true}
-      PI_GCS_BUCKET:     ${PI_GCS_BUCKET:-}
-      # T3.3 inbound-email webhook — feature-flagged off by default.
-      PI_WEBHOOK_ENABLED: ${PI_WEBHOOK_ENABLED:-false}
-      PI_WEBHOOK_SECRET:  ${PI_WEBHOOK_SECRET:-}
-      # T4.3 operator endpoints — required for /api/admin/jobs/*.
-      PI_ADMIN_TOKEN:    ${PI_ADMIN_TOKEN:-}
+      APP_ENV: staging
+      # Main app connects as the 'nivesh' user (created by mongo-init.js,
+      # the same one prod uses — directive: apply original scripts unchanged).
+      # Database is nivesh_staging (parallel to prod's nivesh_prod).
+      MONGO_URL:    mongodb://nivesh:Niv3shApp2026!@mongo:27017/nivesh_staging?authSource=nivesh_staging
+      POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
+      REDIS_URL:    redis://:${PI_REDIS_PASSWORD}@redis:6379/0
+      DB_NAME:      nivesh_staging
+      CORS_ORIGINS: "https://staging.niveshcopilot.com,https://staging.niveshcopilot.com:8443"
+      COOKIE_SECURE: "true"
+      COOKIE_SAMESITE: "lax"
+      NIDP_DAAS_BASE_URL: https://staging-data.niveshcopilot.com/daas
+      NIDP_DAAS_INTERNAL_TOKEN: ${NIDP_DAAS_INTERNAL_TOKEN:-}
+      NIDP_QUERY_API_URL: ${NIDP_QUERY_API_URL:-https://staging-data.niveshcopilot.com/query}
+      NIDP_QUERY_API_TOKEN: ${NIDP_QUERY_API_TOKEN:-}
+      NIDP_GRAFANA_URL: ${NIDP_GRAFANA_URL:-https://staging-data.niveshcopilot.com/grafana}
+      GMAIL_REDIRECT_URI: https://staging.niveshcopilot.com/api/oauth/gmail/callback
+      # ── CAS ingestion module (lives inside this same backend now) ──
+      # Same DB connection; separate `portfolio_ingestion` schema.
+      PI_POSTGRES_URL:        postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
+      PI_MONGO_URL:           mongodb://${PI_MONGO_USER}:${PI_MONGO_PASSWORD}@mongo:27017/${PI_MONGO_DB}?authSource=admin
+      PI_REDIS_URL:           redis://:${PI_REDIS_PASSWORD}@redis:6379/0
+      PI_PAN_ENCRYPTION_KEY:  ${PI_PAN_ENCRYPTION_KEY:-pi-staging-pan-key-rotate-me}
+      PI_CASPARSER_API_KEY:   ${CASPARSER_API_KEY:-}
+      PI_GCS_STUB:            ${PI_GCS_STUB:-true}
+      PI_GCS_BUCKET:          ${PI_GCS_BUCKET:-}
+      PI_WEBHOOK_ENABLED:     ${PI_WEBHOOK_ENABLED:-false}
+      PI_WEBHOOK_SECRET:      ${PI_WEBHOOK_SECRET:-}
+      PI_ADMIN_TOKEN:         ${PI_ADMIN_TOKEN:-}
+    # Source mounted at runtime — image only carries OS + Python deps, code
+    # is the freshly-pulled repo. Mirrors the prod backend mount pattern.
+    volumes:
+      - /opt/nivesh-staging/repo/backend:/app/backend
+      - /opt/nivesh-staging/data/app:/app/data
+    # host-gateway resolves to the Docker host IP so the backend can reach
+    # the NIDP Query API on 10.160.0.3:8090 via the nidp-bridge network.
+    extra_hosts:
+      - "host-gateway:host-gateway"
+    # The frontend image's baked nginx.conf hardcodes `upstream backend`
+    # (prod service key). Add a network alias so it resolves the same name.
+    networks:
+      nivesh-staging:
+        aliases: [backend]
+      nidp-bridge: {}
+    logging: *default-logging
     depends_on:
       postgres: { condition: service_healthy }
       mongo:    { condition: service_healthy }
       redis:    { condition: service_healthy }
-    networks: [nivesh-staging]
-    logging: *default-logging
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8002/api/healthz', timeout=3).status==200 else 1)"]
-      interval: 15s
-      timeout: 5s
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/docs"]
+      interval: 30s
+      timeout: 10s
       retries: 5
       start_period: 30s
+
+  # ── frontend-v5 (Vite + React 18, served at /v5/) ────────────────────────
+
+  app-frontend-v5:
+    build:
+      context: ../../
+      dockerfile: deploy/nivesh-app/Dockerfile.frontend-v5.prod
+      args:
+        VITE_BASE: /v5/
+        VITE_API_URL: https://staging.niveshcopilot.com
+        VITE_USE_MOCK_API: "false"
+    image: nivesh/frontend-v5:staging
+    container_name: nivesh-staging-app-frontend-v5
+    restart: unless-stopped
+    networks: [nivesh-staging]
+    logging: *default-logging
+    depends_on:
+      app-backend: { condition: service_healthy }
+
+  # ── Main app frontend (React build baked with staging backend URL) ───────
+
+  app-frontend:
+    build:
+      context: ../../
+      dockerfile: deploy/nivesh-app/Dockerfile.frontend.prod
+      args:
+        REACT_APP_BACKEND_URL: https://staging.niveshcopilot.com
+        PUBLIC_URL: /v2
+    image: nivesh/frontend:staging
+    container_name: nivesh-staging-app-frontend
+    restart: unless-stopped
+    # No port binding — edge nginx (port 8443) proxies to this container.
+    # Override the prod nginx.conf baked into the image with a staging
+    # HTTP-only static-server config (no TLS, no /api/ proxy — edge nginx
+    # handles all that). The prod config does an HTTP→HTTPS 308 redirect
+    # which would loop through the edge.
+    volumes:
+      - ./app-frontend-nginx.conf:/etc/nginx/conf.d/app.conf:ro
+    networks: [nivesh-staging]
+    logging: *default-logging
+    depends_on:
+      app-backend: { condition: service_healthy }
+
+  # ── One-shot Postgres migrations for the main app schema ─────────────────
+
+  app-migrate:
+    # Use postgres:16-alpine (has psql) — the backend image is dependency-only
+    # for the Python app and doesn't include the psql client.
+    image: postgres:16-alpine
+    container_name: nivesh-staging-app-migrate
+    restart: "no"
+    environment:
+      POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
+    volumes:
+      - /opt/nivesh-staging/repo/backend/migrations:/migrations:ro
+      - /opt/nivesh-staging/repo/backend/nidp/migrations:/nidp-migrations:ro
+    command: >
+      sh -c "
+        set -e;
+        echo 'Running main-app PostgreSQL migrations against staging...';
+        for f in /migrations/*.sql; do
+          echo \"Applying $$f\";
+          psql \"$$POSTGRES_URL\" -v ON_ERROR_STOP=0 -f \"$$f\" 2>&1 | grep -v 'already exists' || true;
+        done;
+        echo 'Running nidp/* migrations that target the main app public schema...';
+        for f in /nidp-migrations/*.sql; do
+          if head -20 \"$$f\" | grep -q 'SET search_path TO public;'; then
+            echo \"Applying nidp-public migration $$f\";
+            psql \"$$POSTGRES_URL\" -v ON_ERROR_STOP=0 -f \"$$f\" 2>&1 | grep -v 'already exists' || true;
+          fi;
+        done;
+        echo 'Migrations done.'
+      "
+    networks: [nivesh-staging]
+    depends_on:
+      postgres: { condition: service_healthy }
+    profiles: ["migrate"]
 
   # ── Edge nginx for the staging vhost ─────────────────────────────────────
 
@@ -128,12 +234,13 @@ services:
     # once `gcloud compute firewall-rules create allow-staging-https` is in.
     ports:
       - "${PI_NGINX_BIND_ADDR:-127.0.0.1}:${PI_NGINX_PORT:-8443}:8443"
+      - "127.0.0.1:8444:8444"   # HTTP-only, for prod-nginx → staging proxy
     volumes:
       - ./nginx-staging.conf:/etc/nginx/conf.d/staging.conf:ro
-      - ./static:/usr/share/nginx/html/test:ro       # internal test pages (upload.html)
       - /opt/nivesh/ssl:/etc/nginx/ssl:ro            # reuse prod's Cloudflare origin cert
     depends_on:
-      ingestion: { condition: service_healthy }
+      app-backend:  { condition: service_healthy }
+      app-frontend: { condition: service_started }
     networks: [nivesh-staging]
     logging: *default-logging
 
@@ -141,3 +248,5 @@ networks:
   nivesh-staging:
     name: nivesh-staging
     driver: bridge
+  nidp-bridge:
+    external: true   # created by the prod stack; staging backend joins it to reach NIDP Query API

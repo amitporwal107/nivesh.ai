@@ -1,0 +1,489 @@
+openapi: 3.1.0
+info:
+  title: Nivesh — Mutual Fund Scoring API
+  version: 2.0.0
+  description: |
+    ## What this covers
+    V3 scoring, ratings, NAV data, and performance analytics for mutual fund holdings.
+
+    | Endpoint | Purpose |
+    |----------|---------|
+    | `GET /api/insights/v3-portfolio` | V3 scores for all MF holdings (portfolio-level) |
+    | `GET /api/intelligence/v3-score/{instrument_id}` | Full V3 breakdown for one fund |
+    | `GET /api/portfolio/fund-performance` | MF benchmark ratings with performance distribution |
+    | `POST /api/nav/refresh` | Refresh AMFI NAV cache |
+    | `GET /api/mf-data/search` | Search mutual funds by name or ISIN |
+    | `GET /api/mf-data/{isin}` | Fund details — NAV, AUM, category, AMC |
+
+    ## V3 Mutual Fund Scoring
+    Funds are scored across 38 primitives in 6 composite dimensions:
+
+    | Composite | Key Primitives |
+    |-----------|----------------|
+    | **Returns** | XIRR 1Y/3Y/5Y, alpha vs category benchmark, rolling returns percentile |
+    | **Risk** | Beta, Sharpe ratio, Sortino ratio, max drawdown, downside capture |
+    | **Cost** | Expense ratio vs category median, TER trend |
+    | **Consistency** | Category rank stability, information ratio, hit rate |
+    | **Portfolio Fit** | Overlap with existing portfolio, sector balance, fund size suitability |
+    | **ESG Proxy** | Portfolio ESG score, controversy holdings flag |
+
+    ## NAV Data
+    NAV data is sourced from AMFI (Association of Mutual Funds in India) and
+    refreshed daily at 11 PM IST after AMFI publishes NAV files.
+    The cache can be manually refreshed via `POST /api/nav/refresh`.
+
+    ## Performance Ratings
+    The `fund-performance` endpoint uses a 2-hour cache. Use `force=true`
+    to bypass and get fresh ratings.
+
+servers:
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
+
+security:
+  - SessionCookie: []
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie set by `POST /api/auth/google`.
+
+  parameters:
+    portfolio_id_query:
+      name: portfolio_id
+      in: query
+      schema:
+        type: string
+      description: Filter by portfolio ID. Omit to use the default portfolio.
+
+  schemas:
+    FundV3Score:
+      type: object
+      description: V3 score for a single mutual fund.
+      properties:
+        instrument_id:
+          type: string
+          example: INF769K01EW6
+        isin:
+          type: string
+          example: INF769K01EW6
+        name:
+          type: string
+          example: Parag Parikh Flexi Cap Fund
+        category:
+          type: string
+          example: Flexi Cap
+        amc:
+          type: string
+          example: PPFAS Mutual Fund
+        v3_score:
+          type: number
+          minimum: 0
+          maximum: 100
+          example: 88.5
+        grade:
+          type: string
+          enum: [A, B, C, D, F]
+          example: A
+        coverage_pct:
+          type: number
+          example: 97.2
+        below_gate:
+          type: boolean
+          example: false
+
+    FundDetails:
+      type: object
+      description: Static and live mutual fund details.
+      properties:
+        isin:
+          type: string
+          example: INF769K01EW6
+        name:
+          type: string
+          example: Parag Parikh Flexi Cap Fund - Direct Plan
+        category:
+          type: string
+          example: Flexi Cap
+        sub_category:
+          type: string
+          example: Equity - Flexi Cap
+        amc:
+          type: string
+          example: PPFAS Mutual Fund
+        nav:
+          type: number
+          example: 72.45
+        nav_date:
+          type: string
+          format: date
+          example: "2024-05-24"
+        aum_cr:
+          type: number
+          example: 72800
+        expense_ratio_pct:
+          type: number
+          example: 0.59
+        min_sip_rs:
+          type: number
+          example: 1000
+        fund_manager:
+          type: string
+          example: Rajeev Thakkar
+
+paths:
+
+  /api/insights/v3-portfolio:
+    get:
+      tags: [insights]
+      operationId: mf_v3_portfolio
+      summary: V3 scores for all mutual fund holdings
+      description: |
+        Returns V3 scores for every mutual fund in the portfolio, plus the
+        portfolio-weighted average V3 score.
+
+        This is the primary endpoint for the "Fund Quality" dashboard widget.
+        It shows which funds are high quality (score > 70), which need review
+        (50-70), and which should be exited (< 50).
+
+        Set `refresh_stocks=true` to force-refresh equity primitive data from
+        NIDP before computing scores (~3-5s additional).
+      parameters:
+        - name: refresh_stocks
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Force-refresh NIDP equity data before scoring.
+      responses:
+        "200":
+          description: Portfolio-level MF V3 scores
+          content:
+            application/json:
+              example:
+                portfolio_v3_score: 74.2
+                coverage_pct: 88.3
+                funds_below_gate: 1
+                gate_threshold: 50
+                fund_scores:
+                  - instrument_id: INF769K01EW6
+                    name: Parag Parikh Flexi Cap Fund
+                    category: Flexi Cap
+                    v3_score: 88.5
+                    grade: A
+                    coverage_pct: 97.2
+                    weight_pct: 30.0
+                    nav: 72.45
+                    xirr_3y_pct: 19.8
+                    expense_ratio_pct: 0.59
+                  - instrument_id: INF200K01RJ3
+                    name: Mirae Asset Large Cap Fund
+                    category: Large Cap
+                    v3_score: 79.3
+                    grade: B
+                    coverage_pct: 93.1
+                    weight_pct: 25.0
+                    nav: 104.23
+                    xirr_3y_pct: 15.4
+                    expense_ratio_pct: 0.52
+                  - instrument_id: INF090I01239
+                    name: Sundaram Small Cap Fund
+                    category: Small Cap
+                    v3_score: 44.8
+                    grade: F
+                    coverage_pct: 78.3
+                    weight_pct: 10.0
+                    nav: 218.60
+                    xirr_3y_pct: 8.2
+                    expense_ratio_pct: 1.82
+                    below_gate: true
+                    exit_signal: true
+                    exit_reason: Consistent underperformance — 3-year alpha is -3.4%
+                generated_at: "2024-05-27T10:00:00Z"
+
+  /api/intelligence/v3-score/{instrument_id}:
+    get:
+      tags: [intelligence]
+      operationId: mf_v3_score_detail
+      summary: Full V3 breakdown for one mutual fund
+      description: |
+        Returns all 38 primitive scores for a single mutual fund, grouped into
+        6 composite dimensions.
+
+        Use this when the user clicks on a fund to see the detailed scoring rationale:
+        "Why did Sundaram Small Cap score only 44?"
+
+        **Key fields to surface in UI**:
+        - `composites.returns.primitives.xirr_3y` — 3-year XIRR vs category rank
+        - `composites.cost.primitives.expense_ratio_pct` — is the fund expensive?
+        - `composites.risk.primitives.max_drawdown_pct` — worst historical loss
+        - `composites.consistency.primitives.category_rank_stability_3y` — does it stay top-quartile?
+      parameters:
+        - name: instrument_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: ISIN (e.g. `INF769K01EW6`)
+          example: INF769K01EW6
+        - name: refresh
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Force-refresh live data from NIDP before scoring.
+      responses:
+        "200":
+          description: Full V3 score with all 38 primitives
+          content:
+            application/json:
+              example:
+                instrument_id: INF769K01EW6
+                name: Parag Parikh Flexi Cap Fund - Direct Plan
+                isin: INF769K01EW6
+                category: Flexi Cap
+                amc: PPFAS Mutual Fund
+                nav: 72.45
+                aum_cr: 72800
+                v3_score: 88.5
+                grade: A
+                coverage_pct: 97.2
+                composites:
+                  returns:
+                    score: 91.0
+                    primitives:
+                      xirr_1y_pct: 24.3
+                      xirr_3y_pct: 19.8
+                      xirr_5y_pct: 22.1
+                      alpha_3y_pct: 5.2
+                      category_rank_1y: 3
+                      category_rank_3y: 2
+                      rolling_returns_hit_rate_pct: 87.0
+                  risk:
+                    score: 82.0
+                    primitives:
+                      beta_3y: 0.78
+                      sharpe_3y: 1.42
+                      sortino_3y: 1.89
+                      max_drawdown_pct: -18.4
+                      var_95_pct: -2.1
+                      downside_capture_ratio: 72.0
+                      upside_capture_ratio: 95.0
+                  cost:
+                    score: 95.0
+                    primitives:
+                      expense_ratio_pct: 0.59
+                      category_avg_expense_ratio_pct: 1.12
+                      er_percentile_in_category: 95
+                      ter_trend: stable
+                  consistency:
+                    score: 88.0
+                    primitives:
+                      category_rank_stability_3y: 89.0
+                      information_ratio_3y: 0.72
+                      batting_average_3y_pct: 68.0
+                  portfolio_fit:
+                    score: 84.0
+                    primitives:
+                      overlap_with_portfolio_pct: 18.2
+                      sector_balance_score: 76.0
+                      aum_suitability: high
+                  esg_proxy:
+                    score: 78.0
+                    primitives:
+                      portfolio_esg_score: 72.0
+                      controversy_holdings_flag: false
+                      top10_esg_avg: 68.4
+                generated_at: "2024-05-27T10:00:00Z"
+
+  /api/portfolio/fund-performance:
+    get:
+      tags: [analytics]
+      operationId: portfolio_fund_performance
+      summary: MF benchmark ratings with performance distribution
+      description: |
+        Returns benchmark-relative performance ratings for all mutual fund holdings.
+
+        Each fund is rated on a 5-star scale relative to its category benchmark.
+        The response also includes:
+        - Performance distribution chart data (1Y/3Y/5Y CAGR)
+        - Category rank (1 = best in category)
+        - Underperformer flag (3Y alpha < -1%)
+        - Recommendation: hold / review / exit
+
+        **Cache**: 2-hour cache. Use `force=true` to bypass.
+      parameters:
+        - $ref: '#/components/parameters/portfolio_id_query'
+        - name: force
+          in: query
+          schema:
+            type: string
+          description: Set to `"true"` to bypass 2-hour cache.
+      responses:
+        "200":
+          description: Fund performance ratings
+          content:
+            application/json:
+              example:
+                portfolio_id: pf_7d4e1a
+                generated_at: "2024-05-27T10:00:00Z"
+                cached: true
+                cache_expires_at: "2024-05-27T12:00:00Z"
+                fund_ratings:
+                  - isin: INF769K01EW6
+                    name: Parag Parikh Flexi Cap Fund
+                    category: Flexi Cap
+                    stars: 5
+                    category_rank: 2
+                    category_total_funds: 28
+                    xirr_1y_pct: 24.3
+                    xirr_3y_pct: 19.8
+                    benchmark_xirr_3y_pct: 14.6
+                    alpha_3y_pct: 5.2
+                    expense_ratio_pct: 0.59
+                    underperformer: false
+                    recommendation: hold
+                  - isin: INF090I01239
+                    name: Sundaram Small Cap Fund
+                    category: Small Cap
+                    stars: 2
+                    category_rank: 41
+                    category_total_funds: 52
+                    xirr_1y_pct: 8.2
+                    xirr_3y_pct: 11.4
+                    benchmark_xirr_3y_pct: 14.8
+                    alpha_3y_pct: -3.4
+                    expense_ratio_pct: 1.82
+                    underperformer: true
+                    recommendation: exit
+                    exit_rationale: Persistent underperformance over 3 years; high expense ratio
+
+  /api/nav/refresh:
+    post:
+      tags: [analytics]
+      operationId: nav_refresh
+      summary: Refresh AMFI NAV cache
+      description: |
+        Manually triggers a re-fetch of the AMFI NAV file for all mutual funds.
+
+        NAVs are automatically refreshed daily at 11 PM IST. Use this if you
+        need intraday-fresh NAVs or if the automatic refresh appears to have failed.
+
+        Returns the count of NAVs updated.
+      responses:
+        "200":
+          description: NAV refresh result
+          content:
+            application/json:
+              example:
+                updated_count: 18734
+                new_funds: 12
+                errors: 0
+                refreshed_at: "2024-05-27T14:30:00Z"
+                source: "AMFI https://www.amfiindia.com/spages/NAVAll.txt"
+
+  /api/mf-data/search:
+    get:
+      tags: [mf_data]
+      operationId: mf_data_search
+      summary: Search mutual funds by name or ISIN
+      description: |
+        Full-text search across all ~18,000 mutual fund schemes in the AMFI database.
+        Supports partial name matching, ISIN, and AMC name.
+
+        Used in the "Add holding" flow when the user types a fund name.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query — fund name, ISIN, or AMC name
+          example: Parag Parikh Flexi
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 50
+        - name: category
+          in: query
+          schema:
+            type: string
+          description: Filter by SEBI category (e.g. `Flexi Cap`, `Large Cap`, `ELSS`)
+          example: Flexi Cap
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              example:
+                query: Parag Parikh Flexi
+                total: 2
+                funds:
+                  - isin: INF769K01EW6
+                    name: Parag Parikh Flexi Cap Fund - Direct Plan - Growth
+                    category: Flexi Cap
+                    amc: PPFAS Mutual Fund
+                    nav: 72.45
+                    nav_date: "2024-05-24"
+                    aum_cr: 72800
+                    expense_ratio_pct: 0.59
+                  - isin: INF769K01EX4
+                    name: Parag Parikh Flexi Cap Fund - Regular Plan - Growth
+                    category: Flexi Cap
+                    amc: PPFAS Mutual Fund
+                    nav: 67.82
+                    nav_date: "2024-05-24"
+                    aum_cr: 72800
+                    expense_ratio_pct: 1.21
+
+  /api/mf-data/{isin}:
+    get:
+      tags: [mf_data]
+      operationId: mf_data_get
+      summary: Get mutual fund details by ISIN
+      description: |
+        Returns full details for a specific mutual fund: NAV, AUM, expense ratio,
+        category, fund manager, benchmark, risk raters, and SIP parameters.
+      parameters:
+        - name: isin
+          in: path
+          required: true
+          schema:
+            type: string
+          example: INF769K01EW6
+      responses:
+        "200":
+          description: Mutual fund details
+          content:
+            application/json:
+              example:
+                isin: INF769K01EW6
+                name: Parag Parikh Flexi Cap Fund - Direct Plan - Growth
+                category: Flexi Cap
+                sub_category: Equity - Flexi Cap
+                amc: PPFAS Mutual Fund
+                amc_code: PPFAS
+                nav: 72.45
+                nav_date: "2024-05-24"
+                aum_cr: 72800
+                expense_ratio_pct: 0.59
+                exit_load_pct: 2.0
+                exit_load_period_days: 365
+                lock_in_years: 0
+                min_sip_rs: 1000
+                min_lumpsum_rs: 5000
+                fund_manager: Rajeev Thakkar
+                benchmark: S&P BSE 500 TRI
+                sebi_risk_label: Very High
+                crisil_rating: 5
+                value_research_rating: 5
+                morning_star_rating: 5
+                inception_date: "2013-05-28"
+                folio_count: 2100000

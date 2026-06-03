@@ -93,36 +93,53 @@ class JobRun:
                 _json_dumps(self.metadata),
             )
             # Roll the per-feed dashboard fields on source_registry.
-            # Matches by ingester (one ingester may map to >1 source rows;
-            # we update them all so the registry stays consistent).
+            # Upserts so any ingester auto-registers even if not pre-seeded.
             await conn.execute(
                 """
-                UPDATE nidp.source_registry
+                INSERT INTO nidp.source_registry
+                    (source_name, ingester, source_url_pattern, source_class,
+                     confidence, is_primary, expected_freq,
+                     last_run_at, last_run_id, last_run_status, last_run_duration_ms,
+                     success_count, partial_count, failure_count,
+                     last_success_at, last_failure_at, consecutive_failures,
+                     created_at, updated_at)
+                VALUES
+                    ($1, $1, '', 'derived', 1.0, true, 'daily',
+                     NOW(), $2, $3, $4,
+                     CASE WHEN $3 = 'OK'      THEN 1 ELSE 0 END,
+                     CASE WHEN $3 = 'PARTIAL' THEN 1 ELSE 0 END,
+                     CASE WHEN $3 = 'FAILED'  THEN 1 ELSE 0 END,
+                     CASE WHEN $3 IN ('OK','PARTIAL') THEN NOW() ELSE NULL END,
+                     CASE WHEN $3 = 'FAILED'          THEN NOW() ELSE NULL END,
+                     CASE WHEN $3 = 'FAILED'          THEN 1    ELSE 0    END,
+                     NOW(), NOW())
+                ON CONFLICT (source_name) DO UPDATE
                    SET last_run_at          = NOW(),
                        last_run_id          = $2,
                        last_run_status      = $3,
                        last_run_duration_ms = $4,
-                       success_count        = success_count
+                       success_count        = nidp.source_registry.success_count
                                               + CASE WHEN $3 = 'OK' THEN 1 ELSE 0 END,
-                       partial_count        = partial_count
+                       partial_count        = nidp.source_registry.partial_count
                                               + CASE WHEN $3 = 'PARTIAL' THEN 1 ELSE 0 END,
-                       failure_count        = failure_count
+                       failure_count        = nidp.source_registry.failure_count
                                               + CASE WHEN $3 = 'FAILED' THEN 1 ELSE 0 END,
                        last_success_at      = CASE WHEN $3 IN ('OK','PARTIAL')
-                                                   THEN NOW() ELSE last_success_at END,
+                                                   THEN NOW()
+                                                   ELSE nidp.source_registry.last_success_at END,
                        last_failure_at      = CASE WHEN $3 = 'FAILED'
-                                                   THEN NOW() ELSE last_failure_at END,
+                                                   THEN NOW()
+                                                   ELSE nidp.source_registry.last_failure_at END,
                        consecutive_failures = CASE WHEN $3 = 'FAILED'
-                                                   THEN consecutive_failures + 1
+                                                   THEN nidp.source_registry.consecutive_failures + 1
                                                    ELSE 0 END,
-                       next_run_at          = CASE expected_freq
+                       next_run_at          = CASE nidp.source_registry.expected_freq
                            WHEN 'daily'     THEN NOW() + INTERVAL '1 day'
                            WHEN 'monthly'   THEN NOW() + INTERVAL '1 month'
                            WHEN 'quarterly' THEN NOW() + INTERVAL '3 months'
-                           ELSE next_run_at
+                           ELSE nidp.source_registry.next_run_at
                        END,
                        updated_at           = NOW()
-                 WHERE ingester = $1
                 """,
                 self.ingester, self.run_id, status, duration_ms,
             )

@@ -1,0 +1,5271 @@
+{
+  "info": {
+    "_postman_id": "e53e1773-4ee3-4aa8-a2c2-1ae03947bd2c",
+    "name": "NIDP \u2014 DaaS + Query API",
+    "description": "## How to use this collection\n\n1. **Get an API key** \u2014 provisioned by Nivesh ops via\n   `POST /admin/keys` (which itself needs `NIDP_DAAS_INTERNAL_TOKEN`).\n   The key looks like `nvd_...`.\n2. **Set the `NIDP_API_KEY` collection variable** \u2014 Collection \u2192 Variables \u2192\n   paste the `nvd_...` token into *Current Value*.\n3. **(Optional) `NIDP_INTERNAL_TOKEN`** \u2014 only needed for the 3\n   `/admin/keys` endpoints; paste the `NIDP_DAAS_INTERNAL_TOKEN` value.\n4. **(Optional) switch service** \u2014 change `BASE_URL` to:\n   - DaaS  : `https://data.niveshcopilot.com/daas`  (default)\n   - Query : `https://data.niveshcopilot.com/query`\n\n`/v1/*` requests inherit `X-API-Key: {{NIDP_API_KEY}}`. `/admin/keys/*`\nrequests override with `Authorization: Bearer {{NIDP_INTERNAL_TOKEN}}`.\nPublic probes (`/health`, `/openapi.json`) inherit but are ignored\nserver-side.\n\n\n---\n\nConsolidated OpenAPI specification for all NIDP services.\n\n## Services\n\n| Service | Base URL | Audience |\n|---------|----------|----------|\n| **DaaS API** | `https://data.niveshcopilot.com/daas` | Partner/client \u2014 API key required |\n| **Query API** | `https://data.niveshcopilot.com/query` | Internal \u2014 Bearer token |\n\n## DaaS Authentication\n\nEvery `/v1/*` endpoint requires an API key issued by Nivesh ops:\n\n```\nX-API-Key: nvd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n# or\nAuthorization: Bearer nvd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n```\n\n`/admin/*` endpoints require the internal `NIDP_DAAS_INTERNAL_TOKEN` Bearer token.\n\n## Query API Authentication\n\nAll Query endpoints require:\n\n```\nAuthorization: Bearer <NIDP_QUERY_API_TOKEN>\n```\n\n## Rate Limits (DaaS)\n\nEach key has a per-minute RPM cap and a daily quota. Every response includes:\n- `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset`\n- `X-Daily-Limit` / `X-Daily-Remaining`\n\nA 429 response includes a `Retry-After` header.\n\n## Pagination (DaaS)\n\nList endpoints accept `limit` (1\u20135000, default 100) and `offset`.\nResponse envelopes include `pagination.next_offset` when more rows are available.\n\n## Conventions\n\n- Dates: `YYYY-MM-DD`; timestamps: ISO 8601 UTC\n- Symbols: canonical NSE tickers, upper-cased server-side\n- Numeric values decoded from `NUMERIC` to JSON numbers\n",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "X-API-Key",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{NIDP_API_KEY}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "BASE_URL",
+      "value": "https://data.niveshcopilot.com/daas",
+      "description": "DaaS by default; swap to /query for the Query API"
+    },
+    {
+      "key": "NIDP_API_KEY",
+      "value": "nvd_REPLACE_ME",
+      "description": "Partner / client API key issued by Nivesh ops"
+    },
+    {
+      "key": "NIDP_INTERNAL_TOKEN",
+      "value": "REPLACE_ME",
+      "description": "Only for /admin/keys/* \u2014 value of NIDP_DAAS_INTERNAL_TOKEN"
+    }
+  ],
+  "item": [
+    {
+      "name": "admin",
+      "item": [
+        {
+          "name": "DELETE /admin/keys/{key_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/admin/keys/{key_id}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "admin",
+                "keys",
+                "{key_id}"
+              ],
+              "variable": [
+                {
+                  "key": "key_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Revoke Key\n\nRevoke a key by key_id. Idempotent.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{NIDP_INTERNAL_TOKEN}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /admin/keys",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/admin/keys",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "admin",
+                "keys"
+              ]
+            },
+            "description": "List Keys\n\nList all API keys (active and revoked). Does not return cleartext tokens.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{NIDP_INTERNAL_TOKEN}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /admin/keys",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/admin/keys",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "admin",
+                "keys"
+              ]
+            },
+            "description": "Create Key\n\nIssue a new DaaS API key. The cleartext token is returned once\nin this response and never stored \u2014 save it immediately.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{NIDP_INTERNAL_TOKEN}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"owner_email\": \"\",\n  \"plan\": \"\",\n  \"rate_limit_rpm\": null,\n  \"daily_quota\": null,\n  \"expires_in_days\": null,\n  \"notes\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "announcements",
+      "item": [
+        {
+          "name": "GET /v1/announcements",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/announcements",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "announcements"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "impact",
+                  "value": "",
+                  "description": "high | medium | low",
+                  "disabled": true
+                },
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "orders | mna | earnings | capex | \u2026",
+                  "disabled": true
+                },
+                {
+                  "key": "sentiment",
+                  "value": "",
+                  "description": "positive | neutral | negative",
+                  "disabled": true
+                },
+                {
+                  "key": "source",
+                  "value": "",
+                  "description": "NSE_ANN | BSE_ANN | RBI | SEBI | PIB",
+                  "disabled": true
+                },
+                {
+                  "key": "filed_from",
+                  "value": "",
+                  "description": "ISO timestamp or YYYY-MM-DD",
+                  "disabled": true
+                },
+                {
+                  "key": "filed_to",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Recent corporate filings (filterable)"
+          }
+        },
+        {
+          "name": "GET /v1/announcements/{announcement_id}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/announcements/{announcement_id}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "announcements",
+                "{announcement_id}"
+              ],
+              "variable": [
+                {
+                  "key": "announcement_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Full announcement record (incl. body text)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "backfill",
+      "item": [
+        {
+          "name": "GET /v1/backfill/runs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/backfill/runs",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "backfill",
+                "runs"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List recent backfill invocations"
+          }
+        },
+        {
+          "name": "GET /v1/backfill/status/{backfill_id}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/backfill/status/{backfill_id}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "backfill",
+                "status",
+                "{backfill_id}"
+              ],
+              "query": [
+                {
+                  "key": "ingester",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "job_status",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "backfill_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Detailed backfill status incl. per-job grid"
+          }
+        }
+      ]
+    },
+    {
+      "name": "corporate-actions",
+      "item": [
+        {
+          "name": "GET /v1/corporate-actions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/corporate-actions",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "corporate-actions"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "action_type",
+                  "value": "",
+                  "description": "One of: ['AGM', 'BOARD_MEETING', 'BONUS', 'BUYBACK', 'DEMERGER', 'DIVIDEND', 'MERGER', 'OTHER', 'RIGHTS', 'SPLIT']",
+                  "disabled": true
+                },
+                {
+                  "key": "ex_from",
+                  "value": "",
+                  "description": "Inclusive ex-date floor",
+                  "disabled": true
+                },
+                {
+                  "key": "ex_to",
+                  "value": "",
+                  "description": "Inclusive ex-date ceiling",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Corporate-action calendar (filterable)"
+          }
+        },
+        {
+          "name": "GET /v1/corporate-actions/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/corporate-actions/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "corporate-actions",
+                "{symbol}"
+              ],
+              "query": [
+                {
+                  "key": "action_type",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Corporate actions for one symbol"
+          }
+        }
+      ]
+    },
+    {
+      "name": "data-quality",
+      "item": [
+        {
+          "name": "DELETE /v1/dq/expectations/active/{rule_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/dq/expectations/active/{rule_id}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "dq",
+                "expectations",
+                "active",
+                "{rule_id}"
+              ],
+              "query": [
+                {
+                  "key": "actor",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "rule_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Soft-delete expectation (active=FALSE)"
+          }
+        },
+        {
+          "name": "GET /v1/dq/diagnostics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/dq/diagnostics",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "dq",
+                "diagnostics"
+              ],
+              "query": [
+                {
+                  "key": "dataset",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "target_date",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List smell diagnostics for a dataset"
+          }
+        },
+        {
+          "name": "GET /v1/dq/diagnostics/{diagnostic_id}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/dq/diagnostics/{diagnostic_id}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "dq",
+                "diagnostics",
+                "{diagnostic_id}"
+              ],
+              "variable": [
+                {
+                  "key": "diagnostic_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get one smell diagnostic"
+          }
+        },
+        {
+          "name": "GET /v1/dq/expectations/active",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/dq/expectations/active",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "dq",
+                "expectations",
+                "active"
+              ],
+              "query": [
+                {
+                  "key": "dataset",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "source",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "include_inactive",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List active expectation rules"
+          }
+        },
+        {
+          "name": "GET /v1/dq/proposals",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/dq/proposals",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "dq",
+                "proposals"
+              ],
+              "query": [
+                {
+                  "key": "dataset",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List AI proposals (filterable)"
+          }
+        },
+        {
+          "name": "PATCH /v1/dq/expectations/active/{rule_id}",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/dq/expectations/active/{rule_id}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "dq",
+                "expectations",
+                "active",
+                "{rule_id}"
+              ],
+              "variable": [
+                {
+                  "key": "rule_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Edit/toggle active expectation",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expression\": null,\n  \"severity\": null,\n  \"description\": null,\n  \"rationale\": null,\n  \"business_impact\": null,\n  \"active\": null,\n  \"actor\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/dq/diagnostics/analyze",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/dq/diagnostics/analyze",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "dq",
+                "diagnostics",
+                "analyze"
+              ]
+            },
+            "description": "Run AI smell analyzer on a validation_run",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"run_id\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/dq/expectations/active",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/dq/expectations/active",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "dq",
+                "expectations",
+                "active"
+              ]
+            },
+            "description": "Create hand-authored expectation",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dataset_name\": \"\",\n  \"name\": \"\",\n  \"expression\": \"\",\n  \"severity\": \"\",\n  \"description\": null,\n  \"rationale\": null,\n  \"business_impact\": null,\n  \"actor\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/dq/proposals/generate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/dq/proposals/generate",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "dq",
+                "proposals",
+                "generate"
+              ]
+            },
+            "description": "Run AI expectation author for a dataset",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dataset\": \"\",\n  \"sample_size\": 0,\n  \"failure_history_days\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/dq/proposals/generate-all",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/dq/proposals/generate-all",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "dq",
+                "proposals",
+                "generate-all"
+              ]
+            },
+            "description": "Run AI expectation author across all feeds",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sample_size\": 0,\n  \"failure_history_days\": 0,\n  \"feeds\": null,\n  \"skip_existing\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/dq/proposals/{proposal_id}/accept",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/dq/proposals/{proposal_id}/accept",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "dq",
+                "proposals",
+                "{proposal_id}",
+                "accept"
+              ],
+              "variable": [
+                {
+                  "key": "proposal_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Promote proposal to active expectation",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reviewer\": \"\",\n  \"notes\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/dq/proposals/{proposal_id}/reject",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/dq/proposals/{proposal_id}/reject",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "dq",
+                "proposals",
+                "{proposal_id}",
+                "reject"
+              ],
+              "variable": [
+                {
+                  "key": "proposal_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Reject AI proposal",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reviewer\": \"\",\n  \"reason\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "events",
+      "item": [
+        {
+          "name": "GET /v1/events/calendar",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/events/calendar",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "events",
+                "calendar"
+              ],
+              "query": [
+                {
+                  "key": "from_date",
+                  "value": "",
+                  "description": "YYYY-MM-DD (default: today)",
+                  "disabled": true
+                },
+                {
+                  "key": "to_date",
+                  "value": "",
+                  "description": "YYYY-MM-DD (default: +30 days)",
+                  "disabled": true
+                },
+                {
+                  "key": "event_type",
+                  "value": "",
+                  "description": "quarterly_results|dividend|bonus|split|agm|\u2026",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Upcoming corporate result dates"
+          }
+        },
+        {
+          "name": "GET /v1/events/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/events/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "events",
+                "{symbol}"
+              ],
+              "query": [
+                {
+                  "key": "event_type",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "from_date",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "All corporate events for a stock"
+          }
+        },
+        {
+          "name": "GET /v1/signals/latest",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/signals/latest",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "signals",
+                "latest"
+              ],
+              "query": [
+                {
+                  "key": "sentiment",
+                  "value": "",
+                  "description": "strongly_bullish|bullish|neutral|bearish|strongly_bearish",
+                  "disabled": true
+                },
+                {
+                  "key": "event_type",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "min_confidence",
+                  "value": "",
+                  "description": "Minimum confidence score 0-100",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Latest AI signals across all stocks"
+          }
+        },
+        {
+          "name": "GET /v1/signals/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/signals/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "signals",
+                "{symbol}"
+              ],
+              "query": [
+                {
+                  "key": "event_type",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "AI signals for a stock"
+          }
+        }
+      ]
+    },
+    {
+      "name": "features",
+      "item": [
+        {
+          "name": "GET /v1/features/stocks/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/features/stocks/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "features",
+                "stocks",
+                "{symbol}"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Daily engineered features for one symbol"
+          }
+        },
+        {
+          "name": "GET /v1/features/stocks/{symbol}/latest",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/features/stocks/{symbol}/latest",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "features",
+                "stocks",
+                "{symbol}",
+                "latest"
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Most-recent feature row for one symbol"
+          }
+        }
+      ]
+    },
+    {
+      "name": "flows",
+      "item": [
+        {
+          "name": "GET /v1/flows/block-deals",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/flows/block-deals",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "flows",
+                "block-deals"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "client",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Block deals (negotiated > \u20b910 Cr or > 5L shares)"
+          }
+        },
+        {
+          "name": "GET /v1/flows/bulk-deals",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/flows/bulk-deals",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "flows",
+                "bulk-deals"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "client",
+                  "value": "",
+                  "description": "Substring match on client_name",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Bulk deals (>0.5% of listed shares in one client name)"
+          }
+        },
+        {
+          "name": "GET /v1/flows/fii-dii",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/flows/fii-dii",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "flows",
+                "fii-dii"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "FII | DII | PROP | CLIENT",
+                  "disabled": true
+                },
+                {
+                  "key": "segment",
+                  "value": "",
+                  "description": "EQUITY_CASH | INDEX_FUTURES | INDEX_OPTIONS | STOCK_FUTURES | STOCK_OPTIONS",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "FII / DII net flows by category \u00d7 segment"
+          }
+        }
+      ]
+    },
+    {
+      "name": "fno",
+      "item": [
+        {
+          "name": "GET /v1/fno/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/fno/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "fno",
+                "{symbol}"
+              ],
+              "query": [
+                {
+                  "key": "on",
+                  "value": "",
+                  "description": "Trading day; defaults to most recent",
+                  "disabled": true
+                },
+                {
+                  "key": "instrument_type",
+                  "value": "",
+                  "description": "FUTIDX | FUTSTK | OPTIDX | OPTSTK",
+                  "disabled": true
+                },
+                {
+                  "key": "expiry",
+                  "value": "",
+                  "description": "Expiry date YYYY-MM-DD",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "F&O contracts for one underlying (futures + options)"
+          }
+        },
+        {
+          "name": "GET /v1/fno/{symbol}/chain",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/fno/{symbol}/chain",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "fno",
+                "{symbol}",
+                "chain"
+              ],
+              "query": [
+                {
+                  "key": "expiry",
+                  "value": "",
+                  "description": "Expiry; defaults to nearest",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Latest options chain (CE+PE per strike)"
+          }
+        },
+        {
+          "name": "GET /v1/fno/{symbol}/expiries",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/fno/{symbol}/expiries",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "fno",
+                "{symbol}",
+                "expiries"
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Distinct expiries with contract counts"
+          }
+        }
+      ]
+    },
+    {
+      "name": "fundamentals",
+      "item": [
+        {
+          "name": "GET /v1/financials/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/financials/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "financials",
+                "{symbol}"
+              ],
+              "query": [
+                {
+                  "key": "consolidated",
+                  "value": "",
+                  "description": "True = consolidated; False = standalone; omit for both",
+                  "disabled": true
+                },
+                {
+                  "key": "period_from",
+                  "value": "",
+                  "description": "period_end floor, YYYY-MM-DD",
+                  "disabled": true
+                },
+                {
+                  "key": "period_to",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Quarterly financials (revenue/PAT/EPS/etc.)"
+          }
+        },
+        {
+          "name": "GET /v1/shareholding/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/shareholding/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "shareholding",
+                "{symbol}"
+              ],
+              "query": [
+                {
+                  "key": "period_from",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Shareholding pattern (promoter/FII/DII split)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "indices",
+      "item": [
+        {
+          "name": "GET /v1/indices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/indices",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "indices"
+              ]
+            },
+            "description": "Distinct list of indices we track"
+          }
+        },
+        {
+          "name": "GET /v1/indices/{index_name}/constituents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/indices/{index_name}/constituents",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "indices",
+                "{index_name}",
+                "constituents"
+              ],
+              "query": [
+                {
+                  "key": "on",
+                  "value": "",
+                  "description": "Effective date YYYY-MM-DD; defaults to most recent",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "index_name",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Effective-dated constituent list"
+          }
+        }
+      ]
+    },
+    {
+      "name": "intelligence",
+      "item": [
+        {
+          "name": "GET /v1/intelligence/dq/scores",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/dq/scores",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "dq",
+                "scores"
+              ],
+              "query": [
+                {
+                  "key": "target_date",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "dataset_name",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "quality_tier",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Daily data quality scores"
+          }
+        },
+        {
+          "name": "GET /v1/intelligence/events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/events",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "security_id",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "event_type",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "from",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "to",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Normalized intelligence events"
+          }
+        },
+        {
+          "name": "GET /v1/intelligence/events/search",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/events/search",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "events",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Search normalized intelligence events"
+          }
+        },
+        {
+          "name": "GET /v1/intelligence/events/{event_id}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/events/{event_id}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "events",
+                "{event_id}"
+              ],
+              "variable": [
+                {
+                  "key": "event_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Single normalized event"
+          }
+        },
+        {
+          "name": "GET /v1/intelligence/features/stocks/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/features/stocks/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "features",
+                "stocks",
+                "{symbol}"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "to",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Intelligence feature rows for a stock"
+          }
+        },
+        {
+          "name": "GET /v1/intelligence/graph/correlations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/graph/correlations",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "graph",
+                "correlations"
+              ],
+              "query": [
+                {
+                  "key": "security_id",
+                  "value": "",
+                  "description": "Matches either side security id",
+                  "disabled": true
+                },
+                {
+                  "key": "relationship_type",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "window_days",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "as_of_date",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "min_abs_corr",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Correlation graph edges"
+          }
+        },
+        {
+          "name": "GET /v1/intelligence/graph/correlations/{security_id}/top",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/graph/correlations/{security_id}/top",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "graph",
+                "correlations",
+                "{security_id}",
+                "top"
+              ],
+              "query": [
+                {
+                  "key": "as_of_date",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "top_n",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "direction",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "security_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Top correlation peers for one security"
+          }
+        },
+        {
+          "name": "GET /v1/intelligence/graph/entity-links",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/graph/entity-links",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "graph",
+                "entity-links"
+              ],
+              "query": [
+                {
+                  "key": "security_id",
+                  "value": "",
+                  "description": "Matches either left_security_id or right_security_id",
+                  "disabled": true
+                },
+                {
+                  "key": "relationship_type",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "as_of_date",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Entity relationship graph edges"
+          }
+        },
+        {
+          "name": "GET /v1/intelligence/portfolio/sync/status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/portfolio/sync/status",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "portfolio",
+                "sync",
+                "status"
+              ],
+              "query": [
+                {
+                  "key": "external_user_id",
+                  "value": "",
+                  "description": "Filter by email",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Portfolio sync audit log (latest run per client)"
+          }
+        },
+        {
+          "name": "GET /v1/intelligence/portfolio/{external_user_id}/holdings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/portfolio/{external_user_id}/holdings",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "portfolio",
+                "{external_user_id}",
+                "holdings"
+              ],
+              "query": [
+                {
+                  "key": "on",
+                  "value": "",
+                  "description": "YYYY-MM-DD; defaults to latest",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "external_user_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "User holdings resolved against security master"
+          }
+        },
+        {
+          "name": "GET /v1/intelligence/portfolio/{external_user_id}/snapshot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/portfolio/{external_user_id}/snapshot",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "portfolio",
+                "{external_user_id}",
+                "snapshot"
+              ],
+              "query": [
+                {
+                  "key": "on",
+                  "value": "",
+                  "description": "YYYY-MM-DD; defaults to latest",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "external_user_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "User portfolio intelligence snapshot"
+          }
+        },
+        {
+          "name": "GET /v1/intelligence/reference/securities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/reference/securities",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "reference",
+                "securities"
+              ],
+              "query": [
+                {
+                  "key": "entity_type",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "asset_class",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "symbol",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "isin",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "amfi_scheme_code",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "sector",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "industry",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "is_active",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Canonical security master"
+          }
+        },
+        {
+          "name": "GET /v1/intelligence/snapshots/market",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/snapshots/market",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "snapshots",
+                "market"
+              ],
+              "query": [
+                {
+                  "key": "on",
+                  "value": "",
+                  "description": "YYYY-MM-DD; defaults to most recent",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Market intelligence snapshot"
+          }
+        },
+        {
+          "name": "GET /v1/intelligence/snapshots/market/recent",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/intelligence/snapshots/market/recent",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "intelligence",
+                "snapshots",
+                "market",
+                "recent"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Recent market intelligence snapshots"
+          }
+        }
+      ]
+    },
+    {
+      "name": "macro",
+      "item": [
+        {
+          "name": "GET /v1/macro/fred",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/macro/fred",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "macro",
+                "fred"
+              ],
+              "query": [
+                {
+                  "key": "series_id",
+                  "value": "",
+                  "description": "FRED series id, e.g. DGS10, VIXCLS, DTWEXBGS",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Global macro series from FRED (US10Y, DXY, VIX, \u2026)"
+          }
+        },
+        {
+          "name": "GET /v1/macro/fred/series",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/macro/fred/series",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "macro",
+                "fred",
+                "series"
+              ]
+            },
+            "description": "Distinct FRED series we track"
+          }
+        },
+        {
+          "name": "GET /v1/macro/rbi-yields",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/macro/rbi-yields",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "macro",
+                "rbi-yields"
+              ],
+              "query": [
+                {
+                  "key": "tenor",
+                  "value": "",
+                  "description": "OVERNIGHT | 91D | 364D | 1Y | 5Y | 10Y",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Indian G-Sec / T-bill / repo yields"
+          }
+        }
+      ]
+    },
+    {
+      "name": "meta",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/health",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Liveness + DB readiness"
+          }
+        },
+        {
+          "name": "GET /v1/catalog",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/catalog",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "catalog"
+              ]
+            },
+            "description": "List of datasets exposed by this API + coverage"
+          }
+        },
+        {
+          "name": "GET /v1/me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/me",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "me"
+              ]
+            },
+            "description": "Identity + plan + current rate-limit state"
+          }
+        },
+        {
+          "name": "GET /v1/me/usage",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/me/usage",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "me",
+                "usage"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Daily request counts for the last N days"
+          }
+        }
+      ]
+    },
+    {
+      "name": "mf-performance",
+      "item": [
+        {
+          "name": "GET /v1/mf/performance/category/{category}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/performance/category/{category}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "performance",
+                "category",
+                "{category}"
+              ],
+              "query": [
+                {
+                  "key": "metric",
+                  "value": "",
+                  "description": "Sort metric: composite_rank | return_1y | return_3y | sharpe_1y | sortino_1y",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "category",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Top-N schemes within a category\n\nCategory leaderboard sorted by selected metric."
+          }
+        },
+        {
+          "name": "GET /v1/mf/performance/scorecard/category/{sub_category}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/performance/scorecard/category/{sub_category}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "performance",
+                "scorecard",
+                "category",
+                "{sub_category}"
+              ],
+              "query": [
+                {
+                  "key": "sort_by",
+                  "value": "",
+                  "description": "composite_score | ret_1y | ret_3y | sharpe | ter",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "sub_category",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Category leaderboard with composite scores\n\nFull scorecard leaderboard for a sub-category, sorted by composite score\nor any individual metric.  Includes quality labels and quartile flags."
+          }
+        },
+        {
+          "name": "GET /v1/mf/performance/scorecard/{scheme_code}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/performance/scorecard/{scheme_code}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "performance",
+                "scorecard",
+                "{scheme_code}"
+              ],
+              "variable": [
+                {
+                  "key": "scheme_code",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Full category scorecard for a scheme\n\nReturns composite score, quality label, per-metric ranks and quartiles\nwithin the fund's sub-category peer group.\n\nConsumes nidp.v_mf_category_scorecard (migration 052), which joins\nanalytics.fund_category_rank + mf_derived_analytics + disclosure snapshots\n+ holdings to produce 73 columns including:\n  - composite_score (0\u2013100), quality_label (Elite \u2026 Underperformer)\n  - composite_rank, total_in_category, top_position_pct\n  - rank_ret1y / rank_ret3y / rank_ret5y / rank_sharpe / rank_ter / \u2026\n  - qtile_ret1y / qtile_sharpe / qtile_maxdd / qtile_ter / \u2026 (1=Q1 best)\n  - pct_ret1y / pct_sharpe / \u2026 (0\u20131 PERCENT_RANK for radar charts)"
+          }
+        },
+        {
+          "name": "GET /v1/mf/performance/screener/advanced",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/performance/screener/advanced",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "performance",
+                "screener",
+                "advanced"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "sub_category filter e.g. 'Large Cap'",
+                  "disabled": true
+                },
+                {
+                  "key": "sort_by",
+                  "value": "",
+                  "description": "composite_score | return_3y | sharpe | ter",
+                  "disabled": true
+                },
+                {
+                  "key": "min_composite",
+                  "value": "",
+                  "description": "Minimum composite_score",
+                  "disabled": true
+                },
+                {
+                  "key": "max_ter",
+                  "value": "",
+                  "description": "Maximum TER %",
+                  "disabled": true
+                },
+                {
+                  "key": "min_return_3y",
+                  "value": "",
+                  "description": "Minimum 3-year return %",
+                  "disabled": true
+                },
+                {
+                  "key": "min_sharpe",
+                  "value": "",
+                  "description": "Minimum Sharpe ratio",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Composite-score-filtered MF screener\n\nAdvanced MF screener driven by nidp.v_mf_category_scorecard (migration 052).\n\nEvery returned scheme has composite_score, quality_label, and quartile ranks.\nCombines well with the MF intelligence tool in the copilot."
+          }
+        },
+        {
+          "name": "GET /v1/mf/performance/screener/top",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/performance/screener/top",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "performance",
+                "screener",
+                "top"
+              ],
+              "query": [
+                {
+                  "key": "metric",
+                  "value": "",
+                  "description": "return_1y | sharpe_1y | sortino_1y | composite_rank",
+                  "disabled": true
+                },
+                {
+                  "key": "category_filter",
+                  "value": "",
+                  "description": "Optional category substring filter",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Top funds across all categories by a single metric\n\nCross-category top-fund screener."
+          }
+        },
+        {
+          "name": "GET /v1/mf/performance/{scheme_code}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/performance/{scheme_code}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "performance",
+                "{scheme_code}"
+              ],
+              "variable": [
+                {
+                  "key": "scheme_code",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Performance metrics for a single scheme\n\nReturns the latest computed return + risk metrics for a scheme."
+          }
+        },
+        {
+          "name": "POST /v1/mf/performance/v3-primitives/bulk",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/performance/v3-primitives/bulk",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "performance",
+                "v3-primitives",
+                "bulk"
+              ]
+            },
+            "description": "Bulk V3 MF primitives by ISIN\n\nReturn the V3 primitive row for each requested ISIN, keyed by\nISIN in the response.\n\nThe natural cross-system identifier for Indian mutual funds. CAS\nimports populate ISIN per holding by construction, and the NIDP\nside stores both Growth and IDCW ISIN variants. The view (migration\n058) emits one row per (scheme_code, ISIN) so each variant has its\nown primitive bundle.\n\nMissing ISINs are simply absent from the response \u2014 callers should\ndegrade gracefully when a fund has no V3 primitives.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isins\": [\n    \"INF179K01608\",\n    \"INF179K01VL5\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "mf-scores",
+      "item": [
+        {
+          "name": "GET /v1/mf/scores/",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/scores/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "scores"
+              ],
+              "query": [
+                {
+                  "key": "fund_category",
+                  "value": "",
+                  "description": "equity | debt | hybrid",
+                  "disabled": true
+                },
+                {
+                  "key": "sub_category",
+                  "value": "",
+                  "description": "ILIKE %X% on sub_category",
+                  "disabled": true
+                },
+                {
+                  "key": "min_quality",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "min_health",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "min_quality_coverage",
+                  "value": "",
+                  "description": "Minimum quality_coverage_pct (defaults to 80 \u2014 ranking-honest)",
+                  "disabled": true
+                },
+                {
+                  "key": "sort_by",
+                  "value": "",
+                  "description": "quality_score | health_score | quality_coverage_pct | health_coverage_pct",
+                  "disabled": true
+                },
+                {
+                  "key": "sort_desc",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Filtered + sorted V3 MF scores screener (latest snapshot)"
+          }
+        },
+        {
+          "name": "GET /v1/mf/scores/{isin}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/scores/{isin}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "scores",
+                "{isin}"
+              ],
+              "variable": [
+                {
+                  "key": "isin",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Latest V3 Quality + Health score for one MF scheme (by ISIN)"
+          }
+        },
+        {
+          "name": "GET /v1/mf/scores/{isin}/history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/scores/{isin}/history",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "scores",
+                "{isin}",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "",
+                  "description": "Look-back window in days",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "isin",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "V3 Quality + Health score history (last N days) for one MF scheme"
+          }
+        },
+        {
+          "name": "POST /v1/mf/scores/bulk",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/scores/bulk",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "scores",
+                "bulk"
+              ]
+            },
+            "description": "Bulk latest V3 MF scores by ISIN\n\nReturns the latest persisted score per requested ISIN, keyed by ISIN.\n\nMissing ISINs are simply absent from the response \u2014 callers should degrade\ngracefully when a fund has no persisted score (e.g., new scheme that the\nnightly engine hasn't covered yet).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isins\": [\n    \"INF179K01608\",\n    \"INF179K01VL5\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "mutual_funds",
+      "item": [
+        {
+          "name": "GET /v1/mf/amcs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/amcs",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "amcs"
+              ]
+            },
+            "description": "AMC master list with scheme counts\n\nAll mutual fund AMCs tracked in the warehouse, ordered by AUM descending."
+          }
+        },
+        {
+          "name": "GET /v1/mf/circulars",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/circulars",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "circulars"
+              ],
+              "query": [
+                {
+                  "key": "kind",
+                  "value": "",
+                  "description": "notice | circular | addendum",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "",
+                  "description": "YYYY-MM-DD",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "description": "Title keyword search",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "AMFI notices, circulars, and addenda\n\nAMFI-published lifecycle documents. Source for scheme mergers, renames, regulatory changes."
+          }
+        },
+        {
+          "name": "GET /v1/mf/holdings/overlap",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/holdings/overlap",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "holdings",
+                "overlap"
+              ],
+              "query": [
+                {
+                  "key": "scheme_a",
+                  "value": "",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "scheme_b",
+                  "value": "",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "as_of_month",
+                  "value": "",
+                  "description": "YYYY-MM-DD; default: latest available for each",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Equity holding overlap between two schemes\n\nIntersection of equity holdings by ISIN. Returns overlap_pct = sum of min(w_a, w_b)."
+          }
+        },
+        {
+          "name": "GET /v1/mf/holdings/{scheme_code}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/holdings/{scheme_code}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "holdings",
+                "{scheme_code}"
+              ],
+              "query": [
+                {
+                  "key": "as_of_month",
+                  "value": "",
+                  "description": "YYYY-MM-DD (first day of month); default: latest available",
+                  "disabled": true
+                },
+                {
+                  "key": "instrument_type",
+                  "value": "",
+                  "description": "EQUITY | DEBT | CASH | DERIVATIVE | REIT",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "scheme_code",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Monthly portfolio holdings for a scheme\n\nPer-security portfolio holdings. Sorted by weight descending."
+          }
+        },
+        {
+          "name": "GET /v1/mf/nav/latest",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/nav/latest",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "nav",
+                "latest"
+              ],
+              "query": [
+                {
+                  "key": "scheme_codes",
+                  "value": "",
+                  "description": "Comma-separated scheme codes, max 100",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Latest NAV for up to 100 schemes\n\nBatch latest-NAV lookup. Cheaper than calling /nav/{scheme_code} per scheme."
+          }
+        },
+        {
+          "name": "GET /v1/mf/nav/{scheme_code}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/nav/{scheme_code}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "nav",
+                "{scheme_code}"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "",
+                  "description": "YYYY-MM-DD (default: 365 days ago)",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "",
+                  "description": "YYYY-MM-DD (default: today)",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "scheme_code",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "NAV time series for a scheme\n\nDaily NAV series, newest-first. Use pagination for multi-year history."
+          }
+        },
+        {
+          "name": "GET /v1/mf/schemes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/schemes",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "schemes"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "",
+                  "description": "Scheme name substring search (case-insensitive)",
+                  "disabled": true
+                },
+                {
+                  "key": "amc_id",
+                  "value": "",
+                  "description": "Filter by AMC slug, e.g. 'sbi', 'hdfc'",
+                  "disabled": true
+                },
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "Partial match on scheme_category, e.g. 'Large Cap'",
+                  "disabled": true
+                },
+                {
+                  "key": "scheme_type",
+                  "value": "",
+                  "description": "Open Ended / Close Ended / Interval",
+                  "disabled": true
+                },
+                {
+                  "key": "isin",
+                  "value": "",
+                  "description": "Match on ISIN growth or IDCW",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "active | closed | merged | suspended",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Search and filter scheme master\n\nPaginated scheme search. At least one filter recommended for large result sets."
+          }
+        },
+        {
+          "name": "GET /v1/mf/schemes/{scheme_code}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/schemes/{scheme_code}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "schemes",
+                "{scheme_code}"
+              ],
+              "variable": [
+                {
+                  "key": "scheme_code",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Single scheme detail with latest disclosure\n\nFull scheme metadata joined with latest TER, risk-o-meter, and fund managers."
+          }
+        },
+        {
+          "name": "GET /v1/mf/schemes/{scheme_code}/disclosure",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/schemes/{scheme_code}/disclosure",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "schemes",
+                "{scheme_code}",
+                "disclosure"
+              ],
+              "query": [
+                {
+                  "key": "history",
+                  "value": "",
+                  "description": "Number of past snapshots (default: 4 \u2248 one quarter)",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "scheme_code",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "TER, risk-o-meter, and fund manager history\n\nWeekly SID snapshots: expense ratio, risk category, and named fund managers."
+          }
+        },
+        {
+          "name": "GET /v1/mf/schemes/{scheme_code}/events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/mf/schemes/{scheme_code}/events",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "mf",
+                "schemes",
+                "{scheme_code}",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "event_types",
+                  "value": "",
+                  "description": "Comma-separated: ter_change, manager_change, risk_change, merger, rename, launch, closure",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "",
+                  "description": "YYYY-MM-DD",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "scheme_code",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Lifecycle events: TER changes, manager changes, risk shifts, mergers\n\nAll detected lifecycle events for a scheme, newest-first."
+          }
+        }
+      ]
+    },
+    {
+      "name": "prices",
+      "item": [
+        {
+          "name": "GET /v1/prices/adjusted/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/prices/adjusted/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "prices",
+                "adjusted",
+                "{symbol}"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Split/bonus/dividend-adjusted OHLCV"
+          }
+        },
+        {
+          "name": "GET /v1/prices/delivery/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/prices/delivery/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "prices",
+                "delivery",
+                "{symbol}"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Daily delivered-quantity / delivery %"
+          }
+        },
+        {
+          "name": "GET /v1/prices/eod",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/prices/eod",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "prices",
+                "eod"
+              ],
+              "query": [
+                {
+                  "key": "on",
+                  "value": "",
+                  "description": "Trading day, YYYY-MM-DD",
+                  "disabled": false
+                },
+                {
+                  "key": "series",
+                  "value": "",
+                  "description": "EQ | BE | BZ \u2014 defaults to EQ",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Daily OHLCV for all symbols on one date"
+          }
+        },
+        {
+          "name": "GET /v1/prices/eod/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/prices/eod/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "prices",
+                "eod",
+                "{symbol}"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "",
+                  "description": "Inclusive YYYY-MM-DD",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "",
+                  "description": "Inclusive YYYY-MM-DD",
+                  "disabled": true
+                },
+                {
+                  "key": "series",
+                  "value": "",
+                  "description": "EQ | BE | BZ \u2014 defaults to all",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Daily OHLCV for one symbol (raw)"
+          }
+        },
+        {
+          "name": "GET /v1/prices/index/{index_name}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/prices/index/{index_name}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "prices",
+                "index",
+                "{index_name}"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "index_name",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Daily OHLC for an index (Nifty 50, Bank Nifty, \u2026)"
+          }
+        },
+        {
+          "name": "GET /v1/prices/latest/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/prices/latest/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "prices",
+                "latest",
+                "{symbol}"
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Most-recent EOD bar for one symbol"
+          }
+        }
+      ]
+    },
+    {
+      "name": "query:archive",
+      "item": [
+        {
+          "name": "GET /archive/{ingester}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/archive/{ingester}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "archive",
+                "{ingester}"
+              ],
+              "query": [
+                {
+                  "key": "target_date",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit_dates",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "ingester",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "List Archive"
+          }
+        },
+        {
+          "name": "GET /archive/{ingester}/{target_date}/{filename}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/archive/{ingester}/{target_date}/{filename}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "archive",
+                "{ingester}",
+                "{target_date}",
+                "{filename}"
+              ],
+              "variable": [
+                {
+                  "key": "ingester",
+                  "value": ""
+                },
+                {
+                  "key": "target_date",
+                  "value": ""
+                },
+                {
+                  "key": "filename",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Download Archive"
+          }
+        }
+      ]
+    },
+    {
+      "name": "query:catalog",
+      "item": [
+        {
+          "name": "GET /catalog",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/catalog",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "catalog"
+              ]
+            },
+            "description": "Catalog"
+          }
+        }
+      ]
+    },
+    {
+      "name": "query:feeds",
+      "item": [
+        {
+          "name": "GET /feeds",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/feeds",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "feeds"
+              ]
+            },
+            "description": "Feeds\n\nPer-ingester health view. Three enhancements over a plain\nv_feed_status read:\n\n  1. effective_last_success_at = COALESCE(source_registry, max(job_log.started_at)\n     WHERE status='OK'). The ingester upsert doesn't always update\n     source_registry.last_success_at, so falling back to job_log\n     keeps the column populated.\n  2. last_7_days = [{date, status}] for the trailing week, derived\n     from job_log. Drives the dashboard's mini week-strip widget.\n  3. Sort by last_run_at DESC NULLS LAST \u2014 most-active feeds at top,\n     dormant/never-run feeds at the bottom."
+          }
+        },
+        {
+          "name": "GET /feeds/{ingester}/calendar",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/feeds/{ingester}/calendar",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "feeds",
+                "{ingester}",
+                "calendar"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "ingester",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Feed Calendar\n\nPer-day status for the last N days, derived from job_log. One\ncell per calendar day. Useful for the Console's week-strip widget.\n\nStatus priority within a day (worst wins): FAILED > PARTIAL > OK >\nSKIPPED. Days with no runs return status=null."
+          }
+        },
+        {
+          "name": "GET /feeds/{ingester}/runs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/feeds/{ingester}/runs",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "feeds",
+                "{ingester}",
+                "runs"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "ingester",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Feed Runs"
+          }
+        }
+      ]
+    },
+    {
+      "name": "query:health",
+      "item": [
+        {
+          "name": "GET /query/health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/query/health",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "query",
+                "health"
+              ]
+            },
+            "description": "Health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "query:quality",
+      "item": [
+        {
+          "name": "GET /certification",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/certification",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "certification"
+              ],
+              "query": [
+                {
+                  "key": "domain",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Certification\n\nCertified dates \u2014 only dates that passed the quality gate."
+          }
+        },
+        {
+          "name": "GET /consistency",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/consistency",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "consistency"
+              ],
+              "query": [
+                {
+                  "key": "domain",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Consistency Runs\n\nLatest consistency run per (target_date, domain)."
+          }
+        },
+        {
+          "name": "GET /consistency/findings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/consistency/findings",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "consistency",
+                "findings"
+              ],
+              "query": [
+                {
+                  "key": "domain",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "dimension",
+                  "value": "",
+                  "description": "CROSS_SOURCE|INTERNAL|TEMPORAL|API|POINT_IN_TIME",
+                  "disabled": true
+                },
+                {
+                  "key": "severity",
+                  "value": "",
+                  "description": "INFO|WARN|ERROR|CRITICAL",
+                  "disabled": true
+                },
+                {
+                  "key": "entity_id",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Consistency Findings\n\nIndividual consistency findings, newest first."
+          }
+        },
+        {
+          "name": "GET /exception-queue",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/exception-queue",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "exception-queue"
+              ],
+              "query": [
+                {
+                  "key": "resolved",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Exception Queue\n\nItems in the manual-review queue (ops dashboard)."
+          }
+        },
+        {
+          "name": "GET /publish-gate",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/publish-gate",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "publish-gate"
+              ],
+              "query": [
+                {
+                  "key": "domain",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Publish Gate\n\nGo/no-go publish decision per (date, domain) from v_publish_gate."
+          }
+        },
+        {
+          "name": "GET /quality",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/quality",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "quality"
+              ],
+              "query": [
+                {
+                  "key": "domain",
+                  "value": "",
+                  "description": "mf | equity | all",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Quality Latest\n\nLatest quality score per (target_date, domain), newest first."
+          }
+        },
+        {
+          "name": "GET /quarantine",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/quarantine",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "quarantine"
+              ],
+              "query": [
+                {
+                  "key": "domain",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Quarantine Log\n\nDates condemned by the quality gate (FAIL outcome \u2192 quarantine)."
+          }
+        },
+        {
+          "name": "PATCH /exception-queue/{queue_id}",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/exception-queue/{queue_id}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "exception-queue",
+                "{queue_id}"
+              ],
+              "variable": [
+                {
+                  "key": "queue_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Resolve Exception\n\nMark an exception queue item as resolved (ops action).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"\",\n  \"resolution_note\": \"\",\n  \"resolved_by\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "query:validation",
+      "item": [
+        {
+          "name": "GET /validation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/validation",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "validation"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Validation"
+          }
+        }
+      ]
+    },
+    {
+      "name": "query:vm-ops",
+      "item": [
+        {
+          "name": "GET /feeds/{ingester}/log_path",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/feeds/{ingester}/log_path",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "feeds",
+                "{ingester}",
+                "log_path"
+              ],
+              "variable": [
+                {
+                  "key": "ingester",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Feed Log Path\n\nReturn the on-disk log path for the ingester (exists or not).\nConvenience for ops who want to ssh in and tail manually."
+          }
+        },
+        {
+          "name": "GET /feeds/{ingester}/logs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/feeds/{ingester}/logs",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "feeds",
+                "{ingester}",
+                "logs"
+              ],
+              "query": [
+                {
+                  "key": "lines",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "ingester",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Feed Logs\n\nTail the last N lines of the ingester's VM log file.\n\nReturns 404 with a clear message if the log doesn't exist yet\n(service has never run on this VM)."
+          }
+        },
+        {
+          "name": "POST /feeds/{ingester}/execute",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/feeds/{ingester}/execute",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "feeds",
+                "{ingester}",
+                "execute"
+              ],
+              "query": [
+                {
+                  "key": "target_date",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "ingester",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Feed Execute\n\nSpawn run_service.sh <ingester> [--date YYYY-MM-DD] in the\nbackground. Returns 202 immediately; UI polls\n/feeds/{ingester}/runs to see results land in nidp.job_log when\nthe job completes.\n\nOn VMs run_service.sh is used (handles flock, logging, venv).\nIn Docker/dev environments it falls back to spawning the current\nPython interpreter directly so the sync works without the VM wrapper."
+          }
+        }
+      ]
+    },
+    {
+      "name": "reference",
+      "item": [
+        {
+          "name": "GET /v1/holidays",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/holidays",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "holidays"
+              ],
+              "query": [
+                {
+                  "key": "segment",
+                  "value": "",
+                  "description": "CM | FO | CD | COM | DEBT | MF",
+                  "disabled": true
+                },
+                {
+                  "key": "from",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "to",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "NSE trading holidays"
+          }
+        },
+        {
+          "name": "GET /v1/sectors",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/sectors",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "sectors"
+              ]
+            },
+            "description": "Distinct sector list with member counts"
+          }
+        },
+        {
+          "name": "GET /v1/symbols",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/symbols",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "symbols"
+              ],
+              "query": [
+                {
+                  "key": "sector",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "series",
+                  "value": "",
+                  "description": "EQ | BE | BZ",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Symbol master \u2014 symbol, company, sector, ISIN"
+          }
+        },
+        {
+          "name": "GET /v1/symbols/search",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/symbols/search",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "symbols",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Substring search over symbol + company name"
+          }
+        },
+        {
+          "name": "GET /v1/symbols/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/symbols/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "symbols",
+                "{symbol}"
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Symbol master row for one ticker"
+          }
+        }
+      ]
+    },
+    {
+      "name": "replay",
+      "item": [
+        {
+          "name": "DELETE /v1/replay/runs/{replay_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/replay/runs/{replay_id}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "replay",
+                "runs",
+                "{replay_id}"
+              ],
+              "variable": [
+                {
+                  "key": "replay_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Delete a replay and its per-date rows"
+          }
+        },
+        {
+          "name": "GET /v1/replay/policies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/replay/policies",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "replay",
+                "policies"
+              ]
+            },
+            "description": "List registered scoring policies"
+          }
+        },
+        {
+          "name": "GET /v1/replay/runs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/replay/runs",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "replay",
+                "runs"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List recent replays with summary stats"
+          }
+        },
+        {
+          "name": "GET /v1/replay/runs/{replay_id}/dates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/replay/runs/{replay_id}/dates",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "replay",
+                "runs",
+                "{replay_id}",
+                "dates"
+              ],
+              "query": [
+                {
+                  "key": "domain",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "gate_outcome",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "replay_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Per-date outcomes for a replay"
+          }
+        },
+        {
+          "name": "GET /v1/replay/runs/{replay_id}/failures",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/replay/runs/{replay_id}/failures",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "replay",
+                "runs",
+                "{replay_id}",
+                "failures"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "replay_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Synthetic failures injected for the replay"
+          }
+        },
+        {
+          "name": "GET /v1/replay/status/{replay_id}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/replay/status/{replay_id}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "replay",
+                "status",
+                "{replay_id}"
+              ],
+              "variable": [
+                {
+                  "key": "replay_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Replay status + statistics + live progress"
+          }
+        },
+        {
+          "name": "POST /v1/replay/start",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/replay/start",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "replay",
+                "start"
+              ]
+            },
+            "description": "Kick off a new replay (returns replay_id immediately)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"start_date\": \"\",\n  \"end_date\": \"\",\n  \"domains\": [\n    \"\"\n  ],\n  \"policy_version\": \"\",\n  \"parallel\": 0,\n  \"inject_failures\": false,\n  \"reset_data\": false,\n  \"failure_seed\": null,\n  \"failure_rate\": 0,\n  \"skip_weekends\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "snapshots",
+      "item": [
+        {
+          "name": "GET /v1/snapshots/market",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/snapshots/market",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "snapshots",
+                "market"
+              ],
+              "query": [
+                {
+                  "key": "on",
+                  "value": "",
+                  "description": "YYYY-MM-DD; defaults to most recent",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Market-wide daily snapshot (indices, breadth, flows)"
+          }
+        },
+        {
+          "name": "GET /v1/snapshots/market/recent",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/snapshots/market/recent",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "snapshots",
+                "market",
+                "recent"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Trailing N days of market snapshots"
+          }
+        },
+        {
+          "name": "GET /v1/snapshots/stock/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/snapshots/stock/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "snapshots",
+                "stock",
+                "{symbol}"
+              ],
+              "query": [
+                {
+                  "key": "on",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Per-stock daily snapshot (OHLCV + index flags + deals)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "stock-scores",
+      "item": [
+        {
+          "name": "GET /v1/stocks/scores/",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/stocks/scores/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "stocks",
+                "scores"
+              ],
+              "query": [
+                {
+                  "key": "sector",
+                  "value": "",
+                  "description": "ILIKE %X% on sector",
+                  "disabled": true
+                },
+                {
+                  "key": "market_cap",
+                  "value": "",
+                  "description": "LARGE_CAP | MID_CAP | SMALL_CAP | MICRO_CAP",
+                  "disabled": true
+                },
+                {
+                  "key": "min_quality",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "min_health",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "min_quality_coverage",
+                  "value": "",
+                  "description": "Minimum quality_coverage_pct (defaults to 80 \u2014 ranking-honest)",
+                  "disabled": true
+                },
+                {
+                  "key": "sort_by",
+                  "value": "",
+                  "description": "quality_score | health_score | quality_coverage_pct | health_coverage_pct",
+                  "disabled": true
+                },
+                {
+                  "key": "sort_desc",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Filtered + sorted V3 stock scores screener (latest snapshot)"
+          }
+        },
+        {
+          "name": "GET /v1/stocks/scores/{symbol}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/stocks/scores/{symbol}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "stocks",
+                "scores",
+                "{symbol}"
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Latest V3 Quality + Health composite score for one stock"
+          }
+        },
+        {
+          "name": "GET /v1/stocks/scores/{symbol}/history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/stocks/scores/{symbol}/history",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "stocks",
+                "scores",
+                "{symbol}",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "V3 Quality + Health score history (last N days) for one stock"
+          }
+        },
+        {
+          "name": "GET /v1/stocks/screener",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/stocks/screener",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "stocks",
+                "screener"
+              ],
+              "query": [
+                {
+                  "key": "sector",
+                  "value": "",
+                  "description": "Filter by sector (case-insensitive contains)",
+                  "disabled": true
+                },
+                {
+                  "key": "market_cap",
+                  "value": "",
+                  "description": "LARGE_CAP | MID_CAP | SMALL_CAP | MICRO_CAP",
+                  "disabled": true
+                },
+                {
+                  "key": "min_roe",
+                  "value": "",
+                  "description": "Minimum ROE %",
+                  "disabled": true
+                },
+                {
+                  "key": "max_de",
+                  "value": "",
+                  "description": "Maximum debt-to-equity",
+                  "disabled": true
+                },
+                {
+                  "key": "min_eps_cagr_3y",
+                  "value": "",
+                  "description": "Minimum 3Y EPS CAGR %",
+                  "disabled": true
+                },
+                {
+                  "key": "min_rev_cagr_3y",
+                  "value": "",
+                  "description": "Minimum 3Y Revenue CAGR %",
+                  "disabled": true
+                },
+                {
+                  "key": "max_rsi",
+                  "value": "",
+                  "description": "Maximum RSI14 (overheated filter)",
+                  "disabled": true
+                },
+                {
+                  "key": "min_rsi",
+                  "value": "",
+                  "description": "Minimum RSI14 (oversold filter)",
+                  "disabled": true
+                },
+                {
+                  "key": "max_pe_vs_sector",
+                  "value": "",
+                  "description": "Max PE vs sector overvaluation %",
+                  "disabled": true
+                },
+                {
+                  "key": "sort_by",
+                  "value": "",
+                  "description": "Sort column: momentum_score | roe_pct | eps_growth_3y_cagr_pct | revenue_growth_3y_cagr_pct | earnings_consistency_score | return_252d_pct | liquidity_score",
+                  "disabled": true
+                },
+                {
+                  "key": "sort_desc",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "as_of_date",
+                  "value": "",
+                  "description": "YYYY-MM-DD \u2014 defaults to latest date in feature store",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Rows to return (1\u20135000)",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "",
+                  "description": "Rows to skip",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Multi-metric stock screener from NIDP feature store\n\nScreener over the NIDP stock feature store. Returns raw V3 primitives\nfor qualifying stocks, sorted by the chosen metric. The copilot uses this\nto generate quality-ranked or momentum-ranked pick lists."
+          }
+        },
+        {
+          "name": "GET /v1/stocks/screener/top",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/stocks/screener/top",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "stocks",
+                "screener",
+                "top"
+              ],
+              "query": [
+                {
+                  "key": "metric",
+                  "value": "",
+                  "description": "Sort metric",
+                  "disabled": true
+                },
+                {
+                  "key": "sector",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "market_cap",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "as_of_date",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Top-N stocks by a single metric\n\nTop-N stocks by a chosen metric (quality, momentum, return, etc.)\nUsed by the copilot recommendation node for sector-specific or universe-wide picks."
+          }
+        },
+        {
+          "name": "GET /v1/stocks/{symbol}/score",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/stocks/{symbol}/score",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "stocks",
+                "{symbol}",
+                "score"
+              ],
+              "query": [
+                {
+                  "key": "as_of_date",
+                  "value": "",
+                  "description": "YYYY-MM-DD \u2014 defaults to latest",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Full V3 primitive row for one stock\n\nReturns the full set of V3 scoring primitives for a stock from the NIDP\nfeature store. The copilot uses these to compute composite scores and build\na multi-dimension analysis."
+          }
+        },
+        {
+          "name": "POST /v1/stocks/scores/bulk",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/stocks/scores/bulk",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "stocks",
+                "scores",
+                "bulk"
+              ]
+            },
+            "description": "Bulk latest V3 stock scores by symbol",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbols\": [\n    \"HDFCBANK\",\n    \"INFY\",\n    \"RELIANCE\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/stocks/v3-primitives/bulk",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/v1/stocks/v3-primitives/bulk",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "v1",
+                "stocks",
+                "v3-primitives",
+                "bulk"
+              ]
+            },
+            "description": "Bulk V3 stock primitives by NSE symbol\n\nReturn the latest V3 primitive row for each requested symbol,\nkeyed by symbol in the response.\n\nSaves N HTTP round-trips vs ``GET /v1/stocks/{symbol}/score`` when\nthe V3 engine enriches an entire portfolio in one shot. The Nivesh-side\n``services/portfolio_enrichment.py`` calls this endpoint instead of\nreading ``nidp.v_v3_stock_primitives`` over the shared PG pool.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbols\": [\n    \"HDFCBANK\",\n    \"INFY\",\n    \"RELIANCE\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

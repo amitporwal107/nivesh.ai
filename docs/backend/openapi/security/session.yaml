@@ -1,0 +1,17 @@
+SessionCookie:
+  type: apiKey
+  in: cookie
+  name: session
+  description: |
+    HTTP-only session cookie set by `POST /api/auth/google`.
+
+    The cookie is scoped to the domain and has a 30-day expiry. It is sent automatically
+    by browsers; for server-to-server or Postman testing pass it as:
+
+    ```
+    Cookie: session=<your-token>
+    ```
+
+    **Admin endpoints** additionally require the account to have `is_admin = true`.
+    If you see HTTP 403 on an `/api/admin/*` route, the session is valid but the
+    account lacks admin rights — contact the platform team to grant access.

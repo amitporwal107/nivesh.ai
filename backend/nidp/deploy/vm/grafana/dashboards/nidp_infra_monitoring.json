@@ -1,0 +1,212 @@
+{
+  "annotations": {"list": []},
+  "description": "NIDP Infrastructure — Docker container health for prod, staging, and infra services",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Containers",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"colorMode": "value", "graphMode": "none", "textMode": "auto"},
+      "fieldConfig": {"defaults": {"color": {"fixedColor": "blue", "mode": "fixed"}}, "overrides": []},
+      "targets": [{"rawSql": "SELECT COUNT(DISTINCT container_name) FROM monitoring.container_health WHERE collected_at = (SELECT MAX(collected_at) FROM monitoring.container_health)", "format": "table", "refId": "A"}]
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Running",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"colorMode": "value", "graphMode": "none"},
+      "fieldConfig": {"defaults": {"color": {"fixedColor": "green", "mode": "fixed"}}, "overrides": []},
+      "targets": [{"rawSql": "SELECT COUNT(*) FROM monitoring.container_health WHERE collected_at = (SELECT MAX(collected_at) FROM monitoring.container_health) AND status = 'running'", "format": "table", "refId": "A"}]
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Unhealthy / Stopped",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"colorMode": "value", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "red", "value": 1}
+          ]}
+        },
+        "overrides": []
+      },
+      "targets": [{"rawSql": "SELECT COUNT(*) FROM monitoring.container_health WHERE collected_at = (SELECT MAX(collected_at) FROM monitoring.container_health) AND (status != 'running' OR health = 'unhealthy')", "format": "table", "refId": "A"}]
+    },
+
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Prod Containers",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"colorMode": "value", "graphMode": "none"},
+      "fieldConfig": {"defaults": {"color": {"fixedColor": "purple", "mode": "fixed"}}, "overrides": []},
+      "targets": [{"rawSql": "SELECT COUNT(*) FROM monitoring.container_health WHERE collected_at = (SELECT MAX(collected_at) FROM monitoring.container_health) AND environment = 'prod' AND status = 'running'", "format": "table", "refId": "A"}]
+    },
+
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Staging Containers",
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"colorMode": "value", "graphMode": "none"},
+      "fieldConfig": {"defaults": {"color": {"fixedColor": "orange", "mode": "fixed"}}, "overrides": []},
+      "targets": [{"rawSql": "SELECT COUNT(*) FROM monitoring.container_health WHERE collected_at = (SELECT MAX(collected_at) FROM monitoring.container_health) AND environment = 'staging' AND status = 'running'", "format": "table", "refId": "A"}]
+    },
+
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Last Collection",
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"colorMode": "none", "graphMode": "none", "textMode": "auto"},
+      "fieldConfig": {"defaults": {"unit": "dateTimeFromNow"}, "overrides": []},
+      "targets": [{"rawSql": "SELECT MAX(collected_at) FROM monitoring.container_health", "format": "table", "refId": "A"}]
+    },
+
+    {
+      "id": 10,
+      "type": "table",
+      "title": "All Containers — Current Status",
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 4},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true, "sortBy": [{"displayName": "environment", "desc": false}]},
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "status"},
+            "properties": [{
+              "id": "mappings",
+              "value": [
+                {"type": "value", "options": {"running":    {"text": "RUNNING",    "color": "green"}}},
+                {"type": "value", "options": {"exited":     {"text": "EXITED",     "color": "red"}}},
+                {"type": "value", "options": {"paused":     {"text": "PAUSED",     "color": "yellow"}}},
+                {"type": "value", "options": {"restarting": {"text": "RESTARTING", "color": "orange"}}},
+                {"type": "value", "options": {"dead":       {"text": "DEAD",       "color": "red"}}}
+              ]
+            }]
+          },
+          {
+            "matcher": {"id": "byName", "options": "health"},
+            "properties": [{
+              "id": "mappings",
+              "value": [
+                {"type": "value", "options": {"healthy":   {"text": "HEALTHY",   "color": "green"}}},
+                {"type": "value", "options": {"unhealthy": {"text": "UNHEALTHY", "color": "red"}}},
+                {"type": "value", "options": {"starting":  {"text": "STARTING",  "color": "yellow"}}},
+                {"type": "value", "options": {"none":      {"text": "-",         "color": "text"}}}
+              ]
+            }]
+          },
+          {
+            "matcher": {"id": "byName", "options": "environment"},
+            "properties": [{
+              "id": "mappings",
+              "value": [
+                {"type": "value", "options": {"prod":    {"text": "PROD",    "color": "purple"}}},
+                {"type": "value", "options": {"staging": {"text": "STAGING", "color": "orange"}}},
+                {"type": "value", "options": {"infra":   {"text": "INFRA",   "color": "blue"}}}
+              ]
+            }]
+          }
+        ]
+      },
+      "targets": [{
+        "rawSql": "SELECT container_name, container_image, status, health, environment, uptime_seconds, ports, collected_at FROM monitoring.container_health WHERE collected_at = (SELECT MAX(collected_at) FROM monitoring.container_health) ORDER BY environment, container_name",
+        "format": "table",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Running Container Count — Last 24h",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "right"}, "tooltip": {"mode": "multi"}},
+      "fieldConfig": {"defaults": {"custom": {"fillOpacity": 10}}, "overrides": []},
+      "targets": [{
+        "rawSql": "SELECT collected_at AS time, environment, COUNT(*) FILTER (WHERE status = 'running') AS running FROM monitoring.container_health WHERE collected_at >= now() - interval '24 hours' GROUP BY collected_at, environment ORDER BY collected_at",
+        "format": "time_series",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Unhealthy / Stopped Events — Last 24h",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "right"}, "tooltip": {"mode": "multi"}},
+      "fieldConfig": {"defaults": {"custom": {"fillOpacity": 20, "drawStyle": "bars"}, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{
+        "rawSql": "SELECT collected_at AS time, container_name, 1 AS event FROM monitoring.container_health WHERE collected_at >= now() - interval '24 hours' AND (status != 'running' OR health = 'unhealthy') ORDER BY collected_at",
+        "format": "time_series",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "id": 30,
+      "type": "table",
+      "title": "Service Run Health — Last 24h (from job_log)",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 24},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "status"},
+            "properties": [{
+              "id": "mappings",
+              "value": [
+                {"type": "value", "options": {"OK":      {"text": "OK",      "color": "green"}}},
+                {"type": "value", "options": {"FAILED":  {"text": "FAILED",  "color": "red"}}},
+                {"type": "value", "options": {"PARTIAL": {"text": "PARTIAL", "color": "yellow"}}},
+                {"type": "value", "options": {"SKIPPED": {"text": "SKIPPED", "color": "blue"}}}
+              ]
+            }]
+          }
+        ]
+      },
+      "targets": [{
+        "rawSql": "SELECT ingester AS service, status, target_date::text, rows_inserted, rows_skipped, EXTRACT(EPOCH FROM (finished_at - started_at))::INT AS duration_secs, started_at, finished_at FROM nidp.job_log WHERE started_at >= now() - interval '24 hours' ORDER BY started_at DESC LIMIT 100",
+        "format": "table",
+        "refId": "A"
+      }]
+    }
+
+  ],
+  "refresh": "1m",
+  "schemaVersion": 38,
+  "tags": ["nidp", "infra", "monitoring"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "timepicker": {},
+  "timezone": "Asia/Kolkata",
+  "title": "NIDP Infrastructure Monitoring",
+  "uid": "nidp-infra",
+  "version": 1
+}

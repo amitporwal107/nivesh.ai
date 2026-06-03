@@ -1,0 +1,113 @@
+# /etc/cron.d/nidp-staging — NIDP STAGING schedules.
+#
+# ⚠ ALL FEED ENTRIES ARE DISABLED BY DEFAULT.
+# This is intentional: staging starts in "no-run" state so no feeds
+# fire until an operator explicitly enables them one at a time.
+#
+# To enable a feed: uncomment its line and reload cron:
+#   sudo install -m 644 /opt/nidp/dev-repo/backend/nidp/deploy/vm/nidp.staging.cron \
+#       /etc/cron.d/nidp-staging
+#
+# Mirrors nidp.cron (prod) 1:1 in schedule; differs in:
+#   • Code repo:   /opt/nidp/dev-repo  (dev branch)
+#   • NIDP_HOME:   /opt/nidp-staging
+#   • Cron user:   nidp-staging
+#   • Entrypoint:  /opt/nidp-staging/run_service.sh  (staging wrapper)
+#   • All entries commented out
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+NIDP_HOME=/opt/nidp-staging
+
+# ── Daily NSE EOD (post-close, 19:00–19:30 IST staggered) ─────────
+# 0  19 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh bhavcopy
+# 0  19 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh index_close
+# 30 19 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fii_dii
+# 30 19 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh bulk_deals
+# 30 19 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh block_deals
+
+# ── T+1 next morning ──────────────────────────────────────────────
+# 30 10 * * 2-6  nidp-staging  /opt/nidp-staging/run_service.sh delivery
+
+# ── Daily / weekday data ──────────────────────────────────────────
+# 0  20 * * *    nidp-staging  /opt/nidp-staging/run_service.sh corporate_actions
+# 30 20 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh rbi_yields
+# 0  21 * * *    nidp-staging  /opt/nidp-staging/run_service.sh fred_macro
+
+# ── Monthly ───────────────────────────────────────────────────────
+# 0  6  1 * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_calendar
+# 30 6  1 * *    nidp-staging  /opt/nidp-staging/run_service.sh index_constituents
+
+# ── Phase 1B daily NSE rolling-list ingesters ─────────────────────
+# 30 19 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fno_bhavcopy
+# 30 20 * * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_financials
+# 0  21 * * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_shareholding
+
+# ── Phase 1B weekly + derivation ──────────────────────────────────
+# 0  7  * * 0    nidp-staging  /opt/nidp-staging/run_service.sh nse_equity_master
+# 30 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh price_adjuster
+
+# ── End-of-day snapshot (after all daily ingesters) ───────────────
+# 0  22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh snapshot_builder
+
+# ── Derived analytics engines ─────────────────────────────────────
+# 30 20 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh mf_analytics_engine
+# 0  21 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh mf_category_ranking
+# 35 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh technical_indicator_engine
+# 5  23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fundamental_engine
+
+# ── S4: corporate announcements (NSE + BSE), every 10 min, 09–23 ──
+# */10 9-23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh corporate_announcements_nse
+# */10 9-23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh corporate_announcements_bse
+
+# ── S4: event/impact classifier (every 30 min, all week) ──────────
+# */30 * * * *    nidp-staging  /opt/nidp-staging/run_service.sh announcement_classifier
+
+# ── S5: document parser (every 15 min, all day) ───────────────────
+# */15 * * * *    nidp-staging  /opt/nidp-staging/run_service.sh document_parser
+
+# ── Mutual fund feeds ─────────────────────────────────────────────
+# 0  20 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh amfi_nav
+# 0  9  * * *    nidp-staging  /opt/nidp-staging/run_service.sh amfi_circulars
+# 0  10 12 * *   nidp-staging  /opt/nidp-staging/run_service.sh mf_disclosure_snapshot
+# 0  11 12 * *   nidp-staging  /opt/nidp-staging/run_service.sh mf_holdings
+
+# ── MF derived analytics refresh ──────────────────────────────────
+# 50 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh mf_derived_refresh
+
+# ── V3 composite scoring ──────────────────────────────────────────
+# 55 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh v3_scores_engine
+
+# ── Analytics performance layer ───────────────────────────────────
+# 10 0 * * 2-6   nidp-staging  /opt/nidp-staging/run_service.sh analytics_refresh
+
+# ── AMC URL drift check ───────────────────────────────────────────
+# 0  8  * * *    nidp-staging  /opt/nidp-staging/run_service.sh amc_urls_drift_check
+
+# ── Corporate event intelligence pipeline ─────────────────────────
+# 30 6  * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh event_calendar
+# 30 20 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh event_calendar
+# */5  9-16 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh event_day_poller
+# 0  19 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh d1_prep
+# 0  20 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh intelligence
+
+# ── Post-ingestion quality gate ───────────────────────────────────
+# 30 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh quality_gate
+
+# ── Intelligence layer + per-user portfolio sync ──────────────────
+# 0  23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_holdings_sync
+# 10 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_transactions_sync
+# 15 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_goals_sync
+# 20 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh intelligence_layer
+# 30 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_intelligence_sync
+
+# ── Container health collector (ENABLED — infra monitoring) ───────
+# Prereq: nidp-staging in docker group (bootstrap-staging.sh step 1b).
+* * * * *  nidp-staging  NIDP_HOME=/opt/nidp-staging PYTHON=/opt/nidp-staging/venv/bin/python SCRIPT=/opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/container_health_collector.py /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_collector.sh >> /opt/nidp-staging/logs/container_health.log 2>&1
+
+# ── Gate 4: Replication integrity check (ENABLED — infra) ─────────
+# Both prod (5433) + staging (5434) Postgres are Docker containers on this VM.
+* * * * *  nidp-staging  /opt/nidp-staging/venv/bin/python /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/gate4_replication_check.py >> /opt/nidp-staging/logs/gate4.log 2>&1
+0 1 * * *  nidp-staging  /opt/nidp-staging/venv/bin/python /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/gate4_replication_check.py --mode=daily >> /opt/nidp-staging/logs/gate4_daily.log 2>&1

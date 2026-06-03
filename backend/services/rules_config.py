@@ -35,7 +35,7 @@ DEFAULTS: Dict[str, Any] = {
             "label": "Rule 2 · AMC concentration",
             "description": "Exit highest-exit-score funds of an AMC whose exposure exceeds the threshold, until below threshold.",
             "params": {
-                "threshold_pct": 15.0,  # 0–100, exclusive trigger
+                "threshold_pct": 40.0,  # PA-3: single AMC > 40% of portfolio (rule book §10.4)
             },
         },
         "rule_2b_category_concentration": {
@@ -59,7 +59,8 @@ DEFAULTS: Dict[str, Any] = {
             "label": "Rule 4 · Different-fund overlap",
             "description": "When two different funds overlap above threshold, exit the fund with the higher exit score (subject to positive switch score).",
             "params": {
-                "overlap_threshold_pct": 60.0,
+                "overlap_threshold_pct": 70.0,   # OV-1: >70% = consolidation candidate (rule book §10.5)
+                "overlap_moderate_pct": 50.0,    # OV-2: 50–70% = lower-priority cleanup item
                 "max_overlap_exits": 2,
             },
         },
@@ -91,11 +92,107 @@ DEFAULTS: Dict[str, Any] = {
                 "portfolio_score_threshold": 75.0,
             },
         },
+        "rule_8_same_category_consolidation": {
+            "enabled": True,
+            "label": "Rule 8 · Same-category fund consolidation",
+            "description": "When the user holds 3+ funds in the same SEBI category (e.g. Large Cap), recommend exiting all but the best-scoring one.",
+            "params": {
+                "min_funds_to_trigger": 3,
+                "keep_top_n": 1,
+            },
+        },
+        "rule_9_cross_category_overlap_replacement": {
+            "enabled": True,
+            "label": "Rule 9 · Cross-category overlap replacement",
+            "description": "When two funds overlap heavily, instead of just exiting one, suggest replacing it with a fund in a complementary category.",
+            "params": {
+                "overlap_threshold_pct": 70.0,   # aligned with OV-1 threshold
+                "max_replacements": 2,
+            },
+        },
+        "rule_10_international_fund_gap": {
+            "enabled": True,
+            "label": "Rule 10 · International fund gap",
+            "description": "Recommend adding an international fund when the user has <2% geographic diversification and the risk profile supports it.",
+            "params": {
+                "min_intl_gap_pct": 2.0,
+                "min_portfolio_value_rs": 500000,
+            },
+        },
     },
     "plan_limits": {
         "max_actions_per_plan": 6,
     },
     "custom_rules": [],   # Phase 2 — user-defined rules
+    # ── Engine pipeline (new architecture) ───────────────────────────────
+    # engine_pipeline.enabled=False → legacy sequential _apply_action_rules()
+    # engine_pipeline.enabled=True  → new run_engine_pipeline() orchestrator
+    "engine_pipeline": {
+        "enabled": True,
+        "arbitration": {
+            "confidence_threshold": 0.4,
+            "tax_suppression_threshold_pct": 15.0,
+        },
+        "simulation": {
+            # 0 = off (no marginal suppression); raise to e.g. 50000 once validated
+            "marginal_improvement_threshold_rs": 0,
+        },
+        "portfolio_impact": {
+            "enabled": True,
+        },
+    },
+    # ── Risk Alignment Engine (RA-1..RA-3, rule book §10.3) ──────────────
+    "risk_alignment": {
+        "enabled": True,
+        # RA-1 hard caps per risk profile
+        "conservative": {
+            "smallcap_cap_pct": 10.0,
+            "sectoral_cap_pct": 5.0,
+            "single_stock_cap_pct": 8.0,
+        },
+        "moderate": {
+            "smallcap_cap_pct": 20.0,
+            "sectoral_cap_pct": 15.0,
+            "single_stock_cap_pct": 15.0,
+        },
+        "aggressive": {
+            "smallcap_cap_pct": 35.0,
+            "sectoral_cap_pct": 25.0,
+            "single_stock_cap_pct": 20.0,
+        },
+        # RA-2 portfolio volatility ceilings (annualised %)
+        "volatility_cap_pct": {
+            "conservative": 10.0,
+            "moderate": 18.0,
+            "aggressive": 28.0,
+        },
+        # RA-3 max drawdown ceilings (%)
+        "drawdown_cap_pct": {
+            "conservative": 15.0,
+            "moderate": 25.0,
+            "aggressive": 40.0,
+        },
+    },
+    # ── Portfolio Analytics Engine (PA-1..PA-3, rule book §10.4) ─────────
+    "portfolio_analytics": {
+        "enabled": True,
+        # PA-1: flag over-diversification when equity fund count exceeds this
+        # AND marginal diversification gain is negligible
+        "max_equity_fund_count": 8,
+        # effective-holdings threshold below which PA-2 flags concentration
+        "min_effective_holdings": 3.0,
+    },
+    # ── Correlation Engine (CR-1, rule book §10.6) ────────────────────────
+    "correlation": {
+        "enabled": True,
+        "min_abs_correlation": 0.85,   # CR-1: >0.85 = behaviourally redundant
+        "window_days": 90,             # 90-day rolling Pearson (matches graph.correlations)
+    },
+    # ── Data Validation Engine (DV-1..DV-4, rule book §10.1) ─────────────
+    "data_validation": {
+        "enabled": True,
+        "coverage_threshold_pct": 90.0,   # DV-1: suppress allocation recs below this
+    },
 }
 
 

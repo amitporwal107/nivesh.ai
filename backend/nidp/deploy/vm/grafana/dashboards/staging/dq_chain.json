@@ -1,0 +1,510 @@
+{
+  "__inputs": [],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "postgres",
+      "name": "PostgreSQL",
+      "version": "1.0.0"
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "description": "NIDP Data Quality Gates \u2014 daily chain status and feed health matrix",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Daily Chain Status",
+      "description": "Gate 3 snapshot completion status for today",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "PASS": {
+                  "text": "GREEN \u2713",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "PARTIAL": {
+                  "text": "AMBER \u26a0",
+                  "color": "yellow",
+                  "index": 1
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "PENDING": {
+                  "text": "PENDING \u23f3",
+                  "color": "blue",
+                  "index": 2
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "BLOCKED": {
+                  "text": "BLOCKED \u2717",
+                  "color": "red",
+                  "index": 3
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT status FROM dq.snapshot_status ORDER BY target_date DESC LIMIT 1",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Snapshot Date",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeFromNow"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT target_date::text FROM dq.snapshot_status ORDER BY target_date DESC LIMIT 1",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Feeds Ready",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 10,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "green",
+            "mode": "fixed"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT array_length(feeds_ready,1) FROM dq.snapshot_status ORDER BY target_date DESC LIMIT 1",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Feeds Blocked",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 14,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(array_length(feeds_blocked,1),0) FROM dq.snapshot_status ORDER BY target_date DESC LIMIT 1",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "DLQ Pending",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) FROM dq.dlq_findings WHERE replay_status = 'PENDING'",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Feed Health Matrix \u2014 Gate 3 (last 7 days)",
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "verdict"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "PASS": {
+                        "text": "PASS \u2713",
+                        "color": "green"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "AMBER": {
+                        "text": "AMBER \u26a0",
+                        "color": "yellow"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "FAIL": {
+                        "text": "FAIL \u2717",
+                        "color": "red"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT feed, target_date::text, verdict, severity, created_at FROM dq.gate_verdicts WHERE gate_id = 3 AND target_date >= CURRENT_DATE - 7 ORDER BY target_date DESC, feed",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Gate Verdict Rate \u2014 all gates (Prometheus)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(nidp_dq_gate_verdicts_total{verdict=\"pass\"}[5m])",
+          "legendFormat": "gate{{gate}}/{{feed}} PASS",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(nidp_dq_gate_verdicts_total{verdict=\"fail\"}[5m])",
+          "legendFormat": "gate{{gate}}/{{feed}} FAIL",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Ingester Run Status (Prometheus)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(nidp_ingester_runs_total{status=\"OK\"}[5m])",
+          "legendFormat": "{{service}} OK",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(nidp_ingester_runs_total{status=\"FAILED\"}[5m])",
+          "legendFormat": "{{service}} FAILED",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "table",
+      "title": "DLQ Findings \u2014 PENDING",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT id::text, gate_id, feed, target_date::text, failure_reason, severity, created_at FROM dq.dlq_findings WHERE replay_status = 'PENDING' ORDER BY created_at DESC LIMIT 50",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 38,
+  "tags": [
+    "nidp",
+    "dq",
+    "quality-gates",
+    "staging"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "Asia/Kolkata",
+  "title": "NIDP Staging \u2014 DQ Chain Status",
+  "uid": "nidp-stg-dq-chain",
+  "version": 1
+}

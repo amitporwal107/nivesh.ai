@@ -175,7 +175,7 @@ gcloud compute ssh nivesh-app-vm \
   --project=niveshdataintelligence --zone=asia-south1-a
 
 # Or direct SSH after OS Login key registration
-ssh teammate_gmail_com@34.100.186.141   # nivesh-app-vm
+ssh teammate_gmail_com@34.47.250.214   # nivesh-app-vm
 ssh teammate_gmail_com@34.93.60.254     # nidp-stack-vm
 ```
 

@@ -1,0 +1,134 @@
+name: Deploy → nidp-stack-vm [cron + systemd]
+
+# Triggers when the cron schedule or systemd unit files change on main.
+# Installs the new schedule and units on the VM without a full code redeploy.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/nidp/deploy/vm/nidp.cron'
+      - 'backend/nidp/deploy/vm/*.service'
+      - 'backend/nidp/deploy/vm/*.timer'
+      - 'backend/nidp/deploy/vm/nginx.conf'
+
+  workflow_dispatch:
+    inputs:
+      component:
+        description: 'Which component to update'
+        type: choice
+        options:
+          - all
+          - cron
+          - systemd
+          - nginx
+        default: all
+
+concurrency:
+  group: deploy-nidp-cron
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Update cron + systemd units on nidp-stack-vm
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy cron schedule and systemd units
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:             ${{ secrets.NIDP_VM_HOST }}
+          username:         ${{ secrets.DEVOPS_SSH_USER }}
+          key:              ${{ secrets.DEVOPS_SSH_KEY }}
+          port:             22
+          timeout:          5m
+          command_timeout:  10m
+          script: |
+            set -euo pipefail
+            log() { printf '\033[1;36m[nidp-cron-ci]\033[0m %s\n' "$*"; }
+            ok()  { printf '\033[1;32m[nidp-cron-ci]\033[0m ✅ %s\n' "$*"; }
+
+            COMPONENT="${{ github.event.inputs.component || 'all' }}"
+            REPO=/opt/nidp/repo
+            DEPLOY=$REPO/backend/nidp/deploy/vm
+
+            log "=== NIDP cron/systemd deploy ==="
+            log "    Commit    : ${{ github.sha }}"
+            log "    Component : $COMPONENT"
+
+            # Ensure code is current first
+            git config --global --add safe.directory "$REPO"
+            sudo -u nidp git -C "$REPO" fetch --quiet origin main
+            sudo -u nidp git -C "$REPO" reset --hard --quiet origin/main
+            ok "Code at $(git -C $REPO rev-parse --short HEAD)"
+
+            # ── Cron schedule ───────────────────────────────────────────────
+            if [[ "$COMPONENT" == "all" || "$COMPONENT" == "cron" ]]; then
+              log "Installing /etc/cron.d/nidp ..."
+              sudo install -m 644 -o root -g root "$DEPLOY/nidp.cron" /etc/cron.d/nidp
+              sudo systemctl reload cron 2>/dev/null || sudo systemctl reload crond 2>/dev/null || true
+              ok "cron schedule updated"
+            fi
+
+            # ── Systemd units ───────────────────────────────────────────────
+            if [[ "$COMPONENT" == "all" || "$COMPONENT" == "systemd" ]]; then
+              log "Installing systemd unit files ..."
+              for unit in nidp-daas-api.service nidp-query-api.service \
+                          nidp-health.service nidp-health.timer; do
+                if [[ -f "$DEPLOY/$unit" ]]; then
+                  sudo install -m 644 -o root -g root "$DEPLOY/$unit" "/etc/systemd/system/$unit"
+                  log "  installed $unit"
+                fi
+              done
+
+              sudo systemctl daemon-reload
+              ok "systemd daemon reloaded"
+
+              # Restart active services so they pick up the new unit definition
+              for svc in nidp-daas-api nidp-query-api; do
+                if sudo systemctl is-active --quiet "$svc" 2>/dev/null; then
+                  sudo systemctl restart "$svc"
+                  ok "$svc restarted"
+                fi
+              done
+
+              # Re-enable + restart health timer
+              if sudo systemctl is-enabled --quiet nidp-health.timer 2>/dev/null; then
+                sudo systemctl restart nidp-health.timer
+                ok "nidp-health.timer restarted"
+              fi
+            fi
+
+            # ── Nginx config ────────────────────────────────────────────────
+            if [[ "$COMPONENT" == "all" || "$COMPONENT" == "nginx" ]]; then
+              if [[ -f "$DEPLOY/nginx.conf" ]]; then
+                log "Testing nginx config ..."
+                sudo nginx -t -c "$DEPLOY/nginx.conf" 2>&1 || {
+                  echo "::error::nginx config test failed — aborting"
+                  exit 1
+                }
+                sudo install -m 644 -o root -g root "$DEPLOY/nginx.conf" /etc/nginx/conf.d/nidp.conf
+                sudo nginx -s reload
+                ok "nginx config reloaded"
+              fi
+            fi
+
+            ok "Deploy complete."
+
+      - name: Verify cron is loaded
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:             ${{ secrets.NIDP_VM_HOST }}
+          username:         ${{ secrets.DEVOPS_SSH_USER }}
+          key:              ${{ secrets.DEVOPS_SSH_KEY }}
+          port:             22
+          timeout:          2m
+          command_timeout:  2m
+          script: |
+            echo "=== /etc/cron.d/nidp (first 10 schedule lines) ==="
+            grep -v '^#' /etc/cron.d/nidp | grep -v '^$' | head -10
+            echo ""
+            echo "=== Active NIDP systemd services ==="
+            systemctl is-active nidp-daas-api nidp-query-api nidp-health.timer 2>/dev/null || true

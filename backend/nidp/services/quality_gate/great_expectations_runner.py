@@ -44,26 +44,38 @@ PG_DSN = (
 # feed has tens of millions of rows (bhavcopy is ~3500/day, but a
 # whole-history sweep should still cap somewhere).
 FEED_QUERIES = {
+    # Legacy aliases kept for backwards-compat; canonical names added below
     "amfi_nav": {
-        "table":   "nidp.amfi_nav",
-        "columns": "scheme_code, scheme_name, nav, isin_payout, isin_reinvest, as_of_date",
-        "limit":   200_000,
+        "table":    "nidp.mf_nav_daily",
+        "columns":  "scheme_code, nav, nav_date AS as_of_date",
+        "date_col": "nav_date",
+        "limit":    200_000,
     },
     "fii_dii": {
-        "table":   "nidp.fii_dii",
-        "columns": "category, as_of_date, buy_value, sell_value, net_value",
-        "limit":   100_000,
+        "table":    "nidp.fii_dii_flows",
+        "columns":  "category, as_of_date, buy_value_cr AS buy_value, sell_value_cr AS sell_value, net_value_cr AS net_value",
+        "date_col": "as_of_date",
+        "limit":    100_000,
     },
     "bhavcopy": {
-        "table":   "nidp.bhavcopy",
-        "columns": "symbol, series, as_of_date, open_price, high_price, low_price, close_price, volume, isin",
-        "limit":   200_000,
+        "table":    "nidp.prices_eod",
+        "columns":  "symbol, series, as_of_date, open_price, high_price, low_price, close_price, volume, isin",
+        "date_col": "as_of_date",
+        "limit":    200_000,
     },
     "index_close": {
-        "table":   "nidp.index_close",
-        "columns": "index_name, as_of_date, open_price, high_price, low_price, close_price",
-        "limit":   50_000,
+        "table":    "nidp.index_eod",
+        "columns":  "index_name, as_of_date, open_price, high_price, low_price, close_price",
+        "date_col": "as_of_date",
+        "limit":    50_000,
     },
+    # Additional feeds registered but not yet having GE suites — return empty
+    "delivery":          {"table": "nidp.delivery_data",    "columns": "symbol, as_of_date, deliverable_qty, deliverable_pct",                                                 "date_col": "as_of_date", "limit": 200_000},
+    "fno_bhavcopy":      {"table": "nidp.fno_bhavcopy",     "columns": "ticker_symbol AS symbol, as_of_date, expiry_date, option_type, close_price, open_interest",            "date_col": "as_of_date", "limit": 100_000},
+    "bulk_deals":        {"table": "nidp.bulk_deals",        "columns": "symbol, as_of_date, client_name, quantity, avg_price AS price",                                       "date_col": "as_of_date", "limit": 10_000},
+    "block_deals":       {"table": "nidp.block_deals",       "columns": "symbol, as_of_date, client_name, quantity, avg_price AS price",                                       "date_col": "as_of_date", "limit": 10_000},
+    "corporate_actions": {"table": "nidp.corporate_actions", "columns": "symbol, ex_date AS as_of_date, action_type, dividend_amount AS value",                                "date_col": "ex_date",    "limit": 50_000},
+    "rbi_yields":        {"table": "nidp.rbi_yields",        "columns": "tenor, as_of_date, yield_pct",                                                                        "date_col": "as_of_date", "limit": 10_000},
 }
 
 
@@ -71,12 +83,15 @@ async def _fetch_rows(
     conn: asyncpg.Connection, feed: str, target_date: Optional[str],
 ) -> List[dict]:
     cfg = FEED_QUERIES[feed]
+    date_col = cfg.get("date_col", "as_of_date")
     where, params = "", []
     if target_date:
-        where = " WHERE as_of_date = $1::date "
-        params = [target_date]
+        where = f" WHERE {date_col} = $1 "
+        # asyncpg requires datetime.date, not a string
+        d = target_date if isinstance(target_date, date) else date.fromisoformat(str(target_date))
+        params = [d]
     sql = (f"SELECT {cfg['columns']} FROM {cfg['table']}{where} "
-           f"ORDER BY as_of_date DESC LIMIT {cfg['limit']}")
+           f"ORDER BY {date_col} DESC LIMIT {cfg['limit']}")
     rows = await conn.fetch(sql, *params)
     return [dict(r) for r in rows]
 

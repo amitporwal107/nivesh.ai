@@ -5,6 +5,7 @@ from typing import Optional, List
 
 from deps import get_current_user, require_admin, db
 from services import portfolio_intelligence, ai_insights, pg_writer, pg_client, dashboard_recommendations
+from core.exceptions import ResourceNotFoundException
 
 router = APIRouter(prefix="/api")
 
@@ -126,7 +127,7 @@ async def rate_single_fund(request: Request, instrument_id: str):
     await require_admin(request)
     detail = await pg_writer.get_fund_detail(instrument_id)
     if not detail:
-        raise HTTPException(status_code=404, detail="Fund not found")
+        raise ResourceNotFoundException("Fund not found", code="RES-001")
     # Check cache
     pool = await pg_client.get_pool()
     if pool:
@@ -220,7 +221,7 @@ async def get_v3_score(request: Request, instrument_id: str, refresh: bool = Que
 
     f = await _load_fund_primitives(instrument_id)
     if not f:
-        raise HTTPException(status_code=404, detail="Fund not found")
+        raise ResourceNotFoundException("Fund not found", code="RES-001")
 
     # Minimal portfolio ctx with conservative defaults — callers that want
     # user-aware Exit/Add scores should use the action_plan_manager directly.
@@ -299,7 +300,7 @@ async def sector_peer_comparison(request: Request, symbol: str, limit: int = Que
         except Exception:  # noqa: BLE001
             sector = None
     if not sector:
-        raise HTTPException(status_code=404, detail=f"No sector mapping found for {symbol}")
+        raise ResourceNotFoundException(f"No sector mapping found for {symbol}", code="RES-001")
 
     # 2. Fetch top-N peers in the same sector, V3-scored
     peers = await si.get_nidp_screener(

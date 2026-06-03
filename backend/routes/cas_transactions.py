@@ -59,6 +59,18 @@ async def list_detected_sips(request: Request):
     ).sort([("status", 1), ("amount", -1)])    # ACTIVE first, then by amount desc
     sips = [s async for s in cursor]
 
+    # Augment each SIP with v4 fields (setdefault so existing data wins).
+    # Screens served: 17_sip_board.svg (advisor)
+    for s in sips:
+        s.setdefault("state", s.get("status", "UNKNOWN"))
+        s.setdefault("mandate_id", None)
+        s.setdefault("mandate_expiry_date", None)
+        s.setdefault("last_bounce_reason", None)
+        s.setdefault("last_bounce_date", None)
+        s.setdefault("cycles_missed", 0)
+        s.setdefault("next_debit_date", None)
+        s.setdefault("proposed_stepup_pct", None)
+
     active = [s for s in sips if s.get("status") == "ACTIVE"]
     monthly_outflow = sum(
         s["amount"] for s in active if s.get("cadence") == "MONTHLY"

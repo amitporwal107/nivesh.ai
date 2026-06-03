@@ -82,7 +82,7 @@ import com.cloudbees.plugins.credentials.domains.*
 import com.cloudbees.jenkins.plugins.sshcredentials.impl.*
 def store = Jenkins.instance.getExtensionList('com.cloudbees.plugins.credentials.SystemCredentialsProvider')[0].getStore()
 if (!store.getCredentials(Domain.global()).find {{ it.id == 'nivesh-app-vm-ssh' }}) {{
-  def cred = new BasicSSHUserPrivateKey(CredentialsScope.GLOBAL, 'nivesh-app-vm-ssh', 'aporwal107_gmail_com',
+  def cred = new BasicSSHUserPrivateKey(CredentialsScope.GLOBAL, 'nivesh-app-vm-ssh', 'sa_108611142161866522954',
     new BasicSSHUserPrivateKey.DirectEntryPrivateKeySource(\"\"\"{nivesh_key}\"\"\"), '', 'Deploy key: nivesh-app-vm')
   store.addCredentials(Domain.global(), cred)
   println 'Created nivesh-app-vm-ssh'
@@ -118,7 +118,7 @@ import org.jenkinsci.plugins.plaincredentials.impl.*
 def store = Jenkins.instance.getExtensionList('com.cloudbees.plugins.credentials.SystemCredentialsProvider')[0].getStore()
 if (!store.getCredentials(Domain.global()).find { it.id == 'NIVESH_APP_VM_HOST' }) {
   store.addCredentials(Domain.global(), new StringCredentialsImpl(CredentialsScope.GLOBAL,
-    'NIVESH_APP_VM_HOST', 'nivesh-app-vm IP', hudson.util.Secret.fromString('34.100.186.141')))
+    'NIVESH_APP_VM_HOST', 'nivesh-app-vm IP', hudson.util.Secret.fromString('34.47.250.214')))
   println 'Created NIVESH_APP_VM_HOST'
 } else { println 'Already exists' }
 Jenkins.instance.save()

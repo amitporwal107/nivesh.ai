@@ -183,7 +183,21 @@ async def run(target_date: Optional[date] = None) -> dict[str, Any]:
         return {**stats, "sync_run_id": str(sync_run_id)}
 
     logger.info("portfolio_holdings_sync: reading gs://%s/%s", GCS_BUCKET, blob_path)
-    records = _load_records(blob_path)
+    try:
+        records = _load_records(blob_path)
+    except Exception as gcs_exc:
+        # Stale latest.json or object deleted — log a warning and exit cleanly
+        # (do not raise so cron doesn't mark the job as failed)
+        err_str = str(gcs_exc)
+        if "404" in err_str or "NotFound" in err_str or "No such object" in err_str:
+            logger.warning(
+                "portfolio_holdings_sync: GCS object not found (stale latest.json?): %s — "
+                "re-run Nivesh GCS export to refresh the landing zone",
+                blob_path,
+            )
+        else:
+            logger.error("portfolio_holdings_sync: GCS read error for %s: %s", blob_path, gcs_exc)
+        return {**stats, "sync_run_id": str(sync_run_id)}
 
     if not records:
         logger.info("portfolio_holdings_sync: empty file")

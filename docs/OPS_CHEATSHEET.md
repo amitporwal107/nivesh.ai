@@ -1,12 +1,13 @@
 # Nivesh — Build / Deploy / Manage Cheatsheet
 
-**Last updated:** 2026-05-14
+**Last updated:** 2026-05-27
 
 Two GCP VMs, one GCP project:
 
 | VM | IP | Public URL | Role |
 |---|---|---|---|
-| `nivesh-app-vm` | `34.100.186.141` | `https://niveshcopilot.com` | Main app (Nginx + FastAPI + MongoDB + Postgres + Redis) |
+| `nivesh-app-vm` | `34.47.250.214` | `https://niveshcopilot.com` | Main app (Nginx + FastAPI + MongoDB + Postgres + Redis) |
+| `nivesh-app-vm` | `34.47.250.214` | `https://staging.niveshcopilot.com` | **Staging** — same VM, separate Docker stack under `/opt/nivesh-staging/` |
 | `nidp-stack-vm` | `34.93.60.254` | `https://data.niveshcopilot.com` | NIDP data plane (DaaS API + Query API + cron jobs + Grafana) |
 
 **Project:** `niveshdataintelligence` · **Zone:** `asia-south1-a`
@@ -16,16 +17,16 @@ Two GCP VMs, one GCP project:
 ## 0. SSH Access
 
 ```bash
-# nivesh-app-vm
+# nivesh-app-vm — direct SSH key (no GCP token needed)
+# Key: ~/.ssh/nivesh_vm  (ed25519, added 2026-05-28)
+ssh -i ~/.ssh/nivesh_vm aporwal107_gmail_com@34.47.250.214
+
+# nidp-stack-vm — direct SSH
+ssh aporwal107_gmail_com@34.93.60.254
+
+# Fallback: gcloud ssh (requires fresh OAuth token in CLOUDSDK_AUTH_ACCESS_TOKEN)
 gcloud compute ssh nivesh-app-vm \
   --project=niveshdataintelligence --zone=asia-south1-a
-
-# nidp-stack-vm
-gcloud compute ssh nidp-stack-vm \
-  --project=niveshdataintelligence --zone=asia-south1-a
-
-# nidp-stack-vm — direct SSH (OS Login username)
-ssh aporwal107_gmail_com@34.93.60.254
 ```
 
 ---
@@ -50,7 +51,7 @@ gcloud compute ssh nivesh-app-vm \
 sudo bash ~/nivesh-app/bootstrap.sh
 
 # Step 5: On the VM — first deploy
-sudo EXTERNAL_IP=34.100.186.141 bash /opt/nivesh/deploy/deploy.sh
+sudo EXTERNAL_IP=34.47.250.214 bash /opt/nivesh/deploy/deploy.sh
 ```
 
 ---
@@ -100,6 +101,63 @@ bash deploy/nivesh-app/redeploy.sh --branch main
 # On the VM — pull code and restart backend process without rebuilding image
 git -C /opt/nivesh/repo reset --hard origin/nivesh-v2-copilot
 docker restart nivesh-backend
+```
+
+---
+
+## 2b. nivesh-app-vm — Staging Redeploy
+
+Staging runs as a **separate Docker Compose stack** on the same `nivesh-app-vm`, rooted at
+`/opt/nivesh-staging/`. It tracks the `dev` branch by default.
+
+**URL:** `https://staging.niveshcopilot.com:8443`
+**Script:** `/opt/nivesh-staging/repo/deploy/nivesh-staging/redeploy-staging.sh`
+**Compose file:** `/opt/nivesh-staging/repo/deploy/nivesh-staging/docker-compose.staging.yml`
+**Env file:** `/opt/nivesh-staging/.env.staging`
+
+```bash
+# Standard — redeploy from dev branch (most common)
+gcloud compute ssh aporwal107_gmail_com@nivesh-app-vm \
+  --project=niveshdataintelligence --zone=asia-south1-a \
+  --command="sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/redeploy-staging.sh dev"
+
+# Or from inside the VM (after SSH):
+sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/redeploy-staging.sh dev
+
+# Deploy a specific branch
+sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/redeploy-staging.sh feat/my-branch
+```
+
+**What the script does:**
+1. `git fetch + reset --hard origin/<branch>` — updates `/opt/nivesh-staging/repo`
+2. `docker compose build --pull` — rebuilds backend + frontend images tagged `:staging`
+3. `docker compose up -d --remove-orphans` — restarts changed containers
+4. Waits for `nivesh-staging-app-backend` healthcheck to pass
+5. Reloads edge nginx (`nivesh-staging-nginx`) so route changes land immediately
+6. Smoke check: `curl -k https://staging.niveshcopilot.com:8443/api/healthz`
+
+**Staging containers (all on `nivesh-app-vm`):**
+
+| Container | Image | Port |
+|---|---|---|
+| `nivesh-staging-app-backend` | `nivesh/backend:staging` | internal 8001 |
+| `nivesh-staging-app-frontend` | `nivesh/frontend:staging` | internal 80 |
+| `nivesh-staging-nginx` | `nginx:1.27-alpine` | `0.0.0.0:8443` |
+| `nivesh-staging-mongo` | `mongo:7` | `127.0.0.1:27117` |
+| `nivesh-staging-postgres` | `postgres:16-alpine` | `127.0.0.1:5532` |
+| `nivesh-staging-redis` | `redis:7-alpine` | `127.0.0.1:6479` |
+
+**Manage staging stack:**
+```bash
+# Tail logs
+docker logs -f nivesh-staging-app-backend
+docker logs -f nivesh-staging-app-frontend
+
+# Status
+docker compose -f /opt/nivesh-staging/repo/deploy/nivesh-staging/docker-compose.staging.yml ps
+
+# Restart backend only (no rebuild)
+docker restart nivesh-staging-app-backend
 ```
 
 ---
@@ -164,7 +222,7 @@ $COMPOSE down
 $COMPOSE --env-file /opt/nivesh/.env.prod up -d
 
 # ── Health check ──────────────────────────────────────────────────────────────
-curl -sf http://34.100.186.141.nip.io/health
+curl -sf http://34.47.250.214.nip.io/health
 
 # ── Run DB migrations (idempotent) ────────────────────────────────────────────
 $COMPOSE --env-file /opt/nivesh/.env.prod --profile migrate up migrate
@@ -177,17 +235,37 @@ $COMPOSE --env-file /opt/nivesh/.env.prod --profile migrate up migrate
 Deploys pull from origin. `/opt/nidp/repo` is a real git checkout — there
 is no rsync path (the old `quick_deploy.sh` has been removed).
 
+**Standard deploy (from `dev` branch — staging/integration):**
 ```bash
-# SSH into VM, then:
-sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh
+# Remote-invoke from your laptop (most common workflow):
+gcloud compute ssh aporwal107_gmail_com@nidp-stack-vm \
+  --project=niveshdataintelligence --zone=asia-south1-a \
+  --command="sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh --branch=dev"
 
-# Deploy a specific branch
-sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh --branch=nivesh-v2-backend-wip
-
-# Or remote-invoke from your laptop:
-gcloud compute ssh nidp-stack-vm --zone=asia-south1-a --command='\
-  sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh --branch=nivesh-v2-backend-wip'
+# Or SSH in first, then run:
+sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh --branch=dev
 ```
+
+**Production deploy (from `main` branch):**
+```bash
+gcloud compute ssh aporwal107_gmail_com@nidp-stack-vm \
+  --project=niveshdataintelligence --zone=asia-south1-a \
+  --command="sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh --branch=main"
+```
+
+**Deploy a feature/WIP branch:**
+```bash
+gcloud compute ssh aporwal107_gmail_com@nidp-stack-vm \
+  --project=niveshdataintelligence --zone=asia-south1-a \
+  --command="sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh --branch=nivesh-v2-backend-wip"
+```
+
+**What `deploy.sh` does:**
+1. `git fetch + reset --hard origin/<branch>` — updates `/opt/nidp/repo`
+2. Installs/upgrades Python deps in the NIDP virtualenv
+3. Runs pending Alembic/SQL migrations against TimescaleDB
+4. Restarts DaaS API + Query API systemd services
+5. Smoke-checks `/daas/health` and `/query/health`
 
 ### One-time: convert an rsync'd /opt/nidp/repo into a git checkout
 

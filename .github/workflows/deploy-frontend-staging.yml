@@ -1,0 +1,66 @@
+name: Deploy frontend → nivesh-app-vm [staging]
+
+# Triggers on pushes to dev when frontend code changes (v2 or v5).
+# Passes --frontend-only to redeploy-staging.sh so the backend
+# image is NOT rebuilt — much faster than a full rebuild.
+"on":
+  push:
+    branches: [dev]
+    paths:
+      - 'frontend/**'
+      - 'frontend-v5/**'
+      - 'deploy/nivesh-app/Dockerfile.frontend.prod'
+      - 'deploy/nivesh-app/Dockerfile.frontend-v5.prod'
+      - 'deploy/nivesh-staging/app-frontend-nginx.conf'
+
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy (default: dev)'
+        type: string
+        default: dev
+
+concurrency:
+  group: deploy-app-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy-frontend:
+    name: Deploy frontend [staging]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve branch
+        id: config
+        run: |
+          BRANCH="${{ github.event.inputs.branch || github.ref_name }}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: SSH → redeploy frontend [staging]
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:            ${{ secrets.NIVESH_VM_HOST }}
+          username:        ${{ secrets.DEVOPS_SSH_USER }}
+          key:             ${{ secrets.DEVOPS_SSH_KEY }}
+          port:            22
+          timeout:         10m
+          command_timeout: 25m
+          script: |
+            set -euo pipefail
+            echo "=== STAGING frontend deploy ==="
+            echo "    Branch : ${{ steps.config.outputs.branch }}"
+            echo "    Commit : ${{ github.sha }}"
+
+            sudo git config --global --add safe.directory /opt/nivesh-staging/repo
+
+            sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/redeploy-staging.sh \
+              "${{ steps.config.outputs.branch }}" --frontend-only
+
+      - name: Health check [staging]
+        run: |
+          sleep 15
+          HTTP=$(curl -sfk -o /dev/null -w "%{http_code}" \
+            --max-time 15 https://staging.niveshcopilot.com/api/healthz \
+            2>/dev/null || echo "000")
+          echo "Health check → HTTP $HTTP"
+          [[ "$HTTP" == "200" ]] || echo "::warning::Health check returned $HTTP"

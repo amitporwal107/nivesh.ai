@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env.local
+.env.*.local
+*.tsbuildinfo
+
+# E2E test artifacts
+e2e/.auth/
+e2e/screenshots/
+e2e/test-results/
+playwright-report/
+.env.test

@@ -156,6 +156,52 @@ async def invalidate_cache(request: Request) -> Dict[str, Any]:
     return {"status": "ok", "keys_deleted": deleted}
 
 
+@router.post("/cache/invalidate-performance")
+async def invalidate_performance_caches(request: Request) -> Dict[str, Any]:
+    """Clear all per-user performance caches so the next request recomputes
+    with the current code.
+
+    Clears:
+      - MongoDB  fund_performance_cache  (mfapi.in-based 1Y/3M/1M rankings)
+      - Postgres portfolio_performance_cache  (XIRR / waterfall / contributors)
+
+    Called automatically by the GitHub Actions deploy workflow after each
+    successful health check, so users always see data computed with the
+    deployed code — never stale data from a previous version.
+    """
+    await require_admin(request)
+    from deps import db
+    from services import pg_client
+
+    results: Dict[str, Any] = {}
+
+    # Clear MongoDB fund_performance_cache
+    try:
+        res = await db.fund_performance_cache.delete_many({})
+        results["mongo_fund_performance_cache"] = {"deleted": res.deleted_count}
+    except Exception as e:
+        logger.warning("invalidate-performance: mongo clear failed: %s", e)
+        results["mongo_fund_performance_cache"] = {"error": str(e)}
+
+    # Clear Postgres portfolio_performance_cache
+    try:
+        pool = await pg_client.get_pool()
+        if pool:
+            async with pool.acquire() as conn:
+                # execute() returns "DELETE N" — split to get row count
+                status = await conn.execute("DELETE FROM portfolio_performance_cache")
+                deleted_pg = int(status.split()[-1]) if status else 0
+            results["pg_portfolio_performance_cache"] = {"deleted": deleted_pg}
+        else:
+            results["pg_portfolio_performance_cache"] = {"skipped": "no pg pool"}
+    except Exception as e:
+        logger.warning("invalidate-performance: pg clear failed: %s", e)
+        results["pg_portfolio_performance_cache"] = {"error": str(e)}
+
+    logger.info("invalidate-performance: %s", results)
+    return {"status": "ok", "cleared": results}
+
+
 @router.post("/progress/{job_name}/clear")
 async def clear_progress(job_name: str, request: Request) -> Dict[str, Any]:
     """Clear a stuck live-progress record (admin recovery). Does NOT kill the

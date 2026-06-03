@@ -1,0 +1,105 @@
+name: Deploy backend → nivesh-app-vm [staging]
+
+# Triggers on pushes to dev when backend code changes.
+# Passes --backend-only to redeploy-staging.sh so the frontend
+# image is NOT rebuilt — cuts deploy time by ~50%.
+"on":
+  push:
+    branches: [dev]
+    paths:
+      - 'backend/**'
+      - '!backend/nidp/**'
+      - 'deploy/nivesh-app/Dockerfile.backend.prod'
+      - 'deploy/nivesh-staging/**'
+
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy (default: dev)'
+        type: string
+        default: dev
+      run_migrations:
+        description: 'Run DB migrations after redeploy'
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-app-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy-backend:
+    name: Deploy backend [staging]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve branch
+        id: config
+        run: |
+          BRANCH="${{ github.event.inputs.branch || github.ref_name }}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: SSH → redeploy backend [staging]
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:            ${{ secrets.NIVESH_VM_HOST }}
+          username:        ${{ secrets.DEVOPS_SSH_USER }}
+          key:             ${{ secrets.DEVOPS_SSH_KEY }}
+          port:            22
+          timeout:         10m
+          command_timeout: 20m
+          script: |
+            set -euo pipefail
+            echo "=== STAGING backend deploy ==="
+            echo "    Branch : ${{ steps.config.outputs.branch }}"
+            echo "    Commit : ${{ github.sha }}"
+
+            sudo git config --global --add safe.directory /opt/nivesh-staging/repo
+
+            sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/redeploy-staging.sh \
+              "${{ steps.config.outputs.branch }}" --backend-only
+
+            if [[ "${{ github.event.inputs.run_migrations }}" == "true" ]]; then
+              echo "=== Running STAGING DB migrations ==="
+              sudo docker compose \
+                -f /opt/nivesh-staging/repo/deploy/nivesh-staging/docker-compose.staging.yml \
+                --env-file /opt/nivesh-staging/.env.staging \
+                --profile migrate \
+                run --rm app-migrate
+            fi
+
+      - name: Install cache-clear cron [staging]
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:            ${{ secrets.NIVESH_VM_HOST }}
+          username:        ${{ secrets.DEVOPS_SSH_USER }}
+          key:             ${{ secrets.DEVOPS_SSH_KEY }}
+          port:            22
+          timeout:         1m
+          command_timeout: 1m
+          script: |
+            sudo install -m 644 /opt/nivesh-staging/repo/deploy/nivesh-staging/cache-clear.cron \
+              /etc/cron.d/nivesh-staging-cache-clear
+
+      - name: Health check [staging]
+        run: |
+          sleep 15
+          HTTP=$(curl -sfk -o /dev/null -w "%{http_code}" \
+            --max-time 15 https://staging.niveshcopilot.com/api/healthz \
+            2>/dev/null || echo "000")
+          echo "Health check → HTTP $HTTP"
+          [[ "$HTTP" == "200" ]] || echo "::warning::Health check returned $HTTP"
+
+      - name: Clear performance caches [staging]
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:            ${{ secrets.NIVESH_VM_HOST }}
+          username:        ${{ secrets.DEVOPS_SSH_USER }}
+          key:             ${{ secrets.DEVOPS_SSH_KEY }}
+          port:            22
+          timeout:         2m
+          command_timeout: 3m
+          script: |
+            echo "=== Clearing performance caches [staging] ==="
+            sudo /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.clear_performance_caches
+            echo "=== Cache clear done [staging] ==="

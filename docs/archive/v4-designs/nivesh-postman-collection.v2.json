@@ -1,0 +1,700 @@
+{
+  "info": {
+    "_postman_id": "a8645806-7881-4406-a8fc-4bcbed397d5a",
+    "name": "Nivesh v4 API Collection",
+    "description": "Postman v2.1 collection for all v4 new and modified endpoints.\n\n14 new endpoints (B.1–B.14) + 10 modified endpoints (C.1–C.10) per docs/api-changes.md.\n\nAll changes are additive — no existing endpoint shapes were broken.\n\n## Auth\nSet the `session_token` collection variable to your cookie value.\nGet one via: GET https://staging.niveshcopilot.com/api/auth/dev-set-cookie?token=<token>\n\n## Base URL\nDefault: staging.niveshcopilot.com (staging)\nSwap BASE_URL variable for prod (niveshcopilot.com).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "session_token",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{session_token}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://staging.niveshcopilot.com",
+      "description": "Base URL — swap to https://niveshcopilot.com for prod"
+    },
+    {
+      "key": "session_token",
+      "value": "4948fb5b-d680-4db2-890f-1299de039af2",
+      "description": "Session token cookie value (staging — staging.niveshcopilot.com)"
+    },
+    {
+      "key": "profile_id",
+      "value": "p_01HTEST000000000000000000",
+      "description": "MFD profile ID for advisor-scoped endpoints"
+    },
+    {
+      "key": "task_id",
+      "value": "t_01HTEST000000000000000000",
+      "description": "Async task ID for polling review-pack status"
+    }
+  ],
+  "item": [
+    {
+      "name": "Dashboards (v4)",
+      "description": "Six composite dashboard endpoints — screens 04 Concentration, 05 Diversification, 06 Risk, 07 Performance, 08 Goals, 09 Tax.\n\nEach returns a unified envelope: { type, badge, insight, stat_tiles, breakdown, recommendations, projection, etag }.\n\nSingle fetch per screen; composes domain service + active plan filtered by source_domain + health-projection delta (≤3 DB queries).\n\nSee api-changes.md §B.1 for the full response schema.",
+      "item": [
+        {
+          "name": "GET /api/dashboards/concentration",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/dashboards/concentration?lens=sector",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dashboards", "concentration"],
+              "query": [
+                {
+                  "key": "lens",
+                  "value": "sector",
+                  "description": "Breakdown lens: sector | amc | company | group"
+                }
+              ]
+            },
+            "description": "Screen 04 — Concentration dashboard composite.\n\nReturns unified envelope with sector/amc/company/group breakdown, HHI, Effective-N, top5_pct, caution_pct (25%), and up to 3 ranked recommendations with source_domain=concentration.\n\nRef: api-changes.md §B.1, Decision 1."
+          }
+        },
+        {
+          "name": "GET /api/dashboards/diversification",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/dashboards/diversification?lens=overlap",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dashboards", "diversification"],
+              "query": [
+                {
+                  "key": "lens",
+                  "value": "overlap",
+                  "description": "Breakdown lens: overlap | stocks | category | asset_mix"
+                }
+              ]
+            },
+            "description": "Screen 05 — Diversification dashboard composite.\n\nReturns fund overlap matrix, unique_stocks_count, asset-mix breakdown, and recommendations with source_domain=diversification.\n\nRef: api-changes.md §B.1, §C.6."
+          }
+        },
+        {
+          "name": "GET /api/dashboards/risk",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/dashboards/risk",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dashboards", "risk"]
+            },
+            "description": "Screen 06 — Risk dashboard composite.\n\nIncludes weighted_beta, weighted_volatility, max_drawdown_pct, var_1d_rs, var_1d_pct (95% confidence), risk_drivers list, and recommendations with source_domain=risk.\n\nRef: api-changes.md §B.1, §C.3."
+          }
+        },
+        {
+          "name": "GET /api/dashboards/performance",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/dashboards/performance?period=1y",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dashboards", "performance"],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "1y",
+                  "description": "Performance period: 1y | 3y | 5y"
+                }
+              ]
+            },
+            "description": "Screen 07 (Performance tab) — Performance dashboard composite.\n\nIncludes portfolio XIRR, benchmark alpha (peer and index), fund-level performance breakdown, and recommendations with source_domain=performance.\n\nRef: api-changes.md §B.1, §C.7."
+          }
+        },
+        {
+          "name": "GET /api/dashboards/goals",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/dashboards/goals",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dashboards", "goals"]
+            },
+            "description": "Screen 08 — Goals dashboard composite.\n\nIncludes per-goal progress (funding_pp), at-risk flag, SIP recommendations with priority_label='Closes the gap'/'Closes most'/'Partial', and exclusive=true actions.\n\nRef: api-changes.md §B.1, Decision 6."
+          }
+        },
+        {
+          "name": "GET /api/dashboards/tax",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/dashboards/tax",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dashboards", "tax"]
+            },
+            "description": "Screen 09 — Tax dashboard composite.\n\nIncludes LTCG limit (₹1.25L per Jul-2024 law), ltcg_used_rs, ltcg_remaining_rs, harvest candidates, days_to_fy_end, and recommendations with source_domain=tax and reason_codes=[TAX_HARVEST].\n\nRef: api-changes.md §B.1, §B.12, Decision 6."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Recommendations (v4)",
+      "description": "Screened investment ideas for stocks and funds — screen 07 Recommendations tab.\n\nNivesh proxies NIDP screening engine (/v1/stocks/scores/, /v1/mf/scores/) and surfaces results with SEBI compliance note.\n\nSee api-changes.md §B.13 and §B.14.",
+      "item": [
+        {
+          "name": "GET /api/recommendations/stocks",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/recommendations/stocks?profile=conservative&top=5",
+              "host": ["{{base_url}}"],
+              "path": ["api", "recommendations", "stocks"],
+              "query": [
+                {
+                  "key": "profile",
+                  "value": "conservative",
+                  "description": "Risk profile: conservative | balanced | growth (defaults to user's risk_profile if omitted)"
+                },
+                {
+                  "key": "top",
+                  "value": "5",
+                  "description": "Number of results (default 5, max 20)"
+                },
+                {
+                  "key": "sector",
+                  "value": "",
+                  "description": "Optional sector filter (e.g. Financials)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Screen 07 — Top stock ideas, NIDP-screened.\n\nReturns ranked list with composite_score, fundamentals, technicals sub-scores, and a mandatory SEBI compliance_note.\n\nRef: api-changes.md §B.13."
+          }
+        },
+        {
+          "name": "GET /api/recommendations/funds",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/recommendations/funds?profile=moderate&sleeve=equity&top=4",
+              "host": ["{{base_url}}"],
+              "path": ["api", "recommendations", "funds"],
+              "query": [
+                {
+                  "key": "profile",
+                  "value": "moderate",
+                  "description": "Risk profile filter: conservative | moderate | growth"
+                },
+                {
+                  "key": "sleeve",
+                  "value": "equity",
+                  "description": "Sleeve: equity | debt | hybrid | liquid"
+                },
+                {
+                  "key": "top",
+                  "value": "4",
+                  "description": "Number of results (default 4)"
+                },
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "Optional category filter (e.g. flexi-cap)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Screen 07 — Top fund ideas, NIDP-screened.\n\nReturns ranked list with composite_score and returns/cost/consistency sub-scores.\n\nRef: api-changes.md §B.14."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Advisor (v4)",
+      "description": "Advisor book and SIP board aggregations — screens 15 Advisor Book and 17 SIP Board (advisor).\n\nAll endpoints require an advisor session. Impersonation context (POST /api/mfd/profiles/{id}/activate) is NOT needed for these aggregate views — they operate over the advisor's entire book.\n\nSee api-changes.md §B.6, §B.7, §B.8.",
+      "item": [
+        {
+          "name": "GET /api/advisor/summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/advisor/summary",
+              "host": ["{{base_url}}"],
+              "path": ["api", "advisor", "summary"]
+            },
+            "description": "Screen 15 — Advisor Book top stat row.\n\nReturns book_aum_rs, avg_health_score, needs_attention_count, actions_open_count, clients_total.\n\nRef: api-changes.md §B.6."
+          }
+        },
+        {
+          "name": "GET /api/advisor/sip-board",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/advisor/sip-board?state=failed&cycle=2026-05",
+              "host": ["{{base_url}}"],
+              "path": ["api", "advisor", "sip-board"],
+              "query": [
+                {
+                  "key": "state",
+                  "value": "failed",
+                  "description": "Filter by queue: failed | expiring | step_up | healthy (default: all four returned grouped)"
+                },
+                {
+                  "key": "cycle",
+                  "value": "2026-05",
+                  "description": "YYYY-MM cycle (default: current cycle)"
+                }
+              ]
+            },
+            "description": "Screen 17 — SIP board queue list (advisor).\n\nReturns { cycle, queues: { failed, expiring, step_up, healthy } } where each queue is a list of SipBoardRow objects.\n\nRef: api-changes.md §B.7."
+          }
+        },
+        {
+          "name": "GET /api/advisor/sip-board/summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/advisor/sip-board/summary",
+              "host": ["{{base_url}}"],
+              "path": ["api", "advisor", "sip-board", "summary"]
+            },
+            "description": "Screen 17 — SIP board top stat row.\n\nReturns monthly_inflow_rs, active_sips_count, failed_count, mandate_at_risk_count for the current cycle.\n\nRef: api-changes.md §B.8."
+          }
+        }
+      ]
+    },
+    {
+      "name": "MFD (v4)",
+      "description": "Per-client MFD workspace endpoints — screen 16 Client 360 (advisor).\n\nAll endpoints require an advisor session. The profile_id path parameter identifies the client.\n\nSee api-changes.md §B.3, §B.4, §B.5, §B.9.",
+      "item": [
+        {
+          "name": "GET /api/mfd/profiles/:profile_id/needs-attention",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/mfd/profiles/{{profile_id}}/needs-attention",
+              "host": ["{{base_url}}"],
+              "path": ["api", "mfd", "profiles", "{{profile_id}}", "needs-attention"],
+              "variable": [
+                {
+                  "key": "profile_id",
+                  "value": "{{profile_id}}",
+                  "description": "MFD profile ID"
+                }
+              ]
+            },
+            "description": "Screen 16 — Client needs-attention list.\n\nReturns items[] from plan_actions joined with insights filtered by severity >= HIGH. Each item includes item_id, title, subtitle, source_domain, severity, discuss_status, linked_action_id.\n\nRef: api-changes.md §B.3."
+          }
+        },
+        {
+          "name": "POST /api/mfd/profiles/:profile_id/call-log",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Called client\",\n  \"outcome\": \"callback_requested\",\n  \"next_followup_date\": \"2026-06-01\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/mfd/profiles/{{profile_id}}/call-log",
+              "host": ["{{base_url}}"],
+              "path": ["api", "mfd", "profiles", "{{profile_id}}", "call-log"],
+              "variable": [
+                {
+                  "key": "profile_id",
+                  "value": "{{profile_id}}",
+                  "description": "MFD profile ID"
+                }
+              ]
+            },
+            "description": "Screen 16 — Log a call CTA.\n\nCreates a CRM call-log entry. Returns call_log_id and occurred_at.\n\nOutcome values: callback_requested | discussed_rebalance | no_answer | left_voicemail\n\nRef: api-changes.md §B.5."
+          }
+        },
+        {
+          "name": "POST /api/mfd/profiles/:profile_id/sip-nudge",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fund_name\": \"Mirae Asset ELSS\",\n  \"proposed_amount\": 5000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/mfd/profiles/{{profile_id}}/sip-nudge",
+              "host": ["{{base_url}}"],
+              "path": ["api", "mfd", "profiles", "{{profile_id}}", "sip-nudge"],
+              "variable": [
+                {
+                  "key": "profile_id",
+                  "value": "{{profile_id}}",
+                  "description": "MFD profile ID"
+                }
+              ]
+            },
+            "description": "Screen 17 — Message client CTA (SIP Board advisor).\n\nQueues a template-based nudge message to the client (no LLM in critical path). Returns nudge_id and queued_at.\n\nTemplates: BOUNCE_INSUFFICIENT_BALANCE | BOUNCE_MANDATE_LIMIT | BOUNCE_ACCOUNT_CLOSED | MANDATE_EXPIRY | STEPUP_DUE\n\nRef: api-changes.md §B.9."
+          }
+        },
+        {
+          "name": "POST /api/mfd/profiles/:profile_id/review-pack/generate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"format\": \"pdf\",\n  \"sections\": [\"portfolio\", \"goals\", \"risk\", \"performance\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/mfd/profiles/{{profile_id}}/review-pack/generate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "mfd", "profiles", "{{profile_id}}", "review-pack", "generate"],
+              "variable": [
+                {
+                  "key": "profile_id",
+                  "value": "{{profile_id}}",
+                  "description": "MFD profile ID"
+                }
+              ]
+            },
+            "description": "Screen 16 — Prepare review pack CTA.\n\nKicks off async PDF generation. Returns task_id (status=QUEUED, estimated_seconds=15). Poll GET /review-pack/{task_id} for completion and download_url.\n\nSections: portfolio | goals | risk | performance | health | domains | needs_attention | plan\n\nRef: api-changes.md §B.4."
+          }
+        },
+        {
+          "name": "GET /api/mfd/profiles/:profile_id/review-pack/:task_id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/mfd/profiles/{{profile_id}}/review-pack/{{task_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "mfd", "profiles", "{{profile_id}}", "review-pack", "{{task_id}}"],
+              "variable": [
+                {
+                  "key": "profile_id",
+                  "value": "{{profile_id}}",
+                  "description": "MFD profile ID"
+                },
+                {
+                  "key": "task_id",
+                  "value": "{{task_id}}",
+                  "description": "Task ID from POST /review-pack/generate response"
+                }
+              ]
+            },
+            "description": "Screen 16 — Poll review pack generation status.\n\nReturns { task_id, status, download_url? }. Status values: QUEUED | PROCESSING | COMPLETED | FAILED.\n\nPoll every 2-5s until status leaves QUEUED/PROCESSING.\n\nRef: api-changes.md §B.4."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Intelligence (v4)",
+      "description": "Client 360 intelligence rollup — screen 12 Intelligence 360.\n\nComposites v3-portfolio + tax-summary + goals/snapshot into a 6-domain advisor view.\n\nRequires advisor session + active impersonation context (POST /api/mfd/profiles/{id}/activate first).\n\nSee api-changes.md §B.2.",
+      "item": [
+        {
+          "name": "GET /api/intelligence/portfolio/360",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/intelligence/portfolio/360",
+              "host": ["{{base_url}}"],
+              "path": ["api", "intelligence", "portfolio", "360"]
+            },
+            "description": "Screen 12 / Screen 16 — Client 360 6-domain intelligence rollup.\n\nReturns: client meta (aum, style, risk_profile, last_seen_days), health (score, grade, tone), domains[] (6 scores), needs_attention[], actions[].\n\nRequires POST /api/mfd/profiles/{id}/activate to set impersonation context first.\n\nRef: api-changes.md §B.2."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Modified Endpoints (v4)",
+      "description": "Endpoints that existed in v1/v3 and have been additively extended for v4.\n\nAll changes are backward-compatible — existing callers ignore new fields.\n\nCovers: C.7 fund-performance benchmark params, C.8 portfolio-builder slider fields, C.9 SIP state/mandate fields, C.2 v3-portfolio ETag, C.1 plans source_domain filter, Decision 6 snapshot activation writers.\n\nSee api-changes.md §C for full before/after schemas.",
+      "item": [
+        {
+          "name": "GET /api/portfolio/fund-performance (C.7 — period + benchmark)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/portfolio/fund-performance?period=3y&benchmark=index",
+              "host": ["{{base_url}}"],
+              "path": ["api", "portfolio", "fund-performance"],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "3y",
+                  "description": "Performance period: 1y | 3y | 5y (default 1y)"
+                },
+                {
+                  "key": "benchmark",
+                  "value": "index",
+                  "description": "Benchmark type: peer | index (default peer — backward compat)"
+                }
+              ]
+            },
+            "description": "Screen 10 (Performance tab) — Fund-level performance with benchmark alpha.\n\nNew query params: ?period=1y|3y|5y and ?benchmark=peer|index.\nNew response fields: alpha_3y_benchmark_pp, benchmark_index per fund.\n\nExisting ?period=1y&benchmark=peer default preserves backward compat.\n\nRef: api-changes.md §C.7."
+          }
+        },
+        {
+          "name": "POST /api/portfolio-builder/generate (C.8 — slider params)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monthly_sip_rs\": 10000,\n  \"monthly_surplus_rs\": 5000,\n  \"horizon_years\": 10,\n  \"risk_bucket\": \"moderate\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/portfolio-builder/generate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "portfolio-builder", "generate"]
+            },
+            "description": "Screen 14 — Portfolio builder with v4 slider inputs.\n\nNew fields (all additive, all defaulted):\n- monthly_surplus_rs: slider value (defaults to monthly_sip_rs)\n- horizon_years: goal horizon slider (defaults to profile-derived)\n- risk_bucket: risk slider override (defaults to user.risk_profile)\n\nNew response field: cap_pct per instrument (guardrail for client rendering).\n\nRef: api-changes.md §C.8."
+          }
+        },
+        {
+          "name": "GET /api/portfolio/sips (C.9 — mandate/bounce/state fields)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/portfolio/sips",
+              "host": ["{{base_url}}"],
+              "path": ["api", "portfolio", "sips"]
+            },
+            "description": "Screen 13 SIP Board (investor) — SIP list with v4 state/mandate/bounce fields.\n\nNew additive fields per SIP: state (failed|expiring|step_up|healthy), mandate_id, mandate_expiry_date, last_bounce_reason, last_bounce_date, cycles_missed, next_debit_date, proposed_stepup_pct.\n\nRef: api-changes.md §C.9."
+          }
+        },
+        {
+          "name": "GET /api/insights/v3-portfolio (C.2 — ETag header)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/insights/v3-portfolio",
+              "host": ["{{base_url}}"],
+              "path": ["api", "insights", "v3-portfolio"]
+            },
+            "description": "Screens 01 Homepage, 02 Health Score — v3 portfolio insights with ETag.\n\nNew additions:\n- Response header: ETag: \"sha1:<hash>\" (hash of score + grade)\n- Response body: health.grade_band (4-band: A/B/C/D) alongside existing 7-band health.grade\n- Response body: health.low_confidence bool\n\nPlan Board uses ETag to detect score-shift on action accept.\n\nRef: api-changes.md §C.2, Decision 5."
+          }
+        },
+        {
+          "name": "GET /api/plans/active (C.1 — source_domain filter)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/plans/active?source_domain=tax",
+              "host": ["{{base_url}}"],
+              "path": ["api", "plans", "active"],
+              "query": [
+                {
+                  "key": "source_domain",
+                  "value": "tax",
+                  "description": "Filter actions by origin domain: concentration | diversification | risk | performance | goals | tax"
+                }
+              ]
+            },
+            "description": "Screen 03 Plan Board — active plan with server-side source_domain filter.\n\nNew query param: ?source_domain= pushes domain filtering server-side (was done client-side in V3 frontend).\n\nNew additive action fields: verb, priority_label, impact, effort, trade_off, expected_impact, source_domain, exclusive, scores, switch_target.\n\nRef: api-changes.md §C.1."
+          }
+        },
+        {
+          "name": "POST /api/portfolio/cas-snapshot/2026-03-31/activate (Decision 6 — action writers)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "session_token={{session_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/portfolio/cas-snapshot/2026-03-31/activate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "portfolio", "cas-snapshot", "2026-03-31", "activate"]
+            },
+            "description": "Screens 08 Goals, 09 Tax — Snapshot activation now fires tax + goals action writers.\n\nPost-activation hook (Decision 6) reads tax_harvest candidates and goal-engine recommendations, then writes plan_actions rows with source_domain=tax/goals so Plan Board is pre-populated without extra navigation.\n\nGoals actions are written with exclusive=true (PRD §7.4 mutual exclusion).\n\nRef: api-changes.md Decision 6."
+          }
+        }
+      ]
+    }
+  ]
+}

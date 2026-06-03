@@ -1,0 +1,353 @@
+{
+  "annotations": {"list": []},
+  "description": "NIDP Quality Gate Analytics — SLA trends, per-gate drill-down, quality scores, DLQ aging, feed freshness",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+
+    {"id": 100, "type": "row", "title": "Quality Score Trends", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}, "collapsed": false, "panels": []},
+
+    {
+      "id": 1,
+      "type": "gauge",
+      "title": "Overall Quality Score (Latest)",
+      "gridPos": {"h": 6, "w": 4, "x": 0, "y": 1},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"showThresholdLabels": false, "showThresholdMarkers": true},
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 100,
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null},
+            {"color": "orange", "value": 60},
+            {"color": "yellow", "value": 75},
+            {"color": "green", "value": 90}
+          ]}
+        },
+        "overrides": []
+      },
+      "targets": [{"rawSql": "SELECT overall_score FROM nidp.quality_scores WHERE domain = 'all' ORDER BY target_date DESC LIMIT 1", "format": "table", "refId": "A"}]
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Certification Tier",
+      "gridPos": {"h": 3, "w": 4, "x": 4, "y": 1},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "auto"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"PLATINUM": {"text": "PLATINUM", "color": "purple"}}},
+            {"type": "value", "options": {"GOLD":     {"text": "GOLD",     "color": "yellow"}}},
+            {"type": "value", "options": {"SILVER":   {"text": "SILVER",   "color": "semi-dark-blue"}}},
+            {"type": "value", "options": {"REVIEW":   {"text": "REVIEW",   "color": "red"}}}
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [{"rawSql": "SELECT certification FROM nidp.quality_scores WHERE domain = 'all' ORDER BY target_date DESC LIMIT 1", "format": "table", "refId": "A"}]
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Publish Decision",
+      "gridPos": {"h": 3, "w": 4, "x": 4, "y": 4},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "auto"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"AUTO_PUBLISH":  {"text": "AUTO PUBLISH",  "color": "green"}}},
+            {"type": "value", "options": {"HOLD":          {"text": "HOLD",          "color": "yellow"}}},
+            {"type": "value", "options": {"MANUAL_REVIEW": {"text": "MANUAL REVIEW", "color": "orange"}}},
+            {"type": "value", "options": {"REJECT":        {"text": "REJECT",        "color": "red"}}}
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [{"rawSql": "SELECT publish_decision FROM nidp.quality_scores WHERE domain = 'all' ORDER BY target_date DESC LIMIT 1", "format": "table", "refId": "A"}]
+    },
+
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Quality Score Dimensions — 30 Day Trend",
+      "gridPos": {"h": 6, "w": 16, "x": 8, "y": 1},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "right"}, "tooltip": {"mode": "multi"}},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "custom": {"fillOpacity": 5}}, "overrides": []},
+      "targets": [
+        {"rawSql": "SELECT target_date AS time, accuracy AS \"Accuracy (40%)\" FROM nidp.quality_scores WHERE domain = 'all' AND target_date >= CURRENT_DATE - 30 ORDER BY target_date", "format": "time_series", "refId": "A"},
+        {"rawSql": "SELECT target_date AS time, consistency AS \"Consistency (30%)\" FROM nidp.quality_scores WHERE domain = 'all' AND target_date >= CURRENT_DATE - 30 ORDER BY target_date", "format": "time_series", "refId": "B"},
+        {"rawSql": "SELECT target_date AS time, completeness AS \"Completeness (15%)\" FROM nidp.quality_scores WHERE domain = 'all' AND target_date >= CURRENT_DATE - 30 ORDER BY target_date", "format": "time_series", "refId": "C"},
+        {"rawSql": "SELECT target_date AS time, freshness AS \"Freshness (10%)\" FROM nidp.quality_scores WHERE domain = 'all' AND target_date >= CURRENT_DATE - 30 ORDER BY target_date", "format": "time_series", "refId": "D"},
+        {"rawSql": "SELECT target_date AS time, overall_score AS \"Overall\" FROM nidp.quality_scores WHERE domain = 'all' AND target_date >= CURRENT_DATE - 30 ORDER BY target_date", "format": "time_series", "refId": "E"}
+      ]
+    },
+
+    {"id": 101, "type": "row", "title": "Gate Verdict Trends (30 days)", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 7}, "collapsed": false, "panels": []},
+
+    {
+      "id": 10,
+      "type": "bargauge",
+      "title": "Gate Pass Rate — Last 30 Days",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 8},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
+      "fieldConfig": {
+        "defaults": {"unit": "percentunit", "min": 0, "max": 1,
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null},
+            {"color": "yellow", "value": 0.9},
+            {"color": "green", "value": 0.99}
+          ]}
+        },
+        "overrides": []
+      },
+      "targets": [{
+        "rawSql": "SELECT 'Gate ' || gate_id AS metric, COUNT(*) FILTER (WHERE verdict = 'PASS')::FLOAT / NULLIF(COUNT(*), 0) AS pass_rate FROM dq.gate_verdicts WHERE target_date >= CURRENT_DATE - 30 GROUP BY gate_id ORDER BY gate_id",
+        "format": "table",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Daily Gate Verdicts — All Gates",
+      "gridPos": {"h": 6, "w": 16, "x": 8, "y": 8},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 80, "stacking": {"mode": "normal"}}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "PASS"}, "properties": [{"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}}]},
+        {"matcher": {"id": "byName", "options": "AMBER"}, "properties": [{"id": "color", "value": {"fixedColor": "yellow", "mode": "fixed"}}]},
+        {"matcher": {"id": "byName", "options": "FAIL"}, "properties": [{"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}]}
+      ]},
+      "targets": [{
+        "rawSql": "SELECT target_date AS time, verdict, COUNT(*) AS count FROM dq.gate_verdicts WHERE target_date >= CURRENT_DATE - 30 GROUP BY target_date, verdict ORDER BY target_date",
+        "format": "time_series",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Gate Failures — Last 7 Days (Detail)",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 14},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "verdict"}, "properties": [{"id": "mappings", "value": [
+            {"type": "value", "options": {"FAIL": {"text": "FAIL", "color": "red"}}},
+            {"type": "value", "options": {"AMBER": {"text": "AMBER", "color": "yellow"}}}
+          ]}]}
+        ]
+      },
+      "targets": [{
+        "rawSql": "SELECT gate_id, feed, target_date::text, verdict, severity, details->>'checks' AS failed_checks, created_at FROM dq.gate_verdicts WHERE verdict != 'PASS' AND target_date >= CURRENT_DATE - 7 ORDER BY created_at DESC LIMIT 50",
+        "format": "table",
+        "refId": "A"
+      }]
+    },
+
+    {"id": 102, "type": "row", "title": "Feed Health & SLA Compliance", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 22}, "collapsed": false, "panels": []},
+
+    {
+      "id": 20,
+      "type": "state-timeline",
+      "title": "Feed Health Heatmap — Last 14 Days",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 23},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"mergeValues": true, "showValue": "never", "alignValue": "center", "rowHeight": 0.8},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"PASS":  {"text": "PASS",  "color": "green"}}},
+            {"type": "value", "options": {"AMBER": {"text": "AMBER", "color": "yellow"}}},
+            {"type": "value", "options": {"FAIL":  {"text": "FAIL",  "color": "red"}}}
+          ],
+          "custom": {"fillOpacity": 90}
+        },
+        "overrides": []
+      },
+      "targets": [{
+        "rawSql": "SELECT target_date AS time, feed, verdict FROM dq.gate_verdicts WHERE gate_id = 3 AND feed IS NOT NULL AND target_date >= CURRENT_DATE - 14 ORDER BY target_date, feed",
+        "format": "time_series",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "id": 21,
+      "type": "table",
+      "title": "SLA Compliance — P0 Feeds (Last 30 Days)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 31},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "pass_rate"}, "properties": [
+            {"id": "unit", "value": "percentunit"},
+            {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 0.9}, {"color": "green", "value": 0.99}]}},
+            {"id": "custom.cellOptions", "value": {"type": "color-background"}}
+          ]}
+        ]
+      },
+      "targets": [{
+        "rawSql": "SELECT gv.feed, COUNT(*) AS total_days, COUNT(*) FILTER (WHERE gv.verdict = 'PASS') AS pass_days, COUNT(*) FILTER (WHERE gv.verdict = 'PASS')::FLOAT / NULLIF(COUNT(*), 0) AS pass_rate, fs.freshness_warn_secs, fs.row_count_min FROM dq.gate_verdicts gv LEFT JOIN dq.feed_sla fs ON gv.feed = fs.feed AND gv.gate_id = fs.gate_id WHERE gv.gate_id = 3 AND gv.feed IS NOT NULL AND gv.target_date >= CURRENT_DATE - 30 GROUP BY gv.feed, fs.freshness_warn_secs, fs.row_count_min ORDER BY pass_rate ASC",
+        "format": "table",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "id": 22,
+      "type": "table",
+      "title": "Snapshot Status History — Last 14 Days",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 31},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "status"}, "properties": [{"id": "mappings", "value": [
+            {"type": "value", "options": {"PASS":    {"text": "PASS",    "color": "green"}}},
+            {"type": "value", "options": {"PARTIAL": {"text": "PARTIAL", "color": "yellow"}}},
+            {"type": "value", "options": {"BLOCKED": {"text": "BLOCKED", "color": "red"}}},
+            {"type": "value", "options": {"PENDING": {"text": "PENDING", "color": "blue"}}}
+          ]}]}
+        ]
+      },
+      "targets": [{
+        "rawSql": "SELECT target_date::text, status, array_length(feeds_ready, 1) AS ready, array_length(feeds_blocked, 1) AS blocked, array_length(feeds_amber, 1) AS amber, block_reason, evaluated_at FROM dq.snapshot_status ORDER BY target_date DESC LIMIT 14",
+        "format": "table",
+        "refId": "A"
+      }]
+    },
+
+    {"id": 103, "type": "row", "title": "DLQ Analysis", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 39}, "collapsed": false, "panels": []},
+
+    {
+      "id": 30,
+      "type": "stat",
+      "title": "DLQ Pending Total",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 40},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"colorMode": "value", "graphMode": "none"},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]}}, "overrides": []},
+      "targets": [{"rawSql": "SELECT COUNT(*) FROM dq.dlq_findings WHERE replay_status = 'PENDING'", "format": "table", "refId": "A"}]
+    },
+
+    {
+      "id": 31,
+      "type": "piechart",
+      "title": "DLQ by Status",
+      "gridPos": {"h": 8, "w": 6, "x": 4, "y": 40},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "pieType": "donut", "legend": {"displayMode": "table", "placement": "right"}},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "targets": [{"rawSql": "SELECT replay_status, COUNT(*) AS count FROM dq.dlq_findings GROUP BY replay_status ORDER BY count DESC", "format": "table", "refId": "A"}]
+    },
+
+    {
+      "id": 32,
+      "type": "bargauge",
+      "title": "DLQ Pending by Feed",
+      "gridPos": {"h": 8, "w": 6, "x": 10, "y": 40},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 3}]}}, "overrides": []},
+      "targets": [{"rawSql": "SELECT feed AS metric, COUNT(*) AS count FROM dq.dlq_findings WHERE replay_status = 'PENDING' GROUP BY feed ORDER BY count DESC", "format": "table", "refId": "A"}]
+    },
+
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "DLQ Inflow — Messages Created Per Day (30 days)",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 40},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 80}, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"rawSql": "SELECT created_at::date AS time, severity, COUNT(*) AS count FROM dq.dlq_findings WHERE created_at >= now() - interval '30 days' GROUP BY created_at::date, severity ORDER BY time", "format": "time_series", "refId": "A"}]
+    },
+
+    {
+      "id": 34,
+      "type": "table",
+      "title": "DLQ Aging — Oldest Pending Messages",
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 48},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "targets": [{"rawSql": "SELECT id::text, feed, target_date::text, severity, failure_reason, EXTRACT(EPOCH FROM (now() - created_at)) / 3600 AS age_hours, created_at, replay_status FROM dq.dlq_findings WHERE replay_status = 'PENDING' ORDER BY created_at ASC LIMIT 20", "format": "table", "refId": "A"}]
+    },
+
+    {"id": 104, "type": "row", "title": "Validation Findings", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 54}, "collapsed": false, "panels": []},
+
+    {
+      "id": 40,
+      "type": "timeseries",
+      "title": "Validation Findings Per Day — Last 14 Days",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 55},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "right"}, "tooltip": {"mode": "multi"}},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 70, "stacking": {"mode": "normal"}}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "CRITICAL"}, "properties": [{"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}]},
+        {"matcher": {"id": "byName", "options": "ERROR"}, "properties": [{"id": "color", "value": {"fixedColor": "orange", "mode": "fixed"}}]},
+        {"matcher": {"id": "byName", "options": "WARN"}, "properties": [{"id": "color", "value": {"fixedColor": "yellow", "mode": "fixed"}}]},
+        {"matcher": {"id": "byName", "options": "INFO"}, "properties": [{"id": "color", "value": {"fixedColor": "blue", "mode": "fixed"}}]}
+      ]},
+      "targets": [{"rawSql": "SELECT target_date AS time, severity, COUNT(*) AS count FROM nidp.validation_findings WHERE target_date >= CURRENT_DATE - 14 GROUP BY target_date, severity ORDER BY target_date", "format": "time_series", "refId": "A"}]
+    },
+
+    {
+      "id": 41,
+      "type": "table",
+      "title": "Top Failing Rules — Last 7 Days",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 55},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "targets": [{"rawSql": "SELECT rule_name, severity, COUNT(*) AS occurrences, COUNT(DISTINCT ingester) AS affected_feeds FROM nidp.validation_findings WHERE target_date >= CURRENT_DATE - 7 GROUP BY rule_name, severity ORDER BY occurrences DESC LIMIT 20", "format": "table", "refId": "A"}]
+    },
+
+    {
+      "id": 42,
+      "type": "table",
+      "title": "Ingester Validation Coverage — Last 7 Days",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 63},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "pass_rate"}, "properties": [
+            {"id": "unit", "value": "percentunit"},
+            {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 0.8}, {"color": "green", "value": 0.95}]}},
+            {"id": "custom.cellOptions", "value": {"type": "color-background"}}
+          ]}
+        ]
+      },
+      "targets": [{"rawSql": "SELECT ingester, COUNT(*) AS total_findings, COUNT(*) FILTER (WHERE severity IN ('INFO', 'WARN')) AS minor, COUNT(*) FILTER (WHERE severity IN ('ERROR', 'CRITICAL')) AS critical, 1.0 - (COUNT(*) FILTER (WHERE severity IN ('ERROR', 'CRITICAL'))::FLOAT / NULLIF(COUNT(*), 0)) AS pass_rate FROM nidp.validation_findings WHERE target_date >= CURRENT_DATE - 7 GROUP BY ingester ORDER BY pass_rate ASC", "format": "table", "refId": "A"}]
+    }
+
+  ],
+  "refresh": "5m",
+  "schemaVersion": 38,
+  "tags": ["nidp", "dq", "quality-gates", "analytics"],
+  "templating": {"list": []},
+  "time": {"from": "now-30d", "to": "now"},
+  "timepicker": {},
+  "timezone": "Asia/Kolkata",
+  "title": "NIDP Quality Gate Analytics",
+  "uid": "nidp-dq-analytics",
+  "version": 1
+}

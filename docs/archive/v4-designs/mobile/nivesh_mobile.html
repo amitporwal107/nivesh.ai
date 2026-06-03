@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Nivesh · Mobile Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter+Tight:wght@400;450;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b0a08; --s0:#100e0c; --s1:#161310; --s2:#1d1a16; --s3:#252119;
+  --heroA:#221e18; --heroB:#161310;
+  --line:#2a2620; --line2:#393229;
+  --ink:#f6f1e7; --ink-dim:#c2b8a8; --ink-mute:#8c8273; --ink-faint:#564e42;
+  --saffron:#ff9248; --saffron-lo:#ffb37e; --saffron-dk:#e07730;
+  --moss:#88ab66; --gold:#d9b64a; --rust:#df5d5d; --indigo:#7d7eff;
+  --display:'Fraunces',Georgia,serif;
+  --sans:'Inter Tight',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',monospace;
+  --ease:cubic-bezier(.22,.61,.36,1);
+  --tabh:62px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{background:#000;color:var(--ink);font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;display:flex;align-items:center;
+  justify-content:center;min-height:100vh}
+::selection{background:rgba(255,146,72,.26)}
+::-webkit-scrollbar{width:0;display:none}
+
+/* ---- phone frame ---- */
+.phone{position:relative;width:390px;height:844px;background:var(--bg);
+  border-radius:0;overflow:hidden;display:flex;flex-direction:column;
+  box-shadow:0 30px 80px rgba(0,0,0,.6)}
+@media(min-width:430px){.phone{border-radius:44px;border:11px solid #1c1a17}}
+.phone::before{content:"";position:absolute;inset:0;pointer-events:none;z-index:1;
+  background:radial-gradient(420px 320px at 88% -6%,rgba(255,146,72,.07),transparent 60%),
+             radial-gradient(420px 380px at 6% 108%,rgba(125,126,255,.05),transparent 60%)}
+
+/* ---- status bar ---- */
+.statusbar{flex:none;height:44px;display:flex;align-items:center;
+  justify-content:space-between;padding:0 22px;font-family:var(--mono);
+  font-size:11px;color:var(--ink);font-weight:500;z-index:6;position:relative}
+.statusbar .dots{display:flex;gap:4px;align-items:center}
+.statusbar .dots span{font-size:10px;letter-spacing:-1px}
+
+/* ---- proto switch ---- */
+.protorow{flex:none;display:flex;align-items:center;gap:8px;padding:5px 16px;
+  background:#000;border-bottom:1px solid var(--line);z-index:6;position:relative}
+.protorow .tag{font-family:var(--mono);font-size:7.5px;letter-spacing:1.2px;
+  color:var(--saffron);text-transform:uppercase}
+.protorow select{margin-left:auto;background:var(--s1);color:var(--ink-dim);
+  border:1px solid var(--line);border-radius:6px;padding:4px 7px;
+  font-family:var(--mono);font-size:8.5px}
+.protorow .nb{background:var(--s1);border:1px solid var(--line);color:var(--ink-mute);
+  width:24px;height:24px;border-radius:6px;font-size:12px;display:grid;place-items:center}
+
+/* ---- viewport + screens ---- */
+.viewport{flex:1;overflow-y:auto;position:relative;z-index:2;
+  -webkit-overflow-scrolling:touch}
+.screen{display:none;min-height:100%;animation:fade .32s var(--ease);
+  padding-bottom:calc(var(--tabh) + 16px)}
+.screen.on{display:block}
+.screen.notab{padding-bottom:24px}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ---- bottom tab bar ---- */
+.tabbar{position:absolute;left:0;right:0;bottom:0;height:var(--tabh);
+  background:rgba(16,14,12,.97);backdrop-filter:blur(14px);
+  border-top:1px solid var(--line);display:flex;z-index:8;
+  padding-bottom:6px}
+.tabbar.hidden{display:none}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:3px;cursor:pointer;padding-top:8px}
+.tab .ic{font-size:19px;line-height:1;color:var(--ink-faint)}
+.tab .lb{font-family:var(--mono);font-size:7.5px;letter-spacing:.6px;
+  color:var(--ink-faint);text-transform:uppercase}
+.tab.on .ic,.tab.on .lb{color:var(--saffron)}
+
+/* ---- shared components ---- */
+.wrap{padding:18px 16px 8px}
+.eyebrow{font-family:var(--mono);font-size:8px;letter-spacing:1.5px;
+  color:var(--ink-faint);text-transform:uppercase;margin-bottom:8px}
+.eyebrow.hot{color:var(--saffron)}
+.hl{display:flex;align-items:center;gap:8px;font-family:var(--mono);
+  font-size:8px;letter-spacing:1.5px;color:var(--ink-faint);
+  text-transform:uppercase;margin-bottom:9px}
+.hl::after{content:"";flex:1;height:1px;background:var(--line)}
+.card{background:linear-gradient(168deg,var(--heroA),var(--heroB));
+  border:1px solid var(--line2);border-radius:16px}
+.card-flat{background:linear-gradient(165deg,var(--s2),var(--s1));
+  border:1px solid var(--line);border-radius:14px}
+.btn{font-size:13px;font-weight:600;background:linear-gradient(150deg,var(--saffron),var(--saffron-dk));
+  color:#2a1605;padding:12px 18px;border-radius:11px;border:none;
+  font-family:var(--sans);cursor:pointer;min-height:44px}
+.btn:active{transform:scale(.98)}
+.btn-ghost{font-size:13px;color:var(--ink-dim);background:var(--s2);
+  border:1px solid var(--line);padding:12px 18px;border-radius:11px;
+  cursor:pointer;font-family:var(--sans);min-height:44px}
+.btn-ghost:active{transform:scale(.98)}
+.tap{cursor:pointer}
+.tap:active{opacity:.7}
+.serif{font-family:var(--display)}
+.mono{font-family:var(--mono)}
+.badge{font-family:var(--mono);font-size:7.5px;letter-spacing:.8px;
+  padding:3px 7px;border-radius:5px;text-transform:uppercase}
+.b-red{color:var(--rust);background:rgba(223,93,93,.1);border:1px solid rgba(223,93,93,.24)}
+.b-amber{color:var(--gold);background:rgba(217,182,74,.1);border:1px solid rgba(217,182,74,.24)}
+.b-moss{color:var(--moss);background:rgba(136,171,102,.1);border:1px solid rgba(136,171,102,.24)}
+.b-indigo{color:var(--indigo);background:rgba(125,126,255,.1);border:1px solid rgba(125,126,255,.24)}
+.appbar{display:flex;align-items:center;gap:10px;padding:14px 16px;
+  border-bottom:1px solid var(--line);position:sticky;top:0;
+  background:rgba(11,10,8,.94);backdrop-filter:blur(10px);z-index:5}
+.back{cursor:pointer;color:var(--ink-dim);font-size:20px;line-height:1;
+  width:30px;height:30px;display:grid;place-items:center;margin-left:-6px}
+.mark{width:30px;height:30px;border-radius:9px;
+  background:linear-gradient(150deg,var(--saffron),var(--saffron-lo));
+  display:grid;place-items:center;font-family:var(--display);
+  font-weight:600;color:#2a1605;flex:none}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;
+  height:5px;background:var(--s3);border-radius:3px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;
+  width:22px;height:22px;border-radius:50%;background:var(--saffron);
+  border:3px solid var(--s1);cursor:pointer}
+input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;
+  background:var(--saffron);border:3px solid var(--s1);cursor:pointer}
+.field{background:var(--s0);border:1px solid var(--line);border-radius:10px;
+  padding:12px 13px;font-size:13px;color:var(--ink-mute);min-height:44px;
+  display:flex;align-items:center}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <div class="statusbar">
+    <span>9:41</span>
+    <div class="dots"><span>●●●</span><span>746</span><span>▮</span></div>
+  </div>
+
+  <div class="protorow">
+    <span class="tag">⬤ Nivesh mobile</span>
+    <button class="nb" onclick="mback()">‹</button>
+    <select id="jump" onchange="go(this.value)">
+      <optgroup label="Marketing">
+        <option value="home">Homepage</option>
+        <option value="login">Login</option>
+      </optgroup>
+      <optgroup label="Client">
+        <option value="onboard">Onboarding</option>
+        <option value="landing">Chat · insights</option>
+        <option value="d_conc">Concentration</option>
+        <option value="d_div">Diversification</option>
+        <option value="d_risk">Risk</option>
+        <option value="d_perf">Performance</option>
+        <option value="d_goals">Goals</option>
+        <option value="d_tax">Tax</option>
+        <option value="recs">Recommendations</option>
+        <option value="d_risk">Risk</option>
+        <option value="plan">Plan board</option>
+        <option value="builder">Builder</option>
+        <option value="alloc">Allocation</option>
+      </optgroup>
+      <optgroup label="Advisor">
+        <option value="adv_book">Advisor book</option>
+        <option value="adv_360">Client 360</option>
+        <option value="adv_sip">SIP board</option>
+      </optgroup>
+    </select>
+  </div>
+
+  <div class="viewport" id="viewport">
+<!-- ===== HOMEPAGE ===== -->
+<div class="screen on notab" id="s-home">
+  <div style="padding:20px 18px 0;display:flex;align-items:center;gap:9px">
+    <div class="mark" style="width:26px;height:26px;font-size:13px">न</div>
+    <span class="serif" style="font-size:15px;font-weight:600">Nivesh</span>
+    <span class="tap" onclick="go('login')" style="margin-left:auto;font-size:11.5px;font-weight:500;background:var(--s2);border:1px solid var(--line);color:var(--ink-dim);padding:7px 14px;border-radius:9px">Sign in</span>
+  </div>
+  <div style="padding:40px 20px 26px;text-align:center;position:relative">
+    <div class="eyebrow hot" style="position:relative">⬤ Your money, finally understood</div>
+    <div class="serif" style="font-size:33px;font-weight:600;line-height:1.16;letter-spacing:-.025em;position:relative">Know how healthy your portfolio is<span style="color:var(--saffron-lo);font-style:italic">.</span></div>
+    <p style="font-size:13px;color:var(--ink-dim);margin:14px auto 0;line-height:1.6;position:relative">Import in seconds. Nivesh scores your portfolio's health and tells you, in plain words, what to fix.</p>
+    <button class="btn" style="width:100%;margin-top:22px;position:relative" onclick="go('login')">Check my portfolio free</button>
+    <button class="btn-ghost" style="width:100%;margin-top:9px;position:relative" onclick="go('landing')">See how it works</button>
+    <div class="mono" style="font-size:8px;letter-spacing:.5px;color:var(--ink-faint);margin-top:13px;text-transform:uppercase;position:relative">No card needed · SEBI-aligned</div>
+  </div>
+  <div style="padding:0 18px 20px;display:flex;flex-direction:column;gap:9px">
+    <div class="card-flat" style="padding:14px;display:flex;align-items:center;gap:12px">
+      <div style="width:36px;height:36px;border-radius:10px;background:rgba(136,171,102,.12);display:grid;place-items:center;color:var(--moss);font-size:16px;flex:none">✉</div>
+      <div><div style="font-size:13px;font-weight:500">Import in seconds</div>
+        <div style="font-size:11px;color:var(--ink-mute);margin-top:1px">Gmail CAS, upload, or broker connect.</div></div>
+    </div>
+    <div class="card-flat" style="padding:14px;display:flex;align-items:center;gap:12px">
+      <div style="width:36px;height:36px;border-radius:10px;background:rgba(255,146,72,.12);display:grid;place-items:center;color:var(--saffron);font-size:16px;flex:none">◷</div>
+      <div><div style="font-size:13px;font-weight:500">A real health score</div>
+        <div style="font-size:11px;color:var(--ink-mute);margin-top:1px">20 checks, graded A to D.</div></div>
+    </div>
+    <div class="card-flat" style="padding:14px;display:flex;align-items:center;gap:12px">
+      <div style="width:36px;height:36px;border-radius:10px;background:rgba(125,126,255,.12);display:grid;place-items:center;color:var(--indigo);font-size:16px;flex:none">↗</div>
+      <div><div style="font-size:13px;font-weight:500">Know what to do</div>
+        <div style="font-size:11px;color:var(--ink-mute);margin-top:1px">Ranked actions, exact instruments.</div></div>
+    </div>
+  </div>
+  <div style="padding:0 18px 30px">
+    <div class="card tap" onclick="go('landing')" style="padding:15px;display:flex;align-items:center;gap:13px;border-color:rgba(255,146,72,.2)">
+      <div style="text-align:center;flex:none"><div class="serif" style="font-size:28px;font-weight:600;color:var(--moss);line-height:1">86</div>
+        <div class="mono" style="font-size:7px;letter-spacing:.7px;color:var(--ink-faint);margin-top:2px;text-transform:uppercase">Sample</div></div>
+      <div><div style="font-size:12.5px;font-weight:500;line-height:1.4">"Healthy — but financials are over-concentrated."</div>
+        <div style="font-size:10.5px;color:var(--ink-mute);margin-top:3px">Tap to preview your first analysis →</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== LOGIN ===== -->
+<div class="screen notab" id="s-login">
+  <div style="padding:54px 20px 0;text-align:center">
+    <div class="mark" style="width:44px;height:44px;border-radius:13px;font-size:21px;margin:0 auto 14px">न</div>
+    <div class="serif" style="font-size:22px;font-weight:600;letter-spacing:-.02em">Welcome back</div>
+    <p style="font-size:12px;color:var(--ink-mute);margin-top:6px">Sign in to your Nivesh copilot</p>
+  </div>
+  <div style="padding:22px 20px 0">
+    <div class="card-flat" style="padding:18px">
+      <div style="margin-bottom:13px">
+        <div class="mono" style="font-size:8px;letter-spacing:1px;color:var(--ink-mute);text-transform:uppercase;margin-bottom:6px">Mobile or email</div>
+        <div class="field">you@example.com</div>
+      </div>
+      <div style="margin-bottom:15px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span class="mono" style="font-size:8px;letter-spacing:1px;color:var(--ink-mute);text-transform:uppercase">Password</span>
+          <span style="font-size:9.5px;color:var(--saffron)">Forgot?</span></div>
+        <div class="field" style="letter-spacing:3px">••••••••</div>
+      </div>
+      <button class="btn" style="width:100%;margin-bottom:11px" onclick="go('onboard')">Sign in</button>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:11px">
+        <span style="flex:1;height:1px;background:var(--line)"></span>
+        <span class="mono" style="font-size:7.5px;letter-spacing:1px;color:var(--ink-faint);text-transform:uppercase">Or continue with</span>
+        <span style="flex:1;height:1px;background:var(--line)"></span>
+      </div>
+      <div style="display:flex;gap:8px">
+        <div class="tap field" onclick="go('onboard')" style="flex:1;justify-content:center;font-size:12px;color:var(--ink-dim)">Google</div>
+        <div class="tap field" onclick="go('onboard')" style="flex:1;justify-content:center;font-size:12px;color:var(--ink-dim)">OTP login</div>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:16px">
+      <span style="font-size:11.5px;color:var(--ink-mute)">New here? </span>
+      <span class="tap" onclick="go('onboard')" style="font-size:11.5px;color:var(--saffron);font-weight:500">Create an account</span>
+    </div>
+    <div style="text-align:center;margin-top:16px;padding-top:15px;border-top:1px solid var(--s1)">
+      <span style="font-size:11px;color:var(--ink-mute)">Advisor or RM? </span>
+      <span class="tap" onclick="go('adv_book')" style="font-size:11px;color:var(--indigo);font-weight:500">Advisor sign-in →</span>
+    </div>
+    <div class="mono" style="text-align:center;font-size:8px;letter-spacing:.5px;color:var(--ink-faint);margin-top:18px;text-transform:uppercase">⛨ Bank-grade encryption</div>
+  </div>
+</div>
+
+<!-- ===== ONBOARDING ===== -->
+<div class="screen notab" id="s-onboard">
+  <div class="appbar"><span class="back" onclick="go('login')">‹</span>
+    <span class="serif" style="font-size:15px;font-weight:600">Get started</span></div>
+  <div class="wrap">
+    <div style="text-align:center;margin-bottom:20px">
+      <div class="serif" style="font-size:21px;font-weight:600;letter-spacing:-.02em">Bring your portfolio in</div>
+      <p style="font-size:12px;color:var(--ink-dim);margin-top:7px;line-height:1.55">Pick the easiest way. Nivesh reads your holdings and builds your first health check.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="card tap" onclick="go('landing')" style="padding:14px;border-color:rgba(136,171,102,.35);position:relative">
+        <span class="badge b-moss" style="position:absolute;top:13px;right:13px">Fastest</span>
+        <div style="display:flex;align-items:center;gap:11px">
+          <div style="width:38px;height:38px;border-radius:11px;flex:none;background:rgba(136,171,102,.12);display:grid;place-items:center;color:var(--moss);font-size:17px">✉</div>
+          <div style="flex:1"><div style="font-size:13.5px;font-weight:500">Import CAS from Gmail</div>
+            <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;line-height:1.4">Nivesh finds your CAS email — no file, no password.</div></div>
+        </div>
+        <div class="mono" style="font-size:8px;color:var(--ink-mute);letter-spacing:.4px;text-transform:uppercase;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)">⛨ Read-only · CAS emails only</div>
+      </div>
+      <div class="card tap" onclick="go('landing')" style="padding:14px">
+        <div style="display:flex;align-items:center;gap:11px">
+          <div style="width:38px;height:38px;border-radius:11px;flex:none;background:rgba(217,182,74,.12);display:grid;place-items:center;color:var(--gold);font-size:17px">↑</div>
+          <div style="flex:1"><div style="font-size:13.5px;font-weight:500">Upload CAS statement</div>
+            <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;line-height:1.4">Have the CAS PDF from CAMS or KFintech? Upload it.</div></div>
+        </div>
+        <div class="mono" style="font-size:8px;color:var(--ink-mute);letter-spacing:.4px;text-transform:uppercase;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)">⛁ You'll enter the PDF password</div>
+      </div>
+      <div class="card tap" onclick="go('landing')" style="padding:14px">
+        <div style="display:flex;align-items:center;gap:11px">
+          <div style="width:38px;height:38px;border-radius:11px;flex:none;background:rgba(125,126,255,.12);display:grid;place-items:center;color:var(--indigo);font-size:16px">⚯</div>
+          <div style="flex:1"><div style="font-size:13.5px;font-weight:500">Connect your broker</div>
+            <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;line-height:1.4">Link your demat for live stock holdings.</div></div>
+        </div>
+        <div class="mono" style="font-size:8px;color:var(--ink-mute);letter-spacing:.4px;text-transform:uppercase;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)">⛨ Read-only · cannot place trades</div>
+      </div>
+    </div>
+    <div style="background:var(--s0);border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-top:12px;display:flex;align-items:center;gap:8px">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--indigo);flex:none"></span>
+      <span style="font-size:11px;color:var(--ink-dim);line-height:1.4">Not ready? <span class="tap" onclick="go('landing')" style="color:var(--saffron)">Add holdings manually</span> and import later.</span>
+    </div>
+    <div class="mono" style="text-align:center;font-size:8px;letter-spacing:.5px;color:var(--ink-faint);text-transform:uppercase;margin-top:14px">⛨ Nivesh never stores passwords</div>
+  </div>
+</div>
+
+<!-- ===== CHAT LANDING ===== -->
+<div class="screen" id="s-landing">
+  <div class="appbar">
+    <div class="mark" style="width:26px;height:26px;font-size:13px">न</div>
+    <span class="serif" style="font-size:15px;font-weight:600">Nivesh</span>
+    <span class="badge b-moss" style="margin-left:auto">⬤ NIDP</span>
+  </div>
+  <div class="wrap">
+    <div class="eyebrow hot">⬤ Portfolio analysed</div>
+    <div class="card" style="padding:16px;margin-bottom:14px;display:flex;align-items:center;gap:15px">
+      <svg width="84" height="84" viewBox="0 0 84 84" style="flex:none">
+        <circle cx="42" cy="42" r="31" fill="none" stroke="#2e2a25" stroke-width="8.5"/>
+        <circle cx="42" cy="42" r="31" fill="none" stroke="#88ab66" stroke-width="8.5" stroke-dasharray="167 195" transform="rotate(-90 42 42)" stroke-linecap="round"/>
+        <text x="42" y="40" text-anchor="middle" fill="#f6f1e7" font-family="Fraunces,serif" font-size="24" font-weight="600">86</text>
+        <text x="42" y="55" text-anchor="middle" fill="#8c8273" font-family="monospace" font-size="7" letter-spacing="1.5">/ 100</text>
+      </svg>
+      <div><div class="serif" style="font-size:20px;font-weight:600;letter-spacing:-.02em">Grade A · Healthy</div>
+        <p style="font-size:12px;color:var(--ink-dim);margin-top:5px;line-height:1.5">Three things are worth your attention.</p></div>
+    </div>
+    <div class="hl">Top insights · tap to open</div>
+    <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:16px">
+      <div class="card-flat tap" onclick="go('d_conc')" style="display:flex;align-items:center;gap:11px;padding:13px">
+        <div style="width:3px;align-self:stretch;background:var(--rust)"></div>
+        <div style="flex:1"><div style="font-size:13px;font-weight:500;line-height:1.35">32% of your money is in financials</div>
+          <div class="mono" style="font-size:8px;letter-spacing:.9px;color:var(--ink-mute);text-transform:uppercase;margin-top:3px">Concentration</div></div>
+        <span class="badge b-red">High</span>
+      </div>
+      <div class="card-flat tap" onclick="go('d_div')" style="display:flex;align-items:center;gap:11px;padding:13px">
+        <div style="width:3px;align-self:stretch;background:var(--gold)"></div>
+        <div style="flex:1"><div style="font-size:13px;font-weight:500;line-height:1.35">3 funds hold near-identical stocks</div>
+          <div class="mono" style="font-size:8px;letter-spacing:.9px;color:var(--ink-mute);text-transform:uppercase;margin-top:3px">Diversification</div></div>
+        <span class="badge b-amber">Med</span>
+      </div>
+      <div class="card-flat tap" onclick="go('d_risk')" style="display:flex;align-items:center;gap:11px;padding:13px">
+        <div style="width:3px;align-self:stretch;background:var(--gold)"></div>
+        <div style="flex:1"><div style="font-size:13px;font-weight:500;line-height:1.35">Your portfolio swings 1.3× the market</div>
+          <div class="mono" style="font-size:8px;letter-spacing:.9px;color:var(--ink-mute);text-transform:uppercase;margin-top:3px">Risk</div></div>
+        <span class="badge b-amber">Med</span>
+      </div>
+    </div>
+    <div class="card tap" onclick="go('plan')" style="padding:14px;margin-bottom:14px;border-color:rgba(255,146,72,.2)">
+      <div class="mono" style="font-size:8px;letter-spacing:1.1px;color:var(--saffron);text-transform:uppercase;margin-bottom:5px">⬤ Top recommendation</div>
+      <div style="font-size:13.5px;font-weight:500">Trim financials from 32% to 22%</div>
+      <div style="font-size:11.5px;color:var(--ink-dim);margin-top:3px">Sell HDFC Banking ETF · health <span class="mono" style="color:var(--saffron-lo)">+6 pts</span></div>
+      <div style="display:flex;gap:8px;margin-top:11px">
+        <button class="btn" style="flex:1;font-size:12px;padding:9px" onclick="event.stopPropagation();go('plan')">See the plan</button>
+        <button class="btn-ghost" style="font-size:12px;padding:9px 13px" onclick="event.stopPropagation();go('builder')">Build</button>
+      </div>
+    </div>
+    <div class="hl">Or ask me anything</div>
+    <div style="display:flex;flex-direction:column;gap:7px">
+      <span class="card-flat tap" onclick="go('builder')" style="font-size:12px;color:var(--ink-dim);padding:11px 13px">Build me a portfolio</span>
+      <span class="card-flat tap" onclick="go('d_risk')" style="font-size:12px;color:var(--ink-dim);padding:11px 13px">Is my portfolio too risky?</span>
+      <span class="card-flat tap" onclick="go('plan')" style="font-size:12px;color:var(--ink-dim);padding:11px 13px">Show my action plan</span>
+    </div>
+  </div>
+</div>
+
+<!-- ===== CONCENTRATION ===== -->
+<div class="screen" id="s-d_conc">
+  <div class="appbar"><span class="back" onclick="go('landing')">‹</span>
+    <span class="serif" style="font-size:15px;font-weight:600">Concentration</span>
+    <span class="badge b-red" id="cn-badge" style="margin-left:auto">High</span></div>
+  <div class="wrap">
+    <div class="eyebrow">① Insight</div>
+    <div class="card" style="padding:14px;margin-bottom:10px">
+      <div class="serif" id="cn-headline" style="font-size:19px;font-weight:600;letter-spacing:-.02em;line-height:1.2">32% of your money is in financials</div>
+      <p id="cn-sub" style="font-size:11.5px;color:var(--ink-dim);margin:5px 0 11px;line-height:1.45">Above the 25% caution line — the single largest concentration.</p>
+      <div style="display:flex;gap:7px">
+        <div style="flex:1;background:var(--s0);border:1px solid var(--line);border-radius:10px;padding:9px 4px;text-align:center"><div class="mono" style="font-size:7px;letter-spacing:.8px;color:var(--ink-faint);text-transform:uppercase">Top 5</div><div class="serif" id="cn-t5" style="font-size:15px;font-weight:600;margin-top:3px">48%</div></div>
+        <div style="flex:1;background:var(--s0);border:1px solid var(--line);border-radius:10px;padding:9px 4px;text-align:center"><div class="mono" style="font-size:7px;letter-spacing:.8px;color:var(--ink-faint);text-transform:uppercase">HHI</div><div class="serif" id="cn-hhi" style="font-size:15px;font-weight:600;margin-top:3px">1840</div></div>
+        <div style="flex:1;background:var(--s0);border:1px solid var(--line);border-radius:10px;padding:9px 4px;text-align:center"><div class="mono" style="font-size:7px;letter-spacing:.8px;color:var(--ink-faint);text-transform:uppercase">Eff.N</div><div class="serif" id="cn-effn" style="font-size:15px;font-weight:600;margin-top:3px">8.2</div></div>
+      </div>
+    </div>
+    <div id="cn-chips" style="display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding-bottom:2px"></div>
+    <div class="card" style="overflow:hidden;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;padding:11px 14px 8px;border-bottom:1px solid var(--line)">
+        <span class="mono" id="cn-lenslbl" style="font-size:8px;letter-spacing:1px;color:var(--ink-mute);text-transform:uppercase">By sector</span>
+        <span class="mono" id="cn-caution" style="margin-left:auto;font-size:7.5px;letter-spacing:.8px;color:var(--rust);text-transform:uppercase">Caution 25%</span>
+      </div>
+      <div id="cn-rows" style="padding:12px 14px 14px;display:flex;flex-direction:column;gap:9px"></div>
+    </div>
+    <div class="hl">② Recommendations</div>
+    <div id="cn-matrix" style="display:flex;flex-direction:column;gap:9px;margin-bottom:14px"></div>
+    <div class="eyebrow">③ Apply</div>
+    <div class="card tap" onclick="go('plan')" style="padding:13px;border-color:rgba(255,146,72,.2)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div><div class="mono" style="font-size:8px;letter-spacing:1px;color:var(--saffron);text-transform:uppercase">Projected health</div>
+          <div class="mono" id="cn-proj" style="font-size:13px;color:var(--moss);margin-top:2px">86 → 86</div></div>
+        <span class="mono" id="cn-accn" style="margin-left:auto;font-size:8.5px;color:var(--ink-mute)">0 ACCEPTED</span>
+      </div>
+      <button class="btn" style="width:100%;font-size:12px;padding:10px;margin-top:10px">Send to Plan board</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== RISK ===== -->
+<div class="screen" id="s-d_risk">
+  <div class="appbar"><span class="back" onclick="go('landing')">‹</span>
+    <span class="serif" style="font-size:15px;font-weight:600">Risk</span>
+    <span class="badge b-red" style="margin-left:auto">High</span></div>
+  <div class="wrap">
+    <div class="eyebrow">① Insight</div>
+    <div class="card" style="padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:14px">
+      <svg width="74" height="74" viewBox="0 0 74 74" style="flex:none">
+        <circle cx="37" cy="37" r="27" fill="none" stroke="#2e2a25" stroke-width="7.5"/>
+        <circle cx="37" cy="37" r="27" fill="none" stroke="#df5d5d" stroke-width="7.5" stroke-dasharray="124 170" transform="rotate(-90 37 37)" stroke-linecap="round"/>
+        <text x="37" y="34" text-anchor="middle" fill="#f6f1e7" font-family="Fraunces,serif" font-size="15" font-weight="600">8.0%</text>
+        <text x="37" y="47" text-anchor="middle" fill="#8c8273" font-family="monospace" font-size="6" letter-spacing="1">VaR</text>
+      </svg>
+      <div><div class="serif" style="font-size:19px;font-weight:600;letter-spacing:-.02em">Swings 1.3× the market</div>
+        <p style="font-size:11.5px;color:var(--ink-dim);margin-top:4px;line-height:1.45">95% one-day loss near <span class="mono" style="color:var(--saffron-lo)">₹1.48L</span>.</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px">
+      <div style="background:var(--s0);border:1px solid var(--line);border-radius:10px;padding:9px;text-align:center"><div class="mono" style="font-size:7px;letter-spacing:.8px;color:var(--ink-faint);text-transform:uppercase">Beta</div><div class="serif" style="font-size:15px;font-weight:600;color:var(--rust);margin-top:3px">1.31</div></div>
+      <div style="background:var(--s0);border:1px solid var(--line);border-radius:10px;padding:9px;text-align:center"><div class="mono" style="font-size:7px;letter-spacing:.8px;color:var(--ink-faint);text-transform:uppercase">Volatility</div><div class="serif" style="font-size:15px;font-weight:600;margin-top:3px">22%</div></div>
+      <div style="background:var(--s0);border:1px solid var(--line);border-radius:10px;padding:9px;text-align:center"><div class="mono" style="font-size:7px;letter-spacing:.8px;color:var(--ink-faint);text-transform:uppercase">Max DD</div><div class="serif" style="font-size:15px;font-weight:600;color:var(--gold);margin-top:3px">-29%</div></div>
+      <div style="background:var(--s0);border:1px solid var(--line);border-radius:10px;padding:9px;text-align:center"><div class="mono" style="font-size:7px;letter-spacing:.8px;color:var(--ink-faint);text-transform:uppercase">Sharpe</div><div class="serif" style="font-size:15px;font-weight:600;margin-top:3px">0.71</div></div>
+    </div>
+    <div class="card" style="overflow:hidden;margin-bottom:16px">
+      <div class="mono" style="padding:11px 14px 8px;border-bottom:1px solid var(--line);font-size:8px;letter-spacing:1px;color:var(--ink-mute);text-transform:uppercase">What's driving the risk</div>
+      <div style="padding:12px 14px 14px;display:flex;flex-direction:column;gap:9px" id="rk-drivers"></div>
+    </div>
+    <div class="hl">② Recommendations</div>
+    <div id="rk-matrix" style="display:flex;flex-direction:column;gap:9px;margin-bottom:14px"></div>
+    <div class="eyebrow">③ Apply</div>
+    <div class="card tap" onclick="go('plan')" style="padding:13px;border-color:rgba(255,146,72,.2)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div><div class="mono" style="font-size:8px;letter-spacing:1px;color:var(--saffron);text-transform:uppercase">Projected beta</div>
+          <div class="mono" id="rk-proj" style="font-size:13px;color:var(--moss);margin-top:2px">1.31 → 1.31</div></div>
+        <span class="mono" id="rk-accn" style="margin-left:auto;font-size:8.5px;color:var(--ink-mute)">0 ACCEPTED</span>
+      </div>
+      <button class="btn" style="width:100%;font-size:12px;padding:10px;margin-top:10px">Send to Plan board</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PLAN BOARD ===== -->
+<div class="screen" id="s-plan">
+  <div class="appbar"><span class="back" onclick="go('landing')">‹</span>
+    <span class="serif" style="font-size:15px;font-weight:600">Plan board</span>
+    <span class="badge b-moss" id="pb-pill" style="margin-left:auto">Active plan</span></div>
+  <div class="wrap">
+    <div class="card" style="padding:15px;margin-bottom:14px;display:flex;align-items:center;gap:15px">
+      <svg width="84" height="84" viewBox="0 0 84 84" style="flex:none">
+        <circle cx="42" cy="42" r="31" fill="none" stroke="#2e2a25" stroke-width="8.5"/>
+        <circle id="pb-ring" cx="42" cy="42" r="31" fill="none" stroke="#88ab66" stroke-width="8.5" stroke-dasharray="167 195" transform="rotate(-90 42 42)" stroke-linecap="round" style="transition:stroke-dasharray .7s var(--ease)"/>
+        <text id="pb-score" x="42" y="39" text-anchor="middle" fill="#f6f1e7" font-family="Fraunces,serif" font-size="21" font-weight="600">86</text>
+        <text x="42" y="53" text-anchor="middle" fill="#8c8273" font-family="monospace" font-size="6.5" letter-spacing="1">NOW</text>
+      </svg>
+      <div style="flex:1"><div class="serif" style="font-size:17px;font-weight:600;letter-spacing:-.02em">Plan lifts health to <span id="pb-target" style="color:var(--moss)">94</span></div>
+        <p style="font-size:11.5px;color:var(--ink-dim);margin:5px 0 8px"><span id="pb-prog">0 of 6</span> done · 4 dashboards.</p>
+        <div style="height:6px;background:var(--s3);border-radius:4px;overflow:hidden">
+          <div id="pb-bar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--gold),var(--saffron));transition:width .5s var(--ease)"></div></div>
+      </div>
+    </div>
+    <div class="hl" style="color:var(--rust)">To do · <span id="pb-todoc">6</span></div>
+    <div id="pb-todo" style="display:flex;flex-direction:column;gap:8px;margin-bottom:15px"></div>
+    <div class="hl" style="color:var(--moss)">Done · <span id="pb-donec">0</span></div>
+    <div id="pb-done" style="display:flex;flex-direction:column;gap:8px;margin-bottom:15px"></div>
+    <div class="hl">Skipped · <span id="pb-skipc">0</span></div>
+    <div id="pb-skip" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+</div>
+
+<!-- ===== BUILDER ===== -->
+<div class="screen" id="s-builder">
+  <div class="appbar"><span class="back" onclick="go('landing')">‹</span>
+    <span class="serif" style="font-size:15px;font-weight:600">Portfolio builder</span>
+    <span class="badge b-indigo" style="margin-left:auto">Draft</span></div>
+  <div class="wrap">
+    <div class="eyebrow">① Your inputs</div>
+    <div class="card" style="padding:14px;margin-bottom:14px">
+      <div style="margin-bottom:15px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-size:11.5px;color:var(--ink-dim)">Risk appetite</span><span class="mono" id="bd-riskv" style="font-size:11px;color:var(--saffron)">Moderate</span></div>
+        <input id="bd-risk" type="range" min="0" max="4" value="2" step="1">
+        <div class="mono" style="display:flex;justify-content:space-between;font-size:7px;color:var(--ink-faint);margin-top:5px;letter-spacing:.3px"><span>CONSERVATIVE</span><span>AGGRESSIVE</span></div>
+      </div>
+      <div style="margin-bottom:15px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-size:11.5px;color:var(--ink-dim)">Monthly surplus</span><span class="mono" id="bd-incv" style="font-size:11px;color:var(--saffron)">₹40,000</span></div>
+        <input id="bd-inc" type="range" min="10000" max="100000" value="40000" step="2500">
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-size:11.5px;color:var(--ink-dim)">Goal horizon</span><span class="mono" id="bd-horv" style="font-size:11px;color:var(--saffron)">11 years</span></div>
+        <input id="bd-hor" type="range" min="3" max="25" value="11" step="1">
+      </div>
+    </div>
+    <div class="eyebrow">② Proposed allocation</div>
+    <div class="card" style="padding:14px;margin-bottom:14px">
+      <div id="bd-allocbar" style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin-bottom:11px"></div>
+      <div id="bd-allocrows" style="display:flex;flex-direction:column;gap:9px"></div>
+      <div style="margin-top:12px;display:flex;gap:14px;justify-content:center"><span class="tap mono" onclick="go('recs')" style="font-size:9px;letter-spacing:1px;color:var(--saffron);text-transform:uppercase">See top picks →</span><span class="tap mono" onclick="go('alloc')" style="font-size:9px;letter-spacing:1px;color:var(--saffron);text-transform:uppercase">Fine-tune →</span></div>
+    </div>
+    <div class="eyebrow">③ SIP plan</div>
+    <div class="card" style="padding:14px;margin-bottom:14px">
+      <div id="bd-sips" style="display:flex;flex-direction:column;gap:9px;margin-bottom:12px"></div>
+      <div id="bd-fundcheck" style="display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:11px"></div>
+    </div>
+    <button class="btn" style="width:100%;margin-bottom:9px" onclick="go('plan')">Accept &amp; register SIPs</button>
+    <button class="btn-ghost" style="width:100%" onclick="go('alloc')">Adjust funds</button>
+  </div>
+</div>
+
+<!-- ===== INSTRUMENT ALLOCATION ===== -->
+<div class="screen" id="s-alloc">
+  <div class="appbar"><span class="back" onclick="go('builder')">‹</span>
+    <span class="serif" style="font-size:15px;font-weight:600">Equity sleeve</span>
+    <span class="badge" id="al-sleevebadge" style="margin-left:auto;color:var(--saffron);background:rgba(255,146,72,.1);border:1px solid rgba(255,146,72,.24)">₹24,000/mo</span></div>
+  <div class="wrap">
+    <div class="mono" style="font-size:8px;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:12px;text-transform:uppercase">Split proposed by score · drag to override</div>
+    <div class="card" style="padding:14px;margin-bottom:12px">
+      <div id="al-bar" style="display:flex;height:12px;border-radius:6px;overflow:hidden;margin-bottom:14px"></div>
+      <div id="al-rows" style="display:flex;flex-direction:column;gap:16px"></div>
+    </div>
+    <div id="al-status" style="display:flex;align-items:center;gap:9px;padding:11px 13px;border-radius:12px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px;margin-bottom:9px">
+      <button class="btn-ghost" id="al-reset" style="flex:1;font-size:12px">Reset</button>
+      <button class="btn-ghost" id="al-balance" style="flex:1;font-size:12px">Auto-balance</button>
+    </div>
+    <button class="btn" style="width:100%" onclick="go('builder')">Confirm split</button>
+  </div>
+</div>
+
+<!-- ===== ADVISOR BOOK ===== -->
+<div class="screen" id="s-adv_book">
+  <div class="appbar">
+    <div class="mark" style="width:28px;height:28px;font-size:13px">न</div>
+    <div><div class="serif" style="font-size:14px;font-weight:600">Advisor book</div>
+      <div class="mono" style="font-size:7.5px;letter-spacing:1px;color:var(--ink-mute);text-transform:uppercase">Priya Nair · RM-204</div></div>
+    <span class="badge b-moss" style="margin-left:auto">24</span>
+  </div>
+  <div class="wrap">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <div class="card-flat" style="padding:11px"><div class="mono" style="font-size:7.5px;letter-spacing:1px;color:var(--ink-faint);text-transform:uppercase">Book AUM</div><div class="serif" style="font-size:17px;font-weight:600;margin-top:3px">₹41Cr</div></div>
+      <div class="card-flat" style="padding:11px"><div class="mono" style="font-size:7.5px;letter-spacing:1px;color:var(--ink-faint);text-transform:uppercase">Avg health</div><div class="serif" style="font-size:17px;font-weight:600;color:var(--moss);margin-top:3px">79</div></div>
+      <div class="card-flat" style="padding:11px;border-color:rgba(223,93,93,.3)"><div class="mono" style="font-size:7.5px;letter-spacing:1px;color:var(--ink-faint);text-transform:uppercase">Need attention</div><div class="serif" style="font-size:17px;font-weight:600;color:var(--rust);margin-top:3px">5</div></div>
+      <div class="card-flat" style="padding:11px;border-color:rgba(217,182,74,.3)"><div class="mono" style="font-size:7.5px;letter-spacing:1px;color:var(--ink-faint);text-transform:uppercase">Actions open</div><div class="serif" style="font-size:17px;font-weight:600;color:var(--gold);margin-top:3px">38</div></div>
+    </div>
+    <div id="ab-filters" style="display:flex;gap:6px;overflow-x:auto;margin-bottom:11px;padding-bottom:2px"></div>
+    <div id="ab-list" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div style="margin-top:13px;text-align:center"><span class="tap mono" onclick="go('adv_sip')" style="font-size:9px;letter-spacing:1px;color:var(--indigo);text-transform:uppercase">Open SIP board →</span></div>
+  </div>
+</div>
+
+<!-- ===== CLIENT 360 ===== -->
+<div class="screen" id="s-adv_360">
+  <div class="appbar"><span class="back" onclick="go('adv_book')">‹</span>
+    <span class="mono" style="font-size:8.5px;letter-spacing:1px;color:var(--ink-mute);text-transform:uppercase">Back to book</span>
+    <span class="tap mono" onclick="go('landing')" style="font-size:8.5px;letter-spacing:1px;color:var(--saffron);text-transform:uppercase;margin-left:auto">Client chat ↗</span></div>
+  <div class="wrap">
+    <div class="card" style="padding:14px;margin-bottom:13px;display:flex;align-items:center;gap:13px">
+      <div style="width:46px;height:46px;border-radius:12px;flex:none;background:var(--s3);border:1px solid var(--line2);display:grid;place-items:center" class="mono">RM</div>
+      <div style="flex:1"><div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><span class="serif" style="font-size:16px;font-weight:600">Rohan Mehta</span><span class="badge b-red">At risk</span></div>
+        <div class="mono" style="font-size:8px;letter-spacing:.5px;color:var(--ink-mute);margin-top:3px;text-transform:uppercase">₹1.8Cr · Moderate · seen 14d</div></div>
+      <div style="text-align:center;flex:none"><div class="serif" style="font-size:27px;font-weight:600;color:var(--rust);line-height:1">62</div><div class="mono" style="font-size:6.5px;letter-spacing:.6px;color:var(--ink-faint);margin-top:2px;text-transform:uppercase">Health</div></div>
+    </div>
+    <div class="eyebrow">Health by domain</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <div class="card-flat tap" onclick="go('d_conc')" style="padding:11px;border-color:rgba(223,93,93,.3)"><div style="font-size:11.5px">Concentration</div><div class="mono" style="font-size:8.5px;color:var(--rust);margin-top:4px;letter-spacing:.4px">HIGH · 38%</div></div>
+      <div class="card-flat tap" onclick="go('d_perf')" style="padding:11px"><div style="font-size:11.5px">Performance</div><div class="mono" style="font-size:8.5px;color:var(--moss);margin-top:4px;letter-spacing:.4px">XIRR 19%</div></div>
+      <div class="card-flat tap" onclick="go('d_risk')" style="padding:11px;border-color:rgba(217,182,74,.3)"><div style="font-size:11.5px">Risk</div><div class="mono" style="font-size:8.5px;color:var(--gold);margin-top:4px;letter-spacing:.4px">BETA 1.28</div></div>
+      <div class="card-flat tap" onclick="go('d_div')" style="padding:11px"><div style="font-size:11.5px">Diversification</div><div class="mono" style="font-size:8.5px;color:var(--moss);margin-top:4px;letter-spacing:.4px">8 funds</div></div>
+      <div class="card-flat tap" onclick="go('d_tax')" style="padding:11px;border-color:rgba(125,126,255,.3)"><div style="font-size:11.5px">Tax</div><div class="mono" style="font-size:8.5px;color:var(--indigo);margin-top:4px;letter-spacing:.4px">HARVEST ₹14K</div></div>
+      <div class="card-flat tap" onclick="go('d_goals')" style="padding:11px;border-color:rgba(223,93,93,.3)"><div style="font-size:11.5px">Goals</div><div class="mono" style="font-size:8.5px;color:var(--rust);margin-top:4px;letter-spacing:.4px">1 AT RISK</div></div>
+    </div>
+    <div class="hl">What needs you · 3</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+      <div class="card-flat" style="display:flex;align-items:center;gap:10px;padding:11px"><div style="width:5px;align-self:stretch;background:var(--rust)"></div><div style="flex:1"><div style="font-size:12px;font-weight:500;line-height:1.35">Child-education goal misses by ₹11L</div><div class="mono" style="font-size:7.5px;color:var(--ink-mute);margin-top:2px;text-transform:uppercase">Goals</div></div><span class="btn" style="font-size:10.5px;padding:7px 11px;min-height:0">Discuss</span></div>
+      <div class="card-flat" style="display:flex;align-items:center;gap:10px;padding:11px"><div style="width:5px;align-self:stretch;background:var(--indigo)"></div><div style="flex:1"><div style="font-size:12px;font-weight:500;line-height:1.35">₹14K tax harvest expires in 41 days</div><div class="mono" style="font-size:7.5px;color:var(--ink-mute);margin-top:2px;text-transform:uppercase">Tax</div></div><span class="btn" style="font-size:10.5px;padding:7px 11px;min-height:0">Discuss</span></div>
+      <div class="card-flat" style="display:flex;align-items:center;gap:10px;padding:11px"><div style="width:5px;align-self:stretch;background:var(--rust)"></div><div style="flex:1"><div style="font-size:12px;font-weight:500;line-height:1.35">Financials concentration at 38%</div><div class="mono" style="font-size:7.5px;color:var(--ink-mute);margin-top:2px;text-transform:uppercase">Concentration</div></div><span class="btn" style="font-size:10.5px;padding:7px 11px;min-height:0">Discuss</span></div>
+    </div>
+    <button class="btn" style="width:100%;margin-bottom:9px">Prepare review pack</button>
+    <div style="display:flex;gap:8px">
+      <button class="btn-ghost" style="flex:1;font-size:12px">Log a call</button>
+      <button class="btn-ghost" style="flex:1;font-size:12px" onclick="go('plan')">Plan board</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SIP BOARD ===== -->
+<div class="screen" id="s-adv_sip">
+  <div class="appbar"><span class="back" onclick="go('adv_book')">‹</span>
+    <div><div class="serif" style="font-size:14px;font-weight:600">SIP board</div>
+      <div class="mono" style="font-size:7.5px;letter-spacing:1px;color:var(--ink-mute);text-transform:uppercase">Cycle May 2026</div></div>
+    <span class="badge b-red" style="margin-left:auto">4</span></div>
+  <div class="wrap">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <div class="card-flat" style="padding:11px"><div class="mono" style="font-size:7.5px;letter-spacing:1px;color:var(--ink-faint);text-transform:uppercase">Monthly inflow</div><div class="serif" style="font-size:17px;font-weight:600;color:var(--moss);margin-top:3px">₹6.4L</div></div>
+      <div class="card-flat" style="padding:11px"><div class="mono" style="font-size:7.5px;letter-spacing:1px;color:var(--ink-faint);text-transform:uppercase">Active SIPs</div><div class="serif" style="font-size:17px;font-weight:600;margin-top:3px">68</div></div>
+      <div class="card-flat" style="padding:11px;border-color:rgba(223,93,93,.3)"><div class="mono" style="font-size:7.5px;letter-spacing:1px;color:var(--ink-faint);text-transform:uppercase">Failed</div><div class="serif" style="font-size:17px;font-weight:600;color:var(--rust);margin-top:3px">3</div></div>
+      <div class="card-flat" style="padding:11px;border-color:rgba(217,182,74,.3)"><div class="mono" style="font-size:7.5px;letter-spacing:1px;color:var(--ink-faint);text-transform:uppercase">Mandate at risk</div><div class="serif" style="font-size:17px;font-weight:600;color:var(--gold);margin-top:3px">4</div></div>
+    </div>
+    <div id="sb-filters" style="display:flex;gap:6px;overflow-x:auto;margin-bottom:11px;padding-bottom:2px"></div>
+    <div id="sb-list" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+</div>
+
+
+  <div class="screen" id="s-d_div"><div id="w-d_div"></div></div>
+<div class="screen" id="s-d_perf"><div id="w-d_perf"></div></div>
+<div class="screen" id="s-d_goals"><div id="w-d_goals"></div></div>
+<div class="screen" id="s-d_tax"><div id="w-d_tax"></div></div>
+<div class="screen" id="s-recs"><div id="w-recs"></div></div>
+</div>
+
+  <div class="tabbar" id="tabbar">
+    <div class="tab" data-tab="landing" onclick="go('landing')">
+      <span class="ic">◇</span><span class="lb">Chat</span></div>
+    <div class="tab" data-tab="plan" onclick="go('plan')">
+      <span class="ic">◎</span><span class="lb">Plan</span></div>
+    <div class="tab" data-tab="builder" onclick="go('builder')">
+      <span class="ic">+</span><span class="lb">Build</span></div>
+    <div class="tab" data-tab="adv_book" onclick="go('adv_book')">
+      <span class="ic">☰</span><span class="lb">Advisor</span></div>
+  </div>
+
+</div>
+<script>
+/* ===== navigation + tab bar ===== */
+var TABMAP={landing:1,plan:1,builder:1,adv_book:1};
+var NOTAB={home:1,login:1,onboard:1};
+var hist=["home"];
+function go(id){
+  document.querySelectorAll(".screen").forEach(function(s){s.classList.remove("on");});
+  var el=document.getElementById("s-"+id);
+  if(!el)return;
+  el.classList.add("on");
+  document.getElementById("viewport").scrollTop=0;
+  var jp=document.getElementById("jump"); if(jp)jp.value=id;
+  // tab bar visibility + active state
+  var tb=document.getElementById("tabbar");
+  if(NOTAB[id]){tb.classList.add("hidden");}
+  else{tb.classList.remove("hidden");}
+  document.querySelectorAll(".tab").forEach(function(t){
+    t.classList.toggle("on",t.dataset.tab===id);
+  });
+  if(hist[hist.length-1]!==id)hist.push(id);
+  if(id==="d_conc")initConc();
+  if(id==="d_div")mBuildDash("d_div");
+  if(id==="d_perf")mBuildDash("d_perf");
+  if(id==="d_goals")mBuildDash("d_goals");
+  if(id==="d_tax")mBuildDash("d_tax");
+  if(id==="recs")mBuildRecs();
+  if(id==="d_risk")initRisk();
+  if(id==="plan")initPlan();
+  if(id==="builder")initBuilder();
+  if(id==="alloc")initAlloc();
+  if(id==="adv_book")initBook();
+  if(id==="adv_sip")initSip();
+}
+function mback(){
+  if(hist.length>1){hist.pop();go(hist[hist.length-1]);hist.pop();}
+}
+
+/* ===== concentration ===== */
+function initConc(){
+  var LENS={
+    stock:{lbl:"By stock",caution:"Caution 10%",cl:10,badge:["Med","b-amber"],t5:"48%",hhi:"1840",effn:"8.2",
+      headline:"HDFC Bank alone is 9% of your portfolio",sub:"Your single largest stock bet, through every fund.",
+      rows:[["HDFC Bank",9],["ICICI Bank",7],["Reliance",6],["Infosys",5],["TCS",4]]},
+    sector:{lbl:"By sector",caution:"Caution 25%",cl:25,badge:["High","b-red"],t5:"48%",hhi:"1840",effn:"8.2",
+      headline:"32% of your money is in financials",sub:"Above the 25% caution line — the largest concentration.",
+      rows:[["Financials",32],["IT",21],["Consumer",14],["Industrials",12],["Healthcare",9]]},
+    amc:{lbl:"By fund house",caution:"Caution 40%",cl:40,badge:["Med","b-amber"],t5:"—",hhi:"2310",effn:"4.1",
+      headline:"46% of your funds sit with one AMC",sub:"Heavy reliance on a single fund house.",
+      rows:[["HDFC AMC",46],["Axis AMC",22],["Mirae AMC",16],["SBI AMC",10],["PPFAS",6]]},
+    company:{lbl:"By company",caution:"Caution 12%",cl:12,badge:["Low","b-indigo"],t5:"44%",hhi:"1620",effn:"9.0",
+      headline:"No single company exceeds the caution line",sub:"Company-level exposure is spread well.",
+      rows:[["HDFC Bank",9],["Reliance",8],["ICICI Bank",7],["Infosys",6],["Airtel",5]]},
+    group:{lbl:"By promoter group",caution:"Caution 15%",cl:15,badge:["Low","b-indigo"],t5:"—",hhi:"1280",effn:"11.2",
+      headline:"Tata group entities total 11%",sub:"Group-level exposure stays comfortable.",
+      rows:[["Tata group",11],["HDFC group",9],["Reliance",8],["Aditya Birla",4],["Bajaj",3]]}
+  };
+  var MATRIX=[
+    {rank:1,prc:"#df5d5d",prl:"Critical",action:"Trim financials 32% → 22%",detail:"Sell HDFC Banking ETF · 1.8L",impact:6,effort:"Low",ec:"#88ab66",tradeoff:"Realises 3.1K LTCG"},
+    {rank:2,prc:"#d9b64a",prl:"Optimise",action:"Swap a bank fund for flexi-cap",detail:"Axis Banking → PPFAS Flexi",impact:2,effort:"Medium",ec:"#d9b64a",tradeoff:"Exit load if held < 1yr"},
+    {rank:3,prc:"#7d7eff",prl:"Enhance",action:"Cap new SIP into financials",detail:"Redirect 5K/mo to mid-cap",impact:1,effort:"Low",ec:"#88ab66",tradeoff:"Slower if banks rally"}
+  ];
+  var LK=["stock","sector","amc","company","group"],
+      LN={stock:"Stocks",sector:"Sectors",amc:"AMC",company:"Companies",group:"Groups"};
+  var cur="sector",accepted={};
+  var chipsEl=document.getElementById("cn-chips"),rowsEl=document.getElementById("cn-rows"),mxEl=document.getElementById("cn-matrix");
+  function chips(){
+    chipsEl.innerHTML=LK.map(function(k){
+      var on=k===cur;
+      return '<button data-l="'+k+'" style="flex:none;font-size:11px;font-weight:'+(on?500:450)+';border-radius:8px;padding:8px 13px;border:1px solid '+(on?"#ff9248":"#2a2620")+';background:'+(on?"#ff9248":"#1d1a16")+';color:'+(on?"#2a1605":"#c2b8a8")+';font-family:inherit;min-height:36px">'+LN[k]+'</button>';
+    }).join("");
+    chipsEl.querySelectorAll("button").forEach(function(b){b.onclick=function(){cur=b.dataset.l;chips();lens();};});
+  }
+  function lens(){
+    var d=LENS[cur];
+    document.getElementById("cn-headline").textContent=d.headline;
+    document.getElementById("cn-sub").textContent=d.sub;
+    document.getElementById("cn-lenslbl").textContent=d.lbl;
+    document.getElementById("cn-caution").textContent=d.caution;
+    document.getElementById("cn-t5").textContent=d.t5;
+    document.getElementById("cn-hhi").textContent=d.hhi;
+    document.getElementById("cn-effn").textContent=d.effn;
+    var bd=document.getElementById("cn-badge");bd.textContent=d.badge[0];bd.className="badge "+d.badge[1];
+    var sm=Math.max(Math.max.apply(null,d.rows.map(function(r){return r[1];})),d.cl);
+    rowsEl.innerHTML=d.rows.map(function(r){
+      var w=Math.round(r[1]/sm*100),col=r[1]>=d.cl?"#ff9248":(r[1]>=d.cl*0.7?"#d9b64a":"#88ab66");
+      return '<div style="display:grid;grid-template-columns:84px 1fr 34px;gap:9px;align-items:center">'+
+        '<span style="font-size:11px;color:#c2b8a8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+r[0]+'</span>'+
+        '<div style="position:relative;height:9px;background:#252119;border-radius:5px;overflow:hidden">'+
+        '<div style="height:100%;width:'+w+'%;background:'+col+';border-radius:5px;transition:width .5s"></div>'+
+        '<div style="position:absolute;top:-2px;bottom:-2px;left:'+Math.round(d.cl/sm*100)+'%;width:1px;background:#df5d5d;opacity:.55"></div></div>'+
+        '<span class="mono" style="font-size:10px;color:#f6f1e7;text-align:right">'+r[1]+'%</span></div>';
+    }).join("");
+  }
+  function matrix(){
+    mxEl.innerHTML=MATRIX.map(function(r,i){
+      var on=accepted[i];
+      return '<div class="card-flat" style="padding:12px;border-color:'+(on?"rgba(136,171,102,.4)":"#2a2620")+'">'+
+        '<div style="display:flex;align-items:flex-start;gap:9px">'+
+        '<div style="width:24px;height:24px;border-radius:7px;flex:none;background:'+r.prc+'1f;color:'+r.prc+';display:grid;place-items:center;font-size:11px;font-weight:600" class="mono">'+r.rank+'</div>'+
+        '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:500">'+r.action+'</div>'+
+        '<div class="mono" style="font-size:8px;color:#8c8273;letter-spacing:.4px;margin-top:2px;text-transform:uppercase">'+r.detail+'</div></div>'+
+        '<span class="mono" style="font-size:7px;letter-spacing:.6px;color:'+r.prc+';background:'+r.prc+'1a;border:1px solid '+r.prc+'38;padding:3px 6px;border-radius:5px;text-transform:uppercase">'+r.prl+'</span></div>'+
+        '<div style="display:flex;flex-direction:column;gap:5px;margin-top:9px">'+
+        '<div style="display:flex;gap:6px">'+
+        '<div style="flex:1;background:#100e0b;border:1px solid #2a2620;border-radius:8px;padding:6px;text-align:center"><div class="mono" style="font-size:6.5px;letter-spacing:.7px;color:#564e42;text-transform:uppercase">Impact</div><div class="serif" style="font-size:13px;font-weight:600;color:#88ab66;margin-top:1px">+'+r.impact+' pts</div></div>'+
+        '<div style="flex:1;background:#100e0b;border:1px solid #2a2620;border-radius:8px;padding:6px;text-align:center"><div class="mono" style="font-size:6.5px;letter-spacing:.7px;color:#564e42;text-transform:uppercase">Effort</div><div class="serif" style="font-size:13px;font-weight:600;color:'+r.ec+';margin-top:1px">'+r.effort+'</div></div></div>'+
+        '<div style="background:#100e0b;border:1px solid #2a2620;border-radius:8px;padding:7px 9px"><div class="mono" style="font-size:6.5px;letter-spacing:.7px;color:#564e42;text-transform:uppercase">Trade-off</div><div style="font-size:10.5px;color:#c2b8a8;margin-top:1px">'+r.tradeoff+'</div></div></div>'+
+        '<div style="display:flex;gap:6px;margin-top:8px">'+
+        '<button data-acc="'+i+'" style="flex:1;font-size:11px;font-weight:600;border-radius:8px;padding:9px;border:none;font-family:inherit;background:'+(on?"#88ab66":"linear-gradient(150deg,#ff9248,#e07730)")+';color:#2a1605;min-height:40px">'+(on?"✓ Accepted":"Accept")+'</button>'+
+        '<button style="font-size:11px;border-radius:8px;padding:9px 13px;border:1px solid #2a2620;font-family:inherit;background:#1d1a16;color:#c2b8a8;min-height:40px">Why?</button>'+
+        '<button data-skip="'+i+'" style="font-size:11px;border-radius:8px;padding:9px 13px;border:1px solid #2a2620;font-family:inherit;background:#1d1a16;color:#8c8273;min-height:40px">Skip</button></div></div>';
+    }).join("");
+    mxEl.querySelectorAll("[data-acc]").forEach(function(b){b.onclick=function(){var i=b.dataset.acc;accepted[i]=!accepted[i];matrix();};});
+    mxEl.querySelectorAll("[data-skip]").forEach(function(b){b.onclick=function(){accepted[b.dataset.skip]=false;matrix();};});
+    var n=0,lift=0;MATRIX.forEach(function(r,i){if(accepted[i]){n++;lift+=r.impact;}});
+    document.getElementById("cn-accn").textContent=n+" ACCEPTED";
+    document.getElementById("cn-proj").textContent="86 → "+(86+lift);
+  }
+  chips();lens();matrix();
+}
+
+/* ===== risk ===== */
+function initRisk(){
+  var DR=[["Smallcap weight",78,"#ff9248","44%"],["High-beta names",62,"#d9b64a","37%"],["Cyclical sectors",88,"#ff9248","62%"],["Debt + gold buffer",13,"#88ab66","9%"]];
+  document.getElementById("rk-drivers").innerHTML=DR.map(function(d){
+    return '<div style="display:grid;grid-template-columns:104px 1fr 34px;gap:9px;align-items:center">'+
+      '<span style="font-size:11px;color:#c2b8a8">'+d[0]+'</span>'+
+      '<div style="height:9px;background:#252119;border-radius:5px;overflow:hidden"><div style="height:100%;width:'+d[1]+'%;background:'+d[2]+';border-radius:5px"></div></div>'+
+      '<span class="mono" style="font-size:10px;color:#f6f1e7;text-align:right">'+d[3]+'</span></div>';
+  }).join("");
+  var MATRIX=[
+    {rank:1,prc:"#df5d5d",prl:"Critical",action:"Add a 15% debt + gold buffer",detail:"HDFC Short Term Debt · 2.7L",impact:0.18,effort:"Low",ec:"#88ab66",tradeoff:"Caps upside in a bull run"},
+    {rank:2,prc:"#d9b64a",prl:"Optimise",action:"Cut smallcap 44% → 30%",detail:"Trim Nippon Smallcap",impact:0.10,effort:"Medium",ec:"#d9b64a",tradeoff:"Realises short-term gains"},
+    {rank:3,prc:"#7d7eff",prl:"Enhance",action:"Swap 2 high-beta stocks",detail:"Into large-cap defensives",impact:0.05,effort:"Medium",ec:"#d9b64a",tradeoff:"Lower expected return"}
+  ];
+  var accepted={},mxEl=document.getElementById("rk-matrix");
+  function matrix(){
+    mxEl.innerHTML=MATRIX.map(function(r,i){
+      var on=accepted[i];
+      return '<div class="card-flat" style="padding:12px;border-color:'+(on?"rgba(136,171,102,.4)":"#2a2620")+'">'+
+        '<div style="display:flex;align-items:flex-start;gap:9px">'+
+        '<div style="width:24px;height:24px;border-radius:7px;flex:none;background:'+r.prc+'1f;color:'+r.prc+';display:grid;place-items:center;font-size:11px;font-weight:600" class="mono">'+r.rank+'</div>'+
+        '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:500">'+r.action+'</div>'+
+        '<div class="mono" style="font-size:8px;color:#8c8273;letter-spacing:.4px;margin-top:2px;text-transform:uppercase">'+r.detail+'</div></div>'+
+        '<span class="mono" style="font-size:7px;letter-spacing:.6px;color:'+r.prc+';background:'+r.prc+'1a;border:1px solid '+r.prc+'38;padding:3px 6px;border-radius:5px;text-transform:uppercase">'+r.prl+'</span></div>'+
+        '<div style="display:flex;flex-direction:column;gap:5px;margin-top:9px">'+
+        '<div style="display:flex;gap:6px">'+
+        '<div style="flex:1;background:#100e0b;border:1px solid #2a2620;border-radius:8px;padding:6px;text-align:center"><div class="mono" style="font-size:6.5px;letter-spacing:.7px;color:#564e42;text-transform:uppercase">Beta cut</div><div class="serif" style="font-size:13px;font-weight:600;color:#88ab66;margin-top:1px">-'+r.impact.toFixed(2)+'</div></div>'+
+        '<div style="flex:1;background:#100e0b;border:1px solid #2a2620;border-radius:8px;padding:6px;text-align:center"><div class="mono" style="font-size:6.5px;letter-spacing:.7px;color:#564e42;text-transform:uppercase">Effort</div><div class="serif" style="font-size:13px;font-weight:600;color:'+r.ec+';margin-top:1px">'+r.effort+'</div></div></div>'+
+        '<div style="background:#100e0b;border:1px solid #2a2620;border-radius:8px;padding:7px 9px"><div class="mono" style="font-size:6.5px;letter-spacing:.7px;color:#564e42;text-transform:uppercase">Trade-off</div><div style="font-size:10.5px;color:#c2b8a8;margin-top:1px">'+r.tradeoff+'</div></div></div>'+
+        '<div style="display:flex;gap:6px;margin-top:8px">'+
+        '<button data-acc="'+i+'" style="flex:1;font-size:11px;font-weight:600;border-radius:8px;padding:9px;border:none;font-family:inherit;background:'+(on?"#88ab66":"linear-gradient(150deg,#ff9248,#e07730)")+';color:#2a1605;min-height:40px">'+(on?"✓ Accepted":"Accept")+'</button>'+
+        '<button style="font-size:11px;border-radius:8px;padding:9px 13px;border:1px solid #2a2620;font-family:inherit;background:#1d1a16;color:#c2b8a8;min-height:40px">Why?</button>'+
+        '<button data-skip="'+i+'" style="font-size:11px;border-radius:8px;padding:9px 13px;border:1px solid #2a2620;font-family:inherit;background:#1d1a16;color:#8c8273;min-height:40px">Skip</button></div></div>';
+    }).join("");
+    mxEl.querySelectorAll("[data-acc]").forEach(function(b){b.onclick=function(){var i=b.dataset.acc;accepted[i]=!accepted[i];matrix();};});
+    mxEl.querySelectorAll("[data-skip]").forEach(function(b){b.onclick=function(){accepted[b.dataset.skip]=false;matrix();};});
+    var n=0,cut=0;MATRIX.forEach(function(r,i){if(accepted[i]){n++;cut+=r.impact;}});
+    document.getElementById("rk-accn").textContent=n+" ACCEPTED";
+    document.getElementById("rk-proj").textContent="1.31 → "+(1.31-cut).toFixed(2);
+  }
+  matrix();
+}
+
+/* ===== plan board ===== */
+function initPlan(){
+  var ACTIONS=[
+    {id:0,src:"Concentration",sc:"#df5d5d",vb:"TRIM",vc:"#d9b64a",title:"Trim financials 32% → 22%",detail:"Sell HDFC Banking ETF · 1.8L",impact:6,unit:"pts",st:"todo"},
+    {id:1,src:"Performance",sc:"#88ab66",vb:"SWITCH",vc:"#ff9248",title:"Replace SBI Banking Fund",detail:"Into Parag Parikh Flexi Cap",impact:1,unit:"pt",st:"todo"},
+    {id:2,src:"Risk",sc:"#df5d5d",vb:"ADD",vc:"#7d7eff",title:"Add a 15% debt + gold buffer",detail:"HDFC Short Term Debt · 2.7L",impact:3,unit:"pts",st:"todo"},
+    {id:3,src:"Tax",sc:"#7d7eff",vb:"HARVEST",vc:"#7d7eff",title:"Harvest 5 long-term gain lots",detail:"Saves 2.8K · before FY-end",impact:1,unit:"pt",st:"todo"},
+    {id:4,src:"Diversification",sc:"#d9b64a",vb:"MERGE",vc:"#d9b64a",title:"Merge 3 large-cap funds",detail:"Keep Mirae · redeem Axis + SBI",impact:2,unit:"pts",st:"todo"},
+    {id:5,src:"Goals",sc:"#d9b64a",vb:"RAISE SIP",vc:"#ff9248",title:"Raise child-education SIP to 19K",detail:"+7K/month · closes the gap",impact:0,unit:"pts",st:"todo"}
+  ];
+  var BASE=86;
+  function row(a){
+    var done=a.st==="done",skip=a.st==="skip";
+    var btns=done?'<button data-undo="'+a.id+'" style="font-size:10.5px;border-radius:8px;padding:8px 12px;border:1px solid #2a2620;font-family:inherit;background:#1d1a16;color:#8c8273;min-height:38px">Undo</button>':
+      skip?'<button data-rest="'+a.id+'" style="font-size:10.5px;border-radius:8px;padding:8px 12px;border:1px solid #2a2620;font-family:inherit;background:#1d1a16;color:#c2b8a8;min-height:38px">Restore</button>':
+      '<button data-done="'+a.id+'" style="flex:1;font-size:11px;font-weight:600;border-radius:8px;padding:9px;border:none;font-family:inherit;background:linear-gradient(150deg,#ff9248,#e07730);color:#2a1605;min-height:40px">Mark done</button>'+
+      '<button data-skip="'+a.id+'" style="font-size:11px;border-radius:8px;padding:9px 13px;border:1px solid #2a2620;font-family:inherit;background:#1d1a16;color:#8c8273;min-height:40px">Skip</button>';
+    return '<div class="card-flat" style="padding:11px;border-color:'+(done?"rgba(136,171,102,.4)":"#2a2620")+';opacity:'+(skip?".6":"1")+'">'+
+      '<div style="display:flex;align-items:flex-start;gap:9px"><div style="width:6px;align-self:stretch;background:'+a.sc+';flex:none"></div>'+
+      '<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+
+      '<span class="mono" style="font-size:7px;letter-spacing:.7px;color:'+a.vc+';background:'+a.vc+'1a;border:1px solid '+a.vc+'38;padding:3px 6px;border-radius:5px;text-transform:uppercase">'+a.vb+'</span></div>'+
+      '<div style="font-size:12px;font-weight:500;margin-top:4px;'+(skip?"color:#8c8273;text-decoration:line-through":"")+'">'+a.title+'</div>'+
+      '<div class="mono" style="font-size:7.5px;color:#8c8273;letter-spacing:.4px;margin-top:3px;text-transform:uppercase">'+a.detail+'</div></div>'+
+      (done?'<span class="mono" style="font-size:7.5px;color:#88ab66;letter-spacing:.4px;white-space:nowrap">✓ +'+a.impact+' '+a.unit+'</span>':'<span class="mono" style="font-size:7.5px;color:#564e42;letter-spacing:.4px;white-space:nowrap">'+a.src+' ↗</span>')+
+      '</div><div style="display:flex;gap:6px;margin-top:9px">'+btns+'</div></div>';
+  }
+  function paint(){
+    var todo=ACTIONS.filter(function(a){return a.st==="todo";}),
+        done=ACTIONS.filter(function(a){return a.st==="done";}),
+        skip=ACTIONS.filter(function(a){return a.st==="skip";});
+    document.getElementById("pb-todo").innerHTML=todo.length?todo.map(row).join(""):'<div class="mono" style="font-size:9px;color:#564e42;letter-spacing:.5px;padding:8px 2px;text-transform:uppercase">All actions cleared</div>';
+    document.getElementById("pb-done").innerHTML=done.length?done.map(row).join(""):'<div class="mono" style="font-size:9px;color:#564e42;letter-spacing:.5px;padding:4px 2px;text-transform:uppercase">Nothing done yet</div>';
+    document.getElementById("pb-skip").innerHTML=skip.length?skip.map(row).join(""):'<div class="mono" style="font-size:9px;color:#564e42;letter-spacing:.5px;padding:4px 2px;text-transform:uppercase">Nothing skipped</div>';
+    document.getElementById("pb-todoc").textContent=todo.length;
+    document.getElementById("pb-donec").textContent=done.length;
+    document.getElementById("pb-skipc").textContent=skip.length;
+    var active=todo.concat(done),
+        fullLift=active.reduce(function(s,a){return s+a.impact;},0),
+        earned=done.reduce(function(s,a){return s+a.impact;},0);
+    document.getElementById("pb-target").textContent=BASE+fullLift;
+    document.getElementById("pb-score").textContent=BASE+earned;
+    document.getElementById("pb-prog").textContent=done.length+" of "+active.length;
+    document.getElementById("pb-bar").style.width=(active.length?Math.round(done.length/active.length*100):0)+"%";
+    document.getElementById("pb-ring").setAttribute("stroke-dasharray",(Math.min((BASE+earned)/100,1)*195)+" 195");
+    document.getElementById("pb-pill").textContent=(active.length&&done.length===active.length)?"Plan complete":"Active plan";
+    document.querySelectorAll("#s-plan [data-done],#s-plan [data-skip],#s-plan [data-undo],#s-plan [data-rest]").forEach(function(b){
+      b.onclick=function(){
+        var id;
+        if(b.dataset.done!=null){id=+b.dataset.done;find(id).st="done";}
+        if(b.dataset.skip!=null){id=+b.dataset.skip;find(id).st="skip";}
+        if(b.dataset.undo!=null){id=+b.dataset.undo;find(id).st="todo";}
+        if(b.dataset.rest!=null){id=+b.dataset.rest;find(id).st="todo";}
+        paint();
+      };
+    });
+  }
+  function find(id){return ACTIONS.filter(function(a){return a.id===id;})[0];}
+  paint();
+}
+
+/* ===== builder ===== */
+function initBuilder(){
+  var RISK=[{name:"Conservative",eq:30,dt:55,gd:15,ret:9},{name:"Cautious",eq:45,dt:42,gd:13,ret:10},
+    {name:"Moderate",eq:60,dt:30,gd:10,ret:11},{name:"Growth",eq:75,dt:18,gd:7,ret:12},{name:"Aggressive",eq:85,dt:10,gd:5,ret:12.8}];
+  var COL={eq:"#ff9248",dt:"#88ab66",gd:"#d9b64a"};
+  var GOALS=[{name:"Child education",share:.45,target:4200000},{name:"Retirement top-up",share:.35,target:9000000},{name:"Home down-payment",share:.20,target:2500000}];
+  function fmt(n){return "₹"+Math.round(n).toLocaleString("en-IN");}
+  function recompute(){
+    var ri=+document.getElementById("bd-risk").value,inc=+document.getElementById("bd-inc").value,
+        hor=+document.getElementById("bd-hor").value,r=RISK[ri];
+    document.getElementById("bd-riskv").textContent=r.name;
+    document.getElementById("bd-incv").textContent=fmt(inc);
+    document.getElementById("bd-horv").textContent=hor+" years";
+    document.getElementById("bd-allocbar").innerHTML='<div style="width:'+r.eq+'%;background:'+COL.eq+'"></div><div style="width:'+r.dt+'%;background:'+COL.dt+'"></div><div style="width:'+r.gd+'%;background:'+COL.gd+'"></div>';
+    var sl=[["Equity",r.eq,COL.eq,"Parag Flexi · Mirae · Motilal"],["Debt",r.dt,COL.dt,"HDFC Short Term · SBI Bond"],["Gold",r.gd,COL.gd,"Nippon Gold Savings"]];
+    document.getElementById("bd-allocrows").innerHTML=sl.map(function(s){
+      return '<div style="display:flex;align-items:center;gap:9px"><span style="width:9px;height:9px;border-radius:3px;background:'+s[2]+';flex:none"></span>'+
+        '<div style="flex:1;min-width:0"><div style="font-size:12px">'+s[0]+' · '+s[1]+'%</div>'+
+        '<div class="mono" style="font-size:7.5px;color:#8c8273;letter-spacing:.3px;margin-top:1px">'+s[3]+'</div></div>'+
+        '<span class="mono" style="font-size:10px;color:#c2b8a8">'+fmt(inc*s[1]/100)+'</span></div>';
+    }).join("");
+    document.getElementById("bd-sips").innerHTML=GOALS.map(function(g){
+      return '<div style="display:flex;align-items:center;gap:9px;background:#100e0b;border:1px solid #2a2620;border-radius:11px;padding:9px 11px">'+
+        '<div style="width:5px;align-self:stretch;background:#7d7eff;flex:none"></div>'+
+        '<div style="flex:1;min-width:0"><div style="font-size:11.5px">'+g.name+'</div>'+
+        '<div class="mono" style="font-size:7.5px;color:#8c8273;letter-spacing:.3px;margin-top:2px;text-transform:uppercase">TARGET '+fmt(g.target)+'</div></div>'+
+        '<span class="serif" style="font-size:14px;font-weight:600">'+fmt(inc*g.share)+'</span></div>';
+    }).join("");
+    var pg=GOALS[0],m=inc*pg.share,rate=r.ret/100/12,n=hor*12,
+        fv=m*((Math.pow(1+rate,n)-1)/rate)*(1+rate),pct=Math.min(999,Math.round(fv/pg.target*100));
+    var fc=document.getElementById("bd-fundcheck"),ok=pct>=100,near=pct>=85,
+        col=ok?"#88ab66":near?"#d9b64a":"#df5d5d",
+        msg=ok?"On track — this plan funds your child-education goal.":near?"Close — a small step-up closes the gap.":"Short — raise the surplus or extend the horizon.";
+    fc.style.background=col+"14";fc.style.border="1px solid "+col+"38";
+    fc.innerHTML='<span class="serif" style="font-size:18px;font-weight:600;color:'+col+';flex:none">'+pct+'%</span>'+
+      '<div><div class="mono" style="font-size:7.5px;letter-spacing:1px;color:'+col+';text-transform:uppercase">Primary goal funding</div>'+
+      '<div style="font-size:10.5px;color:#c2b8a8;margin-top:2px;line-height:1.4">'+msg+'</div></div>';
+  }
+  ["bd-risk","bd-inc","bd-hor"].forEach(function(id){document.getElementById(id).oninput=recompute;});
+  recompute();
+}
+
+/* ===== instrument allocation ===== */
+function initAlloc(){
+  var SLEEVE=24000,STEP=500;
+  var ITEMS=[
+    {name:"Parag Parikh Flexi Cap",type:"FUND",score:90,cap:.35,col:"#ff9248"},
+    {name:"Mirae Asset Large Cap",type:"FUND",score:84,cap:.30,col:"#ffb37e"},
+    {name:"Motilal Oswal Midcap",type:"FUND",score:93,cap:.25,col:"#d9b64a"},
+    {name:"HDFC Bank",type:"STOCK",score:92,cap:.12,col:"#88ab66"},
+    {name:"Bharti Airtel",type:"STOCK",score:88,cap:.10,col:"#7d7eff"},
+    {name:"Tata Consultancy",type:"STOCK",score:90,cap:.10,col:"#6b9bd1"}
+  ];
+  function snap(v){return Math.round(v/STEP)*STEP;}
+  var totS=ITEMS.reduce(function(s,x){return s+x.score;},0);
+  var raw=ITEMS.map(function(x){return Math.min(SLEEVE*x.score/totS,SLEEVE*x.cap);});
+  var sum=raw.reduce(function(a,b){return a+b;},0);
+  raw=raw.map(function(v){return v*SLEEVE/sum;});
+  var proposed=raw.map(snap);
+  proposed[0]+=SLEEVE-proposed.reduce(function(a,b){return a+b;},0);
+  var val=proposed.slice();
+  document.getElementById("al-rows").innerHTML=ITEMS.map(function(it,i){
+    return '<div><div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">'+
+      '<span style="width:9px;height:9px;border-radius:3px;background:'+it.col+';flex:none"></span>'+
+      '<span style="font-size:11.5px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+it.name+'</span>'+
+      '<span class="mono" style="font-size:6.5px;letter-spacing:.6px;color:'+(it.type==="FUND"?"#88ab66":"#7d7eff")+';background:'+(it.type==="FUND"?"rgba(136,171,102,.12)":"rgba(125,126,255,.12)")+';border:1px solid '+(it.type==="FUND"?"rgba(136,171,102,.28)":"rgba(125,126,255,.28)")+';padding:2px 5px;border-radius:4px">'+it.type+'</span>'+
+      '<span id="al-amt-'+i+'" class="serif" style="font-size:13px;font-weight:600;width:66px;text-align:right">₹0</span></div>'+
+      '<input id="al-s-'+i+'" type="range" min="0" max="'+SLEEVE+'" step="'+STEP+'" value="'+val[i]+'">'+
+      '<div class="mono" style="display:flex;justify-content:space-between;font-size:7px;color:#564e42;margin-top:4px;letter-spacing:.3px">'+
+      '<span>SCORE '+it.score+' · CAP '+Math.round(it.cap*100)+'%</span><span id="al-pct-'+i+'">0%</span></div></div>';
+  }).join("");
+  function paint(){
+    var tot=val.reduce(function(a,b){return a+b;},0);
+    document.getElementById("al-bar").innerHTML=ITEMS.map(function(it,i){
+      return '<div style="width:'+(tot>0?val[i]/tot*100:0)+'%;background:'+it.col+'"></div>';
+    }).join("");
+    ITEMS.forEach(function(it,i){
+      document.getElementById("al-amt-"+i).textContent="₹"+val[i].toLocaleString("en-IN");
+      var pe=document.getElementById("al-pct-"+i);
+      pe.textContent=(tot>0?Math.round(val[i]/tot*100):0)+"%";
+      pe.style.color=val[i]>SLEEVE*it.cap+1?"#df5d5d":"#564e42";
+      document.getElementById("al-s-"+i).value=val[i];
+    });
+    var st=document.getElementById("al-status"),diff=tot-SLEEVE,
+        anyOver=ITEMS.some(function(it,i){return val[i]>SLEEVE*it.cap+1;}),col,lbl,msg;
+    if(diff!==0){col="#df5d5d";lbl=(diff>0?"₹"+diff.toLocaleString("en-IN")+" over sleeve":"₹"+(-diff).toLocaleString("en-IN")+" unallocated");msg="Rows must total the ₹24,000 equity sleeve.";}
+    else if(anyOver){col="#d9b64a";lbl="A holding exceeds its cap";msg="One instrument is above its limit — fine if intentional.";}
+    else{col="#88ab66";lbl="Split is balanced";msg="All ₹24,000 placed, every holding within its cap.";}
+    st.style.background=col+"14";st.style.border="1px solid "+col+"38";
+    st.innerHTML='<span style="width:8px;height:8px;border-radius:50%;background:'+col+';flex:none"></span>'+
+      '<div><div class="mono" style="font-size:7.5px;letter-spacing:1px;color:'+col+';text-transform:uppercase">'+lbl+'</div>'+
+      '<div style="font-size:10.5px;color:#c2b8a8;margin-top:2px;line-height:1.4">'+msg+'</div></div>';
+  }
+  ITEMS.forEach(function(it,i){
+    document.getElementById("al-s-"+i).oninput=function(){val[i]=+this.value;paint();};
+  });
+  document.getElementById("al-reset").onclick=function(){val=proposed.slice();paint();};
+  document.getElementById("al-balance").onclick=function(){
+    var tot=val.reduce(function(a,b){return a+b;},0),diff=SLEEVE-tot;
+    if(diff!==0){var idx=val.indexOf(Math.max.apply(null,val));val[idx]=Math.max(0,snap(val[idx]+diff));
+      val[0]+=SLEEVE-val.reduce(function(a,b){return a+b;},0);}
+    paint();
+  };
+  paint();
+}
+
+/* ===== advisor book ===== */
+function initBook(){
+  var CLIENTS=[
+    {name:"Rohan Mehta",init:"RM",health:62,aum:"1.8Cr",band:"attention",flag:"Goal at risk · child education 74%",contact:"14d",pr:1},
+    {name:"Anjali Desai",init:"AD",health:58,aum:"0.9Cr",band:"attention",flag:"Tax harvest ₹40K · FY-end 41d",contact:"31d",pr:1},
+    {name:"Vikram Shah",init:"VS",health:65,aum:"3.2Cr",band:"attention",flag:"Concentration high · 38% one sector",contact:"9d",pr:2},
+    {name:"Meera Iyer",init:"MI",health:67,aum:"1.1Cr",band:"attention",flag:"Risk above tolerance · beta 1.4",contact:"22d",pr:2},
+    {name:"Sanjay Rao",init:"SR",health:69,aum:"2.4Cr",band:"attention",flag:"6 funds overlap · cleanup pending",contact:"18d",pr:3},
+    {name:"Priya Krishnan",init:"PK",health:74,aum:"1.5Cr",band:"review",flag:"Portfolio drift · equity +12%",contact:"47d",pr:4},
+    {name:"Arjun Nair",init:"AN",health:76,aum:"2.0Cr",band:"review",flag:"No contact in 60+ days",contact:"63d",pr:4},
+    {name:"Deepak Verma",init:"DV",health:88,aum:"4.1Cr",band:"healthy",flag:"On track · no open flags",contact:"12d",pr:9},
+    {name:"Nisha Pillai",init:"NP",health:91,aum:"1.9Cr",band:"healthy",flag:"On track · no open flags",contact:"20d",pr:9}
+  ];
+  var BANDC={attention:"#df5d5d",review:"#d9b64a",healthy:"#88ab66"};
+  var FILT=[["attention","Attention · 5"],["review","Review · 7"],["healthy","Healthy · 12"],["all","All · 24"]];
+  var cur="attention";
+  function filters(){
+    document.getElementById("ab-filters").innerHTML=FILT.map(function(f){
+      var on=f[0]===cur,c=f[0]==="all"?"#ff9248":(BANDC[f[0]]||"#ff9248");
+      return '<button data-f="'+f[0]+'" style="flex:none;font-size:11px;font-weight:'+(on?500:450)+';border-radius:8px;padding:8px 13px;border:1px solid '+(on?c:"#2a2620")+';background:'+(on?c+"1f":"#1d1a16")+';color:'+(on?c:"#c2b8a8")+';font-family:inherit;min-height:36px">'+f[1]+'</button>';
+    }).join("");
+    document.getElementById("ab-filters").querySelectorAll("button").forEach(function(b){
+      b.onclick=function(){cur=b.dataset.f;filters();list();};
+    });
+  }
+  function list(){
+    var rows=CLIENTS.filter(function(c){return cur==="all"||c.band===cur;}).sort(function(a,b){return a.pr-b.pr;});
+    document.getElementById("ab-list").innerHTML=rows.map(function(c){
+      var bc=BANDC[c.band],hc=c.health<70?"#df5d5d":(c.health<82?"#d9b64a":"#88ab66");
+      return '<div class="card-flat tap" onclick="go(\'adv_360\')" style="display:flex;align-items:center;gap:10px;padding:11px">'+
+        '<div style="width:6px;align-self:stretch;background:'+bc+';flex:none"></div>'+
+        '<div style="width:32px;height:32px;border-radius:9px;flex:none;background:#252119;border:1px solid #393229;display:grid;place-items:center;font-size:10px;font-weight:600;color:#c2b8a8" class="mono">'+c.init+'</div>'+
+        '<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:6px"><span style="font-size:12.5px;font-weight:500">'+c.name+'</span>'+
+        '<span class="mono" style="font-size:7px;color:#564e42;letter-spacing:.4px">₹'+c.aum+'</span></div>'+
+        '<div style="font-size:10.5px;color:#c2b8a8;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+c.flag+'</div>'+
+        '<div class="mono" style="font-size:7px;color:'+(parseInt(c.contact)>45?"#d9b64a":"#564e42")+';letter-spacing:.4px;margin-top:2px;text-transform:uppercase">Last seen '+c.contact+'</div></div>'+
+        '<div style="text-align:center;flex:none"><div class="serif" style="font-size:18px;font-weight:600;color:'+hc+';line-height:1">'+c.health+'</div>'+
+        '<div class="mono" style="font-size:6px;color:#564e42;letter-spacing:.5px;margin-top:2px;text-transform:uppercase">Health</div></div>'+
+        '<span style="color:#564e42">›</span></div>';
+    }).join("");
+  }
+  filters();list();
+}
+
+/* ===== sip board ===== */
+function initSip(){
+  var SIPS=[
+    {client:"Anjali Desai",init:"AD",fund:"Parag Parikh Flexi Cap",amt:"₹15K/mo",q:"failed",reason:"Bounced 2 May · insufficient balance",act:"Retry now",age:"2 cycles missed"},
+    {client:"Vikram Shah",init:"VS",fund:"Mirae Large Cap",amt:"₹25K/mo",q:"failed",reason:"Bounced 5 May · mandate limit exceeded",act:"Fix mandate",age:"1 cycle missed"},
+    {client:"Sanjay Rao",init:"SR",fund:"HDFC Short Term Debt",amt:"₹10K/mo",q:"failed",reason:"Bounced 7 May · bank account closed",act:"Update bank",age:"1 cycle missed"},
+    {client:"Meera Iyer",init:"MI",fund:"Axis Bluechip",amt:"₹12K/mo",q:"expiring",reason:"Mandate expires 18 Jun · 26 days left",act:"Renew mandate",age:"3 yr mandate"},
+    {client:"Priya Krishnan",init:"PK",fund:"Nippon Smallcap",amt:"₹8K/mo",q:"expiring",reason:"Mandate expires 30 Jun · 38 days left",act:"Renew mandate",age:"3 yr mandate"},
+    {client:"Arjun Nair",init:"AN",fund:"Kotak Emerging Equity",amt:"₹18K/mo",q:"expiring",reason:"Mandate expires 12 Jun · 20 days left",act:"Renew mandate",age:"5 yr mandate"},
+    {client:"Rohan Mehta",init:"RM",fund:"Child education SIP",amt:"₹12K/mo",q:"stepup",reason:"Goal lagging — raise to ₹19K",act:"Propose step-up",age:"+₹7K suggested"},
+    {client:"Deepak Verma",init:"DV",fund:"Retirement flexi SIP",amt:"₹30K/mo",q:"stepup",reason:"Income revised — 10% step-up available",act:"Propose step-up",age:"+₹3K suggested"},
+    {client:"Nisha Pillai",init:"NP",fund:"Mirae Large Cap",amt:"₹20K/mo",q:"healthy",reason:"Running clean · next debit 1 Jun",act:"View SIP",age:"18 mo running"}
+  ];
+  var QC={failed:"#df5d5d",expiring:"#d9b64a",stepup:"#7d7eff",healthy:"#88ab66"};
+  var FILT=[["failed","Failed · 3"],["expiring","Expiring · 4"],["stepup","Step-up · 5"],["healthy","Healthy · 56"]];
+  var cur="failed";
+  function filters(){
+    document.getElementById("sb-filters").innerHTML=FILT.map(function(f){
+      var on=f[0]===cur,c=QC[f[0]];
+      return '<button data-f="'+f[0]+'" style="flex:none;font-size:11px;font-weight:'+(on?500:450)+';border-radius:8px;padding:8px 13px;border:1px solid '+(on?c:"#2a2620")+';background:'+(on?c+"1f":"#1d1a16")+';color:'+(on?c:"#c2b8a8")+';font-family:inherit;min-height:36px">'+f[1]+'</button>';
+    }).join("");
+    document.getElementById("sb-filters").querySelectorAll("button").forEach(function(b){
+      b.onclick=function(){cur=b.dataset.f;filters();list();};
+    });
+  }
+  function list(){
+    var rows=SIPS.filter(function(s){return s.q===cur;});
+    document.getElementById("sb-list").innerHTML=rows.length?rows.map(function(s){
+      var qc=QC[s.q];
+      return '<div class="card-flat" style="padding:11px">'+
+        '<div style="display:flex;align-items:center;gap:10px">'+
+        '<div style="width:6px;align-self:stretch;background:'+qc+';flex:none"></div>'+
+        '<div style="width:30px;height:30px;border-radius:8px;flex:none;background:#252119;border:1px solid #393229;display:grid;place-items:center;font-size:10px;font-weight:600;color:#c2b8a8" class="mono">'+s.init+'</div>'+
+        '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:500">'+s.client+'</div>'+
+        '<div class="mono" style="font-size:7.5px;color:#8c8273;letter-spacing:.3px;margin-top:1px">'+s.fund+' · '+s.amt+'</div></div></div>'+
+        '<div style="font-size:10.5px;color:'+qc+';margin-top:7px;line-height:1.35">'+s.reason+'</div>'+
+        '<div class="mono" style="font-size:7px;color:#564e42;letter-spacing:.4px;margin-top:3px;text-transform:uppercase">'+s.age+'</div>'+
+        '<div style="display:flex;gap:6px;margin-top:9px">'+
+        '<button class="btn" style="flex:1;font-size:11px;padding:8px;min-height:38px">'+s.act+'</button>'+
+        '<button style="font-size:11px;border-radius:8px;padding:8px 14px;border:1px solid #2a2620;font-family:inherit;background:#161310;color:#8c8273;min-height:38px">Message</button></div></div>';
+    }).join(""):'<div class="mono" style="font-size:9px;color:#564e42;letter-spacing:.5px;padding:10px 2px;text-transform:uppercase">No SIPs in this queue</div>';
+  }
+  filters();list();
+}
+
+
+/* ===== mobile generic dashboard ===== */
+var MDASH={
+  d_div:{title:"Diversification",badge:["1 issue","b-amber"],
+    headline:"3 funds hold near-identical stocks",
+    sub:"Their top holdings overlap heavily — less variety than it looks.",
+    stats:[["Funds","8"],["Overlap","61%"],["Unique","42"]],
+    chartLabel:"Pairwise fund overlap",unit:"%",
+    rows:[["Axis vs SBI Bluechip",78,"#df5d5d"],["Mirae vs Axis",64,"#d9b64a"],
+      ["HDFC vs Parag Flexi",41,"#d9b64a"],["Nippon vs Kotak",22,"#88ab66"]],caution:60,
+    matrix:[
+      {rank:1,prc:"#df5d5d",prl:"Critical",action:"Merge 3 large-cap funds",detail:"Keep Mirae · redeem Axis + SBI",impact:"3 funds",effort:"Low",ec:"#88ab66",tradeoff:"Exit load on one fund"},
+      {rank:2,prc:"#d9b64a",prl:"Optimise",action:"Replace overlapping flexi-cap",detail:"HDFC Flexi → a mid-cap fund",impact:"+8% uniq",effort:"Medium",ec:"#d9b64a",tradeoff:"New category to track"},
+      {rank:3,prc:"#7d7eff",prl:"Enhance",action:"Add an international fund",detail:"5–10% global exposure",impact:"+1 region",effort:"Low",ec:"#88ab66",tradeoff:"Currency risk"}],
+    footLabel:"Funds after cleanup",foot:"8 → 8"},
+  d_perf:{title:"Performance",badge:["Healthy","b-moss"],
+    headline:"Beating Nifty by 2.6 pp",
+    sub:"Strong overall — but 3 funds drag the blend.",
+    stats:[["Your XIRR","21%"],["Nifty","18.4%"],["Alpha","+2.6"]],
+    chartLabel:"Fund vs benchmark · 3-yr",unit:"pp",
+    rows:[["Nippon Smallcap",82,"#88ab66"],["Parag Flexi",60,"#88ab66"],
+      ["Axis Bluechip",38,"#d9b64a"],["HDFC Mid Cap",28,"#df5d5d"],["SBI Banking",20,"#df5d5d"]],caution:42,
+    matrix:[
+      {rank:1,prc:"#df5d5d",prl:"Critical",action:"Replace SBI Banking Fund",detail:"Into Parag Parikh Flexi Cap",impact:"+0.7 XIRR",effort:"Low",ec:"#88ab66",tradeoff:"Realises gains"},
+      {rank:2,prc:"#d9b64a",prl:"Optimise",action:"Replace HDFC Mid Cap",detail:"Into Motilal Oswal Midcap",impact:"+0.5 XIRR",effort:"Medium",ec:"#d9b64a",tradeoff:"Exit load if < 1yr"},
+      {rank:3,prc:"#7d7eff",prl:"Watch",action:"Hold Axis Bluechip — review",detail:"Re-check after Q2",impact:"—",effort:"Low",ec:"#88ab66",tradeoff:"May stay mild"}],
+    footLabel:"Projected XIRR",foot:"21.0% → 21.0%"},
+  d_goals:{title:"Goals",badge:["1 at risk","b-amber"],
+    headline:"Child education goal is behind",
+    sub:"On the current SIP it lands at 74% of the ₹42L target.",
+    stats:[["SIP now","₹12K"],["Needed","₹19K"],["Short","₹11L"]],
+    chartLabel:"All goals · projected funding",unit:"%",
+    rows:[["Retirement",96,"#88ab66"],["Emergency fund",88,"#88ab66"],
+      ["Home down-pay",81,"#d9b64a"],["Child education",74,"#df5d5d"]],caution:85,
+    matrix:[
+      {rank:1,prc:"#df5d5d",prl:"Closes gap",action:"Raise SIP ₹12K → ₹19K",detail:"+₹7K / month",impact:"+26% fund",effort:"Low",ec:"#88ab66",tradeoff:"Higher monthly outflow"},
+      {rank:2,prc:"#d9b64a",prl:"Closes most",action:"Add a ₹3L lump sum now",detail:"From idle cash",impact:"+18% fund",effort:"Low",ec:"#88ab66",tradeoff:"Uses cash reserve"},
+      {rank:3,prc:"#7d7eff",prl:"Partial",action:"Extend the goal by 2 years",detail:"11 yr → 13 yr",impact:"+14% fund",effort:"Low",ec:"#88ab66",tradeoff:"Delays the goal"}],
+    footLabel:"Projected funding",foot:"74% → 74%"},
+  d_tax:{title:"Tax",badge:["Action due","b-indigo"],
+    headline:"₹14K of tax is harvestable now",
+    sub:"Long-term gains can be booked before FY-end.",
+    stats:[["Harvest","₹14K"],["LTCG used","₹18K"],["Days left","41"]],
+    chartLabel:"Harvest opportunity by holding",unit:"K",
+    rows:[["Nippon Smallcap",70,"#88ab66"],["Parag Flexi",52,"#88ab66"],
+      ["Mirae Large",34,"#d9b64a"],["HDFC Mid Cap",18,"#d9b64a"]],caution:100,
+    matrix:[
+      {rank:1,prc:"#df5d5d",prl:"Critical",action:"Harvest 5 long-term lots",detail:"Books ₹14K within ₹1L free limit",impact:"₹2.8K saved",effort:"Low",ec:"#88ab66",tradeoff:"Re-entry at market price"},
+      {rank:2,prc:"#d9b64a",prl:"Optimise",action:"Shift debt to arbitrage fund",detail:"Better post-tax treatment",impact:"₹1.5K saved",effort:"Medium",ec:"#d9b64a",tradeoff:"Slightly lower yield"},
+      {rank:3,prc:"#7d7eff",prl:"Enhance",action:"Use ELSS for 80C shortfall",detail:"₹40K still uninvested",impact:"₹12K saved",effort:"Low",ec:"#88ab66",tradeoff:"3-year lock-in"}],
+    footLabel:"Projected tax saved",foot:"₹0 → ₹0"}
+};
+
+function mBuildDash(key){
+  var d=MDASH[key],host=document.getElementById("w-"+key);
+  var sm=Math.max.apply(null,d.rows.map(function(r){return r[1];}));
+  var statTiles=d.stats.map(function(s){
+    return '<div style="flex:1;background:var(--s0);border:1px solid var(--line);border-radius:10px;padding:9px 4px;text-align:center">'+
+      '<div class="mono" style="font-size:7px;letter-spacing:.8px;color:var(--ink-faint);text-transform:uppercase">'+s[0]+'</div>'+
+      '<div class="serif" style="font-size:15px;font-weight:600;margin-top:3px">'+s[1]+'</div></div>';
+  }).join("");
+  var barRows=d.rows.map(function(r){
+    var w=Math.round(r[1]/sm*100),cl=d.caution<=100?Math.round(d.caution/sm*100):-1;
+    return '<div style="display:grid;grid-template-columns:96px 1fr 38px;gap:9px;align-items:center">'+
+      '<span style="font-size:11px;color:var(--ink-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+r[0]+'</span>'+
+      '<div style="position:relative;height:9px;background:var(--s3);border-radius:5px;overflow:hidden">'+
+      '<div style="height:100%;width:'+w+'%;background:'+r[2]+';border-radius:5px"></div>'+
+      (cl>=0&&cl<=100?'<div style="position:absolute;top:-2px;bottom:-2px;left:'+cl+'%;width:1px;background:var(--rust);opacity:.5"></div>':'')+
+      '</div><span class="mono" style="font-size:10px;color:var(--ink);text-align:right">'+r[1]+d.unit+'</span></div>';
+  }).join("");
+  host.innerHTML=
+    '<div class="appbar"><span class="back" onclick="go(\'landing\')">\u2039</span>'+
+      '<span class="serif" style="font-size:15px;font-weight:600">'+d.title+'</span>'+
+      '<span class="badge '+d.badge[1]+'" style="margin-left:auto">'+d.badge[0]+'</span></div>'+
+    '<div class="wrap"><div class="eyebrow">\u2460 Insight</div>'+
+    '<div class="card" style="padding:14px;margin-bottom:10px">'+
+      '<div class="serif" style="font-size:19px;font-weight:600;letter-spacing:-.02em;line-height:1.2">'+d.headline+'</div>'+
+      '<p style="font-size:11.5px;color:var(--ink-dim);margin:5px 0 11px;line-height:1.45">'+d.sub+'</p>'+
+      '<div style="display:flex;gap:7px">'+statTiles+'</div></div>'+
+    '<div class="card" style="overflow:hidden;margin-bottom:16px">'+
+      '<div class="mono" style="padding:11px 14px 8px;border-bottom:1px solid var(--line);font-size:8px;letter-spacing:1px;color:var(--ink-mute);text-transform:uppercase">'+d.chartLabel+'</div>'+
+      '<div style="padding:12px 14px 14px;display:flex;flex-direction:column;gap:9px">'+barRows+'</div></div>'+
+    '<div class="hl">\u2461 Recommendations</div>'+
+    '<div id="mmx-'+key+'" style="display:flex;flex-direction:column;gap:9px;margin-bottom:14px"></div>'+
+    '<div class="eyebrow">\u2462 Apply</div>'+
+    '<div class="card tap" onclick="go(\'plan\')" style="padding:13px;border-color:rgba(255,146,72,.2)">'+
+      '<div style="display:flex;align-items:center;gap:10px">'+
+      '<div><div class="mono" style="font-size:8px;letter-spacing:1px;color:var(--saffron);text-transform:uppercase">'+d.footLabel+'</div>'+
+      '<div class="mono" id="mft-'+key+'" style="font-size:13px;color:var(--moss);margin-top:2px">'+d.foot+'</div></div>'+
+      '<span class="mono" id="man-'+key+'" style="margin-left:auto;font-size:8.5px;color:var(--ink-mute)">0 ACCEPTED</span></div>'+
+      '<button class="btn" style="width:100%;font-size:12px;padding:10px;margin-top:10px">Send to Plan board</button></div></div>';
+  var accepted={},mxEl=document.getElementById("mmx-"+key);
+  function matrix(){
+    mxEl.innerHTML=d.matrix.map(function(r,i){
+      var on=accepted[i];
+      return '<div class="card-flat" style="padding:12px;border-color:'+(on?"rgba(136,171,102,.4)":"var(--line)")+'">'+
+        '<div style="display:flex;align-items:flex-start;gap:9px">'+
+        '<div style="width:24px;height:24px;border-radius:7px;flex:none;background:'+r.prc+'1f;color:'+r.prc+';display:grid;place-items:center;font-size:11px;font-weight:600" class="mono">'+r.rank+'</div>'+
+        '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:500">'+r.action+'</div>'+
+        '<div class="mono" style="font-size:8px;color:var(--ink-mute);letter-spacing:.4px;margin-top:2px;text-transform:uppercase">'+r.detail+'</div></div>'+
+        '<span class="mono" style="font-size:7px;letter-spacing:.6px;color:'+r.prc+';background:'+r.prc+'1a;border:1px solid '+r.prc+'38;padding:3px 6px;border-radius:5px;text-transform:uppercase">'+r.prl+'</span></div>'+
+        '<div style="display:flex;flex-direction:column;gap:5px;margin-top:9px">'+
+        '<div style="display:flex;gap:6px">'+
+        '<div style="flex:1;background:var(--s0);border:1px solid var(--line);border-radius:8px;padding:6px;text-align:center"><div class="mono" style="font-size:6.5px;letter-spacing:.7px;color:var(--ink-faint);text-transform:uppercase">Impact</div><div class="serif" style="font-size:12px;font-weight:600;color:var(--moss);margin-top:1px">'+r.impact+'</div></div>'+
+        '<div style="flex:1;background:var(--s0);border:1px solid var(--line);border-radius:8px;padding:6px;text-align:center"><div class="mono" style="font-size:6.5px;letter-spacing:.7px;color:var(--ink-faint);text-transform:uppercase">Effort</div><div class="serif" style="font-size:12px;font-weight:600;color:'+r.ec+';margin-top:1px">'+r.effort+'</div></div></div>'+
+        '<div style="background:var(--s0);border:1px solid var(--line);border-radius:8px;padding:7px 9px"><div class="mono" style="font-size:6.5px;letter-spacing:.7px;color:var(--ink-faint);text-transform:uppercase">Trade-off</div><div style="font-size:10.5px;color:var(--ink-dim);margin-top:1px">'+r.tradeoff+'</div></div></div>'+
+        '<div style="display:flex;gap:6px;margin-top:8px">'+
+        '<button data-acc="'+i+'" style="flex:1;font-size:11px;font-weight:600;border-radius:8px;padding:9px;border:none;font-family:inherit;background:'+(on?"#88ab66":"linear-gradient(150deg,#ff9248,#e07730)")+';color:#2a1605;min-height:40px">'+(on?"\u2713 Accepted":"Accept")+'</button>'+
+        '<button style="font-size:11px;border-radius:8px;padding:9px 13px;border:1px solid var(--line);font-family:inherit;background:var(--s2);color:var(--ink-dim);min-height:40px">Why?</button>'+
+        '<button data-skip="'+i+'" style="font-size:11px;border-radius:8px;padding:9px 13px;border:1px solid var(--line);font-family:inherit;background:var(--s2);color:var(--ink-mute);min-height:40px">Skip</button></div></div>';
+    }).join("");
+    mxEl.querySelectorAll("[data-acc]").forEach(function(b){b.onclick=function(){var i=b.dataset.acc;accepted[i]=!accepted[i];matrix();};});
+    mxEl.querySelectorAll("[data-skip]").forEach(function(b){b.onclick=function(){accepted[b.dataset.skip]=false;matrix();};});
+    var n=0;d.matrix.forEach(function(r,i){if(accepted[i])n++;});
+    document.getElementById("man-"+key).textContent=n+" ACCEPTED";
+  }
+  matrix();
+}
+
+/* ===== mobile recommendations ===== */
+function mBuildRecs(){
+  var host=document.getElementById("w-recs");
+  var STOCKS=[["HDFC Bank","Financials",92,78,"ROE 17% · low NPA","Above 200-DMA"],
+    ["Bharti Airtel","Telecom",88,84,"Rising ARPU","Near 52-wk high"],
+    ["Tata Consultancy","IT",90,71,"Debt-free · high ROCE","Consolidating"],
+    ["Reliance","Energy",85,80,"Diversified earnings","Breakout"],
+    ["ICICI Bank","Financials",87,75,"Healthy NIM","Positive trend"]];
+  var FUNDS=[["Parag Parikh Flexi Cap","Flexi-cap",90,94,92],
+    ["Mirae Asset Large Cap","Large-cap",84,96,88],
+    ["Motilal Oswal Midcap","Mid-cap",93,80,79],
+    ["HDFC Short Term Debt","Short duration",78,92,90]];
+  function band(v){return v>=85?"#88ab66":v>=72?"#d9b64a":"#df5d5d";}
+  function meter(lbl,v,note){
+    var c=band(v);
+    return '<div style="flex:1;min-width:0">'+
+      '<div style="display:flex;justify-content:space-between;margin-bottom:3px">'+
+      '<span class="mono" style="font-size:6.5px;letter-spacing:.6px;color:var(--ink-faint);text-transform:uppercase">'+lbl+'</span>'+
+      '<span class="mono" style="font-size:9px;color:'+c+'">'+v+'</span></div>'+
+      '<div style="height:5px;background:var(--s3);border-radius:3px;overflow:hidden"><div style="height:100%;width:'+v+'%;background:'+c+';border-radius:3px"></div></div>'+
+      (note?'<div style="font-size:8.5px;color:var(--ink-mute);margin-top:4px;line-height:1.3">'+note+'</div>':'')+'</div>';
+  }
+  var stockCards=STOCKS.map(function(s,i){
+    var bl=Math.round(s[2]*0.6+s[3]*0.4);
+    return '<div class="card-flat" style="padding:11px">'+
+      '<div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">'+
+      '<div style="width:22px;height:22px;border-radius:7px;flex:none;background:var(--s3);border:1px solid var(--line2);display:grid;place-items:center;font-size:10px;font-weight:600;color:var(--ink-dim)" class="mono">'+(i+1)+'</div>'+
+      '<div style="flex:1;min-width:0"><span style="font-size:12.5px;font-weight:500">'+s[0]+'</span>'+
+      '<span class="mono" style="font-size:7.5px;color:var(--ink-faint);letter-spacing:.4px;margin-left:6px;text-transform:uppercase">'+s[1]+'</span></div>'+
+      '<div style="text-align:center;flex:none"><div class="serif" style="font-size:17px;font-weight:600;color:'+band(bl)+';line-height:1">'+bl+'</div>'+
+      '<div class="mono" style="font-size:6px;color:var(--ink-faint);letter-spacing:.5px;margin-top:1px;text-transform:uppercase">Score</div></div></div>'+
+      '<div style="display:flex;gap:11px">'+meter("Fundamentals",s[2],s[4])+meter("Technicals",s[3],s[5])+'</div></div>';
+  }).join("");
+  var fundCards=FUNDS.map(function(f,i){
+    var bl=Math.round(f[2]*0.5+f[3]*0.2+f[4]*0.3);
+    return '<div class="card-flat" style="padding:11px">'+
+      '<div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">'+
+      '<div style="width:22px;height:22px;border-radius:7px;flex:none;background:var(--s3);border:1px solid var(--line2);display:grid;place-items:center;font-size:10px;font-weight:600;color:var(--ink-dim)" class="mono">'+(i+1)+'</div>'+
+      '<div style="flex:1;min-width:0"><span style="font-size:12.5px;font-weight:500">'+f[0]+'</span>'+
+      '<span class="mono" style="font-size:7.5px;color:var(--ink-faint);letter-spacing:.4px;margin-left:6px;text-transform:uppercase">'+f[1]+'</span></div>'+
+      '<div style="text-align:center;flex:none"><div class="serif" style="font-size:17px;font-weight:600;color:'+band(bl)+';line-height:1">'+bl+'</div>'+
+      '<div class="mono" style="font-size:6px;color:var(--ink-faint);letter-spacing:.5px;margin-top:1px;text-transform:uppercase">Score</div></div></div>'+
+      '<div style="display:flex;gap:9px">'+meter("Returns",f[2],"")+meter("Cost",f[3],"")+meter("Consist.",f[4],"")+'</div></div>';
+  }).join("");
+  host.innerHTML=
+    '<div class="appbar"><span class="back" onclick="go(\'builder\')">\u2039</span>'+
+      '<span class="serif" style="font-size:15px;font-weight:600">Recommended</span>'+
+      '<span class="badge b-moss" style="margin-left:auto">Moderate</span></div>'+
+    '<div class="wrap">'+
+    '<div class="mono" style="font-size:8px;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:12px;text-transform:uppercase">Scored on fundamentals, technicals &amp; consistency</div>'+
+    '<div class="hl">Top stocks for your profile</div>'+
+    '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px">'+stockCards+'</div>'+
+    '<div class="hl">Top funds for your sleeves</div>'+
+    '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">'+fundCards+'</div>'+
+    '<div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:8px;letter-spacing:.5px;color:var(--ink-faint);text-transform:uppercase;margin-bottom:10px">'+
+    '<span style="background:var(--s2);border:1px solid var(--line);border-radius:4px;padding:2px 6px;color:var(--ink-mute)">SEBI</span>'+
+    '<span>Screened ideas · not buy advice</span></div>'+
+    '<button class="btn" style="width:100%" onclick="go(\'alloc\')">Use these in my allocation</button></div>';
+}
+
+</script>
+</body>
+</html>

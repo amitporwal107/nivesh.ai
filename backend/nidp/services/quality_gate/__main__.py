@@ -27,6 +27,7 @@ from nidp.shared.logging_setup import setup_logging
 from nidp.shared.validation.consistency_rules import mf as _mf_rules   # noqa: F401
 from nidp.shared.validation.consistency_rules import equity as _eq_rules  # noqa: F401
 
+from nidp.shared.metrics import DLQ_PENDING
 from nidp.shared.storage.pg import get_pool, close_pool
 from nidp.shared.validation.consistency_runner import run_consistency_checks
 from nidp.shared.validation.quality_score import (
@@ -35,6 +36,7 @@ from nidp.shared.validation.quality_score import (
 )
 from nidp.shared.quality_gate import QualityGate, GateOutcome
 from nidp.shared.certification import CertificationPublisher
+from nidp.shared.dq import GateCheckFailed, SnapshotCompletionGate
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,44 @@ async def run_pipeline(target_date: date, domain_arg: str) -> bool:
     domains = _DOMAINS if domain_arg == "all" else (domain_arg,)
     pool    = await get_pool()
     all_ok  = True
+
+    # ── Stage -1: Gate 3 — Snapshot Completion ────────────────────
+    # Blocks derivation engines if any P0 feed is missing or cross-feed
+    # consistency rules fail.  GateCheckFailed aborts the whole pipeline.
+    try:
+        async with pool.acquire() as conn:
+            gate3_result = await SnapshotCompletionGate().run(
+                conn, target_date, job_run_id=None,
+            )
+        logger.info(
+            "gate3[snapshot_completion]: verdict=%s checks=%d failed=%d",
+            gate3_result.verdict.value,
+            len(gate3_result.checks),
+            len(gate3_result.failed_checks),
+        )
+    except GateCheckFailed as exc:
+        logger.error(
+            "Gate 3 P0 failure — derivation chain blocked: %s", exc,
+        )
+        return False
+
+    # ── Stage -1b: Refresh DLQ_PENDING gauge (Gate 7 Prometheus) ──
+    # Update per-feed pending DLQ count so the recording rule
+    # nidp:dlq_pending_count reflects the current backlog in Grafana.
+    try:
+        async with pool.acquire() as conn:
+            dlq_rows = await conn.fetch(
+                """
+                SELECT feed, COUNT(*) AS cnt
+                FROM dq.dlq_findings
+                WHERE replay_status = 'PENDING'
+                GROUP BY feed
+                """
+            )
+        for r in dlq_rows:
+            DLQ_PENDING.labels(feed=r["feed"]).set(r["cnt"])
+    except Exception:                                                  # noqa: BLE001
+        logger.exception("DLQ_PENDING gauge update failed (non-fatal)")
 
     # ── Stage 0: Great Expectations ───────────────────────────────
     # Per-feed expectation suites translated from the user-supplied

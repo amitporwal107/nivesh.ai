@@ -79,11 +79,11 @@ CREATE INDEX IF NOT EXISTS ix_im_symbol_type
 -- Audit row so it's clear this was a stub install, not real data.
 DO $$
 BEGIN
-    INSERT INTO nidp.job_log (job_name, status, message, started_at, finished_at)
+    INSERT INTO nidp.job_log (run_id, ingester, status, started_at, finished_at)
     SELECT
+        gen_random_uuid(),
         'migration_057_legacy_mf_stubs',
-        'success',
-        'Created empty stub tables for mutual_fund_metadata + mutual_fund_performance_ratios so 050''s view applies cleanly.',
+        'OK',
         NOW(), NOW()
     WHERE EXISTS (
         SELECT 1 FROM information_schema.tables

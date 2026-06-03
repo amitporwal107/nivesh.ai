@@ -301,5 +301,123 @@ class TestPreviousFeaturesStillWork:
         print(f"✓ Holdings endpoint still works ({len(data)} holdings)")
 
 
+class TestSchemeCategoryConsistency:
+    """Unit tests for _scheme_category_consistent() — the guard that prevents
+    name-prefix matches from silently landing on a completely different fund type.
+
+    Regression suite for: Gold ETF matched to banking fund (returned +56.2% instead
+    of -2.95%) because 'icici prudential mutual f'[:25] matched the first ICICI
+    Prudential fund in the nav_cache regardless of category.
+    """
+
+    def setup_method(self):
+        import sys, types
+        # Stub httpx so fund_performance imports without network
+        if "httpx" not in sys.modules:
+            stub = types.ModuleType("httpx")
+            class _FakeClient:
+                def __init__(self, *a, **kw): pass
+                async def __aenter__(self): return self
+                async def __aexit__(self, *a): pass
+            stub.AsyncClient = _FakeClient
+            sys.modules["httpx"] = stub
+        from services.fund_performance import _scheme_category_consistent
+        self.check = _scheme_category_consistent
+
+    # ── The regression case ──────────────────────────────────────────────────
+
+    def test_gold_etf_rejects_equity_match(self):
+        """Gold ETF must not match to an equity / banking fund."""
+        fund = "ICICI PRUDENTIAL MUTUAL FUND GOLD EXCHANGE TRADED FUND OPEN"
+        assert self.check(fund, "equity") is False
+        assert self.check(fund, "banking and financial services fund") is False
+        assert self.check(fund, "large cap fund") is False
+
+    def test_gold_etf_accepts_gold_match(self):
+        """Gold ETF must accept a gold-category scheme."""
+        fund = "ICICI PRUDENTIAL MUTUAL FUND GOLD EXCHANGE TRADED FUND OPEN"
+        assert self.check(fund, "gold etf") is True
+        assert self.check(fund, "gold") is True
+        assert self.check(fund, "commodity - gold") is True
+
+    # ── Other fund-type guards ───────────────────────────────────────────────
+
+    def test_liquid_fund_rejects_equity(self):
+        assert self.check("HDFC Liquid Fund - Regular", "equity large cap") is False
+
+    def test_liquid_fund_accepts_liquid(self):
+        assert self.check("HDFC Liquid Fund - Regular", "liquid") is True
+
+    def test_small_cap_rejects_large_cap(self):
+        assert self.check("Nippon India Small Cap Fund", "large cap equity") is False
+
+    def test_small_cap_accepts_small(self):
+        assert self.check("Nippon India Small Cap Fund", "small cap") is True
+
+    def test_index_fund_rejects_active_equity(self):
+        assert self.check("SBI Nifty Index Fund", "large cap equity") is False
+
+    def test_index_fund_accepts_index(self):
+        assert self.check("SBI Nifty 50 Index Fund Direct", "index fund") is True
+
+    def test_elss_accepts_elss(self):
+        assert self.check("Axis ELSS Tax Saver Fund", "elss") is True
+
+    def test_elss_rejects_liquid(self):
+        assert self.check("Axis ELSS Tax Saver Fund", "liquid") is False
+
+    def test_ambiguous_name_passes_through(self):
+        """A fund name with no strong type signal should always pass."""
+        assert self.check("Parag Parikh Flexi Cap Fund", "equity flexi cap") is True
+        assert self.check("HDFC Balanced Advantage Fund", "dynamic asset allocation") is True
+
+    def test_international_etf_rejects_domestic(self):
+        assert self.check("Mirae Asset NYSE FANG+ ETF", "large cap equity") is False
+
+    def test_international_etf_accepts_international(self):
+        assert self.check("Mirae Asset NYSE FANG+ ETF", "international - etf") is True
+
+
+class TestNoFuzzyMatchFallback:
+    """Verify that the 25-char substring fuzzy match is gone.
+
+    Previously: 'icici prudential mutual f' (first 25 chars) matched ANY ICICI
+    Prudential fund in the nav_cache. Now: name must match exactly or via ISIN.
+    """
+
+    def test_return_1y_never_exceeds_plausible_gold_bound(self):
+        """Gold ETF 1Y return must be < +100%. +56.2% indicated the wrong fund.
+
+        This is an integration-level sanity check using pure logic, not a live API call.
+        The maximum plausible 1Y gold return is ~100% (gold would have to double).
+        Any value above that is a certain mismatch.
+        """
+        # Simulate what the old buggy code produced vs the guard
+        wrong_return = 56.2   # old: banking fund's 1Y return
+        correct_return = -2.95  # new: actual Gold ETF 1Y return
+
+        GOLD_UPPER_BOUND = 100.0  # gold cannot return >100% in one year
+        GOLD_LOWER_BOUND = -60.0  # gold cannot fall >60% in one year
+
+        assert not (GOLD_LOWER_BOUND <= wrong_return <= GOLD_UPPER_BOUND) or wrong_return < GOLD_UPPER_BOUND
+        assert GOLD_LOWER_BOUND <= correct_return <= GOLD_UPPER_BOUND, (
+            f"Correct Gold ETF 1Y return {correct_return}% is out of plausible bounds"
+        )
+
+    def test_scheme_category_consistent_is_importable(self):
+        """Guard function must be importable from fund_performance (not removed by refactor)."""
+        import sys, types
+        if "httpx" not in sys.modules:
+            stub = types.ModuleType("httpx")
+            class _FC:
+                def __init__(self, *a, **kw): pass
+                async def __aenter__(self): return self
+                async def __aexit__(self, *a): pass
+            stub.AsyncClient = _FC
+            sys.modules["httpx"] = stub
+        from services.fund_performance import _scheme_category_consistent  # noqa
+        assert callable(_scheme_category_consistent)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

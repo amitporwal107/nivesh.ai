@@ -1080,11 +1080,15 @@ async def v3_portfolio_summary(request: Request):
     uid = user["user_id"]
     force_refresh_stocks = request.query_params.get("refresh_stocks", "").lower() in ("1", "true", "yes")
 
-    # Load MF holdings
+    # Load MF holdings — with V3 Postgres fallback for V4 users
     mf_holdings = await db.holdings.find(
         {"user_id": uid, "asset_type": "mutual_fund"},
         {"_id": 0},
     ).to_list(500)
+    if not mf_holdings:
+        from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+        _bridge = await pi_holdings_for_user(uid)
+        mf_holdings = [h for h in _bridge if h.get("asset_type") in ("mutual_fund", "etf")]
     if not mf_holdings:
         # Still compute Health from equity-only portfolio (if any equities exist)
         try:
@@ -1649,11 +1653,21 @@ async def v3_portfolio_summary(request: Request):
             "error": str(e),
         }
 
-    return {
-        "engine_version": v3_scoring.ENGINE_VERSION,
-        "coverage_pct": coverage_pct,
-        "portfolio": portfolio,
-        "funds": funds_out,
-        "flagged": flagged,
-        "health": health_payload,
-    }
+    # ETag: sha1 of score + grade — lets dashboards detect score-shift after
+    # an action is accepted (per docs/api-changes.md Decision 5, C.2).
+    _score_str = f"{health_payload.get('health_score')}:{health_payload.get('grade')}"
+    etag = "sha1:" + hashlib.sha1(_score_str.encode()).hexdigest()[:16]
+
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        content={
+            "engine_version": v3_scoring.ENGINE_VERSION,
+            "coverage_pct": coverage_pct,
+            "portfolio": portfolio,
+            "funds": funds_out,
+            "flagged": flagged,
+            "health": health_payload,
+            "etag": etag,
+        },
+        headers={"ETag": f'"{etag}"'},
+    )

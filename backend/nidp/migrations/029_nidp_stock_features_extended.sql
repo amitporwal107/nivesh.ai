@@ -193,7 +193,8 @@ BEGIN
         RETURN;
     END IF;
     EXECUTE $ddl$
-CREATE OR REPLACE VIEW nidp.v_stock_features_full AS
+DROP VIEW IF EXISTS nidp.v_stock_features_full CASCADE;
+CREATE VIEW nidp.v_stock_features_full AS
 SELECT
     f.*,
     fund.revenue_ttm_cr,

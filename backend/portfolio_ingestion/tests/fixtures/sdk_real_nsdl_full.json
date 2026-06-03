@@ -1,0 +1,5144 @@
+{
+  "demat_accounts": [
+    {
+      "additional_info": {
+        "linked_pans": [
+          "AMXXXXXX7E"
+        ]
+      },
+      "bo_id": "IN30290249245006",
+      "client_id": "49245006",
+      "demat_type": "NSDL",
+      "dp_id": "IN302902",
+      "dp_name": "ICICI BANK LIMITED",
+      "holdings": {
+        "aifs": [],
+        "corporate_bonds": [],
+        "demat_mutual_funds": [
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF109KC1NT3",
+            "name": "ICICI PRUDENTIAL MUTUAL FUND GOLD EXCHANGE TRADED FUND OPEN ENDED--",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 48,
+                  "debit": 0,
+                  "order_no": "81000061064751",
+                  "stamp_duty": 0
+                },
+                "amount": 6137.84,
+                "balance": 5147,
+                "date": "2026-04-24",
+                "description": "By CM ICICI SECURITIES LIMITED, T+1 NORMAL / 2026075",
+                "dividend_rate": null,
+                "nav": 127.87,
+                "type": "PURCHASE",
+                "units": 48
+              }
+            ],
+            "units": 5147,
+            "value": 658155.12
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF109KC19U5",
+            "name": "ICICI PRUDENTIAL NIFTY 100 LOW VOLATILITY 30 ETF--",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 48,
+                  "debit": 0,
+                  "order_no": "81000061061030",
+                  "stamp_duty": 0
+                },
+                "amount": 1035.83,
+                "balance": 147,
+                "date": "2026-04-24",
+                "description": "By CM ICICI SECURITIES LIMITED, T+1 NORMAL / 2026075",
+                "dividend_rate": null,
+                "nav": 21.58,
+                "type": "PURCHASE",
+                "units": 48
+              }
+            ],
+            "units": 260,
+            "value": 5610.77
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF109KC17V7",
+            "name": "ICICI PRUDENTIAL NIFTY ALPHA LOW VOL 30 ETF--",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 48,
+                  "debit": 0,
+                  "order_no": "81000061060837",
+                  "stamp_duty": 0
+                },
+                "amount": 1272.3,
+                "balance": 147,
+                "date": "2026-04-24",
+                "description": "By CM ICICI SECURITIES LIMITED, T+1 NORMAL / 2026075",
+                "dividend_rate": null,
+                "nav": 26.51,
+                "type": "PURCHASE",
+                "units": 48
+              }
+            ],
+            "units": 260,
+            "value": 6891.61
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF109KC11V0",
+            "name": "ICICI PRUDENTIAL NIFTY50 VALUE 20 ETF--",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 97,
+                  "debit": 0,
+                  "order_no": "81000061073200",
+                  "stamp_duty": 0
+                },
+                "amount": 1360.21,
+                "balance": 297,
+                "date": "2026-04-24",
+                "description": "By CM ICICI SECURITIES LIMITED, T+1 NORMAL / 2026075",
+                "dividend_rate": null,
+                "nav": 14.02,
+                "type": "PURCHASE",
+                "units": 97
+              }
+            ],
+            "units": 525,
+            "value": 7361.97
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF846K01859",
+            "name": "AXIS MIDCAP FUND REGULAR PLAN GROWTH",
+            "transactions": [],
+            "units": 0.135,
+            "value": 15.44
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF174K01336",
+            "name": "KOTAK FLEXICAP FUND REGULAR PLAN GROWTH",
+            "transactions": [],
+            "units": 0.295,
+            "value": 24.59
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF174K01NA6",
+            "name": "KOTAK MONEY MARKET SCHEME REGULAR PLAN GROWTH",
+            "transactions": [],
+            "units": 0.589,
+            "value": 2782.34
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF767K01NB5",
+            "name": "LIC MF LARGE & MIDCAP FUND-REGULAR PLAN-GROWTH",
+            "transactions": [],
+            "units": 0.678,
+            "value": 25.03
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF204K01HY3",
+            "name": "NIPPON INDIA SMALL CAP FUND GROWTH PLAN-GROWTH OPTION",
+            "transactions": [],
+            "units": 0.259,
+            "value": 44.13
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF879O01019",
+            "name": "PARAG PARIKH FLEXICAP FUND - REGULAR PLAN - GROWTH",
+            "transactions": [],
+            "units": 2985.899,
+            "value": 248877.36
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF200K01305",
+            "name": "SBI LARGE & MIDCAP FUND REGULAR PLAN GROWTH",
+            "transactions": [],
+            "units": 58.044,
+            "value": 36276.4
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF277K015Q7",
+            "name": "TATA ARBITRAGE FUND-REGULAR PLAN- GROWTH",
+            "transactions": [],
+            "units": 0.017,
+            "value": 0.25
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF277K01Z44",
+            "name": "TATA DIGITAL INDIA FUND-REGULAR PLAN- GROWTH",
+            "transactions": [],
+            "units": 0.02,
+            "value": 0.78
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF277K015O2",
+            "name": "TATA SMALL CAP FUND -REGULAR PLAN- GROWTH",
+            "transactions": [],
+            "units": 0.424,
+            "value": 14.77
+          }
+        ],
+        "equities": [
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "TRADING SUSPENDED"
+            },
+            "isin": "INE701B01021",
+            "name": "PUNJ LLOYD LIMITED",
+            "transactions": [],
+            "units": 500,
+            "value": 1115
+          }
+        ],
+        "government_securities": []
+      },
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "value": 967195.5599999999
+    },
+    {
+      "additional_info": {
+        "linked_pans": [
+          "AMXXXXXX7E"
+        ]
+      },
+      "bo_id": "IN30186263910221",
+      "client_id": "63910221",
+      "demat_type": "NSDL",
+      "dp_id": "IN301862",
+      "dp_name": "MOTILAL OSWAL FINANCIAL SERVICES LIMITED",
+      "holdings": {
+        "aifs": [],
+        "corporate_bonds": [],
+        "demat_mutual_funds": [
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF732E01037",
+            "name": "NIPPON INDIA ETF LIQUID BeES",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0.001,
+                  "debit": 0,
+                  "order_no": "1511729900",
+                  "stamp_duty": 0
+                },
+                "amount": 1,
+                "balance": 0.704,
+                "date": "2026-04-01",
+                "description": "By Incme Distrbn-cum-Cap Wthdrwl- Reinvt",
+                "dividend_rate": null,
+                "nav": 1000,
+                "type": "PURCHASE",
+                "units": 0.001
+              },
+              {
+                "additional_info": {
+                  "credit": 0.001,
+                  "debit": 0,
+                  "order_no": "1512677631",
+                  "stamp_duty": 0
+                },
+                "amount": 1,
+                "balance": 0.705,
+                "date": "2026-04-06",
+                "description": "By Incme Distrbn-cum-Cap Wthdrwl- Reinvt",
+                "dividend_rate": null,
+                "nav": 1000,
+                "type": "PURCHASE",
+                "units": 0.001
+              },
+              {
+                "additional_info": {
+                  "credit": 0.001,
+                  "debit": 0,
+                  "order_no": "1515628309",
+                  "stamp_duty": 0
+                },
+                "amount": 1,
+                "balance": 0.706,
+                "date": "2026-04-13",
+                "description": "By Incme Distrbn-cum-Cap Wthdrwl- Reinvt",
+                "dividend_rate": null,
+                "nav": 1000,
+                "type": "PURCHASE",
+                "units": 0.001
+              },
+              {
+                "additional_info": {
+                  "credit": 0.001,
+                  "debit": 0,
+                  "order_no": "1518591654",
+                  "stamp_duty": 0
+                },
+                "amount": 1,
+                "balance": 0.707,
+                "date": "2026-04-20",
+                "description": "By Incme Distrbn-cum-Cap Wthdrwl- Reinvt",
+                "dividend_rate": null,
+                "nav": 1000,
+                "type": "PURCHASE",
+                "units": 0.001
+              },
+              {
+                "additional_info": {
+                  "credit": 0.001,
+                  "debit": 0,
+                  "order_no": "1521902113",
+                  "stamp_duty": 0
+                },
+                "amount": 1,
+                "balance": 0.708,
+                "date": "2026-04-27",
+                "description": "By Incme Distrbn-cum-Cap Wthdrwl- Reinvt",
+                "dividend_rate": null,
+                "nav": 1000,
+                "type": "PURCHASE",
+                "units": 0.001
+              }
+            ],
+            "units": 0.708,
+            "value": 708
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null
+            },
+            "isin": "INF0R8F01034",
+            "name": "ZERODHA NIFTY ID RATE LIQUID ETF-- DIRECT GROWTH",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 0,
+                  "order_no": "",
+                  "stamp_duty": 0
+                },
+                "amount": 0,
+                "balance": 41,
+                "date": "2026-04-07",
+                "description": "344956832 (10000004695495)",
+                "dividend_rate": null,
+                "nav": 113.82,
+                "type": "REDEMPTION",
+                "units": 0
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 0,
+                  "order_no": "",
+                  "stamp_duty": 0
+                },
+                "amount": 0,
+                "balance": 41,
+                "date": "2026-04-08",
+                "description": "346775165 (10000004695495)",
+                "dividend_rate": null,
+                "nav": 113.82,
+                "type": "REDEMPTION",
+                "units": 0
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 0,
+                  "order_no": "",
+                  "stamp_duty": 0
+                },
+                "amount": 0,
+                "balance": 41,
+                "date": "2026-04-15",
+                "description": "346775165 (10000004695495)",
+                "dividend_rate": null,
+                "nav": 113.82,
+                "type": "REDEMPTION",
+                "units": 0
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 0,
+                  "order_no": "",
+                  "stamp_duty": 0
+                },
+                "amount": 0,
+                "balance": 41,
+                "date": "2026-04-16",
+                "description": "348248440 (10000004695495)",
+                "dividend_rate": null,
+                "nav": 113.82,
+                "type": "REDEMPTION",
+                "units": 0
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 156,
+                  "order_no": "10000014822265",
+                  "stamp_duty": 0
+                },
+                "amount": 17756.29,
+                "balance": 0,
+                "date": "2026-04-07",
+                "description": "To MOTILAL OSWAL FINANCIAL SERVICES LIMITED,eDIS / Block Mechanism / 2026064 Initiated by POA Holder",
+                "dividend_rate": null,
+                "nav": 113.82,
+                "type": "REDEMPTION",
+                "units": 156
+              },
+              {
+                "additional_info": {
+                  "credit": 7,
+                  "debit": 0,
+                  "order_no": "10000014822265",
+                  "stamp_duty": 0
+                },
+                "amount": 796.76,
+                "balance": 7,
+                "date": "2026-04-07",
+                "description": "By eDIS / Block Mechanism Cancellation / Rejection",
+                "dividend_rate": null,
+                "nav": 113.82,
+                "type": "PURCHASE",
+                "units": 7
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 7,
+                  "order_no": "10000005224685",
+                  "stamp_duty": 0
+                },
+                "amount": 796.76,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 113.82,
+                "type": "REDEMPTION",
+                "units": 7
+              },
+              {
+                "additional_info": {
+                  "credit": 175,
+                  "debit": 0,
+                  "order_no": "10000005262659",
+                  "stamp_duty": 0
+                },
+                "amount": 19918.91,
+                "balance": 175,
+                "date": "2026-04-15",
+                "description": "By Pledge Closure",
+                "dividend_rate": null,
+                "nav": 113.82,
+                "type": "PURCHASE",
+                "units": 175
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 175,
+                  "order_no": "10000014892401",
+                  "stamp_duty": 0
+                },
+                "amount": 19918.91,
+                "balance": 0,
+                "date": "2026-04-15",
+                "description": "To MOTILAL OSWAL FINANCIAL SERVICES LIMITED,eDIS / Block Mechanism / 2026069 Initiated by Client (Electronic Instruction-Other)",
+                "dividend_rate": null,
+                "nav": 113.82,
+                "type": "REDEMPTION",
+                "units": 175
+              },
+              {
+                "additional_info": {
+                  "credit": 3,
+                  "debit": 0,
+                  "order_no": "10000005262659",
+                  "stamp_duty": 0
+                },
+                "amount": 341.47,
+                "balance": 3,
+                "date": "2026-04-17",
+                "description": "By Pledge Closure",
+                "dividend_rate": null,
+                "nav": 113.82,
+                "type": "PURCHASE",
+                "units": 3
+              },
+              {
+                "additional_info": {
+                  "credit": 156,
+                  "debit": 0,
+                  "order_no": "10000014822265",
+                  "stamp_duty": 0
+                },
+                "amount": 17756.29,
+                "balance": 156,
+                "date": "2026-04-07",
+                "description": "By eDIS / Block Mechanism",
+                "dividend_rate": null,
+                "nav": 113.82,
+                "type": "PURCHASE",
+                "units": 156
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 7,
+                  "order_no": "10000014822265",
+                  "stamp_duty": 0
+                },
+                "amount": 796.76,
+                "balance": 149,
+                "date": "2026-04-07",
+                "description": "To eDIS / Block Mechanism Cancellation / Rejection Initiated by POA Holder",
+                "dividend_rate": null,
+                "nav": 113.82,
+                "type": "REDEMPTION",
+                "units": 7
+              }
+            ],
+            "units": 51,
+            "value": 5804.94
+          }
+        ],
+        "equities": [
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "ABLBL.NSE"
+            },
+            "isin": "INE14LE01019",
+            "name": "ADITYA BIRLA LIFESTYLE, BRANDS LIMITED",
+            "transactions": [],
+            "units": 187,
+            "value": 19219.86
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "APLLTD.NSE"
+            },
+            "isin": "INE901L01018",
+            "name": "ALEMBIC PHARMACEUTICALS, LIMITED",
+            "transactions": [],
+            "units": 21,
+            "value": 15855
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "BHARTIARTL.NSE"
+            },
+            "isin": "INE397D01024",
+            "name": "BHARTI AIRTEL LIMITED",
+            "transactions": [],
+            "units": 15,
+            "value": 28302
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "BSOFT.NSE"
+            },
+            "isin": "INE836A01035",
+            "name": "BIRLASOFT LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 1,
+                  "debit": 0,
+                  "order_no": "10000005228525",
+                  "stamp_duty": 0
+                },
+                "amount": 369.45,
+                "balance": 1,
+                "date": "2026-04-09",
+                "description": "By Pledge Closure",
+                "dividend_rate": null,
+                "nav": 369.45,
+                "type": "PURCHASE",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "10000005261421",
+                  "stamp_duty": 0
+                },
+                "amount": 738.9,
+                "balance": 3,
+                "date": "2026-04-17",
+                "description": "By Pledge Closure",
+                "dividend_rate": null,
+                "nav": 369.45,
+                "type": "PURCHASE",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 1,
+                  "debit": 0,
+                  "order_no": "4932518731",
+                  "stamp_duty": 0
+                },
+                "amount": 369.45,
+                "balance": 1,
+                "date": "2026-04-08",
+                "description": "By CM NSE CLEARING LIMITED, T+1 NORMAL / 2026064 Standing Instruction to receive credit",
+                "dividend_rate": null,
+                "nav": 369.45,
+                "type": "PURCHASE",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 1,
+                  "order_no": "1123665423",
+                  "stamp_duty": 0
+                },
+                "amount": 369.45,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 369.45,
+                "type": "REDEMPTION",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "4950179460",
+                  "stamp_duty": 0
+                },
+                "amount": 738.9,
+                "balance": 2,
+                "date": "2026-04-15",
+                "description": "By CM NSE CLEARING LIMITED, T+1 NORMAL / 2026068 Standing Instruction to receive credit",
+                "dividend_rate": null,
+                "nav": 369.45,
+                "type": "PURCHASE",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 2,
+                  "order_no": "1124112374",
+                  "stamp_duty": 0
+                },
+                "amount": 738.9,
+                "balance": 0,
+                "date": "2026-04-15",
+                "description": "To Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 369.45,
+                "type": "REDEMPTION",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 1,
+                  "debit": 0,
+                  "order_no": "1123665423",
+                  "stamp_duty": 0
+                },
+                "amount": 369.45,
+                "balance": 1,
+                "date": "2026-04-08",
+                "description": "By Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 369.45,
+                "type": "PURCHASE",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 1,
+                  "order_no": "10000005228525",
+                  "stamp_duty": 0
+                },
+                "amount": 369.45,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 369.45,
+                "type": "REDEMPTION",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "1124112374",
+                  "stamp_duty": 0
+                },
+                "amount": 738.9,
+                "balance": 2,
+                "date": "2026-04-15",
+                "description": "By Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 369.45,
+                "type": "PURCHASE",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 2,
+                  "order_no": "10000005261421",
+                  "stamp_duty": 0
+                },
+                "amount": 738.9,
+                "balance": 0,
+                "date": "2026-04-15",
+                "description": "To Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 369.45,
+                "type": "REDEMPTION",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 1,
+                  "debit": 0,
+                  "order_no": "10000005228525",
+                  "stamp_duty": 0
+                },
+                "amount": 369.45,
+                "balance": 54,
+                "date": "2026-04-08",
+                "description": "By Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 369.45,
+                "type": "PURCHASE",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 1,
+                  "order_no": "10000005228525",
+                  "stamp_duty": 0
+                },
+                "amount": 369.45,
+                "balance": 53,
+                "date": "2026-04-09",
+                "description": "To Pledge Request Closure",
+                "dividend_rate": null,
+                "nav": 369.45,
+                "type": "REDEMPTION",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "10000005261421",
+                  "stamp_duty": 0
+                },
+                "amount": 738.9,
+                "balance": 55,
+                "date": "2026-04-15",
+                "description": "By Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 369.45,
+                "type": "PURCHASE",
+                "units": 2
+              }
+            ],
+            "units": 56,
+            "value": 20689.2
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "CUB.NSE"
+            },
+            "isin": "INE491A01021",
+            "name": "CITY UNION BANK LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 2,
+                  "order_no": "10000005224687",
+                  "stamp_duty": 0
+                },
+                "amount": 540.18,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 270.09,
+                "type": "REDEMPTION",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "10000005224687",
+                  "stamp_duty": 0
+                },
+                "amount": 540.18,
+                "balance": 2,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge Request",
+                "dividend_rate": null,
+                "nav": 270.09,
+                "type": "PURCHASE",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 2,
+                  "order_no": "10000005224687",
+                  "stamp_duty": 0
+                },
+                "amount": 540.18,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 270.09,
+                "type": "REDEMPTION",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "10000005224687",
+                  "stamp_duty": 0
+                },
+                "amount": 540.18,
+                "balance": 124,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 270.09,
+                "type": "PURCHASE",
+                "units": 2
+              }
+            ],
+            "units": 124,
+            "value": 33491.16
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "CROMPTON.NSE"
+            },
+            "isin": "INE299U01018",
+            "name": "CROMPTON GREAVES, CONSUMER ELECTRICALS, LIMITED",
+            "transactions": [],
+            "units": 63,
+            "value": 17158.68
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "ETERNAL.NSE"
+            },
+            "isin": "INE758T01015",
+            "name": "ETERNAL LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 79,
+                  "order_no": "10000005224674",
+                  "stamp_duty": 0
+                },
+                "amount": 19515.37,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 247.03,
+                "type": "REDEMPTION",
+                "units": 79
+              },
+              {
+                "additional_info": {
+                  "credit": 9,
+                  "debit": 0,
+                  "order_no": "10000005229337",
+                  "stamp_duty": 0
+                },
+                "amount": 2223.27,
+                "balance": 9,
+                "date": "2026-04-09",
+                "description": "By Pledge Closure",
+                "dividend_rate": null,
+                "nav": 247.03,
+                "type": "PURCHASE",
+                "units": 9
+              },
+              {
+                "additional_info": {
+                  "credit": 9,
+                  "debit": 0,
+                  "order_no": "4932552015",
+                  "stamp_duty": 0
+                },
+                "amount": 2223.27,
+                "balance": 9,
+                "date": "2026-04-08",
+                "description": "By CM NSE CLEARING LIMITED, T+1 NORMAL / 2026064 Standing Instruction to receive credit",
+                "dividend_rate": null,
+                "nav": 247.03,
+                "type": "PURCHASE",
+                "units": 9
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 9,
+                  "order_no": "1123691320",
+                  "stamp_duty": 0
+                },
+                "amount": 2223.27,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 247.03,
+                "type": "REDEMPTION",
+                "units": 9
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 9,
+                  "order_no": "10000005229337",
+                  "stamp_duty": 0
+                },
+                "amount": 2223.27,
+                "balance": 79,
+                "date": "2026-04-09",
+                "description": "To Pledge Request Closure",
+                "dividend_rate": null,
+                "nav": 247.03,
+                "type": "REDEMPTION",
+                "units": 9
+              },
+              {
+                "additional_info": {
+                  "credit": 79,
+                  "debit": 0,
+                  "order_no": "10000005224674",
+                  "stamp_duty": 0
+                },
+                "amount": 19515.37,
+                "balance": 79,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge Request",
+                "dividend_rate": null,
+                "nav": 247.03,
+                "type": "PURCHASE",
+                "units": 79
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 79,
+                  "order_no": "10000005224674",
+                  "stamp_duty": 0
+                },
+                "amount": 19515.37,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 247.03,
+                "type": "REDEMPTION",
+                "units": 79
+              },
+              {
+                "additional_info": {
+                  "credit": 79,
+                  "debit": 0,
+                  "order_no": "10000005224674",
+                  "stamp_duty": 0
+                },
+                "amount": 19515.37,
+                "balance": 79,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 247.03,
+                "type": "PURCHASE",
+                "units": 79
+              },
+              {
+                "additional_info": {
+                  "credit": 9,
+                  "debit": 0,
+                  "order_no": "1123691320",
+                  "stamp_duty": 0
+                },
+                "amount": 2223.27,
+                "balance": 9,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 247.03,
+                "type": "PURCHASE",
+                "units": 9
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 9,
+                  "order_no": "10000005229337",
+                  "stamp_duty": 0
+                },
+                "amount": 2223.27,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 247.03,
+                "type": "REDEMPTION",
+                "units": 9
+              },
+              {
+                "additional_info": {
+                  "credit": 9,
+                  "debit": 0,
+                  "order_no": "10000005229337",
+                  "stamp_duty": 0
+                },
+                "amount": 2223.27,
+                "balance": 88,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 247.03,
+                "type": "PURCHASE",
+                "units": 9
+              },
+              {
+                "additional_info": {
+                  "credit": 79,
+                  "debit": 0,
+                  "order_no": "346775164 (10000005224674)",
+                  "stamp_duty": 0
+                },
+                "amount": 19515.37,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "Margin Repledge, From MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894 To NSE CLEARING LIMITED / 10009132",
+                "dividend_rate": null,
+                "nav": 247.03,
+                "type": "PURCHASE",
+                "units": 79
+              }
+            ],
+            "units": 88,
+            "value": 21738.64
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "EXIDEIND.NSE"
+            },
+            "isin": "INE302A01020",
+            "name": "EXIDE INDUSTRIES LIMITED",
+            "transactions": [],
+            "units": 192,
+            "value": 69225.6
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "GENUSPOWER.NSE"
+            },
+            "isin": "INE955D01029",
+            "name": "GENUS POWER, INFRASTRUCTURES LIMITED",
+            "transactions": [],
+            "units": 125,
+            "value": 39006.25
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "GODREJCP.NSE"
+            },
+            "isin": "INE102D01028",
+            "name": "GODREJ CONSUMER, PRODUCTS LIMITED",
+            "transactions": [],
+            "units": 32,
+            "value": 34147.2
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "HDFCBANK.NSE"
+            },
+            "isin": "INE040A01034",
+            "name": "HDFC BANK LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 2,
+                  "order_no": "10000005224675",
+                  "stamp_duty": 0
+                },
+                "amount": 1543.4,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 771.7,
+                "type": "REDEMPTION",
+                "units": 2
+              }
+            ],
+            "units": 71,
+            "value": 54790.7
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "HINDCOPPER.NSE"
+            },
+            "isin": "INE531E01026",
+            "name": "HINDUSTAN COPPER LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 200,
+                  "order_no": "10000005224683",
+                  "stamp_duty": 0
+                },
+                "amount": 106970,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 534.85,
+                "type": "REDEMPTION",
+                "units": 200
+              },
+              {
+                "additional_info": {
+                  "credit": 200,
+                  "debit": 0,
+                  "order_no": "10000005224683",
+                  "stamp_duty": 0
+                },
+                "amount": 106970,
+                "balance": 200,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge Request",
+                "dividend_rate": null,
+                "nav": 534.85,
+                "type": "PURCHASE",
+                "units": 200
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 200,
+                  "order_no": "10000005224683",
+                  "stamp_duty": 0
+                },
+                "amount": 106970,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 534.85,
+                "type": "REDEMPTION",
+                "units": 200
+              },
+              {
+                "additional_info": {
+                  "credit": 200,
+                  "debit": 0,
+                  "order_no": "10000005224683",
+                  "stamp_duty": 0
+                },
+                "amount": 106970,
+                "balance": 200,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 534.85,
+                "type": "PURCHASE",
+                "units": 200
+              },
+              {
+                "additional_info": {
+                  "credit": 200,
+                  "debit": 0,
+                  "order_no": "346775163 (10000005224683)",
+                  "stamp_duty": 0
+                },
+                "amount": 106970,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "Margin Repledge, From MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894 To NSE CLEARING LIMITED / 10009132",
+                "dividend_rate": null,
+                "nav": 534.85,
+                "type": "PURCHASE",
+                "units": 200
+              }
+            ],
+            "units": 200,
+            "value": 106970
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "ICICIBANK.NSE"
+            },
+            "isin": "INE090A01021",
+            "name": "ICICI BANK LIMITED",
+            "transactions": [],
+            "units": 32,
+            "value": 40428.8
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "IFCI.NSE"
+            },
+            "isin": "INE039A01010",
+            "name": "IFCI LIMITED",
+            "transactions": [],
+            "units": 400,
+            "value": 23476
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "IREDA.NSE"
+            },
+            "isin": "INE202E01016",
+            "name": "INDIAN RENEWABLE ENERGY, DEVELOPMENT AGENCY, LIMITED",
+            "transactions": [],
+            "units": 150,
+            "value": 20265
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "NAUKRI.NSE"
+            },
+            "isin": "INE663F01032",
+            "name": "INFO EDGE (INDIA) LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 2,
+                  "order_no": "10000005224678",
+                  "stamp_duty": 0
+                },
+                "amount": 1945.7,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 972.85,
+                "type": "REDEMPTION",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "10000005224678",
+                  "stamp_duty": 0
+                },
+                "amount": 1945.7,
+                "balance": 2,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge Request",
+                "dividend_rate": null,
+                "nav": 972.85,
+                "type": "PURCHASE",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 2,
+                  "order_no": "10000005224678",
+                  "stamp_duty": 0
+                },
+                "amount": 1945.7,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 972.85,
+                "type": "REDEMPTION",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "10000005224678",
+                  "stamp_duty": 0
+                },
+                "amount": 1945.7,
+                "balance": 26,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 972.85,
+                "type": "PURCHASE",
+                "units": 2
+              }
+            ],
+            "units": 26,
+            "value": 25294.1
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "INFY.NSE"
+            },
+            "isin": "INE009A01021",
+            "name": "INFOSYS LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 1,
+                  "order_no": "10000005224686",
+                  "stamp_duty": 0
+                },
+                "amount": 1181.8,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 1181.8,
+                "type": "REDEMPTION",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 1,
+                  "debit": 0,
+                  "order_no": "10000005224686",
+                  "stamp_duty": 0
+                },
+                "amount": 1181.8,
+                "balance": 1,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge Request",
+                "dividend_rate": null,
+                "nav": 1181.8,
+                "type": "PURCHASE",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 1,
+                  "order_no": "10000005224686",
+                  "stamp_duty": 0
+                },
+                "amount": 1181.8,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 1181.8,
+                "type": "REDEMPTION",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 1,
+                  "debit": 0,
+                  "order_no": "10000005224686",
+                  "stamp_duty": 0
+                },
+                "amount": 1181.8,
+                "balance": 27,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 1181.8,
+                "type": "PURCHASE",
+                "units": 1
+              }
+            ],
+            "units": 27,
+            "value": 31908.6
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "IRCON.NSE"
+            },
+            "isin": "INE962Y01021",
+            "name": "IRCON INTERNATIONAL LIMITED",
+            "transactions": [],
+            "units": 50,
+            "value": 7610
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "JIOFIN.NSE"
+            },
+            "isin": "INE758E01017",
+            "name": "JIO FINANCIAL SERVICES, LIMITED",
+            "transactions": [],
+            "units": 940,
+            "value": 231587.8
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "KOTAKBANK.NSE"
+            },
+            "isin": "INE237A01036",
+            "name": "KOTAK MAHINDRA BANK, LIMITED",
+            "transactions": [],
+            "units": 67,
+            "value": 25681.1
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "LT.NSE"
+            },
+            "isin": "INE018A01030",
+            "name": "LARSEN AND TOUBRO LIMITED",
+            "transactions": [],
+            "units": 8,
+            "value": 32112
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "M&MFIN.NSE"
+            },
+            "isin": "INE774D01024",
+            "name": "MAHINDRA AND MAHINDRA, FINANCIAL SERVICES LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 1,
+                  "order_no": "10000005224676",
+                  "stamp_duty": 0
+                },
+                "amount": 310.7,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 310.7,
+                "type": "REDEMPTION",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 1,
+                  "debit": 0,
+                  "order_no": "10000005224676",
+                  "stamp_duty": 0
+                },
+                "amount": 310.7,
+                "balance": 1,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge Request",
+                "dividend_rate": null,
+                "nav": 310.7,
+                "type": "PURCHASE",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 1,
+                  "order_no": "10000005224676",
+                  "stamp_duty": 0
+                },
+                "amount": 310.7,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 310.7,
+                "type": "REDEMPTION",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 1,
+                  "debit": 0,
+                  "order_no": "10000005224676",
+                  "stamp_duty": 0
+                },
+                "amount": 310.7,
+                "balance": 82,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 310.7,
+                "type": "PURCHASE",
+                "units": 1
+              }
+            ],
+            "units": 82,
+            "value": 25477.4
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "MAHLIFE.NSE"
+            },
+            "isin": "INE813A01018",
+            "name": "MAHINDRA LIFESPACE, DEVELOPERS LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 26,
+                  "debit": 0,
+                  "order_no": "10000005229515",
+                  "stamp_duty": 0
+                },
+                "amount": 8853,
+                "balance": 26,
+                "date": "2026-04-09",
+                "description": "By Pledge Closure",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "PURCHASE",
+                "units": 26
+              },
+              {
+                "additional_info": {
+                  "credit": 3,
+                  "debit": 0,
+                  "order_no": "81000015949319",
+                  "stamp_duty": 0
+                },
+                "amount": 1021.5,
+                "balance": 29,
+                "date": "2026-04-16",
+                "description": "By Inter Depository transfer CDS / 1100001100005652",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "PURCHASE",
+                "units": 3
+              },
+              {
+                "additional_info": {
+                  "credit": 10,
+                  "debit": 0,
+                  "order_no": "10000005261494",
+                  "stamp_duty": 0
+                },
+                "amount": 3405,
+                "balance": 39,
+                "date": "2026-04-17",
+                "description": "By Pledge Closure",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "PURCHASE",
+                "units": 10
+              },
+              {
+                "additional_info": {
+                  "credit": 26,
+                  "debit": 0,
+                  "order_no": "4932564592",
+                  "stamp_duty": 0
+                },
+                "amount": 8853,
+                "balance": 26,
+                "date": "2026-04-08",
+                "description": "By CM NSE CLEARING LIMITED, T+1 NORMAL / 2026064 Standing Instruction to receive credit",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "PURCHASE",
+                "units": 26
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 26,
+                  "order_no": "1123700625",
+                  "stamp_duty": 0
+                },
+                "amount": 8853,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "REDEMPTION",
+                "units": 26
+              },
+              {
+                "additional_info": {
+                  "credit": 10,
+                  "debit": 0,
+                  "order_no": "1071204312",
+                  "stamp_duty": 0
+                },
+                "amount": 3405,
+                "balance": 10,
+                "date": "2026-04-15",
+                "description": "By Inter Depository Transfer CDS / 1100001100005652",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "PURCHASE",
+                "units": 10
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 10,
+                  "order_no": "1124116015",
+                  "stamp_duty": 0
+                },
+                "amount": 3405,
+                "balance": 0,
+                "date": "2026-04-15",
+                "description": "To Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "REDEMPTION",
+                "units": 10
+              },
+              {
+                "additional_info": {
+                  "credit": 26,
+                  "debit": 0,
+                  "order_no": "1123700625",
+                  "stamp_duty": 0
+                },
+                "amount": 8853,
+                "balance": 26,
+                "date": "2026-04-08",
+                "description": "By Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "PURCHASE",
+                "units": 26
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 26,
+                  "order_no": "10000005229515",
+                  "stamp_duty": 0
+                },
+                "amount": 8853,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "REDEMPTION",
+                "units": 26
+              },
+              {
+                "additional_info": {
+                  "credit": 10,
+                  "debit": 0,
+                  "order_no": "1124116015",
+                  "stamp_duty": 0
+                },
+                "amount": 3405,
+                "balance": 10,
+                "date": "2026-04-15",
+                "description": "By Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "PURCHASE",
+                "units": 10
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 10,
+                  "order_no": "10000005261494",
+                  "stamp_duty": 0
+                },
+                "amount": 3405,
+                "balance": 0,
+                "date": "2026-04-15",
+                "description": "To Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "REDEMPTION",
+                "units": 10
+              },
+              {
+                "additional_info": {
+                  "credit": 26,
+                  "debit": 0,
+                  "order_no": "10000005229515",
+                  "stamp_duty": 0
+                },
+                "amount": 8853,
+                "balance": 26,
+                "date": "2026-04-08",
+                "description": "By Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "PURCHASE",
+                "units": 26
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 26,
+                  "order_no": "10000005229515",
+                  "stamp_duty": 0
+                },
+                "amount": 8853,
+                "balance": 0,
+                "date": "2026-04-09",
+                "description": "To Pledge Request Closure",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "REDEMPTION",
+                "units": 26
+              },
+              {
+                "additional_info": {
+                  "credit": 10,
+                  "debit": 0,
+                  "order_no": "10000005261494",
+                  "stamp_duty": 0
+                },
+                "amount": 3405,
+                "balance": 10,
+                "date": "2026-04-15",
+                "description": "By Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "PURCHASE",
+                "units": 10
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 10,
+                  "order_no": "10000005261494",
+                  "stamp_duty": 0
+                },
+                "amount": 3405,
+                "balance": 0,
+                "date": "2026-04-17",
+                "description": "To Pledge Request Closure",
+                "dividend_rate": null,
+                "nav": 340.5,
+                "type": "REDEMPTION",
+                "units": 10
+              }
+            ],
+            "units": 39,
+            "value": 13279.5
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "NSDL.BSE"
+            },
+            "isin": "INE301O01023",
+            "name": "NATIONAL SECURITIES, DEPOSITORY LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 100,
+                  "order_no": "10000005224677",
+                  "stamp_duty": 0
+                },
+                "amount": 88085,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 880.85,
+                "type": "REDEMPTION",
+                "units": 100
+              },
+              {
+                "additional_info": {
+                  "credit": 100,
+                  "debit": 0,
+                  "order_no": "10000005224677",
+                  "stamp_duty": 0
+                },
+                "amount": 88085,
+                "balance": 100,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge Request",
+                "dividend_rate": null,
+                "nav": 880.85,
+                "type": "PURCHASE",
+                "units": 100
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 100,
+                  "order_no": "10000005224677",
+                  "stamp_duty": 0
+                },
+                "amount": 88085,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 880.85,
+                "type": "REDEMPTION",
+                "units": 100
+              },
+              {
+                "additional_info": {
+                  "credit": 100,
+                  "debit": 0,
+                  "order_no": "10000005224677",
+                  "stamp_duty": 0
+                },
+                "amount": 88085,
+                "balance": 100,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 880.85,
+                "type": "PURCHASE",
+                "units": 100
+              },
+              {
+                "additional_info": {
+                  "credit": 100,
+                  "debit": 0,
+                  "order_no": "346775162 (10000005224677)",
+                  "stamp_duty": 0
+                },
+                "amount": 88085,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "Margin Repledge, From MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894 To NSE CLEARING LIMITED / 10009132",
+                "dividend_rate": null,
+                "nav": 880.85,
+                "type": "PURCHASE",
+                "units": 100
+              }
+            ],
+            "units": 100,
+            "value": 88085
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "NETWEB.NSE"
+            },
+            "isin": "INE0NT901020",
+            "name": "NETWEB TECHNOLOGIES INDIA, LIMITED",
+            "transactions": [],
+            "units": 40,
+            "value": 162592
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "NTPCGREEN.NSE"
+            },
+            "isin": "INE0ONG01011",
+            "name": "NTPC GREEN ENERGY LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 500,
+                  "debit": 0,
+                  "order_no": "10000004524696",
+                  "stamp_duty": 0
+                },
+                "amount": 54925,
+                "balance": 500,
+                "date": "2026-04-27",
+                "description": "By Pledge Closure",
+                "dividend_rate": null,
+                "nav": 109.85,
+                "type": "PURCHASE",
+                "units": 500
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 500,
+                  "order_no": "10000014989214",
+                  "stamp_duty": 0
+                },
+                "amount": 54925,
+                "balance": 0,
+                "date": "2026-04-27",
+                "description": "To MOTILAL OSWAL FINANCIAL SERVICES LIMITED,eDIS / Block Mechanism / 2026077",
+                "dividend_rate": null,
+                "nav": 109.85,
+                "type": "REDEMPTION",
+                "units": 500
+              },
+              {
+                "additional_info": {
+                  "credit": 500,
+                  "debit": 0,
+                  "order_no": "10000014989214",
+                  "stamp_duty": 0
+                },
+                "amount": 54925,
+                "balance": 500,
+                "date": "2026-04-27",
+                "description": "By eDIS / Block Mechanism",
+                "dividend_rate": null,
+                "nav": 109.85,
+                "type": "PURCHASE",
+                "units": 500
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 500,
+                  "order_no": "1071699721",
+                  "stamp_duty": 0
+                },
+                "amount": 54925,
+                "balance": 0,
+                "date": "2026-04-28",
+                "description": "To MOTILAL OSWAL FINANCIAL SERVICES LIMITED,eDIS / Block Mechanism / 2026077 Initiated by Client (Electronic Instruction-Other)",
+                "dividend_rate": null,
+                "nav": 109.85,
+                "type": "REDEMPTION",
+                "units": 500
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 500,
+                  "order_no": "10000004524696",
+                  "stamp_duty": 0
+                },
+                "amount": 54925,
+                "balance": 1000,
+                "date": "2026-04-27",
+                "description": "To Margin Pledge Request Closure",
+                "dividend_rate": null,
+                "nav": 109.85,
+                "type": "REDEMPTION",
+                "units": 500
+              },
+              {
+                "additional_info": {
+                  "credit": 500,
+                  "debit": 0,
+                  "order_no": "322790440 (10000004524696)",
+                  "stamp_duty": 0
+                },
+                "amount": 54925,
+                "balance": 0,
+                "date": "2026-04-27",
+                "description": "Margin pledge release, From NSE CLEARING LIMITED / 10009132 To MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 109.85,
+                "type": "PURCHASE",
+                "units": 500
+              }
+            ],
+            "units": 1000,
+            "value": 109850
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "OIL.NSE"
+            },
+            "isin": "INE274J01014",
+            "name": "OIL INDIA LIMITED",
+            "transactions": [],
+            "units": 50,
+            "value": 24540
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "OLAELEC.NSE"
+            },
+            "isin": "INE0LXG01040",
+            "name": "OLA ELECTRIC MOBILITY, LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 500,
+                  "order_no": "10000005224671",
+                  "stamp_duty": 0
+                },
+                "amount": 18280,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 36.56,
+                "type": "REDEMPTION",
+                "units": 500
+              }
+            ],
+            "units": 1500,
+            "value": 54840
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "PAYTM.NSE"
+            },
+            "isin": "INE982J01020",
+            "name": "ONE 97 COMMUNICATIONS, LIMITED",
+            "transactions": [],
+            "units": 42,
+            "value": 46023.6
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "NOT LISTED"
+            },
+            "isin": "INE561T01021",
+            "name": "ORAVEL STAYS LIMITED",
+            "transactions": [],
+            "units": 5264,
+            "value": 5264
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "PNBHOUSING.NSE"
+            },
+            "isin": "INE572E01012",
+            "name": "PNB HOUSING FINANCE LIMITED",
+            "transactions": [],
+            "units": 22,
+            "value": 23004.3
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "RAILTEL.NSE"
+            },
+            "isin": "INE0DD101019",
+            "name": "RAILTEL CORPORATION OF, INDIA LIMITED",
+            "transactions": [],
+            "units": 90,
+            "value": 29119.5
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "RECLTD.NSE"
+            },
+            "isin": "INE020B01018",
+            "name": "REC LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 110,
+                  "order_no": "10000005224680",
+                  "stamp_duty": 0
+                },
+                "amount": 38973,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 354.3,
+                "type": "REDEMPTION",
+                "units": 110
+              },
+              {
+                "additional_info": {
+                  "credit": 110,
+                  "debit": 0,
+                  "order_no": "10000005224680",
+                  "stamp_duty": 0
+                },
+                "amount": 38973,
+                "balance": 110,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge Request",
+                "dividend_rate": null,
+                "nav": 354.3,
+                "type": "PURCHASE",
+                "units": 110
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 110,
+                  "order_no": "10000005224680",
+                  "stamp_duty": 0
+                },
+                "amount": 38973,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 354.3,
+                "type": "REDEMPTION",
+                "units": 110
+              },
+              {
+                "additional_info": {
+                  "credit": 110,
+                  "debit": 0,
+                  "order_no": "10000005224680",
+                  "stamp_duty": 0
+                },
+                "amount": 38973,
+                "balance": 110,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 354.3,
+                "type": "PURCHASE",
+                "units": 110
+              },
+              {
+                "additional_info": {
+                  "credit": 110,
+                  "debit": 0,
+                  "order_no": "346775160 (10000005224680)",
+                  "stamp_duty": 0
+                },
+                "amount": 38973,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "Margin Repledge, From MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894 To NSE CLEARING LIMITED / 10009132",
+                "dividend_rate": null,
+                "nav": 354.3,
+                "type": "PURCHASE",
+                "units": 110
+              }
+            ],
+            "units": 110,
+            "value": 38973
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "RELIANCE.NSE"
+            },
+            "isin": "INE002A01018",
+            "name": "RELIANCE INDUSTRIES LIMITED",
+            "transactions": [],
+            "units": 22,
+            "value": 31477.6
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "SWIGGY.NSE"
+            },
+            "isin": "INE00H001014",
+            "name": "SWIGGY LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 13,
+                  "order_no": "10000005224684",
+                  "stamp_duty": 0
+                },
+                "amount": 3513.9,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 270.3,
+                "type": "REDEMPTION",
+                "units": 13
+              },
+              {
+                "additional_info": {
+                  "credit": 13,
+                  "debit": 0,
+                  "order_no": "10000005224684",
+                  "stamp_duty": 0
+                },
+                "amount": 3513.9,
+                "balance": 13,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge Request",
+                "dividend_rate": null,
+                "nav": 270.3,
+                "type": "PURCHASE",
+                "units": 13
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 13,
+                  "order_no": "10000005224684",
+                  "stamp_duty": 0
+                },
+                "amount": 3513.9,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 270.3,
+                "type": "REDEMPTION",
+                "units": 13
+              },
+              {
+                "additional_info": {
+                  "credit": 13,
+                  "debit": 0,
+                  "order_no": "10000005224684",
+                  "stamp_duty": 0
+                },
+                "amount": 3513.9,
+                "balance": 82,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 270.3,
+                "type": "PURCHASE",
+                "units": 13
+              },
+              {
+                "additional_info": {
+                  "credit": 13,
+                  "debit": 0,
+                  "order_no": "346775159 (10000005224684)",
+                  "stamp_duty": 0
+                },
+                "amount": 3513.9,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "Margin Repledge, From MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894 To NSE CLEARING LIMITED / 10009132",
+                "dividend_rate": null,
+                "nav": 270.3,
+                "type": "PURCHASE",
+                "units": 13
+              }
+            ],
+            "units": 82,
+            "value": 22164.6
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "SYNGENE.NSE"
+            },
+            "isin": "INE398R01022",
+            "name": "SYNGENE INTERNATIONAL, LIMITED",
+            "transactions": [],
+            "units": 32,
+            "value": 14964.8
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "TATASTEEL.NSE"
+            },
+            "isin": "INE081A01020",
+            "name": "TATA STEEL LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 71,
+                  "debit": 0,
+                  "order_no": "81000011502311",
+                  "stamp_duty": 0
+                },
+                "amount": 15006.56,
+                "balance": 71,
+                "date": "2026-04-16",
+                "description": "By CM MOTILAL OSWAL FINANCIAL SERVICES LIMITED, T+1 NORMAL / 2026069",
+                "dividend_rate": null,
+                "nav": 211.36,
+                "type": "PURCHASE",
+                "units": 71
+              },
+              {
+                "additional_info": {
+                  "credit": 19,
+                  "debit": 0,
+                  "order_no": "10000005275039",
+                  "stamp_duty": 0
+                },
+                "amount": 4015.84,
+                "balance": 90,
+                "date": "2026-04-17",
+                "description": "By Pledge Closure",
+                "dividend_rate": null,
+                "nav": 211.36,
+                "type": "PURCHASE",
+                "units": 19
+              },
+              {
+                "additional_info": {
+                  "credit": 19,
+                  "debit": 0,
+                  "order_no": "4956546202",
+                  "stamp_duty": 0
+                },
+                "amount": 4015.84,
+                "balance": 19,
+                "date": "2026-04-16",
+                "description": "By CM NSE CLEARING LIMITED, T+1 NORMAL / 2026069 Standing Instruction to receive credit",
+                "dividend_rate": null,
+                "nav": 211.36,
+                "type": "PURCHASE",
+                "units": 19
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 19,
+                  "order_no": "1124302348",
+                  "stamp_duty": 0
+                },
+                "amount": 4015.84,
+                "balance": 0,
+                "date": "2026-04-16",
+                "description": "To Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 211.36,
+                "type": "REDEMPTION",
+                "units": 19
+              },
+              {
+                "additional_info": {
+                  "credit": 19,
+                  "debit": 0,
+                  "order_no": "1124302348",
+                  "stamp_duty": 0
+                },
+                "amount": 4015.84,
+                "balance": 19,
+                "date": "2026-04-16",
+                "description": "By Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 211.36,
+                "type": "PURCHASE",
+                "units": 19
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 19,
+                  "order_no": "10000005275039",
+                  "stamp_duty": 0
+                },
+                "amount": 4015.84,
+                "balance": 0,
+                "date": "2026-04-16",
+                "description": "To Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 211.36,
+                "type": "REDEMPTION",
+                "units": 19
+              },
+              {
+                "additional_info": {
+                  "credit": 19,
+                  "debit": 0,
+                  "order_no": "10000005275039",
+                  "stamp_duty": 0
+                },
+                "amount": 4015.84,
+                "balance": 19,
+                "date": "2026-04-16",
+                "description": "By Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 211.36,
+                "type": "PURCHASE",
+                "units": 19
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 19,
+                  "order_no": "10000005275039",
+                  "stamp_duty": 0
+                },
+                "amount": 4015.84,
+                "balance": 0,
+                "date": "2026-04-17",
+                "description": "To Pledge Request Closure",
+                "dividend_rate": null,
+                "nav": 211.36,
+                "type": "REDEMPTION",
+                "units": 19
+              }
+            ],
+            "units": 90,
+            "value": 19022.4
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "TECHM.NSE"
+            },
+            "isin": "INE669C01036",
+            "name": "TECH MAHINDRA LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 18,
+                  "debit": 0,
+                  "order_no": "10000004695493",
+                  "stamp_duty": 0
+                },
+                "amount": 26523,
+                "balance": 18,
+                "date": "2026-04-13",
+                "description": "By Pledge Closure",
+                "dividend_rate": null,
+                "nav": 1473.5,
+                "type": "PURCHASE",
+                "units": 18
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 18,
+                  "order_no": "10000014875884",
+                  "stamp_duty": 0
+                },
+                "amount": 26523,
+                "balance": 0,
+                "date": "2026-04-13",
+                "description": "To MOTILAL OSWAL FINANCIAL SERVICES LIMITED,eDIS / Block Mechanism / 2026068",
+                "dividend_rate": null,
+                "nav": 1473.5,
+                "type": "REDEMPTION",
+                "units": 18
+              },
+              {
+                "additional_info": {
+                  "credit": 18,
+                  "debit": 0,
+                  "order_no": "10000014875884",
+                  "stamp_duty": 0
+                },
+                "amount": 26523,
+                "balance": 18,
+                "date": "2026-04-13",
+                "description": "By eDIS / Block Mechanism",
+                "dividend_rate": null,
+                "nav": 1473.5,
+                "type": "PURCHASE",
+                "units": 18
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 18,
+                  "order_no": "1071175195",
+                  "stamp_duty": 0
+                },
+                "amount": 26523,
+                "balance": 0,
+                "date": "2026-04-15",
+                "description": "To MOTILAL OSWAL FINANCIAL SERVICES LIMITED,eDIS / Block Mechanism / 2026068 Initiated by Client (Electronic Instruction-Other)",
+                "dividend_rate": null,
+                "nav": 1473.5,
+                "type": "REDEMPTION",
+                "units": 18
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 18,
+                  "order_no": "10000004695493",
+                  "stamp_duty": 0
+                },
+                "amount": 26523,
+                "balance": 14,
+                "date": "2026-04-13",
+                "description": "To Margin Pledge Request Closure",
+                "dividend_rate": null,
+                "nav": 1473.5,
+                "type": "REDEMPTION",
+                "units": 18
+              }
+            ],
+            "units": 14,
+            "value": 20629
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "FEDERALBNK.NSE"
+            },
+            "isin": "INE171A01029",
+            "name": "THE FEDERAL BANK LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "10000005229613",
+                  "stamp_duty": 0
+                },
+                "amount": 573.9,
+                "balance": 2,
+                "date": "2026-04-09",
+                "description": "By Pledge Closure",
+                "dividend_rate": null,
+                "nav": 286.95,
+                "type": "PURCHASE",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "4932788842",
+                  "stamp_duty": 0
+                },
+                "amount": 573.9,
+                "balance": 2,
+                "date": "2026-04-08",
+                "description": "By CM NSE CLEARING LIMITED, T+1 NORMAL / 2026064 Standing Instruction to receive credit",
+                "dividend_rate": null,
+                "nav": 286.95,
+                "type": "PURCHASE",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 2,
+                  "order_no": "1123699898",
+                  "stamp_duty": 0
+                },
+                "amount": 573.9,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 286.95,
+                "type": "REDEMPTION",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "1123699898",
+                  "stamp_duty": 0
+                },
+                "amount": 573.9,
+                "balance": 2,
+                "date": "2026-04-08",
+                "description": "By Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 286.95,
+                "type": "PURCHASE",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 2,
+                  "order_no": "10000005229613",
+                  "stamp_duty": 0
+                },
+                "amount": 573.9,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 286.95,
+                "type": "REDEMPTION",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "10000005229613",
+                  "stamp_duty": 0
+                },
+                "amount": 573.9,
+                "balance": 111,
+                "date": "2026-04-08",
+                "description": "By Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 286.95,
+                "type": "PURCHASE",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 2,
+                  "order_no": "10000005229613",
+                  "stamp_duty": 0
+                },
+                "amount": 573.9,
+                "balance": 109,
+                "date": "2026-04-09",
+                "description": "To Pledge Request Closure",
+                "dividend_rate": null,
+                "nav": 286.95,
+                "type": "REDEMPTION",
+                "units": 2
+              }
+            ],
+            "units": 111,
+            "value": 31851.45
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "UNITDSPR.NSE"
+            },
+            "isin": "INE854D01024",
+            "name": "UNITED SPIRITS LIMITED",
+            "transactions": [],
+            "units": 24,
+            "value": 31814.4
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "VARROC.NSE"
+            },
+            "isin": "INE665L01035",
+            "name": "VARROC ENGINEERING LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 2,
+                  "order_no": "10000005224679",
+                  "stamp_duty": 0
+                },
+                "amount": 1067.6,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 533.8,
+                "type": "REDEMPTION",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "10000005224679",
+                  "stamp_duty": 0
+                },
+                "amount": 1067.6,
+                "balance": 2,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge Request",
+                "dividend_rate": null,
+                "nav": 533.8,
+                "type": "PURCHASE",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 2,
+                  "order_no": "10000005224679",
+                  "stamp_duty": 0
+                },
+                "amount": 1067.6,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 533.8,
+                "type": "REDEMPTION",
+                "units": 2
+              },
+              {
+                "additional_info": {
+                  "credit": 2,
+                  "debit": 0,
+                  "order_no": "10000005224679",
+                  "stamp_duty": 0
+                },
+                "amount": 1067.6,
+                "balance": 46,
+                "date": "2026-04-08",
+                "description": "By Margin Pledge, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 533.8,
+                "type": "PURCHASE",
+                "units": 2
+              }
+            ],
+            "units": 46,
+            "value": 24554.8
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "IDEA.NSE"
+            },
+            "isin": "INE669E01016",
+            "name": "VODAFONE IDEA LIMITED",
+            "transactions": [],
+            "units": 2900,
+            "value": 29638
+          },
+          {
+            "additional_info": {
+              "close_units": null,
+              "open_units": null,
+              "stock_symbol": "WHIRLPOOL.NSE"
+            },
+            "isin": "INE716A01013",
+            "name": "WHIRLPOOL OF INDIA LIMITED",
+            "transactions": [
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 1,
+                  "order_no": "10000005224681",
+                  "stamp_duty": 0
+                },
+                "amount": 985.6,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge Request, MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10004894",
+                "dividend_rate": null,
+                "nav": 985.6,
+                "type": "REDEMPTION",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 1,
+                  "debit": 0,
+                  "order_no": "10000005227250",
+                  "stamp_duty": 0
+                },
+                "amount": 985.6,
+                "balance": 1,
+                "date": "2026-04-09",
+                "description": "By Pledge Closure",
+                "dividend_rate": null,
+                "nav": 985.6,
+                "type": "PURCHASE",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 1,
+                  "debit": 0,
+                  "order_no": "10000005262387",
+                  "stamp_duty": 0
+                },
+                "amount": 985.6,
+                "balance": 2,
+                "date": "2026-04-17",
+                "description": "By Pledge Closure",
+                "dividend_rate": null,
+                "nav": 985.6,
+                "type": "PURCHASE",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 1,
+                  "debit": 0,
+                  "order_no": "4932522982",
+                  "stamp_duty": 0
+                },
+                "amount": 985.6,
+                "balance": 1,
+                "date": "2026-04-08",
+                "description": "By CM NSE CLEARING LIMITED, T+1 NORMAL / 2026064 Standing Instruction to receive credit",
+                "dividend_rate": null,
+                "nav": 985.6,
+                "type": "PURCHASE",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 1,
+                  "order_no": "1123659160",
+                  "stamp_duty": 0
+                },
+                "amount": 985.6,
+                "balance": 0,
+                "date": "2026-04-08",
+                "description": "To Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 985.6,
+                "type": "REDEMPTION",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 1,
+                  "debit": 0,
+                  "order_no": "4950325913",
+                  "stamp_duty": 0
+                },
+                "amount": 985.6,
+                "balance": 1,
+                "date": "2026-04-15",
+                "description": "By CM NSE CLEARING LIMITED, T+1 NORMAL / 2026068 Standing Instruction to receive credit",
+                "dividend_rate": null,
+                "nav": 985.6,
+                "type": "PURCHASE",
+                "units": 1
+              },
+              {
+                "additional_info": {
+                  "credit": 0,
+                  "debit": 1,
+                  "order_no": "1124142711",
+                  "stamp_duty": 0
+                },
+                "amount": 985.6,
+                "balance": 0,
+                "date": "2026-04-15",
+                "description": "To Pledge MOTILAL OSWAL FINANCIAL SERVICES LIMITED / 10018684",
+                "dividend_rate": null,
+                "nav": 985.6,
+                "type": "REDEMPTION",
+                "units": 1
+              }
+            ],
+            "units": 21,
+            "value": 20697.6
+          }
+        ],
+        "government_securities": []
+      },
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "value": 1773333.5800000003
+    }
+  ],
+  "insurance": {
+    "life_insurance_policies": []
+  },
+  "investor": {
+    "address": "M 28, SOUTH CITY, NEAR SECTOR 31, GURGAON HARYANA",
+    "cas_id": "106904998",
+    "email": null,
+    "mobile": null,
+    "name": "AMIT  PORWAL",
+    "pan": "AMXXXXXX7E",
+    "pincode": "122001"
+  },
+  "meta": {
+    "cas_type": "NSDL",
+    "generated_at": "2026-05-24T04:17:38",
+    "statement_period": {
+      "from": "2026-04-01",
+      "to": "2026-04-30"
+    }
+  },
+  "mutual_funds": [
+    {
+      "additional_info": {},
+      "amc": "Axis",
+      "folio_number": "910140445463",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 0.27,
+          "gain": {
+            "absolute": 0.02999999999999997,
+            "percentage": 11.1111111111111
+          },
+          "isin": "INF846K01QE4",
+          "name": "Axis Arbitrage Fund, - Regular Monthly, IDCW",
+          "nav": 10,
+          "nominees": [],
+          "transactions": [],
+          "type": "OTHER",
+          "units": 0.027,
+          "value": 0.3
+        }
+      ],
+      "value": 0.3
+    },
+    {
+      "additional_info": {},
+      "amc": "Bandhan",
+      "folio_number": "3667011",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 7.78,
+          "gain": {
+            "absolute": 2.6900000000000004,
+            "percentage": 34.57583547557841
+          },
+          "isin": "INF194KA1UE8",
+          "name": "Bandhan Balanced, Advantage Fund-, Regular Plan-, Growth",
+          "nav": 18.2201,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 0.427,
+          "value": 10.47
+        }
+      ],
+      "value": 10.47
+    },
+    {
+      "additional_info": {},
+      "amc": "Franklin Templeton",
+      "folio_number": "34332289",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 42665.51,
+          "gain": {
+            "absolute": -961.9599999999991,
+            "percentage": -2.2546548722844264
+          },
+          "isin": "INF090I01FK3",
+          "name": "Franklin India Flexi, Cap Fund - Direct, Plan - Growth, (erstwhile Franklin, India Equity Fund -, Direct)",
+          "nav": 1789.8108,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 23.838,
+          "value": 41703.55
+        }
+      ],
+      "value": 41703.55
+    },
+    {
+      "additional_info": {},
+      "amc": "Franklin Templeton",
+      "folio_number": "20669625",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 50000,
+          "gain": {
+            "absolute": 29357.740000000005,
+            "percentage": 58.71548000000001
+          },
+          "isin": "INF090I01239",
+          "name": "Franklin India Flexi, Cap Fund - Growth, (erstwhile Franklin, India Equity Fund)",
+          "nav": 984.0002,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 50.813,
+          "value": 79357.74
+        }
+      ],
+      "value": 79357.74
+    },
+    {
+      "additional_info": {},
+      "amc": "HDFC",
+      "folio_number": "35007279",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": 338.453,
+            "open_units": 302.41
+          },
+          "cost": 191000,
+          "gain": {
+            "absolute": -1831.1700000000128,
+            "percentage": -0.9587277486911062
+          },
+          "isin": "INF179K01WA6",
+          "name": "HDFC Balanced, Advantage Fund -, Direct Plan - Growth, Option",
+          "nav": 564.3324,
+          "nominees": [],
+          "transactions": [
+            {
+              "additional_info": {
+                "price": 531.01,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 304.293,
+              "date": "2026-04-01",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 531.01,
+              "type": "PURCHASE",
+              "units": 1.883
+            },
+            {
+              "additional_info": {
+                "price": 531.019,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 306.176,
+              "date": "2026-04-02",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 531.019,
+              "type": "PURCHASE",
+              "units": 1.883
+            },
+            {
+              "additional_info": {
+                "price": 538.07,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 308.034,
+              "date": "2026-04-07",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 538.07,
+              "type": "PURCHASE",
+              "units": 1.858
+            },
+            {
+              "additional_info": {
+                "price": 538.07,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 309.892,
+              "date": "2026-04-07",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 538.07,
+              "type": "PURCHASE",
+              "units": 1.858
+            },
+            {
+              "additional_info": {
+                "price": 553.091,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 311.7,
+              "date": "2026-04-08",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 553.091,
+              "type": "PURCHASE",
+              "units": 1.808
+            },
+            {
+              "additional_info": {
+                "price": 550.349,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 313.517,
+              "date": "2026-04-09",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 550.349,
+              "type": "PURCHASE",
+              "units": 1.817
+            },
+            {
+              "additional_info": {
+                "price": 554.984,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 315.319,
+              "date": "2026-04-10",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 554.984,
+              "type": "PURCHASE",
+              "units": 1.802
+            },
+            {
+              "additional_info": {
+                "price": 559.718,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 317.106,
+              "date": "2026-04-15",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 559.718,
+              "type": "PURCHASE",
+              "units": 1.787
+            },
+            {
+              "additional_info": {
+                "price": 559.718,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 318.893,
+              "date": "2026-04-15",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 559.718,
+              "type": "PURCHASE",
+              "units": 1.787
+            },
+            {
+              "additional_info": {
+                "price": 560.939,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 320.676,
+              "date": "2026-04-16",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 560.939,
+              "type": "PURCHASE",
+              "units": 1.783
+            },
+            {
+              "additional_info": {
+                "price": 564.34,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 322.448,
+              "date": "2026-04-20",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 564.34,
+              "type": "PURCHASE",
+              "units": 1.772
+            },
+            {
+              "additional_info": {
+                "price": 564.34,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 324.22,
+              "date": "2026-04-20",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 564.34,
+              "type": "PURCHASE",
+              "units": 1.772
+            },
+            {
+              "additional_info": {
+                "price": 567.341,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 325.983,
+              "date": "2026-04-21",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 567.341,
+              "type": "PURCHASE",
+              "units": 1.763
+            },
+            {
+              "additional_info": {
+                "price": 565.246,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 327.752,
+              "date": "2026-04-22",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 565.246,
+              "type": "PURCHASE",
+              "units": 1.769
+            },
+            {
+              "additional_info": {
+                "price": 562.249,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 329.53,
+              "date": "2026-04-23",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 562.249,
+              "type": "PURCHASE",
+              "units": 1.778
+            },
+            {
+              "additional_info": {
+                "price": 557.754,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 331.323,
+              "date": "2026-04-24",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 557.754,
+              "type": "PURCHASE",
+              "units": 1.793
+            },
+            {
+              "additional_info": {
+                "price": 562.371,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 333.101,
+              "date": "2026-04-27",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 562.371,
+              "type": "PURCHASE",
+              "units": 1.778
+            },
+            {
+              "additional_info": {
+                "price": 560.361,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 334.885,
+              "date": "2026-04-28",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 560.361,
+              "type": "PURCHASE",
+              "units": 1.784
+            },
+            {
+              "additional_info": {
+                "price": 562.178,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 336.664,
+              "date": "2026-04-29",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 562.178,
+              "type": "PURCHASE",
+              "units": 1.779
+            },
+            {
+              "additional_info": {
+                "price": 558.922,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 338.453,
+              "date": "2026-04-30",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 558.922,
+              "type": "PURCHASE",
+              "units": 1.789
+            }
+          ],
+          "type": "EQUITY",
+          "units": 338.453,
+          "value": 189168.83
+        },
+        {
+          "additional_info": {
+            "close_units": 11083.163,
+            "open_units": 9970.32
+          },
+          "cost": 201000,
+          "gain": {
+            "absolute": 1084.8500000000058,
+            "percentage": 0.5397263681592068
+          },
+          "isin": "INF179KC1BM8",
+          "name": "HDFC NIFTY50, Equal Weight Index, Fund Direct Growth",
+          "nav": 18.1356,
+          "nominees": [],
+          "transactions": [
+            {
+              "additional_info": {
+                "price": 16.9582,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10029.286,
+              "date": "2026-04-01",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 16.9582,
+              "type": "PURCHASE",
+              "units": 58.966
+            },
+            {
+              "additional_info": {
+                "price": 16.958,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10088.252,
+              "date": "2026-04-02",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 16.958,
+              "type": "PURCHASE",
+              "units": 58.966
+            },
+            {
+              "additional_info": {
+                "price": 17.1995,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10146.39,
+              "date": "2026-04-06",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 17.1995,
+              "type": "PURCHASE",
+              "units": 58.138
+            },
+            {
+              "additional_info": {
+                "price": 17.3043,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10204.176,
+              "date": "2026-04-07",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 17.3043,
+              "type": "PURCHASE",
+              "units": 57.786
+            },
+            {
+              "additional_info": {
+                "price": 17.8805,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10260.1,
+              "date": "2026-04-08",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 17.8805,
+              "type": "PURCHASE",
+              "units": 55.924
+            },
+            {
+              "additional_info": {
+                "price": 17.8192,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10316.216,
+              "date": "2026-04-09",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 17.8192,
+              "type": "PURCHASE",
+              "units": 56.116
+            },
+            {
+              "additional_info": {
+                "price": 18.007,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10371.747,
+              "date": "2026-04-10",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 18.007,
+              "type": "PURCHASE",
+              "units": 55.531
+            },
+            {
+              "additional_info": {
+                "price": 17.8555,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10427.749,
+              "date": "2026-04-13",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 17.8555,
+              "type": "PURCHASE",
+              "units": 56.002
+            },
+            {
+              "additional_info": {
+                "price": 18.1979,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10482.698,
+              "date": "2026-04-15",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 18.1979,
+              "type": "PURCHASE",
+              "units": 54.949
+            },
+            {
+              "additional_info": {
+                "price": 18.223,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10537.571,
+              "date": "2026-04-16",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 18.223,
+              "type": "PURCHASE",
+              "units": 54.873
+            },
+            {
+              "additional_info": {
+                "price": 18.3457,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10592.077,
+              "date": "2026-04-17",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 18.3457,
+              "type": "PURCHASE",
+              "units": 54.506
+            },
+            {
+              "additional_info": {
+                "price": 18.362,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10646.535,
+              "date": "2026-04-20",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 18.362,
+              "type": "PURCHASE",
+              "units": 54.458
+            },
+            {
+              "additional_info": {
+                "price": 18.4909,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10700.613,
+              "date": "2026-04-21",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 18.4909,
+              "type": "PURCHASE",
+              "units": 54.078
+            },
+            {
+              "additional_info": {
+                "price": 18.4095,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10754.93,
+              "date": "2026-04-22",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 18.4095,
+              "type": "PURCHASE",
+              "units": 54.317
+            },
+            {
+              "additional_info": {
+                "price": 18.3308,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10809.48,
+              "date": "2026-04-23",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 18.3308,
+              "type": "PURCHASE",
+              "units": 54.55
+            },
+            {
+              "additional_info": {
+                "price": 18.1499,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10864.574,
+              "date": "2026-04-24",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 18.1499,
+              "type": "PURCHASE",
+              "units": 55.094
+            },
+            {
+              "additional_info": {
+                "price": 18.3152,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10919.171,
+              "date": "2026-04-27",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 18.3152,
+              "type": "PURCHASE",
+              "units": 54.597
+            },
+            {
+              "additional_info": {
+                "price": 18.2649,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 10973.918,
+              "date": "2026-04-28",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 18.2649,
+              "type": "PURCHASE",
+              "units": 54.747
+            },
+            {
+              "additional_info": {
+                "price": 18.3801,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 11028.322,
+              "date": "2026-04-29",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 18.3801,
+              "type": "PURCHASE",
+              "units": 54.404
+            },
+            {
+              "additional_info": {
+                "price": 18.2335,
+                "stamp_duty": 0.05
+              },
+              "amount": 999.95,
+              "balance": 11083.163,
+              "date": "2026-04-30",
+              "description": "Purchase-BSE - Online",
+              "dividend_rate": null,
+              "nav": 18.2335,
+              "type": "PURCHASE",
+              "units": 54.841
+            }
+          ],
+          "type": "EQUITY",
+          "units": 11083.163,
+          "value": 202084.85
+        }
+      ],
+      "value": 391253.68
+    },
+    {
+      "additional_info": {},
+      "amc": "HDFC",
+      "folio_number": "20105790",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 25000,
+          "gain": {
+            "absolute": 16051.150000000001,
+            "percentage": 64.2046
+          },
+          "isin": "INF179K01830",
+          "name": "HDFC Balanced, Advantage Fund -, Regular Plan -, Growth",
+          "nav": 313.4718,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 79.752,
+          "value": 41051.15
+        },
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 100000,
+          "gain": {
+            "absolute": 12458.910000000003,
+            "percentage": 12.458910000000003
+          },
+          "isin": "INF179K01XQ0",
+          "name": "HDFC Mid Cap, Fund - Direct Plan -, Growth Option",
+          "nav": 193.5996,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 516.53,
+          "value": 112458.91
+        }
+      ],
+      "value": 153510.06
+    },
+    {
+      "additional_info": {},
+      "amc": "HDFC",
+      "folio_number": "23388612",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 32000,
+          "gain": {
+            "absolute": 7688.129999999997,
+            "percentage": 24.025406249999993
+          },
+          "isin": "INF179K01830",
+          "name": "HDFC Balanced, Advantage Fund -, Regular Plan -, Growth",
+          "nav": 415.0239,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 77.104,
+          "value": 39688.13
+        }
+      ],
+      "value": 39688.13
+    },
+    {
+      "additional_info": {},
+      "amc": "HDFC",
+      "folio_number": "8251273",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 998486.21,
+          "gain": {
+            "absolute": 462944.77,
+            "percentage": 46.36466336375342
+          },
+          "isin": "INF179K01830",
+          "name": "HDFC Balanced, Advantage Fund -, Regular Plan -, Growth",
+          "nav": 351.6798,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 2839.191,
+          "value": 1461430.98
+        },
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 308847.71,
+          "gain": {
+            "absolute": 2671.2299999999814,
+            "percentage": 0.8649019932833503
+          },
+          "isin": "INF179K01608",
+          "name": "HDFC Flexi Cap, Fund - Regular Plan, - Growth",
+          "nav": 1927.8282,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 160.205,
+          "value": 311518.94
+        },
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 749275.35,
+          "gain": {
+            "absolute": 331403.4900000001,
+            "percentage": 44.22986689739628
+          },
+          "isin": "INF179K01AS4",
+          "name": "HDFC Hybrid Equity, Fund - Regular Plan, - Growth",
+          "nav": 77.2323,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 9701.584,
+          "value": 1080678.84
+        },
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 40000,
+          "gain": {
+            "absolute": -1100.8700000000026,
+            "percentage": -2.7521750000000065
+          },
+          "isin": "INF179KA1RZ8",
+          "name": "HDFC Small Cap, Fund - Regular Plan, - Growth Plan",
+          "nav": 135.3624,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 295.503,
+          "value": 38899.13
+        }
+      ],
+      "value": 2892527.89
+    },
+    {
+      "additional_info": {},
+      "amc": "HDFC",
+      "folio_number": "20031120",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 50000,
+          "gain": {
+            "absolute": 40582.67999999999,
+            "percentage": 81.16535999999999
+          },
+          "isin": "INF179K01608",
+          "name": "HDFC Flexi Cap, Fund - Regular Plan, - Growth",
+          "nav": 1073.3299,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 46.584,
+          "value": 90582.68
+        }
+      ],
+      "value": 90582.68
+    },
+    {
+      "additional_info": {},
+      "amc": "HDFC",
+      "folio_number": "29671362",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 100000,
+          "gain": {
+            "absolute": 1717.050000000003,
+            "percentage": 1.7170500000000029
+          },
+          "isin": "INF179K01XZ1",
+          "name": "HDFC Hybrid Equity, Fund - Direct Plan -, Growth Option",
+          "nav": 119.331,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 838.005,
+          "value": 101717.05
+        }
+      ],
+      "value": 101717.05
+    },
+    {
+      "additional_info": {},
+      "amc": "HDFC",
+      "folio_number": "23032445",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 5000,
+          "gain": {
+            "absolute": 1860.79,
+            "percentage": 37.2158
+          },
+          "isin": "INF179KA1RZ8",
+          "name": "HDFC Small Cap, Fund - Regular Plan, - Growth Plan",
+          "nav": 95.9343,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 52.119,
+          "value": 6860.79
+        }
+      ],
+      "value": 6860.79
+    },
+    {
+      "additional_info": {},
+      "amc": "ICICI Prudential",
+      "folio_number": "20463634",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 39138.26,
+          "gain": {
+            "absolute": 12643.739999999998,
+            "percentage": 32.30531965396519
+          },
+          "isin": "INF109K01BU5",
+          "name": "ICICI Prudential, Banking and, Financial Services, Fund - Growth",
+          "nav": 96.2849,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 406.484,
+          "value": 51782
+        },
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 49987.71,
+          "gain": {
+            "absolute": 20557.43,
+            "percentage": 41.12496851726154
+          },
+          "isin": "INF109K01BL4",
+          "name": "ICICI Prudential, Large Cap Fund, (erstwhile Bluechip, Fund) - Growth",
+          "nav": 75.5784,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 661.402,
+          "value": 70545.14
+        }
+      ],
+      "value": 122327.14
+    },
+    {
+      "additional_info": {},
+      "amc": "ICICI Prudential",
+      "folio_number": "23435423",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 50000,
+          "gain": {
+            "absolute": 23352.309999999998,
+            "percentage": 46.70462
+          },
+          "isin": "INF109K01BU5",
+          "name": "ICICI Prudential, Banking and, Financial Services, Fund - Growth",
+          "nav": 86.8343,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 575.809,
+          "value": 73352.31
+        }
+      ],
+      "value": 73352.31
+    },
+    {
+      "additional_info": {},
+      "amc": "ICICI Prudential",
+      "folio_number": "9292404",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 185000,
+          "gain": {
+            "absolute": 166348.37,
+            "percentage": 89.91803783783784
+          },
+          "isin": "INF109K01BU5",
+          "name": "ICICI Prudential, Banking and, Financial Services, Fund - Growth",
+          "nav": 67.0763,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 2758.053,
+          "value": 351348.37
+        }
+      ],
+      "value": 351348.37
+    },
+    {
+      "additional_info": {},
+      "amc": "ICICI Prudential",
+      "folio_number": "20469153",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 9776.01,
+          "gain": {
+            "absolute": 4975.8099999999995,
+            "percentage": 50.89816806652202
+          },
+          "isin": "INF109K01BL4",
+          "name": "ICICI Prudential, Large Cap Fund, (erstwhile Bluechip, Fund) - Growth",
+          "nav": 70.6834,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 138.307,
+          "value": 14751.82
+        }
+      ],
+      "value": 14751.82
+    },
+    {
+      "additional_info": {},
+      "amc": "ICICI Prudential",
+      "folio_number": "23371292",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 50000,
+          "gain": {
+            "absolute": 30701.199999999997,
+            "percentage": 61.40239999999999
+          },
+          "isin": "INF109K01BL4",
+          "name": "ICICI Prudential, Large Cap Fund, (erstwhile Bluechip, Fund) - Growth",
+          "nav": 66.0833,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 756.621,
+          "value": 80701.2
+        }
+      ],
+      "value": 80701.2
+    },
+    {
+      "additional_info": {},
+      "amc": "Kotak Mahindra",
+      "folio_number": "11041106",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 50000,
+          "gain": {
+            "absolute": 41144.94,
+            "percentage": 82.28988000000001
+          },
+          "isin": "INF174K01DS9",
+          "name": "Kotak Midcap Fund-, Growth (Regular, Plan) (Erstwhile, Kotak Emerging, Equity Scheme)",
+          "nav": 75.4737,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 662.482,
+          "value": 91144.94
+        }
+      ],
+      "value": 91144.94
+    },
+    {
+      "additional_info": {},
+      "amc": "Kotak Mahindra",
+      "folio_number": "11076614",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 20000,
+          "gain": {
+            "absolute": 12091.73,
+            "percentage": 60.458650000000006
+          },
+          "isin": "INF174K01DS9",
+          "name": "Kotak Midcap Fund-, Growth (Regular, Plan) (Erstwhile, Kotak Emerging, Equity Scheme)",
+          "nav": 85.7423,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 233.257,
+          "value": 32091.73
+        }
+      ],
+      "value": 32091.73
+    },
+    {
+      "additional_info": {},
+      "amc": "Kotak Mahindra",
+      "folio_number": "12797370",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 12000,
+          "gain": {
+            "absolute": 4682.380000000001,
+            "percentage": 39.019833333333345
+          },
+          "isin": "INF174K01DS9",
+          "name": "Kotak Midcap Fund-, Growth (Regular, Plan) (Erstwhile, Kotak Emerging, Equity Scheme)",
+          "nav": 98.965,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 121.255,
+          "value": 16682.38
+        }
+      ],
+      "value": 16682.38
+    },
+    {
+      "additional_info": {},
+      "amc": "Kotak Mahindra",
+      "folio_number": "9914826",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 30000,
+          "gain": {
+            "absolute": 26453.339999999997,
+            "percentage": 88.17779999999999
+          },
+          "isin": "INF174K01DS9",
+          "name": "Kotak Midcap Fund-, Growth (Regular, Plan) (Erstwhile, Kotak Emerging, Equity Scheme)",
+          "nav": 73.1122,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 410.328,
+          "value": 56453.34
+        }
+      ],
+      "value": 56453.34
+    },
+    {
+      "additional_info": {},
+      "amc": "Mirae Asset",
+      "folio_number": "79923659576",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 181241.8,
+          "gain": {
+            "absolute": 285901.19,
+            "percentage": 157.74572422035092
+          },
+          "isin": "INF769K01IR7",
+          "name": "Mirae Asset Global, X Artificial, Intelligence &, Technology ETF, Fund of Fund -, Regular Plan",
+          "nav": 12.0615,
+          "nominees": [],
+          "transactions": [],
+          "type": "OTHER",
+          "units": 15026.473,
+          "value": 467142.99
+        },
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 200000,
+          "gain": {
+            "absolute": 114285.32,
+            "percentage": 57.14266
+          },
+          "isin": "INF769K01010",
+          "name": "Mirae Asset Large, Cap Fund - Regular, Plan",
+          "nav": 69.0875,
+          "nominees": [],
+          "transactions": [],
+          "type": "OTHER",
+          "units": 2894.878,
+          "value": 314285.32
+        },
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 50000,
+          "gain": {
+            "absolute": 88341.14000000001,
+            "percentage": 176.68228000000005
+          },
+          "isin": "INF769K01HG2",
+          "name": "Mirae Asset NYSE, FANG+ ETF Fund, of Fund - Regular, Plan",
+          "nav": 13.5907,
+          "nominees": [],
+          "transactions": [],
+          "type": "OTHER",
+          "units": 3678.992,
+          "value": 138341.14
+        }
+      ],
+      "value": 919769.45
+    },
+    {
+      "additional_info": {},
+      "amc": "Mirae Asset",
+      "folio_number": "79937162546",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 50000,
+          "gain": {
+            "absolute": 21612.630000000005,
+            "percentage": 43.22526000000001
+          },
+          "isin": "INF769K01010",
+          "name": "Mirae Asset Large, Cap Fund - Regular, Plan",
+          "nav": 75.8009,
+          "nominees": [],
+          "transactions": [],
+          "type": "OTHER",
+          "units": 659.623,
+          "value": 71612.63
+        }
+      ],
+      "value": 71612.63
+    },
+    {
+      "additional_info": {},
+      "amc": "Mirae Asset",
+      "folio_number": "77760691936",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 50000,
+          "gain": {
+            "absolute": 19006.179999999993,
+            "percentage": 38.01235999999999
+          },
+          "isin": "INF769K01010",
+          "name": "Mirae Asset Large, Cap Fund - Regular, Plan",
+          "nav": 78.664,
+          "nominees": [],
+          "transactions": [],
+          "type": "OTHER",
+          "units": 635.615,
+          "value": 69006.18
+        }
+      ],
+      "value": 69006.18
+    },
+    {
+      "additional_info": {},
+      "amc": "Nippon India",
+      "folio_number": "477290781783",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 100000,
+          "gain": {
+            "absolute": 6991.880000000005,
+            "percentage": 6.9918800000000045
+          },
+          "isin": "INF204K01XI3",
+          "name": "NIPPON INDIA, LARGE CAP FUND, - DIRECT, GROWTH PLAN, GROWTH OPTION",
+          "nav": 93.0446,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 1074.753,
+          "value": 106991.88
+        },
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 12000,
+          "gain": {
+            "absolute": 2258.870000000001,
+            "percentage": 18.823916666666673
+          },
+          "isin": "INF204K01562",
+          "name": "NIPPON INDIA, LARGE CAP FUND, - GROWTH PLAN, GROWTH OPTION",
+          "nav": 74.6236,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 160.807,
+          "value": 14258.87
+        }
+      ],
+      "value": 121250.75
+    },
+    {
+      "additional_info": {},
+      "amc": "Nippon India",
+      "folio_number": "477290781756",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 15000,
+          "gain": {
+            "absolute": 4468.220000000001,
+            "percentage": 29.788133333333338
+          },
+          "isin": "INF204K01489",
+          "name": "NIPPON INDIA, MULTI CAP FUND -, GROWTH PLAN, GROWTH OPTION",
+          "nav": 227.9393,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 65.807,
+          "value": 19468.22
+        }
+      ],
+      "value": 19468.22
+    },
+    {
+      "additional_info": {},
+      "amc": "Nippon India",
+      "folio_number": "477403487847",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": 244.408
+          },
+          "cost": 50000,
+          "gain": {
+            "absolute": 2527.209999999999,
+            "percentage": 5.054419999999999
+          },
+          "isin": "INF204K01K15",
+          "name": "NIPPON INDIA, SMALL CAP FUND, - DIRECT, GROWTH PLAN",
+          "nav": 182.8408,
+          "nominees": [],
+          "transactions": [
+            {
+              "additional_info": {
+                "price": 172.0877,
+                "stamp_duty": 0.25
+              },
+              "amount": 4999.75,
+              "balance": 273.462,
+              "date": "2026-04-07",
+              "description": "Sys. Investment (10/Perpetual)",
+              "dividend_rate": null,
+              "nav": 172.0877,
+              "type": "PURCHASE_SIP",
+              "units": 29.054
+            }
+          ],
+          "type": "EQUITY",
+          "units": 273.462,
+          "value": 52527.21
+        }
+      ],
+      "value": 52527.21
+    },
+    {
+      "additional_info": {},
+      "amc": "GROWTH",
+      "folio_number": "",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 0,
+          "gain": {
+            "absolute": 0,
+            "percentage": 0
+          },
+          "isin": "",
+          "name": "GROWTH OPTION",
+          "nav": 0,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 0,
+          "value": 0
+        }
+      ],
+      "value": 0
+    },
+    {
+      "additional_info": {},
+      "amc": "Nippon India",
+      "folio_number": "477243418506",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 60000,
+          "gain": {
+            "absolute": 65581.93,
+            "percentage": 109.30321666666664
+          },
+          "isin": "INF204K01HY3",
+          "name": "NIPPON INDIA, SMALL CAP FUND, - GROWTH PLAN, GROWTH OPTION",
+          "nav": 81.4203,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 736.917,
+          "value": 125581.93
+        }
+      ],
+      "value": 125581.93
+    },
+    {
+      "additional_info": {},
+      "amc": "Nippon India",
+      "folio_number": "477269120336",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 50000,
+          "gain": {
+            "absolute": 46349.06,
+            "percentage": 92.69811999999999
+          },
+          "isin": "INF204K01HY3",
+          "name": "NIPPON INDIA, SMALL CAP FUND, - GROWTH PLAN, GROWTH OPTION",
+          "nav": 88.4364,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 565.378,
+          "value": 96349.06
+        }
+      ],
+      "value": 96349.06
+    },
+    {
+      "additional_info": {},
+      "amc": "Nippon India",
+      "folio_number": "477269822544",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 25000,
+          "gain": {
+            "absolute": 17868.65,
+            "percentage": 71.47460000000001
+          },
+          "isin": "INF204K01HY3",
+          "name": "NIPPON INDIA, SMALL CAP FUND, - GROWTH PLAN, GROWTH OPTION",
+          "nav": 99.3822,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 251.554,
+          "value": 42868.65
+        }
+      ],
+      "value": 42868.65
+    },
+    {
+      "additional_info": {},
+      "amc": "Nippon India",
+      "folio_number": "477288607574",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 5000,
+          "gain": {
+            "absolute": 2730.7200000000003,
+            "percentage": 54.61440000000001
+          },
+          "isin": "INF204K01HY3",
+          "name": "NIPPON INDIA, SMALL CAP FUND, - GROWTH PLAN, GROWTH OPTION",
+          "nav": 110.2196,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 45.364,
+          "value": 7730.72
+        }
+      ],
+      "value": 7730.72
+    },
+    {
+      "additional_info": {},
+      "amc": "Nippon India",
+      "folio_number": "477290781772",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 12000,
+          "gain": {
+            "absolute": 3163.5499999999993,
+            "percentage": 26.362916666666656
+          },
+          "isin": "INF204K01HY3",
+          "name": "NIPPON INDIA, SMALL CAP FUND, - GROWTH PLAN, GROWTH OPTION",
+          "nav": 134.8618,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 88.98,
+          "value": 15163.55
+        }
+      ],
+      "value": 15163.55
+    },
+    {
+      "additional_info": {},
+      "amc": "PPFAS",
+      "folio_number": "13713865",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 140000,
+          "gain": {
+            "absolute": 30561.03,
+            "percentage": 21.829307142857143
+          },
+          "isin": "INF879O01019",
+          "name": "Parag Parikh Flexi, Cap Fund - Regular, Plan Growth",
+          "nav": 68.4161,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 2046.301,
+          "value": 170561.03
+        }
+      ],
+      "value": 170561.03
+    },
+    {
+      "additional_info": {},
+      "amc": "PPFAS",
+      "folio_number": "13732402",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 20000,
+          "gain": {
+            "absolute": 6464.66,
+            "percentage": 32.323299999999996
+          },
+          "isin": "INF879O01019",
+          "name": "Parag Parikh Flexi, Cap Fund - Regular, Plan Growth",
+          "nav": 62.9903,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 317.509,
+          "value": 26464.66
+        }
+      ],
+      "value": 26464.66
+    },
+    {
+      "additional_info": {},
+      "amc": "SBI",
+      "folio_number": "13159476",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 90908.66,
+          "gain": {
+            "absolute": -354.2100000000064,
+            "percentage": -0.3896328468597012
+          },
+          "isin": "INF200K01537",
+          "name": "SBI  Nifty  Index, Fund - Regular Plan, - Growth",
+          "nav": 213.055,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 426.691,
+          "value": 90554.45
+        },
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 394259.85,
+          "gain": {
+            "absolute": 140314.70000000007,
+            "percentage": 35.58939618122415
+          },
+          "isin": "INF200K01362",
+          "name": "SBI Contra Fund -, Regular Plan -, Growth",
+          "nav": 274.6393,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 1435.555,
+          "value": 534574.55
+        },
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 160774.47,
+          "gain": {
+            "absolute": 79726.70000000001,
+            "percentage": 49.589154297942954
+          },
+          "isin": "INF200K01180",
+          "name": "SBI Large Cap Fund, - Regular Plan -, Growth",
+          "nav": 60.9717,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 2636.869,
+          "value": 240501.17
+        }
+      ],
+      "value": 865630.17
+    },
+    {
+      "additional_info": {},
+      "amc": "SBI",
+      "folio_number": "34256094",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 24000,
+          "gain": {
+            "absolute": 5131.799999999999,
+            "percentage": 21.382499999999997
+          },
+          "isin": "INF200K01362",
+          "name": "SBI Contra Fund -, Regular Plan -, Growth",
+          "nav": 306.7838,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 78.231,
+          "value": 29131.8
+        },
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 15000,
+          "gain": {
+            "absolute": 4720.029999999999,
+            "percentage": 31.46686666666666
+          },
+          "isin": "INF200K01305",
+          "name": "SBI Large & Midcap, Fund Regular, Growth",
+          "nav": 475.3906,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 31.553,
+          "value": 19720.03
+        }
+      ],
+      "value": 48851.83
+    },
+    {
+      "additional_info": {},
+      "amc": "UTI",
+      "folio_number": "577334532673",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 51097,
+          "gain": {
+            "absolute": 19030.42,
+            "percentage": 37.243712938137264
+          },
+          "isin": "INF789F01547",
+          "name": "UTI ELSS Tax, Saver Fund -, Regular Plan",
+          "nav": 142.5928,
+          "nominees": [],
+          "transactions": [],
+          "type": "OTHER",
+          "units": 358.342,
+          "value": 70127.42
+        },
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 106130,
+          "gain": {
+            "absolute": -220.24000000000524,
+            "percentage": -0.20751908037313221
+          },
+          "isin": "INF789F01JN2",
+          "name": "UTI Nifty 50 Index, Fund - Regular Plan",
+          "nav": 165.6322,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 640.757,
+          "value": 105909.76
+        }
+      ],
+      "value": 176037.18
+    },
+    {
+      "additional_info": {},
+      "amc": "quant",
+      "folio_number": "51018943604",
+      "linked_holders": [
+        {
+          "name": "AMIT  PORWAL",
+          "pan": "AMXXXXXX7E"
+        }
+      ],
+      "registrar": null,
+      "schemes": [
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 109070.25,
+          "gain": {
+            "absolute": 28136.649999999994,
+            "percentage": 25.796814438400933
+          },
+          "isin": "INF966L01200",
+          "name": "quant Multi Asset, Allocation Fund -, Regular Plan, Growth",
+          "nav": 128.7091,
+          "nominees": [],
+          "transactions": [],
+          "type": "EQUITY",
+          "units": 847.417,
+          "value": 137206.9
+        },
+        {
+          "additional_info": {
+            "close_units": null,
+            "open_units": null
+          },
+          "cost": 306300.87,
+          "gain": {
+            "absolute": -28143.27999999997,
+            "percentage": -9.188116246617247
+          },
+          "isin": "INF966L01AA0",
+          "name": "quant Small Cap, Fund - Regular Plan",
+          "nav": 282.3906,
+          "nominees": [],
+          "transactions": [],
+          "type": "OTHER",
+          "units": 1084.671,
+          "value": 278157.59
+        }
+      ],
+      "value": 415364.49
+    }
+  ],
+  "nps": [],
+  "summary": {
+    "accounts": {
+      "demat": {
+        "count": 2,
+        "total_value": 2740529.14
+      },
+      "insurance": {
+        "count": 0,
+        "total_value": 0
+      },
+      "mutual_funds": {
+        "count": 38,
+        "total_value": 7880303.28
+      },
+      "nps": {
+        "count": 0,
+        "total_value": 0
+      }
+    },
+    "total_value": 10620832.42
+  }
+}

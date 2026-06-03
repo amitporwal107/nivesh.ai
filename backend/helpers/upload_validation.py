@@ -1,14 +1,24 @@
-"""Upload validation: size cap + MIME magic-byte sniffing.
+"""Upload validation: size cap + MIME magic-byte sniffing + malware scan.
 
 PRD references:
     FR-UPLOAD-001 — All uploads must pass MIME validation.
     FR-UPLOAD-005 — File size limits enforced.
+    FR-UPLOAD-007 — Uploaded files must be scanned for malware before processing.
+
+Pipeline (in order):
+    1. Size cap (413)
+    2. Extension allow-list (415)
+    3. Magic-byte MIME check (415)
+    4. ClamAV malware scan (422) — async; skipped with warning when ClamAV unavailable
 
 We avoid pulling in libmagic / python-magic and instead inline the magic-byte
 checks for the 3 file types the upload pipeline accepts (PDF, XLSX, CSV).
-The check happens before any parser touches the bytes — so a `.pdf`-named file
-that's actually a renamed `.exe` or `.zip` is rejected with 415 before
-pdfplumber ever sees it.
+The magic-byte check happens before any parser touches the bytes — so a
+`.pdf`-named file that's actually a renamed `.exe` or `.zip` is rejected
+with 415 before pdfplumber ever sees it.
+
+Use :func:`validate_upload_async` in async route handlers (runs malware scan).
+Use :func:`validate_upload` for synchronous contexts (skips malware scan).
 """
 from __future__ import annotations
 
@@ -111,3 +121,61 @@ def validate_upload(
             )
 
     return ext, expected_mime
+
+
+async def validate_upload_async(
+    content: bytes,
+    filename: str,
+    *,
+    allowed_exts: tuple[str, ...] = (".pdf", ".xlsx", ".xls", ".csv"),
+) -> Tuple[str, str]:
+    """Async version of :func:`validate_upload` that also runs a ClamAV scan.
+
+    Call this from async route handlers instead of ``validate_upload`` to get
+    malware scanning. Falls back gracefully when ClamAV is not installed.
+
+    Raises:
+        413 — file too large
+        415 — bad extension or MIME mismatch
+        422 — malware detected
+    """
+    # Step 1-3: size + extension + magic bytes (sync, fast)
+    ext, mime = validate_upload(content, filename, allowed_exts=allowed_exts)
+
+    # Step 4: malware scan (async, ClamAV)
+    from services.malware_scanner import scan as _scan
+    result = await _scan(content)
+
+    if not result.scanner_available:
+        logger.warning(
+            "Malware scan skipped — ClamAV unavailable",
+            extra={
+                "eventType": "MALWARE_SCAN_SKIP",
+                "filename": filename,
+                "bytes": len(content),
+            },
+        )
+    elif not result.clean:
+        logger.error(
+            "Upload rejected — malware detected: %s in %s",
+            result.threat, filename,
+            extra={
+                "eventType": "MALWARE_REJECTED",
+                "filename": filename,
+                "threat": result.threat,
+                "bytes": len(content),
+            },
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=f"File rejected: malware detected ({result.threat}). "
+                   "Do not retry with the same file.",
+        )
+    else:
+        logger.info(
+            "Malware scan clean: %s (%d bytes)",
+            filename, len(content),
+            extra={"eventType": "MALWARE_SCAN_CLEAN", "filename": filename, "bytes": len(content)},
+        )
+
+    return ext, mime

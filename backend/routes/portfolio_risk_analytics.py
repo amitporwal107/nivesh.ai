@@ -15,7 +15,7 @@ real beta_1y, real sharpe_1y, real volatility_1y from NIDP's analytics layer.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Request
 
@@ -49,19 +49,25 @@ def _risk_score(vol_annual: float | None) -> float | None:
 
 
 @router.get("/risk-analytics")
-async def get_risk_analytics(request: Request) -> dict[str, Any]:
-    """Portfolio-level risk metrics powered by NIDP V3 primitives."""
+async def get_risk_analytics(request: Request, period: Optional[str] = None) -> dict[str, Any]:
+    """Portfolio-level risk metrics powered by NIDP V3 primitives.
+
+    period: optional hint for period-scoped Sharpe/volatility display (1M/3M/6M/1Y/3Y/inception).
+    Currently passed through to the response so the frontend can label the Sharpe card correctly;
+    the underlying DAAS primitives are rolling-window by nature (sharpe_1y etc.).
+    """
     user = await get_current_user(request)
     user_id = user["user_id"]
 
-    holdings: list[dict] = []
-    async for h in db.holdings.find(
+    holdings: list[dict] = await db.holdings.find(
         {"user_id": user_id},
         {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1,
          "quantity": 1, "current_price": 1, "sector": 1, "amc_name": 1,
          "category": 1, "instrument_id": 1},
-    ):
-        holdings.append(h)
+    ).to_list(1000)
+    if not holdings:
+        from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+        holdings = await pi_holdings_for_user(user_id)
 
     if not holdings:
         return {
@@ -121,7 +127,9 @@ async def get_risk_analytics(request: Request) -> dict[str, Any]:
     covered_value = 0.0
     fund_breakdown: list[dict] = []
     stock_breakdown: list[dict] = []
-    risk_drivers: list[dict] = []
+    # factor exposure accumulators for bar-chart risk drivers
+    smallcap_val = high_beta_val = cyclical_val = 0.0
+    _CYCLICAL_KW = {"bank", "nbfc", "finance", "metal", "real estate", "auto", "construct", "oil", "chemical"}
 
     for h in holdings:
         qty = float(h.get("quantity") or 0)
@@ -135,6 +143,19 @@ async def get_risk_analytics(request: Request) -> dict[str, Any]:
             prim = mf_primitives.get(h["ticker"])
         elif atype in {"stock", "equity"} and h.get("ticker"):
             prim = stock_primitives.get(h["ticker"])
+
+        # Factor exposure tracking — runs even when prim is missing
+        _cat        = ((prim.get("sub_category") or prim.get("category") or "") if prim else "").lower()
+        _cap_bucket = ((prim.get("market_cap_bucket") or "") if prim else "").lower()
+        _sect       = (h.get("sector") or "").lower()
+        # Smallcap: MF sub_category "Small Cap" OR stock market_cap_bucket SMALL/MICRO
+        if "small" in _cat or "small" in _cap_bucket or "micro" in _cap_bucket:
+            smallcap_val += value
+        if any(kw in _sect for kw in _CYCLICAL_KW):
+            cyclical_val += value
+        if prim and isinstance(prim.get("beta_1y"), (int, float)) and float(prim["beta_1y"]) > 1.3:
+            high_beta_val += value
+
         if not prim:
             continue
 
@@ -181,34 +202,38 @@ async def get_risk_analytics(request: Request) -> dict[str, Any]:
     weighted_sharpe = round(sharpe_num / sharpe_den, 3) if sharpe_den > 0 else None
     weighted_vol = round(vol_num / vol_den, 4) if vol_den > 0 else None
 
-    # Risk drivers
-    if weighted_beta is not None and weighted_beta > 1.1:
+    # Risk drivers — factor-exposure bars for the v4 risk dashboard.
+    # Each entry has a `pct` field so the frontend can render a horizontal bar.
+    risk_drivers: list[dict] = []
+    if total_value > 0:
+        smallcap_pct = round(100 * smallcap_val / total_value, 1)
+        high_beta_pct = round(100 * high_beta_val / total_value, 1)
+        cyclical_pct  = round(100 * cyclical_val / total_value, 1)
+        dg_pct = round(100 * (asset_value["debt"] + asset_value["gold"]) / total_value, 1)
+
+        if smallcap_pct >= 10:
+            risk_drivers.append({
+                "type": "SMALLCAP_WEIGHT", "label": "Smallcap weight",
+                "pct": smallcap_pct,
+                "impact": "HIGH" if smallcap_pct > 30 else "MEDIUM",
+            })
+        if high_beta_pct >= 20:
+            risk_drivers.append({
+                "type": "HIGH_BETA_NAMES", "label": "High-beta names",
+                "pct": high_beta_pct,
+                "impact": "HIGH" if high_beta_pct > 40 else "MEDIUM",
+            })
+        if cyclical_pct >= 25:
+            risk_drivers.append({
+                "type": "CYCLICAL_SECTORS", "label": "Cyclical sectors",
+                "pct": cyclical_pct,
+                "impact": "HIGH" if cyclical_pct > 50 else "MEDIUM",
+            })
+        # Buffer row always shown — a low buffer (high impact) warns; adequate buffer reassures.
         risk_drivers.append({
-            "type": "HIGH_BETA",
-            "label": f"Portfolio beta is {weighted_beta}",
-            "detail": "Will move more than the market — expect outsized swings.",
-            "impact": "HIGH" if weighted_beta > 1.3 else "MEDIUM",
-        })
-    if weighted_vol is not None and weighted_vol > 0.22:
-        risk_drivers.append({
-            "type": "HIGH_VOLATILITY",
-            "label": f"Annualised volatility {round(weighted_vol * 100, 1)}%",
-            "detail": "Daily price swings are larger than a balanced portfolio.",
-            "impact": "HIGH" if weighted_vol > 0.30 else "MEDIUM",
-        })
-    if total_value > 0 and asset_value["equity"] / total_value > 0.80:
-        risk_drivers.append({
-            "type": "EQUITY_HEAVY",
-            "label": f"{round(100 * asset_value['equity'] / total_value)}% equity allocation",
-            "detail": "Limited debt/gold buffer for drawdowns.",
-            "impact": "MEDIUM",
-        })
-    if weighted_sharpe is not None and weighted_sharpe < 0.5:
-        risk_drivers.append({
-            "type": "LOW_SHARPE",
-            "label": f"Sharpe ratio {weighted_sharpe}",
-            "detail": "Returns are not compensating for the risk taken.",
-            "impact": "MEDIUM",
+            "type": "DEBT_GOLD_BUFFER", "label": "Debt + gold buffer",
+            "pct": dg_pct,
+            "impact": "LOW" if dg_pct >= 15 else ("MEDIUM" if dg_pct >= 5 else "HIGH"),
         })
 
     # Top 3 highest-vol holdings
@@ -218,6 +243,23 @@ async def get_risk_analytics(request: Request) -> dict[str, Any]:
         reverse=True,
     )[:3]
 
+    # v4 additions per docs/api-changes.md Modified Endpoint C.3
+    # Parametric 1-day VaR at 95% confidence: VaR = value × σ × z(0.95) / √252
+    # (z(0.95) = 1.645; σ is annualised; dividing by √252 converts to 1-day)
+    var_1d_rs: Optional[float] = None
+    var_1d_pct: Optional[float] = None
+    var_confidence = 0.95
+    if weighted_vol is not None and total_value > 0:
+        import math
+        sigma_1d = float(weighted_vol) / math.sqrt(252)
+        var_1d_pct = round(sigma_1d * 1.645 * 100, 2)
+        var_1d_rs = round(total_value * sigma_1d * 1.645, 0)
+
+    # Max drawdown — not yet exposed by NIDP primitives; signal missing
+    # via None so the UI can render "—". Future: pull max_drawdown_1y from
+    # /v1/intelligence/portfolio/{user_id}/snapshot once available.
+    max_drawdown_pct: Optional[float] = None
+
     return {
         "empty": False,
         "total_value": round(total_value, 2),
@@ -226,6 +268,13 @@ async def get_risk_analytics(request: Request) -> dict[str, Any]:
         "weighted_beta": weighted_beta,
         "weighted_sharpe": weighted_sharpe,
         "weighted_volatility": weighted_vol,
+        # v4 additions (Modified Endpoint C.3)
+        "max_drawdown_pct": max_drawdown_pct,
+        "var_1d_rs": var_1d_rs,
+        "var_1d_pct": var_1d_pct,
+        "portfolio_value_rs": round(total_value, 2),
+        "var_confidence": var_confidence,
+        # Existing fields unchanged
         "equity_pct": round(100 * asset_value["equity"] / total_value, 1) if total_value > 0 else 0,
         "debt_pct": round(100 * asset_value["debt"] / total_value, 1) if total_value > 0 else 0,
         "gold_pct": round(100 * asset_value["gold"] / total_value, 1) if total_value > 0 else 0,
@@ -239,4 +288,5 @@ async def get_risk_analytics(request: Request) -> dict[str, Any]:
         "stock_breakdown": sorted(stock_breakdown, key=lambda r: r["weight_pct"], reverse=True)[:10],
         "coverage_pct": round(100 * covered_value / total_value, 1) if total_value > 0 else 0,
         "data_source": "DAAS",
+        "period": period,  # echo back for frontend Sharpe card labelling
     }

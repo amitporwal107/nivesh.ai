@@ -85,14 +85,16 @@ def _sample_payload(pan: str, *, checksum: str | None = "deadbeef") -> dict:
                      "instrument_type": "equity"},
                 ],
             }],
+            # SDK shape: each mutual_funds[] entry is a folio (not an AMC
+            # wrapper). The schema's legacy normaliser also accepts the
+            # old {amc, folios:[{folio,schemes}]} dict shape, but writing
+            # the modern flat shape directly keeps the test close to reality.
             "mutual_funds": [{
-                "amc": "HDFC",
-                "folios": [{
-                    "folio": "F-001",
-                    "schemes": [{
-                        "scheme_code": "120503", "name": "HDFC Flexi Cap",
-                        "units": "100", "value": "10000",
-                    }],
+                "amc":           "HDFC",
+                "folio_number":  "F-001",
+                "schemes": [{
+                    "scheme_code": "120503", "name": "HDFC Flexi Cap",
+                    "units": "100", "value": "10000",
                 }],
             }],
         },
@@ -124,7 +126,7 @@ async def test_sdk_callback_happy_path(app_and_pan) -> None:
     assert p["holdings_count"] == 3
     assert Decimal(p["total_value"]) == Decimal("40000.00")
     classes = {a["asset_class"] for a in p["allocation"]}
-    assert classes == {"equity", "mf"}
+    assert classes == {"equity", "mutual_fund"}
 
 
 @pytest.mark.integration

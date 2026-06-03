@@ -93,6 +93,24 @@ def score_to_grade(score: Optional[float]) -> str:
     return "F"
 
 
+# 7-band → 4-band collapse for v4 (PRD §13.1 — "graded A to D").
+# Moves the collapse server-side so investor + advisor see identical bands
+# without two adapter codepaths. See gap-analysis Finding C.6.
+_GRADE_BAND_COLLAPSE = {
+    "A+": "A", "A": "A",
+    "B+": "B", "B": "B",
+    "C": "C",
+    "D": "D", "F": "D",
+}
+
+
+def grade_to_band(grade: Optional[str]) -> Optional[str]:
+    """Collapse 7-band grade (A+/A/B+/B/C/D/F) to 4-band (A/B/C/D) for v4 UI."""
+    if not grade or grade == "N/A":
+        return None
+    return _GRADE_BAND_COLLAPSE.get(grade, grade)
+
+
 # ── Dataclasses ────────────────────────────────────────────────────────
 @dataclass
 class ComponentScore:
@@ -117,7 +135,8 @@ class HealthResult:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "health_score": self.health_score,
-            "grade": self.grade,
+            "grade": self.grade,                       # 7-band (legacy)
+            "grade_band": grade_to_band(self.grade),   # 4-band for v4 UI per PRD §13.1
             "low_confidence": self.low_confidence,
             "summary": self.summary,
             "components": {
@@ -888,6 +907,11 @@ async def build_portfolio_health(
     all_holdings: List[Dict[str, Any]] = await _db.holdings.find(
         {"user_id": user_id}, {"_id": 0},
     ).to_list(1000)
+    if not all_holdings:
+        # V4 onboarding writes to portfolio_ingestion (V3 Postgres), not Mongo.
+        # Bridge: pull from V3 so V2 scoring still works for V4 users.
+        from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+        all_holdings = await pi_holdings_for_user(user_id)
     mf_holdings = [h for h in all_holdings if (h.get("asset_type") or "").lower() in ("mutual_fund", "etf")]
     equity_holdings = [h for h in all_holdings if (h.get("asset_type") or "").lower() in ("equity", "stock")]
 

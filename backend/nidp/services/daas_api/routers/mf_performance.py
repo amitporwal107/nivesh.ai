@@ -347,6 +347,8 @@ _V3_MF_PRIMITIVE_COLS = """
     v.beta_1y::float                       AS beta_1y,
     v.volatility_1y::float                 AS volatility_1y,
     v.category_rank,
+    v.category_rank_pct::float                 AS category_rank_pct,
+    v.category_size,
     v.return_1y_rank,
     v.nidp_returns_available,
     v.nidp_snapshot_available,
@@ -403,8 +405,14 @@ async def v3_mf_primitives_bulk(
             )
         rows = await conn.fetch(
             f"""
-            SELECT {_V3_MF_PRIMITIVE_COLS}
+            SELECT {_V3_MF_PRIMITIVE_COLS},
+                   n.nav_date::text AS latest_nav_date
               FROM nidp.v_v3_mf_primitives v
+              LEFT JOIN LATERAL (
+                  SELECT MAX(nav_date) AS nav_date
+                    FROM nidp.mf_nav_daily
+                   WHERE scheme_code = v.scheme_code
+              ) n ON true
              WHERE v.isin = ANY($1::text[])
             """,
             isins,
@@ -415,4 +423,72 @@ async def v3_mf_primitives_bulk(
         "data":      data,
         "count":     len(data),
         "requested": len(raw_isins),
+    }
+
+
+# ── Category leaderboard (top-N per SEBI category) ───────────────────────
+
+@router.get(
+    "/category-top",
+    summary="Top N funds in a SEBI category by composite rank",
+)
+async def category_top(
+    category: str = Query(..., description="SEBI category string, e.g. 'Equity Scheme - Large Cap Fund'"),
+    n: int = Query(5, ge=1, le=20, description="Number of top funds to return"),
+    rank_date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to latest available"),
+) -> Dict[str, Any]:
+    """Return the top-N ranked funds for a SEBI category from mf_category_rank_daily.
+
+    Includes scheme_name, composite score, category_rank, category_pct,
+    and key metrics from metric_contributions (ret_3y, sharpe_1y, expense_ratio).
+    Used by the fund detail drawer comparison panel.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        if rank_date:
+            date_filter = "AND r.rank_date = $3::date"
+            params = [category, n, rank_date]
+        else:
+            date_filter = "AND r.rank_date = (SELECT MAX(rank_date) FROM nidp.mf_category_rank_daily WHERE sebi_category = $1)"
+            params = [category, n]
+
+        rows = await conn.fetch(
+            f"""
+            SELECT
+                r.scheme_code,
+                sm.scheme_name,
+                r.category_rank,
+                r.category_pct,
+                r.category_size,
+                r.composite,
+                r.status,
+                r.metric_contributions,
+                r.rank_date::text AS rank_date
+            FROM nidp.mf_category_rank_daily r
+            JOIN nidp.mf_scheme_master sm ON sm.scheme_code = r.scheme_code
+            WHERE r.sebi_category = $1
+              AND r.status IN ('ranked', 'low_confidence')
+              {date_filter}
+            ORDER BY r.category_rank ASC
+            LIMIT $2
+            """,
+            *params,
+        )
+
+    result = []
+    for row in rows:
+        d = dict(row)
+        mc = d.pop("metric_contributions", {}) or {}
+        # Extract key metric values for display
+        d["ret_3y"]        = (mc.get("return_3y") or {}).get("value")
+        d["ret_1y"]        = (mc.get("return_1y") or {}).get("value")
+        d["sharpe"]        = (mc.get("sharpe_1y") or {}).get("value")
+        d["expense_ratio"] = (mc.get("expense_ratio") or {}).get("value")
+        result.append(d)
+
+    return {
+        "category":   category,
+        "rank_date":  result[0]["rank_date"] if result else None,
+        "total_in_category": result[0]["category_size"] if result else 0,
+        "funds": result,
     }

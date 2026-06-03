@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from prometheus_client import (  # type: ignore[import-not-found]
-        Counter, Histogram, start_http_server, REGISTRY,
+        Counter, Gauge, Histogram, start_http_server, REGISTRY,
     )
     _AVAILABLE = True
 except ImportError:                                     # pragma: no cover
@@ -64,13 +64,35 @@ if _AVAILABLE:
         "Kafka publish attempts by status",
         ["topic", "status"],
     )
+    GATE_VERDICTS = Counter(
+        "nidp_dq_gate_verdicts_total",
+        "DQ gate verdicts by gate, feed, and verdict",
+        ["gate", "feed", "verdict"],
+    )
+    # Unix timestamp of the most recent successful run per service.
+    # Used by the Gate 7 recording rule: nidp:ingester_seconds_since_last_ok
+    INGESTER_LAST_SUCCESS = Gauge(
+        "nidp_ingester_last_success_timestamp_seconds",
+        "Unix timestamp of the last successful ingester run",
+        ["service"],
+    )
+    # DLQ pending count per feed — updated by quality_gate after each run.
+    # Used by the Gate 7 recording rule: nidp:dlq_pending_count
+    DLQ_PENDING = Gauge(
+        "nidp_dq_dlq_pending_total",
+        "Number of DLQ findings with replay_status=PENDING",
+        ["feed"],
+    )
 else:
     class _NoOp:
         def labels(self, *_, **__): return self
         def inc(self, *_, **__): pass
         def observe(self, *_, **__): pass
+        def set(self, *_, **__): pass
+        def set_to_current_time(self, *_, **__): pass
     INGESTER_RUNS = INGESTER_DURATION = INGESTER_ROWS = _NoOp()
-    SOURCE_FETCH = SOURCE_FETCH_DURATION = KAFKA_PUBLISH = _NoOp()
+    SOURCE_FETCH = SOURCE_FETCH_DURATION = KAFKA_PUBLISH = GATE_VERDICTS = _NoOp()
+    INGESTER_LAST_SUCCESS = DLQ_PENDING = _NoOp()
 
 
 @contextmanager

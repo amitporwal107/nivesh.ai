@@ -35,7 +35,7 @@ from urllib.parse import urlsplit
 from nidp.shared.bus import get_bus
 from nidp.shared.logging_setup import bind_context
 from nidp.shared.metrics import (
-    INGESTER_ROWS, INGESTER_RUNS, time_ingester,
+    INGESTER_LAST_SUCCESS, INGESTER_ROWS, INGESTER_RUNS, time_ingester,
 )
 from nidp.shared.storage.job_log import JobRun
 from nidp.shared.storage.parsed_archive import (
@@ -46,6 +46,8 @@ from nidp.shared.storage.raw_archive import store as store_raw
 from nidp.shared.trading_day import bump_market_session as _bump_market_session
 from nidp.shared.validation import run_validation as _run_validation
 from nidp.shared.validation.rules import FailureClass
+from nidp.shared.dq.gate1_ingestion import IngestionGate, write_dlq
+from nidp.shared.dq.gate import GateCheckFailed
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +155,66 @@ class BaseIngester(abc.ABC):
                     INGESTER_ROWS.labels(
                         service=self.SERVICE_NAME, kind="skipped",
                     ).inc(dropped)
+
+                    # 4b. Gate 1 — Ingestion Gate
+                    # Run after validate() so we check the kept (clean) row
+                    # count, not the raw fetched count. Wraps a single DB
+                    # connection; fail-open so a DB outage never blocks
+                    # ingestion.
+                    try:
+                        from nidp.shared.storage.pg import get_pool as _get_pool
+                        _pool = await _get_pool()
+                        async with _pool.acquire() as _g1_conn:
+                            _gate1 = IngestionGate(
+                                feed=self.SERVICE_NAME,
+                                row_count=len(kept),
+                                is_backfill=(target_date is not None
+                                             and (date.today() - target_date).days > 1),
+                            )
+                            _g1_result = await _gate1.run(
+                                _g1_conn, target_date, job_run_id=run.run_id,
+                            )
+                            run.metadata["gate1_verdict"] = _g1_result.verdict.value
+                    except GateCheckFailed as _g1_exc:
+                        # P0 failure — write DLQ row, skip persist, fail run
+                        logger.error(
+                            "Gate 1 P0 failure for %s — rows NOT persisted, "
+                            "writing DLQ entry: %s",
+                            self.SERVICE_NAME, _g1_exc,
+                        )
+                        try:
+                            from nidp.shared.storage.pg import get_pool as _get_pool
+                            _pool = await _get_pool()
+                            async with _pool.acquire() as _dlq_conn:
+                                await write_dlq(
+                                    _dlq_conn,
+                                    gate_id=1,
+                                    feed=self.SERVICE_NAME,
+                                    target_date=target_date,
+                                    job_run_id=run.run_id,
+                                    failure_reason=str(_g1_exc),
+                                    severity="P0",
+                                    raw_payload={"row_count": len(kept)},
+                                    topic=self.KAFKA_TOPIC or None,
+                                )
+                        except Exception:                          # noqa: BLE001
+                            logger.exception(
+                                "Gate 1: DLQ write failed for %s", self.SERVICE_NAME,
+                            )
+                        INGESTER_RUNS.labels(
+                            service=self.SERVICE_NAME, status="FAILED",
+                        ).inc()
+                        await run.finalize(
+                            "FAILED",
+                            error_message=f"Gate 1 P0: {_g1_exc}",
+                            error_class="GATE1",
+                        )
+                        return run
+                    except Exception:                              # noqa: BLE001
+                        # Gate itself crashed — fail-open, log and continue
+                        logger.exception(
+                            "Gate 1 check crashed for %s (fail-open)", self.SERVICE_NAME,
+                        )
 
                     # 5. Persist (with run-tag so revoke is one DELETE)
                     rows_inserted = await self.persist(kept, run)
@@ -268,6 +330,10 @@ class BaseIngester(abc.ABC):
                     INGESTER_RUNS.labels(
                         service=self.SERVICE_NAME, status=final_status,
                     ).inc()
+                    if final_status in ("OK", "PARTIAL"):
+                        INGESTER_LAST_SUCCESS.labels(
+                            service=self.SERVICE_NAME,
+                        ).set_to_current_time()
                     return run
 
                 except Exception as e:                             # noqa: BLE001

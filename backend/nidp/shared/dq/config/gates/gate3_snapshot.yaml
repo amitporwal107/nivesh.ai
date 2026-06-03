@@ -1,0 +1,79 @@
+# Gate 3 — Snapshot Completion Gate configuration
+# Rules are read from this file at startup; override thresholds without code changes.
+# Hot-reload: changes take effect within 60 seconds (see runtime.yaml).
+
+gate_id: 3
+gate_name: snapshot_completion
+
+# Derivation engines that Gate 3 blocks on P0 failure.
+blocks:
+  - feature_snapshotter
+  - technical_indicator_engine
+  - fundamental_engine
+  - v3_scores_engine
+
+required_feeds:
+  - feed: bhavcopy
+    rule_id: G3-PRES-001
+    severity: P0
+    table: nidp.bhavcopy
+    date_column: trade_date
+    row_count_min: 1800
+    row_count_max: 2200
+
+  - feed: delivery
+    rule_id: G3-PRES-002
+    severity: P0
+    table: nidp.delivery
+    date_column: trade_date
+    row_count_min: 1700
+    row_count_max: 2200
+
+  - feed: index_close
+    rule_id: G3-PRES-003
+    severity: P0
+    table: nidp.index_close
+    date_column: trade_date
+    row_count_min: 20
+
+  - feed: fii_dii
+    rule_id: G3-PRES-004
+    severity: P0
+    table: nidp.fii_dii
+    date_column: trade_date
+    row_count_min: 1
+    row_count_max: 1
+
+  - feed: mf_nav_daily
+    rule_id: G3-PRES-005
+    severity: P0
+    table: nidp.mf_nav_daily
+    date_column: nav_date
+    row_count_min: 4500
+
+  - feed: corporate_actions
+    rule_id: G3-PRES-006
+    severity: P1           # P1 — pass with AMBER, not blocking
+    freshness_check: true
+    freshness_max_age_hours: 24
+
+cross_feed_consistency:
+  - rule_id: G3-CONS-001
+    description: bhavcopy ↔ delivery symbol coverage within ±2%
+    severity: P0
+    drift_tolerance_pct: 2.0
+
+  - rule_id: G3-CONS-002
+    description: Replication lag ≤ 5 seconds
+    severity: P0
+    max_lag_seconds: 5
+
+  - rule_id: G3-CONS-003
+    description: No outstanding DLQ messages for snapshot date
+    severity: P0
+
+integrity:
+  - rule_id: G3-INT-001
+    description: Shareholding percentages sum to 100 ± 0.5%
+    severity: P1
+    tolerance_pct: 0.5

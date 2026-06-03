@@ -212,7 +212,7 @@ async def list_goals(request: Request):
         return {"goals": []}
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT * FROM user_goals WHERE user_id = $1 ORDER BY "
+            "SELECT * FROM user_goals WHERE user_id = $1 AND status != 'abandoned' ORDER BY "
             "CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, "
             "created_at DESC",
             _user_uuid(user_id),
@@ -277,7 +277,7 @@ async def create_goal(payload: GoalCreate, request: Request):
     async with pool.acquire() as conn:
         # Count existing goals for this user.
         existing = await conn.fetchval(
-            "SELECT COUNT(*) FROM user_goals WHERE user_id = $1",
+            "SELECT COUNT(*) FROM user_goals WHERE user_id = $1 AND status != 'abandoned'",
             _user_uuid(user_id),
         )
         if existing is not None and existing >= MAX_GOALS:
@@ -287,6 +287,19 @@ async def create_goal(payload: GoalCreate, request: Request):
                     f"Goal limit reached — you can track up to {MAX_GOALS} "
                     "goals at a time. Delete or merge one before adding a new one."
                 ),
+            )
+        # Prevent duplicate goal_type — PRD §4.1 requires clear goal state.
+        # If a goal of the same type already exists, return 409 with the existing goal_id
+        # so the frontend can offer to edit rather than create a duplicate.
+        dup = await conn.fetchrow(
+            "SELECT goal_id FROM user_goals WHERE user_id = $1 AND goal_type = $2 AND status != 'abandoned'",
+            _user_uuid(user_id), payload.goal_type,
+        )
+        if dup:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A {payload.goal_type} goal already exists. Edit the existing one instead.",
+                headers={"X-Existing-Goal-Id": str(dup["goal_id"])},
             )
         snap = await conn.fetchrow(
             "SELECT risk_profile FROM user_financial_snapshots WHERE user_id = $1",

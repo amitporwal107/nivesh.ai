@@ -39,13 +39,12 @@ export async function uploadPortfolioFile(file, { password } = {}) {
       message: data.message || null,
     };
   } catch (e) {
-    return {
-      ok: false,
-      error: {
-        status: e?.response?.status || 0,
-        message: e?.response?.data?.detail || e?.message || "Upload failed",
-      },
-    };
+    const status = e?.response?.status || 0;
+    // 410 = CAS PDF direct upload deprecated; guide user to Connect SDK.
+    const message = status === 410
+      ? "PDF upload is no longer supported here. Use the 'Import CAS' button to import via the CAS Connect widget."
+      : e?.response?.data?.detail || e?.message || "Upload failed";
+    return { ok: false, error: { status, message } };
   }
 }
 

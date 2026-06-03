@@ -36,6 +36,11 @@ MAILTO=""
 # ── Phase 1B daily NSE rolling-list ingesters ─────────────────────
 30 19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh fno_bhavcopy
 30 20 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_financials
+# Bank NPA patch: fetches standalone Screener pages to get NPA data for large
+# banks (HDFCBANK, ICICIBANK, SBIN etc.) whose consolidated pages omit NPA.
+# Runs 30 min after nse_financials so the latest quarterly data is in place.
+# Requires SCREENER_SESSION_COOKIE in nidp.env.
+0  21 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_financials.bank_npa_patch
 0  21 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_shareholding
 
 # ── Phase 1B weekly + derivation ──────────────────────────────────
@@ -48,12 +53,17 @@ MAILTO=""
 # ── Derived analytics engines (Action Matrix scoring inputs) ──────
 # Run order is load-bearing: each reads from the prior tier.
 #   mf_analytics_engine         ← depends on amfi_nav (20:00) for NAV history
+#   mf_category_ranking         ← depends on mf_analytics_engine (20:30) for NAV
+#                                  also reads mf_scheme_disclosure_snapshot for TER
+#                                  writes nidp.mf_category_rank_daily; fixes the
+#                                  rank-averaging defect in fund_category_rank.
 #   technical_indicator_engine  ← depends on price_adjuster (22:30) for adj-close
 #                                  also runs populate_stock_price_features()
 #                                  for vol_1y / drawdown_1y / beta_1y / return_252d
 #   fundamental_engine          ← depends on stock_features_daily rows from TI
 #                                  (Piotroski / Altman / sector_median_pe)
 30 20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_analytics_engine
+0  21 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_category_ranking
 35 22 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh technical_indicator_engine
 5  23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh fundamental_engine
 
@@ -81,11 +91,24 @@ MAILTO=""
 # its own 7-day skip so nightly invocation is cheap.
 50 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_derived_refresh
 
+# ── Bank-specific quality scoring ────────────────────────────────
+# Runs AFTER nse_financials (20:30) + bank_npa_patch (21:00) so NPA data is fresh.
+# Writes bank_metrics_daily + bank_quality_scores_daily (5-pillar PSU/private model).
+30 21 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh bank_scoring
+
 # ── V3 composite scoring (Quality + Health, persisted) ────────────
 # Runs AFTER mf_derived_refresh (23:50) and AFTER fundamental_engine (23:05)
 # + technical_indicator_engine (22:35). Writes Q+H per scheme/symbol to
 # nidp.v3_{mf,stock}_scores_daily; served by /v1/{mf,stocks}/scores/*.
 55 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh v3_scores_engine
+
+# ── Analytics performance layer (T12 fix) ─────────────────────────
+# Populates analytics.stock_card + analytics.sector_snapshot and
+# refreshes 4 materialized views (mv_top_momentum, mv_delivery_surge,
+# mv_sector_heatmap, mv_fund_category_top10).
+# Runs AFTER v3_scores_engine (23:55) to ensure stock_features_daily
+# and stock_daily_snapshot are fully updated for the date.
+10 0 * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh analytics_refresh
 
 # ── AMC URL drift check (daily 08:00 IST) ─────────────────────────
 # Pings every AMC + AMFI listing-page candidate. Marks the JobRun
@@ -111,5 +134,34 @@ MAILTO=""
 15 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_goals_sync
 20 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh intelligence_layer
 30 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_intelligence_sync
+
+# ── Portfolio Risk Analytics engine (after portfolio_intelligence_sync) ───
+# Depends on: portfolio_holdings_sync (23:00) + price_adjuster (22:30) + amfi_nav (20:00)
+# Runs after all holdings and price data are available for the day.
+45 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh pra_engine
+
+# ── Parquet WARM-layer export (runs after analytics_refresh) ──────
+# Exports stock_features_daily + nse_financials_quarterly to MinIO
+# as partitioned Parquet for DuckDB historical queries and AI datasets.
+# Requires NIDP_MINIO_ENDPOINT / NIDP_MINIO_ACCESS_KEY / NIDP_S3_BUCKET in nidp.env.
+30 0 * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh parquet_exporter
+
+# ── Container health collector (infra monitoring dashboard) ───────
+# Writes docker ps + cpu/mem stats to monitoring.container_health every minute.
+# Prereq: nidp user must be in the docker group:
+#   sudo usermod -aG docker nidp  (then restart cron or re-login)
+* * * * *      nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_collector.sh >> /opt/nidp/logs/container_health.log 2>&1
+
+# ── Service health collector (REST endpoint probes) ────────────────
+# HTTP-probes all known REST endpoints for both VMs every minute.
+# Writes to monitoring.service_health for the Environment Overview dashboard.
+* * * * *      nidp  /opt/nidp/venv/bin/python /opt/nidp/repo/backend/nidp/deploy/vm/service_health_collector.py >> /opt/nidp/logs/service_health.log 2>&1
+
+# ── Gate 4: Replication integrity check ───────────────────────────
+# Continuous: WAL lag + standby recovery check every minute.
+# Daily (01:00): row-count parity across 4 key tables (primary↔standby).
+# Both primary (:5433) and standby (:5434) are Docker containers on this VM.
+* * * * *      nidp  /opt/nidp/venv/bin/python /opt/nidp/repo/backend/nidp/deploy/vm/gate4_replication_check.py >> /opt/nidp/logs/gate4.log 2>&1
+0 1 * * *      nidp  /opt/nidp/venv/bin/python /opt/nidp/repo/backend/nidp/deploy/vm/gate4_replication_check.py --mode=daily >> /opt/nidp/logs/gate4_daily.log 2>&1
 
 # yfinance_backfill is event-driven (manual run only) — not scheduled.

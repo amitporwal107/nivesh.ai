@@ -12,7 +12,7 @@ This guide covers everything needed to deploy the full NIDP stack from scratch, 
 
 | VM | External IP | nip.io domain | Machine type | Zone |
 |---|---|---|---|---|
-| `nivesh-app-vm` | `34.100.186.141` | `34.100.186.141.nip.io` | e2-standard-4 | asia-south1-a |
+| `nivesh-app-vm` | `34.47.250.214` | `34.47.250.214.nip.io` | e2-standard-4 | asia-south1-a |
 | `nidp-stack-vm` | `34.93.60.254` | `34.93.60.254.nip.io` | e2-standard-4 | asia-south1-a |
 
 ### Fully Qualified Service URLs
@@ -21,11 +21,11 @@ This guide covers everything needed to deploy the full NIDP stack from scratch, 
 
 | Service | URL |
 |---|---|
-| App (root) | `http://34.100.186.141.nip.io/` |
-| V2 React Frontend | `http://34.100.186.141.nip.io/v2/` |
-| Backend API | `http://34.100.186.141.nip.io/api/` |
-| Health check | `http://34.100.186.141.nip.io/health` |
-| Grafana (proxied) | `http://34.100.186.141.nip.io/api/admin/nidp/grafana/` |
+| App (root) | `http://34.47.250.214.nip.io/` |
+| V2 React Frontend | `http://34.47.250.214.nip.io/v2/` |
+| Backend API | `http://34.47.250.214.nip.io/api/` |
+| Health check | `http://34.47.250.214.nip.io/health` |
+| Grafana (proxied) | `http://34.47.250.214.nip.io/api/admin/nidp/grafana/` |
 
 **`nidp-stack-vm` (NIDP Data Plane)**
 
@@ -50,7 +50,7 @@ This guide covers everything needed to deploy the full NIDP stack from scratch, 
 
 **Google OAuth redirect URI** (must be registered in [OAuth Console](https://console.cloud.google.com/apis/credentials?project=niveshdataintelligence)):
 ```
-http://34.100.186.141.nip.io/api/oauth/gmail/callback
+http://34.47.250.214.nip.io/api/oauth/gmail/callback
 ```
 
 ---

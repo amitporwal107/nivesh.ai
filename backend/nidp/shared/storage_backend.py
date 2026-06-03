@@ -1,11 +1,13 @@
 """Pluggable raw-storage backend.
 
 The raw-archive layer keeps original source bytes for replay.
-Two implementations:
+Three implementations:
     LocalDiskBackend  — writes to NIDP_RAW_DIR (default for dev/CI)
-    S3Backend         — writes to s3://NIDP_S3_BUCKET/<key> (default for prod)
+    S3Backend         — writes to s3://NIDP_S3_BUCKET/<key>
+    MinIOBackend      — writes to minio://NIDP_S3_BUCKET/<key> via local MinIO
+                        (S3-compatible; uses NIDP_MINIO_ENDPOINT for endpoint_url)
 
-Selection by env: NIDP_STORAGE_BACKEND ∈ {"local", "s3"}.
+Selection by env: NIDP_STORAGE_BACKEND ∈ {"local", "s3", "minio"}.
 boto3 is imported lazily so dev environments without it still work.
 
 Interface (sync — fits the small object sizes; ingesters batch writes
@@ -113,6 +115,70 @@ class S3Backend(StorageBackend):
             return False
 
 
+class MinIOBackend(StorageBackend):
+    """MinIO backend — S3-compatible, runs on-VM at nidp-minio:9000.
+
+    Required env vars:
+        NIDP_S3_BUCKET        — bucket name (e.g. "nidp-raw")
+        NIDP_MINIO_ENDPOINT   — MinIO URL (default: http://nidp-minio:9000)
+        NIDP_MINIO_ACCESS_KEY — access key (default: minioadmin)
+        NIDP_MINIO_SECRET_KEY — secret key (default: minioadmin)
+    """
+
+    def __init__(self, bucket: Optional[str] = None, prefix: Optional[str] = None) -> None:
+        self.bucket = bucket or os.environ.get("NIDP_S3_BUCKET", "nidp-raw")
+        self.prefix = (prefix or os.environ.get("NIDP_S3_PREFIX") or "raw/").rstrip("/") + "/"
+        endpoint = os.environ.get("NIDP_MINIO_ENDPOINT", "http://nidp-minio:9000")
+        access_key = os.environ.get("NIDP_MINIO_ACCESS_KEY", "minioadmin")
+        secret_key = os.environ.get("NIDP_MINIO_SECRET_KEY", "minioadmin")
+        try:
+            import boto3  # type: ignore[import-not-found]
+        except ImportError as e:                                  # pragma: no cover
+            raise RuntimeError("MinIO backend requires boto3. pip install boto3.") from e
+        self._s3 = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+        )
+        self._ensure_bucket()
+
+    def _ensure_bucket(self) -> None:
+        try:
+            self._s3.head_bucket(Bucket=self.bucket)
+        except Exception:                                          # noqa: BLE001
+            self._s3.create_bucket(Bucket=self.bucket)
+            logger.info("MinIO: created bucket %s", self.bucket)
+
+    @property
+    def scheme(self) -> str:
+        return "minio"
+
+    def _full_key(self, key: str) -> str:
+        return f"{self.prefix}{key}"
+
+    def put(self, key: str, body: bytes, *, content_type: Optional[str] = None) -> str:
+        full = self._full_key(key)
+        kwargs: dict = {"Bucket": self.bucket, "Key": full, "Body": body}
+        if content_type:
+            kwargs["ContentType"] = content_type
+        self._s3.put_object(**kwargs)
+        return f"minio://{self.bucket}/{full}"
+
+    def get(self, key: str) -> bytes:
+        full = self._full_key(key)
+        obj = self._s3.get_object(Bucket=self.bucket, Key=full)
+        return obj["Body"].read()
+
+    def exists(self, key: str) -> bool:
+        full = self._full_key(key)
+        try:
+            self._s3.head_object(Bucket=self.bucket, Key=full)
+            return True
+        except Exception:                                          # noqa: BLE001
+            return False
+
+
 class GCSBackend(StorageBackend):
     """Google Cloud Storage backend. Uses Application Default
     Credentials (Cloud Run automatically provides these via the
@@ -171,6 +237,9 @@ def get_backend() -> StorageBackend:
     elif choice == "gcs":
         _singleton = GCSBackend()
         logger.info("Storage backend: GCS (bucket=%s)", _singleton.bucket_name)
+    elif choice == "minio":
+        _singleton = MinIOBackend()
+        logger.info("Storage backend: MinIO (bucket=%s)", _singleton.bucket)
     else:
         _singleton = LocalDiskBackend()
         logger.info("Storage backend: local (root=%s)", _singleton.root)

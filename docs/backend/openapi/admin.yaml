@@ -1,0 +1,1358 @@
+openapi: 3.1.0
+info:
+  title: Nivesh — Admin API
+  version: 2.0.0
+  description: |
+    ## What this covers
+    All admin-only controls for the Nivesh platform.
+
+    **All endpoints require an admin session** (`is_admin: true` on the account).
+    Regular user sessions receive HTTP 403.
+
+    | Group | Endpoints | Purpose |
+    |-------|-----------|---------|
+    | **Whitelist** | `/api/admin/whitelist/*` | Control who can sign in |
+    | **Feature Flags** | `/api/admin/feature-flags/*` | Toggle features per user/globally |
+    | **Secrets** | `/api/admin/secrets/*` | Hot-reload API keys and credentials |
+    | **User Management** | `/api/admin/users/*` | Create, inspect, and reset users |
+    | **Data Pipeline** | `/api/admin/data-pipeline/*` | Job status, logs, manual triggers |
+    | **NIDP Diagnostics** | `/api/admin/nidp/*` | Cloud Run ingester health and logs |
+    | **Data Health** | `/api/data-health/*` | Global stale-data banner and pipeline pause |
+
+    ## Access
+
+    The admin console UI is at `GET /api/admin/swagger` (Swagger UI, session-gated).
+
+    To get an admin session:
+    1. Sign in via Google OAuth (`POST /api/auth/google`)
+    2. Ensure your account has `is_admin: true` (set via `PATCH /api/admin/users/{user_id}`)
+    3. Pass the resulting `session` cookie on all `/api/admin/*` calls
+
+    ## Common Admin Tasks
+
+    | Task | Endpoint |
+    |------|----------|
+    | Add a new user to the platform | `POST /api/admin/whitelist/add` |
+    | Grant admin rights | `PATCH /api/admin/users/{user_id}` with `is_admin: true` |
+    | Force-logout a user | `POST /api/admin/users/{user_id}/invalidate-sessions` |
+    | Reset a user's portfolio (debug) | `POST /api/admin/users/{user_id}/reset-portfolio` |
+    | Enable a feature flag for one user | `POST /api/admin/feature-flags/{flag}/users` |
+    | Update a rotating API key | `PUT /api/admin/secrets/{key}` |
+    | Trigger NAV refresh manually | `POST /api/admin/data-pipeline/trigger/nav_cron` |
+    | Check if NIDP is connected | `GET /api/admin/nidp/diag` |
+
+servers:
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
+
+security:
+  - SessionCookie: []
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: |
+        Admin session cookie. Must belong to a user with `is_admin: true`.
+        Set by `POST /api/auth/google` then promoted via `PATCH /api/admin/users/{user_id}`.
+
+  schemas:
+    WhitelistEntry:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: investor@example.com
+        is_admin:
+          type: boolean
+          example: false
+        status:
+          type: string
+          enum: [active, suspended]
+          example: active
+        added_at:
+          type: string
+          format: date-time
+
+    FeatureFlag:
+      type: object
+      properties:
+        flag:
+          type: string
+          example: copilot_persona_prompts_enabled
+        mode:
+          type: string
+          enum: [off, on, allowlist]
+          example: allowlist
+        allowlist:
+          type: array
+          items:
+            type: string
+          example: [priya@example.com, rohan@example.com]
+
+    AdminUser:
+      type: object
+      properties:
+        user_id:
+          type: string
+          example: usr_9f3a2c
+        email:
+          type: string
+          example: priya@example.com
+        name:
+          type: string
+          example: Priya Sharma
+        is_admin:
+          type: boolean
+          example: false
+        onboarding_completed:
+          type: boolean
+        portfolio_count:
+          type: integer
+          example: 2
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+paths:
+
+  # ── Whitelist ──────────────────────────────────────────────────────────────
+
+  /api/admin/whitelist:
+    get:
+      tags: [admin]
+      operationId: admin_whitelist_list
+      summary: List all whitelisted users
+      description: |
+        Returns all users who are allowed to sign in to the platform.
+        The whitelist controls access — only whitelisted emails can complete
+        Google OAuth sign-in.
+      responses:
+        "200":
+          description: Whitelist entries
+          content:
+            application/json:
+              example:
+                total: 142
+                entries:
+                  - email: priya@example.com
+                    is_admin: false
+                    status: active
+                    added_at: "2024-01-15T10:00:00Z"
+                  - email: admin@nivesh.ai
+                    is_admin: true
+                    status: active
+                    added_at: "2023-11-01T08:00:00Z"
+
+  /api/admin/whitelist/add:
+    post:
+      tags: [admin]
+      operationId: admin_whitelist_add
+      summary: Add a user to the whitelist
+      description: |
+        Adds an email to the platform whitelist. The user can now sign in
+        via Google OAuth.
+
+        Set `is_admin: true` to grant admin rights immediately.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                is_admin:
+                  type: boolean
+                  default: false
+            example:
+              email: newuser@example.com
+              is_admin: false
+      responses:
+        "200":
+          description: User added to whitelist
+          content:
+            application/json:
+              example:
+                status: ok
+                email: newuser@example.com
+                is_admin: false
+
+  /api/admin/whitelist/bulk-upload:
+    post:
+      tags: [admin]
+      operationId: admin_whitelist_bulk
+      summary: Bulk add emails to whitelist
+      description: Add up to 500 emails in one call. Duplicates are silently ignored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [emails]
+              properties:
+                emails:
+                  type: array
+                  items:
+                    type: string
+                    format: email
+            example:
+              emails:
+                - alice@example.com
+                - bob@example.com
+                - carol@example.com
+      responses:
+        "200":
+          description: Bulk upload result
+          content:
+            application/json:
+              example:
+                added: 3
+                skipped_duplicates: 0
+                errors: []
+
+  /api/admin/whitelist/{email}:
+    delete:
+      tags: [admin]
+      operationId: admin_whitelist_delete
+      summary: Remove user from whitelist
+      description: |
+        Removes the email from the whitelist. Existing sessions are NOT
+        invalidated — use `POST /api/admin/users/{user_id}/invalidate-sessions`
+        to force logout.
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+          example: user@example.com
+      responses:
+        "200":
+          description: Removed from whitelist
+          content:
+            application/json:
+              example:
+                status: ok
+                email: user@example.com
+
+    patch:
+      tags: [admin]
+      operationId: admin_whitelist_update
+      summary: Update whitelist entry (is_admin, status)
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_admin:
+                  type: boolean
+                status:
+                  type: string
+                  enum: [active, suspended]
+            example:
+              is_admin: true
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              example:
+                status: ok
+                email: user@example.com
+                is_admin: true
+
+  /api/admin/stats:
+    get:
+      tags: [admin]
+      operationId: admin_stats
+      summary: Platform usage stats
+      description: Returns user counts, active sessions, portfolio stats, and whitelist totals.
+      responses:
+        "200":
+          description: Platform stats
+          content:
+            application/json:
+              example:
+                whitelist_total: 142
+                users_registered: 89
+                users_onboarded: 67
+                active_sessions_24h: 23
+                portfolios_total: 134
+                plans_generated_30d: 412
+
+  # ── Feature Flags ──────────────────────────────────────────────────────────
+
+  /api/admin/feature-flags:
+    get:
+      tags: [admin]
+      operationId: admin_feature_flags_list
+      summary: List all feature flags
+      description: |
+        Returns all feature flags with their current mode and allowlists.
+
+        **Modes**:
+        - `off` — disabled for everyone
+        - `on` — enabled for everyone on the whitelist
+        - `allowlist` — enabled only for emails in the allowlist
+
+        **Common flags**:
+        - `copilot_persona_prompts_enabled` — persona-aware prompt catalog
+        - `v3_scoring_enabled` — V3 fund scoring engine
+        - `intelligence_layer_enabled` — look-through intelligence
+      responses:
+        "200":
+          description: Feature flags list
+          content:
+            application/json:
+              example:
+                flags:
+                  - flag: copilot_persona_prompts_enabled
+                    mode: "on"
+                    allowlist: []
+                  - flag: v3_scoring_enabled
+                    mode: "on"
+                    allowlist: []
+                  - flag: intelligence_layer_enabled
+                    mode: allowlist
+                    allowlist: [priya@example.com, rohan@example.com]
+
+  /api/admin/feature-flags/{flag}:
+    put:
+      tags: [admin]
+      operationId: admin_feature_flags_update
+      summary: Update a feature flag mode
+      parameters:
+        - name: flag
+          in: path
+          required: true
+          schema:
+            type: string
+          example: intelligence_layer_enabled
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  enum: [off, on, allowlist]
+                allowlist:
+                  type: array
+                  items:
+                    type: string
+            example:
+              mode: "on"
+      responses:
+        "200":
+          description: Updated flag
+          content:
+            application/json:
+              example:
+                flag: intelligence_layer_enabled
+                mode: "on"
+                allowlist: []
+
+  /api/admin/feature-flags/{flag}/users:
+    post:
+      tags: [admin]
+      operationId: admin_feature_flags_add_user
+      summary: Add email to feature flag allowlist
+      parameters:
+        - name: flag
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+            example:
+              email: beta.tester@example.com
+      responses:
+        "200":
+          description: Added to allowlist
+          content:
+            application/json:
+              example:
+                flag: intelligence_layer_enabled
+                email: beta.tester@example.com
+                allowlist_size: 3
+
+  /api/admin/feature-flags/{flag}/users/{email}:
+    delete:
+      tags: [admin]
+      operationId: admin_feature_flags_remove_user
+      summary: Remove email from feature flag allowlist
+      parameters:
+        - name: flag
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Removed from allowlist
+
+  # ── Secrets ────────────────────────────────────────────────────────────────
+
+  /api/admin/secrets:
+    get:
+      tags: [admin]
+      operationId: admin_secrets_list
+      summary: List secrets (masked values)
+      description: |
+        Returns all application secrets with values masked as `****`.
+        Used to see which keys are configured without exposing them.
+
+        Set `env` to filter by environment (e.g. `production`, `staging`).
+      parameters:
+        - name: env
+          in: query
+          schema:
+            type: string
+            nullable: true
+          description: Filter by environment label.
+      responses:
+        "200":
+          description: Masked secrets list
+          content:
+            application/json:
+              example:
+                secrets:
+                  - key: CASPARSER_API_KEYS
+                    value: "****"
+                    env: production
+                    last_updated: "2024-05-22T10:00:00Z"
+                  - key: OPENAI_API_KEY
+                    value: "****"
+                    env: production
+                    last_updated: "2024-05-01T08:00:00Z"
+
+  /api/admin/secrets/{key}:
+    put:
+      tags: [admin]
+      operationId: admin_secrets_set
+      summary: Set a secret value
+      description: |
+        Update or create a secret. The value is encrypted at rest.
+
+        **Hot-reload supported**: Secrets like `CASPARSER_API_KEYS` are hot-reloaded
+        without restart. Most secrets require a service restart.
+
+        **CASPARSER_API_KEYS format**: Newline-separated list of API keys for
+        the rotating key pool. Example:
+        ```
+        key1abc
+        key2def
+        key3ghi
+        ```
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+          example: CASPARSER_API_KEYS
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: string
+            example:
+              value: "key1abc\nkey2def\nkey3ghi"
+      responses:
+        "200":
+          description: Secret updated
+          content:
+            application/json:
+              example:
+                status: ok
+                key: CASPARSER_API_KEYS
+                hot_reloaded: true
+
+    delete:
+      tags: [admin]
+      operationId: admin_secrets_delete
+      summary: Delete a secret
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Secret deleted
+
+  /api/admin/secrets/{key}/reveal:
+    get:
+      tags: [admin]
+      operationId: admin_secrets_reveal
+      summary: Reveal plaintext secret value (audited)
+      description: |
+        Returns the full plaintext value of a secret. Every call is logged
+        in the audit trail with the admin's email and timestamp.
+
+        Use sparingly — prefer masked listing for routine checks.
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Plaintext value
+          content:
+            application/json:
+              example:
+                key: CASPARSER_API_KEYS
+                value: "key1abc\nkey2def\nkey3ghi"
+                audit_logged: true
+
+  # ── User Management ────────────────────────────────────────────────────────
+
+  /api/admin/users:
+    get:
+      tags: [admin_users]
+      operationId: admin_users_list
+      summary: List all users with stats (max 500)
+      description: |
+        Returns registered users with portfolio counts, last seen time,
+        and onboarding status. Supports email prefix search.
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            nullable: true
+          description: Email prefix search (e.g. `priya` matches `priya@example.com`)
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              example:
+                total: 89
+                users:
+                  - user_id: usr_9f3a2c
+                    email: priya@example.com
+                    name: Priya Sharma
+                    is_admin: false
+                    onboarding_completed: true
+                    portfolio_count: 2
+                    last_seen_at: "2024-05-27T09:15:00Z"
+                    created_at: "2024-01-15T10:00:00Z"
+
+    post:
+      tags: [admin_users]
+      operationId: admin_users_create
+      summary: Create a user (bypasses whitelist check)
+      description: |
+        Creates a user account directly. Useful for provisioning B2B accounts
+        or test users without requiring Google OAuth flow.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                name:
+                  type: string
+                  nullable: true
+                is_admin:
+                  type: boolean
+                  default: false
+            example:
+              email: newteam@client.com
+              name: Client User
+              is_admin: false
+      responses:
+        "200":
+          description: Created user
+          content:
+            application/json:
+              example:
+                user_id: usr_x9y8z7
+                email: newteam@client.com
+                name: Client User
+                is_admin: false
+                onboarding_completed: false
+
+  /api/admin/users/{user_id}:
+    get:
+      tags: [admin_users]
+      operationId: admin_users_get
+      summary: User detail with plans and sessions
+      description: |
+        Full user profile including recent plans, active sessions, portfolio summary,
+        and onboarding state. Use for debugging user issues.
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User detail
+          content:
+            application/json:
+              example:
+                user_id: usr_9f3a2c
+                email: priya@example.com
+                name: Priya Sharma
+                is_admin: false
+                onboarding_completed: true
+                portfolio_count: 2
+                active_sessions: 1
+                recent_plans:
+                  - plan_id: plan_a1b2c3
+                    status: active
+                    created_at: "2024-05-27T10:00:00Z"
+                last_seen_at: "2024-05-27T09:15:00Z"
+
+    patch:
+      tags: [admin_users]
+      operationId: admin_users_update
+      summary: Toggle admin flag for a user
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_admin:
+                  type: boolean
+            example:
+              is_admin: true
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              example:
+                user_id: usr_9f3a2c
+                is_admin: true
+
+  /api/admin/users/{user_id}/invalidate-sessions:
+    post:
+      tags: [admin_users]
+      operationId: admin_users_invalidate_sessions
+      summary: Force logout all devices for a user
+      description: |
+        Immediately invalidates all active session cookies for the user.
+        The user will be redirected to the login page on their next request.
+        Use when a user reports their account is compromised.
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: All sessions invalidated
+          content:
+            application/json:
+              example:
+                status: ok
+                user_id: usr_9f3a2c
+                sessions_invalidated: 3
+
+  /api/admin/users/{user_id}/reset-portfolio:
+    post:
+      tags: [admin_users]
+      operationId: admin_users_reset_portfolio
+      summary: Wipe portfolio data and reset onboarding
+      description: |
+        **DESTRUCTIVE** — permanently deletes all portfolios, holdings, plans,
+        goals, and resets `onboarding_completed` to false.
+
+        Use only for debugging or when a user explicitly requests a clean slate.
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Portfolio and onboarding reset
+          content:
+            application/json:
+              example:
+                status: ok
+                user_id: usr_9f3a2c
+                portfolios_deleted: 2
+                holdings_deleted: 14
+                plans_deleted: 3
+                onboarding_completed: false
+
+  /api/admin/users/{user_id}/restore-holdings:
+    post:
+      tags: [admin_users]
+      operationId: admin_users_restore_holdings
+      summary: Reload latest CAS snapshot into holdings
+      description: |
+        Re-imports holdings from the user's latest CAS snapshot.
+        Use after a `reset-portfolio` to restore from their last uploaded statement.
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Holdings restored from CAS snapshot
+          content:
+            application/json:
+              example:
+                status: ok
+                user_id: usr_9f3a2c
+                holdings_restored: 14
+                snapshot_date: "2024-05-15"
+
+  /api/admin/identity/duplicates:
+    get:
+      tags: [admin_users]
+      operationId: admin_identity_duplicates
+      summary: Surface email/mobile/PAN duplicates
+      description: |
+        Detects users who share the same PAN, mobile number, or email pattern,
+        which may indicate duplicate accounts or fraud.
+      responses:
+        "200":
+          description: Duplicate groups
+          content:
+            application/json:
+              example:
+                duplicates:
+                  - type: pan
+                    pan: ABCDE1234F
+                    user_ids: [usr_9f3a2c, usr_x1y2z3]
+                    severity: warning
+
+  /api/admin/reset-onboarding:
+    post:
+      tags: [admin_users]
+      operationId: admin_reset_onboarding
+      summary: Reset onboarding for a user (requires X-Admin-Key header)
+      description: |
+        Resets `onboarding_completed` to false for the given email.
+
+        **Note**: This endpoint uses `X-Admin-Key` header instead of session cookie.
+        Used by dev scripts without a browser session.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+            example:
+              email: priya@example.com
+      responses:
+        "200":
+          description: Onboarding reset
+          content:
+            application/json:
+              example:
+                status: ok
+                email: priya@example.com
+                onboarding_completed: false
+
+  # ── Data Pipeline ──────────────────────────────────────────────────────────
+
+  /api/admin/data-pipeline/status:
+    get:
+      tags: [admin_data_pipeline]
+      operationId: pipeline_status
+      summary: Pipeline job status, timestamps, and cache stats
+      description: |
+        Returns the current status of all background data jobs including:
+        - Last successful run time and duration
+        - Next scheduled run time
+        - Cache hit rates for V3 scoring and NAV
+        - Any currently running jobs
+      responses:
+        "200":
+          description: Pipeline status
+          content:
+            application/json:
+              example:
+                jobs:
+                  nav_cron:
+                    last_run_at: "2024-05-27T23:00:00Z"
+                    last_run_duration_s: 42
+                    status: success
+                    next_run_at: "2024-05-28T23:00:00Z"
+                  v3_rescore:
+                    last_run_at: "2024-05-27T20:00:00Z"
+                    last_run_duration_s: 387
+                    status: success
+                    next_run_at: "2024-05-28T20:00:00Z"
+                  analytics_sweep:
+                    last_run_at: "2024-05-27T21:00:00Z"
+                    status: running
+                    started_at: "2024-05-27T21:00:00Z"
+                cache:
+                  v3_cache_keys: 18430
+                  v3_hit_rate_pct: 94.2
+                  nav_cache_keys: 18734
+
+  /api/admin/data-pipeline/logs:
+    get:
+      tags: [admin_data_pipeline]
+      operationId: pipeline_logs
+      summary: Recent pipeline job log rows
+      parameters:
+        - name: job
+          in: query
+          schema:
+            type: string
+            nullable: true
+          description: Filter by job name. Omit for all jobs.
+          example: nav_cron
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 30
+      responses:
+        "200":
+          description: Job log rows
+          content:
+            application/json:
+              example:
+                logs:
+                  - job: nav_cron
+                    level: INFO
+                    message: NAV refresh complete — 18,734 records updated
+                    timestamp: "2024-05-27T23:00:42Z"
+                  - job: v3_rescore
+                    level: WARN
+                    message: 214 funds had stale data (>7 days). Skipped.
+                    timestamp: "2024-05-27T20:06:27Z"
+
+  /api/admin/data-pipeline/trigger/{job_name}:
+    post:
+      tags: [admin_data_pipeline]
+      operationId: pipeline_trigger
+      summary: Manually trigger a pipeline job
+      description: |
+        Triggers a background job immediately. Jobs run asynchronously —
+        poll `/api/admin/data-pipeline/logs` to track completion.
+
+        **Available jobs**:
+        | Job | Description |
+        |-----|-------------|
+        | `nav_cron` | Refresh AMFI NAV for all funds |
+        | `analytics_sweep` | Recompute analytics for all active portfolios |
+        | `v3_rescore` | Re-score all funds with V3 engine |
+        | `nifty100_refresh` | Refresh Nifty 100 constituent prices |
+        | `stale_refresh` | Re-run ingesters for stale feeds |
+        | `drain_queue` | Process pending background tasks |
+      parameters:
+        - name: job_name
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [nav_cron, analytics_sweep, v3_rescore, nifty100_refresh, stale_refresh, drain_queue]
+          example: nav_cron
+      responses:
+        "200":
+          description: Job triggered
+          content:
+            application/json:
+              example:
+                status: triggered
+                job: nav_cron
+                message: Job queued. Check logs in ~30 seconds.
+
+  /api/admin/data-pipeline/cache/invalidate:
+    post:
+      tags: [admin_data_pipeline]
+      operationId: pipeline_cache_invalidate
+      summary: Nuke V3 Redis cache
+      description: |
+        Clears all V3 scoring cache entries from Redis. The next score request
+        for any fund will re-compute from NIDP.
+
+        Use when V3 scores appear stale or after a scoring engine update.
+      responses:
+        "200":
+          description: Cache cleared
+          content:
+            application/json:
+              example:
+                status: ok
+                keys_deleted: 18430
+                message: V3 Redis cache cleared. Scores will recompute on next request.
+
+  /api/admin/data-pipeline/progress/{job_name}/clear:
+    post:
+      tags: [admin_data_pipeline]
+      operationId: pipeline_progress_clear
+      summary: Clear a stuck progress record
+      description: |
+        If a job appears stuck (started but never completed), clear its progress
+        record so it can be triggered again. This does NOT kill a running process —
+        check Cloud Run logs first.
+      parameters:
+        - name: job_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Progress record cleared
+          content:
+            application/json:
+              example:
+                status: ok
+                job: v3_rescore
+                message: Stuck progress cleared. Job can now be re-triggered.
+
+  # ── NIDP Diagnostics ──────────────────────────────────────────────────────
+
+  /api/admin/nidp/diag:
+    get:
+      tags: [admin_nidp]
+      operationId: admin_nidp_diag
+      summary: NIDP connection diagnostics
+      description: |
+        Tests connectivity to:
+        - NIDP Query API (TimescaleDB)
+        - App Postgres (shared schema)
+        - Google Cloud (`gcloud` auth for Cloud Run)
+
+        Returns latency, version, and any connection errors.
+      responses:
+        "200":
+          description: Diagnostics result
+          content:
+            application/json:
+              example:
+                nidp_query_api:
+                  status: ok
+                  latency_ms: 14
+                  version: "15.4"
+                app_postgres:
+                  status: ok
+                  latency_ms: 3
+                gcloud:
+                  status: ok
+                  account: nidp-ingester@project.iam.gserviceaccount.com
+
+  /api/admin/nidp/jobs:
+    get:
+      tags: [admin_nidp]
+      operationId: admin_nidp_jobs_list
+      summary: List NIDP Cloud Run ingesters with status
+      description: |
+        Returns all NIDP data ingester jobs (Cloud Run) with their last run
+        timestamp, success/fail status, and record counts.
+      responses:
+        "200":
+          description: Ingester job list
+          content:
+            application/json:
+              example:
+                ingesters:
+                  - name: nse_financials
+                    last_run_at: "2024-05-27T06:00:00Z"
+                    status: success
+                    records_ingested: 4820
+                    duration_s: 124
+                  - name: mf_nav_amfi
+                    last_run_at: "2024-05-27T23:01:00Z"
+                    status: success
+                    records_ingested: 18734
+                    duration_s: 42
+                  - name: stock_prices_nse
+                    last_run_at: "2024-05-27T15:30:00Z"
+                    status: failed
+                    error: Connection timeout after 30s
+                    records_ingested: 0
+
+  /api/admin/nidp/jobs/{ingester}/execute:
+    post:
+      tags: [admin_nidp]
+      operationId: admin_nidp_jobs_execute
+      summary: Trigger a Cloud Run ingester job
+      description: |
+        Manually executes a NIDP Cloud Run ingester. The job runs asynchronously
+        in GCP — use `/runs` to check status.
+      parameters:
+        - name: ingester
+          in: path
+          required: true
+          schema:
+            type: string
+          example: nse_financials
+      responses:
+        "200":
+          description: Job execution triggered
+          content:
+            application/json:
+              example:
+                status: triggered
+                ingester: nse_financials
+                cloud_run_execution_id: nse-financials-abc123
+                message: Cloud Run job triggered. Check /runs for status.
+
+  /api/admin/nidp/jobs/{ingester}/runs:
+    get:
+      tags: [admin_nidp]
+      operationId: admin_nidp_jobs_runs
+      summary: Recent run history for an ingester
+      parameters:
+        - name: ingester
+          in: path
+          required: true
+          schema:
+            type: string
+          example: nse_financials
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Run history
+          content:
+            application/json:
+              example:
+                ingester: nse_financials
+                runs:
+                  - run_id: run_001
+                    status: success
+                    started_at: "2024-05-27T06:00:00Z"
+                    ended_at: "2024-05-27T06:02:04Z"
+                    records_ingested: 4820
+                  - run_id: run_002
+                    status: failed
+                    started_at: "2024-05-26T06:00:00Z"
+                    ended_at: "2024-05-26T06:00:30Z"
+                    error: NSE API timeout
+
+  /api/admin/nidp/jobs/{ingester}/logs:
+    get:
+      tags: [admin_nidp]
+      operationId: admin_nidp_jobs_logs
+      summary: Tail Cloud Run logs for an ingester
+      description: Returns the last ~100 log lines from the most recent Cloud Run execution.
+      parameters:
+        - name: ingester
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cloud Run log tail
+          content:
+            application/json:
+              example:
+                ingester: nse_financials
+                lines:
+                  - "2024-05-27T06:00:01Z INFO Starting NSE financials ingester"
+                  - "2024-05-27T06:00:03Z INFO Fetching batch 1/48 (100 symbols)"
+                  - "2024-05-27T06:02:04Z INFO Ingested 4820 records. Done."
+
+  /api/admin/nidp/dump:
+    post:
+      tags: [admin_nidp]
+      operationId: admin_nidp_dump
+      summary: Run diagnostic dump → private gist
+      description: |
+        Runs a comprehensive NIDP diagnostic and exports the results as a
+        private GitHub Gist. Returns the Gist URL for sharing with the platform team.
+      responses:
+        "200":
+          description: Gist URL with diagnostic dump
+          content:
+            application/json:
+              example:
+                status: ok
+                gist_url: https://gist.github.com/nivesh-bot/abc123def456
+                created_at: "2024-05-27T10:05:00Z"
+
+  # ── Data Health ────────────────────────────────────────────────────────────
+
+  /api/data-health/summary:
+    get:
+      tags: [data_health]
+      operationId: data_health_summary
+      summary: Global stale-data banner status (auth required)
+      description: |
+        Returns the current pipeline health status for the global stale-data banner.
+        Any authenticated user can call this endpoint (not admin-only).
+
+        **Staleness thresholds**:
+        | Threshold | Value | Triggered by |
+        |-----------|-------|--------------|
+        | Critical (error) | > 36 h | `nav_cron`, `analytics_sweep` jobs |
+        | Stale (warn) | > 36 h | `v3_rescore`, `nifty100_refresh` jobs |
+        | Mirror stale (warn) | > 7 days | `pg_mirror` refresh |
+        | MS coverage (warn) | < 15% | Morningstar rating coverage |
+        | Scrape failures (warn) | > 0 | MF holdings scraper queue |
+        | ClamAV degraded (warn) | daemon down | Malware scanner not reachable |
+
+        **Overall `status` logic**: `error` if any issue has severity `error`;
+        `warn` if any has severity `warn`; `ok` otherwise.
+
+        **`scanner` field**: Always present. Reports ClamAV daemon health.
+        If `status: "degraded"`, uploads are still accepted but not malware-scanned.
+      responses:
+        "200":
+          description: Data health summary
+          content:
+            application/json:
+              example:
+                status: warn
+                issues:
+                  - job: analytics_sweep
+                    label: "Analytics sweep (drawdown / consistency)"
+                    severity: error
+                    message: "Analytics sweep hasn't run in 40h (last run 2024-05-25)."
+                    last_run_at: "2024-05-25T21:00:00Z"
+                  - job: morningstar_ratings
+                    label: Morningstar ratings
+                    severity: warn
+                    message: "Only 4680/18734 funds rated (25%). Refresh on Portfolio page."
+                    last_run_at: null
+                  - job: malware_scanner
+                    label: "Malware scanner (ClamAV)"
+                    severity: warn
+                    message: "ClamAV daemon unreachable — uploads scanned by MIME/size only."
+                    last_run_at: null
+                ms_coverage:
+                  total: 18734
+                  rated: 4680
+                  pct: 25.0
+                mirror_age_hours: 12.4
+                scrape_queue:
+                  queued: 2
+                  done: 1847
+                  failed: 3
+                scanner:
+                  status: degraded
+                  scanner: clamav
+                  detail: "daemon unreachable — scans skipped"
+                checked_at: "2024-05-27T10:00:00Z"
+
+  /api/data-health/run-all:
+    post:
+      tags: [data_health]
+      operationId: data_health_run_all
+      summary: Kick off full pipeline refresh (admin only)
+      description: |
+        Triggers all pipeline steps in sequence in a background asyncio task.
+        Returns immediately — poll `/run-status` for per-step progress.
+
+        **Pipeline steps** (in order):
+        1. `amfi_navs` — Refresh AMFI NAV for all funds
+        2. `analytics_sweep` — Recompute drawdown, consistency for all active portfolios
+        3. `v3_rescore` — Re-score all funds with V3 engine
+        4. `morningstar_ratings` — Scrape Morningstar ratings for user holdings
+        5. `scrape_queue_cleanup` — Purge irrecoverable failures + reset zombies
+        6. `pg_mirror` — Mirror Postgres → MongoDB for MF metadata
+
+        On full success, the cron schedule is automatically **paused** to prevent
+        redundant runs. Call `POST /resume` to re-enable.
+
+        Returns `started: false, already_running: true` if a run is already in progress.
+      responses:
+        "200":
+          description: Pipeline triggered (or already running)
+          content:
+            application/json:
+              examples:
+                started:
+                  summary: Pipeline started successfully
+                  value:
+                    ok: true
+                    started: true
+                    started_at: "2024-05-27T10:01:00Z"
+                    message: "Pipeline kicked off in background. Poll /run-status for progress."
+                already_running:
+                  summary: Another run is in progress
+                  value:
+                    ok: true
+                    started: false
+                    already_running: true
+                    current_step: morningstar_ratings
+                    started_at: "2024-05-27T10:01:00Z"
+        "403":
+          description: Admin only
+
+  /api/data-health/run-status:
+    get:
+      tags: [data_health]
+      operationId: data_health_run_status
+      summary: Poll in-flight or last-completed pipeline run
+      description: |
+        Returns the full state of the currently running (or last completed) pipeline run.
+        Persisted in MongoDB so it survives backend restarts during long runs.
+
+        `steps` is populated incrementally — each step appears as it finishes.
+        `current_step` is null when no run is in progress.
+        `ok` is null while running, `true` on full success, `false` if any step failed.
+      responses:
+        "200":
+          description: Pipeline run state
+          content:
+            application/json:
+              examples:
+                running:
+                  summary: Pipeline in progress
+                  value:
+                    running: true
+                    started_at: "2024-05-27T10:01:00Z"
+                    finished_at: null
+                    ok: null
+                    current_step: morningstar_ratings
+                    steps:
+                      - step: amfi_navs
+                        ok: true
+                        duration_s: 42
+                        result:
+                          records_updated: 18734
+                      - step: analytics_sweep
+                        ok: true
+                        duration_s: 387
+                      - step: v3_rescore
+                        ok: true
+                        duration_s: 214
+                    message: null
+                completed:
+                  summary: Pipeline completed
+                  value:
+                    running: false
+                    started_at: "2024-05-27T10:01:00Z"
+                    finished_at: "2024-05-27T10:19:22Z"
+                    ok: true
+                    current_step: null
+                    steps:
+                      - step: amfi_navs
+                        ok: true
+                        duration_s: 42
+                      - step: analytics_sweep
+                        ok: true
+                        duration_s: 387
+                      - step: v3_rescore
+                        ok: true
+                        duration_s: 214
+                      - step: morningstar_ratings
+                        ok: true
+                        duration_s: 312
+                      - step: scrape_queue_cleanup
+                        ok: true
+                        duration_s: 3
+                      - step: pg_mirror
+                        ok: true
+                        duration_s: 87
+                    message: "All pipeline jobs completed successfully. Cron schedule is now PAUSED."
+
+  /api/data-health/resume:
+    post:
+      tags: [data_health]
+      operationId: data_health_resume
+      summary: Resume cron schedule after a seamless refresh (admin only)
+      description: |
+        Clears the pipeline pause flag set automatically after a successful
+        `run-all`. Cron-scheduled jobs resume their normal schedule on the
+        next trigger.
+      responses:
+        "200":
+          description: Cron schedule resumed
+          content:
+            application/json:
+              example:
+                ok: true
+                paused: false
+                message: Cron schedule resumed.
+        "403":
+          description: Admin only
+
+  /api/data-health/pause-status:
+    get:
+      tags: [data_health]
+      operationId: data_health_pause_status
+      summary: Check cron pause flag (any authenticated user)
+      description: |
+        Read-only. Returns whether the cron schedule is currently paused.
+        Used by the frontend banner to show "Paused" state after a seamless refresh.
+      responses:
+        "200":
+          description: Pause flag state
+          content:
+            application/json:
+              example:
+                paused: true
+                updated_at: "2024-05-27T10:19:22Z"

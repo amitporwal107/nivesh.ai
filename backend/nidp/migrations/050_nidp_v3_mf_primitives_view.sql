@@ -24,6 +24,58 @@
 -- When NIDP fills those gaps, remove the fallback COALESCEs — the view is the
 -- single place to update.
 
+-- ── Stub tables (prerequisites for the view below) ──────────────────
+-- These are defined in 057_nidp_legacy_mf_stubs.sql but that migration
+-- was numbered after 050. Create them here with IF NOT EXISTS so a
+-- fresh install works; 057 will be a no-op when it runs later.
+SET search_path TO public;
+
+CREATE TABLE IF NOT EXISTS public.mutual_fund_metadata (
+    instrument_id              UUID PRIMARY KEY,
+    ytm                        NUMERIC,
+    modified_duration          NUMERIC,
+    investment_style           TEXT,
+    moneycontrol_imid          TEXT,
+    morningstar_rating         INT,
+    manager_tenure_years       NUMERIC,
+    category                   TEXT,
+    sub_category               TEXT,
+    aum_cr                     NUMERIC,
+    expense_ratio_direct       NUMERIC,
+    expense_ratio_regular      NUMERIC,
+    expense_ratio              NUMERIC,
+    category_avg_1y            NUMERIC,
+    category_avg_3y            NUMERIC,
+    category_avg_5y            NUMERIC,
+    max_drawdown_pct           NUMERIC,
+    top10_concentration_pct    NUMERIC,
+    expense_trend_delta        NUMERIC,
+    turnover_ratio             NUMERIC,
+    consistency_score          NUMERIC,
+    downside_capture_pct       NUMERIC,
+    aum_trend_score            NUMERIC,
+    credit_quality_score       NUMERIC,
+    duration_risk_score        NUMERIC
+);
+
+CREATE TABLE IF NOT EXISTS public.mutual_fund_performance_ratios (
+    instrument_id              UUID NOT NULL,
+    ratios_date                DATE NOT NULL,
+    ret_1y                     NUMERIC,
+    ret_3y                     NUMERIC,
+    ret_5y                     NUMERIC,
+    sharpe                     NUMERIC,
+    sortino                    NUMERIC,
+    PRIMARY KEY (instrument_id, ratios_date)
+);
+
+CREATE TABLE IF NOT EXISTS public.instrument_master (
+    instrument_id              UUID PRIMARY KEY,
+    symbol                     TEXT,
+    instrument_type            TEXT
+);
+
+-- ─────────────────────────────────────────────────────────────────────
 SET search_path TO nidp, public;
 
 CREATE OR REPLACE VIEW nidp.v_v3_mf_primitives AS

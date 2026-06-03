@@ -1,0 +1,4600 @@
+openapi: 3.1.0
+info:
+  title: Nivesh App API
+  version: 2.0.0
+  description: |
+    REST API for the Nivesh.ai application — portfolio management, goal planning,
+    AI copilot, broker integration, MFD workspace, and admin controls.
+
+    ## Authentication
+
+    All endpoints (except `/api/auth/*`, `/api/public/*`, and `/api/cas-parser-provider/active`)
+    require a session cookie set by `POST /api/auth/google`.
+
+    Admin endpoints additionally require the requesting user to have `is_admin = true`.
+
+    ## Base URL
+
+    - **Production**: `https://niveshcopilot.com`
+    - **Staging**: `https://staging.niveshcopilot.com`
+
+  contact:
+    name: Nivesh
+    url: https://nivesh.com
+
+servers:
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
+
+tags:
+  - name: auth
+    description: Google OAuth login, session management, current user identity.
+  - name: user
+    description: User profile, risk questionnaire, journey type, onboarding.
+  - name: portfolio
+    description: Portfolio CRUD, holdings management, instrument search, enrichment.
+  - name: plans
+    description: AI-generated V2 Action Plans — goal-based rebalancing recommendations.
+  - name: goals
+    description: Goal-Based Investment Planning — financial snapshot, goal CRUD, Monte Carlo simulation.
+  - name: scenarios
+    description: What-if scenario simulation and rebalancing plan generation.
+  - name: portfolio_snapshots
+    description: Portfolio Time-Machine — historical value snapshots and trend.
+  - name: cas_snapshots
+    description: CAS-sourced portfolio snapshots — performance, SIP summaries, time-machine.
+  - name: cas_transactions
+    description: Transaction history and detected SIP schedules from CAS data.
+  - name: portfolio_builder
+    description: AI Portfolio Builder — proposed allocations, simulation, PDF export.
+  - name: portfolio_export
+    description: Export portfolio holdings as CSV or XLSX.
+  - name: portfolio_exposure
+    description: Diversification and concentration analytics (AMC / sector / company).
+  - name: insights
+    description: Portfolio health insights, V3 scoring, problem distribution analysis.
+  - name: intelligence
+    description: Portfolio intelligence — look-through, stock overlap, V3 fund scores.
+  - name: analytics
+    description: Portfolio analytics — performance, allocation, deep analytics, fund ratings.
+  - name: copilot
+    description: CIO Copilot — AI chat, portfolio explanation, client message drafting.
+  - name: copilot_agents
+    description: Copilot agent routing, model picker, one-shot agent calls.
+  - name: copilot_widgets
+    description: Copilot widget producers — fund card, market brief, rebalance plan, etc.
+  - name: market_events
+    description: Corporate event calendar and AI market signal feed.
+  - name: macro
+    description: Macro Intelligence Layer — daily regime snapshot, manual refresh, backfill.
+  - name: positional
+    description: Positional Trading Engine — technical picks, watchlist, trade journal.
+  - name: strategy_builder
+    description: "Strategy Builder — DSL validation, universe CRUD, backtest runner."
+  - name: benchmarks
+    description: Benchmark index data — latest snapshot, OHLC history, category benchmark lookup.
+  - name: feeds
+    description: Generic feed subscriptions and RAG search.
+  - name: broker
+    description: "Secure Portfolio Connect — OpenAlgo integration, native broker OAuth."
+  - name: mf_data
+    description: Mutual fund data lookup and admin scrape management.
+  - name: mfd
+    description: "MFD multi-client workspace — profiles, impersonation, notes, tax summary."
+  - name: advisor
+    description: Advisor Home — client priority, AUM ranking, underperformer detection.
+  - name: compliance
+    description: DPDP Act 2023 — consent management, PAN storage, data export, account erasure.
+  - name: data_health
+    description: Global stale-data banner — pipeline status, pause/resume.
+  - name: gmail
+    description: Gmail OAuth integration — CAS email scanning and auto-import.
+  - name: upload
+    description: CAS PDF / CSV / Excel upload and background parsing.
+  - name: cas_invite
+    description: Client CAS invite flow — MFD-side generation and client-facing public endpoints.
+  - name: admin
+    description: "Admin controls — whitelist, OCR correction, CAS config, secrets, feature flags."
+  - name: admin_users
+    description: User management — create, list, impersonate, reset portfolio.
+  - name: admin_data_pipeline
+    description: Data pipeline control — job status, logs, manual triggers, cache invalidation.
+  - name: admin_nidp
+    description: NIDP diagnostics, job execution, Cloud Run log tailing.
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie set by `POST /api/auth/google`.
+
+  parameters:
+    portfolio_id_query:
+      name: portfolio_id
+      in: query
+      schema:
+        type: string
+      description: Filter by portfolio ID. Empty string = all portfolios.
+    profile_id_path:
+      name: profile_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: MFD client profile ID.
+    limit_query:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 100
+    format_query:
+      name: format
+      in: query
+      schema:
+        type: string
+        enum: [csv, xlsx]
+        default: csv
+
+  schemas:
+    UserProfile:
+      type: object
+      properties:
+        user_id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        is_admin:
+          type: boolean
+        journey_type:
+          type: string
+          nullable: true
+        risk_profile:
+          type: object
+          nullable: true
+        onboarding_completed:
+          type: boolean
+        copilot_enabled:
+          type: boolean
+
+    Portfolio:
+      type: object
+      properties:
+        portfolio_id:
+          type: string
+        name:
+          type: string
+        member_name:
+          type: string
+          nullable: true
+        relationship:
+          type: string
+          nullable: true
+        holdings_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    Holding:
+      type: object
+      properties:
+        holding_id:
+          type: string
+        portfolio_id:
+          type: string
+        name:
+          type: string
+        ticker:
+          type: string
+          nullable: true
+        asset_type:
+          type: string
+        quantity:
+          type: number
+        buy_price:
+          type: number
+        current_price:
+          type: number
+        sector:
+          type: string
+          nullable: true
+        buy_date:
+          type: string
+          format: date
+          nullable: true
+
+    Plan:
+      type: object
+      properties:
+        plan_id:
+          type: string
+        version:
+          type: string
+        status:
+          type: string
+          enum: [preview, active, archived]
+        actions:
+          type: array
+          items:
+            type: object
+        created_at:
+          type: string
+          format: date-time
+
+    Goal:
+      type: object
+      properties:
+        goal_id:
+          type: string
+        goal_type:
+          type: string
+        goal_name:
+          type: string
+        target_amount_rs:
+          type: number
+        horizon_years:
+          type: integer
+        monthly_sip_rs:
+          type: number
+        on_track_pct:
+          type: number
+          nullable: true
+        status:
+          type: string
+
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+
+security:
+  - SessionCookie: []
+
+paths:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Auth
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/auth/google:
+    post:
+      tags: [auth]
+      operationId: auth_google
+      summary: Exchange Google OAuth credential for a session cookie
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [credential]
+              properties:
+                credential:
+                  type: string
+                  description: Google ID token from `google.accounts.id.initialize` callback.
+      responses:
+        "200":
+          description: Login successful — session cookie set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        "401":
+          description: Invalid credential
+
+  /api/auth/me:
+    get:
+      tags: [auth]
+      operationId: auth_me
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        "401":
+          description: Not authenticated
+
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      operationId: auth_logout
+      summary: Logout — clears session cookie
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+
+  /api/auth/google-client-id:
+    get:
+      tags: [auth]
+      operationId: auth_google_client_id
+      summary: Return Google OAuth client ID for the Sign-In button
+      security: []
+      responses:
+        "200":
+          description: Client ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client_id:
+                    type: string
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # User & Onboarding
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/user/profile:
+    get:
+      tags: [user]
+      operationId: user_profile
+      summary: Get user profile with onboarding status
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+
+  /api/user/journey:
+    post:
+      tags: [user]
+      operationId: user_set_journey
+      summary: Set user journey type
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [journey_type]
+              properties:
+                journey_type:
+                  type: string
+                  enum: [self_directed, guided, mfd]
+      responses:
+        "200":
+          description: Updated profile
+
+  /api/user/risk-profile:
+    get:
+      tags: [user]
+      operationId: user_get_risk_profile
+      summary: Get user risk profile
+      responses:
+        "200":
+          description: Risk profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  risk_profile:
+                    type: object
+                    nullable: true
+
+    post:
+      tags: [user]
+      operationId: user_save_risk_profile
+      summary: Save risk profile from questionnaire answers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answers]
+              properties:
+                answers:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      question_id:
+                        type: string
+                      answer:
+                        type: string
+      responses:
+        "200":
+          description: Computed risk profile
+
+  /api/user/quick-setup:
+    post:
+      tags: [user]
+      operationId: user_quick_setup
+      summary: Generate allocation and fund recommendations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [age, risk_appetite, investment_horizon, monthly_investment, goal]
+              properties:
+                age:
+                  type: integer
+                risk_appetite:
+                  type: string
+                  enum: [conservative, moderate, aggressive]
+                investment_horizon:
+                  type: string
+                monthly_investment:
+                  type: number
+                goal:
+                  type: string
+      responses:
+        "200":
+          description: Quick setup result with starter plan
+
+  /api/user/complete-onboarding:
+    post:
+      tags: [user]
+      operationId: user_complete_onboarding
+      summary: Mark onboarding complete
+      responses:
+        "200":
+          description: Onboarding status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  onboarding_completed:
+                    type: boolean
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Portfolio
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/portfolios:
+    get:
+      tags: [portfolio]
+      operationId: portfolios_list
+      summary: List user portfolios
+      responses:
+        "200":
+          description: Portfolios
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Portfolio'
+
+    post:
+      tags: [portfolio]
+      operationId: portfolios_create
+      summary: Create a new portfolio
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                member_name:
+                  type: string
+                  nullable: true
+                relationship:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Created portfolio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Portfolio'
+
+  /api/portfolios/{portfolio_id}:
+    delete:
+      tags: [portfolio]
+      operationId: portfolios_delete
+      summary: Delete a portfolio and all its holdings
+      parameters:
+        - name: portfolio_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deletion result
+
+  /api/search/instruments:
+    get:
+      tags: [portfolio]
+      operationId: portfolio_search_instruments
+      summary: Search instruments by name or ticker
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+          description: Search query (symbol or company name).
+      responses:
+        "200":
+          description: Matching instruments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    ticker:
+                      type: string
+
+  /api/portfolio/holdings:
+    get:
+      tags: [portfolio]
+      operationId: holdings_list
+      summary: Get holdings filtered by portfolio and/or asset type
+      parameters:
+        - $ref: '#/components/parameters/portfolio_id_query'
+        - name: asset_type
+          in: query
+          schema:
+            type: string
+            enum: [EQUITY, MUTUAL_FUND, ETF, BOND, GOLD, INTERNATIONAL, OTHER]
+      responses:
+        "200":
+          description: Holdings list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Holding'
+
+    post:
+      tags: [portfolio]
+      operationId: holdings_add
+      summary: Add a new holding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, asset_type, quantity, buy_price, current_price]
+              properties:
+                name:
+                  type: string
+                ticker:
+                  type: string
+                  nullable: true
+                asset_type:
+                  type: string
+                quantity:
+                  type: number
+                buy_price:
+                  type: number
+                current_price:
+                  type: number
+                sector:
+                  type: string
+                  nullable: true
+                buy_date:
+                  type: string
+                  format: date
+                  nullable: true
+                portfolio_id:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Created holding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Holding'
+
+  /api/portfolio/holdings/{holding_id}:
+    put:
+      tags: [portfolio]
+      operationId: holdings_update
+      summary: Update a holding
+      parameters:
+        - name: holding_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: All fields optional — only provided fields are updated.
+              properties:
+                name:
+                  type: string
+                ticker:
+                  type: string
+                quantity:
+                  type: number
+                buy_price:
+                  type: number
+                current_price:
+                  type: number
+                sector:
+                  type: string
+                buy_date:
+                  type: string
+                  format: date
+      responses:
+        "200":
+          description: Updated holding
+
+    delete:
+      tags: [portfolio]
+      operationId: holdings_delete
+      summary: Delete a holding
+      parameters:
+        - name: holding_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deletion result
+
+  /api/portfolio/holdings-all:
+    delete:
+      tags: [portfolio]
+      operationId: holdings_delete_all
+      summary: Clear ALL holdings for the current user
+      responses:
+        "200":
+          description: Deletion result
+
+  /api/portfolio/holdings-enriched:
+    get:
+      tags: [portfolio]
+      operationId: holdings_enriched
+      summary: Portfolio holdings with V3 scores, action badges, and weight %
+      parameters:
+        - name: fresh
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Force cache bypass.
+      responses:
+        "200":
+          description: Enriched holdings
+
+  /api/portfolio/switch-candidates:
+    get:
+      tags: [portfolio]
+      operationId: portfolio_switch_candidates
+      summary: Top replacement funds for a holding (switch recommendations)
+      parameters:
+        - name: holding_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 3
+      responses:
+        "200":
+          description: Switch candidates with score breakdown
+
+  /api/portfolio/international-recommendations:
+    get:
+      tags: [portfolio]
+      operationId: portfolio_intl_recommendations
+      summary: International FoF allocation recommendation
+      responses:
+        "200":
+          description: Target %, current exposure, fund bands
+
+  /api/portfolio/international-funds/refresh:
+    post:
+      tags: [portfolio]
+      operationId: portfolio_intl_funds_refresh
+      summary: Refresh international fund data cache
+      parameters:
+        - name: force
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Cache refresh summary
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Plans (V2 Action Plans)
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/plans/generate:
+    post:
+      tags: [plans]
+      operationId: plans_generate
+      summary: Generate a new AI action plan
+      responses:
+        "200":
+          description: Generated plan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plan:
+                    $ref: '#/components/schemas/Plan'
+                  message:
+                    type: string
+
+  /api/plans/active:
+    get:
+      tags: [plans]
+      operationId: plans_get_active
+      summary: Get the user's active plan
+      responses:
+        "200":
+          description: Active plan or null
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plan:
+                    nullable: true
+                    allOf:
+                      - $ref: '#/components/schemas/Plan'
+                  has_plan:
+                    type: boolean
+
+    delete:
+      tags: [plans]
+      operationId: plans_archive_active
+      summary: Archive the active plan
+      responses:
+        "200":
+          description: Archive result
+
+  /api/plans/active/health-projection:
+    get:
+      tags: [plans]
+      operationId: plans_health_projection
+      summary: Project portfolio health if active plan actions are implemented
+      responses:
+        "200":
+          description: Health projection
+
+  /api/plans/history:
+    get:
+      tags: [plans]
+      operationId: plans_history
+      summary: Get plan history
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Plan history
+
+  /api/plans/refresh:
+    post:
+      tags: [plans]
+      operationId: plans_refresh
+      summary: Refresh active plan (creates new version)
+      responses:
+        "200":
+          description: Refreshed plan
+
+  /api/plans/refresh-fundamentals:
+    post:
+      tags: [plans]
+      operationId: plans_refresh_fundamentals
+      summary: Refresh fundamentals cache for portfolio stocks
+      responses:
+        "200":
+          description: Refresh result
+
+  /api/plans/{plan_id}:
+    get:
+      tags: [plans]
+      operationId: plans_get
+      summary: Get a specific plan by ID
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Plan document
+
+  /api/plans/{plan_id}/save:
+    post:
+      tags: [plans]
+      operationId: plans_save
+      summary: Save a preview plan as the active plan
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Saved plan
+
+  /api/plans/{plan_id}/simulate:
+    post:
+      tags: [plans]
+      operationId: plans_simulate
+      summary: Simulate before/after impact of a plan
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Simulation result
+
+  /api/plans/{plan_id}/actions/{action_id}:
+    patch:
+      tags: [plans]
+      operationId: plans_update_action
+      summary: Update action status (pending/done/skipped)
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [pending, done, skipped]
+                completion_note:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Updated plan
+
+  /api/plans/{plan_id}/actions/{action_id}/feedback:
+    patch:
+      tags: [plans]
+      operationId: plans_action_feedback
+      summary: Submit feedback on an action recommendation
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [useful]
+              properties:
+                useful:
+                  type: boolean
+                comment:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Updated plan
+
+  /api/signals/generate:
+    get:
+      tags: [plans]
+      operationId: signals_generate
+      summary: Generate signals without creating a full plan
+      responses:
+        "200":
+          description: Signals with summary
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Goals
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/goals/snapshot:
+    get:
+      tags: [goals]
+      operationId: goals_get_snapshot
+      summary: Get financial snapshot
+      responses:
+        "200":
+          description: Financial snapshot
+
+    put:
+      tags: [goals]
+      operationId: goals_upsert_snapshot
+      summary: Create or update financial snapshot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                age:
+                  type: integer
+                marital_status:
+                  type: string
+                dependents:
+                  type: integer
+                monthly_income_rs:
+                  type: number
+                income_growth_pct:
+                  type: number
+                monthly_expenses_rs:
+                  type: number
+                inflation_pct:
+                  type: number
+                current_corpus_rs:
+                  type: number
+                total_liabilities_rs:
+                  type: number
+                risk_profile:
+                  type: string
+                behavior_score:
+                  type: number
+      responses:
+        "200":
+          description: Updated snapshot
+
+  /api/goals:
+    get:
+      tags: [goals]
+      operationId: goals_list
+      summary: List all goals with on-track status
+      responses:
+        "200":
+          description: Goals list
+
+    post:
+      tags: [goals]
+      operationId: goals_create
+      summary: Create a new goal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [goal_type, goal_name, target_amount_rs, horizon_years, priority]
+              properties:
+                goal_type:
+                  type: string
+                  enum: [retirement, education, home, emergency, wealth, other]
+                goal_name:
+                  type: string
+                target_amount_rs:
+                  type: number
+                horizon_years:
+                  type: integer
+                priority:
+                  type: string
+                  enum: [high, medium, low]
+                inflation_pct:
+                  type: number
+                current_corpus_rs:
+                  type: number
+                monthly_sip_rs:
+                  type: number
+                manual_allocation:
+                  type: object
+                  nullable: true
+      responses:
+        "200":
+          description: Created goal
+
+  /api/goals/fund-shortlist/{bucket}:
+    get:
+      tags: [goals]
+      operationId: goals_fund_shortlist
+      summary: Top-N funds for a goal allocation bucket
+      parameters:
+        - name: bucket
+          in: path
+          required: true
+          schema:
+            type: string
+            example: large_cap
+        - name: n
+          in: query
+          schema:
+            type: integer
+            default: 15
+        - name: min_quality
+          in: query
+          schema:
+            type: number
+            default: 55.0
+      responses:
+        "200":
+          description: Fund shortlist
+
+  /api/goals/{goal_id}:
+    get:
+      tags: [goals]
+      operationId: goals_get
+      summary: Get goal detail with simulation
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Goal detail
+
+    patch:
+      tags: [goals]
+      operationId: goals_update
+      summary: Update goal fields
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                goal_name:
+                  type: string
+                target_amount_rs:
+                  type: number
+                horizon_years:
+                  type: integer
+                priority:
+                  type: string
+                monthly_sip_rs:
+                  type: number
+                current_corpus_rs:
+                  type: number
+                allocation:
+                  type: object
+                selected_funds:
+                  type: array
+                  items:
+                    type: string
+                manual_fund_override:
+                  type: boolean
+                status:
+                  type: string
+      responses:
+        "200":
+          description: Updated goal
+
+    delete:
+      tags: [goals]
+      operationId: goals_archive
+      summary: Archive (abandon) a goal
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Archive result
+
+  /api/goals/{goal_id}/simulate:
+    post:
+      tags: [goals]
+      operationId: goals_simulate
+      summary: Run fresh Monte Carlo simulation for a goal
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Simulation result with on_track_pct and scenario outcomes
+
+  /api/goals/{goal_id}/what-if:
+    post:
+      tags: [goals]
+      operationId: goals_what_if
+      summary: Preview-only evaluation (does not persist changes)
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                monthly_sip_rs:
+                  type: number
+                horizon_years:
+                  type: integer
+                current_corpus_rs:
+                  type: number
+                allocation_override:
+                  type: object
+      responses:
+        "200":
+          description: Preview evaluation
+
+  /api/goals/{goal_id}/copilot:
+    post:
+      tags: [goals]
+      operationId: goals_copilot_ask
+      summary: Natural-language what-if via Copilot
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+      responses:
+        "200":
+          description: Engine output + plain-English narrative
+
+  /api/goals/{goal_id}/copilot/history:
+    get:
+      tags: [goals]
+      operationId: goals_copilot_history
+      summary: Load copilot conversation history for a goal
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Chat history
+
+    delete:
+      tags: [goals]
+      operationId: goals_copilot_history_clear
+      summary: Clear copilot history for a goal
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Delete result
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Scenarios
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/scenarios/suggest:
+    get:
+      tags: [scenarios]
+      operationId: scenarios_suggest
+      summary: AI-picked 3–4 personalized scenarios
+      responses:
+        "200":
+          description: Scenario suggestions
+
+  /api/scenarios/simulate:
+    post:
+      tags: [scenarios]
+      operationId: scenarios_simulate
+      summary: Before/after portfolio metrics simulation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scenario_id:
+                  type: string
+                target_equity:
+                  type: number
+                  nullable: true
+                target_debt:
+                  type: number
+                  nullable: true
+                target_gold:
+                  type: number
+                  nullable: true
+                target_amc_cap:
+                  type: number
+                  nullable: true
+                target_small_cap:
+                  type: number
+                  nullable: true
+                switch_to_direct:
+                  type: boolean
+                remove_dead:
+                  type: boolean
+      responses:
+        "200":
+          description: Before/after comparison with delta
+
+  /api/scenarios/rebalance-plan:
+    post:
+      tags: [scenarios]
+      operationId: scenarios_rebalance_plan
+      summary: Generate step-by-step rebalancing actions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target_equity:
+                  type: number
+                target_debt:
+                  type: number
+                target_gold:
+                  type: number
+                target_amc_cap:
+                  type: number
+                switch_to_direct:
+                  type: boolean
+                remove_dead:
+                  type: boolean
+      responses:
+        "200":
+          description: Rebalancing action list with summary
+
+  /api/scenarios/save:
+    post:
+      tags: [scenarios]
+      operationId: scenarios_save
+      summary: Save a scenario for later reference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scenario_id, payload, result]
+              properties:
+                name:
+                  type: string
+                scenario_id:
+                  type: string
+                payload:
+                  type: object
+                result:
+                  type: object
+      responses:
+        "200":
+          description: Saved scenario ID
+
+  /api/scenarios/saved:
+    get:
+      tags: [scenarios]
+      operationId: scenarios_saved_list
+      summary: List saved scenarios
+      responses:
+        "200":
+          description: Saved scenarios
+
+  /api/scenarios/saved/{saved_id}:
+    delete:
+      tags: [scenarios]
+      operationId: scenarios_saved_delete
+      summary: Delete a saved scenario
+      parameters:
+        - name: saved_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Delete result
+
+  /api/scenarios/apply:
+    post:
+      tags: [scenarios]
+      operationId: scenarios_apply
+      summary: Persist pending rebalancing actions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scenario_id, actions, payload]
+              properties:
+                scenario_id:
+                  type: string
+                actions:
+                  type: array
+                  items:
+                    type: object
+                payload:
+                  type: object
+      responses:
+        "200":
+          description: Applied plan ID
+
+  /api/scenarios/pending:
+    get:
+      tags: [scenarios]
+      operationId: scenarios_pending_list
+      summary: List pending rebalancing plans
+      responses:
+        "200":
+          description: Pending plans
+
+  /api/scenarios/pending/{plan_id}:
+    delete:
+      tags: [scenarios]
+      operationId: scenarios_pending_delete
+      summary: Delete a pending plan
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Delete result
+
+  /api/scenarios/pending/{plan_id}/complete:
+    post:
+      tags: [scenarios]
+      operationId: scenarios_pending_complete
+      summary: Mark a pending plan as completed
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Update result
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Portfolio Snapshots (Time-Machine)
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/portfolio/snapshots:
+    get:
+      tags: [portfolio_snapshots]
+      operationId: snapshots_list_dates
+      summary: List available snapshot dates
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 365
+      responses:
+        "200":
+          description: Snapshot dates
+
+  /api/portfolio/snapshot:
+    get:
+      tags: [portfolio_snapshots]
+      operationId: snapshots_get
+      summary: Get latest snapshot or by specific date
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Snapshot date. Defaults to most recent.
+      responses:
+        "200":
+          description: Snapshot document
+
+    post:
+      tags: [portfolio_snapshots]
+      operationId: snapshots_manual_trigger
+      summary: Manually trigger a snapshot
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                trigger:
+                  type: string
+                  default: manual
+      responses:
+        "200":
+          description: Snapshot result
+
+  /api/portfolio/trend:
+    get:
+      tags: [portfolio_snapshots]
+      operationId: snapshots_trend
+      summary: Portfolio value sparkline series
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        "200":
+          description: Trend series
+
+  /api/portfolio/compare:
+    get:
+      tags: [portfolio_snapshots]
+      operationId: snapshots_compare
+      summary: Diff two snapshots (holdings + value change)
+      parameters:
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Comparison result
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # CAS Snapshots
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/portfolio/cas-snapshots:
+    get:
+      tags: [cas_snapshots]
+      operationId: cas_snapshots_list
+      summary: List CAS snapshot dates
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 60
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: CAS snapshot list
+
+  /api/portfolio/cas-snapshot:
+    get:
+      tags: [cas_snapshots]
+      operationId: cas_snapshot_get
+      summary: Get full CAS snapshot with holdings
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+        - name: include_holdings
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        "200":
+          description: CAS snapshot
+
+  /api/portfolio/cas-performance:
+    get:
+      tags: [cas_snapshots]
+      operationId: cas_performance
+      summary: Portfolio value and health line-chart series
+      parameters:
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: Performance series
+
+  /api/portfolio/cas-sip-summary:
+    get:
+      tags: [cas_snapshots]
+      operationId: cas_sip_summary
+      summary: Monthly SIP bar-chart aggregates
+      parameters:
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: SIP monthly aggregates
+
+  /api/portfolio/cas-sip-breakdown:
+    get:
+      tags: [cas_snapshots]
+      operationId: cas_sip_breakdown
+      summary: Per-fund SIP drill-down for a specific month
+      parameters:
+        - name: month
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^\\d{4}-\\d{2}$"
+            example: "2024-11"
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: Per-fund breakdown
+
+  /api/portfolio/cas-top-transactions:
+    get:
+      tags: [cas_snapshots]
+      operationId: cas_top_transactions
+      summary: Top-N transactions by value
+      parameters:
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: n
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: Top transactions
+
+  /api/portfolio/cas-snapshot/{snapshot_date}/activate:
+    post:
+      tags: [cas_snapshots]
+      operationId: cas_snapshot_activate
+      summary: Load an older CAS snapshot into live holdings
+      parameters:
+        - name: snapshot_date
+          in: path
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: Activation result
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # CAS Transactions
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/portfolio/transactions:
+    get:
+      tags: [cas_transactions]
+      operationId: transactions_list
+      summary: List CAS transactions
+      parameters:
+        - name: isin
+          in: query
+          schema:
+            type: string
+            nullable: true
+        - name: folio
+          in: query
+          schema:
+            type: string
+            nullable: true
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 500
+      responses:
+        "200":
+          description: Transactions with totals
+
+  /api/portfolio/sips:
+    get:
+      tags: [cas_transactions]
+      operationId: sips_list
+      summary: List detected SIP schedules
+      responses:
+        "200":
+          description: SIPs with monthly outflow total
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Portfolio Builder
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/portfolio-builder/generate:
+    post:
+      tags: [portfolio_builder]
+      operationId: builder_generate
+      summary: Generate a proposed portfolio allocation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                monthly_sip_rs:
+                  type: number
+                lumpsum_rs:
+                  type: number
+      responses:
+        "200":
+          description: Full builder payload
+
+  /api/portfolio-builder/simulate:
+    post:
+      tags: [portfolio_builder]
+      operationId: builder_simulate
+      summary: 4-scenario simulation matrix with Monte Carlo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                starting_corpus_rs:
+                  type: number
+                monthly_sip_rs:
+                  type: number
+                years:
+                  type: integer
+                future_target_rs:
+                  type: number
+                  nullable: true
+                allocation:
+                  type: object
+      responses:
+        "200":
+          description: Scenario matrix + blended return/vol
+
+  /api/risk-profile/start:
+    post:
+      tags: [portfolio_builder]
+      operationId: risk_profile_start
+      summary: Begin risk-profile chat session
+      responses:
+        "200":
+          description: First question
+
+  /api/risk-profile/{session_id}/answer:
+    post:
+      tags: [portfolio_builder]
+      operationId: risk_profile_answer
+      summary: Submit an answer and advance the questionnaire
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question_id, value]
+              properties:
+                question_id:
+                  type: string
+                value:
+                  type: string
+      responses:
+        "200":
+          description: Next question or final risk score
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Portfolio Export
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/portfolio/holdings/export:
+    get:
+      tags: [portfolio_export]
+      operationId: holdings_export
+      summary: Export self-portfolio holdings as CSV or XLSX
+      parameters:
+        - $ref: '#/components/parameters/format_query'
+      responses:
+        "200":
+          description: File download
+          content:
+            text/csv:
+              schema:
+                type: string
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  /api/mfd/profiles/{profile_id}/holdings/export:
+    get:
+      tags: [portfolio_export]
+      operationId: mfd_holdings_export
+      summary: Export client portfolio holdings (advisor view)
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+        - $ref: '#/components/parameters/format_query'
+      responses:
+        "200":
+          description: File download
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Portfolio Exposure
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/portfolio/exposure/concentration:
+    get:
+      tags: [portfolio_exposure]
+      operationId: exposure_concentration
+      summary: AMC, sector, and company concentration analytics
+      responses:
+        "200":
+          description: Concentration breakdown
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_value:
+                    type: number
+                  holdings_count:
+                    type: integer
+                  amc:
+                    type: object
+                  sector:
+                    type: object
+                  company:
+                    type: object
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Insights
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/insights:
+    get:
+      tags: [insights]
+      operationId: insights_list
+      summary: Get portfolio insights list
+      responses:
+        "200":
+          description: Insights array
+
+  /api/insights/generate:
+    post:
+      tags: [insights]
+      operationId: insights_generate
+      summary: Generate insights from current portfolio
+      responses:
+        "200":
+          description: Insights with problem distribution, risk gauge, action funnel
+
+  /api/insights/analysis:
+    get:
+      tags: [insights]
+      operationId: insights_analysis
+      summary: Full analysis with Portfolio Health score
+      responses:
+        "200":
+          description: Analysis with portfolio_health block
+
+  /api/insights/v3-portfolio:
+    get:
+      tags: [insights]
+      operationId: insights_v3_portfolio
+      summary: Portfolio-level V3 scoring
+      parameters:
+        - name: refresh_stocks
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: V3 scores with coverage %
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Intelligence
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/intelligence/portfolio:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_portfolio
+      summary: Full portfolio intelligence with look-through and stock overlap
+      parameters:
+        - name: narrate
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Include AI narrative insights.
+      responses:
+        "200":
+          description: Portfolio intelligence
+
+  /api/intelligence/simulate:
+    post:
+      tags: [intelligence]
+      operationId: intelligence_simulate
+      summary: What-if removal simulation (preview effect of selling funds)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [remove_mf_ids]
+              properties:
+                remove_mf_ids:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Recomputed metrics
+
+  /api/intelligence/v3-score/{instrument_id}:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_v3_score
+      summary: Get V3 scores for a fund
+      parameters:
+        - name: instrument_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: refresh
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: V3 scores and primitives
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Analytics
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/portfolio/analytics:
+    get:
+      tags: [analytics]
+      operationId: portfolio_analytics
+      summary: Full portfolio analytics with live prices
+      parameters:
+        - $ref: '#/components/parameters/portfolio_id_query'
+      responses:
+        "200":
+          description: Analytics with allocation, returns, heatmap, health score
+
+  /api/portfolio/deep-analytics:
+    get:
+      tags: [analytics]
+      operationId: portfolio_deep_analytics
+      summary: Advanced analytics — overlap matrix, overexposure, duplication
+      parameters:
+        - $ref: '#/components/parameters/portfolio_id_query'
+      responses:
+        "200":
+          description: Deep analytics
+
+  /api/portfolio/fund-performance:
+    get:
+      tags: [analytics]
+      operationId: portfolio_fund_performance
+      summary: MF benchmark ratings (2h cache)
+      parameters:
+        - $ref: '#/components/parameters/portfolio_id_query'
+        - name: force
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Fund ratings with performance distribution
+
+  /api/portfolio/allocation-analysis:
+    get:
+      tags: [analytics]
+      operationId: portfolio_allocation_analysis
+      summary: AI-powered look-through allocation analysis
+      parameters:
+        - name: force
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Company/sector allocation with concentration flags
+
+  /api/portfolio/stock-scores:
+    get:
+      tags: [analytics]
+      operationId: portfolio_stock_scores
+      summary: V3 scores for equity holdings
+      responses:
+        "200":
+          description: Stock scores with coverage %
+
+  /api/portfolio/refresh-prices:
+    post:
+      tags: [analytics]
+      operationId: portfolio_refresh_prices
+      summary: Refresh equity/ETF prices
+      responses:
+        "200":
+          description: Refresh result
+
+  /api/portfolio/refresh-stock-fundamentals:
+    post:
+      tags: [analytics]
+      operationId: portfolio_refresh_fundamentals
+      summary: Trigger Groww fundamentals refresh
+      responses:
+        "200":
+          description: Refresh result
+
+  /api/nav/refresh:
+    post:
+      tags: [analytics]
+      operationId: nav_refresh
+      summary: Manually refresh AMFI NAV cache
+      responses:
+        "200":
+          description: Updated NAV count
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Copilot — Chat
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/chat:
+    post:
+      tags: [copilot]
+      operationId: chat_send
+      summary: Send a message to the AI Copilot
+      description: Streams response when supported; falls back to LangGraph agent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                session_id:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: AI response
+
+  /api/chat/sessions:
+    get:
+      tags: [copilot]
+      operationId: chat_sessions_list
+      summary: List chat sessions
+      responses:
+        "200":
+          description: Session list
+
+    post:
+      tags: [copilot]
+      operationId: chat_sessions_create
+      summary: Create a new chat session
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Created session
+
+  /api/chat/sessions/{session_id}:
+    get:
+      tags: [copilot]
+      operationId: chat_sessions_get
+      summary: Load a chat session with messages
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session with messages
+
+    delete:
+      tags: [copilot]
+      operationId: chat_sessions_delete
+      summary: Delete a chat session
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Delete result
+
+  /api/copilot/explain:
+    post:
+      tags: [copilot]
+      operationId: copilot_explain
+      summary: Portfolio explanation in CIO tone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [context]
+              properties:
+                context:
+                  type: object
+                model:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: CIO-style portfolio explanation
+
+  /api/copilot/client-message:
+    post:
+      tags: [copilot]
+      operationId: copilot_client_message
+      summary: Draft WhatsApp/Email client message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [context]
+              properties:
+                context:
+                  type: object
+                tone:
+                  type: string
+                  nullable: true
+                channel:
+                  type: string
+                  enum: [whatsapp, email]
+                  nullable: true
+                model:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Drafted message
+
+  /api/copilot/ask:
+    post:
+      tags: [copilot]
+      operationId: copilot_ask
+      summary: Free-form Q&A with portfolio context
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                context:
+                  type: object
+                  nullable: true
+                model:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: AI answer
+
+  /api/copilot/suggested-prompts:
+    get:
+      tags: [copilot]
+      operationId: copilot_suggested_prompts
+      summary: Top-5 context-aware prompt suggestions
+      responses:
+        "200":
+          description: Prompt suggestions with badges
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Copilot Agents
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/copilot/agents:
+    get:
+      tags: [copilot_agents]
+      operationId: copilot_agents_list
+      summary: List all 7 available Copilot agents
+      responses:
+        "200":
+          description: Agent list with metadata
+
+  /api/copilot/models/picker:
+    get:
+      tags: [copilot_agents]
+      operationId: copilot_models_picker
+      summary: List 3 supported LLM backends
+      responses:
+        "200":
+          description: Model list
+
+  /api/copilot/agents/route:
+    post:
+      tags: [copilot_agents]
+      operationId: copilot_route_intent
+      summary: Deterministic intent router — classify message to agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+      responses:
+        "200":
+          description: Routed agent ID and spec
+
+  /api/copilot/agents/oneshot:
+    post:
+      tags: [copilot_agents]
+      operationId: copilot_agent_oneshot
+      summary: Single-turn agent call
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, message]
+              properties:
+                agent_id:
+                  type: string
+                model_id:
+                  type: string
+                  nullable: true
+                message:
+                  type: string
+                session_id:
+                  type: string
+                  nullable: true
+                system_prompt:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Agent response text
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Copilot Widgets
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/copilot/widgets/fund_card:
+    post:
+      tags: [copilot_widgets]
+      operationId: widget_fund_card
+      summary: Fund Card widget — scheme lookup, scorecard, events
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+      responses:
+        "200":
+          description: Fund Card widget envelope
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Market Events
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/market/events:
+    get:
+      tags: [market_events]
+      operationId: market_events_today
+      summary: Today's corporate events and AI signals
+      parameters:
+        - name: date_str
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Override date. Defaults to today.
+      responses:
+        "200":
+          description: Events for date
+
+  /api/market/events/tomorrow:
+    get:
+      tags: [market_events]
+      operationId: market_events_tomorrow
+      summary: D-1 pre-event briefings
+      responses:
+        "200":
+          description: Tomorrow's event briefings
+
+  /api/market/signals:
+    get:
+      tags: [market_events]
+      operationId: market_signals
+      summary: High-confidence AI signal feed (7-day window)
+      responses:
+        "200":
+          description: Signal documents
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Macro Intelligence
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/macro/today:
+    get:
+      tags: [macro]
+      operationId: macro_today
+      summary: Latest macro intelligence snapshot
+      responses:
+        "200":
+          description: Market regime, inflation, liquidity, risk multiplier
+
+  /api/macro/refresh:
+    post:
+      tags: [macro]
+      operationId: macro_refresh
+      summary: Manually trigger macro snapshot refresh
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target_date:
+                  type: string
+                  format: date
+                  nullable: true
+      responses:
+        "200":
+          description: Refresh result
+
+  /api/macro/backfill:
+    post:
+      tags: [macro]
+      operationId: macro_backfill
+      summary: Backfill macro history
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                days:
+                  type: integer
+                  default: 60
+      responses:
+        "200":
+          description: Backfill result
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Positional Trading
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/positional/picks:
+    get:
+      tags: [positional]
+      operationId: positional_picks
+      summary: Get positional trading picks
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+            nullable: true
+        - name: min_score
+          in: query
+          schema:
+            type: number
+            default: 0.55
+        - name: stage
+          in: query
+          schema:
+            type: string
+            nullable: true
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        "200":
+          description: Picks for signal date
+
+  /api/positional/watchlist:
+    get:
+      tags: [positional]
+      operationId: positional_watchlist
+      summary: Preparation mode watchlist with 4 stage buckets
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        "200":
+          description: Watchlist by stage
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Strategy Builder
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/strategy-builder/templates:
+    get:
+      tags: [strategy_builder]
+      operationId: sb_templates
+      summary: List builtin strategy templates
+      responses:
+        "200":
+          description: Templates
+
+  /api/strategy-builder/validate:
+    post:
+      tags: [strategy_builder]
+      operationId: sb_validate
+      summary: Validate a strategy DSL document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Strategy DSL definition.
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  errors:
+                    type: array
+                    items:
+                      type: string
+
+  /api/strategy-builder/universes:
+    get:
+      tags: [strategy_builder]
+      operationId: sb_universes_list
+      summary: List user and public universes
+      parameters:
+        - name: asset_class
+          in: query
+          schema:
+            type: string
+            enum: [STOCK, MF]
+            nullable: true
+      responses:
+        "200":
+          description: Universes
+
+    post:
+      tags: [strategy_builder]
+      operationId: sb_universes_create
+      summary: Create a universe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, asset_class, symbols]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                asset_class:
+                  type: string
+                  enum: [STOCK, MF]
+                symbols:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Created universe
+
+  /api/strategy-builder/strategies:
+    get:
+      tags: [strategy_builder]
+      operationId: sb_strategies_list
+      summary: List user strategies
+      responses:
+        "200":
+          description: Strategies
+
+    post:
+      tags: [strategy_builder]
+      operationId: sb_strategies_create
+      summary: Create a strategy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, asset_class, definition]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                asset_class:
+                  type: string
+                  enum: [STOCK, MF]
+                definition:
+                  type: object
+      responses:
+        "200":
+          description: Created strategy
+
+  /api/strategy-builder/strategies/{id}:
+    get:
+      tags: [strategy_builder]
+      operationId: sb_strategies_get
+      summary: Get active strategy version
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Strategy
+
+    patch:
+      tags: [strategy_builder]
+      operationId: sb_strategies_update
+      summary: Save new strategy version
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [definition]
+              properties:
+                definition:
+                  type: object
+      responses:
+        "200":
+          description: Updated strategy
+
+    delete:
+      tags: [strategy_builder]
+      operationId: sb_strategies_delete
+      summary: Archive a strategy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Archive result
+
+  /api/strategy-builder/strategies/{id}/backtest:
+    post:
+      tags: [strategy_builder]
+      operationId: sb_backtest_run
+      summary: Run a backtest (async — returns run_id)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_date, to_date, starting_capital]
+              properties:
+                from_date:
+                  type: string
+                  format: date
+                to_date:
+                  type: string
+                  format: date
+                starting_capital:
+                  type: number
+                max_positions:
+                  type: integer
+      responses:
+        "200":
+          description: Run ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  run_id:
+                    type: string
+
+  /api/strategy-builder/runs/{run_id}:
+    get:
+      tags: [strategy_builder]
+      operationId: sb_backtest_result
+      summary: Fetch backtest result + trades
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Backtest result
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Benchmarks
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/index/latest:
+    get:
+      tags: [benchmarks]
+      operationId: index_latest
+      summary: Latest index snapshot (OHLC, metrics)
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 64
+            example: "Nifty 50"
+      responses:
+        "200":
+          description: Index snapshot
+
+  /api/index/history:
+    get:
+      tags: [benchmarks]
+      operationId: index_history
+      summary: Historical OHLC for an index
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [1M, 3M, 6M, 1Y, 3Y, 5Y, MAX]
+            default: 1Y
+      responses:
+        "200":
+          description: OHLC history series
+
+  /api/index/benchmark:
+    get:
+      tags: [benchmarks]
+      operationId: index_benchmark
+      summary: Benchmark index for a fund category
+      parameters:
+        - name: category
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 80
+      responses:
+        "200":
+          description: Benchmark details
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Feeds (RAG subscriptions)
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/feeds:
+    get:
+      tags: [feeds]
+      operationId: feeds_list
+      summary: List enabled feeds (tier-gated)
+      responses:
+        "200":
+          description: Feed list
+
+  /api/feeds/subscriptions:
+    get:
+      tags: [feeds]
+      operationId: feeds_subscriptions_list
+      summary: User's active feed subscriptions
+      responses:
+        "200":
+          description: Subscription list
+
+    post:
+      tags: [feeds]
+      operationId: feeds_subscriptions_create
+      summary: Subscribe to a feed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [feed_id]
+              properties:
+                feed_id:
+                  type: string
+                params:
+                  type: object
+      responses:
+        "201":
+          description: Subscription created
+
+  /api/feeds/subscriptions/{feed_id}:
+    delete:
+      tags: [feeds]
+      operationId: feeds_subscriptions_delete
+      summary: Unsubscribe from a feed
+      parameters:
+        - name: feed_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Unsubscribed
+
+  /api/feeds/subscriptions/{feed_id}/pause:
+    post:
+      tags: [feeds]
+      operationId: feeds_subscriptions_pause
+      summary: Pause a feed subscription
+      parameters:
+        - name: feed_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Paused
+
+  /api/feeds/subscriptions/{feed_id}/resume:
+    post:
+      tags: [feeds]
+      operationId: feeds_subscriptions_resume
+      summary: Resume a paused feed subscription
+      parameters:
+        - name: feed_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Resumed
+
+  /api/feeds/search:
+    post:
+      tags: [feeds]
+      operationId: feeds_search
+      summary: RAG semantic search across subscribed feeds
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                top_k:
+                  type: integer
+                  minimum: 1
+                  maximum: 50
+                  default: 10
+                feed_ids:
+                  type: array
+                  nullable: true
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Citations with score and excerpt
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Broker Connect
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/broker/supported:
+    get:
+      tags: [broker]
+      operationId: broker_supported
+      summary: List supported brokers with display names
+      responses:
+        "200":
+          description: Supported brokers
+
+  /api/broker/openalgo-config:
+    get:
+      tags: [broker]
+      operationId: broker_openalgo_config
+      summary: Check hosted OpenAlgo status and dashboard URL
+      responses:
+        "200":
+          description: OpenAlgo config
+
+  /api/broker/connect-hosted:
+    post:
+      tags: [broker]
+      operationId: broker_connect_hosted
+      summary: Auto-provision via Nivesh-hosted OpenAlgo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [broker]
+              properties:
+                broker:
+                  type: string
+                label:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Connection result
+
+  /api/broker/accounts:
+    get:
+      tags: [broker]
+      operationId: broker_accounts_list
+      summary: List user's broker connections
+      responses:
+        "200":
+          description: Broker accounts
+
+  /api/broker/connect:
+    post:
+      tags: [broker]
+      operationId: broker_connect
+      summary: Manual broker auth + validation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [broker, api_key]
+              properties:
+                broker:
+                  type: string
+                openalgo_url:
+                  type: string
+                  nullable: true
+                api_key:
+                  type: string
+                  minLength: 8
+                  maxLength: 300
+                label:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Connection result
+
+  /api/broker/accounts/{account_id}/sync:
+    post:
+      tags: [broker]
+      operationId: broker_accounts_sync
+      summary: Fetch holdings via OpenAlgo and persist
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Sync result
+
+  /api/broker/accounts/{account_id}:
+    delete:
+      tags: [broker]
+      operationId: broker_accounts_disconnect
+      summary: Disconnect a broker account
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Disconnection audit
+
+  /api/broker/native/supported:
+    get:
+      tags: [broker]
+      operationId: broker_native_supported
+      summary: Brokers with native OAuth adapter support
+      responses:
+        "200":
+          description: Native-supported brokers
+
+  /api/broker/native/start/{broker_slug}:
+    get:
+      tags: [broker]
+      operationId: broker_native_start
+      summary: Initiate native broker OAuth (redirects to broker login)
+      parameters:
+        - name: broker_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to broker OAuth page
+
+  /api/broker/native/callback:
+    get:
+      tags: [broker]
+      operationId: broker_native_callback
+      summary: Broker OAuth callback — exchanges code for token
+      responses:
+        "200":
+          description: Token exchange complete
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # MF Data
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/mf/holdings:
+    get:
+      tags: [mf_data]
+      operationId: mf_holdings
+      summary: Get MF holdings data for a scheme
+      parameters:
+        - name: scheme_name
+          in: query
+          schema:
+            type: string
+        - name: scheme_code
+          in: query
+          schema:
+            type: string
+            nullable: true
+        - name: isin
+          in: query
+          schema:
+            type: string
+            nullable: true
+        - name: force
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Fund data
+
+  /api/mf/lookup:
+    get:
+      tags: [mf_data]
+      operationId: mf_lookup
+      summary: Resolve scheme and get latest NAV
+      parameters:
+        - name: scheme_name
+          in: query
+          schema:
+            type: string
+            nullable: true
+        - name: scheme_code
+          in: query
+          schema:
+            type: string
+            nullable: true
+        - name: isin
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: Resolved scheme with NAV
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # MFD Workspace
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/mfd/workspace:
+    get:
+      tags: [mfd]
+      operationId: mfd_workspace_get
+      summary: Get current workspace and mode
+      responses:
+        "200":
+          description: Workspace details
+
+    patch:
+      tags: [mfd]
+      operationId: mfd_workspace_update
+      summary: Update workspace mode and metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  enum: [INDIVIDUAL, ADVISORY]
+                firm_name:
+                  type: string
+                client_count_range:
+                  type: string
+                mfd_onboarding_completed:
+                  type: boolean
+                advisor_name:
+                  type: string
+                advisor_mobile:
+                  type: string
+                advisor_email:
+                  type: string
+                arn_or_ria:
+                  type: string
+      responses:
+        "200":
+          description: Updated workspace
+
+  /api/mfd/profiles:
+    get:
+      tags: [mfd]
+      operationId: mfd_profiles_list
+      summary: List client profiles with priority scores
+      parameters:
+        - name: include_self
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        "200":
+          description: Profile list
+
+    post:
+      tags: [mfd]
+      operationId: mfd_profiles_create
+      summary: Create a client profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                aum_rs:
+                  type: number
+                  nullable: true
+                tags:
+                  type: array
+                  items:
+                    type: string
+                notes:
+                  type: string
+                  nullable: true
+                email:
+                  type: string
+                  nullable: true
+                mobile:
+                  type: string
+                  nullable: true
+                pan:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Created profile
+
+  /api/mfd/profiles/{profile_id}:
+    get:
+      tags: [mfd]
+      operationId: mfd_profiles_get
+      summary: Get profile detail with priority
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      responses:
+        "200":
+          description: Profile detail
+
+    patch:
+      tags: [mfd]
+      operationId: mfd_profiles_update
+      summary: Update profile fields
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                aum_rs:
+                  type: number
+                tags:
+                  type: array
+                  items:
+                    type: string
+                email:
+                  type: string
+                mobile:
+                  type: string
+                pan:
+                  type: string
+                last_reviewed_at:
+                  type: string
+                  format: date-time
+      responses:
+        "200":
+          description: Updated profile
+
+    delete:
+      tags: [mfd]
+      operationId: mfd_profiles_delete
+      summary: Delete a client profile (except SELF)
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      responses:
+        "200":
+          description: Delete result
+
+  /api/mfd/profiles/{profile_id}/activate:
+    post:
+      tags: [mfd]
+      operationId: mfd_profiles_activate
+      summary: Impersonate a client profile
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      responses:
+        "200":
+          description: Profile activated
+
+  /api/mfd/profiles/deactivate:
+    post:
+      tags: [mfd]
+      operationId: mfd_profiles_deactivate
+      summary: Clear active profile (return to self)
+      responses:
+        "200":
+          description: Profile deactivated
+
+  /api/mfd/profiles/{profile_id}/notes:
+    get:
+      tags: [mfd]
+      operationId: mfd_profiles_notes_get
+      summary: Get client notes
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      responses:
+        "200":
+          description: Client notes
+
+    put:
+      tags: [mfd]
+      operationId: mfd_profiles_notes_save
+      summary: Save client notes
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+                  maxLength: 4000
+                  nullable: true
+                sip_amount_rs:
+                  type: number
+                  nullable: true
+                sip_frequency:
+                  type: string
+                  nullable: true
+                next_sip_due:
+                  type: string
+                  format: date
+                  nullable: true
+                preferred_channel:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Saved notes
+
+  /api/mfd/profiles/{profile_id}/tax-summary:
+    get:
+      tags: [mfd]
+      operationId: mfd_tax_summary
+      summary: Tax harvesting opportunities and lot coverage
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      responses:
+        "200":
+          description: Tax summary
+
+  /api/mfd/profiles/{profile_id}/portfolio-trend:
+    get:
+      tags: [mfd]
+      operationId: mfd_portfolio_trend
+      summary: Invested vs Current value trend with recent buys
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      responses:
+        "200":
+          description: Portfolio trend
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Advisor
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/advisor/today:
+    get:
+      tags: [advisor]
+      operationId: advisor_today
+      summary: Top-N clients by priority (high/medium/low buckets)
+      parameters:
+        - $ref: '#/components/parameters/limit_query'
+      responses:
+        "200":
+          description: Prioritized client list
+
+  /api/advisor/aum:
+    get:
+      tags: [advisor]
+      operationId: advisor_aum
+      summary: Clients ranked by AUM with MoM change %
+      parameters:
+        - $ref: '#/components/parameters/limit_query'
+      responses:
+        "200":
+          description: AUM ranking
+
+  /api/advisor/underperformers:
+    get:
+      tags: [advisor]
+      operationId: advisor_underperformers
+      summary: Clients lagging a benchmark by gap_pct or more
+      parameters:
+        - name: gap_pct
+          in: query
+          schema:
+            type: number
+            default: 5.0
+        - name: benchmark
+          in: query
+          schema:
+            type: string
+            default: nifty_50
+      responses:
+        "200":
+          description: Underperforming clients
+
+  /api/advisor/rebalance:
+    get:
+      tags: [advisor]
+      operationId: advisor_rebalance
+      summary: Clients drifting from target allocation
+      parameters:
+        - name: gap_pp
+          in: query
+          schema:
+            type: number
+            default: 10.0
+          description: Allocation drift threshold in percentage points.
+      responses:
+        "200":
+          description: Clients needing rebalancing
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Compliance (DPDP Act 2023)
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/compliance/consents:
+    get:
+      tags: [compliance]
+      operationId: compliance_consents_list
+      summary: Consent catalogue with user's grant status per purpose
+      responses:
+        "200":
+          description: Consent catalogue
+
+  /api/compliance/consents/{purpose}:
+    post:
+      tags: [compliance]
+      operationId: compliance_consents_grant
+      summary: Grant consent for a purpose
+      parameters:
+        - name: purpose
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Consent granted
+
+    delete:
+      tags: [compliance]
+      operationId: compliance_consents_withdraw
+      summary: Withdraw consent for a purpose
+      parameters:
+        - name: purpose
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Consent withdrawn
+
+  /api/compliance/audit:
+    get:
+      tags: [compliance]
+      operationId: compliance_audit
+      summary: DPDP audit trail
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        "200":
+          description: Audit trail
+
+  /api/compliance/pan:
+    get:
+      tags: [compliance]
+      operationId: compliance_pan_get
+      summary: Get masked PAN and set/unset status
+      responses:
+        "200":
+          description: Masked PAN status
+
+    put:
+      tags: [compliance]
+      operationId: compliance_pan_set
+      summary: Store encrypted PAN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pan]
+              properties:
+                pan:
+                  type: string
+                  pattern: "^[A-Z]{5}[0-9]{4}[A-Z]{1}$"
+      responses:
+        "200":
+          description: PAN stored
+
+    delete:
+      tags: [compliance]
+      operationId: compliance_pan_delete
+      summary: Erase PAN (Right to Erasure)
+      responses:
+        "200":
+          description: PAN erased
+
+  /api/compliance/export:
+    get:
+      tags: [compliance]
+      operationId: compliance_export
+      summary: JSON export of all user data (masked PAN)
+      responses:
+        "200":
+          description: User data export
+
+  /api/compliance/account:
+    delete:
+      tags: [compliance]
+      operationId: compliance_account_delete
+      summary: Right-to-erasure — soft delete user account
+      responses:
+        "200":
+          description: Account deleted
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Data Health
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/data-health/summary:
+    get:
+      tags: [data_health]
+      operationId: data_health_summary
+      summary: "Global stale-data banner (ok|warn|error) with issues list"
+      responses:
+        "200":
+          description: Health summary
+
+  /api/data-health/run-all:
+    post:
+      tags: [data_health]
+      operationId: data_health_run_all
+      summary: Kick off full pipeline refresh in background
+      responses:
+        "200":
+          description: Acknowledged
+
+  /api/data-health/run-status:
+    get:
+      tags: [data_health]
+      operationId: data_health_run_status
+      summary: Poll in-flight or last-completed pipeline run state
+      responses:
+        "200":
+          description: Run state
+
+  /api/data-health/resume:
+    post:
+      tags: [data_health]
+      operationId: data_health_resume
+      summary: Re-enable cron schedule (clear pause flag)
+      responses:
+        "200":
+          description: Resumed
+
+  /api/data-health/pause-status:
+    get:
+      tags: [data_health]
+      operationId: data_health_pause_status
+      summary: Read pipeline pause flag status
+      responses:
+        "200":
+          description: Pause status
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Gmail Integration
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/gmail/connect:
+    get:
+      tags: [gmail]
+      operationId: gmail_connect
+      summary: Start Gmail OAuth — returns auth_url
+      parameters:
+        - name: return_to
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: Auth URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  auth_url:
+                    type: string
+
+  /api/gmail/status:
+    get:
+      tags: [gmail]
+      operationId: gmail_status
+      summary: Gmail connection status and last import timestamp
+      responses:
+        "200":
+          description: Connection status
+
+  /api/gmail/history:
+    get:
+      tags: [gmail]
+      operationId: gmail_history
+      summary: All Gmail import history (50 max, desc)
+      responses:
+        "200":
+          description: Import history
+
+  /api/gmail/disconnect:
+    post:
+      tags: [gmail]
+      operationId: gmail_disconnect
+      summary: Disconnect Gmail
+      responses:
+        "200":
+          description: Disconnected
+
+  /api/gmail/auto-import/run:
+    post:
+      tags: [gmail]
+      operationId: gmail_auto_import_run
+      summary: Manually trigger daily auto-import sweep
+      responses:
+        "200":
+          description: Import result
+
+  /api/gmail/auto-import/toggle:
+    post:
+      tags: [gmail]
+      operationId: gmail_auto_import_toggle
+      summary: Enable or disable scheduled auto-import
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        "200":
+          description: Toggle result
+
+  /api/gmail/scan:
+    post:
+      tags: [gmail]
+      operationId: gmail_scan
+      summary: Scan Gmail for CAS emails (20 max)
+      responses:
+        "200":
+          description: Found CAS emails with already_imported flag
+
+  /api/gmail/import:
+    post:
+      tags: [gmail]
+      operationId: gmail_import
+      summary: Import a CAS email attachment (background task)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message_id, attachment_id, filename]
+              properties:
+                message_id:
+                  type: string
+                attachment_id:
+                  type: string
+                filename:
+                  type: string
+                password:
+                  type: string
+                  nullable: true
+                portfolio_id:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Import task started
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # File Upload (CAS PDF / CSV / Excel)
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/portfolio/upload:
+    post:
+      tags: [upload]
+      operationId: portfolio_upload
+      summary: Upload CAS PDF, CSV, or Excel for background parsing
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                password:
+                  type: string
+                  nullable: true
+                portfolio_id:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Upload task ID
+
+  /api/portfolio/upload-status/{task_id}:
+    get:
+      tags: [upload]
+      operationId: portfolio_upload_status
+      summary: Poll CAS processing task status
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task status
+
+  /api/portfolio/upload-latest-task:
+    get:
+      tags: [upload]
+      operationId: portfolio_upload_latest_task
+      summary: Get most recent upload task
+      responses:
+        "200":
+          description: Latest task
+
+  /api/portfolio/import-connect:
+    post:
+      tags: [upload]
+      operationId: portfolio_import_connect
+      summary: Ingest from CAS Connect widget (pre-parsed JSON)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: object
+                  description: Parsed CAS JSON from CAS Connect widget.
+      responses:
+        "200":
+          description: Import result
+
+  /api/portfolio/upload-history:
+    get:
+      tags: [upload]
+      operationId: portfolio_upload_history
+      summary: All file upload history (50 max, desc)
+      responses:
+        "200":
+          description: Upload history
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # CAS Invite (MFD + Public)
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/mfd/profiles/{profile_id}/cas-invite:
+    post:
+      tags: [cas_invite]
+      operationId: cas_invite_create
+      summary: Generate a shareable CAS invite link (24h TTL)
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ttl_hours:
+                  type: integer
+                  minimum: 1
+                  maximum: 168
+                  default: 24
+                client_name:
+                  type: string
+                  nullable: true
+                client_mobile:
+                  type: string
+                  nullable: true
+                client_email:
+                  type: string
+                  nullable: true
+                regenerate:
+                  type: boolean
+                  default: false
+      responses:
+        "200":
+          description: Invite with shareable link
+
+  /api/mfd/profiles/{profile_id}/cas-invites:
+    get:
+      tags: [cas_invite]
+      operationId: cas_invite_list
+      summary: List all CAS invites for a profile
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      responses:
+        "200":
+          description: Invite list
+
+  /api/mfd/profiles/{profile_id}/cas-invite/{token}/revoke:
+    post:
+      tags: [cas_invite]
+      operationId: cas_invite_revoke
+      summary: Revoke a CAS invite
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Revoke result
+
+  /api/mfd/cas-uploads:
+    get:
+      tags: [cas_invite]
+      operationId: mfd_cas_uploads_list
+      summary: Workspace-wide CAS upload audit list (200 max)
+      responses:
+        "200":
+          description: Upload list
+
+  /api/mfd/cas-uploads/{file_id}/download:
+    get:
+      tags: [cas_invite]
+      operationId: mfd_cas_uploads_download
+      summary: Download original CAS PDF
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: PDF file
+
+  /api/mfd/cas-uploads/{file_id}/reparse:
+    post:
+      tags: [cas_invite]
+      operationId: mfd_cas_uploads_reparse
+      summary: Selective re-parse with optional custom password
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Reparse result
+
+  /api/mfd/cas-uploads/{file_id}:
+    delete:
+      tags: [cas_invite]
+      operationId: mfd_cas_uploads_delete
+      summary: Remove a stored CAS PDF
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Delete result
+
+  /api/public/cas-invite/{token}:
+    get:
+      tags: [cas_invite]
+      operationId: public_cas_invite_get
+      summary: Get invite details — advisor name, expiry, status
+      description: No authentication required.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Invite details
+        "404":
+          description: Token not found or expired
+
+  /api/public/cas-invite/{token}/client-details:
+    post:
+      tags: [cas_invite]
+      operationId: public_cas_invite_client_details
+      summary: Capture client contact info and consents
+      description: No authentication required.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, mobile, email, pan, consent_cas_access]
+              properties:
+                name:
+                  type: string
+                mobile:
+                  type: string
+                email:
+                  type: string
+                pan:
+                  type: string
+                consent_cas_access:
+                  type: boolean
+                consent_gmail_access:
+                  type: boolean
+                consent_advisor_access:
+                  type: boolean
+      responses:
+        "200":
+          description: Consents recorded
+
+  /api/public/cas-invite/{token}/scan:
+    post:
+      tags: [cas_invite]
+      operationId: public_cas_invite_scan
+      summary: List CAS emails from Gmail (client flow)
+      description: No authentication required.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Found CAS emails
+
+  /api/public/cas-invite/{token}/import:
+    post:
+      tags: [cas_invite]
+      operationId: public_cas_invite_import
+      summary: Queue background CAS parse from Gmail
+      description: No authentication required.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [selections]
+              properties:
+                selections:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      message_id:
+                        type: string
+                      attachment_id:
+                        type: string
+                      filename:
+                        type: string
+                password:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Import queued
+
+  /api/public/cas-invite/{token}/status:
+    get:
+      tags: [cas_invite]
+      operationId: public_cas_invite_status
+      summary: Poll CAS processing status
+      description: No authentication required.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Processing status
+
+  /api/public/cas-invite/{token}/upload-pdf:
+    post:
+      tags: [cas_invite]
+      operationId: public_cas_invite_upload_pdf
+      summary: Direct PDF upload (client flow)
+      description: No authentication required.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                password:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Upload started
+
+  /api/public/cas-invite/{token}/gmail/connect:
+    get:
+      tags: [cas_invite]
+      operationId: public_cas_invite_gmail_connect
+      summary: Initiate Gmail OAuth for client (invite flow)
+      description: No authentication required.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to Gmail OAuth
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Admin — Whitelist, OCR, CAS Config, Secrets, Feature Flags
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/admin/whitelist:
+    get:
+      tags: [admin]
+      operationId: admin_whitelist_list
+      summary: List whitelisted users
+      responses:
+        "200":
+          description: Whitelist
+
+  /api/admin/whitelist/add:
+    post:
+      tags: [admin]
+      operationId: admin_whitelist_add
+      summary: Add user to whitelist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                is_admin:
+                  type: boolean
+                  default: false
+      responses:
+        "200":
+          description: Added
+
+  /api/admin/whitelist/bulk-upload:
+    post:
+      tags: [admin]
+      operationId: admin_whitelist_bulk
+      summary: Bulk add emails to whitelist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [emails]
+              properties:
+                emails:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Bulk upload result
+
+  /api/admin/whitelist/{email}:
+    delete:
+      tags: [admin]
+      operationId: admin_whitelist_delete
+      summary: Remove user from whitelist
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Removed
+
+    patch:
+      tags: [admin]
+      operationId: admin_whitelist_update
+      summary: Update whitelist entry (is_admin, status)
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_admin:
+                  type: boolean
+                status:
+                  type: string
+      responses:
+        "200":
+          description: Updated
+
+  /api/admin/stats:
+    get:
+      tags: [admin]
+      operationId: admin_stats
+      summary: Whitelist and usage stats
+      responses:
+        "200":
+          description: Stats
+
+  /api/admin/feature-flags:
+    get:
+      tags: [admin]
+      operationId: admin_feature_flags_list
+      summary: List all feature flags with modes and allowlists
+      responses:
+        "200":
+          description: Feature flags
+
+  /api/admin/feature-flags/{flag}:
+    put:
+      tags: [admin]
+      operationId: admin_feature_flags_update
+      summary: Update a feature flag
+      parameters:
+        - name: flag
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  enum: [off, on, allowlist]
+                allowlist:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Updated flag
+
+  /api/admin/feature-flags/{flag}/users:
+    post:
+      tags: [admin]
+      operationId: admin_feature_flags_add_user
+      summary: Add email to feature flag allowlist
+      parameters:
+        - name: flag
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+      responses:
+        "200":
+          description: Added
+
+  /api/admin/feature-flags/{flag}/users/{email}:
+    delete:
+      tags: [admin]
+      operationId: admin_feature_flags_remove_user
+      summary: Remove email from feature flag allowlist
+      parameters:
+        - name: flag
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Removed
+
+  /api/admin/secrets:
+    get:
+      tags: [admin]
+      operationId: admin_secrets_list
+      summary: List secrets (masked) for an environment
+      parameters:
+        - name: env
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: Secrets list (masked values)
+
+  /api/admin/secrets/{key}:
+    put:
+      tags: [admin]
+      operationId: admin_secrets_set
+      summary: Set a secret value
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: string
+      responses:
+        "200":
+          description: Secret set
+
+    delete:
+      tags: [admin]
+      operationId: admin_secrets_delete
+      summary: Delete a secret
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+
+  /api/admin/secrets/{key}/reveal:
+    get:
+      tags: [admin]
+      operationId: admin_secrets_reveal
+      summary: Return full plaintext secret value with audit log
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Plaintext value
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Admin — Users
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/admin/users:
+    get:
+      tags: [admin_users]
+      operationId: admin_users_list
+      summary: List users with stats
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            nullable: true
+          description: Email prefix search.
+      responses:
+        "200":
+          description: User list (500 max)
+
+    post:
+      tags: [admin_users]
+      operationId: admin_users_create
+      summary: Create a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                name:
+                  type: string
+                  nullable: true
+                is_admin:
+                  type: boolean
+                  default: false
+      responses:
+        "200":
+          description: Created user
+
+  /api/admin/users/{user_id}:
+    get:
+      tags: [admin_users]
+      operationId: admin_users_get
+      summary: User detail with recent plans and sessions
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User detail
+
+    patch:
+      tags: [admin_users]
+      operationId: admin_users_update
+      summary: Toggle user admin flag
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_admin:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated user
+
+  /api/admin/users/{user_id}/invalidate-sessions:
+    post:
+      tags: [admin_users]
+      operationId: admin_users_invalidate_sessions
+      summary: Force logout all devices for a user
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Sessions invalidated
+
+  /api/admin/users/{user_id}/reset-portfolio:
+    post:
+      tags: [admin_users]
+      operationId: admin_users_reset_portfolio
+      summary: Wipe portfolio data and reset onboarding flags
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Portfolio reset
+
+  /api/admin/users/{user_id}/restore-holdings:
+    post:
+      tags: [admin_users]
+      operationId: admin_users_restore_holdings
+      summary: Reload latest CAS snapshot into holdings
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Holdings restored
+
+  /api/admin/identity/duplicates:
+    get:
+      tags: [admin_users]
+      operationId: admin_identity_duplicates
+      summary: Surface email/mobile/PAN duplicates
+      responses:
+        "200":
+          description: Duplicate list
+
+  /api/admin/reset-onboarding:
+    post:
+      tags: [admin_users]
+      operationId: admin_reset_onboarding
+      summary: Reset onboarding for a user (dev/admin tool)
+      description: Requires `X-Admin-Key` header.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+      responses:
+        "200":
+          description: Onboarding reset
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Admin — Data Pipeline
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/admin/data-pipeline/status:
+    get:
+      tags: [admin_data_pipeline]
+      operationId: pipeline_status
+      summary: Pipeline status — job timestamps, next runs, cache stats
+      responses:
+        "200":
+          description: Pipeline status
+
+  /api/admin/data-pipeline/logs:
+    get:
+      tags: [admin_data_pipeline]
+      operationId: pipeline_logs
+      summary: Recent job-log rows
+      parameters:
+        - name: job
+          in: query
+          schema:
+            type: string
+            nullable: true
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 30
+      responses:
+        "200":
+          description: Job logs
+
+  /api/admin/data-pipeline/trigger/{job_name}:
+    post:
+      tags: [admin_data_pipeline]
+      operationId: pipeline_trigger
+      summary: Manually trigger a pipeline job
+      parameters:
+        - name: job_name
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [nav_cron, analytics_sweep, v3_rescore, nifty100_refresh, stale_refresh, drain_queue]
+      responses:
+        "200":
+          description: Job triggered
+
+  /api/admin/data-pipeline/cache/invalidate:
+    post:
+      tags: [admin_data_pipeline]
+      operationId: pipeline_cache_invalidate
+      summary: Nuke V3 Redis cache
+      responses:
+        "200":
+          description: Cache cleared
+
+  /api/admin/data-pipeline/progress/{job_name}/clear:
+    post:
+      tags: [admin_data_pipeline]
+      operationId: pipeline_progress_clear
+      summary: Clear a stuck progress record
+      parameters:
+        - name: job_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Progress cleared
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Admin — NIDP Diagnostics
+  # ══════════════════════════════════════════════════════════════════════════
+  /api/admin/nidp/diag:
+    get:
+      tags: [admin_nidp]
+      operationId: admin_nidp_diag
+      summary: NIDP connection diagnostics (Query API, app Postgres, gcloud)
+      responses:
+        "200":
+          description: Diagnostics result
+
+  /api/admin/nidp/jobs:
+    get:
+      tags: [admin_nidp]
+      operationId: admin_nidp_jobs_list
+      summary: List all NIDP ingesters (Cloud Run jobs) with status
+      responses:
+        "200":
+          description: Job list
+
+  /api/admin/nidp/jobs/{ingester}/execute:
+    post:
+      tags: [admin_nidp]
+      operationId: admin_nidp_jobs_execute
+      summary: Trigger a Cloud Run ingester job
+      parameters:
+        - name: ingester
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job triggered
+
+  /api/admin/nidp/jobs/{ingester}/runs:
+    get:
+      tags: [admin_nidp]
+      operationId: admin_nidp_jobs_runs
+      summary: Last N runs from job_log for an ingester
+      parameters:
+        - name: ingester
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Run history
+
+  /api/admin/nidp/jobs/{ingester}/logs:
+    get:
+      tags: [admin_nidp]
+      operationId: admin_nidp_jobs_logs
+      summary: Tail Cloud Run logs via gcloud for an ingester
+      parameters:
+        - name: ingester
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Log tail
+
+  /api/admin/nidp/dump:
+    post:
+      tags: [admin_nidp]
+      operationId: admin_nidp_dump
+      summary: Run diagnostic dump → private gist URL
+      responses:
+        "200":
+          description: Gist URL

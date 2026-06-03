@@ -1,0 +1,27 @@
+feed:
+  name: fii_dii
+  table: nidp.fii_dii
+  owner: nidp-platform
+
+sla:
+  freshness:
+    expected_arrival: "18:30 IST"
+    grace_period_minutes: 60
+    trading_days_only: true
+    warn_secs: 86400   # 24 h
+    error_secs: 172800 # 48 h
+  completeness:
+    min_rows: 1
+    max_rows: 1  # exactly one aggregate row per trading day
+
+severity_overrides:
+  flow_magnitude: P0   # > 50000 cr is implausible
+  duplicate_date: P0
+
+gates:
+  enabled_at: [gate1, gate3, gate7]
+
+notifications:
+  p0_channel: pagerduty:nidp-oncall
+  p1_channel: "slack:#nidp-dq"
+  p2_channel: log_only

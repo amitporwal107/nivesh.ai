@@ -40,18 +40,12 @@ API_SIZE_LIMIT = 1_800_000
 # Admin overrides for sandbox toggle (sandbox is a config flag, not a secret).
 _override_sandbox: Optional[bool] = None
 
-# ── Rotating key pool — sourced ONLY from Google Secret Manager ────────
-# Secret name is environment-scoped: `casparser-api-keys-{APP_ENV}` where
-# APP_ENV is `production` or `preview` (matches helpers.secrets convention).
-# Value is whitespace- or comma-separated CAS Parser keys.
-#
-# On 401/402/403 (or a body indicating expiry/quota) the active key is
-# dropped from the in-memory pool and a warning is logged so the operator
-# can publish a cleaned version via:
-#   echo -n "<remaining>" | gcloud secrets versions add casparser-api-keys-production \\
-#       --data-file=- --project=niveshdataintelligence
-# Auto-version-bump is intentionally NOT implemented — keeps the runtime
-# SA's IAM surface read-only (`roles/secretmanager.secretAccessor`).
+# ── Hardcoded fallback key (bypasses GSM when billing/access issues occur) ──
+# GSM is the authoritative source; this key is used when GSM returns empty.
+# Remove once GSM billing is restored.
+_HARDCODED_FALLBACK_KEY = "sk_1ce512b2acb259cd75d4e5c86f5a3091"
+
+# ── Rotating key pool ─────────────────────────────────────────────────────
 _pool_lock = threading.Lock()
 _pool_cache: Optional[List[str]] = None  # None = not yet loaded
 
@@ -64,7 +58,11 @@ def _secret_name() -> str:
 def _load_pool() -> List[str]:
     raw = _gsm.get(_secret_name()) or ""
     if not raw.strip():
-        return []
+        logger.warning(
+            "CAS Parser API key pool empty from GSM (%s) — using hardcoded fallback key",
+            _secret_name(),
+        )
+        return [_HARDCODED_FALLBACK_KEY]
     # then split each remaining line on any whitespace or comma so admins
     # can shape the GSM payload however is convenient.
     out: List[str] = []
@@ -257,6 +255,92 @@ def generate_access_token(expiry_minutes: int = 60) -> Optional[dict]:
 # HTTP calls
 # ══════════════════════════════════════════════════════════════
 
+def parse_cas_via_sdk_flow(content: bytes, password: str = "") -> Optional[dict]:
+    """Parse CAS PDF replicating the SDK's internal flow — no popup, no branding.
+
+    The @cas-parser/connect widget does:
+      1. POST /v1/token  (api_key → short-lived at_ token)
+      2. POST /v4/smart/parse  (multipart PDF + password, Authorization: Bearer at_xxx)
+
+    This function does the same two-step call entirely server-side so we get
+    the same parsing quality/size handling as the SDK without showing the
+    casparser.in widget to the user.
+
+    No artificial size gate — the SDK doesn't impose one either.
+    Returns raw casparser.in JSON dict or None on failure.
+    """
+    api_key = _active_key()
+    if not api_key:
+        logger.warning("CAS Parser: no API key available (GSM empty, fallback missing)")
+        return None
+
+    _use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
+    if _use_sb or api_key.startswith("sandbox-"):
+        logger.info("CAS Parser SDK flow: sandbox mode — returning None (no real parse)")
+        return None
+
+    # Step 1: mint a short-lived access token
+    try:
+        with httpx.Client(timeout=30) as client:
+            tok_resp = client.post(
+                f"{_base_url()}/v1/token",
+                headers={"x-api-key": api_key},
+                json={"expiry_minutes": 10},
+            )
+    except (httpx.HTTPError, httpx.TimeoutException) as e:
+        logger.warning("CAS Parser SDK flow: token mint failed: %s", e)
+        return None
+
+    if tok_resp.status_code >= 400:
+        logger.warning("CAS Parser SDK flow: token mint HTTP %s", tok_resp.status_code)
+        if _looks_like_dead_key(tok_resp.status_code, tok_resp.text[:200]):
+            _retire_pool_key(api_key)
+        return None
+
+    try:
+        at_token = tok_resp.json().get("access_token")
+    except Exception:
+        at_token = None
+
+    if not at_token:
+        logger.warning("CAS Parser SDK flow: no access_token in mint response")
+        return None
+
+    # Step 2: parse the PDF using the access token (same call the SDK widget makes)
+    try:
+        with httpx.Client(timeout=120) as client:
+            parse_resp = client.post(
+                f"{_base_url()}/v4/smart/parse",
+                headers={
+                    "Authorization": f"Bearer {at_token}",
+                    "accept": "application/json",
+                },
+                files={"file": ("cas.pdf", io.BytesIO(content), "application/pdf")},
+                data={"password": password or ""},
+            )
+    except (httpx.HTTPError, httpx.TimeoutException) as e:
+        logger.warning("CAS Parser SDK flow: parse request failed: %s", e)
+        return None
+
+    if parse_resp.status_code >= 400:
+        logger.warning("CAS Parser SDK flow: parse HTTP %s: %s",
+                       parse_resp.status_code, parse_resp.text[:200])
+        return None
+
+    try:
+        data = parse_resp.json()
+    except Exception:
+        logger.warning("CAS Parser SDK flow: non-JSON parse response")
+        return None
+
+    if isinstance(data, dict) and data.get("status") == "failed":
+        logger.warning("CAS Parser SDK flow: parse failed: %s", data.get("msg"))
+        return None
+
+    logger.info("CAS Parser SDK flow: parsed successfully (%.1f MB)", len(content) / 1e6)
+    return data
+
+
 def parse_cas_pdf(content: bytes, password: str = "", endpoint: str = "/v4/smart/parse") -> Optional[dict]:
     """
     Parse CAS PDF via CAS Parser API. Returns raw API JSON dict or None on failure.
@@ -447,10 +531,11 @@ def _holding_from_demat_mf(row: dict) -> Optional[Dict]:
     isin = (row.get("isin") or "").strip()
     name = (row.get("scheme_name") or row.get("name") or "").strip()
     units = _num(row.get("units") or row.get("quantity"))
-    nav = _num(row.get("nav") or row.get("price"))
+    avg_cost_nav = _num(row.get("avg_cost") or row.get("average_cost") or row.get("nav") or row.get("price"))
     value = _num(row.get("value") or row.get("market_value"))
-    if nav == 0 and units > 0 and value > 0:
-        nav = round(value / units, 4)
+    # current_price = current market NAV = market_value / units (authoritative)
+    # buy_price     = avg cost NAV (cost basis)
+    current_nav = round(value / units, 4) if units > 0 and value > 0 else avg_cost_nav
     if not isin or not name:
         return None
     plan, option = _classify_mf(name)
@@ -461,8 +546,8 @@ def _holding_from_demat_mf(row: dict) -> Optional[Dict]:
         "ticker": isin,
         "asset_type": "etf" if is_etf else "mutual_fund",
         "quantity": round(units, 4),
-        "buy_price": round(nav, 4),
-        "current_price": round(nav, 4),
+        "buy_price": round(avg_cost_nav, 4),
+        "current_price": round(current_nav, 4),
         "sector": _classify_sector(name),
         "plan": plan,
         "option": option,
@@ -511,8 +596,9 @@ def _holding_from_mf_scheme(row: dict) -> Optional[Dict]:
     avg_cost = _num(row.get("avg_cost") or row.get("average_cost"))
     if avg_cost == 0 and total_cost > 0 and units > 0:
         avg_cost = round(total_cost / units, 4)
-    if nav == 0 and units > 0 and value > 0:
-        nav = round(value / units, 4)
+    # current_price = current market NAV derived from market value (authoritative).
+    # `nav` from casparser may be the average cost NAV, not the current NAV.
+    current_nav = round(value / units, 4) if units > 0 and value > 0 else nav
     if not isin or not name:
         return None
     plan, option = _classify_mf(name)
@@ -524,7 +610,7 @@ def _holding_from_mf_scheme(row: dict) -> Optional[Dict]:
         "asset_type": "etf" if is_etf else "mutual_fund",
         "quantity": round(units, 4),
         "buy_price": round(avg_cost or nav, 4),
-        "current_price": round(nav, 4),
+        "current_price": round(current_nav, 4),
         "sector": _classify_sector(name),
         "plan": plan,
         "option": option,
@@ -564,6 +650,24 @@ def map_api_response_to_holdings(data: dict) -> List[Dict]:
         for g in hold_section.get("government_securities") or []:
             h = _holding_from_bond(g, asset_type="gold")  # SGBs come here per NSDL/CDSL
             if h:
+                holdings.append(h)
+
+        # sovereign_gold_bonds — output key from nivesh_cas_normalizer.
+        # Field names differ from government_securities: num_units / market_price_per_unit_inr /
+        # value_inr / face_value_per_unit_inr.  Map to the shape _holding_from_bond expects.
+        for g in hold_section.get("sovereign_gold_bonds") or []:
+            mapped = {
+                "isin":   g.get("isin"),
+                "issuer": g.get("series") or g.get("issuer") or "Sovereign Gold Bond",
+                "units":  g.get("num_units"),
+                "price":  g.get("market_price_per_unit_inr"),
+                "value":  g.get("value_inr"),
+            }
+            h = _holding_from_bond(mapped, asset_type="gold")
+            if h:
+                # Use RBI issue price as cost basis when available
+                if g.get("face_value_per_unit_inr"):
+                    h["buy_price"] = round(float(g["face_value_per_unit_inr"]), 4)
                 holdings.append(h)
 
         for a in hold_section.get("aifs") or []:
@@ -610,6 +714,64 @@ def map_api_response_to_holdings(data: dict) -> List[Dict]:
 
     logger.info("CAS API → %s holdings mapped", len(holdings))
     return holdings
+
+
+def extract_statement_period(data: dict) -> Optional[str]:
+    """Return statement end-date as 'MMM/YYYY' from a raw casparser.in response.
+
+    Probes all known field paths — the API layout varies across CAS types
+    (NSDL / CDSL / CAMS / KFintech). Returns None if nothing is found.
+    """
+    if not data:
+        return None
+
+    def _dig(src: dict, *keys: str) -> Optional[str]:
+        cur = src
+        for k in keys:
+            if not isinstance(cur, dict):
+                return None
+            cur = cur.get(k)
+        return cur if isinstance(cur, str) else None
+
+    meta    = data.get("meta") or {}
+    summary = data.get("summary") or {}
+
+    candidates = [
+        _dig(meta,    "statement_period", "to"),
+        _dig(summary, "statement_period", "to"),
+        _dig(data,    "statement_period", "to"),
+        _dig(meta,    "to_date"),
+        _dig(meta,    "period_to"),
+        _dig(meta,    "statement_to"),
+        _dig(data,    "period"),  # some SDK versions hoist "Feb/2026" here
+    ]
+
+    date_fmts = ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d-%b-%Y", "%d %b %Y", "%d-%B-%Y")
+    from datetime import datetime as _dt
+    for raw in candidates:
+        if not raw:
+            continue
+        if len(raw) <= 8 and "/" in raw:  # already "Feb/2026"
+            return raw
+        for fmt in date_fmts:
+            try:
+                return _dt.strptime(raw.strip(), fmt).strftime("%b/%Y")
+            except ValueError:
+                continue
+    return None
+
+
+def parse_cas_via_sdk_flow_with_data(content: bytes, password: str = "") -> tuple:
+    """SDK-flow wrapper returning (holdings, raw_data, normalized) — same
+    signature as parse_cas_via_api_with_data so callers can swap them.
+    Uses parse_cas_via_sdk_flow (access-token path, no size gate).
+    """
+    data = parse_cas_via_sdk_flow(content, password)
+    if not data:
+        return [], None, None
+    holdings = map_api_response_to_holdings(data)
+    normalized = normalize_api_response_for_transactions(data)
+    return holdings, data, normalized
 
 
 def parse_cas_via_api(content: bytes, password: str = "") -> List[Dict]:

@@ -1,0 +1,928 @@
+openapi: 3.1.0
+
+info:
+  title: NIDP Query API
+  version: "1.0"
+  description: |
+    **NIDP Query API** — internal operational API for the Nivesh Intelligence Data Platform.
+
+    Used by the Nivesh backend, admin console, and NIDP orchestration scripts to:
+    - Inspect the internal data catalog (table inventory, row counts, date coverage)
+    - Monitor ingester health and last-run status
+    - Trigger individual ingesters on-demand
+    - Tail VM log files
+    - Access raw archive files
+    - Review data quality certification, consistency runs, and exception queues
+    - Access validation findings per ingester
+
+    ## Authentication
+    All endpoints (except `/health`) require:
+    ```
+    Authorization: Bearer <NIDP_QUERY_API_TOKEN>
+    ```
+    The token comes from GCP Secret Manager and is loaded at startup.
+    The service fails closed — if the secret is unavailable, all authenticated
+    endpoints return 503.
+
+    ## Base URL
+    `https://data.niveshcopilot.com/query`
+
+    ## Internal-only
+    This API is not intended for external developers. Use the DaaS API
+    (`https://data.niveshcopilot.com/daas`) for external integrations.
+
+servers:
+  - url: https://data.niveshcopilot.com/query
+    description: Production
+
+tags:
+  - name: system
+    description: Service health
+  - name: catalog
+    description: Internal table inventory — row counts and date coverage
+  - name: feeds
+    description: Ingester health monitoring and on-demand job execution
+  - name: validation
+    description: Per-ingester validation run results and findings
+  - name: quality
+    description: Data quality certification, consistency runs, and exception queue
+  - name: vm-ops
+    description: VM log tailing and raw ingester invocation
+  - name: archive
+    description: Raw feed file listing and download
+
+security:
+  - BearerToken: []
+
+components:
+  securitySchemes:
+    BearerToken:
+      type: http
+      scheme: bearer
+      description: "Single shared internal token (NIDP_QUERY_API_TOKEN from Secret Manager)."
+
+  parameters:
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+    ingester_path:
+      name: ingester
+      in: path
+      required: true
+      schema: { type: string, example: bhavcopy }
+      description: >
+        Ingester service name. Available names:
+        bhavcopy, index_close, fii_dii, bulk_deals, block_deals, delivery,
+        corporate_actions, rbi_yields, fred_macro, fno_bhavcopy, nse_financials,
+        nse_shareholding, nse_equity_master, nse_calendar, index_constituents,
+        price_adjuster, snapshot_builder, corporate_announcements_nse,
+        corporate_announcements_bse, announcement_classifier, document_parser,
+        amfi_nav, amfi_circulars, mf_disclosure_snapshot, mf_holdings,
+        event_calendar, event_day_poller, d1_prep, intelligence, quality_gate,
+        intelligence_layer, portfolio_intelligence_sync.
+
+  schemas:
+    FeedStatus:
+      type: object
+      properties:
+        ingester:              { type: string }
+        source_class:          { type: string }
+        expected_freq:         { type: string, enum: [daily, weekday, monthly, weekly, intraday] }
+        schedule_cron:         { type: string, nullable: true }
+        confidence:            { type: number, description: "0–1 freshness confidence score." }
+        is_primary:            { type: boolean }
+        last_run_status:       { type: string, enum: [success, partial, failure, pending, unknown] }
+        consecutive_failures:  { type: integer }
+        last_run_at:           { type: string, format: date-time, nullable: true }
+        last_success_at:       { type: string, format: date-time, nullable: true }
+        last_failure_at:       { type: string, format: date-time, nullable: true }
+        last_target_date:      { type: string, format: date, nullable: true }
+        last_rows_inserted:    { type: integer, nullable: true }
+        last_run_duration_ms:  { type: integer, nullable: true }
+        success_count:         { type: integer }
+        failure_count:         { type: integer }
+        partial_count:         { type: integer }
+        last_error_message:    { type: string, nullable: true }
+        last_7_days:
+          type: array
+          items:
+            type: object
+            properties:
+              date:      { type: string, format: date }
+              status:    { type: string }
+              run_count: { type: integer }
+        cloud_logs_url: { type: string, nullable: true }
+
+    Dataset:
+      type: object
+      properties:
+        table:     { type: string }
+        date_col:  { type: string }
+        domain:    { type: string }
+        rows:      { type: integer }
+        first_at:  { type: string, format: date, nullable: true }
+        last_at:   { type: string, format: date, nullable: true }
+        source:    { type: string }
+        stores:    { type: string, description: "Storage backend (e.g. timescaledb, mongo)." }
+        use:       { type: string, description: "Brief description of dataset purpose." }
+
+    ValidationRun:
+      type: object
+      properties:
+        ingester:       { type: string }
+        target_date:    { type: string, format: date }
+        status:         { type: string, enum: [passed, failed, partial, skipped] }
+        rules_run:      { type: integer }
+        rules_failed:   { type: integer }
+        findings_count: { type: integer }
+        started_at:     { type: string, format: date-time }
+
+    QualityScore:
+      type: object
+      properties:
+        target_date:      { type: string, format: date }
+        domain:           { type: string, enum: [mf, equity, all] }
+        overall_score:    { type: number, description: "0–100 composite data quality score." }
+        accuracy:         { type: number }
+        consistency:      { type: number }
+        completeness:     { type: number }
+        freshness:        { type: number }
+        auditability:     { type: number }
+        confidence:       { type: number }
+        certification:    { type: string, enum: [GOLD, SILVER, BRONZE, UNVERIFIED, BLOCKED] }
+        publish_decision: { type: string, enum: [PUBLISH, REVIEW, HOLD, BLOCKED] }
+        computed_at:      { type: string, format: date-time }
+
+    ConsistencyRun:
+      type: object
+      properties:
+        target_date:    { type: string, format: date }
+        domain:         { type: string }
+        status:         { type: string, enum: [passed, failed, partial] }
+        rules_run:      { type: integer }
+        rules_failed:   { type: integer }
+        findings_count: { type: integer }
+        has_block:      { type: boolean }
+        started_at:     { type: string, format: date-time }
+
+    ConsistencyFinding:
+      type: object
+      properties:
+        finding_id:        { type: string }
+        rule_id:           { type: string }
+        rule_name:         { type: string }
+        severity:          { type: string, enum: [INFO, WARNING, ERROR, CRITICAL] }
+        description:       { type: string }
+        affected_row_count: { type: integer, nullable: true }
+        evidence:          { type: object, nullable: true }
+
+    ExceptionQueueItem:
+      type: object
+      properties:
+        queue_id:    { type: string }
+        verdict_id:  { type: string }
+        item_type:   { type: string }
+        severity:    { type: string }
+        created_at:  { type: string, format: date-time }
+        reviewed_at: { type: string, format: date-time, nullable: true }
+        resolved_by: { type: string, nullable: true }
+
+    PublishGate:
+      type: object
+      properties:
+        date:    { type: string, format: date }
+        domain:  { type: string }
+        verdict: { type: string, enum: [PASS, REVIEW, FAIL] }
+        reason:  { type: string }
+        reviewable_items:
+          type: array
+          items:
+            type: object
+            properties:
+              item_id:     { type: string }
+              type:        { type: string }
+              severity:    { type: string }
+              description: { type: string }
+
+    ArchiveDate:
+      type: object
+      properties:
+        target_date:  { type: string, format: date }
+        file_count:   { type: integer }
+        total_bytes:  { type: integer }
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              filename:   { type: string }
+              size_bytes: { type: integer }
+              mtime:      { type: string, format: date-time }
+
+    Error:
+      type: object
+      properties:
+        error:   { type: string }
+        detail:  { type: string, nullable: true }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: unauthorized
+            detail: Bearer token required
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+    ServiceUnavailable:
+      description: Service or dependency unavailable (e.g. token not loaded)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+# ── PATHS ─────────────────────────────────────────────────────────────────────
+
+paths:
+
+  # ── SYSTEM ──────────────────────────────────────────────────────────────────
+
+  /health:
+    get:
+      tags: [system]
+      summary: Service health
+      security: []
+      operationId: queryHealth
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:            { type: boolean }
+                  db_ok:         { type: boolean }
+                  db_latency_ms: { type: number }
+                  error:         { type: string, nullable: true }
+              example:
+                ok: true
+                db_ok: true
+                db_latency_ms: 2.1
+
+  # ── CATALOG ─────────────────────────────────────────────────────────────────
+
+  /catalog:
+    get:
+      tags: [catalog]
+      summary: Internal data catalog — all managed tables with row counts
+      operationId: getCatalog
+      description: |
+        Returns an inventory of every managed table in the NIDP data platform,
+        grouped by domain. Includes row counts, date coverage, storage backend,
+        and ingester source.
+
+        **Domains covered:** market, flows, corporate_actions, reference,
+        fundamentals, macro, disclosure, derived, mutual_funds.
+      responses:
+        "200":
+          description: Catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  as_of:
+                    type: string
+                    format: date-time
+                  totals:
+                    type: object
+                    properties:
+                      datasets: { type: integer }
+                  by_domain:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        domain:   { type: string }
+                        datasets: { type: integer }
+                        rows:     { type: integer }
+                  datasets:
+                    type: array
+                    items: { $ref: '#/components/schemas/Dataset' }
+              example:
+                as_of: "2026-05-28T08:00:00Z"
+                totals:
+                  datasets: 32
+                by_domain:
+                  - domain: market
+                    datasets: 5
+                    rows: 12500000
+                datasets:
+                  - table: prices_eod
+                    date_col: as_of_date
+                    domain: market
+                    rows: 8200000
+                    first_at: "2020-01-02"
+                    last_at: "2026-05-27"
+                    source: bhavcopy
+                    stores: timescaledb
+                    use: Daily OHLCV for all NSE equity series
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── FEEDS ────────────────────────────────────────────────────────────────────
+
+  /feeds:
+    get:
+      tags: [feeds]
+      summary: Health status of all ingesters
+      operationId: listFeeds
+      description: |
+        Returns the current health status of every registered ingester, including:
+        - Last run timestamp, status, and row count
+        - Consecutive failure counter
+        - 7-day run history (per-day status)
+        - GCP Cloud Logging deep-link for debugging
+
+        A `confidence` score (0–1) is computed per ingester based on staleness
+        relative to the expected ingestion frequency.
+      responses:
+        "200":
+          description: Feed statuses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  feeds:
+                    type: array
+                    items: { $ref: '#/components/schemas/FeedStatus' }
+                  error: { type: string, nullable: true }
+              example:
+                feeds:
+                  - ingester: bhavcopy
+                    source_class: NseBhavcopyScraper
+                    expected_freq: weekday
+                    schedule_cron: "0 19 * * 1-5"
+                    confidence: 0.98
+                    is_primary: true
+                    last_run_status: success
+                    consecutive_failures: 0
+                    last_run_at: "2026-05-27T13:35:00Z"
+                    last_success_at: "2026-05-27T13:35:00Z"
+                    last_failure_at: null
+                    last_target_date: "2026-05-27"
+                    last_rows_inserted: 1842
+                    last_run_duration_ms: 4200
+                    success_count: 312
+                    failure_count: 2
+                    partial_count: 1
+                    last_error_message: null
+                    last_7_days:
+                      - date: "2026-05-27"
+                        status: success
+                        run_count: 1
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /feeds/{ingester}/logs:
+    get:
+      tags: [feeds]
+      summary: Tail the VM log file for an ingester
+      operationId: getFeedLogs
+      parameters:
+        - $ref: '#/components/parameters/ingester_path'
+        - name: lines
+          in: query
+          schema: { type: integer, minimum: 10, maximum: 2000, default: 200 }
+          description: Number of log lines to return (tail).
+      responses:
+        "200":
+          description: Log tail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ingester:    { type: string }
+                  log_path:    { type: string }
+                  lines:       { type: array, items: { type: string } }
+                  lines_count: { type: integer }
+                  error:       { type: string, nullable: true }
+              example:
+                ingester: bhavcopy
+                log_path: /opt/nidp/logs/bhavcopy.log
+                lines:
+                  - "2026-05-27 13:35:01 INFO  Fetching bhavcopy for 2026-05-27"
+                  - "2026-05-27 13:35:03 INFO  Inserted 1842 rows"
+                lines_count: 2
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /feeds/{ingester}/log_path:
+    get:
+      tags: [feeds]
+      summary: Resolved log file path and existence check
+      operationId: getFeedLogPath
+      parameters:
+        - $ref: '#/components/parameters/ingester_path'
+      responses:
+        "200":
+          description: Log path info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ingester:   { type: string }
+                  log_path:   { type: string }
+                  exists:     { type: boolean }
+                  size_bytes: { type: integer, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /feeds/{ingester}/execute:
+    post:
+      tags: [feeds]
+      summary: Execute an ingester on-demand
+      operationId: executeFeed
+      description: |
+        Triggers a single ingester run for the given target date. Runs asynchronously
+        on the VM via the ingester runner script. Returns immediately with a job handle.
+
+        > **Note:** This spawns a subprocess on the NIDP VM. Use with care — duplicate
+        > runs on the same target_date are idempotent but will cause extra DB writes.
+      parameters:
+        - $ref: '#/components/parameters/ingester_path'
+        - name: target_date
+          in: query
+          schema: { type: string, format: date }
+          description: Target date to ingest. Defaults to today (UTC).
+      responses:
+        "200":
+          description: Job started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:          { type: boolean }
+                  ingester:    { type: string }
+                  target_date: { type: string, format: date }
+                  status:      { type: string, enum: [started, already_running, error] }
+                  runner:      { type: string }
+                  hint:        { type: string }
+              example:
+                ok: true
+                ingester: bhavcopy
+                target_date: "2026-05-28"
+                status: started
+                runner: /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh
+                hint: "Tail logs at /feeds/bhavcopy/logs to monitor progress."
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  # ── VALIDATION ──────────────────────────────────────────────────────────────
+
+  /validation:
+    get:
+      tags: [validation]
+      summary: Recent per-ingester validation run results
+      operationId: listValidation
+      parameters:
+        - $ref: '#/components/parameters/limit'
+      responses:
+        "200":
+          description: Validation results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  validation:
+                    type: array
+                    items: { $ref: '#/components/schemas/ValidationRun' }
+                  error: { type: string, nullable: true }
+              example:
+                validation:
+                  - ingester: bhavcopy
+                    target_date: "2026-05-27"
+                    status: passed
+                    rules_run: 12
+                    rules_failed: 0
+                    findings_count: 0
+                    started_at: "2026-05-27T13:36:00Z"
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── QUALITY ─────────────────────────────────────────────────────────────────
+
+  /quality:
+    get:
+      tags: [quality]
+      summary: Data quality scores (accuracy, consistency, completeness, freshness)
+      operationId: listQuality
+      description: |
+        Returns the rolling data quality assessment. Each row covers a
+        `(target_date, domain)` pair and includes five pillar scores plus an
+        overall composite, certification tier, and publish decision.
+
+        Certification tiers:
+        - **GOLD** — overall ≥ 90, no blocking findings
+        - **SILVER** — overall 75–89
+        - **BRONZE** — overall 60–74
+        - **UNVERIFIED** — quality gate not yet run
+        - **BLOCKED** — blocking finding present; data must not be published
+
+        Publish decisions:
+        - **PUBLISH** — safe to expose via DaaS
+        - **REVIEW** — reviewable exceptions present
+        - **HOLD** — manual review required
+        - **BLOCKED** — must not be published
+      parameters:
+        - name: domain
+          in: query
+          schema: { type: string, enum: [mf, equity, all] }
+        - $ref: '#/components/parameters/limit'
+      responses:
+        "200":
+          description: Quality scores
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quality:
+                    type: array
+                    items: { $ref: '#/components/schemas/QualityScore' }
+                  error: { type: string, nullable: true }
+              example:
+                quality:
+                  - target_date: "2026-05-27"
+                    domain: equity
+                    overall_score: 94.2
+                    accuracy: 96.1
+                    consistency: 93.8
+                    completeness: 97.0
+                    freshness: 99.5
+                    auditability: 85.0
+                    confidence: 0.97
+                    certification: GOLD
+                    publish_decision: PUBLISH
+                    computed_at: "2026-05-27T22:45:00Z"
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /certification:
+    get:
+      tags: [quality]
+      summary: Certification history (GOLD/SILVER/BRONZE tiers only)
+      operationId: listCertification
+      parameters:
+        - name: domain
+          in: query
+          schema: { type: string, enum: [mf, equity, all] }
+        - $ref: '#/components/parameters/limit'
+      responses:
+        "200":
+          description: Certification history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  certified:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        target_date:   { type: string, format: date }
+                        domain:        { type: string }
+                        overall_score: { type: number }
+                        certification: { type: string }
+                        certified_at:  { type: string, format: date-time }
+                  error: { type: string, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /consistency:
+    get:
+      tags: [quality]
+      summary: Cross-source consistency run results
+      operationId: listConsistency
+      description: |
+        Returns results of cross-source consistency checks run by the quality_gate
+        ingester. Each row covers a `(target_date, domain)` pair and reports how
+        many consistency rules passed or failed, and whether any blocking finding
+        (`has_block: true`) was raised.
+      parameters:
+        - name: domain
+          in: query
+          schema: { type: string, enum: [mf, equity, all] }
+        - $ref: '#/components/parameters/limit'
+      responses:
+        "200":
+          description: Consistency run results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  consistency:
+                    type: array
+                    items: { $ref: '#/components/schemas/ConsistencyRun' }
+                  error: { type: string, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /consistency/findings:
+    get:
+      tags: [quality]
+      summary: Individual findings from a consistency run
+      operationId: getConsistencyFindings
+      parameters:
+        - name: run_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+          description: The consistency run ID (from a `/consistency` row).
+        - $ref: '#/components/parameters/limit'
+      responses:
+        "200":
+          description: Findings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  findings:
+                    type: array
+                    items: { $ref: '#/components/schemas/ConsistencyFinding' }
+                  error: { type: string, nullable: true }
+              example:
+                findings:
+                  - finding_id: "f-001"
+                    rule_id: "equity.price.staleness"
+                    rule_name: EOD price freshness
+                    severity: WARNING
+                    description: "3 symbols missing bhavcopy for 2026-05-27"
+                    affected_row_count: 3
+                    evidence:
+                      symbols: [ABCD, EFGH, IJKL]
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /publish-gate:
+    get:
+      tags: [quality]
+      summary: Publish-gate verdict for a date and domain
+      operationId: getPublishGate
+      description: |
+        Returns the go/no-go publish decision for a `(date, domain)` pair.
+        If `verdict` is `REVIEW`, the `reviewable_items` list contains the specific
+        findings that need human sign-off before publishing.
+      parameters:
+        - name: date
+          in: query
+          schema: { type: string, format: date }
+        - name: domain
+          in: query
+          schema: { type: string, enum: [mf, equity, all] }
+      responses:
+        "200":
+          description: Publish-gate verdict
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublishGate' }
+              example:
+                date: "2026-05-27"
+                domain: equity
+                verdict: PASS
+                reason: All consistency and freshness checks passed.
+                reviewable_items: []
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /exception-queue:
+    get:
+      tags: [quality]
+      summary: Exception queue — items pending manual review
+      operationId: listExceptionQueue
+      description: |
+        Returns items that need manual review before the publish-gate can clear.
+        Each item corresponds to a quality finding that did not auto-resolve.
+      parameters:
+        - $ref: '#/components/parameters/limit'
+      responses:
+        "200":
+          description: Exception queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  queue:
+                    type: array
+                    items: { $ref: '#/components/schemas/ExceptionQueueItem' }
+                  error: { type: string, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /exception-queue/{queue_id}:
+    patch:
+      tags: [quality]
+      summary: Resolve an exception queue item
+      operationId: resolveExceptionQueueItem
+      description: |
+        Approves, rejects, or overrides an exception queue item. After resolution
+        the publish-gate re-evaluates the affected date/domain.
+
+        **Resolution options:**
+        - `APPROVED` — finding accepted; does not block publish
+        - `REJECTED` — finding is real; blocks publish until fixed
+        - `OVERRIDE` — operator overrides gate; data published with known issue logged
+      parameters:
+        - name: queue_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resolution]
+              properties:
+                resolution:
+                  type: string
+                  enum: [APPROVED, REJECTED, OVERRIDE]
+                notes:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Item resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:         { type: boolean }
+                  queue_id:   { type: string }
+                  resolution: { type: string }
+                  updated_at: { type: string, format: date-time }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /quarantine:
+    get:
+      tags: [quality]
+      summary: Quarantined date/domain pairs (data not published)
+      operationId: listQuarantine
+      description: |
+        Lists date/domain pairs that have been quarantined — their data is
+        withheld from the DaaS API until the underlying issue is resolved.
+      parameters:
+        - $ref: '#/components/parameters/limit'
+      responses:
+        "200":
+          description: Quarantine list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  quarantined:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        target_date:       { type: string, format: date }
+                        domain:            { type: string }
+                        reason:            { type: string }
+                        quarantine_reason: { type: string }
+                        created_at:        { type: string, format: date-time }
+                        resolved_at:       { type: string, format: date-time, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── VM OPS ──────────────────────────────────────────────────────────────────
+
+  /feeds/{ingester}/logs:
+    get:
+      tags: [vm-ops]
+      summary: Tail VM log file for an ingester
+      operationId: getVmLogs
+      parameters:
+        - $ref: '#/components/parameters/ingester_path'
+        - name: lines
+          in: query
+          schema: { type: integer, minimum: 10, maximum: 2000, default: 200 }
+      responses:
+        "200":
+          description: Log tail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ingester:    { type: string }
+                  log_path:    { type: string }
+                  lines:       { type: array, items: { type: string } }
+                  lines_count: { type: integer }
+                  error:       { type: string, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── ARCHIVE ──────────────────────────────────────────────────────────────────
+
+  /archive/{ingester}:
+    get:
+      tags: [archive]
+      summary: List raw archive files for an ingester
+      operationId: listArchive
+      description: |
+        Returns the raw feed file inventory for a given ingester — grouped by
+        target date. Each file entry includes the filename, size, and modification
+        time. Files are stored at `/opt/nidp/archive/{ingester}/{YYYY-MM-DD}/`.
+      parameters:
+        - $ref: '#/components/parameters/ingester_path'
+        - name: target_date
+          in: query
+          schema: { type: string, format: date }
+          description: Filter to a single target date.
+        - name: limit_dates
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 90, default: 30 }
+          description: Max number of distinct dates to return.
+      responses:
+        "200":
+          description: Archive inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ingester:      { type: string }
+                  archive_root:  { type: string }
+                  exists:        { type: boolean }
+                  dates:
+                    type: array
+                    items: { $ref: '#/components/schemas/ArchiveDate' }
+              example:
+                ingester: bhavcopy
+                archive_root: /opt/nidp/archive/bhavcopy
+                exists: true
+                dates:
+                  - target_date: "2026-05-27"
+                    file_count: 1
+                    total_bytes: 2048512
+                    files:
+                      - filename: bhavcopy_2026-05-27.csv.gz
+                        size_bytes: 2048512
+                        mtime: "2026-05-27T13:35:12Z"
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /archive/{ingester}/{target_date}/{filename}:
+    get:
+      tags: [archive]
+      summary: Download a raw feed archive file
+      operationId: downloadArchiveFile
+      description: |
+        Downloads a specific raw file from the ingester archive. Returns the file
+        as an octet-stream. Files are typically gzip-compressed CSV or JSON.
+      parameters:
+        - $ref: '#/components/parameters/ingester_path'
+        - name: target_date
+          in: path
+          required: true
+          schema: { type: string, format: date }
+        - name: filename
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: File download
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+              example: "attachment; filename=\"bhavcopy_2026-05-27.csv.gz\""
+            Content-Type:
+              schema: { type: string }
+              example: "application/octet-stream"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }

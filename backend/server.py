@@ -21,7 +21,7 @@ except subprocess.CalledProcessError:
     subprocess.run(["apt-get", "update", "-qq"], capture_output=True)
     subprocess.run(["apt-get", "install", "-y", "poppler-utils"], capture_output=True)
 
-from middleware import RateLimitMiddleware, SecurityHeadersMiddleware, RequestLoggingMiddleware, validate_env
+from middleware import RateLimitMiddleware, SecurityHeadersMiddleware, RequestLoggingMiddleware, BodySizeLimitMiddleware, validate_env
 
 # Validate env on startup
 validate_env()
@@ -75,14 +75,40 @@ from routes.strategy_builder import router as strategy_builder_router  # Strateg
 from routes.feeds import router as feeds_router  # Generic feed-subscription RAG (S4/S5 corpus + structured)
 from routes.broker_connect import router as broker_connect_router  # Secure Portfolio Connect: read-only broker holdings via OpenAlgo
 from routes.broker_native import router as broker_native_router  # Native broker connect (no OpenAlgo) — direct broker OAuth + SDK adapters
+from routes.work import router as work_router                    # Work issues dashboard (/api/work/) — error triage + diagnostics
 from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reverse-proxy for the Nivesh-hosted OpenAlgo dashboard
 from routes.market_events import router as market_events_router  # Market Event Intelligence — corporate events, AI signals, breakout feed
 from routes.portfolio_exposure import router as portfolio_exposure_router  # Diversification & Concentration analytics — AMC / Sector / Company exposure
 from routes.portfolio_risk_analytics import router as portfolio_risk_analytics_router  # V3 risk analytics — beta/sharpe/volatility from DAAS
+from routes.portfolio_composition import router as portfolio_composition_router  # v5 Composition Explorer — asset_class/sector/fund/group breakdown
+from routes.portfolio_tax import router as portfolio_tax_router  # v4 Tax dashboard (GET /api/portfolio/tax-summary) per api-changes.md B.12
+from routes.funds import router as funds_router  # v4 user-scope fund v3-score (GET /api/funds/{isin}/v3-score) per api-changes.md C.4
+from routes.dashboards import router as dashboards_router  # v4 dashboard composite (GET /api/dashboards/{type}) per api-changes.md B.1
+from routes.recommendations import router as recommendations_router  # v4 stock+fund recommendations (GET /api/recommendations/*) per api-changes.md B.13, B.14
+from routes.advisor_v4 import (                    # v4 advisor aggregates per api-changes.md B.2, B.3, B.5, B.6, B.7, B.8, B.9
+    advisor_router as advisor_v4_router,
+    mfd_v4_router,
+    intel_router as intel_v4_router,
+)
 from routes.admin_nidp_stock_primitives import router as admin_nidp_stock_primitives_router  # NIDP stock primitives completeness check
 from routes.copilot_agents import router as copilot_agents_router  # Copilot agent + model picker (Intelligence Layer Phase A/B)
 from routes.copilot_widgets import router as copilot_widgets_router  # Copilot embedded-widget producers (Fund card, Market brief, ...)
 from routes.admin_swagger import router as admin_swagger_router  # Admin-only Swagger UI (/api/admin/swagger)
+from routes.grafana_alerts import router as grafana_alerts_router  # Grafana webhook receiver + active alerts query
+
+# ── CAS ingestion module ──────────────────────────────────────────────
+# Used to be a standalone FastAPI service in its own container; now mounted
+# in-process on this app. Same DB, same endpoints (/api/cas/sdk-callback,
+# /api/casparser/token, /api/portfolio/me, /api/portfolio/snapshots,
+# /api/admin/jobs|/verify, /webhooks/casparser/*, /api/healthz, /api/readyz).
+from portfolio_ingestion.api.sdk_callback   import router as cas_sdk_router
+from portfolio_ingestion.api.uploads        import router as cas_uploads_router
+from portfolio_ingestion.api.portfolio      import router as cas_portfolio_router
+from portfolio_ingestion.api.token          import router as cas_token_router
+from portfolio_ingestion.api.webhooks       import router as cas_webhooks_router
+from portfolio_ingestion.api.admin          import router as cas_admin_router
+from portfolio_ingestion.api.health         import router as cas_health_router
+from portfolio_ingestion.db.migrations.runner import apply_pending as _cas_apply_migrations
 
 from core.correlation import CorrelationMiddleware
 from core.error_handlers import register_error_handlers
@@ -144,10 +170,29 @@ app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://
 app.include_router(market_events_router)           # Market Event Intelligence feed (/api/market/events, /signals)
 app.include_router(portfolio_exposure_router)      # Diversification & Concentration analytics (/api/portfolio/exposure/concentration)
 app.include_router(portfolio_risk_analytics_router) # V3 risk analytics (/api/portfolio/risk-analytics) — beta/sharpe/vol from DAAS
+app.include_router(portfolio_composition_router)   # v5 Composition Explorer (/api/portfolio/composition)
+app.include_router(portfolio_tax_router)            # v4 Tax dashboard (/api/portfolio/tax-summary)
+app.include_router(funds_router)                    # v4 user-scope fund v3-score (/api/funds/{isin}/v3-score)
+app.include_router(dashboards_router)               # v4 dashboard composite (/api/dashboards/{type}) — screens 05-10
+app.include_router(recommendations_router)          # v4 stock+fund recommendations (/api/recommendations/*) — screen 13
+app.include_router(advisor_v4_router)               # v4 advisor aggregates (/api/advisor/summary|sip-board) — screens 15, 17
+app.include_router(mfd_v4_router)                   # v4 mfd profile extras (/api/mfd/profiles/{id}/needs-attention|call-log|sip-nudge) — screen 16
+app.include_router(intel_v4_router)                 # v4 client 360 (/api/intelligence/portfolio/360) — screen 16
 app.include_router(admin_nidp_stock_primitives_router)  # NIDP stock primitives completeness (/api/admin/nidp/stock-primitives/completeness)
 app.include_router(copilot_agents_router)          # Copilot agent + model picker
 app.include_router(copilot_widgets_router)         # Copilot widget envelopes (fund_card, market_brief, ...)
 app.include_router(admin_swagger_router)           # Admin-only Swagger UI + OpenAPI YAML serving
+
+# CAS ingestion routers — same domain as V2 backend, no separate container.
+app.include_router(cas_sdk_router)        # POST /api/cas/sdk-callback
+app.include_router(cas_uploads_router)    # POST /api/cas/uploads/init|complete
+app.include_router(cas_portfolio_router)  # GET  /api/portfolio/me|snapshots|snapshots/{id}
+app.include_router(cas_token_router)      # POST /api/casparser/token
+app.include_router(cas_webhooks_router)   # POST /webhooks/casparser/inbound-email (PI_WEBHOOK_ENABLED-gated)
+app.include_router(cas_admin_router)      # GET  /api/admin/jobs/stale|summary, /api/admin/verify
+app.include_router(cas_health_router)     # GET  /api/healthz, /api/readyz (CAS-specific; V2 has none)
+app.include_router(work_router)           # GET/POST/PATCH /api/work/issues, /api/work/stats
+app.include_router(grafana_alerts_router) # POST /api/internal/grafana-alerts, GET /api/admin/grafana-alerts
 
 
 # Root endpoint
@@ -162,6 +207,7 @@ async def root():
 # CorrelationMiddleware is outermost so the ID is available to all layers.
 # RequestLoggingMiddleware wraps everything below it to measure true latency.
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(CorrelationMiddleware)
@@ -192,6 +238,15 @@ app.add_middleware(
 async def startup_seed():
     logger.info("Connected to MongoDB")
     await seed_admin_and_whitelist()
+    # CAS ingestion schema migrations — idempotent. Applies
+    # backend/portfolio_ingestion/db/migrations/*.sql against the same
+    # Postgres connection. Already-applied migrations are skipped in <1ms.
+    try:
+        if os.environ.get("PI_POSTGRES_URL"):
+            await _cas_apply_migrations()
+            logger.info("CAS ingestion migrations: applied/skipped")
+    except Exception as e:
+        logger.warning("CAS ingestion migration runner failed: %s", e)
     # Hydrate admin-managed config from DB
     try:
         from helpers import secrets as _secrets
@@ -243,6 +298,15 @@ async def startup_seed():
         await _iu.ensure_identity_indexes()
     except Exception as e:
         logger.warning("identity index ensure failed: %s", e)
+    # Idempotency key TTL index (24 h auto-expiry via MongoDB TTL)
+    try:
+        from deps import db as _db
+        await _db.idempotency_keys.create_index(
+            "expires_at", expireAfterSeconds=0, background=True
+        )
+        await _db.idempotency_keys.create_index("key", unique=True, background=True)
+    except Exception as e:
+        logger.warning("idempotency TTL index ensure failed: %s", e)
     # Datastore isolation — refuse to start production when Postgres /
     # Redis / Mongo are shared with the preview environment. Preview
     # deploys log a warning and continue.

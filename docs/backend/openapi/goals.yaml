@@ -1,0 +1,839 @@
+openapi: 3.1.0
+info:
+  title: Nivesh — Goals API
+  version: 2.0.0
+  description: |
+    ## What this covers
+    Goal-Based Investment Planning — financial snapshot, goal CRUD,
+    Monte Carlo simulation, what-if analysis, and Copilot Q&A per goal.
+
+    | Endpoint | Purpose |
+    |----------|---------|
+    | `GET/PUT /api/goals/snapshot` | Financial profile (income, expenses, corpus, liabilities) |
+    | `GET /api/goals` | List all goals with on-track status |
+    | `POST /api/goals` | Create a new financial goal |
+    | `GET/PATCH/DELETE /api/goals/{goal_id}` | Read, update, or archive a goal |
+    | `GET /api/goals/fund-shortlist/{bucket}` | Top-rated funds for a goal allocation bucket |
+    | `POST /api/goals/{goal_id}/simulate` | Monte Carlo success probability (10,000 paths) |
+    | `POST /api/goals/{goal_id}/what-if` | Preview impact of changing SIP / horizon (no save) |
+    | `POST /api/goals/{goal_id}/copilot` | Ask the Copilot a natural-language question about this goal |
+    | `GET/DELETE /api/goals/{goal_id}/copilot/history` | Load or clear the goal's Copilot chat history |
+
+    ## Goal Types
+    | Type | Description |
+    |------|-------------|
+    | `retirement` | Retirement corpus at a target age |
+    | `education` | Child's higher education fund |
+    | `home` | Down payment for property purchase |
+    | `emergency` | Emergency fund (6–12 months expenses) |
+    | `wealth` | General wealth creation / legacy |
+    | `other` | Custom goal with user-defined name |
+
+    ## On-Track Calculation
+    A goal is **on track** when the Monte Carlo simulation gives ≥ 70% probability
+    of reaching the target corpus by the horizon date at the current SIP rate.
+
+    `on_track_pct` is the raw success probability from the last simulation run.
+    It is recomputed every time `POST /api/goals/{goal_id}/simulate` is called,
+    or automatically when portfolio value changes significantly.
+
+    ## Financial Snapshot
+    The snapshot captures the investor's macro financial profile and is used as
+    input to the goal engine:
+    - Monthly income and expected growth
+    - Monthly expenses (for emergency fund sizing)
+    - Current corpus (used as starting value in simulations)
+    - Total liabilities (adjusts net worth calculation)
+
+servers:
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
+
+security:
+  - SessionCookie: []
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie set by `POST /api/auth/google`.
+
+  schemas:
+    FinancialSnapshot:
+      type: object
+      description: Investor's macro financial profile used as simulation input.
+      properties:
+        age:
+          type: integer
+          example: 34
+        marital_status:
+          type: string
+          enum: [single, married, divorced, widowed]
+          example: married
+        dependents:
+          type: integer
+          example: 1
+        monthly_income_rs:
+          type: number
+          example: 150000
+        income_growth_pct:
+          type: number
+          example: 8.0
+        monthly_expenses_rs:
+          type: number
+          example: 70000
+        inflation_pct:
+          type: number
+          example: 6.0
+        current_corpus_rs:
+          type: number
+          example: 842000
+        total_liabilities_rs:
+          type: number
+          example: 2500000
+        risk_profile:
+          type: string
+          enum: [conservative, moderate, aggressive]
+          example: moderate
+        behavior_score:
+          type: number
+          nullable: true
+          example: 72.0
+
+    Goal:
+      type: object
+      description: A financial goal with Monte Carlo projection state.
+      properties:
+        goal_id:
+          type: string
+          example: goal_d4e5f6
+        goal_type:
+          type: string
+          enum: [retirement, education, home, emergency, wealth, other]
+          example: retirement
+        goal_name:
+          type: string
+          example: Retirement at 60
+        target_amount_rs:
+          type: number
+          example: 50000000
+        horizon_years:
+          type: integer
+          example: 26
+        priority:
+          type: string
+          enum: [high, medium, low]
+          example: high
+        monthly_sip_rs:
+          type: number
+          example: 25000
+        current_corpus_rs:
+          type: number
+          example: 842000
+        inflation_pct:
+          type: number
+          example: 6.0
+        on_track_pct:
+          type: number
+          nullable: true
+          example: 73.5
+        projected_corpus_rs:
+          type: number
+          nullable: true
+          example: 42500000
+        sip_gap_rs:
+          type: number
+          nullable: true
+          example: 6500
+        selected_funds:
+          type: array
+          items:
+            type: string
+          example: [INF769K01EW6, INF200K01RJ3]
+        manual_fund_override:
+          type: boolean
+          example: false
+        status:
+          type: string
+          enum: [active, completed, archived]
+          example: active
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-01-15T10:00:00Z"
+
+paths:
+
+  # ── Financial Snapshot ────────────────────────────────────────────────────
+
+  /api/goals/snapshot:
+    get:
+      tags: [goals]
+      operationId: goals_get_snapshot
+      summary: Get investor financial snapshot
+      description: |
+        Returns the investor's financial profile used as the baseline for all
+        goal simulations. Returns `null` if not yet set up.
+      responses:
+        "200":
+          description: Financial snapshot (or null if not set)
+          content:
+            application/json:
+              example:
+                age: 34
+                marital_status: married
+                dependents: 1
+                monthly_income_rs: 150000
+                income_growth_pct: 8.0
+                monthly_expenses_rs: 70000
+                inflation_pct: 6.0
+                current_corpus_rs: 842000
+                total_liabilities_rs: 2500000
+                risk_profile: moderate
+                behavior_score: 72.0
+                updated_at: "2024-05-01T10:00:00Z"
+
+    put:
+      tags: [goals]
+      operationId: goals_upsert_snapshot
+      summary: Create or update financial snapshot
+      description: |
+        Saves the investor's financial profile. All fields are optional — only
+        provided fields are updated. The snapshot is used as input to all
+        Monte Carlo simulations across goals.
+
+        Call this during onboarding and whenever the investor's financial
+        situation changes (salary hike, new loan, change in expenses).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                age:
+                  type: integer
+                marital_status:
+                  type: string
+                  enum: [single, married, divorced, widowed]
+                dependents:
+                  type: integer
+                monthly_income_rs:
+                  type: number
+                income_growth_pct:
+                  type: number
+                monthly_expenses_rs:
+                  type: number
+                inflation_pct:
+                  type: number
+                current_corpus_rs:
+                  type: number
+                total_liabilities_rs:
+                  type: number
+                risk_profile:
+                  type: string
+                  enum: [conservative, moderate, aggressive]
+                behavior_score:
+                  type: number
+            example:
+              age: 34
+              marital_status: married
+              dependents: 1
+              monthly_income_rs: 150000
+              income_growth_pct: 8.0
+              monthly_expenses_rs: 70000
+              inflation_pct: 6.0
+              current_corpus_rs: 842000
+              total_liabilities_rs: 2500000
+              risk_profile: moderate
+      responses:
+        "200":
+          description: Updated financial snapshot
+          content:
+            application/json:
+              example:
+                age: 34
+                monthly_income_rs: 150000
+                current_corpus_rs: 842000
+                risk_profile: moderate
+                updated_at: "2024-05-27T10:00:00Z"
+
+  # ── Goals CRUD ────────────────────────────────────────────────────────────
+
+  /api/goals:
+    get:
+      tags: [goals]
+      operationId: goals_list
+      summary: List all goals with on-track status
+      description: |
+        Returns all active, completed, and archived goals sorted by priority.
+        Each goal includes its latest `on_track_pct` (Monte Carlo success probability)
+        and projected corpus so the dashboard can show a goals health summary.
+      responses:
+        "200":
+          description: Goals list with on-track status
+          content:
+            application/json:
+              example:
+                total: 3
+                on_track: 2
+                at_risk: 1
+                total_target_rs: 77000000
+                monthly_sip_required_rs: 62000
+                monthly_sip_current_rs: 55000
+                goals:
+                  - goal_id: goal_d4e5f6
+                    goal_type: retirement
+                    goal_name: Retirement at 60
+                    target_amount_rs: 50000000
+                    horizon_years: 26
+                    priority: high
+                    monthly_sip_rs: 25000
+                    on_track_pct: 73.5
+                    projected_corpus_rs: 42500000
+                    sip_gap_rs: 6500
+                    status: active
+                  - goal_id: goal_g7h8i9
+                    goal_type: education
+                    goal_name: Aryan's Engineering Fund
+                    target_amount_rs: 5000000
+                    horizon_years: 10
+                    priority: high
+                    monthly_sip_rs: 18000
+                    on_track_pct: 88.4
+                    projected_corpus_rs: 4900000
+                    sip_gap_rs: 0
+                    status: active
+                  - goal_id: goal_j1k2l3
+                    goal_type: home
+                    goal_name: Goa Holiday Home Down Payment
+                    target_amount_rs: 2000000
+                    horizon_years: 3
+                    priority: medium
+                    monthly_sip_rs: 12000
+                    on_track_pct: 52.1
+                    projected_corpus_rs: 1480000
+                    sip_gap_rs: 18000
+                    status: active
+
+    post:
+      tags: [goals]
+      operationId: goals_create
+      summary: Create a new financial goal
+      description: |
+        Creates a new goal and runs an initial Monte Carlo simulation.
+        The response includes the first `on_track_pct` estimate.
+
+        **Fund allocation**: If `manual_allocation` is provided, those fund weights
+        are used for the simulation. Otherwise, the system auto-allocates based on
+        the goal type and investor risk profile.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [goal_type, goal_name, target_amount_rs, horizon_years, priority]
+              properties:
+                goal_type:
+                  type: string
+                  enum: [retirement, education, home, emergency, wealth, other]
+                goal_name:
+                  type: string
+                target_amount_rs:
+                  type: number
+                horizon_years:
+                  type: integer
+                priority:
+                  type: string
+                  enum: [high, medium, low]
+                inflation_pct:
+                  type: number
+                  default: 6.0
+                current_corpus_rs:
+                  type: number
+                  default: 0
+                monthly_sip_rs:
+                  type: number
+                  default: 0
+                manual_allocation:
+                  type: object
+                  nullable: true
+                  description: "Optional fund allocation override: { large_cap: 40, mid_cap: 30, debt: 30 }"
+            example:
+              goal_type: retirement
+              goal_name: Retirement at 60
+              target_amount_rs: 50000000
+              horizon_years: 26
+              priority: high
+              inflation_pct: 6.0
+              current_corpus_rs: 842000
+              monthly_sip_rs: 25000
+      responses:
+        "200":
+          description: Created goal with initial simulation
+          content:
+            application/json:
+              example:
+                goal_id: goal_d4e5f6
+                goal_type: retirement
+                goal_name: Retirement at 60
+                target_amount_rs: 50000000
+                horizon_years: 26
+                priority: high
+                monthly_sip_rs: 25000
+                on_track_pct: 73.5
+                projected_corpus_rs: 42500000
+                sip_gap_rs: 6500
+                suggested_sip_rs: 31500
+                status: active
+                created_at: "2024-05-27T10:00:00Z"
+
+  /api/goals/fund-shortlist/{bucket}:
+    get:
+      tags: [goals]
+      operationId: goals_fund_shortlist
+      summary: Top-rated funds for a goal allocation bucket
+      description: |
+        Returns the top N funds for a specific asset allocation bucket,
+        filtered by minimum V3 quality score.
+
+        **Buckets available**:
+        | Bucket | Description |
+        |--------|-------------|
+        | `large_cap` | Large cap equity — stable growth |
+        | `mid_cap` | Mid cap equity — higher growth |
+        | `small_cap` | Small cap — aggressive growth |
+        | `flexi_cap` | Flexi cap — manager-discretion across caps |
+        | `hybrid` | Balanced / aggressive hybrid |
+        | `debt_short` | Short-duration debt — stability |
+        | `debt_medium` | Medium-duration debt |
+        | `elss` | Tax-saving ELSS (3-year lock-in) |
+        | `international` | International / FoF funds |
+        | `gold` | Gold ETF / FoF |
+
+        Used to populate the fund picker in the goal setup flow.
+      parameters:
+        - name: bucket
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [large_cap, mid_cap, small_cap, flexi_cap, hybrid, debt_short, debt_medium, elss, international, gold]
+          example: flexi_cap
+        - name: n
+          in: query
+          schema:
+            type: integer
+            default: 15
+          description: Number of funds to return.
+        - name: min_quality
+          in: query
+          schema:
+            type: number
+            default: 55.0
+          description: Minimum V3 score threshold (0-100).
+      responses:
+        "200":
+          description: Top-rated funds for this bucket
+          content:
+            application/json:
+              example:
+                bucket: flexi_cap
+                min_quality: 55.0
+                funds:
+                  - isin: INF769K01EW6
+                    name: Parag Parikh Flexi Cap Fund - Direct Plan
+                    amc: PPFAS Mutual Fund
+                    v3_score: 88.5
+                    expense_ratio_pct: 0.59
+                    xirr_3y_pct: 19.8
+                    nav: 72.45
+                    aum_cr: 72800
+                    suggested: true
+                  - isin: INF200K01RJ3
+                    name: Mirae Asset Flexi Cap Fund - Direct Plan
+                    amc: Mirae Asset
+                    v3_score: 82.1
+                    expense_ratio_pct: 0.55
+                    xirr_3y_pct: 17.4
+                    nav: 38.12
+                    aum_cr: 28400
+                    suggested: false
+
+  /api/goals/{goal_id}:
+    get:
+      tags: [goals]
+      operationId: goals_get
+      summary: Get goal detail with latest simulation
+      description: |
+        Returns the full goal document including the most recent Monte Carlo
+        simulation results, selected funds, and projected corpus distribution.
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: goal_d4e5f6
+      responses:
+        "200":
+          description: Goal detail with simulation
+          content:
+            application/json:
+              example:
+                goal_id: goal_d4e5f6
+                goal_type: retirement
+                goal_name: Retirement at 60
+                target_amount_rs: 50000000
+                horizon_years: 26
+                priority: high
+                monthly_sip_rs: 25000
+                current_corpus_rs: 842000
+                inflation_pct: 6.0
+                on_track_pct: 73.5
+                projected_corpus_rs: 42500000
+                sip_gap_rs: 6500
+                simulation:
+                  p10_rs: 28400000
+                  p50_rs: 42500000
+                  p90_rs: 61800000
+                  success_probability_pct: 73.5
+                  sip_for_80pct_success_rs: 28000
+                  sip_for_90pct_success_rs: 31500
+                  last_run_at: "2024-05-27T10:00:00Z"
+                allocation:
+                  large_cap: 30
+                  flexi_cap: 40
+                  mid_cap: 20
+                  debt: 10
+                selected_funds:
+                  - isin: INF769K01EW6
+                    name: Parag Parikh Flexi Cap Fund
+                    bucket: flexi_cap
+                    weight_pct: 40
+                  - isin: INF200K01RJ3
+                    name: Mirae Asset Large Cap Fund
+                    bucket: large_cap
+                    weight_pct: 30
+                manual_fund_override: false
+                status: active
+
+    patch:
+      tags: [goals]
+      operationId: goals_update
+      summary: Update goal fields
+      description: |
+        Partial update — only provided fields are changed.
+        After update, the simulation is automatically re-run if `monthly_sip_rs`,
+        `horizon_years`, `current_corpus_rs`, or `allocation` changes.
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                goal_name:
+                  type: string
+                target_amount_rs:
+                  type: number
+                horizon_years:
+                  type: integer
+                priority:
+                  type: string
+                  enum: [high, medium, low]
+                monthly_sip_rs:
+                  type: number
+                current_corpus_rs:
+                  type: number
+                allocation:
+                  type: object
+                selected_funds:
+                  type: array
+                  items:
+                    type: string
+                manual_fund_override:
+                  type: boolean
+                status:
+                  type: string
+                  enum: [active, completed, archived]
+            example:
+              monthly_sip_rs: 31500
+              horizon_years: 26
+      responses:
+        "200":
+          description: Updated goal with refreshed simulation
+          content:
+            application/json:
+              example:
+                goal_id: goal_d4e5f6
+                monthly_sip_rs: 31500
+                on_track_pct: 89.2
+                projected_corpus_rs: 50200000
+                sip_gap_rs: 0
+                simulation_refreshed: true
+
+    delete:
+      tags: [goals]
+      operationId: goals_archive
+      summary: Archive (abandon) a goal
+      description: |
+        Sets goal status to `archived`. Archived goals are hidden from the
+        active goals list but retained in history. This is reversible via
+        `PATCH /api/goals/{goal_id}` with `status: active`.
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Goal archived
+          content:
+            application/json:
+              example:
+                status: ok
+                goal_id: goal_d4e5f6
+                new_status: archived
+
+  /api/goals/{goal_id}/simulate:
+    post:
+      tags: [goals]
+      operationId: goals_simulate
+      summary: Run Monte Carlo simulation for a goal
+      description: |
+        Runs a fresh 10,000-path Monte Carlo simulation using the goal's current
+        parameters (SIP, horizon, corpus, fund allocation) and updates `on_track_pct`.
+
+        Returns:
+        - **Success probability** — % of simulation paths that reach the target
+        - **Corpus distribution** — P10, P50, P90 projected corpus in ₹
+        - **SIP recommendations** — SIP needed for 70%, 80%, 90% success
+        - **Year-by-year projection** — median corpus path for chart display
+
+        Automatically called after goal creation or update. Trigger manually
+        when market conditions change significantly.
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: goal_d4e5f6
+      responses:
+        "200":
+          description: Monte Carlo simulation results
+          content:
+            application/json:
+              example:
+                goal_id: goal_d4e5f6
+                goal_name: Retirement at 60
+                target_amount_rs: 50000000
+                horizon_years: 26
+                monthly_sip_rs: 25000
+                current_corpus_rs: 842000
+                success_probability_pct: 73.5
+                on_track: false
+                corpus_projections:
+                  p10_rs: 28400000
+                  p50_rs: 42500000
+                  p90_rs: 61800000
+                sip_recommendations:
+                  sip_for_70pct_success_rs: 24000
+                  sip_for_80pct_success_rs: 28000
+                  sip_for_90pct_success_rs: 31500
+                year_by_year:
+                  - year: 1
+                    median_corpus_rs: 1147000
+                  - year: 5
+                    median_corpus_rs: 2840000
+                  - year: 10
+                    median_corpus_rs: 6900000
+                  - year: 20
+                    median_corpus_rs: 22100000
+                  - year: 26
+                    median_corpus_rs: 42500000
+                simulation_runs: 10000
+                simulated_at: "2024-05-27T10:05:00Z"
+
+  /api/goals/{goal_id}/what-if:
+    post:
+      tags: [goals]
+      operationId: goals_what_if
+      summary: Preview parameter changes without saving
+      description: |
+        Evaluates the impact of hypothetical changes to a goal — higher SIP,
+        longer horizon, different allocation — **without persisting anything**.
+
+        Use this to answer "What if I increase my SIP by ₹5,000?" or
+        "What if I extend the horizon by 3 years?" before committing.
+
+        Returns the same schema as `/simulate` but does not update `on_track_pct`.
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                monthly_sip_rs:
+                  type: number
+                  description: Hypothetical SIP amount (replaces current for this simulation only).
+                horizon_years:
+                  type: integer
+                  description: Hypothetical horizon (replaces current).
+                current_corpus_rs:
+                  type: number
+                  description: Hypothetical starting corpus.
+                allocation_override:
+                  type: object
+                  description: "Override allocation: { large_cap: 40, mid_cap: 40, debt: 20 }"
+            example:
+              monthly_sip_rs: 31500
+              horizon_years: 26
+      responses:
+        "200":
+          description: What-if simulation result (not saved)
+          content:
+            application/json:
+              example:
+                goal_id: goal_d4e5f6
+                what_if_params:
+                  monthly_sip_rs: 31500
+                  horizon_years: 26
+                current_on_track_pct: 73.5
+                what_if_on_track_pct: 89.2
+                delta_on_track_pct: 15.7
+                corpus_projections:
+                  p10_rs: 34200000
+                  p50_rs: 50800000
+                  p90_rs: 73400000
+                verdict: "Increasing SIP by ₹6,500/month improves success probability from 73.5% to 89.2%"
+                persisted: false
+
+  /api/goals/{goal_id}/copilot:
+    post:
+      tags: [goals]
+      operationId: goals_copilot_ask
+      summary: Ask Copilot a natural-language question about this goal
+      description: |
+        Passes a natural-language question to the Copilot with full context of
+        the goal's current state, simulation results, and portfolio.
+
+        **Example questions**:
+        - "How much more should I invest monthly to retire comfortably?"
+        - "Is my retirement goal realistic given my current expenses?"
+        - "What happens if I stop my SIP for 2 years?"
+        - "Which funds should I add to improve this goal?"
+
+        Returns the Copilot's answer plus the underlying engine output
+        that informed the narrative.
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                  description: Natural-language question about the goal.
+            example:
+              query: "How much more do I need to invest monthly to have a 90% chance of retiring at 60?"
+      responses:
+        "200":
+          description: Copilot answer with engine output
+          content:
+            application/json:
+              example:
+                goal_id: goal_d4e5f6
+                query: "How much more do I need to invest monthly to have a 90% chance of retiring at 60?"
+                answer: |
+                  To reach a 90% success probability for your ₹5 crore retirement goal by age 60,
+                  you need to increase your monthly SIP from ₹25,000 to ₹31,500 — an additional
+                  ₹6,500/month. At your current ₹25,000 SIP rate, you have a 73.5% probability
+                  of reaching the target. The projected corpus at the median path is ₹4.25 crore.
+                  Parag Parikh Flexi Cap and Mirae Asset Large Cap are your highest-quality holdings
+                  in this goal — consider directing the SIP increase there.
+                engine_output:
+                  current_sip_rs: 25000
+                  required_sip_rs: 31500
+                  sip_gap_rs: 6500
+                  current_probability_pct: 73.5
+                  target_probability_pct: 90.0
+
+  /api/goals/{goal_id}/copilot/history:
+    get:
+      tags: [goals]
+      operationId: goals_copilot_history
+      summary: Load Copilot conversation history for a goal
+      description: |
+        Returns the stored Q&A history for the goal's Copilot thread.
+        Used to render previous questions and answers when the user
+        revisits the goal detail screen.
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Chat history (most recent first)
+          content:
+            application/json:
+              example:
+                goal_id: goal_d4e5f6
+                history:
+                  - query: "How much more do I need to invest monthly for 90% success?"
+                    answer: "Increase SIP to ₹31,500 (gap of ₹6,500/month)."
+                    asked_at: "2024-05-27T10:05:00Z"
+                  - query: "Which fund should I increase my SIP in?"
+                    answer: "Parag Parikh Flexi Cap (V3 score 88.5) is the strongest fund in this goal."
+                    asked_at: "2024-05-27T10:08:00Z"
+
+    delete:
+      tags: [goals]
+      operationId: goals_copilot_history_clear
+      summary: Clear Copilot history for a goal
+      description: Permanently removes all Q&A history for this goal's Copilot thread.
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: History cleared
+          content:
+            application/json:
+              example:
+                status: ok
+                goal_id: goal_d4e5f6
+                messages_deleted: 2

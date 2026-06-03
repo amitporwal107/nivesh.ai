@@ -58,7 +58,11 @@ async def test_archive_inserts_document_with_indexes(mongo_db) -> None:
     assert fetched is not None
     assert fetched["pan_hash"] == pan_hash
     assert fetched["source_type"] == "ECAS_CDSL"
-    assert fetched["parsed_data"]["demat_accounts"][0]["holdings"][0]["isin"] == "INE002A01018"
+    # `holdings` is the bucket OBJECT (per the real SDK shape). Equity ISINs
+    # land under `holdings.equities`; legacy DematHolding without instrument_type
+    # defaults to that bucket via the field validator's normaliser.
+    holdings = fetched["parsed_data"]["demat_accounts"][0]["holdings"]
+    assert holdings["equities"][0]["isin"] == "INE002A01018"
 
     # The unique index on ingestion_job_id should exist after our first insert.
     index_names = [ix["name"] async for ix in mongo_db[archive_mod.COLLECTION].list_indexes()]
@@ -99,7 +103,9 @@ async def test_archive_handles_decimal_serialisation(mongo_db) -> None:
         source_type="ECAS_CDSL", sdk_metadata={}, parsed_data=payload,
     )
     doc = await archive_mod.fetch(job_id)
-    h = doc["parsed_data"]["demat_accounts"][0]["holdings"][0]
-    # JSON-normalised strings (Pydantic serialises Decimal as a number via mode=json)
-    assert str(h["quantity"]) in {"1.23456", "1.234560000000000"}
+    # Real SDK shape: `holdings` is a bucket object, not a list. Synthetic
+    # DematHolding(quantity=…) without instrument_type lands under `equities`.
+    h = doc["parsed_data"]["demat_accounts"][0]["holdings"]["equities"][0]
+    units_val = h.get("units", h.get("quantity"))
+    assert str(units_val) in {"1.23456", "1.234560000000000"}
     assert str(h["value"]).startswith("99999.99")

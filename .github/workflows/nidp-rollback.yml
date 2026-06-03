@@ -1,0 +1,97 @@
+name: NIDP — Rollback to SHA
+
+# Emergency rollback: pin the NIDP VM to a specific git SHA or tag,
+# then restart the HTTP services. Cron services pick up the old code
+# on their next scheduled tick automatically.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Git SHA or tag to rollback to (e.g. abc1234 or v2026-05-30.1-stable)'
+        type: string
+        required: true
+      restart_services:
+        description: 'Restart nidp-daas-api + nidp-query-api after rollback'
+        type: boolean
+        default: true
+      reason:
+        description: 'Brief reason for rollback (goes in deploy log)'
+        type: string
+        default: 'manual rollback via GitHub Actions'
+
+concurrency:
+  group: deploy-nidp
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Rollback NIDP to ${{ github.event.inputs.sha }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Rollback on nidp-stack-vm
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:             ${{ secrets.NIDP_VM_HOST }}
+          username:         ${{ secrets.DEVOPS_SSH_USER }}
+          key:              ${{ secrets.DEVOPS_SSH_KEY }}
+          port:             22
+          timeout:          5m
+          command_timeout:  15m
+          script: |
+            set -euo pipefail
+            log() { printf '\033[1;36m[nidp-rollback]\033[0m %s\n' "$*"; }
+            ok()  { printf '\033[1;32m[nidp-rollback]\033[0m ✅ %s\n' "$*"; }
+            warn(){ printf '\033[1;33m[nidp-rollback]\033[0m ⚠ %s\n' "$*"; }
+
+            TARGET="${{ github.event.inputs.sha }}"
+            REASON="${{ github.event.inputs.reason }}"
+
+            log "=== NIDP ROLLBACK ==="
+            log "    Target      : $TARGET"
+            log "    Reason      : $REASON"
+            log "    Triggered by: ${{ github.actor }}"
+            echo ""
+
+            REPO=/opt/nidp/repo
+            git config --global --add safe.directory "$REPO"
+            CURRENT=$(git -C "$REPO" rev-parse --short HEAD)
+            log "Current HEAD: $CURRENT"
+
+            # rollback.sh: git fetch + checkout detached at target, reinstall deps
+            sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/rollback.sh "$TARGET"
+
+            NEW=$(git -C "$REPO" rev-parse --short HEAD)
+            ok "Rolled back: $CURRENT → $NEW"
+
+            # Optionally restart HTTP services
+            if [[ "${{ github.event.inputs.restart_services }}" == "true" ]]; then
+              for svc in nidp-daas-api nidp-query-api; do
+                if sudo systemctl is-active --quiet "$svc" 2>/dev/null; then
+                  sudo systemctl restart "$svc"
+                  ok "$svc restarted"
+                else
+                  warn "$svc not active — skipping restart"
+                fi
+              done
+            else
+              log "Service restart skipped (restart_services=false)"
+              warn "Cron services will pick up rollback code on next scheduled tick"
+            fi
+
+            ok "Rollback complete."
+
+      - name: Health check after rollback
+        if: ${{ github.event.inputs.restart_services == 'true' }}
+        run: |
+          echo "Waiting 10s for services to stabilise..."
+          sleep 10
+          HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+            --max-time 15 "https://data.niveshcopilot.com/daas/health" \
+            2>/dev/null || echo "000")
+          echo "DaaS health after rollback → HTTP $HTTP"
+          if [[ "$HTTP" != "200" ]]; then
+            echo "::error::Health check returned $HTTP after rollback — investigate immediately"
+            exit 1
+          fi
+          echo "✅ Services healthy after rollback"

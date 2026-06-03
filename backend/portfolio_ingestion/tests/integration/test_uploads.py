@@ -30,6 +30,9 @@ async def fresh_upload_user():
     archive_mod.reset_indexes_cache_for_test()
 
     os.environ.setdefault("PI_GCS_STUB", "true")
+    # Force CASParser stub for this test — production runs against a real key
+    # but uploads/complete with a fake GCS object would 400 the real API.
+    saved_key = os.environ.pop("PI_CASPARSER_API_KEY", None)
 
     from portfolio_ingestion.main import create_app
     app = create_app()
@@ -37,6 +40,9 @@ async def fresh_upload_user():
     pan = "UPLDA" + uuid.uuid4().hex[:5].upper()
 
     yield app, external_id, pan
+
+    if saved_key is not None:
+        os.environ["PI_CASPARSER_API_KEY"] = saved_key
 
     from portfolio_ingestion.services.checksum import pan_hash as _hash
     panh = _hash(pan)

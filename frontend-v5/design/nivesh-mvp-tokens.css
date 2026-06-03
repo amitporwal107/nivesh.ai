@@ -1,0 +1,146 @@
+/* ────────────────────────────────────────────────────────────
+   NIVESH MVP · design tokens
+   White, minimal, single calm accent. Editorial type pairing.
+   No red-green overload. Generous space.
+   ────────────────────────────────────────────────────────── */
+
+:root, [data-mtheme="light"] {
+  --m-bg:        #FAFAF7;
+  --m-bg-1:      #FFFFFF;
+  --m-bg-2:      #F1EFE9;
+  --m-bg-3:      #E5E2D7;
+
+  --m-ink:       #0F172A;
+  --m-ink-2:     #3F4A60;
+  --m-ink-3:     #74809A;
+  --m-ink-4:     #B5BBC6;
+
+  --m-line:      rgba(15, 23, 42, 0.07);
+  --m-line-2:    rgba(15, 23, 42, 0.14);
+
+  /* single calm accent — slate-indigo */
+  --m-accent:    #4338CA;
+  --m-accent-2:  #312E81;
+  --m-accent-soft: rgba(67, 56, 202, 0.08);
+  --m-accent-line: rgba(67, 56, 202, 0.24);
+
+  /* status (used sparingly) */
+  --m-pos:       #2E7D5B;        /* keep */
+  --m-pos-soft:  rgba(46, 125, 91, 0.10);
+  --m-neg:       #A3553A;        /* reduce */
+  --m-neg-soft:  rgba(163, 85, 58, 0.10);
+  --m-warm:      #B5841F;        /* add */
+  --m-warm-soft: rgba(181, 132, 31, 0.10);
+
+  --m-display:   "Instrument Serif", "Fraunces", Georgia, serif;
+  --m-sans:      "Inter Tight", "Inter", system-ui, sans-serif;
+  --m-mono:      "JetBrains Mono", ui-monospace, monospace;
+
+  --m-radius:    16px;
+  --m-radius-lg: 24px;
+}
+
+[data-mtheme="dark"] {
+  --m-bg:        #0B0E14;
+  --m-bg-1:      #11141C;
+  --m-bg-2:      #181D29;
+  --m-bg-3:      #232938;
+  --m-ink:       #ECEEF3;
+  --m-ink-2:     #B7BDCB;
+  --m-ink-3:     #7A839C;
+  --m-ink-4:     #4E556B;
+  --m-line:      rgba(255, 255, 255, 0.06);
+  --m-line-2:    rgba(255, 255, 255, 0.14);
+}
+
+/* primitives */
+.m-frame {
+  font-family: var(--m-sans);
+  color: var(--m-ink);
+  background: var(--m-bg);
+  -webkit-font-smoothing: antialiased;
+  position: relative; overflow: hidden;
+  letter-spacing: -0.005em;
+}
+.m-serif { font-family: var(--m-display); letter-spacing: -0.02em; font-weight: 400; }
+.m-mono  { font-family: var(--m-mono); }
+.m-num   { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+.m-card {
+  background: var(--m-bg-1);
+  border: 1px solid var(--m-line);
+  border-radius: var(--m-radius);
+  padding: 28px;
+}
+
+.m-btn {
+  font-family: var(--m-sans);
+  font-size: 15px;
+  font-weight: 500;
+  padding: 14px 22px;
+  border-radius: 12px;
+  border: 1px solid var(--m-line-2);
+  background: var(--m-bg-1);
+  color: var(--m-ink);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 10px;
+  transition: all .15s ease;
+}
+.m-btn:hover { background: var(--m-bg-2); }
+.m-btn-primary {
+  background: var(--m-ink);
+  color: var(--m-bg-1);
+  border-color: var(--m-ink);
+}
+.m-btn-accent {
+  background: var(--m-accent);
+  color: #FFFFFF;
+  border-color: var(--m-accent);
+}
+
+.m-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--m-bg-2);
+  color: var(--m-ink-2);
+}
+.m-pill-keep   { background: var(--m-pos-soft);  color: var(--m-pos); }
+.m-pill-reduce { background: var(--m-neg-soft);  color: var(--m-neg); }
+.m-pill-add    { background: var(--m-warm-soft); color: var(--m-warm); }
+.m-pill-accent { background: var(--m-accent-soft); color: var(--m-accent); }
+
+.m-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
+
+.m-mark {
+  font-family: var(--m-display);
+  display: inline-grid; place-items: center;
+  background: var(--m-ink); color: var(--m-bg-1);
+  border-radius: 9px;
+  width: 32px; height: 32px;
+  font-size: 19px; line-height: 1;
+}
+
+.m-frame ::-webkit-scrollbar { width: 6px; height: 6px; }
+.m-frame ::-webkit-scrollbar-thumb { background: var(--m-line-2); border-radius: 3px; }
+
+/* iOS chrome */
+.m-statusbar {
+  height: 44px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 24px 0 32px;
+  font-family: var(--m-sans); font-weight: 600; font-size: 15px;
+  color: var(--m-ink);
+}
+.m-notch {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  width: 110px; height: 28px; background: #000; border-radius: 18px;
+  z-index: 10;
+}
+.m-homebar {
+  position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+  width: 134px; height: 5px; background: var(--m-ink); opacity: 0.25; border-radius: 3px;
+}

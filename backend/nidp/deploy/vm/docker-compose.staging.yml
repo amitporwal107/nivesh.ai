@@ -1,0 +1,86 @@
+# NIDP staging docker-compose — TimescaleDB + DaaS API for the staging environment.
+#
+# Mirrors docker-compose.prod.yml except:
+#   • container_name:  nidp-postgres-staging
+#   • host port:       127.0.0.1:5434:5432   (prod uses 5433)
+#   • data volume:     /opt/nidp-staging/data/postgres
+#   • networks:        nidp-staging-default + nidp-staging-bridge
+#
+# DaaS API staging container:
+#   • Port 8084 on host (nginx staging routes /daas/* → 8084)
+#   • Mounts /opt/nidp/repo/backend as read-only code volume
+#   • Uses /opt/nidp-staging/nidp.env for DB + secrets
+#
+# One-time setup (run as root on the staging VM):
+#   docker network create nidp-staging-bridge
+#   docker compose -f docker-compose.staging.yml up -d
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: nidp-postgres-staging
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${NIDP_PG_USER:-nidp_staging}
+      POSTGRES_PASSWORD: ${NIDP_PG_PASSWORD}
+      POSTGRES_DB:       ${NIDP_PG_DB:-nidp_staging}
+      TZ:                Asia/Kolkata
+    ports:
+      # 5434 on host → avoids conflict with prod nidp-postgres on 5433
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - /opt/nidp-staging/data/postgres:/var/lib/postgresql/data
+    networks: [nidp-staging-default, nidp-staging-bridge]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NIDP_PG_USER:-nidp_staging}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  daas-api:
+    image: python:3.11-slim
+    container_name: nidp-daas-api-staging
+    restart: unless-stopped
+    working_dir: /app/backend
+    env_file: /opt/nidp-staging/nidp.env
+    environment:
+      PORT:         "8084"
+      LOG_LEVEL:    info
+      PYTHONPATH:   /app/backend:/opt/nidp-staging/venv/lib/python3.11/site-packages
+      ROOT_PATH:    /daas
+      # Override DB URL — use postgres container name (both on same Docker network).
+      # Password hardcoded because env_file vars don't expand in environment: block.
+      NIDP_POSTGRES_URL: postgresql://nidp_staging:nivesh_staging@nidp-postgres-staging:5432/nidp_staging
+    ports:
+      - "127.0.0.1:8084:8084"
+    volumes:
+      # Code from dev branch — isolated from prod's /opt/nidp/repo/backend (main)
+      - /opt/nidp/dev-repo/nivesh.ai/backend:/app/backend:ro
+      # Staging venv at /opt/nidp-staging/venv — separate from prod /opt/nidp/venv
+      - /opt/nidp-staging/venv:/opt/nidp-staging/venv:ro
+    # Use the container's python3 with PYTHONPATH pointing at the staging
+    # site-packages so all dependencies are available without needing the
+    # venv's own interpreter (which has a host-path shebang that breaks in Docker).
+    command: >
+      python3 -m uvicorn nidp.services.daas_api.app:app
+      --host 0.0.0.0
+      --port 8084
+      --proxy-headers
+      --forwarded-allow-ips "*"
+      --root-path /daas
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [nidp-staging-default, nidp-staging-bridge]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8084/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+networks:
+  nidp-staging-default:
+    name: nidp-staging-default
+  nidp-staging-bridge:
+    name: nidp-staging-bridge
+    external: true

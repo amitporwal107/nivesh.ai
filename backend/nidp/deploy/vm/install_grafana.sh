@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# install_grafana.sh — provision the NIDP-TimescaleDB datasource and
-# the "NIDP Job Health" dashboard into the running Grafana container.
+# install_grafana.sh — provision NIDP Grafana: datasources, dashboards, alert rules.
 #
-# Idempotent: re-running just refreshes the JSON files; Grafana picks
-# them up via its 30-second filesystem watcher.
+# Idempotent: re-running refreshes all JSON files and restarts Grafana once to
+# pick up any datasource/alerting changes (dashboards hot-reload in 30s).
 #
-# Usage (run on the VM):
+# Usage (run on nidp-stack-vm):
 #   sudo bash /opt/nidp/repo/backend/nidp/deploy/vm/install_grafana.sh
 
 set -euo pipefail
@@ -16,36 +15,64 @@ DST="$NIDP_HOME/grafana/provisioning"
 
 log() { printf '\033[1;36m[install_grafana]\033[0m %s\n' "$*"; }
 
-# ── 1. Ensure provisioning dirs exist ──────────────────────────────
-mkdir -p "$DST/datasources" "$DST/dashboards"
+# ── 1. Provisioning directories ────────────────────────────────────────────────
+mkdir -p \
+  "$DST/datasources" \
+  "$DST/dashboards/prod" \
+  "$DST/dashboards/staging" \
+  "$DST/alerting"
 
-# ── 2. Copy datasources + dashboard provider configs ───────────────
-log "Installing datasource: NIDP-TimescaleDB"
+# ── 2. Datasources (TimescaleDB + Loki) ────────────────────────────────────────
+log "Installing datasources (TimescaleDB + Loki)"
 cp "$SRC/datasources.yml" "$DST/datasources/datasources.yml"
 
-log "Installing dashboard provider: NIDP"
+# ── 3. Dashboard provider config ───────────────────────────────────────────────
+log "Installing dashboard providers (NIDP Prod + NIDP Staging)"
 cp "$SRC/dashboards.yml"  "$DST/dashboards/dashboards.yml"
 
-# ── 3. Copy dashboards ─────────────────────────────────────────────
-log "Installing dashboard JSON: NIDP Job Health"
-cp "$SRC/dashboards/nidp_job_health.json" "$DST/dashboards/nidp_job_health.json"
+# ── 4. Dashboards — prod + staging (hot-reload; no restart needed) ────────────
+DASHBOARDS="job_health infra dq_chain dq_analytics feed_sched environment_overview"
+for dash in $DASHBOARDS; do
+    if [[ -f "$SRC/dashboards/prod/$dash.json" ]]; then
+        log "  prod/$dash.json"
+        cp "$SRC/dashboards/prod/$dash.json" "$DST/dashboards/prod/$dash.json"
+    fi
+    if [[ -f "$SRC/dashboards/staging/$dash.json" ]]; then
+        log "  staging/$dash.json"
+        cp "$SRC/dashboards/staging/$dash.json" "$DST/dashboards/staging/$dash.json"
+    fi
+done
 
-# Ensure the grafana container can read everything
+# ── 5. Alerting rules + contact points ────────────────────────────────────────
+log "Installing Grafana alerting rules and contact points"
+if [[ -d "$SRC/alerting" ]]; then
+    cp "$SRC/alerting/"*.yaml "$DST/alerting/" 2>/dev/null || true
+fi
+
+# ── 6. Permissions ─────────────────────────────────────────────────────────────
 chmod -R a+rX "$DST"
 
-# ── 4. Restart grafana to pick up the new datasource (provisioned ──
-#       datasources are loaded at boot only; dashboards hot-reload). ─
+# ── 7. Restart Grafana (required for datasource + alerting changes) ────────────
 if sudo docker ps --format '{{.Names}}' | grep -q '^nidp-grafana$'; then
-  log "Restarting nidp-grafana container..."
-  sudo docker restart nidp-grafana >/dev/null
-  sleep 3
-  if curl -sf http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
-    log "✓ Grafana is healthy at https://data.niveshcopilot.com/grafana"
-    log "  Login: admin / admin (change on first login)"
-    log "  Dashboard: → NIDP folder → 'NIDP Job Health'"
-  else
-    log "✗ Grafana didn't come back up — check: sudo docker logs nidp-grafana --tail 50"
-  fi
+    log "Restarting nidp-grafana to apply datasource/alerting changes..."
+    sudo docker restart nidp-grafana >/dev/null
+    sleep 5
+    if curl -sf http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
+        log "✓ Grafana is healthy at https://data.niveshcopilot.com/grafana"
+        log "  Login: admin / admin (change on first login)"
+        log "  Dashboards:"
+        log "    NIDP Prod   → 'NIDP Prod — Environment Overview'"
+        log "    NIDP Prod   → 'NIDP Prod — Job Health'"
+        log "    NIDP Prod   → 'NIDP Prod — Feed Schedule & Status'"
+        log "    NIDP Staging→ 'NIDP Staging — Environment Overview'"
+    else
+        log "✗ Grafana didn't come back up. Check: sudo docker logs nidp-grafana --tail 50"
+        exit 1
+    fi
 else
-  log "⚠ nidp-grafana container not running — start docker-compose first"
+    log "⚠ nidp-grafana container not running."
+    log "  Start the full infra stack with:"
+    log "    docker compose -f docker-compose.prod.yml -f docker-compose.infra.yml up -d"
 fi
+
+log "Done."

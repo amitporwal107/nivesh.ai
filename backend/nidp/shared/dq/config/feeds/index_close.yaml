@@ -1,0 +1,26 @@
+feed:
+  name: index_close
+  table: nidp.index_close
+  owner: nidp-platform
+
+sla:
+  freshness:
+    expected_arrival: "17:30 IST"
+    grace_period_minutes: 30
+    trading_days_only: true
+    warn_secs: 7200    # 2 h
+    error_secs: 14400  # 4 h
+  completeness:
+    min_rows: 20  # min distinct indices to expect
+
+severity_overrides:
+  index_value_range: P0
+  day_over_day_change: P0  # > 15% is implausible
+
+gates:
+  enabled_at: [gate1, gate2, gate3, gate7]
+
+notifications:
+  p0_channel: pagerduty:nidp-oncall
+  p1_channel: "slack:#nidp-dq"
+  p2_channel: log_only

@@ -18,6 +18,9 @@ import Privacy from "@/pages/Privacy";
 // V3 redesign — fully isolated under /v3, lazy-loaded so V2 bundle is unaffected.
 const V3App = React.lazy(() => import("@/v3"));
 
+// V4 redesign — fully isolated under /v4, lazy-loaded so V2/V3 bundles are unaffected.
+const V4App = React.lazy(() => import("@/v4"));
+
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) {
@@ -67,18 +70,27 @@ function V2Routes() {
   );
 }
 
-function AppInner({ isV3 }) {
+function AppInner({ mode }) {
   const { googleClientId } = useAuth();
-  // V3 mounts the V3 SPA directly (it has its own <Routes>); V2 keeps its
-  // current route table. The choice of basename happens one level up,
-  // so each path tree is independent and URLs stay clean.
-  const tree = isV3 ? (
-    <Suspense fallback={<div style={{ minHeight: "100vh", background: "#0a0908" }} />}>
-      <V3App />
-    </Suspense>
-  ) : (
-    <V2Routes />
-  );
+  // V3/V4 each mount their own SPA (with their own <Routes>); V2 keeps its
+  // current route table. The choice of basename happens one level up, so
+  // each path tree is independent and URLs stay clean.
+  let tree;
+  if (mode === "v4") {
+    tree = (
+      <Suspense fallback={<div style={{ minHeight: "100vh", background: "#0b0a08" }} />}>
+        <V4App />
+      </Suspense>
+    );
+  } else if (mode === "v3") {
+    tree = (
+      <Suspense fallback={<div style={{ minHeight: "100vh", background: "#0a0908" }} />}>
+        <V3App />
+      </Suspense>
+    );
+  } else {
+    tree = <V2Routes />;
+  }
 
   if (googleClientId) {
     return (
@@ -97,24 +109,27 @@ function AppInner({ isV3 }) {
 }
 
 // Single-time URL sniff at module load. We deliberately do NOT subscribe to
-// route changes here — switching between V2 and V3 means a full page reload
+// route changes here — switching between V2/V3/V4 means a full page reload
 // (different bundles of providers, different basename). React Router never
 // crosses the basename boundary on its own, so a hard reload is correct.
 function detectAppMode() {
   if (typeof window === "undefined") return "v2";
-  return window.location.pathname.startsWith("/v3") ? "v3" : "v2";
+  const p = window.location.pathname;
+  if (p.startsWith("/v4")) return "v4";
+  if (p.startsWith("/v3")) return "v3";
+  return "v2";
 }
 
 function App() {
   const mode = detectAppMode();
-  const basename = mode === "v3" ? "/v3" : "/v2";
+  const basename = mode === "v4" ? "/v4" : mode === "v3" ? "/v3" : "/v2";
 
   return (
     <BrowserRouter basename={basename}>
       <ThemeProvider>
         <NumberFormatProvider>
           <AuthProvider>
-            <AppInner isV3={mode === "v3"} />
+            <AppInner mode={mode} />
           </AuthProvider>
         </NumberFormatProvider>
       </ThemeProvider>

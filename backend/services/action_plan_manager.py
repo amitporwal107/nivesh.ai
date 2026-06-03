@@ -15,11 +15,13 @@ import logging
 
 from deps import db
 from services import signal_detector, decision_engine, instrument_scoring, tax_calculator
+from services import goal_engine as _goal_engine
 from services.instrument_scoring import (
     PORTFOLIO_HEALTHY_SCORE, MAX_ACTIONS_PER_PLAN,
 )
 from services import rules_config
 from services import v3_integration
+from services.action_recommendation_schema import augment_all as _augment_v4_fields
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +115,8 @@ class ActionPlanManager:
     
     def __init__(self):
         self.scoring_engine = instrument_scoring.get_scoring_engine()
+        self._last_simulation: Optional[Dict[str, Any]] = None
+        self._last_gate_flags: Dict[str, bool] = {}
     
     # ══════════════════════════════════════════════════════════════════════
     # PLAN GENERATION
@@ -196,19 +200,48 @@ class ActionPlanManager:
         # Score stocks (DISABLED - MF-only action plans)
         # Stocks are excluded from action recommendations
 
-        # Load user's risk profile for V2.5 Rule 5 dynamic target
+        # Load user's risk profile and persona for the recommendation engine
         user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
-        risk_profile = (
+        _rp_raw = (
             user_doc.get("risk_profile")
             or (user_doc.get("profile") or {}).get("risk_profile")
-            or "medium"
+            or {}
         )
+        # risk_profile can be a dict {score, category, ...} or a legacy string
+        if isinstance(_rp_raw, dict):
+            risk_profile = (_rp_raw.get("category") or "medium").lower()
+            risk_score_numeric = float(_rp_raw.get("score") or 50)
+            # PRD §4.4: flag divergence between capacity and tolerance scores
+            capacity_score = float(_rp_raw.get("capacity_score") or risk_score_numeric)
+            tolerance_score = float(_rp_raw.get("tolerance_score") or risk_score_numeric)
+            capacity_tolerance_diverged = bool(_rp_raw.get("capacity_tolerance_diverged", False))
+        else:
+            risk_profile = str(_rp_raw) if _rp_raw else "medium"
+            risk_score_numeric = None
+            capacity_score = tolerance_score = 50.0
+            capacity_tolerance_diverged = False
+
+        # Behavioural persona (inferred by PersonaEngine or stored on user doc)
+        _persona_doc = user_doc.get("persona") or {}
+        if isinstance(_persona_doc, dict):
+            behavioural_persona = _persona_doc.get("persona") or _persona_doc.get("type") or "unknown"
+            behavioural_confidence = float(_persona_doc.get("confidence") or 0) / 100.0
+        else:
+            behavioural_persona = str(_persona_doc) if _persona_doc else "unknown"
+            behavioural_confidence = 0.0
 
         portfolio_context = {
+            "user_id": user_id,
             "total_value": portfolio_data["total_value"],
             "mf_count": len(mf_holdings),
             "stock_count": len(stock_holdings),
             "risk_profile": risk_profile,
+            "risk_score_numeric": risk_score_numeric,
+            "capacity_score": capacity_score,
+            "tolerance_score": tolerance_score,
+            "capacity_tolerance_diverged": capacity_tolerance_diverged,
+            "behavioural_persona": behavioural_persona,
+            "behavioural_confidence": behavioural_confidence,
         }
         
         # NOTE: Stock scoring disabled - focus on MF optimization only
@@ -219,10 +252,39 @@ class ActionPlanManager:
         
         # Sort by exit score (highest first)
         exit_candidates = sorted(exit_candidates, key=lambda x: x["exit_score"], reverse=True)
-        
+
         logger.info("Generated %s MF exit candidates", len(exit_candidates))
-        
-        # 3. Apply V2 Action Generation Rules (6 core rules)
+
+        # ── V3 enrichment + guardrail filtering ──────────────────────────────
+        # Runs here (generate_plan scope) so orchestrator / future engines can
+        # receive v3_scores_by_id via RecommendationContext without re-querying.
+        v3_scores_by_id = await v3_integration.enrich_candidates_with_v3(
+            mf_investments=mf_investments,
+            exit_candidates=exit_candidates,
+            mf_holdings=mf_holdings,
+            portfolio_intelligence=portfolio_intelligence,
+        )
+        _pre_filter = len(exit_candidates)
+        exit_candidates = [
+            c for c in exit_candidates
+            if not (
+                c.get("instrument_id") and
+                v3_scores_by_id.get(c["instrument_id"], {}).get("guardrail_blocked")
+            )
+        ]
+        _dropped_by_guardrail = _pre_filter - len(exit_candidates)
+        if _dropped_by_guardrail:
+            logger.info(
+                "[V3 guardrails] blocked %d exit candidate(s) "
+                "(protected by quality/tax/recent-investment rules)",
+                _dropped_by_guardrail,
+            )
+
+        # 3. Evaluate active goals (feeds GoalAlignmentEngine + GoalBucketFirstEngine)
+        goal_evals = await self._evaluate_user_goals(user_id, risk_profile)
+        logger.info("[ActionPlanManager] user=%s: %d active goal(s) evaluated", user_id, len(goal_evals))
+
+        # 4. Apply V2 Action Generation Rules (6 core rules)
         actions = await self._apply_action_rules(
             mf_holdings=mf_holdings,
             mf_investments=mf_investments,
@@ -231,6 +293,8 @@ class ActionPlanManager:
             portfolio_intelligence=portfolio_intelligence,
             portfolio_context=portfolio_context,
             signals=signals,
+            v3_scores_by_id=v3_scores_by_id,
+            goal_evaluations=goal_evals,
         )
 
         # 3b. Augment with Decision Engine drift / cap rules
@@ -320,7 +384,7 @@ class ActionPlanManager:
                 "amount": 0,
                 "reason_codes": ["PORTFOLIO_HEALTHY"],
                 "reason_text": "Your portfolio already scores ≥75/100. No action needed right now.",
-                "status": "pending",
+                "status": ACTION_PENDING,
                 "tax_impact": None,
             })
             total_tax_impact = self._calculate_total_tax_impact(actions)
@@ -333,6 +397,12 @@ class ActionPlanManager:
                 actions,
                 key=lambda a: (_priority_rank(a), -(a.get("score") or 0)),
             )[:MAX_ACTIONS_PER_PLAN]
+
+        # v4 Recommendation schema augmentation (Decision 2 per docs/api-changes.md).
+        # Adds verb, priority_label, source_domain, effort, trade_off, impact,
+        # expected_impact, exclusive, scores, switch_target — all idempotent and
+        # non-destructive. Applied here so every creator path gets the v4 shape.
+        _augment_v4_fields(actions)
 
         plan_summary = self._generate_plan_summary(
             actions=actions,
@@ -379,6 +449,11 @@ class ActionPlanManager:
                 "portfolio_value_at_creation": portfolio_data["total_value"],
                 "engine_version": "v2.5",
             },
+            # New optional fields (engine pipeline only; old clients ignore unknown fields)
+            # simulation: IS-1 before/after 10Y projection + IS-2 suppression summary
+            "simulation": getattr(self, "_last_simulation", None),
+            # gate_flags: why recommendations may be empty (PRD §4 mandatory gates)
+            "gate_flags": getattr(self, "_last_gate_flags", {}),
         }
         
         logger.info("Plan generated: %s with %s actions · score=%s · conf=%s", plan_id, len(actions), portfolio_score, confidence_score)
@@ -423,28 +498,48 @@ class ActionPlanManager:
         logger.info("Plan %s saved as active", plan_id)
         return plan
     
-    async def get_active_plan(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get user's active plan with calculated completion metrics."""
+    async def get_active_plan(
+        self,
+        user_id: str,
+        source_domain: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Get user's active plan with calculated completion metrics.
+
+        Args:
+            user_id: caller's effective user_id (advisor impersonation handled upstream).
+            source_domain: optional v4 filter — when set, returns only actions whose
+                `source_domain` matches. Per gap-analysis Finding C.9 — pushes the
+                domain filter server-side instead of client-side reason_code matching.
+        """
         plan = await db.action_plans.find_one(
             {"user_id": user_id, "status": STATUS_ACTIVE},
             {"_id": 0}
         )
-        
+
         if not plan:
             return None
-        
-        # Calculate completion metrics
-        actions = plan.get("actions", [])
+
+        actions = plan.get("actions", []) or []
+
+        # Read-time v4 augmentation — handles legacy plans that pre-date Decision 2.
+        # Idempotent; no-op for already-augmented documents.
+        _augment_v4_fields(actions)
+
+        # Optional source_domain filter (v4).
+        if source_domain:
+            sd = source_domain.lower()
+            actions = [a for a in actions if (a.get("source_domain") or "").lower() == sd]
+            plan["actions"] = actions
+
         total_actions = len(actions)
         completed_actions = len([a for a in actions if a.get("status") == "COMPLETED"])
         completion_pct = (completed_actions / total_actions * 100) if total_actions > 0 else 0
-        
-        # Add calculated fields to plan
+
         plan["total_actions"] = total_actions
         plan["completed_actions"] = completed_actions
         plan["completion_pct"] = completion_pct
         plan["pending_actions"] = total_actions - completed_actions
-        
+
         return plan
     
     async def get_plan(self, plan_id: str, user_id: str) -> Optional[Dict[str, Any]]:
@@ -563,6 +658,113 @@ class ActionPlanManager:
         return updated_plan
         
     
+    async def add_action_to_active_plan(
+        self,
+        user_id: str,
+        action_input: Dict[str, Any],
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """v4 — Create a new action on the user's active plan.
+
+        Per docs/api-changes.md B.10. Used for cross-domain action creation:
+        Tax (from tax_harvest candidates), Goals (from goal-engine recs), or
+        advisor Discuss promotion. Idempotent if `idempotency_key` is set.
+        """
+        # Find the active plan
+        plan = await db.action_plans.find_one(
+            {"user_id": user_id, "status": STATUS_ACTIVE},
+            {"_id": 0},
+        )
+        if not plan:
+            raise ValueError("No active plan found")
+
+        # Idempotency check — if this key was already applied, return existing
+        if idempotency_key:
+            for existing in plan.get("actions", []) or []:
+                if existing.get("idempotency_key") == idempotency_key:
+                    return existing
+
+        # Build the action dict, then run through the v4 augment so all
+        # schema fields are present.
+        new_action = dict(action_input)
+        new_action.setdefault("action_id", f"act_{uuid4().hex[:8]}")
+        new_action.setdefault("status", ACTION_PENDING)
+        new_action.setdefault("created_at", datetime.now(timezone.utc).isoformat())
+        if idempotency_key:
+            new_action["idempotency_key"] = idempotency_key
+
+        _augment_v4_fields([new_action])
+
+        # Push to plan
+        await db.action_plans.update_one(
+            {"plan_id": plan["plan_id"], "user_id": user_id},
+            {
+                "$push": {"actions": new_action},
+                "$set": {"updated_at": datetime.now(timezone.utc)},
+                "$inc": {"total_actions": 1, "pending_actions": 1},
+            },
+        )
+
+        logger.info("Action %s added to plan %s (source=%s)",
+                    new_action["action_id"], plan["plan_id"], new_action.get("source_domain"))
+        return new_action
+
+
+    async def record_action_discussion(
+        self,
+        plan_id: str,
+        action_id: str,
+        advisor_user_id: str,
+        note: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """v4 — Advisor-side Discuss-only write per PRD §10.2.
+
+        Records that the advisor discussed this action with the client.
+        Does NOT modify action.status — client retains sole control.
+        """
+        # We don't know the client user_id from advisor session alone — look up by plan_id
+        plan = await db.action_plans.find_one({"plan_id": plan_id}, {"_id": 0})
+        if not plan:
+            raise ValueError(f"Plan {plan_id} not found")
+
+        action_idx = None
+        for idx, action in enumerate(plan.get("actions", []) or []):
+            if action.get("action_id") == action_id or action.get("id") == action_id:
+                action_idx = idx
+                break
+        if action_idx is None:
+            raise ValueError(f"Action {action_id} not found in plan {plan_id}")
+
+        now = datetime.now(timezone.utc).isoformat()
+        existing_discussions = plan["actions"][action_idx].get("discussions", []) or []
+        discussion_event = {
+            "advisor_user_id": advisor_user_id,
+            "discussed_at": now,
+            "note": note or "",
+        }
+        new_discussions = existing_discussions + [discussion_event]
+
+        await db.action_plans.update_one(
+            {"plan_id": plan_id},
+            {
+                "$set": {
+                    f"actions.{action_idx}.discussions": new_discussions,
+                    f"actions.{action_idx}.last_discussed_at": now,
+                    f"actions.{action_idx}.discussion_count": len(new_discussions),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
+        )
+
+        return {
+            "action_id": action_id,
+            "discussed_at": now,
+            "discussed_by_advisor_id": advisor_user_id,
+            "discussion_count": len(new_discussions),
+            "discussion_note": note or "",
+        }
+
+
     async def update_action_feedback(
         self,
         plan_id: str,
@@ -712,6 +914,66 @@ class ActionPlanManager:
 
 
     # ══════════════════════════════════════════════════════════════════════
+    # GOAL EVALUATION HELPER
+    # ══════════════════════════════════════════════════════════════════════
+
+    async def _evaluate_user_goals(
+        self,
+        user_id: str,
+        risk_profile: str,
+    ) -> List[Dict[str, Any]]:
+        """Fetch active goals from DB, run goal_engine.evaluate_goal() for each,
+        and return a list of enriched dicts combining goal metadata + evaluation fields.
+
+        Returns an empty list (not an error) when no goals exist.
+        """
+        try:
+            goals = await db.goals.find(
+                {"user_id": user_id, "status": {"$ne": "archived"}},
+                {"_id": 0},
+            ).to_list(50)
+        except Exception as exc:
+            logger.warning("[ActionPlanManager] goal fetch failed for user=%s: %s", user_id, exc)
+            return []
+
+        results: List[Dict[str, Any]] = []
+        for goal in goals:
+            try:
+                target_rs    = float(goal.get("target_amount_rs") or goal.get("target_rs") or 0)
+                horizon_yrs  = float(goal.get("horizon_years") or goal.get("years_to_goal") or 10)
+                corpus_rs    = float(goal.get("current_corpus_rs") or goal.get("corpus_rs") or 0)
+                monthly_sip  = float(goal.get("monthly_sip_rs") or goal.get("sip_amount") or 0)
+                if target_rs <= 0 or horizon_yrs <= 0:
+                    continue
+                ev = _goal_engine.evaluate_goal(
+                    target_today_rs=target_rs,
+                    horizon_years=horizon_yrs,
+                    starting_corpus_rs=corpus_rs,
+                    monthly_sip_rs=monthly_sip,
+                    risk_profile=risk_profile,
+                )
+                ev_dict = ev.to_dict()
+                ev_dict.update({
+                    # Goal metadata
+                    "goal_id":       str(goal.get("goal_id") or goal.get("_id") or ""),
+                    "goal_name":     goal.get("goal_name") or goal.get("name") or "Goal",
+                    "goal_type":     goal.get("goal_type") or goal.get("type") or "wealth",
+                    "horizon_years": horizon_yrs,
+                    "priority":      goal.get("priority") or "medium",
+                    "monthly_sip_rs": monthly_sip,
+                    # Compatibility aliases (GoalBucketFirstEngine uses these dict keys)
+                    "health_status": ev_dict.get("goal_health"),
+                    "gap_rs":        ev_dict.get("shortfall_rs"),
+                })
+                results.append(ev_dict)
+            except Exception as exc:
+                logger.warning(
+                    "[ActionPlanManager] goal evaluation failed for goal=%s user=%s: %s",
+                    goal.get("goal_name") or goal.get("goal_id"), user_id, exc,
+                )
+        return results
+
+    # ══════════════════════════════════════════════════════════════════════
     # V2 ACTION GENERATION RULES (6 Core Rules)
     # ══════════════════════════════════════════════════════════════════════
 
@@ -724,53 +986,80 @@ class ActionPlanManager:
         portfolio_intelligence: Dict[str, Any],
         portfolio_context: Dict[str, Any],
         signals: List[Dict[str, Any]],
+        v3_scores_by_id: Optional[Dict[str, Any]] = None,
+        goal_evaluations: Optional[List] = None,
     ) -> List[Dict[str, Any]]:
-        """Apply the 6 V2 Action Generation Rules in priority order.
+        """Apply Action Generation Rules in priority order.
 
-        Rule 1 (P0): Regular → Direct consolidation (same fund, exit Regular)
-        Rule 6 (P0): Regular → Direct cost-leak switch actions (>₹10K/yr)
-        Rule 2 (P0): AMC concentration >15% → EXIT by highest exit_score until <15%
-        Rule 3 (P1): Underperformer → replace with same-category top ADD score fund
-        Rule 4 (P1): Different-fund overlap >60% → EXIT fund with higher exit_score
-        Rule 5 (P2): Equity>90% & Debt<10% → ADD debt fund
+        Rule 1  (P0): Regular → Direct consolidation (same fund, exit Regular)
+        Rule 6  (P0): Regular → Direct cost-leak switch actions (>₹10K/yr)
+        Rule 2  (P0): AMC concentration >15% → EXIT by highest exit_score until <15%
+        Rule 3  (P1): Underperformer → replace with same-category top ADD score fund
+        Rule 4  (P1): Different-fund overlap >60% → EXIT fund with higher exit_score
+        Rule 5  (P2): Equity>90% & Debt<10% → ADD debt fund
+        Rule 8  (P1): Same-category consolidation (≥3 funds in same SEBI category → keep best, exit rest)
+        Rule 9  (P1): Cross-category overlap replacement (high overlap → exit + suggest complementary category)
+        Rule 10 (P2): International fund gap → ADD global exposure when <target%
 
         Each fund can only be selected for EXIT once (tracked via exited_ids set).
         """
         # Load live rule config (admin-tunable)
         rcfg = await rules_config.get_config()
+
+        # ── Feature gate: new engine pipeline ────────────────────────────────
+        # When engine_pipeline.enabled=True, delegate entirely to the new
+        # pluggable orchestrator. The legacy sequential rule body is skipped.
+        _ep = rcfg.get("engine_pipeline") or {}
+        if _ep.get("enabled"):
+            from services.recommendation_engine.orchestrator import run_engine_pipeline
+            # Fetch international_funds_cache for InternationalEngine (pure engine needs pre-fetched data)
+            _intl_cache: List[Dict[str, Any]] = []
+            try:
+                from deps import db as _db
+                _intl_cache = await _db.international_funds_cache.find(
+                    {}, {"_id": 0}
+                ).sort("fetched_at", -1).to_list(50)
+            except Exception:
+                pass
+            _pipeline_actions, _pipeline_sim, _gate_flags = await run_engine_pipeline(
+                user_id=portfolio_context.get("user_id", ""),
+                risk_profile=portfolio_context.get("risk_profile", "medium"),
+                total_value_rs=portfolio_context.get("total_value", 0.0),
+                holdings=holdings,
+                mf_holdings=mf_holdings,
+                stock_holdings=[],
+                portfolio_intelligence=portfolio_intelligence,
+                mf_investments=mf_investments,
+                exit_candidates=exit_candidates,
+                v3_scores=v3_scores_by_id or {},
+                rules_cfg=rcfg,
+                signals=signals,
+                goal_evaluations=goal_evaluations,
+                international_funds_cache=_intl_cache,
+                risk_score_numeric=portfolio_context.get("risk_score_numeric"),
+                behavioural_persona=portfolio_context.get("behavioural_persona"),
+                behavioural_confidence=portfolio_context.get("behavioural_confidence", 0.0),
+                capacity_score=portfolio_context.get("capacity_score", 50.0),
+                tolerance_score=portfolio_context.get("tolerance_score", 50.0),
+                capacity_tolerance_diverged=portfolio_context.get("capacity_tolerance_diverged", False),
+            )
+            # Stash simulation result + gate flags so generate_plan() can add them to the plan doc.
+            # Thread-safe: one generate_plan() call per instance (request-scoped).
+            self._last_simulation = _pipeline_sim
+            self._last_gate_flags = _gate_flags
+            return _pipeline_actions
+        # ─────────────────────────────────────────────────────────────────────
+
         rules_cfg = rcfg["rules"]
         actions: List[Dict[str, Any]] = []
         exited_ids: set = set()                  # instrument_ids already marked for exit
         exited_holding_keys: set = set()         # mongo holding keys (for Regular/Direct matches without IDs)
         priority_counter = [1]                   # mutable int for shared incrementing
 
-        # ── V3 Phase 2: Enrich with composite scores + guardrails ───────────
-        # Returns {instrument_id: {quality_score, health_score, exit_score,
-        #                          add_score, guardrail_blocked, guardrail_reasons}}
-        v3_scores_by_id = await v3_integration.enrich_candidates_with_v3(
-            mf_investments=mf_investments,
-            exit_candidates=exit_candidates,
-            mf_holdings=mf_holdings,
-            portfolio_intelligence=portfolio_intelligence,
-        )
-        # Apply V3 guardrails: any candidate blocked by High-Quality-Protection,
-        # Tax-Exceeds-Benefit, or Recent-Investment-Lockout is dropped from the
-        # EXIT pool entirely. Guardrail results are also stashed so actions can
-        # report them in reason text.
-        pre_filter = len(exit_candidates)
-        exit_candidates = [
-            c for c in exit_candidates
-            if not (
-                c.get("instrument_id") and
-                v3_scores_by_id.get(c["instrument_id"], {}).get("guardrail_blocked")
-            )
-        ]
-        dropped_by_guardrail = pre_filter - len(exit_candidates)
-        if dropped_by_guardrail:
-            logger.info(
-                f"[V3 guardrails] blocked {dropped_by_guardrail} exit candidate(s) "
-                f"(protected by quality/tax/recent-investment rules)"
-            )
+        # v3_scores_by_id is pre-computed + guardrail-filtered in generate_plan();
+        # default to empty dict so inner helpers degrade gracefully if called directly.
+        if v3_scores_by_id is None:
+            v3_scores_by_id = {}
 
         def _v3_exit_rank(iid: Optional[str], legacy: float, name: Optional[str] = None) -> float:
             """Unified ranking score. Prefer V3 exit_score (scaled to 0-10)
@@ -1249,6 +1538,259 @@ class ActionPlanManager:
                 priority_counter[0] += 1
                 logger.info("[Rule 5] ADD debt fund: %s", debt_suggestion.get('fund_name',''))
 
+        # ── RULE 8: Same-Category Consolidation ────────────────────────────
+        # "Merge N large-cap funds into one"
+        # Triggers when user holds ≥3 funds in the same SEBI category.
+        # Keep the one with the lowest exit score; exit the rest.
+        rule_8_enabled = rules_cfg.get("rule_8_same_category_consolidation", {}).get("enabled", True)
+        r8_params = rules_cfg.get("rule_8_same_category_consolidation", {}).get("params", {})
+        if rule_8_enabled:
+            min_funds_to_trigger = int(r8_params.get("min_funds_to_trigger", 3))
+            # Group all non-exited MF holdings by SEBI category
+            cat_to_holdings: Dict[str, List[Dict[str, Any]]] = {}
+            for m in mf_holdings:
+                if _holding_key(m) in exited_holding_keys:
+                    continue
+                cat = (m.get("category") or "").strip()
+                if not cat:
+                    cat = self._infer_category_from_name(m.get("name", "") or m.get("scheme_name", "")) or ""
+                if not cat:
+                    continue
+                cat_to_holdings.setdefault(cat, []).append(m)
+
+            for cat, group in cat_to_holdings.items():
+                if len(group) < min_funds_to_trigger:
+                    continue
+                # Score each holding — prefer V3 exit score, fall back to legacy
+                scored = []
+                for m in group:
+                    cand = _resolve_candidate(m)
+                    iid = (cand or {}).get("instrument_id")
+                    legacy = (cand or {}).get("exit_score", 5.0)
+                    score = _v3_exit_rank(iid, legacy, m.get("name") or m.get("scheme_name"))
+                    scored.append((score, m, cand))
+                # Sort descending by exit score: highest score = exit first
+                scored.sort(key=lambda x: x[0], reverse=True)
+                # Keep the best (lowest exit score = last in sorted list)
+                to_exit = scored[:-1]  # all but the keeper
+                keeper_name = (scored[-1][1].get("name") or scored[-1][1].get("scheme_name") or "")[:40]
+                logger.info(
+                    "[Rule 8] %s funds in '%s' — keeping %s, exiting %s",
+                    len(group), cat, keeper_name, len(to_exit),
+                )
+                for exit_score, holding, cand in to_exit:
+                    h_key = _holding_key(holding)
+                    if h_key in exited_holding_keys:
+                        continue
+                    reason = (
+                        f"You hold {len(group)} {cat} funds — they all track similar stocks. "
+                        f"Consolidating to one fund (keeping {keeper_name}) reduces overlap "
+                        f"and simplifies your portfolio."
+                    )
+                    action = self._build_exit_action_from_holding(
+                        holding=holding,
+                        candidate=cand,
+                        priority=priority_counter[0],
+                        reason_prefix=reason,
+                        reason_code="SAME_CATEGORY_CONSOLIDATION",
+                    )
+                    actions.append(action)
+                    exited_holding_keys.add(h_key)
+                    if cand and cand.get("instrument_id"):
+                        exited_ids.add(cand["instrument_id"])
+                    priority_counter[0] += 1
+
+        # ── RULE 9: Cross-Category Overlap Replacement ──────────────────────
+        # "Replace an overlapping fund with a complementary category"
+        # When two funds overlap ≥60%, instead of just exiting the weaker one,
+        # suggest a replacement in a different category to add true diversity.
+        rule_9_enabled = rules_cfg.get("rule_9_cross_category_overlap_replacement", {}).get("enabled", True)
+        r9_params = rules_cfg.get("rule_9_cross_category_overlap_replacement", {}).get("params", {})
+        if rule_9_enabled:
+            r9_overlap_threshold = float(r9_params.get("overlap_threshold_pct", 60.0))
+            r9_max = int(r9_params.get("max_replacements", 2))
+            r9_count = 0
+            pairs_r9 = portfolio_intelligence.get("pairwise_overlap", []) or []
+            # Complementary category map: if victim is in category X, suggest category Y
+            _COMPLEMENT_MAP = {
+                "large cap": "Mid Cap",
+                "mid cap": "Small Cap",
+                "small cap": "Mid Cap",
+                "flexi cap": "Mid Cap",
+                "multi cap": "Small Cap",
+                "focused fund": "Flexi Cap",
+                "elss": "Mid Cap",
+            }
+            for pair in pairs_r9:
+                if r9_count >= r9_max:
+                    break
+                if float(pair.get("overlap_pct", 0)) < r9_overlap_threshold:
+                    continue
+                id_a = pair.get("a") or pair.get("a_isin")
+                id_b = pair.get("b") or pair.get("b_isin")
+                name_a = pair.get("a_name", "")
+                name_b = pair.get("b_name", "")
+                # Skip if same base scheme (Regular/Direct pair — handled by Rule 1)
+                if self._normalize_base_scheme_name(name_a) == self._normalize_base_scheme_name(name_b):
+                    continue
+                cand_a = candidate_by_id.get(id_a)
+                cand_b = candidate_by_id.get(id_b)
+                score_a = _v3_exit_rank(id_a, (cand_a or {}).get("exit_score", 5.0), name_a)
+                score_b = _v3_exit_rank(id_b, (cand_b or {}).get("exit_score", 5.0), name_b)
+                victim_name = name_a if score_a >= score_b else name_b
+                victim_cand = cand_a if score_a >= score_b else cand_b
+                partner_name = name_b if score_a >= score_b else name_a
+                h = _fuzzy_match_holding(victim_name, mf_holdings)
+                if not h:
+                    continue
+                h_key = _holding_key(h)
+                if h_key in exited_holding_keys:
+                    continue
+                # Find victim's category, pick a complementary category
+                victim_cat = (h.get("category") or "").strip().lower()
+                if not victim_cat:
+                    victim_cat = (self._infer_category_from_name(victim_name) or "").lower()
+                complement_cat = _COMPLEMENT_MAP.get(victim_cat)
+                if not complement_cat:
+                    continue  # don't know what to suggest — skip
+                replacement = self._find_best_same_category_replacement(
+                    category=complement_cat,
+                    excluded_ids=exited_ids,
+                    mf_investments=mf_investments,
+                    portfolio_intelligence=portfolio_intelligence,
+                )
+                reason = (
+                    f"High overlap ({pair.get('overlap_pct', 0):.0f}%) with {partner_name}. "
+                    f"Instead of two similar {victim_cat.title()} funds, replacing with a "
+                    f"{complement_cat} fund adds true diversification."
+                )
+                action = self._build_exit_action_from_holding(
+                    holding=h,
+                    candidate=victim_cand,
+                    priority=priority_counter[0],
+                    reason_prefix=reason,
+                    reason_code="CROSS_CATEGORY_REPLACEMENT",
+                )
+                if replacement:
+                    action["replacement_suggestion"] = replacement
+                    action["reason_codes"] = list({*(action.get("reason_codes") or []), "CROSS_CATEGORY_REPLACEMENT"})
+                actions.append(action)
+                exited_holding_keys.add(h_key)
+                if victim_cand and victim_cand.get("instrument_id"):
+                    exited_ids.add(victim_cand["instrument_id"])
+                priority_counter[0] += 1
+                r9_count += 1
+                logger.info(
+                    "[Rule 9] Cross-category replacement: exit %s → add %s",
+                    victim_name[:40], complement_cat,
+                )
+
+        # ── RULE 10: International Fund Gap ────────────────────────────────
+        # "Add an international fund"
+        # Fires when: no existing international exposure AND portfolio ≥₹5L
+        # AND risk profile isn't conservative with <3y horizon.
+        rule_10_enabled = rules_cfg.get("rule_10_international_fund_gap", {}).get("enabled", True)
+        r10_params = rules_cfg.get("rule_10_international_fund_gap", {}).get("params", {})
+        if rule_10_enabled:
+            r10_min_gap_pct = float(r10_params.get("min_intl_gap_pct", 2.0))
+            r10_min_portfolio = float(r10_params.get("min_portfolio_value_rs", 500000))
+            total_value = portfolio_context.get("total_value", 0) or 0
+            if total_value >= r10_min_portfolio:
+                from services import international_funds as _intl
+                # Detect existing international exposure from holdings
+                intl_value = 0.0
+                for m in mf_holdings:
+                    name = m.get("name") or m.get("scheme_name") or ""
+                    cat = m.get("category") or ""
+                    if _intl.classify_international(name, cat) is not None:
+                        qty = float(m.get("quantity") or 0)
+                        cp = float(m.get("current_price") or 0)
+                        intl_value += qty * cp
+                current_intl_pct = (intl_value / total_value * 100.0) if total_value > 0 else 0.0
+                # Compute target
+                risk = (portfolio_context.get("risk_profile") or "moderate").lower()
+                target_info = _intl.compute_target_international_pct(risk_profile=risk)
+                target_pct = float(target_info.get("pct", 0))
+                gap_pct = target_pct - current_intl_pct
+                logger.info(
+                    "[Rule 10] intl current=%.1f%% target=%.1f%% gap=%.1f%% portfolio=₹%.0f",
+                    current_intl_pct, target_pct, gap_pct, total_value,
+                )
+                if gap_pct >= r10_min_gap_pct and target_pct > 0:
+                    # No international ADD already in actions
+                    has_intl_add = any(
+                        "INTERNATIONAL_DIVERSIFICATION" in (a.get("reason_codes") or [])
+                        for a in actions
+                    )
+                    if not has_intl_add:
+                        gap_rs = total_value * (gap_pct / 100.0)
+                        # Pick best fund from cache (core band only)
+                        best_fund = None
+                        try:
+                            from deps import db as _db
+                            import asyncio as _asyncio
+                            cached = await _db.international_funds_cache.find(
+                                {}, {"_id": 0}
+                            ).sort("fetched_at", -1).to_list(50)
+                            core_funds = [
+                                f for f in cached
+                                if _intl._band_for(_intl._quality_score(f)) == "core"
+                                and not _intl._portfolio_overrides(
+                                    f,
+                                    us_exposure_pct=current_intl_pct,
+                                    it_concentration_pct=0.0,
+                                    risk_profile=risk,
+                                )
+                            ]
+                            core_funds.sort(key=lambda x: _intl._quality_score(x), reverse=True)
+                            if core_funds:
+                                best_fund = core_funds[0]
+                        except Exception as _e:
+                            logger.debug("[Rule 10] cache lookup skipped: %s", _e)
+
+                        fund_name = (best_fund or {}).get("scheme_name") or "An international fund of funds"
+                        expense = (best_fund or {}).get("expense_ratio_direct")
+                        ret_3y = (best_fund or {}).get("ret_3y")
+                        detail_parts = []
+                        if ret_3y is not None:
+                            detail_parts.append(f"3Y return {ret_3y:.1f}%")
+                        if expense is not None:
+                            detail_parts.append(f"expense {expense:.2f}%")
+                        detail_str = f" ({', '.join(detail_parts)})" if detail_parts else ""
+
+                        action = {
+                            "action_id": f"act_{uuid4().hex[:8]}",
+                            "type": "ADD",
+                            "priority": priority_counter[0],
+                            "asset_type": "mutual_fund",
+                            "asset_name": fund_name,
+                            "fund_details": {
+                                "fund_name": fund_name,
+                                "fund_type": "International Fund of Funds",
+                                "bucket": (best_fund or {}).get("bucket", "Global"),
+                                "expense_ratio": expense,
+                                "ret_3y": ret_3y,
+                                "aum_cr": (best_fund or {}).get("aum_cr"),
+                                "suggested_amount_rs": round(gap_rs, 0),
+                                "target_pct": target_pct,
+                                "current_pct": round(current_intl_pct, 2),
+                            },
+                            "amount": round(gap_rs, 2),
+                            "confidence": "MEDIUM",
+                            "reason_text": (
+                                f"Your portfolio has {current_intl_pct:.0f}% international exposure — "
+                                f"{target_pct:.0f}% is recommended for a {risk} risk profile. "
+                                f"Adding {fund_name}{detail_str} gives you 5–10% global exposure, "
+                                f"reducing India-concentration risk."
+                            ),
+                            "reason_codes": ["INTERNATIONAL_DIVERSIFICATION", "GEOGRAPHIC_GAP"],
+                            "status": "PENDING",
+                            "created_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                        actions.append(action)
+                        priority_counter[0] += 1
+                        logger.info("[Rule 10] ADD international fund: %s (gap ₹%.0f)", fund_name[:40], gap_rs)
+
         # ── CUSTOM RULES (Phase 2) ──────────────────────────────────────────
         # Custom rules are evaluated last so built-ins take priority.
         custom_rules = rcfg.get("custom_rules", []) or []
@@ -1301,9 +1843,8 @@ class ActionPlanManager:
                     a["v3_guardrail_reasons"] = v3["guardrail_reasons"]
 
         logger.info(
-            f"Rule engine produced {len(actions)} actions "
-            f"(V3 enrichment: {len(v3_scores_by_id)} funds scored, "
-            f"{dropped_by_guardrail} blocked by guardrails)"
+            "Rule engine produced %d actions (V3 enrichment: %d funds scored)",
+            len(actions), len(v3_scores_by_id),
         )
         return actions
 
@@ -1382,8 +1923,11 @@ class ActionPlanManager:
             target = rule.get("target") or {}
 
             if action_type == "FLAG_ONLY":
+                # Per gap-analysis Finding C.8: dual id + action_id for backward compat.
+                custom_id = f"custom-{rid}-{priority_counter[0]}"
                 out.append({
-                    "id": f"custom-{rid}-{priority_counter[0]}",
+                    "id": custom_id,
+                    "action_id": custom_id,
                     "type": "REVIEW",
                     "asset_name": "Portfolio",
                     "asset_type": "portfolio",
@@ -1867,8 +2411,11 @@ class ActionPlanManager:
             parent_plan_id = None
             new_version = 1
         
-        # Fetch fresh data
+        # Fetch fresh data — with V3 Postgres fallback for V4 users
         holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(500)
+        if not holdings:
+            from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+            holdings = await pi_holdings_for_user(user_id)
         from services import portfolio_intelligence
         intelligence = await portfolio_intelligence.compute_portfolio_intelligence(user_id)
         

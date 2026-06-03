@@ -1,0 +1,796 @@
+openapi: 3.1.0
+info:
+  title: Nivesh — Recommendation API
+  version: 2.0.0
+  description: |
+    ## What this covers
+    AI-generated action plans, goal-based planning, and scenario simulation.
+
+    ### Action Plans (V2.5 Engine)
+    Plans are the core recommendation output of Nivesh. The AI analyses the user's
+    portfolio and generates a prioritised list of actions (buy, sell, switch, SIP changes).
+
+    | Endpoint | Purpose |
+    |----------|---------|
+    | `POST /api/plans/generate` | Generate a new AI action plan |
+    | `GET /api/plans/active` | Fetch the user's current active plan |
+    | `POST /api/plans/{plan_id}/save` | Promote a preview plan to active |
+    | `POST /api/plans/{plan_id}/simulate` | Simulate before/after impact |
+    | `PATCH /api/plans/{plan_id}/actions/{action_id}` | Mark action done/skipped |
+
+    ### Goals
+    Goal-based investment planning with Monte Carlo projection.
+
+    | Endpoint | Purpose |
+    |----------|---------|
+    | `GET /api/goals/snapshot` | Financial goals summary |
+    | `GET /api/goals` | List all goals |
+    | `POST /api/goals` | Create a new goal |
+    | `GET /api/goals/{goal_id}/simulate` | Monte Carlo success probability |
+
+    ### Scenarios
+    What-if scenario analysis for rebalancing decisions.
+
+    | Endpoint | Purpose |
+    |----------|---------|
+    | `POST /api/scenarios/suggest` | AI-suggested rebalancing scenarios |
+    | `POST /api/scenarios/simulate` | Simulate a custom allocation change |
+    | `GET /api/scenarios/rebalance-plan` | Get a fund-level rebalancing plan |
+
+    ## Plan Action Types
+    | Action | Description |
+    |--------|-------------|
+    | `sell` | Exit a holding (consolidation, underperformer) |
+    | `buy` | Add a new fund to the portfolio |
+    | `switch` | Move from one fund to a better-rated equivalent |
+    | `sip_increase` | Increase SIP amount in an existing fund |
+    | `sip_decrease` | Reduce SIP (over-concentration) |
+    | `hold` | Positive signal — no action needed |
+
+servers:
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
+
+security:
+  - SessionCookie: []
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie set by `POST /api/auth/google`.
+
+  schemas:
+    PlanAction:
+      type: object
+      properties:
+        action_id:
+          type: string
+          example: act_1a2b3c
+        action_type:
+          type: string
+          enum: [sell, buy, switch, sip_increase, sip_decrease, hold]
+          example: switch
+        priority:
+          type: integer
+          example: 1
+        holding_name:
+          type: string
+          example: HDFC Top 100 Fund
+        rationale:
+          type: string
+          example: Overlaps 68% with Mirae Asset Large Cap. Consolidation saves ₹1,200/year in fees.
+        suggested_alternative:
+          type: string
+          nullable: true
+          example: Axis Midcap Fund
+        estimated_impact:
+          type: object
+          nullable: true
+          properties:
+            health_score_delta:
+              type: number
+              example: 5
+            annual_savings_rs:
+              type: number
+              example: 1200
+        status:
+          type: string
+          enum: [pending, done, skipped]
+          example: pending
+
+    Plan:
+      type: object
+      properties:
+        plan_id:
+          type: string
+          example: plan_a1b2c3
+        version:
+          type: string
+          example: "2.5"
+        status:
+          type: string
+          enum: [preview, active, archived]
+          example: active
+        health_score_before:
+          type: number
+          example: 67
+        health_score_projected:
+          type: number
+          example: 81
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlanAction'
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-05-27T10:00:00Z"
+
+    Goal:
+      type: object
+      properties:
+        goal_id:
+          type: string
+          example: goal_d4e5f6
+        goal_type:
+          type: string
+          enum: [retirement, home_purchase, education, emergency_fund, wealth, custom]
+          example: retirement
+        goal_name:
+          type: string
+          example: Retirement at 60
+        target_amount_rs:
+          type: number
+          example: 5000000
+        horizon_years:
+          type: integer
+          example: 20
+        monthly_sip_rs:
+          type: number
+          example: 25000
+        corpus_today_rs:
+          type: number
+          nullable: true
+          example: 842000
+        on_track_pct:
+          type: number
+          nullable: true
+          example: 73.5
+        projected_corpus_rs:
+          type: number
+          nullable: true
+          example: 4250000
+        status:
+          type: string
+          enum: [active, completed, paused]
+          example: active
+
+paths:
+
+  # ── Action Plans ────────────────────────────────────────────────────────────
+
+  /api/plans/generate:
+    post:
+      tags: [plans]
+      operationId: plans_generate
+      summary: Generate a new AI action plan
+      description: |
+        Runs the V2.5 recommendation engine against the user's current portfolio.
+
+        The engine applies 6 rules + 4 guardrails:
+        1. **Underperformer rule** — flag funds in bottom quartile for 3 consecutive years
+        2. **Overlap rule** — consolidate when two funds share >60% holdings
+        3. **Concentration rule** — flag sector or AMC exposure >25%
+        4. **Cost rule** — suggest cheaper alternatives when ER gap >0.5%
+        5. **Goal drift rule** — adjust allocation when actual vs target drifts >15%
+        6. **SIP gap rule** — suggest SIP increases when monthly savings are below plan
+
+        Returns a `preview` plan. Call `POST /api/plans/{plan_id}/save` to promote it.
+
+        **Typical latency**: 3-8 seconds (NIDP + scoring).
+      responses:
+        "200":
+          description: Generated preview plan
+          content:
+            application/json:
+              example:
+                plan:
+                  plan_id: plan_a1b2c3
+                  version: "2.5"
+                  status: preview
+                  health_score_before: 67
+                  health_score_projected: 81
+                  actions:
+                    - action_id: act_1a2b3c
+                      action_type: switch
+                      priority: 1
+                      holding_name: HDFC Top 100 Fund
+                      rationale: 68% overlap with Mirae Asset Large Cap. Switch to Axis Midcap for breadth.
+                      suggested_alternative: Axis Midcap Fund
+                      estimated_impact:
+                        health_score_delta: 7
+                        annual_savings_rs: 1200
+                      status: pending
+                    - action_id: act_2d3e4f
+                      action_type: sip_increase
+                      priority: 2
+                      holding_name: Parag Parikh Flexi Cap Fund
+                      rationale: Highest V3 score in portfolio (88.5). Under-allocated at 15%.
+                      suggested_alternative: null
+                      estimated_impact:
+                        health_score_delta: 2
+                        annual_savings_rs: null
+                      status: pending
+                  created_at: "2024-05-27T10:05:00Z"
+                message: Plan generated with 5 actions. Review and save to activate.
+
+  /api/plans/active:
+    get:
+      tags: [plans]
+      operationId: plans_get_active
+      summary: Get the user's active plan
+      description: |
+        Returns the currently active plan, or `null` if no plan exists.
+        `has_plan: false` means the user has not yet generated or saved any plan.
+      responses:
+        "200":
+          description: Active plan or null
+          content:
+            application/json:
+              example:
+                has_plan: true
+                plan:
+                  plan_id: plan_a1b2c3
+                  version: "2.5"
+                  status: active
+                  health_score_before: 67
+                  health_score_projected: 81
+                  actions_total: 5
+                  actions_done: 2
+                  actions_pending: 3
+                  actions_skipped: 0
+                  created_at: "2024-05-27T10:05:00Z"
+                  last_updated_at: "2024-05-27T14:22:00Z"
+
+    delete:
+      tags: [plans]
+      operationId: plans_archive_active
+      summary: Archive the active plan
+      description: Moves the active plan to `archived` status. Use when starting fresh.
+      responses:
+        "200":
+          description: Plan archived
+          content:
+            application/json:
+              example:
+                status: ok
+                plan_id: plan_a1b2c3
+                new_status: archived
+
+  /api/plans/active/health-projection:
+    get:
+      tags: [plans]
+      operationId: plans_health_projection
+      summary: Project health score if active plan is fully implemented
+      description: |
+        Returns a health score projection assuming all pending actions in the
+        active plan are completed. Shows the "if you do this, you'll reach X" story.
+      responses:
+        "200":
+          description: Health projection
+          content:
+            application/json:
+              example:
+                current_score: 67
+                projected_score: 81
+                projected_grade: B
+                actions_impact:
+                  - action_id: act_1a2b3c
+                    action_type: switch
+                    score_delta: 7
+                  - action_id: act_2d3e4f
+                    action_type: sip_increase
+                    score_delta: 2
+
+  /api/plans/history:
+    get:
+      tags: [plans]
+      operationId: plans_history
+      summary: Get plan history
+      description: Returns archived and active plans in reverse chronological order.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Plan history
+          content:
+            application/json:
+              example:
+                total: 3
+                plans:
+                  - plan_id: plan_a1b2c3
+                    status: active
+                    health_score_before: 67
+                    health_score_projected: 81
+                    actions_total: 5
+                    created_at: "2024-05-27T10:05:00Z"
+                  - plan_id: plan_z9y8x7
+                    status: archived
+                    health_score_before: 58
+                    health_score_projected: 67
+                    actions_total: 4
+                    created_at: "2024-04-15T09:00:00Z"
+
+  /api/plans/refresh:
+    post:
+      tags: [plans]
+      operationId: plans_refresh
+      summary: Refresh active plan (creates new version)
+      description: |
+        Re-runs the recommendation engine against the current portfolio state and
+        creates a new version of the plan, replacing the previous active plan.
+        Call this after implementing some actions to get updated recommendations.
+      responses:
+        "200":
+          description: Refreshed plan
+          content:
+            application/json:
+              example:
+                plan_id: plan_b2c3d4
+                version: "2.5"
+                status: active
+                health_score_before: 74
+                health_score_projected: 85
+                actions_total: 3
+                message: Plan refreshed. 2 actions from previous plan are now resolved.
+
+  /api/plans/{plan_id}:
+    get:
+      tags: [plans]
+      operationId: plans_get
+      summary: Get a specific plan by ID
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: plan_a1b2c3
+      responses:
+        "200":
+          description: Plan document with all actions
+          content:
+            application/json:
+              example:
+                plan_id: plan_a1b2c3
+                version: "2.5"
+                status: active
+                health_score_before: 67
+                health_score_projected: 81
+                actions:
+                  - action_id: act_1a2b3c
+                    action_type: switch
+                    priority: 1
+                    holding_name: HDFC Top 100 Fund
+                    rationale: 68% overlap with Mirae Asset Large Cap.
+                    suggested_alternative: Axis Midcap Fund
+                    status: pending
+
+  /api/plans/{plan_id}/save:
+    post:
+      tags: [plans]
+      operationId: plans_save
+      summary: Promote a preview plan to active
+      description: Saves a `preview` plan as the new `active` plan. Archives any previous active plan.
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Plan is now active
+          content:
+            application/json:
+              example:
+                plan_id: plan_a1b2c3
+                status: active
+                message: Plan activated. Previous plan archived.
+
+  /api/plans/{plan_id}/simulate:
+    post:
+      tags: [plans]
+      operationId: plans_simulate
+      summary: Simulate before/after impact of a plan
+      description: |
+        Shows what the portfolio would look like if all plan actions were implemented.
+        Returns portfolio metrics before and after, including health score, allocation,
+        and top holdings changes.
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Before/after simulation result
+          content:
+            application/json:
+              example:
+                plan_id: plan_a1b2c3
+                before:
+                  health_score: 67
+                  equity_pct: 72
+                  max_overlap_pct: 68.4
+                  financial_sector_pct: 31.2
+                  avg_expense_ratio_pct: 0.98
+                after:
+                  health_score: 81
+                  equity_pct: 70
+                  max_overlap_pct: 22.1
+                  financial_sector_pct: 27.4
+                  avg_expense_ratio_pct: 0.74
+                summary:
+                  - Health score improves by 14 points (67 → 81)
+                  - Annual fee savings of ₹2,400
+                  - Sector concentration drops to within recommended range
+
+  /api/plans/{plan_id}/actions/{action_id}:
+    patch:
+      tags: [plans]
+      operationId: plans_update_action
+      summary: Update action status (pending / done / skipped)
+      description: |
+        Mark a plan action as completed or skipped. This updates plan progress
+        tracking and triggers a health score re-projection.
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [pending, done, skipped]
+                completion_note:
+                  type: string
+                  nullable: true
+            example:
+              status: done
+              completion_note: Switched to Axis Midcap via Zerodha on 27 May
+      responses:
+        "200":
+          description: Updated plan with new action status
+          content:
+            application/json:
+              example:
+                plan_id: plan_a1b2c3
+                action_id: act_1a2b3c
+                new_status: done
+                actions_done: 1
+                actions_pending: 4
+                health_score_projected: 81
+
+  /api/plans/{plan_id}/actions/{action_id}/feedback:
+    patch:
+      tags: [plans]
+      operationId: plans_action_feedback
+      summary: Submit feedback on a plan action
+      description: |
+        Allow the user to rate whether an action recommendation was useful.
+        Used to improve the recommendation engine over time.
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [useful]
+              properties:
+                useful:
+                  type: boolean
+                comment:
+                  type: string
+                  nullable: true
+            example:
+              useful: false
+              comment: The fund suggested isn't available on my broker platform
+      responses:
+        "200":
+          description: Feedback recorded
+          content:
+            application/json:
+              example:
+                status: ok
+                action_id: act_1a2b3c
+                feedback_recorded: true
+
+  /api/signals/generate:
+    get:
+      tags: [plans]
+      operationId: signals_generate
+      summary: Generate quick signals without a full plan
+      description: |
+        Lightweight alternative to full plan generation. Returns high-priority
+        signals (top 3-5 actions) without the full scoring pipeline.
+        ~1 second vs 5-8 seconds for full plan generation.
+      responses:
+        "200":
+          description: Quick signals with summary
+          content:
+            application/json:
+              example:
+                signals:
+                  - type: overlap_alert
+                    priority: 1
+                    message: HDFC Top 100 and Mirae Asset Large Cap share 68% holdings. Consider consolidating.
+                  - type: underperformer_alert
+                    priority: 2
+                    message: Sundaram Small Cap has underperformed benchmark by 8% for 3 consecutive years.
+                summary:
+                  critical_signals: 1
+                  warning_signals: 1
+                  portfolio_health: 67
+
+  # ── Goals ──────────────────────────────────────────────────────────────────
+
+  /api/goals/snapshot:
+    get:
+      tags: [goals]
+      operationId: goals_snapshot
+      summary: Financial goals summary snapshot
+      description: |
+        High-level summary of all active goals: total corpus needed, corpus available,
+        overall on-track percentage, and number of goals at risk.
+        Used for the dashboard Goals card.
+      responses:
+        "200":
+          description: Goals summary
+          content:
+            application/json:
+              example:
+                total_goals: 3
+                goals_on_track: 2
+                goals_at_risk: 1
+                total_target_rs: 12500000
+                total_corpus_today_rs: 842000
+                total_projected_rs: 9800000
+                overall_on_track_pct: 78.4
+                monthly_sip_required_rs: 45000
+                monthly_sip_current_rs: 38000
+                sip_gap_rs: 7000
+
+  /api/goals:
+    get:
+      tags: [goals]
+      operationId: goals_list
+      summary: List all goals
+      description: Returns all active, paused, and completed goals for the user.
+      responses:
+        "200":
+          description: Goals list
+          content:
+            application/json:
+              example:
+                goals:
+                  - goal_id: goal_d4e5f6
+                    goal_type: retirement
+                    goal_name: Retirement at 60
+                    target_amount_rs: 5000000
+                    horizon_years: 20
+                    monthly_sip_rs: 25000
+                    on_track_pct: 73.5
+                    status: active
+                  - goal_id: goal_g7h8i9
+                    goal_type: education
+                    goal_name: Child's Education
+                    target_amount_rs: 2000000
+                    horizon_years: 8
+                    monthly_sip_rs: 13000
+                    on_track_pct: 91.2
+                    status: active
+
+    post:
+      tags: [goals]
+      operationId: goals_create
+      summary: Create a new financial goal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [goal_type, goal_name, target_amount_rs, horizon_years, monthly_sip_rs]
+              properties:
+                goal_type:
+                  type: string
+                  enum: [retirement, home_purchase, education, emergency_fund, wealth, custom]
+                goal_name:
+                  type: string
+                target_amount_rs:
+                  type: number
+                horizon_years:
+                  type: integer
+                monthly_sip_rs:
+                  type: number
+            example:
+              goal_type: home_purchase
+              goal_name: Dream Home Down Payment
+              target_amount_rs: 2500000
+              horizon_years: 5
+              monthly_sip_rs: 35000
+      responses:
+        "200":
+          description: Created goal
+          content:
+            application/json:
+              example:
+                goal_id: goal_j1k2l3
+                goal_type: home_purchase
+                goal_name: Dream Home Down Payment
+                target_amount_rs: 2500000
+                horizon_years: 5
+                monthly_sip_rs: 35000
+                on_track_pct: null
+                status: active
+
+  /api/goals/{goal_id}/simulate:
+    post:
+      tags: [goals]
+      operationId: goals_simulate
+      summary: Monte Carlo success probability simulation
+      description: |
+        Runs a Monte Carlo simulation (10,000 paths) to estimate the probability
+        of achieving the goal given current SIP and portfolio returns.
+
+        Returns success probability, projected corpus distribution (p10/p50/p90),
+        and the SIP amount needed for 90% success probability.
+      parameters:
+        - name: goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expected_return_pct:
+                  type: number
+                  default: 12.0
+                inflation_pct:
+                  type: number
+                  default: 6.0
+                simulation_runs:
+                  type: integer
+                  default: 10000
+            example:
+              expected_return_pct: 12.0
+              inflation_pct: 6.0
+      responses:
+        "200":
+          description: Monte Carlo simulation results
+          content:
+            application/json:
+              example:
+                goal_id: goal_d4e5f6
+                success_probability_pct: 73.5
+                corpus_projections:
+                  p10_rs: 2800000
+                  p50_rs: 4250000
+                  p90_rs: 6100000
+                target_rs: 5000000
+                sip_for_90pct_success_rs: 31500
+                current_sip_rs: 25000
+                sip_gap_rs: 6500
+                years_to_goal: 20
+
+  # ── Scenarios ──────────────────────────────────────────────────────────────
+
+  /api/scenarios/suggest:
+    post:
+      tags: [scenarios]
+      operationId: scenarios_suggest
+      summary: Get AI-suggested rebalancing scenarios
+      description: |
+        Returns 3-5 rebalancing scenarios generated by the AI based on the current
+        portfolio state. Each scenario has a name, rationale, and suggested allocation changes.
+      responses:
+        "200":
+          description: Suggested scenarios
+          content:
+            application/json:
+              example:
+                scenarios:
+                  - scenario_id: scen_m1n2o3
+                    name: Consolidate Large-Cap Overlap
+                    rationale: Remove HDFC Top 100 (68% overlap with Mirae), deploy into Axis Midcap
+                    estimated_impact:
+                      health_score_delta: +7
+                      annual_savings_rs: 1200
+
+  /api/scenarios/simulate:
+    post:
+      tags: [scenarios]
+      operationId: scenarios_simulate
+      summary: Simulate a custom portfolio allocation change
+      description: |
+        Preview the portfolio metrics after a hypothetical allocation change —
+        without actually modifying the portfolio.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                changes:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      holding_id:
+                        type: string
+                      new_weight_pct:
+                        type: number
+            example:
+              changes:
+                - holding_id: h_3c1f8d
+                  new_weight_pct: 0
+                - holding_id: h_7g4k2m
+                  new_weight_pct: 25.0
+      responses:
+        "200":
+          description: Simulated portfolio metrics
+          content:
+            application/json:
+              example:
+                before:
+                  health_score: 67
+                  max_overlap_pct: 68.4
+                after:
+                  health_score: 76
+                  max_overlap_pct: 22.1

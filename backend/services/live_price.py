@@ -239,11 +239,14 @@ async def fetch_live_prices(holdings: List[dict]) -> Tuple[List[dict], dict]:
         logger.warning("ISIN map is empty — skipping live price fetch")
         return holdings, {"updated": 0, "failed": 0, "skipped": 0, "source": "none"}
 
-    # Collect ISINs that need price updates (equity + ETF only)
+    # Collect ISINs that need price updates (equity + ETF + gold/SGB).
+    # SGBs trade on NSE as government securities (ticker like SGBMAR26).
+    # Their ISIN (IN0020...) maps to an NSE symbol in isin_map when the
+    # NSE equity master feed has ingested them.
     isins_to_fetch: Dict[str, str] = {}  # isin -> nse_symbol
     for h in holdings:
         asset_type = h.get("asset_type", "other")
-        if asset_type not in ("equity", "etf"):
+        if asset_type not in ("equity", "etf", "gold"):
             continue
         isin = (h.get("ticker") or "").strip().upper()
         if not isin:
@@ -293,7 +296,7 @@ async def fetch_live_prices(holdings: List[dict]) -> Tuple[List[dict], dict]:
     failed_count = 0
     for h in holdings:
         asset_type = h.get("asset_type", "other")
-        if asset_type not in ("equity", "etf"):
+        if asset_type not in ("equity", "etf", "gold"):
             continue
         isin = (h.get("ticker") or "").strip().upper()
         nse_sym = isins_to_fetch.get(isin)

@@ -70,7 +70,12 @@ async def _active_plan_context(user_id: str) -> str:
     """Build a COMPACT block describing the user's current active action plan,
     if any. The system prompt's rules tell the AI how to behave when this
     block is empty (answer factual questions from intelligence data, redirect
-    specific recommendations to a fresh Plan Board run)."""
+    specific recommendations to a fresh Plan Board run).
+
+    Each action now carries a CP3-* block so the LLM can answer the
+    five mandatory questions (§10.13 CP-3) when the user asks for an
+    explanation of any recommendation.
+    """
     try:
         plan = await _plan_manager.get_active_plan(user_id)
     except Exception as e:
@@ -103,6 +108,15 @@ async def _active_plan_context(user_id: str) -> str:
             f"(equity LTCG ₹{tti.get('equity_ltcg',0):,.0f}, equity STCG ₹{tti.get('equity_stcg',0):,.0f})"
         )
 
+    # Plan-level simulation block (populated by SimulationEngine when enabled)
+    simulation = plan.get("simulation")
+
+    try:
+        from services.recommendation_engine.cp3_narrator import narrate_action as _cp3_narrate
+        _cp3_available = True
+    except Exception:
+        _cp3_available = False
+
     lines.append("\nActions (recommend these EXACTLY for action-shaped questions):")
     for i, a in enumerate(plan["actions"], 1):
         reasons = " · ".join(a.get("reason_codes") or [])
@@ -112,11 +126,17 @@ async def _active_plan_context(user_id: str) -> str:
             tax_str = " [tax pending — buy_date missing]"
         elif ti.get("tax_liability"):
             tax_str = f" · est. tax ₹{ti.get('tax_liability',0):,.0f} ({ti.get('tax_regime','?')})"
-        amt = a.get("exit_amount_rs") or a.get("amount_rs") or 0
+        amt = a.get("exit_amount_rs") or a.get("amount_rs") or a.get("amount") or 0
         lines.append(
             f"  {i}. [{a.get('type')}] {a.get('asset_name','?')[:55]}  "
             f"₹{amt:,.0f} · {reasons}{tax_str}"
         )
+        # CP-3: inject structured 5-question narration below each action
+        if _cp3_available:
+            try:
+                lines.append(_cp3_narrate(a, simulation))
+            except Exception as _cp3_err:
+                logger.debug("CP3 narration failed for action %s: %s", a.get("action_id"), _cp3_err)
 
     return "\n".join(lines)
 

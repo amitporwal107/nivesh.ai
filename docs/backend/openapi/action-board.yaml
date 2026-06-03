@@ -1,0 +1,1051 @@
+openapi: 3.1.0
+info:
+  title: Nivesh — Action Board API
+  version: 2.0.0
+  description: |
+    ## What this covers
+    The Action Board is the core recommendation execution layer — AI-generated
+    action plans and scenario-based rebalancing tools.
+
+    ### Action Plans (V2.5 Engine)
+    The engine analyses the portfolio and generates a prioritised list of
+    actions (sell, buy, switch, SIP increase/decrease). Each action has a
+    rationale, estimated impact on health score, and annual savings.
+
+    | Endpoint | Purpose |
+    |----------|---------|
+    | `POST /api/plans/generate` | Run the engine — generate a new plan |
+    | `GET /api/plans/active` | Fetch the current active plan |
+    | `DELETE /api/plans/active` | Archive the active plan |
+    | `GET /api/plans/active/health-projection` | Projected health if all actions done |
+    | `GET /api/plans/history` | Full plan history |
+    | `POST /api/plans/refresh` | Re-run engine against current portfolio |
+    | `POST /api/plans/{plan_id}/save` | Promote preview plan → active |
+    | `POST /api/plans/{plan_id}/simulate` | Before/after metrics preview |
+    | `PATCH /api/plans/{plan_id}/actions/{action_id}` | Mark done / skipped |
+    | `PATCH /api/plans/{plan_id}/actions/{action_id}/feedback` | Rate an action |
+    | `GET /api/signals/generate` | Quick signals (no full plan, ~1s) |
+
+    ### Scenarios
+    Scenario tools let the investor explore custom rebalancing ideas before
+    committing. Scenarios are separate from plans — they are hypothesis-testing
+    tools, not execution tracks.
+
+    | Endpoint | Purpose |
+    |----------|---------|
+    | `GET /api/scenarios/suggest` | AI-picked 3–4 personalised scenarios |
+    | `POST /api/scenarios/simulate` | Before/after metrics for a scenario |
+    | `POST /api/scenarios/rebalance-plan` | Step-by-step fund-level actions |
+    | `POST /api/scenarios/save` | Save a scenario for later reference |
+    | `GET /api/scenarios/saved` | List saved scenarios |
+    | `DELETE /api/scenarios/saved/{saved_id}` | Delete a saved scenario |
+    | `POST /api/scenarios/apply` | Commit scenario actions as a pending plan |
+    | `GET /api/scenarios/pending` | List pending rebalancing plans |
+    | `DELETE /api/scenarios/pending/{plan_id}` | Discard a pending plan |
+    | `POST /api/scenarios/pending/{plan_id}/complete` | Mark pending plan complete |
+
+    ## Plan Lifecycle
+    ```
+    generate → preview plan
+         ↓ save
+       active plan
+         ↓ actions (done / skipped over time)
+       archived plan (when user generates a new one or manually archives)
+    ```
+
+    ## Action Types
+    | Type | Description |
+    |------|-------------|
+    | `sell` | Full or partial exit — underperformer, overlap, overconcentration |
+    | `buy` | Add a new fund — diversification gap, better alternative |
+    | `switch` | Move from fund A to fund B — same category, better score |
+    | `sip_increase` | Increase monthly SIP in a high-quality holding |
+    | `sip_decrease` | Reduce SIP — overconcentration in one fund |
+    | `hold` | Positive signal — no action needed, but explicitly shown |
+
+    ## V2.5 Engine Rules
+    The engine applies 6 rules + 4 guardrails before generating any action:
+    1. **Underperformer** — 3-year benchmark alpha < -1% for 2 consecutive years
+    2. **Overlap** — two funds share > 60% of top-10 holdings
+    3. **Concentration** — sector or AMC exposure > 25%
+    4. **Cost drag** — expense ratio > category median by > 0.5%
+    5. **Goal drift** — actual vs target allocation drifted > 15 pp
+    6. **SIP gap** — monthly SIP below the goal engine's recommended amount
+
+    Guardrails prevent conflicting or excessive actions (e.g. won't sell and buy
+    in the same category in the same plan).
+
+servers:
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
+
+security:
+  - SessionCookie: []
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie set by `POST /api/auth/google`.
+
+  schemas:
+    PlanAction:
+      type: object
+      description: A single recommended action within a plan.
+      properties:
+        action_id:
+          type: string
+          example: act_1a2b3c
+        action_type:
+          type: string
+          enum: [sell, buy, switch, sip_increase, sip_decrease, hold]
+          example: switch
+        priority:
+          type: integer
+          description: Lower = more urgent (1 is highest priority).
+          example: 1
+        rule_triggered:
+          type: string
+          description: The V2.5 engine rule that fired this action.
+          example: overlap
+        holding_name:
+          type: string
+          example: HDFC Top 100 Fund
+        holding_id:
+          type: string
+          nullable: true
+          example: h_3c1f8d
+        rationale:
+          type: string
+          example: "68% overlap with Mirae Asset Large Cap. Consolidate to cut fee drag by ₹1,200/year."
+        suggested_alternative:
+          type: string
+          nullable: true
+          example: Axis Midcap Fund
+        suggested_alternative_isin:
+          type: string
+          nullable: true
+          example: INF200K01LK0
+        estimated_impact:
+          type: object
+          nullable: true
+          properties:
+            health_score_delta:
+              type: number
+              example: 7
+            annual_savings_rs:
+              type: number
+              example: 1200
+        status:
+          type: string
+          enum: [pending, done, skipped]
+          example: pending
+        completion_note:
+          type: string
+          nullable: true
+          example: Switched via Zerodha on 27 May
+
+    Plan:
+      type: object
+      description: An AI-generated V2.5 action plan.
+      properties:
+        plan_id:
+          type: string
+          example: plan_a1b2c3
+        version:
+          type: string
+          example: "2.5"
+        status:
+          type: string
+          enum: [preview, active, archived]
+          example: active
+        health_score_before:
+          type: number
+          example: 67
+        health_score_projected:
+          type: number
+          example: 81
+        actions_total:
+          type: integer
+          example: 5
+        actions_done:
+          type: integer
+          example: 2
+        actions_pending:
+          type: integer
+          example: 3
+        actions_skipped:
+          type: integer
+          example: 0
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlanAction'
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-05-27T10:00:00Z"
+
+paths:
+
+  # ── Action Plans ────────────────────────────────────────────────────────────
+
+  /api/plans/generate:
+    post:
+      tags: [plans]
+      operationId: plans_generate
+      summary: Generate a new AI action plan
+      description: |
+        Runs the V2.5 recommendation engine against the current portfolio.
+        Returns a `preview` plan — call `POST /api/plans/{plan_id}/save` to activate it.
+
+        **Typical latency**: 3–8 seconds (NIDP data + V3 scoring + engine).
+
+        If an active plan already exists, a new preview plan is created alongside it.
+        The user can compare and then save to replace the old active plan.
+      responses:
+        "200":
+          description: Generated preview plan
+          content:
+            application/json:
+              example:
+                plan:
+                  plan_id: plan_a1b2c3
+                  version: "2.5"
+                  status: preview
+                  health_score_before: 67
+                  health_score_projected: 81
+                  actions_total: 5
+                  actions_done: 0
+                  actions_pending: 5
+                  actions_skipped: 0
+                  actions:
+                    - action_id: act_1a2b3c
+                      action_type: switch
+                      priority: 1
+                      rule_triggered: overlap
+                      holding_name: HDFC Top 100 Fund
+                      rationale: 68% overlap with Mirae Asset Large Cap. Saves ₹1,200/year in fees.
+                      suggested_alternative: Axis Midcap Fund
+                      suggested_alternative_isin: INF200K01LK0
+                      estimated_impact:
+                        health_score_delta: 7
+                        annual_savings_rs: 1200
+                      status: pending
+                    - action_id: act_2d3e4f
+                      action_type: sip_increase
+                      priority: 2
+                      rule_triggered: sip_gap
+                      holding_name: Parag Parikh Flexi Cap Fund
+                      rationale: Highest V3 score in portfolio (88.5). Currently under-allocated at 15% of target 30%.
+                      suggested_alternative: null
+                      estimated_impact:
+                        health_score_delta: 3
+                        annual_savings_rs: null
+                      status: pending
+                    - action_id: act_3g4h5i
+                      action_type: sell
+                      priority: 3
+                      rule_triggered: underperformer
+                      holding_name: Sundaram Small Cap Fund
+                      rationale: 3-year alpha is -3.4% vs benchmark. Consistent bottom-quartile performer.
+                      suggested_alternative: Kotak Emerging Equity Fund
+                      suggested_alternative_isin: INF174K01LS4
+                      estimated_impact:
+                        health_score_delta: 4
+                        annual_savings_rs: 840
+                      status: pending
+                  created_at: "2024-05-27T10:05:00Z"
+                message: Plan generated with 5 actions. Review and save to activate.
+
+  /api/plans/active:
+    get:
+      tags: [plans]
+      operationId: plans_get_active
+      summary: Get the active plan
+      description: |
+        Returns the currently active plan with all actions and their completion status.
+        `has_plan: false` means no plan has been generated or saved yet.
+      responses:
+        "200":
+          description: Active plan or null
+          content:
+            application/json:
+              example:
+                has_plan: true
+                plan:
+                  plan_id: plan_a1b2c3
+                  version: "2.5"
+                  status: active
+                  health_score_before: 67
+                  health_score_projected: 81
+                  actions_total: 5
+                  actions_done: 2
+                  actions_pending: 3
+                  actions_skipped: 0
+                  actions:
+                    - action_id: act_1a2b3c
+                      action_type: switch
+                      priority: 1
+                      holding_name: HDFC Top 100 Fund
+                      rationale: 68% overlap with Mirae Asset Large Cap.
+                      suggested_alternative: Axis Midcap Fund
+                      estimated_impact:
+                        health_score_delta: 7
+                        annual_savings_rs: 1200
+                      status: done
+                      completion_note: Switched via Zerodha on 27 May
+                    - action_id: act_2d3e4f
+                      action_type: sip_increase
+                      priority: 2
+                      holding_name: Parag Parikh Flexi Cap Fund
+                      rationale: Under-allocated at 15% of target 30%.
+                      status: pending
+                  created_at: "2024-05-27T10:05:00Z"
+                  last_updated_at: "2024-05-27T14:22:00Z"
+
+    delete:
+      tags: [plans]
+      operationId: plans_archive_active
+      summary: Archive the active plan
+      description: Moves the active plan to `archived` status. Use before generating a fresh plan.
+      responses:
+        "200":
+          description: Plan archived
+          content:
+            application/json:
+              example:
+                status: ok
+                plan_id: plan_a1b2c3
+                new_status: archived
+
+  /api/plans/active/health-projection:
+    get:
+      tags: [plans]
+      operationId: plans_health_projection
+      summary: Health score if all pending actions are completed
+      description: |
+        Shows the projected health score improvement per action, and the total
+        projected score if every pending action is implemented.
+        Used for the "If you do all this, you'll reach X" motivational UI.
+      responses:
+        "200":
+          description: Health projection breakdown
+          content:
+            application/json:
+              example:
+                current_score: 67
+                projected_score: 81
+                projected_grade: B
+                actions_impact:
+                  - action_id: act_1a2b3c
+                    action_type: switch
+                    holding_name: HDFC Top 100 Fund
+                    score_delta: 7
+                  - action_id: act_2d3e4f
+                    action_type: sip_increase
+                    holding_name: Parag Parikh Flexi Cap Fund
+                    score_delta: 3
+                  - action_id: act_3g4h5i
+                    action_type: sell
+                    holding_name: Sundaram Small Cap Fund
+                    score_delta: 4
+
+  /api/plans/history:
+    get:
+      tags: [plans]
+      operationId: plans_history
+      summary: Plan history (all versions)
+      description: Returns all active and archived plans in reverse chronological order.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Plan history
+          content:
+            application/json:
+              example:
+                total: 4
+                plans:
+                  - plan_id: plan_a1b2c3
+                    status: active
+                    health_score_before: 67
+                    health_score_projected: 81
+                    actions_total: 5
+                    actions_done: 2
+                    created_at: "2024-05-27T10:05:00Z"
+                  - plan_id: plan_z9y8x7
+                    status: archived
+                    health_score_before: 58
+                    health_score_projected: 67
+                    actions_total: 4
+                    actions_done: 4
+                    created_at: "2024-04-15T09:00:00Z"
+
+  /api/plans/refresh:
+    post:
+      tags: [plans]
+      operationId: plans_refresh
+      summary: Re-run the engine — create a new plan version
+      description: |
+        Re-runs the V2.5 engine against the current portfolio state and creates
+        a new active plan. The previous active plan is archived.
+
+        Call this after implementing some actions to get updated recommendations.
+      responses:
+        "200":
+          description: Refreshed plan
+          content:
+            application/json:
+              example:
+                plan_id: plan_b2c3d4
+                status: active
+                health_score_before: 74
+                health_score_projected: 85
+                actions_total: 3
+                message: "Plan refreshed. 2 previous actions are now resolved."
+
+  /api/plans/refresh-fundamentals:
+    post:
+      tags: [plans]
+      operationId: plans_refresh_fundamentals
+      summary: Refresh fundamentals cache for portfolio stocks
+      description: |
+        Forces a re-fetch of fundamental data (P/E, revenue, profit) for all
+        equity holdings in the portfolio. Used when plan actions cite stale
+        valuation data.
+      responses:
+        "200":
+          description: Fundamentals cache refreshed
+          content:
+            application/json:
+              example:
+                status: ok
+                holdings_refreshed: 6
+                refreshed_at: "2024-05-27T10:05:00Z"
+
+  /api/plans/{plan_id}:
+    get:
+      tags: [plans]
+      operationId: plans_get
+      summary: Get a specific plan by ID
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: plan_a1b2c3
+      responses:
+        "200":
+          description: Full plan document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+
+  /api/plans/{plan_id}/save:
+    post:
+      tags: [plans]
+      operationId: plans_save
+      summary: Promote preview plan → active
+      description: Activates a `preview` plan. Any existing active plan is archived.
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Plan activated
+          content:
+            application/json:
+              example:
+                plan_id: plan_a1b2c3
+                status: active
+                message: Plan activated. Previous plan archived.
+
+  /api/plans/{plan_id}/simulate:
+    post:
+      tags: [plans]
+      operationId: plans_simulate
+      summary: Before/after portfolio metrics if all actions are done
+      description: |
+        Returns portfolio metrics before and after hypothetically implementing
+        all plan actions. Shows the full picture: allocation, overlap, expense ratio,
+        health score — not just the delta.
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Before/after simulation
+          content:
+            application/json:
+              example:
+                plan_id: plan_a1b2c3
+                before:
+                  health_score: 67
+                  equity_pct: 72
+                  max_overlap_pct: 68.4
+                  financial_sector_pct: 31.2
+                  avg_expense_ratio_pct: 0.98
+                  effective_bets: 7.2
+                after:
+                  health_score: 81
+                  equity_pct: 70
+                  max_overlap_pct: 22.1
+                  financial_sector_pct: 27.4
+                  avg_expense_ratio_pct: 0.74
+                  effective_bets: 9.8
+                improvements:
+                  - Health score: 67 → 81 (+14)
+                  - Max overlap: 68.4% → 22.1% (eliminated large-cap duplication)
+                  - Annual fee savings: ₹2,400
+
+  /api/plans/{plan_id}/actions/{action_id}:
+    patch:
+      tags: [plans]
+      operationId: plans_update_action
+      summary: Mark action done / skipped
+      description: |
+        Updates the status of a single action. This is the primary interaction
+        for the action board — the user ticks off or skips each recommendation.
+
+        After update, the plan's progress counters (`actions_done`, `actions_pending`)
+        are recalculated.
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [pending, done, skipped]
+                completion_note:
+                  type: string
+                  nullable: true
+            example:
+              status: done
+              completion_note: Switched to Axis Midcap via Zerodha on 27 May
+      responses:
+        "200":
+          description: Updated action status
+          content:
+            application/json:
+              example:
+                plan_id: plan_a1b2c3
+                action_id: act_1a2b3c
+                new_status: done
+                actions_done: 1
+                actions_pending: 4
+                actions_skipped: 0
+
+  /api/plans/{plan_id}/actions/{action_id}/feedback:
+    patch:
+      tags: [plans]
+      operationId: plans_action_feedback
+      summary: Rate an action recommendation
+      description: |
+        Allows the user to rate whether an action was useful.
+        Feedback is used to improve the recommendation engine.
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [useful]
+              properties:
+                useful:
+                  type: boolean
+                comment:
+                  type: string
+                  nullable: true
+            example:
+              useful: false
+              comment: The suggested fund isn't available on my broker's platform
+      responses:
+        "200":
+          description: Feedback recorded
+          content:
+            application/json:
+              example:
+                status: ok
+                action_id: act_1a2b3c
+                feedback_recorded: true
+
+  /api/signals/generate:
+    get:
+      tags: [plans]
+      operationId: signals_generate
+      summary: Quick signals — top 3–5 actions without full plan (~1s)
+      description: |
+        Lightweight version of plan generation. Returns the 3–5 highest-priority
+        signals without running the full V2.5 scoring pipeline.
+
+        **Use case**: Dashboard "nudge" cards that need to load quickly.
+        For the full action board, use `POST /api/plans/generate`.
+      responses:
+        "200":
+          description: Quick signals with summary
+          content:
+            application/json:
+              example:
+                signals:
+                  - type: overlap_alert
+                    priority: 1
+                    holding_name: HDFC Top 100 Fund
+                    message: 68% overlap with Mirae Asset Large Cap. Consider consolidating.
+                    health_score_impact: 7
+                  - type: underperformer_alert
+                    priority: 2
+                    holding_name: Sundaram Small Cap Fund
+                    message: Underperformed benchmark by 3.4% for 3 consecutive years.
+                    health_score_impact: 4
+                  - type: sip_gap
+                    priority: 3
+                    holding_name: Parag Parikh Flexi Cap Fund
+                    message: High-quality fund under-allocated. Increasing SIP improves health score.
+                    health_score_impact: 3
+                summary:
+                  critical_signals: 1
+                  warning_signals: 2
+                  portfolio_health: 67
+
+  # ── Scenarios ──────────────────────────────────────────────────────────────
+
+  /api/scenarios/suggest:
+    get:
+      tags: [scenarios]
+      operationId: scenarios_suggest
+      summary: AI-picked 3–4 personalised rebalancing scenarios
+      description: |
+        Returns 3–4 pre-computed scenario suggestions tailored to the current
+        portfolio. Each scenario represents a different rebalancing strategy
+        (e.g. "Reduce large-cap overlap", "Switch to Direct plans", "Reduce AMC concentration").
+
+        These are starting points for the scenario tool — the user can pick one
+        and simulate it before committing.
+      responses:
+        "200":
+          description: Personalised scenario suggestions
+          content:
+            application/json:
+              example:
+                scenarios:
+                  - scenario_id: scen_overlap
+                    name: Eliminate Large-Cap Overlap
+                    description: Remove HDFC Top 100 Fund (68% overlap) and redeploy into Axis Midcap.
+                    estimated_health_delta: 7
+                    annual_savings_rs: 1200
+                    complexity: low
+                  - scenario_id: scen_direct
+                    name: Switch to Direct Plans
+                    description: Move all 4 regular-plan holdings to direct equivalents.
+                    estimated_health_delta: 4
+                    annual_savings_rs: 3800
+                    complexity: medium
+                  - scenario_id: scen_amc
+                    name: Reduce HDFC AMC Concentration
+                    description: HDFC AMC is 28.7% of portfolio — above the 25% cap. Redistribute one HDFC fund.
+                    estimated_health_delta: 3
+                    annual_savings_rs: null
+                    complexity: low
+
+  /api/scenarios/simulate:
+    post:
+      tags: [scenarios]
+      operationId: scenarios_simulate
+      summary: Before/after metrics for a custom scenario
+      description: |
+        Simulates a custom portfolio rebalancing scenario — before/after comparison
+        of health score, overlap, sector weights, beta, and expense ratio.
+
+        Pass either a `scenario_id` from `GET /api/scenarios/suggest` or build
+        a custom scenario using the target parameters below.
+
+        **Does not modify the portfolio.** To apply, use `POST /api/scenarios/apply`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scenario_id:
+                  type: string
+                  nullable: true
+                  description: Use a pre-built scenario from /suggest.
+                target_equity:
+                  type: number
+                  nullable: true
+                  description: Target equity allocation %.
+                target_debt:
+                  type: number
+                  nullable: true
+                target_gold:
+                  type: number
+                  nullable: true
+                target_amc_cap:
+                  type: number
+                  nullable: true
+                  description: Max allowed % in any single AMC.
+                target_small_cap:
+                  type: number
+                  nullable: true
+                  description: Max small-cap allocation %.
+                switch_to_direct:
+                  type: boolean
+                  nullable: true
+                  description: Simulate switching all regular plans to direct equivalents.
+                remove_dead:
+                  type: boolean
+                  nullable: true
+                  description: Simulate removing funds with no transactions in 3+ years.
+            example:
+              target_equity: 65
+              target_debt: 25
+              target_amc_cap: 25
+              switch_to_direct: false
+      responses:
+        "200":
+          description: Before/after scenario comparison with delta
+          content:
+            application/json:
+              example:
+                scenario_id: scen_custom_001
+                before:
+                  health_score: 67
+                  equity_pct: 72
+                  max_amc_pct: 28.7
+                  avg_expense_ratio_pct: 0.98
+                  max_overlap_pct: 68.4
+                after:
+                  health_score: 76
+                  equity_pct: 65
+                  max_amc_pct: 22.1
+                  avg_expense_ratio_pct: 0.87
+                  max_overlap_pct: 38.2
+                delta:
+                  health_score: 9
+                  equity_pct: -7
+                  max_amc_pct: -6.6
+                  avg_expense_ratio_pct: -0.11
+                summary:
+                  - Health score improves 9 points (67 → 76)
+                  - AMC concentration drops to within recommended limit
+                  - Annual expense savings of ₹1,100
+
+  /api/scenarios/rebalance-plan:
+    post:
+      tags: [scenarios]
+      operationId: scenarios_rebalance_plan
+      summary: Generate step-by-step fund-level rebalancing actions
+      description: |
+        Translates a scenario into a concrete list of fund-level actions:
+        which funds to sell, which to buy, how much to redeploy.
+
+        Each action includes the exact ₹ amount to move and the suggested
+        target fund (with ISIN) if a switch is recommended.
+
+        Use the output as a checklist for executing the rebalance with a broker.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target_equity:
+                  type: number
+                target_debt:
+                  type: number
+                target_gold:
+                  type: number
+                target_amc_cap:
+                  type: number
+                switch_to_direct:
+                  type: boolean
+                remove_dead:
+                  type: boolean
+            example:
+              target_equity: 65
+              target_debt: 25
+              target_amc_cap: 25
+      responses:
+        "200":
+          description: Step-by-step rebalancing action list
+          content:
+            application/json:
+              example:
+                scenario_id: scen_custom_002
+                total_actions: 4
+                rebalance_amount_rs: 168400
+                actions:
+                  - step: 1
+                    action_type: sell
+                    fund: HDFC Top 100 Fund
+                    isin: INF200K01RJ3
+                    amount_rs: 168400
+                    reason: Overlap 68% + AMC cap exceeded
+                  - step: 2
+                    action_type: buy
+                    fund: Axis Midcap Fund - Direct Plan
+                    isin: INF200K01LK0
+                    amount_rs: 100000
+                    reason: Fill mid-cap gap; highest V3 in category (86.3)
+                  - step: 3
+                    action_type: buy
+                    fund: ICICI Pru Short Term Fund - Direct Plan
+                    isin: INF109K01BE4
+                    amount_rs: 68400
+                    reason: Increase debt to reach 25% target allocation
+                summary:
+                  health_score_before: 67
+                  health_score_after: 76
+                  annual_savings_rs: 1100
+
+  /api/scenarios/save:
+    post:
+      tags: [scenarios]
+      operationId: scenarios_save
+      summary: Save a scenario for later reference
+      description: |
+        Saves a simulated scenario (with its before/after result) for the user
+        to revisit later. Saved scenarios do not affect the portfolio.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scenario_id, payload, result]
+              properties:
+                name:
+                  type: string
+                scenario_id:
+                  type: string
+                payload:
+                  type: object
+                result:
+                  type: object
+            example:
+              name: "Q2 Rebalance — Reduce HDFC concentration"
+              scenario_id: scen_custom_001
+              payload:
+                target_equity: 65
+                target_amc_cap: 25
+              result:
+                health_score_delta: 9
+                annual_savings_rs: 1100
+      responses:
+        "200":
+          description: Scenario saved
+          content:
+            application/json:
+              example:
+                saved_id: saved_x1y2z3
+                name: Q2 Rebalance — Reduce HDFC concentration
+                saved_at: "2024-05-27T10:10:00Z"
+
+  /api/scenarios/saved:
+    get:
+      tags: [scenarios]
+      operationId: scenarios_saved_list
+      summary: List saved scenarios
+      responses:
+        "200":
+          description: Saved scenarios
+          content:
+            application/json:
+              example:
+                saved_scenarios:
+                  - saved_id: saved_x1y2z3
+                    name: Q2 Rebalance — Reduce HDFC concentration
+                    health_score_delta: 9
+                    annual_savings_rs: 1100
+                    saved_at: "2024-05-27T10:10:00Z"
+
+  /api/scenarios/saved/{saved_id}:
+    delete:
+      tags: [scenarios]
+      operationId: scenarios_saved_delete
+      summary: Delete a saved scenario
+      parameters:
+        - name: saved_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: saved_x1y2z3
+      responses:
+        "200":
+          description: Scenario deleted
+          content:
+            application/json:
+              example:
+                status: ok
+                saved_id: saved_x1y2z3
+
+  /api/scenarios/apply:
+    post:
+      tags: [scenarios]
+      operationId: scenarios_apply
+      summary: Commit scenario actions as a pending rebalancing plan
+      description: |
+        Saves the scenario's action list as a **pending rebalancing plan**.
+        A pending plan is a to-do list the investor works through with their broker —
+        it does not immediately modify portfolio holdings.
+
+        Once the investor executes all trades, they call
+        `POST /api/scenarios/pending/{plan_id}/complete` to mark it done.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scenario_id, actions, payload]
+              properties:
+                scenario_id:
+                  type: string
+                actions:
+                  type: array
+                  items:
+                    type: object
+                payload:
+                  type: object
+            example:
+              scenario_id: scen_custom_002
+              actions:
+                - step: 1
+                  action_type: sell
+                  fund: HDFC Top 100 Fund
+                  amount_rs: 168400
+                - step: 2
+                  action_type: buy
+                  fund: Axis Midcap Fund
+                  amount_rs: 100000
+              payload:
+                target_equity: 65
+                target_amc_cap: 25
+      responses:
+        "200":
+          description: Pending plan created
+          content:
+            application/json:
+              example:
+                pending_plan_id: pending_p1q2r3
+                scenario_id: scen_custom_002
+                actions_count: 3
+                status: pending
+                created_at: "2024-05-27T10:15:00Z"
+
+  /api/scenarios/pending:
+    get:
+      tags: [scenarios]
+      operationId: scenarios_pending_list
+      summary: List pending rebalancing plans
+      description: Returns all pending plans awaiting broker execution.
+      responses:
+        "200":
+          description: Pending plans
+          content:
+            application/json:
+              example:
+                pending_plans:
+                  - pending_plan_id: pending_p1q2r3
+                    scenario_id: scen_custom_002
+                    actions_count: 3
+                    status: pending
+                    created_at: "2024-05-27T10:15:00Z"
+
+  /api/scenarios/pending/{plan_id}:
+    delete:
+      tags: [scenarios]
+      operationId: scenarios_pending_delete
+      summary: Discard a pending rebalancing plan
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: pending_p1q2r3
+      responses:
+        "200":
+          description: Pending plan discarded
+          content:
+            application/json:
+              example:
+                status: ok
+                pending_plan_id: pending_p1q2r3
+
+  /api/scenarios/pending/{plan_id}/complete:
+    post:
+      tags: [scenarios]
+      operationId: scenarios_pending_complete
+      summary: Mark a pending plan as completed
+      description: |
+        Called after the investor has executed all trades with their broker.
+        Marks the pending plan complete and triggers a portfolio snapshot.
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: pending_p1q2r3
+      responses:
+        "200":
+          description: Plan marked complete
+          content:
+            application/json:
+              example:
+                status: ok
+                pending_plan_id: pending_p1q2r3
+                completed_at: "2024-05-28T10:00:00Z"
+                message: Rebalancing plan marked complete. Portfolio snapshot triggered.

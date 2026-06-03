@@ -18,6 +18,7 @@ services:
       POSTGRES_USER:     ${NIDP_PG_USER:-nidp}
       POSTGRES_PASSWORD: ${NIDP_PG_PASSWORD}
       POSTGRES_DB:       ${NIDP_PG_DB:-nidp}
+      TZ:                Asia/Kolkata
     ports:
       - "127.0.0.1:5433:5432"
     volumes:

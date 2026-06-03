@@ -581,31 +581,49 @@ async def build_enriched_portfolio(
     except Exception as e:  # noqa: BLE001
         logger.warning("enriched_portfolio: MF V3 join failed: %s", e)
 
-    # Category rank (sub_category partition, Direct-plan only, ranked by
-    # quality_score desc). Keyed by instrument_id so per-row lookup is
-    # O(1) regardless of CAS name formatting.
+    # Category rank: for each sub_category represented in the user's portfolio,
+    # fetch all funds in that category and rank them by quality_score.
+    # Scoped to active categories only — no full-table scan.
     category_rank_by_iid: Dict[str, Dict[str, Any]] = {}
     try:
-        from routes.admin_v3_master import _fetch_master_funds
-        all_funds = await _fetch_master_funds(limit=None)
-        # Partition by sub_category (fallback to category if sub is missing)
-        # so rankings are meaningful (Flexi Cap vs Flexi Cap, not "equity"
-        # vs everything).
-        by_cat: Dict[str, List[Dict[str, Any]]] = {}
-        for f in all_funds:
-            sub = f.get("sub_category") or f.get("category")
-            q = (f.get("scores") or {}).get("quality")
-            if sub and q is not None and f.get("plan_type") != "regular":
-                by_cat.setdefault(sub, []).append(f)
-        for sub, funds in by_cat.items():
-            funds.sort(key=lambda x: x["scores"]["quality"] or 0, reverse=True)
-            total = len(funds)
-            for i, f in enumerate(funds, start=1):
-                iid = f.get("instrument_id")
-                if iid:
-                    category_rank_by_iid[iid] = {
-                        "rank": i, "total": total, "sub_category": sub,
-                    }
+        pool = await pg_client.get_pool()
+        if pool:
+            # Collect the sub_categories present in this portfolio
+            user_cats = {
+                r.get("sub_category") or r.get("category")
+                for r in v3_map.values()
+                if r.get("sub_category") or r.get("category")
+            }
+            if user_cats:
+                async with pool.acquire() as conn:
+                    cat_rows = await conn.fetch(
+                        """
+                        SELECT im.instrument_id,
+                               mfm.sub_category,
+                               mfm.category,
+                               mfm.quality_score
+                          FROM mutual_fund_metadata mfm
+                          JOIN instrument_master im ON im.instrument_id = mfm.instrument_id
+                         WHERE im.is_active = TRUE
+                           AND mfm.quality_score IS NOT NULL
+                           AND (mfm.sub_category = ANY($1::text[])
+                                OR mfm.category  = ANY($1::text[]))
+                         ORDER BY mfm.quality_score DESC NULLS LAST
+                        """,
+                        list(user_cats),
+                    )
+                by_cat: Dict[str, List[Dict]] = {}
+                for r in cat_rows:
+                    sub = r["sub_category"] or r["category"]
+                    if sub:
+                        by_cat.setdefault(sub, []).append(dict(r))
+                for sub, funds in by_cat.items():
+                    total = len(funds)
+                    for i, f in enumerate(funds, start=1):
+                        iid = str(f["instrument_id"])
+                        category_rank_by_iid[iid] = {
+                            "rank": i, "total": total, "sub_category": sub,
+                        }
     except Exception as e:  # noqa: BLE001
         logger.warning("enriched_portfolio: category rank build failed: %s", e)
 
@@ -1207,9 +1225,56 @@ async def build_enriched_portfolio(
         except Exception as e:  # noqa: BLE001
             logger.debug("nse_symbol backfill persist skipped: %s", e)
 
+    # B-4: one-time backfill of mutual_fund_metadata.asset_class for NULL rows.
+    # Guard with a fast COUNT so the UPDATE only runs when there is actually work to do.
+    try:
+        from services import pg_client as _pg
+        _pool = await _pg.get_pool()
+        if _pool:
+            async with _pool.acquire() as _conn:
+                null_count = await _conn.fetchval(
+                    "SELECT COUNT(*) FROM mutual_fund_metadata WHERE asset_class IS NULL LIMIT 1"
+                )
+            if null_count:
+                await _backfill_mfm_asset_class(_pool)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("asset_class backfill skipped: %s", e)
+
     # Cache for 5 minutes — refresh-fundamentals and refresh-prices evict this key.
     try:
         await _rc.cache_set(cache_key, result, ttl_s=300)
     except Exception:  # noqa: BLE001
         pass
     return result
+
+
+async def _backfill_mfm_asset_class(pool) -> None:
+    """Populate mutual_fund_metadata.asset_class for rows where it is NULL.
+
+    Uses a single UPDATE … CASE so all rows are fixed in one round-trip.
+    The CASE logic mirrors _asset_class_for() in routes/portfolio_composition.py.
+    """
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE mutual_fund_metadata
+               SET asset_class = CASE
+                   WHEN category ILIKE ANY(ARRAY['%liquid%','%debt%','%bond%','%gilt%',
+                                                  '%corporate%','%short term%',
+                                                  '%low duration%','%overnight%',
+                                                  '%money market%'])
+                        THEN 'Debt'
+                   WHEN category ILIKE ANY(ARRAY['%hybrid%','%balanced%',
+                                                  '%multi asset%','%arbitrage%'])
+                        THEN 'Hybrid'
+                   WHEN category ILIKE '%gold%' OR category ILIKE '%commodity%'
+                        THEN 'Gold'
+                   WHEN category ILIKE ANY(ARRAY['%international%','%global%',
+                                                  '%overseas%','%us equity%',
+                                                  '%nasdaq%'])
+                        THEN 'International'
+                   ELSE 'Equity'
+               END
+             WHERE asset_class IS NULL
+            """
+        )

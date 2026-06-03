@@ -6,6 +6,10 @@ import logging
 import os
 
 from deps import db, get_current_user, require_admin
+from core.exceptions import (
+    ValidationException, ResourceNotFoundException, AuthorizationException,
+    BusinessException, SystemException,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -32,11 +36,11 @@ async def add_to_whitelist(request: Request):
     is_admin = body.get("is_admin", False)
 
     if not email or "@" not in email:
-        raise HTTPException(status_code=400, detail="Valid email required")
+        raise ValidationException("Valid email required", code="VAL-003")
 
     existing = await db.whitelisted_users.find_one({"email": email})
     if existing:
-        raise HTTPException(status_code=409, detail=f"{email} is already whitelisted")
+        raise BusinessException(f"{email} is already whitelisted", code="BIZ-002")
 
     await db.whitelisted_users.insert_one({
         "email": email,
@@ -58,7 +62,7 @@ async def bulk_upload_whitelist(request: Request):
     emails = body.get("emails", [])
 
     if not emails:
-        raise HTTPException(status_code=400, detail="No emails provided")
+        raise ValidationException("No emails provided", code="VAL-002")
 
     added = 0
     skipped = 0
@@ -92,11 +96,11 @@ async def remove_from_whitelist(request: Request, email: str):
     email = email.strip().lower()
 
     if email == admin.get("email", "").lower():
-        raise HTTPException(status_code=400, detail="Cannot remove yourself from the whitelist")
+        raise BusinessException("Cannot remove yourself from the whitelist", code="BIZ-001")
 
     result = await db.whitelisted_users.delete_one({"email": email})
     if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Email not found in whitelist")
+        raise ResourceNotFoundException("Email not found in whitelist", code="RES-001")
 
     user = await db.users.find_one({"email": email}, {"_id": 0})
     if user:
@@ -114,7 +118,7 @@ async def update_whitelist_entry(request: Request, email: str):
 
     entry = await db.whitelisted_users.find_one({"email": email})
     if not entry:
-        raise HTTPException(status_code=404, detail="Email not found in whitelist")
+        raise ResourceNotFoundException("Email not found in whitelist", code="RES-001")
 
     update = {}
     if "is_admin" in body:
@@ -171,13 +175,13 @@ async def add_ocr_isin_correction(request: Request):
     user = await get_current_user(request)
     whitelist = await db.whitelisted_users.find_one({"email": user["email"]}, {"_id": 0})
     if not whitelist or not whitelist.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
+        raise AuthorizationException("Admin access required", code="AUTHZ-003")
     body = await request.json()
     garbled = body.get("garbled_isin", "").strip()
     correct = body.get("correct_isin", "").strip()
     context = body.get("context", "")
     if not garbled or not correct or len(correct) != 12:
-        raise HTTPException(status_code=400, detail="Both garbled_isin and correct_isin (12 chars) required")
+        raise ValidationException("Both garbled_isin and correct_isin (12 chars) required", code="VAL-002")
     from services.ocr_correction import add_isin_correction
     add_isin_correction(garbled, correct, context)
     return {"status": "ok", "message": f"Learned: {garbled} -> {correct}"}
@@ -189,13 +193,13 @@ async def add_ocr_name_correction(request: Request):
     user = await get_current_user(request)
     whitelist = await db.whitelisted_users.find_one({"email": user["email"]}, {"_id": 0})
     if not whitelist or not whitelist.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
+        raise AuthorizationException("Admin access required", code="AUTHZ-003")
     body = await request.json()
     garbled = body.get("garbled_name", "").strip()
     correct = body.get("correct_name", "").strip()
     isin = body.get("isin", "").strip()
     if not garbled or not correct:
-        raise HTTPException(status_code=400, detail="Both garbled_name and correct_name required")
+        raise ValidationException("Both garbled_name and correct_name required", code="VAL-002")
     from services.ocr_correction import add_name_correction
     add_name_correction(garbled, correct, isin)
     return {"status": "ok", "message": f"Learned: '{garbled}' -> '{correct}'"}
@@ -207,15 +211,15 @@ async def correct_holding(request: Request):
     user = await get_current_user(request)
     whitelist = await db.whitelisted_users.find_one({"email": user["email"]}, {"_id": 0})
     if not whitelist or not whitelist.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
+        raise AuthorizationException("Admin access required", code="AUTHZ-003")
     body = await request.json()
     holding_id = body.get("holding_id", "")
     corrections = body.get("corrections", {})
     if not holding_id or not corrections:
-        raise HTTPException(status_code=400, detail="holding_id and corrections required")
+        raise ValidationException("holding_id and corrections required", code="VAL-002")
     holding = await db.holdings.find_one({"holding_id": holding_id}, {"_id": 0})
     if not holding:
-        raise HTTPException(status_code=404, detail="Holding not found")
+        raise ResourceNotFoundException("Holding not found", code="RES-003")
     update_fields = {}
     if "isin" in corrections and corrections["isin"] != holding.get("ticker"):
         from services.ocr_correction import add_isin_correction
@@ -245,7 +249,7 @@ async def get_ocr_correction_stats(request: Request):
     user = await get_current_user(request)
     whitelist = await db.whitelisted_users.find_one({"email": user["email"]}, {"_id": 0})
     if not whitelist or not whitelist.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
+        raise AuthorizationException("Admin access required", code="AUTHZ-003")
     from services.ocr_correction import get_correction_stats
     return get_correction_stats()
 
@@ -277,15 +281,13 @@ async def update_cas_config(request: Request):
     use_sandbox = body.get("use_sandbox")
 
     if body.get("prod_key") is not None:
-        raise HTTPException(
-            status_code=410,
-            detail=(
-                "CAS Parser API keys have moved to Google Secret Manager. "
-                "Publish a new version with: "
-                "`gcloud secrets versions add casparser-api-keys-<env> "
-                "--data-file=- --project=niveshdataintelligence`, then "
-                "POST /api/admin/cas-config/reload to pick it up."
-            ),
+        raise ValidationException(
+            "CAS Parser API keys have moved to Google Secret Manager. "
+            "Publish a new version with: "
+            "`gcloud secrets versions add casparser-api-keys-<env> "
+            "--data-file=- --project=niveshdataintelligence`, then "
+            "POST /api/admin/cas-config/reload to pick it up.",
+            code="VAL-001",
         )
 
     from services import cas_api_client
@@ -361,14 +363,14 @@ async def get_active_cas_parser_provider(request: Request):
 async def list_secrets(request: Request, env: str = ""):
     """List secrets (masked) for the given environment. Admin only.
 
-    ?env=preview|production — defaults to the deploy's current env.
+    ?env=staging|production — defaults to the deploy's current env.
     The response also includes `current_env` so the UI can warn when the
     operator is editing the *other* environment's secrets.
     """
     await require_admin(request)
     from helpers import secrets as _secrets
     target_env = env.strip().lower() or _secrets.current_env()
-    target_env = "production" if target_env == "production" else "preview"
+    target_env = "production" if target_env == "production" else "staging"
     items = await _secrets.list_for_env(db, target_env)
     persisted = await db.system_config.find_one(
         {"key": f"secrets:{target_env}"}, {"_id": 0}
@@ -379,7 +381,7 @@ async def list_secrets(request: Request, env: str = ""):
         "updated_by": persisted.get("updated_by"),
         "current_env": _secrets.current_env(),
         "viewing_env": target_env,
-        "available_envs": ["preview", "production"],
+        "available_envs": ["staging", "production"],
     }
 
 
@@ -390,9 +392,9 @@ async def upsert_secret(key: str, request: Request, env: str = ""):
     body = await request.json()
     value = body.get("value")
     if value is None:
-        raise HTTPException(status_code=400, detail="value is required")
+        raise ValidationException("value is required", code="VAL-002")
     if not value or not value.strip():
-        raise HTTPException(status_code=400, detail="value must not be empty")
+        raise ValidationException("value must not be empty", code="VAL-001")
     from helpers import secrets as _secrets
     target_env = env.strip().lower() or _secrets.current_env()
     await _secrets.persist_to_db(
@@ -403,7 +405,7 @@ async def upsert_secret(key: str, request: Request, env: str = ""):
     return {
         "status": "ok", "key": key,
         "masked_value": _secrets.mask(value.strip()),
-        "env": "production" if target_env == "production" else "preview",
+        "env": "production" if target_env == "production" else "staging",
     }
 
 
@@ -420,7 +422,7 @@ async def delete_secret(key: str, request: Request, env: str = ""):
     )
     return {
         "status": "ok", "key": key, "deleted": True,
-        "env": "production" if target_env == "production" else "preview",
+        "env": "production" if target_env == "production" else "staging",
     }
 
 
@@ -435,7 +437,7 @@ async def reveal_secret(key: str, request: Request, env: str = ""):
     user = await require_admin(request)
     from helpers import secrets as _secrets
     target_env = (env.strip().lower() or _secrets.current_env())
-    target_env = "production" if target_env == "production" else "preview"
+    target_env = "production" if target_env == "production" else "staging"
 
     # Read the value from the env-scoped doc; fall back to the legacy
     # shared doc; finally fall back to process env (current deploy only).
@@ -492,17 +494,17 @@ async def reveal_secret(key: str, request: Request, env: str = ""):
 async def promote_secrets(request: Request):
     """Copy secrets from one environment to another. Admin only.
 
-    Body: {source: "preview"|"production", target: "preview"|"production",
+    Body: {source: "staging"|"production", target: "staging"|"production",
            keys: ["KEY1","KEY2",...] or null for "all"}
     """
     user = await require_admin(request)
     body = await request.json()
     src = (body.get("source") or "").strip().lower()
     tgt = (body.get("target") or "").strip().lower()
-    if src not in ("preview", "production") or tgt not in ("preview", "production"):
-        raise HTTPException(400, "source and target must be preview|production")
+    if src not in ("staging", "production") or tgt not in ("staging", "production"):
+        raise ValidationException("source and target must be staging|production", code="VAL-003")
     if src == tgt:
-        raise HTTPException(400, "source and target must differ")
+        raise ValidationException("source and target must differ", code="VAL-001")
     keys_filter = body.get("keys")  # None → all
 
     src_doc = await db.system_config.find_one({"key": f"secrets:{src}"}, {"_id": 0}) or {}
@@ -531,7 +533,7 @@ async def test_secret(key: str, request: Request):
     from helpers import secrets as _secrets
     meta = _secrets.KNOWN_SECRETS.get(key)
     if not meta or not meta.get("test_fn"):
-        raise HTTPException(status_code=400, detail="No test available for this secret")
+        raise ValidationException("No test available for this secret", code="VAL-001")
     test_fn = meta["test_fn"]
 
     if test_fn == "cas_parser":
@@ -609,7 +611,7 @@ async def update_feature_flag(flag: str, request: Request):
     try:
         feature_flags.set_flag(flag, mode=mode, allowlist=allowlist)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise ValidationException(str(e), code="VAL-001")
     await feature_flags.persist_to_db(db, updated_by=user.get("email", ""))
     return {"status": "ok", "flag": flag}
 
@@ -621,7 +623,7 @@ async def add_feature_user(flag: str, request: Request):
     body = await request.json()
     email = (body.get("email") or "").strip()
     if not email:
-        raise HTTPException(status_code=400, detail="email is required")
+        raise ValidationException("email is required", code="VAL-002")
     import feature_flags
     feature_flags.add_user(flag, email)
     await feature_flags.persist_to_db(db, updated_by=user.get("email", ""))
@@ -658,7 +660,7 @@ async def trigger_portfolio_gcs_export(request: Request):
         try:
             target_date = _date.fromisoformat(body["date"])
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format, use YYYY-MM-DD")
+            raise ValidationException("Invalid date format, use YYYY-MM-DD", code="VAL-003")
 
     from services.portfolio_gcs_export import export_portfolio_to_gcs
 
@@ -668,7 +670,7 @@ async def trigger_portfolio_gcs_export(request: Request):
         return {"status": "ok", **result}
     except Exception as exc:
         logger.error("portfolio GCS export failed: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise SystemException(str(exc), code="SYS-001", cause=exc)
 
 
 @router.post("/admin/nidp/full-portfolio-sync")
@@ -705,7 +707,7 @@ async def trigger_full_portfolio_sync(request: Request):
         try:
             target_date = _date.fromisoformat(body["date"])
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format, use YYYY-MM-DD")
+            raise ValidationException("Invalid date format, use YYYY-MM-DD", code="VAL-003")
 
     from services.portfolio_gcs_export import (
         export_portfolio_to_gcs,

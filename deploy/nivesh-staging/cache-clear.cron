@@ -1,0 +1,15 @@
+# /etc/cron.d/nivesh-staging-cache-clear — nightly cache invalidation [staging].
+#
+# Mirrors prod cache-clear.cron; uses the staging container name.
+#
+# Install:
+#   sudo install -m 644 /opt/nivesh-staging/repo/deploy/nivesh-staging/cache-clear.cron \
+#       /etc/cron.d/nivesh-staging-cache-clear
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+# 00:30 IST daily
+30 0 * * *  nivesh-staging  /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.clear_performance_caches >> /opt/nivesh-staging/logs/cache-clear.log 2>&1

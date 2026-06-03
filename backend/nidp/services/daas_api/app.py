@@ -38,8 +38,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from nidp.shared.storage.pg import close_pool, get_pool
 from nidp.services.daas_api.middleware import RequestContextMiddleware
+from nidp.services.daas_api.dq_middleware import DQStatusMiddleware
 from nidp.services.daas_api.routers import (
     admin,
+    analytics,
     announcements,
     backfill,
     catalog,
@@ -56,6 +58,7 @@ from nidp.services.daas_api.routers import (
     macro,
     me,
     mf,
+    portfolio_risk,
     mf_performance,
     mf_scores,
     prices,
@@ -64,6 +67,7 @@ from nidp.services.daas_api.routers import (
     snapshots,
     stock_scores,
     stock_v3_scores,
+    dq_status,
 )
 
 
@@ -139,6 +143,7 @@ _TAGS = [
     {"name": "snapshots",        "description": "Pre-computed market-wide and per-stock daily snapshots."},
     {"name": "features",         "description": "Engineered features from the Nivesh S4/S5 strategy pipeline."},
     {"name": "mutual_funds",     "description": "Mutual fund AMCs, schemes, daily NAV, monthly holdings, portfolio overlap, lifecycle events, TER/risk-o-meter snapshots, AMFI circulars."},
+    {"name": "dq",               "description": "Data Quality gate verdicts, DLQ findings, and snapshot status (Gate 6 envelope)."},
 ]
 
 app = FastAPI(
@@ -223,9 +228,11 @@ app.add_middleware(
         "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset",
         "X-Daily-Limit", "X-Daily-Remaining",
         "X-Request-Id", "Retry-After",
+        "X-DQ-Status", "X-DQ-As-Of-Date", "X-DQ-Snapshot-Id",
     ],
 )
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(DQStatusMiddleware)
 
 
 # ── Error normalisation ─────────────────────────────────────────────
@@ -315,3 +322,6 @@ app.include_router(mf_performance.router, prefix=v1_prefix)
 app.include_router(mf_scores.router, prefix=v1_prefix)
 app.include_router(stock_scores.router, prefix=v1_prefix)
 app.include_router(stock_v3_scores.router, prefix=v1_prefix)
+app.include_router(analytics.router, prefix=v1_prefix)
+app.include_router(dq_status.router, prefix=v1_prefix)
+app.include_router(portfolio_risk.router, prefix=v1_prefix)

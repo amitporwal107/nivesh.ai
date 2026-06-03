@@ -17,11 +17,16 @@ can query a client's data directly (without session impersonation).
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Request
 
 from deps import get_current_user, db
 from services import cas_snapshot_engine as _eng
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/portfolio", tags=["cas-snapshots"])
 
@@ -147,6 +152,19 @@ async def activate_cas_snapshot(snapshot_date: str, request: Request, profile_id
         snap = await _eng.load_snapshot_into_holdings(uid, snapshot_date)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
+
+    # Fire-and-forget: populate Plan Board with tax + goals actions (Decision 6)
+    from services.snapshot_action_writers import write_tax_actions, write_goals_actions
+
+    async def _post_activation(user_id: str) -> None:
+        try:
+            await write_tax_actions(db, user_id)
+            await write_goals_actions(db, user_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("post-activation writers failed for %s: %s", user_id, exc)
+
+    asyncio.ensure_future(_post_activation(uid))
+
     return {
         "activated": snapshot_date,
         "holdings_loaded": len(snap.get("holdings") or []),

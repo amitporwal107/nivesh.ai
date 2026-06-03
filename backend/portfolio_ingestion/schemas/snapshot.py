@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class HoldingRow(BaseModel):
@@ -18,6 +18,9 @@ class HoldingRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     asset_class: str = Field(..., min_length=1, max_length=64)
+    # ISIN is 12 chars when present, but the SDK sometimes ships ""
+    # (empty string) for non-ISIN-registered instruments. Normalise empty
+    # → None so we don't 422 on real CASParser payloads.
     isin: str | None = Field(default=None, min_length=12, max_length=12)
     amfi_code: str | None = Field(default=None, max_length=10)
     folio: str | None = None
@@ -27,6 +30,17 @@ class HoldingRow(BaseModel):
     quantity: Decimal
     value: Decimal
     source_trace: dict
+
+    @field_validator("isin", "amfi_code", "folio", "scheme_code", "amc", mode="before")
+    @classmethod
+    def _empty_string_is_none(cls, v):
+        """Treat empty / whitespace-only strings as missing.  The CASParser
+        SDK sends '' for several optional identifiers (e.g. unlisted MF
+        schemes, suspended securities) — without this, the min_length check
+        on ISIN would 422 the entire payload."""
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
 
 
 class ActivationDecision(BaseModel):

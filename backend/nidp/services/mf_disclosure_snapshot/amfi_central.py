@@ -23,22 +23,26 @@ from nidp.shared.config import AMFI_WWW
 
 logger = logging.getLogger(__name__)
 
-TER_PAGE_URL  = f"{AMFI_WWW}/research-information/other-data/ter"
+TER_PAGE_URL  = f"{AMFI_WWW}/research-information/other-data/scheme-wise-ratio"
 RISK_PAGE_URL = f"{AMFI_WWW}/research-information/other-data/risk-o-meter"
 
 # Fallback candidates for when AMFI reshuffles their site (every 1-2y).
 # Drift-check job pings these daily and alerts on red.
+# Primary URL updated 2026-05-27: AMFI renamed /ter → /scheme-wise-ratio.
 _TER_PAGE_CANDIDATES: tuple[str, ...] = (
-    TER_PAGE_URL,
+    TER_PAGE_URL,                                                          # current (2026-05)
+    f"{AMFI_WWW}/research-information/other-data/ter",                    # old (pre-2026)
     f"{AMFI_WWW}/other-data/ter",
     f"{AMFI_WWW}/research-information/ter",
     f"{AMFI_WWW}/other-data/expense-ratio",
+    f"{AMFI_WWW}/research-information/other-data/expense-ratio",
 )
 _RISK_PAGE_CANDIDATES: tuple[str, ...] = (
     RISK_PAGE_URL,
     f"{AMFI_WWW}/other-data/risk-o-meter",
     f"{AMFI_WWW}/research-information/risk-o-meter",
     f"{AMFI_WWW}/other-data/riskometer",
+    f"{AMFI_WWW}/research-information/other-data/riskometer",
 )
 
 _TER_CACHE:  Optional[dict[str, tuple[Optional[float], Optional[float]]]] = None
@@ -175,11 +179,28 @@ async def fetch_ter_all(
 ) -> dict[str, tuple[Optional[float], Optional[float]]]:
     """Return {scheme_code: (ter_regular_pct, ter_direct_pct)} for all AMFI schemes.
     Module-level cache: fetched once per process per run.
+
+    Strategy (2026-05 update — AMFI migrated to a Next.js SPA):
+      1. Try AMFI's internal JSON API (amfi_api.fetch_ter_all_amfi_api).
+      2. Fall back to xlsx-scraping candidate pages (old site paths).
     """
     global _TER_CACHE
     if _TER_CACHE is not None:
         return _TER_CACHE
 
+    # 1. Try AMFI JSON API first (new SPA site)
+    try:
+        from .amfi_api import fetch_ter_all_amfi_api
+        result = await fetch_ter_all_amfi_api(http)
+        if result:
+            _TER_CACHE = result
+            logger.info("amfi_central: TER loaded %d schemes via AMFI JSON API", len(result))
+            return _TER_CACHE
+        logger.info("amfi_central: AMFI JSON API returned 0 TER rows — trying xlsx fallback")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("amfi_central: AMFI JSON API error: %s: %s", type(e).__name__, e)
+
+    # 2. Fall back to xlsx scraping (old site paths)
     try:
         url = await _fetch_first_xlsx_url(http, _TER_PAGE_CANDIDATES, "ter")
         if not url:
@@ -194,9 +215,9 @@ async def fetch_ter_all(
             resp.raise_for_status()
             data = await resp.read()
         _TER_CACHE = _parse_ter_xlsx(data)
-        logger.info("amfi_central: TER loaded %d schemes from %s", len(_TER_CACHE), url)
+        logger.info("amfi_central: TER loaded %d schemes from xlsx %s", len(_TER_CACHE), url)
     except Exception as e:  # noqa: BLE001
-        logger.warning("amfi_central: TER fetch error: %s: %s", type(e).__name__, e)
+        logger.warning("amfi_central: TER xlsx fallback error: %s: %s", type(e).__name__, e)
         _TER_CACHE = {}
     return _TER_CACHE
 

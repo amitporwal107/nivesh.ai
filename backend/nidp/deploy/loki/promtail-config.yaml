@@ -1,0 +1,54 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # NIDP service logs — one file per service under /opt/nidp/logs/<service>/
+  - job_name: nidp_services
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nidp_services
+          host: nidp-stack-vm
+          __path__: /nidp/logs/*/*.log
+    pipeline_stages:
+      # Extract service name from path: /nidp/logs/<service>/<service>.log
+      - regex:
+          expression: '/nidp/logs/(?P<service>[^/]+)/[^/]+\.log'
+          source: filename
+      - labels:
+          service:
+      # Parse structured JSON log lines emitted by run_service.sh wrappers
+      - match:
+          selector: '{job="nidp_services"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+                  logger: logger
+                  run_id: run_id
+                  source: source
+            - labels:
+                level:
+                logger:
+                source:
+            - output:
+                source: message
+
+  # System syslog for host-level events (OOM kills, disk errors)
+  - job_name: syslog
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: syslog
+          host: nidp-stack-vm
+          __path__: /var/log/syslog

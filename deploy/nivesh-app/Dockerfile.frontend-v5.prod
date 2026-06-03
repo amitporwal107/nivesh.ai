@@ -1,0 +1,56 @@
+# Multi-stage production build for frontend-v5 (Vite + React 18).
+#
+# Stage 1 (builder): Node 20 — installs deps, runs vite build.
+# Stage 2 (runtime): Nginx 1.27-alpine — serves static files only.
+#
+# VITE_BASE sets the sub-path the app is served from (default /v5/).
+# VITE_API_URL sets the backend API base URL baked into the bundle.
+#
+# Build:
+#   docker build -f deploy/nivesh-app/Dockerfile.frontend-v5.prod \
+#     --build-arg VITE_BASE=/v5/ \
+#     --build-arg VITE_API_URL=https://staging.niveshcopilot.com \
+#     -t nivesh/frontend-v5:staging .
+
+# ── Stage 1: Build ────────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+ARG VITE_BASE=/v5/
+ARG VITE_API_URL=https://staging.niveshcopilot.com
+ARG VITE_USE_MOCK_API=false
+
+ENV VITE_BASE=$VITE_BASE
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_USE_MOCK_API=$VITE_USE_MOCK_API
+
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app/frontend-v5
+
+# Deps in a stable layer
+COPY frontend-v5/package.json frontend-v5/package-lock.json ./
+RUN npm ci --prefer-offline
+
+# Source
+COPY frontend-v5/ ./
+
+# Production build
+RUN npm run build
+
+# ── Stage 2: Nginx runtime ────────────────────────────────────────────────────
+FROM nginx:1.27-alpine AS runtime
+
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Serve all traffic for this container — the edge nginx routes /v5/ here.
+COPY deploy/nivesh-app/nginx-frontend-v5.conf /etc/nginx/conf.d/app.conf
+
+# Vite output (under /v5/ due to VITE_BASE)
+COPY --from=builder /app/frontend-v5/dist /usr/share/nginx/html/v5
+
+# Interactive design prototype (served at /v5/prototype/)
+COPY frontend-v5/design/ /usr/share/nginx/html/v5/prototype/
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

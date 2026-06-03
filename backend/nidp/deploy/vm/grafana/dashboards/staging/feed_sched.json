@@ -1,0 +1,330 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "All NIDP feeds (ingesters) with their schedule, last run status, and recent error logs.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "description": "All 36 NIDP feeds with schedule (IST), latest run status, freshness gap, and last error. Sorted by problem: FAILED first, then never-run, then PARTIAL, then overdue, then OK by recency. Cron expressions are UTC.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "displayMode": "auto",
+            "filterable": true
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "basic",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "OK": {
+                        "color": "rgba(50, 172, 45, 0.97)",
+                        "index": 0
+                      }
+                    },
+                    "type": "value"
+                  },
+                  {
+                    "options": {
+                      "FAILED": {
+                        "color": "rgba(245, 54, 54, 0.9)",
+                        "index": 1
+                      }
+                    },
+                    "type": "value"
+                  },
+                  {
+                    "options": {
+                      "PARTIAL": {
+                        "color": "rgba(237, 129, 40, 0.89)",
+                        "index": 2
+                      }
+                    },
+                    "type": "value"
+                  },
+                  {
+                    "options": {
+                      "NEVER": {
+                        "color": "rgba(150, 150, 150, 0.7)",
+                        "index": 3,
+                        "text": "NEVER RUN"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hours_since_last_run"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "h"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "basic",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "rgba(50, 172, 45, 0.97)",
+                      "value": null
+                    },
+                    {
+                      "color": "rgba(237, 129, 40, 0.89)",
+                      "value": 24
+                    },
+                    {
+                      "color": "rgba(245, 54, 54, 0.9)",
+                      "value": 72
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_error"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 500
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "footer": {
+          "countRows": false,
+          "enablePagination": true,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH schedule AS (\n  SELECT * FROM (VALUES\n    ('bhavcopy',                    '30 13 * * 1-5',   'IST 19:00 Mon-Fri'),\n    ('index_close',                 '30 13 * * 1-5',   'IST 19:00 Mon-Fri'),\n    ('fii_dii',                     '0 14 * * 1-5',    'IST 19:30 Mon-Fri'),\n    ('bulk_deals',                  '0 14 * * 1-5',    'IST 19:30 Mon-Fri'),\n    ('block_deals',                 '0 14 * * 1-5',    'IST 19:30 Mon-Fri'),\n    ('fno_bhavcopy',                '0 14 * * 1-5',    'IST 19:30 Mon-Fri'),\n    ('delivery',                    '0 5 * * 2-6',     'IST 10:30 Tue-Sat (T+1)'),\n    ('corporate_actions',           '30 14 * * *',     'IST 20:00 daily'),\n    ('rbi_yields',                  '0 15 * * 1-5',    'IST 20:30 Mon-Fri'),\n    ('fred_macro',                  '30 15 * * *',     'IST 21:00 daily'),\n    ('nse_calendar',                '30 0 1 * *',      'IST 06:00 day 1'),\n    ('index_constituents',          '0 1 1 * *',       'IST 06:30 day 1'),\n    ('nse_financials',              '0 15 * * *',      'IST 20:30 daily'),\n    ('nse_shareholding',            '30 15 * * *',     'IST 21:00 daily'),\n    ('nse_equity_master',           '30 1 * * 0',      'IST 07:00 Sunday'),\n    ('price_adjuster',              '0 17 * * 1-5',    'IST 22:30 Mon-Fri'),\n    ('snapshot_builder',            '30 16 * * 1-5',   'IST 22:00 Mon-Fri'),\n    ('corporate_announcements_nse', '*/10 3-18 * * 1-5','every 10m IST 09-23 Mon-Fri'),\n    ('corporate_announcements_bse', '*/10 3-18 * * 1-5','every 10m IST 09-23 Mon-Fri'),\n    ('announcement_classifier',     '*/30 * * * *',    'every 30m'),\n    ('document_parser',             '*/15 * * * *',    'every 15m'),\n    ('amfi_nav',                    '30 14 * * 1-5',   'IST 20:00 Mon-Fri'),\n    ('amfi_circulars',              '30 3 * * *',      'IST 09:00 daily'),\n    ('mf_disclosure_snapshot',      '30 4 12 * *',     'IST 10:00 day 12'),\n    ('mf_holdings',                 '30 5 12 * *',     'IST 11:00 day 12'),\n    ('event_calendar',              '0 1,15 * * 1-5',  'IST 06:30 + 20:30 Mon-Fri'),\n    ('event_day_poller',            '*/5 3-10 * * 1-5','every 5m IST 09-16 Mon-Fri'),\n    ('d1_prep',                     '30 13 * * 1-5',   'IST 19:00 Mon-Fri'),\n    ('intelligence',                '30 14 * * 1-5',   'IST 20:00 Mon-Fri'),\n    ('quality_gate',                '0 17 * * 1-5',    'IST 22:30 Mon-Fri'),\n    ('intelligence_layer',          '45 17 * * 1-5',   'IST 23:15 Mon-Fri'),\n    ('portfolio_intelligence_sync', '0 18 * * 1-5',    'IST 23:30 Mon-Fri'),\n    ('mf_analytics_engine',         '0 15 * * 1-5',    'IST 20:30 Mon-Fri'),\n    ('technical_indicator_engine',  '5 17 * * 1-5',    'IST 22:35 Mon-Fri'),\n    ('fundamental_engine',          '35 17 * * 1-5',   'IST 23:05 Mon-Fri'),\n    ('mf_derived_refresh',          '20 18 * * 1-5',   'IST 23:50 Mon-Fri')\n  ) AS t(ingester, cron_utc, schedule_ist)\n),\nlatest AS (\n  SELECT\n    ingester,\n    last_run_status      AS status,\n    last_run_at          AS started_at,\n    NULL::timestamptz    AS finished_at,\n    NULL::date           AS target_date,\n    NULL::text           AS error_message,\n    NULL::bigint         AS rows_inserted,\n    (last_run_duration_ms / 1000.0) AS duration_s\n  FROM nidp.source_registry\n  WHERE last_run_status IS NOT NULL\n)\nSELECT\n  s.ingester,\n  s.schedule_ist                                                       AS schedule,\n  s.cron_utc                                                           AS cron_utc,\n  COALESCE(l.status, 'NEVER')                                          AS last_status,\n  l.started_at                                                         AS last_run_at,\n  ROUND((EXTRACT(EPOCH FROM (NOW() - l.started_at))/3600)::numeric, 1) AS hours_since_last_run,\n  l.target_date,\n  l.rows_inserted,\n  ROUND(l.duration_s::numeric, 1)                                      AS last_duration_s,\n  LEFT(COALESCE(l.error_message, ''), 300)                             AS last_error\n  FROM schedule s\n  LEFT JOIN latest l ON l.ingester = s.ingester\n ORDER BY\n   CASE WHEN l.status = 'FAILED'         THEN 1\n        WHEN l.started_at IS NULL        THEN 2\n        WHEN l.status = 'PARTIAL'        THEN 3\n        WHEN EXTRACT(EPOCH FROM (NOW() - l.started_at))/3600 > 24 THEN 4\n        ELSE 5 END,\n   l.started_at DESC NULLS LAST",
+          "refId": "A"
+        }
+      ],
+      "title": "Feed Schedule & Status (all 36 feeds)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "description": "Most recent failures and partial successes from nidp.job_log \u2014 last 7 days. Full error_message text shown.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "displayMode": "auto",
+            "filterable": true
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "basic",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "FAILED": {
+                        "color": "rgba(245, 54, 54, 0.9)",
+                        "index": 0
+                      }
+                    },
+                    "type": "value"
+                  },
+                  {
+                    "options": {
+                      "PARTIAL": {
+                        "color": "rgba(237, 129, 40, 0.89)",
+                        "index": 1
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "error_message"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 700
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 2,
+      "options": {
+        "footer": {
+          "countRows": true,
+          "enablePagination": true,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  ingester,\n  status,\n  started_at,\n  target_date,\n  ROUND(EXTRACT(EPOCH FROM (finished_at - started_at))::numeric, 1) AS duration_s,\n  COALESCE(error_message, '')                                        AS error_message,\n  run_id\n  FROM nidp.job_log\n WHERE status IN ('FAILED', 'PARTIAL')\n   AND started_at > NOW() - INTERVAL '7 days'\n ORDER BY started_at DESC\n LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent failures & partial runs (last 7 days)",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [
+    "nidp",
+    "feeds",
+    "cron",
+    "data-pipeline",
+    "staging"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "NIDP Staging \u2014 Feed Schedule & Status",
+  "uid": "nidp-stg-feeds",
+  "version": 2,
+  "weekStart": ""
+}

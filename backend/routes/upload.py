@@ -1,5 +1,5 @@
 """File upload routes: CAS PDF, CSV, Excel, CAS Connect SDK."""
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from datetime import datetime, timezone
 from typing import Dict
 import uuid
@@ -7,6 +7,8 @@ import asyncio
 import logging
 
 from deps import db, get_current_user
+from core.idempotency import IdempotencyState, check_idempotency, store_idempotency_result
+from helpers.upload_validation import validate_upload_async
 from helpers.parsing import (
     parse_csv_holdings, parse_excel_holdings, save_holdings
 )
@@ -101,9 +103,8 @@ async def upload_portfolio(request: Request, file: UploadFile = File(...)):
     user_id = user["user_id"]
 
     content = file.file.read()
-    # FR-UPLOAD-001/005: enforce size + magic-byte sniff before any parser
-    # touches the bytes. Raises 413/415 directly.
-    validate_upload(content, filename)
+    # FR-UPLOAD-001/005/007: size + magic-byte + malware scan before any parser.
+    await validate_upload_async(content, filename)
 
     if filename.endswith(".pdf"):
         raise HTTPException(status_code=410, detail=_CAS_PDF_DEPRECATED)
@@ -191,8 +192,8 @@ async def upload_portfolio_raw(request: Request):
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
 
-    # Magic-byte + extension validation (size already capped above)
-    validate_upload(content, filename)
+    # Magic-byte + extension + malware scan (size already capped above)
+    await validate_upload_async(content, filename)
 
     logger.info("Raw upload received: %s bytes, filename: %s", len(content), filename)
 
@@ -328,8 +329,18 @@ async def casparser_access_token(request: Request):
 
 
 @router.post("/portfolio/import-connect")
-async def portfolio_import_from_connect(request: Request):
-    """Ingest parsed portfolio from the CAS Connect widget."""
+async def portfolio_import_from_connect(
+    request: Request,
+    idem: IdempotencyState = Depends(check_idempotency),
+):
+    """Ingest parsed portfolio from the CAS Connect widget.
+
+    Supports the ``Idempotency-Key`` request header: if the same key is sent
+    twice within 24 hours the second call replays the first response without
+    re-importing holdings, preventing duplicate-import on network retries.
+    """
+    if idem.cached is not None:
+        return idem.cached
     user = await get_current_user(request)
     body = await request.json()
     parsed_data = body.get("data") if isinstance(body, dict) and "data" in body else body
@@ -353,20 +364,49 @@ async def portfolio_import_from_connect(request: Request):
         portfolio_id=portfolio_id,
     )
 
-    # Mirror the Gmail-import behaviour: once we've persisted holdings the
-    # user has effectively finished onboarding. Without this, the V2 gate
-    # at NiveshV2.jsx:343 keeps routing them back to the onboarding wizard
-    # on every reload, and the V3 router has no server-side flag to read.
+    # Mirror the Gmail-import behaviour: save onboarding flag + CAS metadata
+    # so the dashboard banner, chart, and action matrix all have data to render.
     if saved:
         now = datetime.now(timezone.utc)
+
+        # Extract statement period ("Apr/2026") from the casparser JSON.
+        from services.cas_api_client import extract_statement_period
+        cas_statement_period = extract_statement_period(parsed_data)
+
+        # Statement date — try standard casparser meta fields first.
+        meta_block = parsed_data.get("meta") or {}
+        cas_statement_date = (
+            meta_block.get("to_date")
+            or meta_block.get("period_to")
+            or meta_block.get("statement_to")
+        )
+
+        # Portfolio value — sum current_price × quantity across saved holdings.
+        # This is the last-known NAV value at statement time.
+        portfolio_value_rs = round(
+            sum(
+                float(h.get("current_price", 0)) * float(h.get("quantity", 0))
+                for h in saved
+            ),
+            2,
+        )
+
+        profile_set: dict = {
+            "onboarding_completed": True,
+            "journey_type": "existing_investor",
+            "updated_at": now,
+        }
+        if cas_statement_period:
+            profile_set["cas_statement_period"] = cas_statement_period
+        if cas_statement_date:
+            profile_set["cas_statement_date"] = cas_statement_date
+        if portfolio_value_rs > 0:
+            profile_set["cas_portfolio_value_rs"] = portfolio_value_rs
+
         await db.user_profiles.update_one(
             {"user_id": user["user_id"]},
             {
-                "$set": {
-                    "onboarding_completed": True,
-                    "journey_type": "existing_investor",
-                    "updated_at": now,
-                },
+                "$set": profile_set,
                 "$setOnInsert": {"user_id": user["user_id"], "created_at": now},
             },
             upsert=True,
@@ -389,7 +429,23 @@ async def portfolio_import_from_connect(request: Request):
         f"cas_type={cas_type} investor={investor_name} "
         f"txns={sip_summary.get('transactions', 0)} sips={sip_summary.get('sips', 0)}"
     )
-    return {
+
+    # Auto-generate action plan so the dashboard action matrix is immediately
+    # populated — mirrors what Gmail sync does after a successful import.
+    # refresh_plan() fetches holdings + intelligence internally and saves
+    # directly as status="active".
+    if saved:
+        try:
+            from services.action_plan_manager import ActionPlanManager
+            plan = await ActionPlanManager().refresh_plan(user["user_id"])
+            logger.info(
+                "import-connect: action plan generated for user=%s plan_id=%s actions=%d",
+                user["user_id"], plan.get("plan_id"), len(plan.get("actions") or []),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("import-connect: plan generation failed for user=%s: %s", user["user_id"], e)
+
+    result = {
         "message": f"{len(saved)} holdings imported via Portfolio Connect",
         "count": len(saved),
         "holdings": saved,
@@ -398,6 +454,8 @@ async def portfolio_import_from_connect(request: Request):
         "transactions": sip_summary.get("transactions", 0),
         "sips_detected": sip_summary.get("sips", 0),
     }
+    await store_idempotency_result(idem, result)
+    return result
 
 
 # CAS PDF background processor removed — all PDF parsing now happens

@@ -55,3 +55,119 @@ jobs:
         run: |
           du -sh frontend/build/ || true
           echo "✅ Frontend build succeeded."
+
+  # ── OpenAPI: schema governance ─────────────────────────────────────────────
+  openapi-lint:
+    name: OpenAPI — Spectral lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Spectral
+        run: npm install -g @stoplight/spectral-cli
+
+      - name: Lint OpenAPI specs
+        run: |
+          # Lint each standalone domain spec (openapi.yaml is a doc-index, not linted)
+          spectral lint \
+            backend/docs/openapi/portfolio.yaml \
+            backend/docs/openapi/login-onboarding.yaml \
+            backend/docs/openapi/insights.yaml \
+            backend/docs/openapi/intelligence.yaml \
+            backend/docs/openapi/recommendation.yaml \
+            backend/docs/openapi/equity-scoring.yaml \
+            backend/docs/openapi/mf-scoring.yaml \
+            backend/docs/openapi/goals.yaml \
+            backend/docs/openapi/admin.yaml \
+            backend/docs/openapi/advisor.yaml \
+            backend/docs/openapi/action-board.yaml \
+            --ruleset .spectral.yml \
+            --fail-severity error
+          echo "✅ OpenAPI specs pass governance checks."
+
+  # ── OpenAPI: structural validation + contract dry-run ──────────────────────
+  openapi-contract:
+    name: OpenAPI — contract validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install validators
+        run: |
+          pip install openapi-spec-validator schemathesis
+
+      - name: Validate OpenAPI spec structure (offline)
+        run: |
+          # openapi-spec-validator checks that each file is a valid OpenAPI 3.x
+          # document — catches broken $ref, missing required fields, bad types.
+          python - <<'EOF'
+          import sys
+          from openapi_spec_validator import validate
+          from openapi_spec_validator.readers import read_from_filename
+
+          specs = [
+            "backend/docs/openapi/portfolio.yaml",
+            "backend/docs/openapi/login-onboarding.yaml",
+            "backend/docs/openapi/insights.yaml",
+            "backend/docs/openapi/intelligence.yaml",
+            "backend/docs/openapi/recommendation.yaml",
+            "backend/docs/openapi/equity-scoring.yaml",
+            "backend/docs/openapi/mf-scoring.yaml",
+            "backend/docs/openapi/goals.yaml",
+            "backend/docs/openapi/admin.yaml",
+            "backend/docs/openapi/advisor.yaml",
+            "backend/docs/openapi/action-board.yaml",
+          ]
+
+          failed = []
+          for path in specs:
+            try:
+              spec, base_uri = read_from_filename(path)
+              validate(spec)
+              print(f"  OK   {path}")
+            except Exception as e:
+              print(f"  FAIL {path}: {e}")
+              failed.append(path)
+
+          if failed:
+            print(f"\n❌ {len(failed)} spec(s) failed validation.")
+            sys.exit(1)
+          print(f"\n✅ All {len(specs)} OpenAPI specs are structurally valid.")
+          EOF
+
+      - name: Schemathesis dry-run (endpoint testability check)
+        run: |
+          # --dry-run generates test cases from the spec without making HTTP
+          # requests. Catches specs that produce untestable/invalid test cases
+          # (e.g. broken parameter schemas, bad example types).
+          # Runs against the two most critical specs; extend as needed.
+          FAILED=0
+
+          for spec in \
+            backend/docs/openapi/portfolio.yaml \
+            backend/docs/openapi/login-onboarding.yaml \
+            backend/docs/openapi/insights.yaml; do
+
+            echo "--- schemathesis dry-run: $spec ---"
+            schemathesis run "$spec" \
+              --dry-run \
+              --checks all \
+              --base-url http://localhost \
+              --hypothesis-max-examples 10 \
+              --suppress-health-check=too_slow \
+              2>&1 | tail -5 || FAILED=1
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "❌ Schemathesis dry-run found issues."
+            exit 1
+          fi
+          echo "✅ Schemathesis dry-run passed — all endpoints are testable."

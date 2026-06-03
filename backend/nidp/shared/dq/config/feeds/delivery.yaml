@@ -1,0 +1,32 @@
+feed:
+  name: delivery
+  table: nidp.delivery
+  owner: nidp-platform
+
+sla:
+  freshness:
+    expected_arrival: "17:45 IST"
+    grace_period_minutes: 90   # T+1 delivery, arrives slightly later
+    trading_days_only: true
+    warn_secs: 90000   # 25 h
+    error_secs: 180000 # 50 h
+  completeness:
+    min_rows: 1700
+    max_rows: 2200
+    band_from_history_days: 30
+    band_tolerance_pct: 2.0
+
+severity_overrides:
+  deliv_pct_range: P0
+  qty_consistency: P0
+
+gates:
+  enabled_at: [gate1, gate2, gate3, gate7]
+
+dependencies:
+  symbol_ref: nidp.bhavcopy  # delivery.symbol ⊆ bhavcopy.symbol
+
+notifications:
+  p0_channel: pagerduty:nidp-oncall
+  p1_channel: "slack:#nidp-dq"
+  p2_channel: log_only

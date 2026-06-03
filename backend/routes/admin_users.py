@@ -594,7 +594,7 @@ async def backfill_identity_norms(request: Request):
 # ── Datastore isolation audit ──────────────────────────────────────────
 @router.get("/datastore-isolation")
 async def datastore_isolation(request: Request):
-    """Show whether preview and production point at distinct Postgres /
+    """Show whether staging and production point at distinct Postgres /
     Redis / Mongo datastores. Returns a per-key SHA-256 fingerprint
     matrix (no full URLs leaked) and an explicit `collisions` list.
 

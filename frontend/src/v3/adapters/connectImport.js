@@ -70,10 +70,13 @@ export async function openConnectAndImport({ method = "cas", onProgress } = {}) 
     }
 
     log("Saving holdings…");
+    // Idempotency-Key: one UUID per import attempt prevents duplicate
+    // holdings on network retries (backend dedupes within 24h).
+    const idempotencyKey = crypto.randomUUID();
     const importRes = await axios.post(
       `${API}/portfolio/import-connect`,
       { data: parsed, metadata: result?.metadata || {}, portfolio_id: "" },
-      cfg,
+      { ...cfg, headers: { ...cfg.headers, "Idempotency-Key": idempotencyKey } },
     );
     const data = importRes.data || {};
     return {

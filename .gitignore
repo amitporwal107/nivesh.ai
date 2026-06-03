@@ -455,7 +455,9 @@ credentials.json
 # nivesh-app deploy secrets
 deploy/nivesh-app/.env.prod
 frontend/node_modules/.cache/default-development/44.pack
-deploy/keys/
+# SSH private keys in deploy/keys/ are gitignored; README is tracked
+deploy/keys/*
+!deploy/keys/README.md
 -e 
 # Environment and credential files
 .env
@@ -490,3 +492,12 @@ frontend/node_modules/.cache/default-development/2.pack_
 frontend/node_modules/.cache/default-development/3.pack_
 frontend/node_modules/.cache/default-development/37.pack
 .client-token
+
+# Cloudflare credentials
+docs/cloudflare/.env
+docs/cloudflare/.cloudfalre
+
+# Playwright test artifacts
+frontend-v5/pw-report.json/
+frontend-v5/pw-stderr.txt
+frontend-v5/test-results/

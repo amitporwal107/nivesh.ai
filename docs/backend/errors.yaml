@@ -1,0 +1,240 @@
+# Nivesh API — Machine-Readable Error Catalog
+#
+# Every error code the platform can return is listed here with:
+#   http_status  — the HTTP status code returned to the client
+#   retryable    — true = same request may succeed later (transient); false = must change input
+#   category     — one of: validation | business | resource | integration | auth | ratelimit | system
+#   description  — human-readable explanation (also used in API docs)
+#
+# Used by:
+#   - SDK generators (client-side typed error handling)
+#   - Frontend i18n (user-facing message keys)
+#   - On-call runbooks (SYS-* / INT-* → PagerDuty)
+#   - Spectral custom rule (validates error codes in OpenAPI examples)
+
+errors:
+  # ── Validation (VAL) ────────────────────────────────────────────────────────
+  VAL-001:
+    http_status: 400
+    retryable: false
+    category: validation
+    description: >
+      Generic input validation failure. The request body or query parameters
+      did not pass schema validation. Check the `details` array for field-level
+      errors.
+
+  VAL-002:
+    http_status: 400
+    retryable: false
+    category: validation
+    description: >
+      A required field is missing from the request. Supply the missing field
+      and retry.
+
+  VAL-003:
+    http_status: 400
+    retryable: false
+    category: validation
+    description: >
+      A field value has an invalid format (e.g. wrong date format, invalid
+      ISIN, non-numeric amount). Fix the format and retry.
+
+  VAL-004:
+    http_status: 400
+    retryable: false
+    category: validation
+    description: >
+      A numeric value is outside the allowed range (e.g. negative quantity,
+      percentage > 100). Correct the value and retry.
+
+  # ── Business logic (BIZ) ────────────────────────────────────────────────────
+  BIZ-001:
+    http_status: 422
+    retryable: false
+    category: business
+    description: >
+      A business rule was violated. The request is technically valid but
+      conflicts with platform policy. See `message` for the specific rule.
+
+  BIZ-002:
+    http_status: 422
+    retryable: false
+    category: business
+    description: >
+      The resource already exists (duplicate). Use PUT/PATCH to update the
+      existing resource, or choose a different identifier.
+
+  BIZ-003:
+    http_status: 422
+    retryable: false
+    category: business
+    description: >
+      Insufficient quota or funds. The requested operation would exceed a
+      plan-defined limit. Upgrade the plan or reduce the request size.
+
+  # ── Resource (RES) ──────────────────────────────────────────────────────────
+  RES-001:
+    http_status: 404
+    retryable: false
+    category: resource
+    description: >
+      The requested resource does not exist or has been deleted. Verify the
+      identifier and retry.
+
+  RES-002:
+    http_status: 404
+    retryable: false
+    category: resource
+    description: >
+      Portfolio not found. The `portfolio_id` does not exist or does not belong
+      to the authenticated user.
+
+  RES-003:
+    http_status: 404
+    retryable: false
+    category: resource
+    description: >
+      Holding not found. The `holding_id` does not exist or does not belong
+      to the authenticated user.
+
+  RES-004:
+    http_status: 404
+    retryable: false
+    category: resource
+    description: >
+      User not found. The user account does not exist or has been deleted.
+
+  # ── Integration (INT) ───────────────────────────────────────────────────────
+  INT-001:
+    http_status: 502
+    retryable: true
+    category: integration
+    description: >
+      An upstream service call failed. This is a transient error — retry with
+      exponential backoff. If the problem persists, check the status page.
+
+  INT-002:
+    http_status: 504
+    retryable: true
+    category: integration
+    description: >
+      An upstream service did not respond within the timeout window. Retry
+      after a short delay.
+
+  INT-003:
+    http_status: 502
+    retryable: true
+    category: integration
+    description: >
+      An upstream service returned an unexpected or malformed response.
+      This is likely a transient issue with the external service.
+
+  INT-004:
+    http_status: 503
+    retryable: true
+    category: integration
+    description: >
+      The circuit breaker for an upstream service is open due to repeated
+      failures. The service will recover automatically; retry after 30–60 s.
+
+  # ── Authentication (AUTH) ───────────────────────────────────────────────────
+  AUTH-001:
+    http_status: 401
+    retryable: false
+    category: auth
+    description: >
+      Authentication failed. The session cookie is missing or invalid.
+      Call `POST /api/auth/google` to obtain a new session.
+
+  AUTH-002:
+    http_status: 401
+    retryable: false
+    category: auth
+    description: >
+      Session has expired. Re-authenticate via `POST /api/auth/google`.
+
+  AUTH-003:
+    http_status: 401
+    retryable: false
+    category: auth
+    description: >
+      Invalid credentials supplied (e.g. Google ID token failed verification).
+      Obtain a fresh token from the Google OAuth flow and retry.
+
+  # ── Authorization (AUTHZ) ───────────────────────────────────────────────────
+  AUTHZ-001:
+    http_status: 403
+    retryable: false
+    category: auth
+    description: >
+      The authenticated user does not have permission to perform this action.
+      Contact the platform team if you believe this is incorrect.
+
+  AUTHZ-002:
+    http_status: 403
+    retryable: false
+    category: auth
+    description: >
+      Resource ownership violation. The requested resource belongs to a
+      different user. Access is denied.
+
+  AUTHZ-003:
+    http_status: 403
+    retryable: false
+    category: auth
+    description: >
+      A specific role is required (e.g. `admin`) that the current user does
+      not have. Contact the platform team to request elevated access.
+
+  # ── Rate limiting (RATE) ────────────────────────────────────────────────────
+  RATE-001:
+    http_status: 429
+    retryable: true
+    category: ratelimit
+    description: >
+      Too many requests. Wait until the `X-RateLimit-Reset` window expires
+      (typically 60 s) before retrying. Respect the `X-RateLimit-Remaining`
+      header to avoid repeat throttling.
+
+  RATE-002:
+    http_status: 429
+    retryable: true
+    category: ratelimit
+    description: >
+      Per-user request quota exceeded. Reduce request frequency or batch
+      operations where possible.
+
+  RATE-003:
+    http_status: 429
+    retryable: true
+    category: ratelimit
+    description: >
+      Per-IP request quota exceeded. If you are behind NAT, individual users
+      may be affected by shared IP throttling.
+
+  # ── System (SYS) ────────────────────────────────────────────────────────────
+  SYS-001:
+    http_status: 500
+    retryable: true
+    category: system
+    description: >
+      An unexpected internal server error occurred. This has been logged and
+      the on-call team notified. Retry after a short delay; if the problem
+      persists, file a support ticket with the `correlationId` from the response.
+
+  SYS-002:
+    http_status: 503
+    retryable: true
+    category: system
+    description: >
+      The database is temporarily unavailable. The service will recover
+      automatically. Retry with exponential backoff.
+
+  SYS-003:
+    http_status: 500
+    retryable: false
+    category: system
+    description: >
+      A server configuration error was detected. This requires operator
+      intervention — retrying will not help. File a support ticket with the
+      `correlationId`.

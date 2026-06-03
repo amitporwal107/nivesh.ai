@@ -5,7 +5,7 @@
 # but operates against /opt/nivesh-staging/repo and the staging docker-compose file.
 #
 # Usage:
-#   sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/redeploy-staging.sh [branch]
+#   sudo bash redeploy-staging.sh [branch] [--frontend-only|--backend-only]
 #
 # Idempotent. Safe to re-run.
 
@@ -15,7 +15,20 @@ STAGING_ROOT="/opt/nivesh-staging"
 REPO_DIR="${STAGING_ROOT}/repo"
 COMPOSE_FILE="${REPO_DIR}/deploy/nivesh-staging/docker-compose.staging.yml"
 ENV_FILE="${STAGING_ROOT}/.env.staging"
-BRANCH="${1:-feat/portfolio-ingestion-staging}"   # staging tracks this branch; override with arg
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+BRANCH="dev"
+BUILD_FRONTEND=true
+BUILD_BACKEND=true
+
+for arg in "$@"; do
+  case "$arg" in
+    --frontend-only) BUILD_BACKEND=false  ;;
+    --backend-only)  BUILD_FRONTEND=false ;;
+    --*)             ;;            # ignore unknown flags
+    *)               BRANCH="$arg" ;;   # first non-flag = branch name
+  esac
+done
 
 log() { echo "[redeploy-staging] $*"; }
 fail() { echo "[redeploy-staging] FATAL: $*" >&2; exit 1; }
@@ -23,6 +36,11 @@ fail() { echo "[redeploy-staging] FATAL: $*" >&2; exit 1; }
 [[ $EUID -eq 0 ]] || fail "Run as root (sudo)."
 [[ -f "${ENV_FILE}" ]] || fail "Missing ${ENV_FILE}. Run bootstrap-staging.sh first."
 [[ -d "${REPO_DIR}/.git" ]] || fail "Missing ${REPO_DIR}. Clone the repo there first."
+
+# Git ≥2.35.2 refuses to operate on repos owned by a different user.
+# Running as root (sudo) on a repo owned by another user triggers this.
+# Mark it safe globally so git fetch/reset work regardless of ownership.
+git config --global --add safe.directory "${REPO_DIR}"
 [[ -f "${COMPOSE_FILE}" ]] || fail "Missing ${COMPOSE_FILE}."
 
 log "Refreshing repo at ${REPO_DIR} (branch=${BRANCH})..."
@@ -30,26 +48,54 @@ git -C "${REPO_DIR}" fetch --quiet origin
 git -C "${REPO_DIR}" checkout --quiet "${BRANCH}"
 git -C "${REPO_DIR}" reset --hard --quiet "origin/${BRANCH}"
 
+log "Mode: backend=${BUILD_BACKEND} frontend=${BUILD_FRONTEND}"
+
 log "Loading staging env..."
 set -a; source "${ENV_FILE}"; set +a
 
-log "Building images..."
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull
+# ── Build only the services that changed ─────────────────────────────────────
+if [[ "${BUILD_BACKEND}" == "true" && "${BUILD_FRONTEND}" == "true" ]]; then
+    log "Building all images..."
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --remove-orphans
+elif [[ "${BUILD_BACKEND}" == "true" ]]; then
+    log "Building backend image only..."
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull app-backend
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d app-backend
+elif [[ "${BUILD_FRONTEND}" == "true" ]]; then
+    log "Building frontend images only (v2 + v5)..."
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull app-frontend app-frontend-v5
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d app-frontend app-frontend-v5
+fi
 
-log "Bringing the stack up..."
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --remove-orphans
+# ── Backend health check (skip for frontend-only deploys) ────────────────────
+if [[ "${BUILD_BACKEND}" == "true" ]]; then
+    log "Waiting for nivesh-staging-app-backend to report healthy..."
+    for i in {1..30}; do
+        status=$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-app-backend 2>/dev/null || echo "unknown")
+        if [[ "${status}" == "healthy" ]]; then
+            log "Healthy after ${i} checks."
+            break
+        fi
+        sleep 2
+    done
+    [[ "$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-app-backend 2>/dev/null)" == "healthy" ]] \
+        || fail "nivesh-staging-app-backend did not become healthy."
+fi
 
-log "Waiting for nivesh-staging-ingestion to report healthy..."
-for i in {1..30}; do
-    status=$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-ingestion 2>/dev/null || echo "unknown")
-    if [[ "${status}" == "healthy" ]]; then
-        log "Healthy after ${i} checks."
-        break
-    fi
-    sleep 2
-done
-[[ "$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-ingestion 2>/dev/null)" == "healthy" ]] \
-    || fail "nivesh-staging-ingestion did not become healthy."
+# Reload the edge nginx so any nginx-staging.conf change lands and stale
+# upstream resolutions are cleared. (The config also uses dynamic DNS via
+# 127.0.0.11 resolver so even without this, fresh container IPs are picked
+# up within ~10s — but reload is cheap and avoids the 502 race window.)
+if docker ps --format '{{.Names}}' | grep -q '^nivesh-staging-nginx$'; then
+    log "Reloading edge nginx..."
+    # If the new config is syntactically broken, recreate the container
+    # (which will fail fast with a clear error) instead of leaving us in a
+    # half-state where nginx kept the old config.
+    docker exec nivesh-staging-nginx nginx -t > /dev/null 2>&1 \
+        && docker exec nivesh-staging-nginx nginx -s reload \
+        || docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --force-recreate nginx
+fi
 
 # Smoke check always probes via the loopback interface — the bind address
 # (0.0.0.0 once we go public) is not a valid connect target.

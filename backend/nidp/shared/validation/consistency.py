@@ -44,6 +44,7 @@ class ConsistencyFinding:
     entity_type:  Optional[str] = None   # 'scheme' | 'symbol' | 'portfolio'
     entity_id:    Optional[str] = None   # scheme_code, NSE symbol, etc.
     field_name:   Optional[str] = None
+    actual:       Optional[str] = None
     source_a:     Optional[str] = None
     value_a:      Optional[str] = None
     source_b:     Optional[str] = None

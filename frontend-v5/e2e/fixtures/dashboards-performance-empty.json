@@ -1,0 +1,25 @@
+{
+  "type": "performance",
+  "badge": { "label": "—", "tone": "mute" },
+  "insight": {
+    "headline": "No performance data yet.",
+    "subtext": "Add holdings to see how your portfolio performs.",
+    "hero": { "label": "XIRR", "value": "—", "tone": "mute" }
+  },
+  "stat_tiles": [],
+  "breakdown": {
+    "lens": "returns",
+    "lens_options": ["returns", "alpha", "consistency"],
+    "status_pill": "",
+    "portfolio_xirr": null,
+    "benchmark_xirr": null,
+    "alpha": null,
+    "sharpe_ratio": null,
+    "computed_at": null,
+    "waterfall": [],
+    "items": [],
+    "monthly_returns": []
+  },
+  "recommendations": [],
+  "projection": null
+}

@@ -19,7 +19,9 @@ import os
 import sys
 from datetime import date, timedelta
 
+from nidp.shared.derived_run import run_with_job_log
 from nidp.shared.logging_setup import setup_logging
+from nidp.shared.storage.pg import close_pool as close_shared_pool
 from .service import compute_for_date, create_pool
 
 logger = logging.getLogger(__name__)
@@ -40,8 +42,12 @@ async def _main(args: argparse.Namespace) -> int:
 
     pool = await create_pool(url)
     try:
-        report = await compute_for_date(
+        report = await run_with_job_log(
+            "fundamental_engine",
+            compute_for_date,
             pool, target,
+            target_date=target,
+            rows_inserted_attr="rows_upserted",
             only_symbols=only,
             skip_populate=args.skip_populate,
         )
@@ -49,6 +55,7 @@ async def _main(args: argparse.Namespace) -> int:
         return 0 if not report.errors else 2
     finally:
         await pool.close()
+        await close_shared_pool()
 
 
 def main() -> None:

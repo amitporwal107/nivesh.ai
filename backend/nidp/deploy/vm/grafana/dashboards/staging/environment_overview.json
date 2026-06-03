@@ -1,0 +1,2261 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Full-stack environment map \u2014 Docker containers, REST services, cron jobs, DB health, and live logs for both nidp-stack-vm and nivesh-app-vm (staging).",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "title": "Feed Schedule",
+      "url": "/grafana/d/nidp-staging-feeds",
+      "type": "dashboards",
+      "icon": "external link"
+    },
+    {
+      "title": "Job Health",
+      "url": "/grafana/d/nidp-staging-jobs",
+      "type": "dashboards",
+      "icon": "external link"
+    },
+    {
+      "title": "DQ Chain",
+      "url": "/grafana/d/nidp-staging-dq",
+      "type": "dashboards",
+      "icon": "external link"
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Containers",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "blue",
+            "mode": "fixed"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(DISTINCT container_name) FROM monitoring.container_health WHERE collected_at = (SELECT MAX(collected_at) FROM monitoring.container_health) AND environment IN ('staging','infra')",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Running",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "green",
+            "mode": "fixed"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) FROM monitoring.container_health WHERE collected_at = (SELECT MAX(collected_at) FROM monitoring.container_health) AND environment IN ('staging','infra') AND status = 'running'",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Unhealthy / Stopped",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) FROM monitoring.container_health WHERE collected_at = (SELECT MAX(collected_at) FROM monitoring.container_health) AND environment IN ('staging','infra') AND (status != 'running' OR health = 'unhealthy')",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "REST Services UP",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "green",
+            "mode": "fixed"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) FROM monitoring.v_latest_services WHERE is_up = true",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "REST Services DOWN",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) FROM monitoring.v_latest_services WHERE is_up = false OR is_up IS NULL",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Feed Success Rate (24h)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 90
+              },
+              {
+                "color": "green",
+                "value": 98
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT ROUND((COUNT(*) FILTER (WHERE status IN ('OK','GREEN')))::numeric / NULLIF(COUNT(*),0) * 100, 1) AS pct FROM nidp.job_log WHERE started_at >= NOW() - INTERVAL '24 hours'",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Services & Containers",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "collapsed": false
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "\ud83d\udfe2 Production",
+      "gridPos": {
+        "h": 20,
+        "w": 8,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "_sort",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "UP": {
+                        "color": "rgba(50,172,45,0.9)",
+                        "index": 0
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "HEALTHY": {
+                        "color": "rgba(50,172,45,0.9)",
+                        "index": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "RUNNING": {
+                        "color": "rgba(50,172,45,0.6)",
+                        "index": 2
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "DOWN": {
+                        "color": "rgba(245,54,54,0.9)",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CPU%"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 70
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mem MB"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decmbytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "_sort"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "URL"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Service"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View logs",
+                    "url": "/grafana/explore?orgId=1&left=%7B%22datasource%22%3A%22NIDP-Loki-Staging%22%2C%22queries%22%3A%5B%7B%22expr%22%3A%22%7Bcontainer%3D%5C%22%24%7B__data.fields.Service%7D%5C%22%7D%22%7D%5D%7D"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT name AS \"Service\", status AS \"Status\", cpu_pct AS \"CPU%\", mem_mb AS \"Mem MB\",\n  uptime_h AS \"Uptime h\", resp_ms AS \"ms\", url AS \"URL\", _sort\nFROM (\n  SELECT container_name AS name,\n    CASE WHEN status='running' THEN 'UP' ELSE 'DOWN' END AS status,\n    COALESCE(ROUND(cpu_percent::numeric,1),0) AS cpu_pct,\n    COALESCE(ROUND(mem_usage_mb::numeric,0),0) AS mem_mb,\n    COALESCE(ROUND(uptime_seconds/3600.0,1),0) AS uptime_h,\n    0 AS resp_ms, COALESCE(http_url,'') AS url,\n    CASE WHEN status='running' THEN 1 ELSE 0 END AS _sort\n  FROM monitoring.v_latest_containers\n  WHERE environment='prod' AND container_name NOT LIKE 'c96cc%'\n  UNION ALL\n  SELECT service_name,\n    CASE WHEN is_up THEN 'UP' ELSE 'DOWN' END,\n    0,0,0,COALESCE(response_ms,0),COALESCE(url,''),\n    CASE WHEN is_up THEN 1 ELSE 0 END\n  FROM monitoring.v_latest_services\n  WHERE environment='prod'\n    AND service_name NOT IN ('nginx','grafana','minio','prometheus','timescaledb-prod')\n) t ORDER BY _sort DESC, name",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          }
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "\ud83d\udfe1 Staging",
+      "gridPos": {
+        "h": 20,
+        "w": 8,
+        "x": 8,
+        "y": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "_sort",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "UP": {
+                        "color": "rgba(50,172,45,0.9)",
+                        "index": 0
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "HEALTHY": {
+                        "color": "rgba(50,172,45,0.9)",
+                        "index": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "RUNNING": {
+                        "color": "rgba(50,172,45,0.6)",
+                        "index": 2
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "DOWN": {
+                        "color": "rgba(245,54,54,0.9)",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CPU%"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 70
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mem MB"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decmbytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "_sort"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "URL"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Service"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View logs",
+                    "url": "/grafana/explore?orgId=1&left=%7B%22datasource%22%3A%22NIDP-Loki-Staging%22%2C%22queries%22%3A%5B%7B%22expr%22%3A%22%7Bcontainer%3D%5C%22%24%7B__data.fields.Service%7D%5C%22%7D%22%7D%5D%7D"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT name AS \"Service\", status AS \"Status\", cpu_pct AS \"CPU%\", mem_mb AS \"Mem MB\",\n  uptime_h AS \"Uptime h\", resp_ms AS \"ms\", url AS \"URL\", _sort\nFROM (\n  SELECT container_name AS name,\n    CASE WHEN status='running' THEN 'UP' ELSE 'DOWN' END AS status,\n    COALESCE(ROUND(cpu_percent::numeric,1),0) AS cpu_pct,\n    COALESCE(ROUND(mem_usage_mb::numeric,0),0) AS mem_mb,\n    COALESCE(ROUND(uptime_seconds/3600.0,1),0) AS uptime_h,\n    0 AS resp_ms, COALESCE(http_url,'') AS url,\n    CASE WHEN status='running' THEN 1 ELSE 0 END AS _sort\n  FROM monitoring.v_latest_containers\n  WHERE environment='staging'\n  UNION ALL\n  SELECT service_name,\n    CASE WHEN is_up THEN 'UP' ELSE 'DOWN' END,\n    0,0,0,COALESCE(response_ms,0),COALESCE(url,''),\n    CASE WHEN is_up THEN 1 ELSE 0 END\n  FROM monitoring.v_latest_services\n  WHERE environment='staging'\n    AND service_name NOT IN ('timescaledb-stg')\n) t ORDER BY _sort DESC, name",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          }
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "\ud83d\udd35 Shared Infra",
+      "gridPos": {
+        "h": 20,
+        "w": 8,
+        "x": 16,
+        "y": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "_sort",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "UP": {
+                        "color": "rgba(50,172,45,0.9)",
+                        "index": 0
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "HEALTHY": {
+                        "color": "rgba(50,172,45,0.9)",
+                        "index": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "RUNNING": {
+                        "color": "rgba(50,172,45,0.6)",
+                        "index": 2
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "DOWN": {
+                        "color": "rgba(245,54,54,0.9)",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CPU%"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 70
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mem MB"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decmbytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "_sort"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "URL"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Service"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View logs",
+                    "url": "/grafana/explore?orgId=1&left=%7B%22datasource%22%3A%22NIDP-Loki-Staging%22%2C%22queries%22%3A%5B%7B%22expr%22%3A%22%7Bcontainer%3D%5C%22%24%7B__data.fields.Service%7D%5C%22%7D%22%7D%5D%7D"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT name AS \"Service\", status AS \"Status\", cpu_pct AS \"CPU%\", mem_mb AS \"Mem MB\",\n  uptime_h AS \"Uptime h\", resp_ms AS \"ms\", url AS \"URL\", _sort\nFROM (\n  SELECT container_name AS name,\n    CASE WHEN health='healthy' THEN 'HEALTHY'\n         WHEN status='running' THEN 'RUNNING' ELSE 'DOWN' END AS status,\n    COALESCE(ROUND(cpu_percent::numeric,1),0) AS cpu_pct,\n    COALESCE(ROUND(mem_usage_mb::numeric,0),0) AS mem_mb,\n    COALESCE(ROUND(uptime_seconds/3600.0,1),0) AS uptime_h,\n    0 AS resp_ms, COALESCE(http_url,'') AS url,\n    CASE WHEN status='running' THEN 1 ELSE 0 END AS _sort\n  FROM monitoring.v_latest_containers\n  WHERE environment='infra'\n    AND container_name NOT IN ('nidp-loki','nidp-promtail','nidp-schema-registry')\n  UNION ALL\n  SELECT service_name,\n    CASE WHEN is_up THEN 'UP' ELSE 'DOWN' END,\n    0,0,0,COALESCE(response_ms,0),COALESCE(url,''),\n    CASE WHEN is_up THEN 1 ELSE 0 END\n  FROM monitoring.v_latest_services\n  WHERE environment='prod'\n    AND service_name IN ('nginx','grafana','minio','prometheus')\n) t ORDER BY _sort DESC, name",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          }
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "CPU & Memory Trends (Last 1h)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "collapsed": false
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "CPU % \u2014 Top Containers (1h)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT collected_at AS time, container_name AS metric, ROUND(cpu_percent::numeric,2) AS value FROM monitoring.container_health WHERE collected_at >= now() AND environment IN ('staging','infra')-interval'1 hour' AND cpu_percent IS NOT NULL AND cpu_percent > 0 AND container_name IN (SELECT container_name FROM monitoring.container_health WHERE collected_at >= now() AND environment IN ('staging','infra')-interval'1 hour' AND cpu_percent IS NOT NULL GROUP BY container_name ORDER BY AVG(cpu_percent) DESC LIMIT 10) ORDER BY collected_at",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Memory MB \u2014 Top Containers (1h)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT collected_at AS time, container_name AS metric, ROUND(mem_usage_mb::numeric,1) AS value FROM monitoring.container_health WHERE collected_at >= now() AND environment IN ('staging','infra')-interval'1 hour' AND mem_usage_mb IS NOT NULL AND mem_usage_mb > 0 AND container_name IN (SELECT container_name FROM monitoring.container_health WHERE collected_at >= now() AND environment IN ('staging','infra')-interval'1 hour' AND mem_usage_mb IS NOT NULL GROUP BY container_name ORDER BY AVG(mem_usage_mb) DESC LIMIT 10) ORDER BY collected_at",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "type": "row",
+      "title": "REST Services & HTTP Endpoints",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "collapsed": false
+    },
+    {
+      "id": 41,
+      "type": "table",
+      "title": "REST Services \u2014 Latest Health Check",
+      "description": "Probed every minute from nidp-stack-vm. HTTPS probes cross-check Nivesh App VM externally.",
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "is_up",
+            "desc": false
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "is_up"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "true": {
+                        "text": "UP",
+                        "color": "green"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "false": {
+                        "text": "DOWN",
+                        "color": "red"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "http_status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 500
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "environment"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "prod": {
+                        "text": "PROD",
+                        "color": "purple"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "staging": {
+                        "text": "STAGING",
+                        "color": "orange"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "response_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 2000
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 500
+                    },
+                    {
+                      "color": "red",
+                      "value": 1500
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT vm, service_name, environment, url, is_up::text, http_status, COALESCE(response_ms,0) AS response_ms, COALESCE(error_msg,'') AS error, collected_at AS last_checked FROM monitoring.v_latest_services ORDER BY is_up ASC NULLS FIRST, vm, service_name",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "timeseries",
+      "title": "Service Response Times (Last 1h)",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 47
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 5
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT collected_at AS time, service_name AS metric, response_ms AS value FROM monitoring.service_health WHERE collected_at >= now()-interval'1 hour' AND is_up=true AND response_ms IS NOT NULL AND environment = 'staging'\nORDER BY collected_at",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "timeseries",
+      "title": "Service Availability (Last 24h)",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "min",
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "fillOpacity": 20,
+            "drawStyle": "bars"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT time_bucket('5 minutes', collected_at) AS time, service_name AS metric, ROUND(AVG(CASE WHEN is_up THEN 100.0 ELSE 0.0 END)::numeric,1) AS value FROM monitoring.service_health WHERE collected_at >= now()-interval'24 hours' GROUP BY time, service_name AND environment = 'staging'\nORDER BY time",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "type": "row",
+      "title": "Cron Jobs \u2014 Schedule & Last Run",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 62
+      },
+      "collapsed": false
+    },
+    {
+      "id": 51,
+      "type": "table",
+      "title": "All Scheduled Jobs (both VMs)",
+      "description": "Static registry joined with nidp.source_registry for NIDP feeds. FAILED and overdue jobs sort to the top.",
+      "gridPos": {
+        "h": 20,
+        "w": 24,
+        "x": 0,
+        "y": 63
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "enablePagination": true,
+          "show": false
+        },
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "OK": {
+                        "color": "green"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "FAILED": {
+                        "color": "red"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "PARTIAL": {
+                        "color": "orange"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "NEVER": {
+                        "color": "gray",
+                        "text": "NEVER RUN"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "SKIPPED": {
+                        "color": "blue"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hours_since"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "h"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 26
+                    },
+                    {
+                      "color": "red",
+                      "value": 72
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_error"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 400
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sort_key"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  CASE WHEN COALESCE(sr.last_run_status,'NEVER')='FAILED' THEN 0\n       WHEN sr.last_run_at IS NULL THEN 1\n       WHEN COALESCE(sr.last_run_status,'NEVER')='PARTIAL' THEN 2\n       ELSE 3 END AS sort_key,\n  cr.vm, cr.job_name, cr.schedule_ist AS schedule,\n  COALESCE(sr.last_run_status, 'NEVER') AS last_status,\n  sr.last_run_at,\n  ROUND((EXTRACT(EPOCH FROM (NOW() - sr.last_run_at))/3600)::numeric,1) AS hours_since,\n  sr.consecutive_failures AS cons_fail\nFROM monitoring.cron_registry cr\nLEFT JOIN nidp.source_registry sr ON sr.ingester = cr.job_name\nWHERE cr.enabled = TRUE\n  AND cr.job_name NOT IN ('container_health_collector','service_health_collector','gate4_replication_check')\nORDER BY sort_key, cr.vm, cr.job_name",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          }
+        }
+      ]
+    },
+    {
+      "id": 60,
+      "type": "row",
+      "title": "Infrastructure Tools",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 83
+      },
+      "collapsed": false
+    },
+    {
+      "id": 61,
+      "type": "table",
+      "title": "Infrastructure Services \u2014 Ports & URLs",
+      "description": "Static inventory of all infra tools running on both VMs.",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 84
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "is_up"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "true": {
+                        "text": "UP",
+                        "color": "green"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "false": {
+                        "text": "DOWN",
+                        "color": "red"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT v.vm, s.service_name AS tool, s.url AS health_url, s.is_up::text, s.response_ms AS resp_ms, s.http_status, s.collected_at AS last_checked FROM monitoring.v_latest_services s JOIN monitoring.vm_inventory v ON v.vm_name=s.vm WHERE s.service_name IN ('grafana','loki','promtail','prometheus','minio','timescaledb-prod','timescaledb-stg','daas-api','query-api','nginx') AND environment = 'staging'\nORDER BY v.vm, s.service_name",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 70,
+      "type": "row",
+      "title": "Database Health \u2014 TimescaleDB",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 94
+      },
+      "collapsed": false
+    },
+    {
+      "id": 71,
+      "type": "stat",
+      "title": "Active Connections",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 95
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 150
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database()",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 72,
+      "type": "stat",
+      "title": "Active Queries",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 95
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state='active' AND query NOT ILIKE '%pg_stat_activity%'",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 73,
+      "type": "stat",
+      "title": "DB Size",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 95
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT pg_database_size(current_database())",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 74,
+      "type": "stat",
+      "title": "Hypertables",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 95
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "blue",
+            "mode": "fixed"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT count(*) FROM timescaledb_information.hypertables",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 75,
+      "type": "stat",
+      "title": "Replication Lag",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 95
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(EXTRACT(EPOCH FROM (now()-pg_last_xact_replay_timestamp()))::INT,0) AS lag_secs",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 76,
+      "type": "stat",
+      "title": "Oldest Open Transaction",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 95
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(MAX(EXTRACT(EPOCH FROM (now()-xact_start)))::INT,0) AS oldest_txn_secs FROM pg_stat_activity WHERE datname=current_database() AND xact_start IS NOT NULL AND state!='idle'",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 77,
+      "type": "table",
+      "title": "pg_stat_activity \u2014 Active Queries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 99
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB-Staging"
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 10
+                    },
+                    {
+                      "color": "red",
+                      "value": 60
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT pid, usename AS user, state, ROUND(EXTRACT(EPOCH FROM (now()-query_start))::numeric,1) AS duration_s, LEFT(query,120) AS query FROM pg_stat_activity WHERE datname=current_database() AND state!='idle' AND query NOT ILIKE '%pg_stat_activity%' ORDER BY duration_s DESC LIMIT 20",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": 80,
+      "type": "row",
+      "title": "Active Alerts",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 107
+      },
+      "collapsed": false
+    },
+    {
+      "id": 81,
+      "type": "table",
+      "title": "Grafana Alert Events (Last 24h)",
+      "description": "Alerts fired by Grafana alerting rules and stored via the webhook receiver.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 108
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "received_at",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "firing": {
+                        "text": "FIRING",
+                        "color": "red"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "resolved": {
+                        "text": "RESOLVED",
+                        "color": "green"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "severity"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "critical": {
+                        "color": "red"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "warning": {
+                        "color": "orange"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT received_at, alert_name, state, severity, COALESCE(environment,'\u2014') AS environment, labels::text AS labels FROM monitoring.alert_events WHERE received_at >= now()-interval'24 hours' ORDER BY received_at DESC LIMIT 50",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 90,
+      "type": "row",
+      "title": "Live Logs (Loki)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 116
+      },
+      "collapsed": false
+    },
+    {
+      "id": 91,
+      "type": "logs",
+      "title": "Live Service Logs",
+      "description": "Stream from Loki. Use the service variable to filter. Requires nidp-loki + nidp-promtail running.",
+      "gridPos": {
+        "h": 20,
+        "w": 24,
+        "x": 0,
+        "y": 117
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "NIDP-Loki"
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "expr": "{vm=\"nidp-stack-vm\", job=~\"$log_service\"} |= \"$log_search\"",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ]
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": [
+    "nidp",
+    "infra",
+    "monitoring",
+    "environment",
+    "staging"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
+        "hide": 0,
+        "includeAll": true,
+        "multi": false,
+        "name": "log_service",
+        "options": [
+          {
+            "selected": false,
+            "text": "All",
+            "value": ".*"
+          },
+          {
+            "selected": false,
+            "text": "nidp_services",
+            "value": "nidp_services"
+          },
+          {
+            "selected": false,
+            "text": "docker_containers",
+            "value": "docker_containers"
+          },
+          {
+            "selected": false,
+            "text": "syslog",
+            "value": "syslog"
+          }
+        ],
+        "query": "nidp_services,docker_containers,syslog",
+        "type": "custom",
+        "label": "Log Source"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "",
+          "value": ""
+        },
+        "hide": 0,
+        "name": "log_search",
+        "query": "",
+        "type": "textbox",
+        "label": "Log Search"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "Asia/Kolkata",
+  "title": "NIDP Staging \u2014 Environment Overview",
+  "uid": "nidp-staging-environment",
+  "version": 1
+}

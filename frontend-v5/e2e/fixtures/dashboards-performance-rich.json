@@ -1,0 +1,61 @@
+{
+  "type": "performance",
+  "badge": { "label": "HEALTHY", "tone": "moss" },
+  "insight": {
+    "headline": "You beat the benchmark by 3.2 points",
+    "subtext": "1Y annualised returns vs category average benchmark.",
+    "hero": { "label": "XIRR", "value": "14.8%", "tone": "moss" }
+  },
+  "stat_tiles": [
+    { "label": "XIRR",    "value": "14.8%",  "tone": "moss",    "sub": "1Y annualised" },
+    { "label": "Sharpe",  "value": "1.24",   "tone": "moss",    "sub": "risk-adjusted" },
+    { "label": "Benchmark","value": "11.6%", "tone": "neutral", "sub": "category avg" },
+    { "label": "Alpha",   "value": "+3.2pp", "tone": "moss",    "sub": "vs benchmark" }
+  ],
+  "breakdown": {
+    "lens": "returns",
+    "lens_options": ["returns", "alpha", "consistency"],
+    "status_pill": "HEALTHY",
+    "portfolio_xirr": 14.8,
+    "benchmark_xirr": 11.6,
+    "alpha": 3.2,
+    "sharpe_ratio": 1.24,
+    "computed_at": "2026-05-29T10:00:00Z",
+    "coverage": {
+      "matched_funds": 8,
+      "total_funds": 10
+    },
+    "waterfall": [
+      { "label": "Benchmark", "value": 11.6, "type": "start" },
+      { "label": "HDFC Flexicap", "value": 2.8,  "type": "step" },
+      { "label": "ICICI Gold ETF","value": 0.9,  "type": "step" },
+      { "label": "Parag Parikh",  "value": 1.2,  "type": "step" },
+      { "label": "Axis Small Cap","value": -1.5, "type": "step" },
+      { "label": "SBI Bluechip",  "value": -0.8, "type": "step" },
+      { "label": "Portfolio",     "value": 14.2, "type": "end" }
+    ],
+    "items": [
+      { "name": "HDFC Flexicap",  "alpha_contribution": 2.8,  "weight_pct": 22.5, "fund_xirr": 18.4 },
+      { "name": "Parag Parikh",   "alpha_contribution": 1.2,  "weight_pct": 18.0, "fund_xirr": 16.8 },
+      { "name": "ICICI Gold ETF", "alpha_contribution": 0.9,  "weight_pct": 6.6,  "fund_xirr": 13.5 },
+      { "name": "SBI Bluechip",   "alpha_contribution": -0.8, "weight_pct": 14.0, "fund_xirr": 10.1 },
+      { "name": "Axis Small Cap", "alpha_contribution": -1.5, "weight_pct": 12.0, "fund_xirr": 9.4 }
+    ],
+    "monthly_returns": [
+      { "month": "Jun",  "portfolio": 1.2,  "benchmark": 0.8 },
+      { "month": "Jul",  "portfolio": -0.4, "benchmark": 0.2 },
+      { "month": "Aug",  "portfolio": 2.1,  "benchmark": 1.5 },
+      { "month": "Sep",  "portfolio": 0.9,  "benchmark": 1.1 },
+      { "month": "Oct",  "portfolio": 1.8,  "benchmark": 1.4 },
+      { "month": "Nov",  "portfolio": -0.2, "benchmark": -0.5 },
+      { "month": "Dec",  "portfolio": 2.5,  "benchmark": 2.0 },
+      { "month": "Jan",  "portfolio": 1.1,  "benchmark": 0.9 },
+      { "month": "Feb",  "portfolio": -0.8, "benchmark": -0.3 },
+      { "month": "Mar",  "portfolio": 3.0,  "benchmark": 2.4 },
+      { "month": "Apr",  "portfolio": 0.6,  "benchmark": 0.7 },
+      { "month": "May",  "portfolio": 1.4,  "benchmark": 1.0 }
+    ]
+  },
+  "recommendations": [],
+  "projection": { "metric_label": "Projected health", "current": 72.1, "projected": 74.5, "unit": "", "tone": "moss" }
+}

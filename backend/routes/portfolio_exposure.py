@@ -16,6 +16,9 @@ import logging
 
 from deps import db, get_current_user
 from services.portfolio_concentration import compute_concentration
+from services.portfolio_remediation import compute_remediation
+from services.fund_clusterer import cluster_overlapping_funds
+from services.mf_category_enricher import enrich_mf_with_sebi_category
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/portfolio/exposure", tags=["portfolio-exposure"])
@@ -55,13 +58,14 @@ async def get_concentration(request: Request) -> dict[str, Any]:
     user = await get_current_user(request)
     user_id = user["user_id"]
 
-    holdings: list[dict] = []
-    async for h in db.holdings.find(
+    holdings: list[dict] = await db.holdings.find(
         {"user_id": user_id},
         {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1,
          "quantity": 1, "current_price": 1, "sector": 1},
-    ):
-        holdings.append(h)
+    ).to_list(1000)
+    if not holdings:
+        from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+        holdings = await pi_holdings_for_user(user_id)
 
     if not holdings:
         empty_sec = {"items": [], "all_items_count": 0, "hhi": 0,
@@ -146,16 +150,19 @@ async def get_fund_overlap_matrix(request: Request) -> dict[str, Any]:
     user = await get_current_user(request)
     user_id = user["user_id"]
 
-    # 1. Load user's MF/ETF holdings
-    mf_holdings: list[dict] = []
-    async for h in db.holdings.find(
+    # 1. Load user's MF/ETF holdings — with V3 Postgres fallback for V4 users
+    _all_holdings: list[dict] = await db.holdings.find(
         {"user_id": user_id},
         {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1,
          "quantity": 1, "current_price": 1, "amc_name": 1, "category": 1},
-    ):
-        atype = (h.get("asset_type") or "").lower()
-        if atype in {"mutual_fund", "etf"} and h.get("ticker"):
-            mf_holdings.append(h)
+    ).to_list(1000)
+    if not _all_holdings:
+        from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+        _all_holdings = await pi_holdings_for_user(user_id)
+    mf_holdings: list[dict] = [
+        h for h in _all_holdings
+        if (h.get("asset_type") or "").lower() in {"mutual_fund", "etf"}
+    ]
 
     if len(mf_holdings) < 2:
         return {
@@ -176,6 +183,7 @@ async def get_fund_overlap_matrix(request: Request) -> dict[str, Any]:
 
     # 3. Build the list of funds that have cache data
     funds = []
+    seen_isins: set[str] = set()
     weights: dict[str, dict[str, float]] = {}
     total_aum = 0.0
     covered_aum = 0.0
@@ -190,6 +198,11 @@ async def get_fund_overlap_matrix(request: Request) -> dict[str, Any]:
             continue
         weights[isin] = w
         covered_aum += value
+        # Deduplicate by ISIN — multiple folios of the same fund should count
+        # as one entry in the overlap matrix, not produce "fund vs itself" pairs.
+        if isin in seen_isins:
+            continue
+        seen_isins.add(isin)
         funds.append({
             "id": isin,
             "name": h.get("name") or isin,
@@ -232,12 +245,97 @@ async def get_fund_overlap_matrix(request: Request) -> dict[str, Any]:
                 high_pairs += 1
 
     pairs.sort(key=lambda p: p["overlap_pct"], reverse=True)
+
+    # v4 addition (Modified Endpoint C.6) — distinct stocks across all funds.
+    unique_stocks: set[str] = set()
+    for w in weights.values():
+        unique_stocks.update(w.keys())
+
     return {
         "funds": funds,
         "matrix": matrix,
         "pairs": pairs[:25],   # top 25 to keep payload small
         "max_pct": round(max_pct, 2),
         "high_pairs": high_pairs,
+        "unique_stocks_count": len(unique_stocks),   # v4
         "coverage_pct": round(100 * covered_aum / total_aum, 1) if total_aum > 0 else 0,
         "empty": False,
+    }
+
+
+@router.get("/remediation")
+async def get_remediation(request: Request) -> dict[str, Any]:
+    """Return ranked remediation recommendations for the current user's portfolio.
+
+    Computes concentration envelope + fund clusters, then runs the
+    remediation engine to produce concrete, direction-correct actions.
+
+    Response:
+    {
+      "recommendations": [...],   # sorted by leverage_score DESC
+      "total_value": float,
+      "empty": bool               # true when portfolio has no holdings
+    }
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+
+    holdings: list[dict] = await db.holdings.find(
+        {"user_id": user_id},
+        {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1,
+         "quantity": 1, "current_price": 1, "sector": 1,
+         "amc_name": 1, "category": 1, "buy_date": 1, "buy_price": 1},
+    ).to_list(1000)
+
+    if not holdings:
+        from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+        holdings = await pi_holdings_for_user(user_id)
+
+    if not holdings:
+        return {"recommendations": [], "total_value": 0, "empty": True}
+
+    # ── Risk profile from financial snapshot ───────────────────────────
+    risk_profile = "moderate"
+    try:
+        from services import pg_client as _pg
+        pool = await _pg.get_pool()
+        if pool:
+            import uuid as _uuid
+            try:
+                uid = _uuid.UUID(user_id)
+            except (ValueError, AttributeError):
+                uid = _uuid.uuid5(_uuid.NAMESPACE_DNS, f"nivesh:user:{user_id}")
+            async with pool.acquire() as conn:
+                snap = await conn.fetchrow(
+                    "SELECT risk_profile FROM user_financial_snapshots WHERE user_id = $1", uid,
+                )
+                if snap and snap["risk_profile"]:
+                    risk_profile = snap["risk_profile"].lower()
+    except Exception:
+        logger.exception("Could not fetch risk_profile for remediation; defaulting to moderate")
+
+    # ── Concentration envelope ──────────────────────────────────────────
+    fund_lookthrough = await _load_fund_lookthrough(holdings)
+    envelope = compute_concentration(holdings, fund_lookthrough=fund_lookthrough)
+
+    # ── Redundant clusters ──────────────────────────────────────────────
+    mf_holdings = [
+        h for h in holdings
+        if (h.get("asset_type") or "").lower() in {"mutual_fund", "etf"}
+    ]
+    clusters: list[dict] = []
+    if len(mf_holdings) >= 2:
+        try:
+            enriched = enrich_mf_with_sebi_category(mf_holdings)
+            clusters = cluster_overlapping_funds(enriched, threshold=50)
+        except Exception:
+            logger.exception("cluster_overlapping_funds failed in remediation endpoint")
+
+    # ── Remediation engine ──────────────────────────────────────────────
+    recs = compute_remediation(holdings, envelope, clusters=clusters, risk_profile=risk_profile)
+
+    return {
+        "recommendations": recs,
+        "total_value":     envelope.get("total_value", 0),
+        "empty":           len(recs) == 0,
     }

@@ -67,8 +67,10 @@ async def _check_minute(key_id: str, limit_rpm: int) -> Tuple[bool, int, int]:
 
 async def _check_quota(key_id: str, daily_quota: Optional[int]) -> Tuple[bool, int, Optional[int]]:
     """UPSERT today's row and return (allowed, used_after, remaining).
-    `daily_quota=None` means unlimited — we still increment so usage
-    analytics work, but never deny."""
+    `daily_quota=None` means unlimited — skip the DB write to avoid FK
+    violations for internal/synthetic keys (e.g. the nil-UUID internal token)."""
+    if daily_quota is None:
+        return True, 0, None
     pool = await get_pool()
     today = date.today()
     async with pool.acquire() as conn:
@@ -84,8 +86,6 @@ async def _check_quota(key_id: str, daily_quota: Optional[int]) -> Tuple[bool, i
             key_id, today,
         )
     used = int(row["request_count"])
-    if daily_quota is None:
-        return True, used, None
     remaining = max(0, daily_quota - used)
     return used <= daily_quota, used, remaining
 

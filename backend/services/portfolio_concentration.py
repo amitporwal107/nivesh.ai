@@ -362,12 +362,19 @@ def _build_section(
             f"below the {int(warn_largest_pct)}% risk threshold."
         )
 
+    # v4 additions (Modified Endpoint C.5)
+    top5_pct = round(sum(i["pct"] for i in items_sorted[:5]), 2) if items_sorted else 0.0
+    caution_pct = int(warn_largest_pct)  # policy constant, may become risk-band-derived later
+
     result = {
         "items": items_sorted[:top_n],
         "all_items_count": len(items_sorted),
         "hhi": round(hhi, 4),
+        "hhi_x10000": round(hhi * 10000),    # v4 convenience — UI shows ×10000 form
         "effective_n": round(eff_n, 1),
         "largest_pct": largest_pct,
+        "top5_pct": top5_pct,                # v4
+        "caution_pct": caution_pct,          # v4
         "warning": warning,
         "hero_insight": {"tone": tone, "headline": headline, "detail": detail},
     }

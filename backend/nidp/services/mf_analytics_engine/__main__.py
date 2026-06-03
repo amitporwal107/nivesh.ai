@@ -18,7 +18,9 @@ import os
 import sys
 from datetime import date, timedelta
 
+from nidp.shared.derived_run import run_with_job_log
 from nidp.shared.logging_setup import setup_logging
+from nidp.shared.storage.pg import close_pool as close_shared_pool
 from .service import compute_for_date, create_pool
 
 logger = logging.getLogger(__name__)
@@ -35,11 +37,19 @@ async def _main(args: argparse.Namespace) -> int:
 
     pool = await create_pool(url)
     try:
-        report = await compute_for_date(pool, target, only_schemes=only)
+        report = await run_with_job_log(
+            "mf_analytics_engine",
+            compute_for_date,
+            pool, target,
+            target_date=target,
+            rows_inserted_attr="rows_upserted",
+            only_schemes=only,
+        )
         print(json.dumps(report.as_dict(), indent=2, default=str))
         return 0 if not report.errors else 2
     finally:
         await pool.close()
+        await close_shared_pool()
 
 
 def main() -> None:

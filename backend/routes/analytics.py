@@ -22,10 +22,43 @@ from deps import ai_engine
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
+_ANALYTICS_CACHE_TTL_SECONDS = 900  # 15 minutes
+
+
+async def _get_analytics_cache(user_id: str, portfolio_id: str) -> dict | None:
+    """Return cached analytics payload if fresher than TTL, else None."""
+    key = f"{user_id}:{portfolio_id or 'all'}"
+    doc = await db.portfolio_analytics_cache.find_one({"cache_key": key}, {"_id": 0})
+    if not doc:
+        return None
+    age = (datetime.now(timezone.utc) - doc["computed_at"].replace(tzinfo=timezone.utc)).total_seconds()
+    if age > _ANALYTICS_CACHE_TTL_SECONDS:
+        return None
+    return doc.get("payload")
+
+
+async def _set_analytics_cache(user_id: str, portfolio_id: str, payload: dict) -> None:
+    key = f"{user_id}:{portfolio_id or 'all'}"
+    await db.portfolio_analytics_cache.update_one(
+        {"cache_key": key},
+        {"$set": {"cache_key": key, "payload": payload, "computed_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+
 
 @router.get("/portfolio/analytics")
-async def get_analytics(request: Request, portfolio_id: str = ""):
+async def get_analytics(request: Request, portfolio_id: str = "", force_refresh: bool = False):
     user = await get_current_user(request)
+
+    # ── Cache hit ────────────────────────────────────────────────────────────
+    if not force_refresh:
+        cached = await _get_analytics_cache(user["user_id"], portfolio_id)
+        if cached is not None:
+            logger.info("analytics cache HIT for user %s", user["user_id"])
+            return cached
+    logger.info("analytics cache MISS for user %s — recomputing", user["user_id"])
+    # ── Cache miss — compute below ────────────────────────────────────────────
+
     query = {"user_id": user["user_id"]}
     if portfolio_id:
         query["portfolio_id"] = portfolio_id
@@ -156,23 +189,66 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
     top_gainers = holding_perf[:10]
     top_losers = list(reversed(holding_perf[-10:])) if len(holding_perf) > 10 else []
 
-    # Heatmap data
+    # Heatmap data — only compute return_pct when real cost basis exists.
+    # CAS imports often have buy_price=0 (cost basis unknown); falling back to
+    # current_price makes inv==cur and pct==0 for every tile, which is wrong.
+    # When buy_price is absent, emit return_pct=None so the tile renders as
+    # muted grey (cost_basis_estimated=True) rather than a fake 0% green.
     heatmap_data = []
     for h in holdings:
-        inv = h["quantity"] * h["buy_price"]
+        cost_basis_estimated = h.get("buy_price", 0) <= 0
+        inv = h["quantity"] * h["buy_price"] if not cost_basis_estimated else 0
         cur = h["quantity"] * h["current_price"]
-        pct = ((cur - inv) / inv * 100) if inv > 0 else 0
+        pct = ((cur - inv) / inv * 100) if inv > 0 else None
         if cur > 0:
             heatmap_data.append({
                 "name": h["name"][:30],
                 "ticker": h.get("ticker", ""),
                 "value": round(cur, 2),
-                "invested": round(inv, 2),
-                "return_pct": round(pct, 1),
+                "invested": round(inv, 2) if not cost_basis_estimated else None,
+                "return_pct": round(pct, 1) if pct is not None else None,
+                "cost_basis_estimated": cost_basis_estimated,
                 "asset_type": h.get("asset_type", "other"),
                 "sector": h.get("sector", "Other"),
             })
     heatmap_data.sort(key=lambda x: x["value"], reverse=True)
+
+    # Enrich equity heatmap tiles with NIDP sector rank.
+    # Fetch quality_score for each NSE symbol from NIDP DaaS, then rank within
+    # each sector by quality_score (higher = better rank).
+    equity_tiles = [t for t in heatmap_data if t.get("asset_type") == "equity"]
+    equity_symbols = [t["ticker"] for t in equity_tiles if t.get("ticker")]
+    if equity_symbols:
+        try:
+            from services.copilot_tools import daas_client as _daas
+            if _daas.is_configured():
+                stock_prims = await _daas.get_v3_stock_primitives_bulk(equity_symbols) or {}
+                # Compute sector rank from quality_score within portfolio's stocks
+                # Group by sector → sort desc by quality_score → assign rank
+                from collections import defaultdict
+                sector_groups: dict = defaultdict(list)
+                for sym, prim in stock_prims.items():
+                    qs = prim.get("quality_score")
+                    sec = prim.get("sector") or "Other"
+                    sector_groups[sec].append((sym, qs if qs is not None else -1))
+                # Sort each sector desc, assign 1-based rank
+                sector_ranks: dict = {}  # {symbol: (rank, total)}
+                for sec, entries in sector_groups.items():
+                    entries.sort(key=lambda x: x[1], reverse=True)
+                    total = len(entries)
+                    for i, (sym, _) in enumerate(entries, 1):
+                        sector_ranks[sym] = (i, total)
+                # Annotate heatmap tiles
+                for tile in equity_tiles:
+                    sym = tile.get("ticker", "")
+                    prim = stock_prims.get(sym, {})
+                    qs = prim.get("quality_score")
+                    rank_info = sector_ranks.get(sym)
+                    tile["quality_score"]  = round(qs, 1) if qs is not None else None
+                    tile["sector_rank"]    = rank_info[0] if rank_info else None
+                    tile["sector_total"]   = rank_info[1] if rank_info else None
+        except Exception as _e:
+            logger.warning("analytics: stock sector rank fetch failed: %s", _e)
 
     # Simulated performance trend
     trend = []
@@ -244,7 +320,7 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
             "risk_drivers": [], "components": {},
         }
 
-    return {
+    result = {
         "total_invested": round(total_invested, 2),
         "current_value": round(current_value, 2),
         "total_returns": round(total_returns, 2),
@@ -266,6 +342,14 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
         "risk_analysis": compute_risk_analysis(holdings, current_value),
         "recommendations": generate_recommendations(holdings, current_value, total_invested),
     }
+
+    # Store in MongoDB cache for subsequent requests
+    try:
+        await _set_analytics_cache(user["user_id"], portfolio_id, result)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to write analytics cache for %s: %s", user["user_id"], e)
+
+    return result
 
 
 @router.post("/portfolio/refresh-prices")
@@ -295,6 +379,12 @@ async def refresh_equity_prices(request: Request):
                     "nse_symbol": h.get("nse_symbol", ""),
                 }}
             )
+
+    # Invalidate analytics cache so next load picks up fresh prices
+    try:
+        await db.portfolio_analytics_cache.delete_many({"cache_key": {"$regex": f"^{uid}:"}})
+    except Exception as e:  # noqa: BLE001
+        logger.warning("analytics cache invalidation failed: %s", e)
 
     # Fire-and-forget enrichment (Groww stock fundamentals + inline MF scrape).
     # Redis cache (6h / 30d respectively) makes repeat refreshes near-free.
@@ -485,6 +575,198 @@ async def get_user_stock_scores(request: Request):
     return {"holdings": out, "coverage_pct": coverage, "scored": scored, "total": len(holdings)}
 
 
+# ── Per-holding recommendation helper ─────────────────────────────────────────
+
+def _mf_recommendation(ret_1y, category_avg_1y, quality_score, is_regular: bool) -> dict:
+    """Derive Hold/Exit/Buy More/Switch for a MF/ETF holding."""
+    if is_regular:
+        return {"action": "SWITCH", "reason": "Switch to Direct plan — save ~0.7–1% p.a. in expense ratio"}
+    if quality_score is not None and quality_score < 40:
+        return {"action": "EXIT", "reason": f"Quality score {quality_score:.0f}/100 — below acceptable threshold"}
+    if ret_1y is not None and category_avg_1y is not None:
+        alpha = round(float(ret_1y) - float(category_avg_1y), 1)
+        if alpha <= -5:
+            return {"action": "EXIT", "reason": f"Trailing category by {abs(alpha):.1f}pp over 1 year"}
+        if alpha >= 3 and (quality_score or 0) > 70:
+            return {"action": "BUY_MORE", "reason": f"Outperforming category by {alpha:.1f}pp with strong quality score"}
+    return {"action": "HOLD", "reason": "Performing in line with category; no action needed"}
+
+
+@router.get("/portfolio/recommendations/v5")
+async def get_portfolio_recommendations_v5(request: Request):
+    """Recommendations driven by the full persona + risk + goal recommendation engine.
+
+    Primary source: active action plan (db.action_plans, status=active) — this is
+    the output of ActionPlanManager.refresh_plan() which runs all engines including
+    AMCConcentrationEngine, RiskAlignmentEngine, GoalAlignmentEngine, BehaviouralPersonaFilter,
+    CategorySuitabilityEngine, OverlapEngine, etc.
+
+    Supplementary: stock_scores table for equity holdings not in the active plan
+    (plan may not cover every stock individually).
+
+    Returns top-5 actionable items per asset class for the Performance page tile.
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+
+    # ── 1. Load active plan (persona/risk/goal-driven engine output) ───────────
+    active_plan: dict = {}
+    try:
+        active_plan = await db.action_plans.find_one(
+            {"user_id": user_id, "status": "active"},
+            {"_id": 0, "actions": 1},
+        ) or {}
+    except Exception as e:
+        logger.warning("recommendations/v5: active plan fetch failed: %s", e)
+
+    plan_actions = active_plan.get("actions") or []
+
+    # Map plan action type vocabulary → frontend vocabulary
+    _PLAN_ACTION_NORM: dict = {
+        "ADD":     "BUY_MORE",
+        "BUY":     "BUY_MORE",
+        "EXIT":    "EXIT",
+        "TRIM":    "REVIEW",
+        "SWITCH":  "SWITCH",
+        "HOLD":    "HOLD",
+        "REVIEW":  "REVIEW",
+        "HARVEST": "EXIT",
+        "RAISE_SIP": "BUY_MORE",
+        "MERGE":   "SWITCH",
+    }
+
+    # Normalize an asset_type value from the plan to the canonical set
+    def _norm_at(raw: str) -> str:
+        r = (raw or "").lower().replace("-", "_").replace(" ", "_")
+        if r in ("equity", "stock"):          return "equity"
+        if r in ("mutual_fund", "fund", "mf"): return "mutual_fund"
+        if r == "etf":                         return "etf"
+        if r in ("gold", "sgb"):               return "gold"
+        return r
+
+    # Build per-holding entry from a plan action
+    def _action_to_rec(a: dict) -> dict:
+        raw_type = (a.get("type") or a.get("action_type") or "HOLD").upper()
+        action = _PLAN_ACTION_NORM.get(raw_type, "HOLD")
+        scores = a.get("scores") or {}
+        v3 = a.get("v3_scores") or {}
+        qs = scores.get("quality") or scores.get("quality_score") or v3.get("quality_score")
+        hs = scores.get("health") or scores.get("health_score") or v3.get("health_score")
+        reason = a.get("reason_text") or a.get("reason") or "See plan for details"
+        domain = a.get("source_domain") or ""
+        if domain:
+            reason = f"[{domain}] {reason}"
+        crp = v3.get("category_rank_pct")
+        return {
+            "name": (a.get("asset_name") or a.get("instrument_name") or "")[:70],
+            "action": action,
+            "reason": reason,
+            "quality_score": float(qs) if qs is not None else None,
+            "health_score":  float(hs) if hs is not None else None,
+            "asset_type": _norm_at(a.get("asset_type") or ""),
+            "current_value_rs": float(a.get("amount") or 0),
+            "confidence": "high",
+            "source": "plan",
+            "category_rank_pct": round(float(crp), 1) if crp is not None else None,
+        }
+
+    plan_recs = [_action_to_rec(a) for a in plan_actions
+                 if (a.get("asset_type") or "portfolio") != "portfolio"]
+
+    # ── 2. Supplement equity with stock_scores for holdings not in the plan ───
+    all_holdings = await db.holdings.find(
+        {"user_id": user_id, "asset_type": "equity"},
+        {"_id": 0, "name": 1, "nse_symbol": 1, "asset_type": 1,
+         "quantity": 1, "current_price": 1},
+    ).to_list(500)
+
+    eq_symbols = list({
+        (h.get("nse_symbol") or "").upper()
+        for h in all_holdings
+        if (h.get("nse_symbol") or "").strip()
+    })
+    stock_scores_map: dict = {}
+    if eq_symbols:
+        try:
+            from services import pg_client
+            pool = await pg_client.get_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    rows = await conn.fetch(
+                        """SELECT nse_symbol, quality_score, health_score, exit_score,
+                                  recommendation, recommendation_reason
+                             FROM stock_scores WHERE nse_symbol = ANY($1::text[])""",
+                        eq_symbols,
+                    )
+                stock_scores_map = {r["nse_symbol"]: dict(r) for r in rows}
+        except Exception as e:
+            logger.warning("recommendations/v5: stock_scores fetch failed: %s", e)
+
+    # Names already covered by the plan (avoid duplicates)
+    plan_names_lower = {r["name"].lower() for r in plan_recs}
+
+    _STOCK_NORM = {"BUY": "BUY_MORE", "TRIM": "REVIEW"}
+    for h in all_holdings:
+        name = (h.get("name") or "")[:60]
+        if name.lower() in plan_names_lower:
+            continue
+        sym = (h.get("nse_symbol") or "").upper()
+        if sym not in stock_scores_map:
+            continue
+        ss = stock_scores_map[sym]
+        qs = float(ss["quality_score"]) if ss.get("quality_score") is not None else None
+        hs = float(ss["health_score"])  if ss.get("health_score")  is not None else None
+        raw_rec = ss.get("recommendation") or {}
+        if isinstance(raw_rec, dict):
+            raw_action = raw_rec.get("action") or "HOLD"
+            raw_reason = raw_rec.get("reason") or "Based on NIDP V3 quality and health scores"
+        else:
+            raw_action = str(raw_rec) or "HOLD"
+            raw_reason = "Based on NIDP V3 quality and health scores"
+        action = _STOCK_NORM.get(raw_action, raw_action)
+        score_note = f" · Quality {qs:.0f}/100" if qs is not None else ""
+        if hs is not None:
+            score_note += f" · Health {hs:.0f}/100"
+        val = float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
+        plan_recs.append({
+            "name": name,
+            "action": action,
+            "reason": raw_reason + score_note,
+            "quality_score": qs,
+            "health_score": hs,
+            "asset_type": "equity",
+            "current_value_rs": round(val, 2),
+            "confidence": "medium",
+            "source": "stock_scores",
+        })
+
+    # ── 3. Build top-5 per asset class ────────────────────────────────────────
+    _ACTION_ORDER = {"BUY_MORE": 0, "EXIT": 1, "SWITCH": 2, "REVIEW": 3, "HOLD": 4}
+
+    def _top5(asset_type_filter: str) -> list:
+        bucket = [r for r in plan_recs if r["asset_type"] == asset_type_filter]
+        actionable = [r for r in bucket if r["action"] != "HOLD"]
+        ranked = sorted(
+            actionable or bucket,
+            key=lambda x: (_ACTION_ORDER.get(x["action"], 9), -(x.get("quality_score") or 0)),
+        )
+        return [{"name": r["name"], "action": r["action"], "reason": r["reason"],
+                 "quality_score": r.get("quality_score"),
+                 "health_score": r.get("health_score"),
+                 "current_value_rs": r["current_value_rs"]}
+                for r in ranked[:5]]
+
+    return {
+        "holdings": plan_recs,
+        "top5_by_asset_class": {
+            "mutual_fund": _top5("mutual_fund"),
+            "equity":      _top5("equity"),
+            "etf":         _top5("etf"),
+            "gold":        _top5("gold"),
+        },
+    }
+
+
 @router.get("/portfolio/simulate")
 async def simulate_portfolio(request: Request, portfolio_id: str = ""):
     """Simulate optimized portfolio."""
@@ -529,9 +811,53 @@ async def refresh_nav(request: Request):
     return {"updated": updated_count, "total_mf": len(holdings), "nav_entries": len(nav_map)}
 
 
+@router.get("/mf/category-top")
+async def get_mf_category_top(
+    request: Request,
+    category: str = "",
+    n: int = 5,
+):
+    """Return top-N ranked funds in a SEBI category for the fund detail comparison panel.
+
+    Proxies to NIDP DaaS /v1/mf/performance/category-top.
+    Requires auth; category is the SEBI category string (e.g. 'Equity Scheme - Mid Cap Fund').
+    """
+    await get_current_user(request)   # auth gate — no user data needed
+    if not category:
+        return {"category": "", "funds": [], "total_in_category": 0}
+    try:
+        from services.copilot_tools import daas_client as _daas
+        if _daas.is_configured():
+            result = await _daas.get_category_top(category, n=min(n, 10))
+            return result
+    except Exception as exc:
+        logger.warning("get_mf_category_top: DaaS error: %s", exc)
+    return {"category": category, "funds": [], "total_in_category": 0}
+
+
 @router.get("/portfolio/fund-performance")
-async def get_fund_performance(request: Request, portfolio_id: str = "", force: str = ""):
-    """Get MF benchmark ratings. Cached for 2 hours."""
+async def get_fund_performance(
+    request: Request,
+    portfolio_id: str = "",
+    force: str = "",
+    period: str = "1y",
+    benchmark: str = "peer",
+):
+    """Get MF benchmark ratings. Cached for 2 hours.
+
+    Query params:
+      period    — lookback window: "1y" | "3y" | "5y" (default "1y")
+      benchmark — comparison basis: "peer" | "index" (default "peer")
+
+    Screens served: 10_performance.svg (mobile + webapp)
+    """
+    _VALID_PERIODS = {"1y", "3y", "5y"}
+    _VALID_BENCHMARKS = {"peer", "index"}
+    if period not in _VALID_PERIODS:
+        period = "1y"
+    if benchmark not in _VALID_BENCHMARKS:
+        benchmark = "peer"
+
     user = await get_current_user(request)
     user_id = user["user_id"]
 
@@ -554,10 +880,29 @@ async def get_fund_performance(request: Request, portfolio_id: str = "", force: 
     holdings = await db.holdings.find(query, {"_id": 0}).to_list(2000)
 
     if not holdings:
-        return {"fund_ratings": [], "performance_distribution": {}, "category_overlap": [], "summary": {}}
+        return {
+            "fund_ratings": [],
+            "performance_distribution": {},
+            "category_overlap": [],
+            "summary": {},
+            "period": period,
+            "benchmark": benchmark,
+        }
 
     nav_cache = await fetch_nav_data()
+    # compute_benchmark_ratings does not accept period/benchmark yet — augment after
     result = await compute_benchmark_ratings(holdings, nav_cache)
+
+    # Augment each fund rating item with v4 benchmark fields
+    benchmark_index_label = "NIFTY 50" if benchmark == "index" else "Category Average"
+    for item in result.get("fund_ratings", []):
+        if isinstance(item, dict):
+            item.setdefault("alpha_3y_benchmark_pp", None)
+            item.setdefault("benchmark_index", benchmark_index_label)
+
+    # Attach top-level period + benchmark to response
+    result["period"] = period
+    result["benchmark"] = benchmark
 
     await db.fund_performance_cache.update_one(
         {"user_id": user_id},
@@ -939,3 +1284,172 @@ Return STRICT JSON only."""
     except Exception as e:
         logger.error("Allocation analysis failed: %s", e)
         return {"error": f"Analysis failed: {str(e)}"}
+
+
+@router.get("/portfolio/holding-detail/{isin}")
+async def get_holding_detail(isin: str, request: Request):
+    """Return V3 DaaS primitives + category peer data for a single ISIN.
+
+    Fetches from NIDP DaaS using get_v3_mf_primitives_bulk([isin]).
+    Also fetches top-3 peers from analytics.fund_category_rank via
+    the category leaderboard DaaS endpoint.
+
+    Returns daas_available=false (not an error) when the ISIN has no V3
+    data — e.g. equities or funds not yet in the NIDP analytics lake.
+    """
+    await get_current_user(request)  # auth guard
+
+    isin_clean = (isin or "").strip().upper()
+    if not isin_clean:
+        raise HTTPException(status_code=400, detail="isin is required")
+
+    # ── 1. V3 MF primitives from DaaS ────────────────────────────────
+    from services.copilot_tools.daas_client import get_v3_mf_primitives_bulk, _get as daas_get, DaasError
+
+    prim: dict = {}
+    try:
+        bulk = await get_v3_mf_primitives_bulk([isin_clean])
+        prim = bulk.get(isin_clean) or {}
+    except Exception as exc:
+        logger.warning("holding-detail DaaS primitives error isin=%s: %s", isin_clean, exc)
+
+    daas_available = bool(prim)
+
+    if not daas_available:
+        return {
+            "isin": isin_clean,
+            "name": None,
+            "category": None,
+            "returns": {"1m": None, "3m": None, "1y": None, "3y": None},
+            "category_avg": {"1y": None, "3y": None},
+            "risk": {"sharpe": None, "sortino": None, "volatility_1y": None, "max_drawdown": None},
+            "ranking": {"composite_rank": None, "category_size": None, "top_position_pct": None},
+            "top_peers": [],
+            "daas_available": False,
+        }
+
+    # ── 2. Extract primitives ─────────────────────────────────────────
+    def _f(key: str):
+        v = prim.get(key)
+        return round(float(v), 2) if v is not None else None
+
+    name = prim.get("scheme_name")
+    sub_category = prim.get("sub_category") or prim.get("category")
+
+    returns = {
+        "1m": _f("return_1m"),
+        "3m": _f("return_3m"),
+        "1y": _f("ret_1y"),
+        "3y": _f("ret_3y"),
+    }
+    category_avg = {
+        "1y": _f("category_avg_1y"),
+        "3y": _f("category_avg_3y"),
+    }
+    risk = {
+        "sharpe": _f("sharpe"),
+        "sortino": _f("sortino"),
+        "volatility_1y": _f("volatility_1y"),
+        "max_drawdown": _f("max_drawdown_pct"),
+    }
+
+    composite_rank = prim.get("category_rank")
+    composite_rank_int = int(composite_rank) if composite_rank is not None else None
+
+    # ── 3. Category size + top peers via DaaS category leaderboard ────
+    category_size = None
+    top_peers: list = []
+
+    if sub_category:
+        try:
+            peers_resp = await daas_get(
+                f"/mf/performance/category/{sub_category}",
+                params={"metric": "composite_rank", "limit": "5"},
+            )
+            if peers_resp and isinstance(peers_resp.get("data"), list):
+                category_size = peers_resp.get("total") or len(peers_resp["data"])
+                for row in peers_resp["data"][:3]:
+                    if (row.get("isin") or "").upper() != isin_clean:
+                        top_peers.append({
+                            "name": row.get("scheme_name"),
+                            "return_1y": round(float(row["return_1y"]), 2) if row.get("return_1y") is not None else None,
+                            "composite_rank": int(row["composite_rank"]) if row.get("composite_rank") is not None else None,
+                        })
+                    if len(top_peers) >= 3:
+                        break
+        except DaasError as exc:
+            logger.warning("holding-detail peers error isin=%s sub_cat=%s: %s", isin_clean, sub_category, exc)
+        except Exception as exc:
+            logger.warning("holding-detail peers unexpected error isin=%s: %s", isin_clean, exc)
+
+    top_position_pct = None
+    if composite_rank_int is not None and category_size:
+        try:
+            top_position_pct = round(composite_rank_int / int(category_size) * 100, 1)
+        except Exception:
+            pass
+
+    return {
+        "isin": isin_clean,
+        "name": name,
+        "category": sub_category,
+        "returns": returns,
+        "category_avg": category_avg,
+        "risk": risk,
+        "ranking": {
+            "composite_rank": composite_rank_int,
+            "category_size": int(category_size) if category_size is not None else None,
+            "top_position_pct": top_position_pct,
+        },
+        "top_peers": top_peers,
+        "daas_available": True,
+    }
+
+
+@router.get("/portfolio/value-history")
+async def get_portfolio_value_history(request: Request):
+    """Monthly portfolio value history from CAS statement extraction.
+
+    Returns the [{month, value_rs}] array stored in the user's profile
+    during CAS import (cas_summary_vision.py). These are the real monthly
+    portfolio values printed on the CAS statement — not modelled numbers.
+
+    Also returns the current_value from holdings so the last data-point
+    can be spliced in.
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+
+    profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0,
+        "cas_monthly_values": 1, "cas_portfolio_value_rs": 1}) or {}
+
+    monthly_values = profile.get("cas_monthly_values") or []
+
+    # Sort chronologically (month strings are "Apr 2025" etc.)
+    from dateutil.parser import parse as _dp
+    def _sort_key(item):
+        try:
+            return _dp("1 " + item["month"])
+        except Exception:
+            return _dp("1 Jan 2000")
+
+    try:
+        monthly_values = sorted(monthly_values, key=_sort_key)
+    except Exception:
+        pass
+
+    # Current portfolio value from live holdings (more up-to-date than CAS)
+    total_current = 0.0
+    try:
+        async for h in db.holdings.find({"user_id": user_id},
+                                        {"_id": 0, "quantity": 1, "current_price": 1}):
+            total_current += float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
+    except Exception:
+        total_current = float(profile.get("cas_portfolio_value_rs") or 0)
+
+    return {
+        "monthly_values": monthly_values,     # [{month: str, value_rs: float}]
+        "current_value_rs": round(total_current, 2),
+        "source": "cas_statement",
+        "count": len(monthly_values),
+    }
