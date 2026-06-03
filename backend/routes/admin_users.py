@@ -607,6 +607,56 @@ async def datastore_isolation(request: Request):
     return await _di.audit_isolation(db)
 
 
+@router.post("/whitelist-repair")
+async def whitelist_repair(request: Request) -> Dict[str, Any]:
+    """Check and repair whitelist entry for a user by email.
+    If the user exists in `users` but not in `whitelisted_users`, re-adds them.
+    Protected by a static secret key (X-Admin-Key header).
+
+    curl -X POST https://niveshcopilot.com/api/admin/whitelist-repair \
+         -H 'Content-Type: application/json' \
+         -H 'X-Admin-Key: niv3sh-reset-2026' \
+         -d '{"email": "user@example.com"}'
+    """
+    key = request.headers.get("X-Admin-Key", "")
+    if key != "niv3sh-reset-2026":
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="email required")
+
+    user = await db.users.find_one({"email": email}, {"_id": 0, "user_id": 1, "is_admin": 1})
+    wl = await db.whitelisted_users.find_one({"email": email}, {"_id": 0})
+
+    action = "none"
+    if not wl:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await db.whitelisted_users.update_one(
+            {"email": email},
+            {"$set": {
+                "email": email,
+                "is_admin": bool((user or {}).get("is_admin")),
+                "status": "active",
+                "invited_at": now_iso,
+                "invited_by": "system/whitelist-repair",
+            }},
+            upsert=True,
+        )
+        action = "added"
+    else:
+        action = "already_present"
+
+    return {
+        "ok": True,
+        "email": email,
+        "user_exists": bool(user),
+        "whitelist_action": action,
+        "whitelist_status": wl.get("status") if wl else None,
+    }
+
+
 @router.post("/reset-onboarding")
 async def reset_onboarding_by_email(request: Request) -> Dict[str, Any]:
     """Reset onboarding flags for a user by email.
