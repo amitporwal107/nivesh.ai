@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Upload, Info, ArrowRight, Lock, AlertTriangle, Check, ShieldAlert, Target } from "lucide-react";
 import { useActivePlan, useGateFlags } from "@/hooks/use-active-plan";
 import type { PortfolioSummary, NavPoint, PortfolioInsight } from "@/types/portfolio";
@@ -71,9 +71,11 @@ function useCasState() {
 
 // ── CAS banner ────────────────────────────────────────────────────────────────
 
-function CasStatementBanner({ period, gmailConnected, onSync, onUpload }: {
+function CasStatementBanner({ period, gmailConnected, syncing, syncResult, onSync, onUpload }: {
   period: string | null | undefined;
   gmailConnected: boolean;
+  syncing: boolean;
+  syncResult: { ok: boolean; message: string } | null;
   onSync: () => void;
   onUpload: () => void;
 }) {
@@ -84,9 +86,24 @@ function CasStatementBanner({ period, gmailConnected, onSync, onUpload }: {
       <span className="hidden sm:inline text-ink-4">·</span>
       <span className="hidden sm:inline text-ink-3">Update if you have a newer statement</span>
       <div className="flex items-center gap-2 ml-auto shrink-0">
+        {syncResult && (
+          <span className={`text-[11px] ${syncResult.ok ? "text-pos" : "text-neg"}`}>
+            {syncResult.message}
+          </span>
+        )}
         {gmailConnected && (
+          <button
+            onClick={onSync}
+            disabled={syncing}
+            className="flex items-center gap-1.5 text-accent font-medium hover:underline text-[12px] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Syncing…" : "Sync Gmail"}
+          </button>
+        )}
+        {!gmailConnected && (
           <button onClick={onSync} className="flex items-center gap-1.5 text-accent font-medium hover:underline text-[12px]">
-            <RefreshCw className="h-3 w-3" />Sync Gmail
+            <RefreshCw className="h-3 w-3" />Connect Gmail
           </button>
         )}
         <span className="text-ink-4">·</span>
@@ -339,10 +356,54 @@ function ActionMatrix({ actions, total, onViewAll }: { actions: PlanActionC[]; t
 
 export function Dashboard({ summary, navHistory, healthBreakdown, insights, riskProfile, holdingsCount = 0, hasGoal = false, onRiskProfileSaved }: DashboardProps) {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const casState  = useCasState();
   const planQuery = useActivePlan();
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStart, setWizardStart] = useState<0 | 1 | 2>(0);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  async function handleGmailSync() {
+    const connected = casState.data?.gmail_connected ?? false;
+    if (!connected) {
+      navigate("/onboarding?sync=gmail");
+      return;
+    }
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/gmail/auto-import/run", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSyncResult({ ok: false, message: data.detail ?? "Sync failed" });
+        return;
+      }
+      const status = data.status ?? "";
+      if (status === "no_new_emails") {
+        setSyncResult({ ok: true, message: "Already up to date" });
+      } else if (status === "skipped" && data.reason === "no_saved_password") {
+        setSyncResult({ ok: false, message: "Enter your PAN to enable auto-sync" });
+        navigate("/onboarding?sync=gmail");
+      } else if (status === "ok" && (data.imported ?? 0) > 0) {
+        setSyncResult({ ok: true, message: `Imported ${data.imported} statement${data.imported !== 1 ? "s" : ""}` });
+        qc.invalidateQueries({ queryKey: ["onboarding", "state"] });
+        qc.invalidateQueries({ queryKey: ["portfolio"] });
+        qc.invalidateQueries({ queryKey: ["plans"] });
+      } else {
+        setSyncResult({ ok: true, message: "Sync complete" });
+        qc.invalidateQueries({ queryKey: ["onboarding", "state"] });
+      }
+    } catch {
+      setSyncResult({ ok: false, message: "Network error — try again" });
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setSyncResult(null), 6000);
+    }
+  }
 
   const gates = useGateFlags();
   const score = Math.round(summary.healthScore);
@@ -449,7 +510,9 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
       <CasStatementBanner
         period={casState.data?.cas_statement_period}
         gmailConnected={casState.data?.gmail_connected ?? false}
-        onSync={() => navigate("/onboarding?sync=gmail")}
+        syncing={syncing}
+        syncResult={syncResult}
+        onSync={handleGmailSync}
         onUpload={() => navigate("/onboarding?tab=upload")}
       />
 

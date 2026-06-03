@@ -248,11 +248,13 @@ async def _nidp_gcs_export_job():
 
 
 async def _gmail_auto_import_job():
-    """Daily 06:30 IST — for every Gmail-connected user with a saved CAS
-    password, scan the inbox and import any new monthly statements
-    (NSDL/CDSL/CAMS/KFintech). CAS providers send their batch shortly
-    after midnight IST, so 06:30 catches the same-day delivery wave
-    while leaving headroom for late-arrival statements."""
+    """Monthly — 1st of each month, 06:30 IST — for every Gmail-connected
+    user with a saved CAS password, scan the inbox and import any new
+    NSDL/CDSL/CAMS/KFintech statements. ECAS providers email monthly
+    statements in the first few days of the month; running on the 1st at
+    06:30 IST catches same-day delivery while the inbox is still fresh.
+    Users can also trigger an immediate sync via the Dashboard 'Sync Gmail'
+    button which calls /api/gmail/auto-import/run on demand."""
     try:
         from services.gmail_auto_import import auto_import_all_users
         res = await auto_import_all_users()
@@ -333,12 +335,12 @@ def start():
         _macro_intelligence_job, CronTrigger(hour=18, minute=35),
         id="macro_intelligence_daily", replace_existing=True, max_instances=1,
     )
-    # Gmail auto-import: daily 06:30 IST — pull any new monthly CAS
-    # statements that arrived overnight. Uses the password the user
-    # already entered during their first manual import.
+    # Gmail auto-import: monthly, 1st of month 06:30 IST — pull new ECAS
+    # statements (NSDL priority, then CDSL). On-demand sync is available
+    # via /api/gmail/auto-import/run (Dashboard "Sync Gmail" button).
     _scheduler.add_job(
-        _gmail_auto_import_job, CronTrigger(hour=6, minute=30),
-        id="gmail_auto_import_daily", replace_existing=True, max_instances=1,
+        _gmail_auto_import_job, CronTrigger(day=1, hour=6, minute=30),
+        id="gmail_auto_import_monthly", replace_existing=True, max_instances=1,
     )
     _scheduler.start()
     logger.info("MF scheduler started (Asia/Kolkata)")

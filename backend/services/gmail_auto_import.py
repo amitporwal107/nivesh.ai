@@ -1,11 +1,16 @@
-"""Periodic Gmail CAS auto-import.
+"""Periodic Gmail ECAS auto-import.
 
 For every Gmail-connected user with a saved CAS password (the PAN they
 typed during their first manual import — see `routes.gmail`), scan their
-inbox once a day for new NSDL/CDSL/CAMS/KFintech statements and import
-any not yet processed. Wired into the AsyncIO scheduler in
-`services.mf_scheduler` to run at 06:30 IST daily, which is a few hours
-after CAS providers typically email statements (early-morning IST batch).
+inbox for new NSDL/CDSL/CAMS/KFintech statements and import any not yet
+processed. Gmail tokens (access + refresh) are saved at OAuth time and
+refreshed automatically here so credentials persist across sessions.
+
+Scheduled: 1st of each month at 06:30 IST via `services.mf_scheduler`.
+ECAS providers (NSDL priority, then CDSL) email monthly statements in
+the first few days of the month; running on the 1st at 06:30 IST catches
+same-day delivery for most users. On-demand sync is available via
+`/api/gmail/auto-import/run` (Dashboard "Sync Gmail" button).
 
 The actual parse + snapshot creation reuses `_process_gmail_cas_background`
 from the routes module so the data shape is identical to a manual
