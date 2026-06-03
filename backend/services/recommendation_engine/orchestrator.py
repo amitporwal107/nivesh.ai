@@ -274,6 +274,9 @@ def _signal_to_action(
         if fund_details:
             base["fund_details"] = fund_details
             base["asset_name"] = fund_details.get("fund_name") or sig.instrument_name
+        fund_options = sig.__dict__.get("_fund_options")
+        if fund_options:
+            base["fund_options"] = fund_options  # top-3 ranked alternatives for fund picker
 
     if sig.suppressed:
         base["status"] = "SUPPRESSED"

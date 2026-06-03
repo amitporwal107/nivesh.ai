@@ -866,7 +866,7 @@ type PieSegment = {
 
 const PIE_COLORS: Partial<Record<AssetTab, string>> = {
   mf:     "rgb(var(--accent))",
-  stocks: "rgb(var(--pos))",
+  stocks: "#60A5FA",   // blue-400 — distinct from MF green accent
   etf:    "rgb(var(--warm))",
   sgb:    "#A6A38E",
 };

@@ -445,6 +445,9 @@ async def portfolio_import_from_connect(
         except Exception as e:  # noqa: BLE001
             logger.warning("import-connect: plan generation failed for user=%s: %s", user["user_id"], e)
 
+        # Kick off NIDP sync + PRA so the Risk screen populates without manual admin action.
+        asyncio.create_task(_trigger_nidp_pipeline_background(user["user_id"]))
+
     result = {
         "message": f"{len(saved)} holdings imported via Portfolio Connect",
         "count": len(saved),
@@ -456,6 +459,35 @@ async def portfolio_import_from_connect(
     }
     await store_idempotency_result(idem, result)
     return result
+
+
+async def _trigger_nidp_pipeline_background(user_id: str) -> None:
+    """Fire-and-forget: after a CAS import, kick off the NIDP sync + risk pipeline.
+
+    Sequence:
+      1. portfolio_holdings_sync  — copies Nivesh MongoDB holdings → NIDP Postgres
+      2. pra_engine               — computes VaR/vol/drawdown/beta for the Risk screen
+
+    Both calls are best-effort; a failure is logged but does NOT fail the upload.
+    The jobs run detached on the NIDP VM via the Query API.
+    """
+    from services import nidp_query_client as _nq
+
+    if not _nq.is_configured():
+        logger.info("nidp-pipeline: NIDP_QUERY_API_URL not configured — skipping auto-trigger")
+        return
+
+    for ingester in ("portfolio_holdings_sync", "pra_engine"):
+        try:
+            resp = await _nq.execute_feed(ingester)
+            logger.info(
+                "nidp-pipeline: triggered %s for user=%s status=%s",
+                ingester, user_id, resp.get("status", "spawned"),
+            )
+        except _nq.NidpQueryClientError as e:
+            logger.warning("nidp-pipeline: %s trigger failed for user=%s: %s", ingester, user_id, e.detail)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("nidp-pipeline: %s trigger error for user=%s: %s", ingester, user_id, e)
 
 
 # CAS PDF background processor removed — all PDF parsing now happens

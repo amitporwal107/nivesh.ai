@@ -39,7 +39,7 @@ from routes.admin_datastores import router as admin_datastores_router
 from routes.admin_rules import router as admin_rules_router
 from routes.admin_users import router as admin_users_router
 from routes.admin_data_pipeline import router as admin_pipeline_router
-from routes.admin_nidp import router as admin_nidp_router  # NIDP one-click diagnostic dump
+from routes.admin_nidp import router as admin_nidp_router, router_static as admin_nidp_static_router  # NIDP job control plane
 from routes.admin_allocation_bands import router as admin_allocation_bands_router  # allocation band config
 from routes.admin_nidp_replay import router as admin_nidp_replay_router  # NIDP 90-day replay engine
 from routes.admin_nidp_backfill import router as admin_nidp_backfill_router  # NIDP backfill status proxy
@@ -139,6 +139,7 @@ app.include_router(admin_datastores_router)
 app.include_router(admin_rules_router)
 app.include_router(admin_pipeline_router)
 app.include_router(admin_nidp_router)
+app.include_router(admin_nidp_static_router)
 app.include_router(admin_nidp_replay_router)
 app.include_router(admin_nidp_backfill_router)
 app.include_router(copilot_prompts_router)

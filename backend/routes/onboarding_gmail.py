@@ -365,6 +365,11 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         except Exception as e:  # noqa: BLE001
             logger.warning("auto-import: plan generation failed for user=%s: %s", user_id, e)
 
+        # Kick off NIDP sync + PRA so the Risk screen populates without manual admin action.
+        import asyncio as _aio
+        from routes.upload import _trigger_nidp_pipeline_background
+        _aio.create_task(_trigger_nidp_pipeline_background(user_id))
+
     return {
         "ok": imported_files > 0,
         "scanned": len(emails),

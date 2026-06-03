@@ -65,15 +65,17 @@ def _normalise_daas_fund(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _suggest_debt_fund(
+def _suggest_debt_funds(
     amount: float,
     excluded_amcs: List[str],
     live_candidates: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
-    """Pick the best available debt fund.
+    top_n: int = 3,
+) -> List[Dict[str, Any]]:
+    """Return up to top_n ranked debt fund options.
 
-    Prefers live NIDP DaaS candidates (already sorted by composite_rank ASC);
+    Prefers live NIDP DaaS candidates (sorted by composite_rank ASC);
     falls back to the static list when DaaS is unavailable.
+    The first item is the primary recommendation; items 2+ are alternatives.
     """
     candidates = (
         [_normalise_daas_fund(r) for r in live_candidates]
@@ -81,11 +83,16 @@ def _suggest_debt_fund(
         else _DEBT_FUNDS_FALLBACK
     )
     available = [f for f in candidates if f.get("amc") not in excluded_amcs] or candidates
-    if amount >= 500_000:
-        return available[0]
-    if amount >= 200_000:
-        return available[min(1, len(available) - 1)]
-    return available[min(2, len(available) - 1)]
+    return available[:top_n]
+
+
+def _suggest_debt_fund(
+    amount: float,
+    excluded_amcs: List[str],
+    live_candidates: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Pick the single best debt fund (primary recommendation)."""
+    return _suggest_debt_funds(amount, excluded_amcs, live_candidates, top_n=1)[0]
 
 
 def _debt_target(risk: str, params: Dict[str, Any]) -> float:
@@ -159,7 +166,8 @@ class AllocationEngine(BaseEngine):
         gap_pct = target - debt_pct
         gap_rs = ctx.total_value_rs * (gap_pct / 100.0)
         live_debt = ctx.top_add_candidates.get("debt") or []
-        fund = _suggest_debt_fund(gap_rs, excluded_amcs, live_debt)
+        fund_options = _suggest_debt_funds(gap_rs, excluded_amcs, live_debt, top_n=3)
+        fund = fund_options[0]
         fund_name = fund["fund_name"]
         fund_type = fund.get("fund_type", "")
 
@@ -193,4 +201,5 @@ class AllocationEngine(BaseEngine):
             execution_path="redirect",   # always prefer new money for ADD
         )
         signal.__dict__["_fund_details"] = fund
+        signal.__dict__["_fund_options"] = fund_options  # top-3 for frontend fund picker
         return [signal]

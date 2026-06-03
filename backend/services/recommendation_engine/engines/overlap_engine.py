@@ -274,7 +274,7 @@ class OverlapEngine(BaseEngine):
                         diversification_gain=0.7,
                         reason_codes=["CROSS_CATEGORY_REPLACEMENT"],
                         reason_text=r9_reason,
-                        dedup_key=f"ADD::{complement_cat}",
+                        dedup_key=f"ADD::{complement_cat.lower()}",
                     )
                     add_sig.__dict__["_complement_category"] = complement_cat
                     signals.append(add_sig)
