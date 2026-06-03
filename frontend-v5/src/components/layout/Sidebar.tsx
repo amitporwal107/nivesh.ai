@@ -1,12 +1,13 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
+import { useRef, useState, useEffect } from "react";
 import {
-  LayoutDashboard, PieChart, Sparkles, MessageSquare, Shield,
+  LayoutDashboard, Sparkles, MessageSquare, Shield,
   Settings, Layers, TrendingUp, Target, Receipt, ClipboardList, Wrench,
-  ShieldCheck, Server, BarChart2, Bug,
+  ShieldCheck, Server, BarChart2, Bug, LogOut, ChevronUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useMe } from "@/hooks/use-auth";
+import { useMe, useLogout } from "@/hooks/use-auth";
 import { usePortfolioSummary } from "@/hooks/use-portfolio";
 
 interface NavItem {
@@ -33,6 +34,21 @@ const NAV: NavItem[] = [
 export function Sidebar({ className }: { className?: string }) {
   const { data: me } = useMe();
   const { data: summary } = usePortfolioSummary();
+  const logout = useLogout();
+  const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [menuOpen]);
 
   const adminNav: NavItem[] = me?.is_admin
     ? [
@@ -99,14 +115,91 @@ export function Sidebar({ className }: { className?: string }) {
         ))}
       </nav>
 
-      <div className="mt-auto pt-4 border-t border-hairline flex items-center gap-3 px-2">
-        <Avatar className="h-8 w-8 rounded-md">
-          <AvatarFallback className="rounded-md text-sm">{initials}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0">
-          <div className="text-[13px] font-medium truncate">{me?.name ?? "—"}</div>
-          <div className="text-[10px] font-mono text-ink-3">{portfolioLabel}</div>
-        </div>
+      {/* User menu */}
+      <div className="mt-auto pt-4 border-t border-hairline relative" ref={menuRef}>
+        {/* Dropdown panel — opens above the trigger */}
+        {menuOpen && (
+          <div className="absolute bottom-full left-0 right-0 mb-2 bg-bg border border-hairline rounded-lg shadow-lg overflow-hidden z-50">
+            {/* User info header */}
+            <div className="px-4 py-3 border-b border-hairline">
+              <div className="text-[13px] font-medium truncate">{me?.name ?? "—"}</div>
+              <div className="text-[11px] text-ink-3 truncate">{me?.email ?? ""}</div>
+            </div>
+
+            {/* Menu items */}
+            <div className="py-1">
+              <button
+                onClick={() => { setMenuOpen(false); navigate("/settings"); }}
+                className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] text-ink-2 hover:bg-surface-2 transition-colors text-left"
+              >
+                <Settings className="h-3.5 w-3.5" />
+                Settings
+              </button>
+
+              {me?.is_admin && (
+                <>
+                  <div className="h-px bg-hairline mx-3 my-1" />
+                  <div className="px-4 py-1.5 font-mono text-[9px] uppercase tracking-[.14em] text-ink-4">
+                    Admin
+                  </div>
+                  <button
+                    onClick={() => { setMenuOpen(false); navigate("/admin"); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] text-ink-2 hover:bg-surface-2 transition-colors text-left"
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Admin Console
+                  </button>
+                  <button
+                    onClick={() => { setMenuOpen(false); navigate("/nidp"); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] text-ink-2 hover:bg-surface-2 transition-colors text-left"
+                  >
+                    <Server className="h-3.5 w-3.5" />
+                    NIDP Console
+                  </button>
+                  <button
+                    onClick={() => { setMenuOpen(false); navigate("/work"); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] text-ink-2 hover:bg-surface-2 transition-colors text-left"
+                  >
+                    <Bug className="h-3.5 w-3.5" />
+                    Issues
+                  </button>
+                </>
+              )}
+
+              <div className="h-px bg-hairline mx-3 my-1" />
+              <button
+                onClick={() => logout.mutate()}
+                className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] text-red-400 hover:bg-surface-2 transition-colors text-left"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Sign out
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Trigger — click to toggle menu */}
+        <button
+          onClick={() => setMenuOpen((v) => !v)}
+          className={cn(
+            "w-full flex items-center gap-3 px-2 py-1.5 rounded-md hover:bg-surface-2 transition-colors",
+            menuOpen && "bg-surface-1",
+          )}
+        >
+          <Avatar className="h-8 w-8 rounded-md shrink-0">
+            <AvatarFallback className="rounded-md text-sm">{initials}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1 text-left">
+            <div className="text-[13px] font-medium truncate">{me?.name ?? "—"}</div>
+            <div className="text-[10px] font-mono text-ink-3">{portfolioLabel}</div>
+          </div>
+          <ChevronUp
+            className={cn(
+              "h-3.5 w-3.5 text-ink-4 shrink-0 transition-transform",
+              !menuOpen && "rotate-180",
+            )}
+          />
+        </button>
       </div>
     </aside>
   );
