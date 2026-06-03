@@ -225,3 +225,34 @@ async def list_archive(
     if target_date:
         params["target_date"] = target_date
     return await _request("GET", f"/archive/{ingester}", params=params)
+
+
+# ── Direct portfolio ingest (bypasses GCS) ────────────────────────────────────
+# These replace the GCS → portfolio_holdings_sync/portfolio_transactions_sync
+# path. The NIDP Query API /portfolio/ingest-* endpoints write directly to
+# portfolio.user_holdings_snapshot and portfolio.user_transactions.
+
+async def push_holdings(records: list, snapshot_date: str) -> Dict[str, Any]:
+    """POST holdings records directly to NIDP Postgres via Query API.
+
+    Args:
+        records: list of dicts matching HoldingRecord shape
+        snapshot_date: ISO date string "YYYY-MM-DD"
+    """
+    return await _request(
+        "POST", "/portfolio/ingest-holdings",
+        json={"records": records, "snapshot_date": snapshot_date},
+    )
+
+
+async def push_transactions(records: list, snapshot_date: str) -> Dict[str, Any]:
+    """POST transaction records directly to NIDP Postgres via Query API.
+
+    Args:
+        records: list of dicts matching TransactionRecord shape
+        snapshot_date: ISO date string "YYYY-MM-DD"
+    """
+    return await _request(
+        "POST", "/portfolio/ingest-transactions",
+        json={"records": records, "snapshot_date": snapshot_date},
+    )
