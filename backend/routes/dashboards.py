@@ -510,15 +510,59 @@ async def _performance_composite(user_id: str, period: str, force: bool = False)
     }
 
 
+def _goal_fan_projection(goals: list[dict], base_year: int) -> dict:
+    """Build a year-by-year fan trajectory from goal rows (values in rupees)."""
+    if not goals:
+        return {}
+    total_sip = sum(float(g.get("monthly_sip_rs") or 0) for g in goals)
+    total_corpus = sum(float(g.get("current_corpus_rs") or 0) for g in goals)
+    total_target = sum(float(g.get("target_amount_rs") or 0) for g in goals)
+    max_horizon = max(max(int(float(g.get("horizon_years") or 1)), 1) for g in goals)
+
+    def fv(corpus: float, sip: float, annual_rate: float, years: int) -> float:
+        n = years * 12
+        if annual_rate == 0:
+            return corpus + sip * n
+        r = annual_rate / 12
+        return corpus * (1 + r) ** n + sip * ((1 + r) ** n - 1) / r
+
+    years = list(range(base_year, base_year + max_horizon + 1))
+    median    = [round(fv(total_corpus, total_sip, 0.12, yr - base_year)) for yr in years]
+    lo_68     = [round(fv(total_corpus, total_sip, 0.09, yr - base_year)) for yr in years]
+    hi_68     = [round(fv(total_corpus, total_sip, 0.15, yr - base_year)) for yr in years]
+    lo_95     = [round(fv(total_corpus, total_sip, 0.06, yr - base_year)) for yr in years]
+    hi_95     = [round(fv(total_corpus, total_sip, 0.18, yr - base_year)) for yr in years]
+    required  = [
+        round(total_corpus + (total_target - total_corpus) * (yr - base_year) / max_horizon)
+        for yr in years
+    ]
+    markers = [
+        {
+            "year": base_year + max(int(float(g.get("horizon_years") or 1)), 1),
+            "label": (g.get("goal_name") or "Goal")[:10],
+            "amount": round(float(g.get("target_amount_rs") or 0)),
+            "on_track": float(g.get("on_track_pct") or 0) >= 70,
+        }
+        for g in goals
+    ]
+    return {
+        "years": years, "median": median,
+        "band_68_lo": lo_68, "band_68_hi": hi_68,
+        "band_95_lo": lo_95, "band_95_hi": hi_95,
+        "required": required, "goals": markers,
+    }
+
+
 async def _goals_composite(user_id: str) -> dict[str, Any]:
     """Serves screen 09 Goals Dashboard."""
+    from datetime import date as _date
     pool = await pg_client.get_pool()
     goals = []
     if pool:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT goal_name, goal_type, target_amount_rs, horizon_years, "
-                "on_track_pct, monthly_sip_rs FROM user_goals "
+                "on_track_pct, monthly_sip_rs, current_corpus_rs FROM user_goals "
                 "WHERE user_id = $1 AND status != 'abandoned' ORDER BY created_at",
                 user_id,
             )
@@ -558,6 +602,8 @@ async def _goals_composite(user_id: str) -> dict[str, Any]:
                 for g in goals[:6]
             ],
         },
+        # Fan trajectory — consumed by GoalTrajectory SVG chart in V5
+        "projection": _goal_fan_projection(goals, _date.today().year) or None,
     }
 
 
@@ -671,12 +717,16 @@ async def get_dashboard(
         logger.warning("dashboard[%s] plan failed for user %s: %s", type, user_id, exc)
         actions = []
 
-    # ── 3. Health projection (cached / lightweight) ───────────────────────────
-    try:
-        projection = await _health_projection(user_id, type)
-    except Exception as exc:
-        logger.warning("dashboard[%s] projection failed for user %s: %s", type, user_id, exc)
-        projection = {"metric_label": "Projected health", "current": None, "projected": None, "unit": "", "tone": "mute"}
+    # ── 3. Projection — domain provides its own (e.g. goals fan chart); others use health delta ──
+    domain_projection = domain.pop("projection", None)
+    if domain_projection is not None:
+        projection = domain_projection
+    else:
+        try:
+            projection = await _health_projection(user_id, type)
+        except Exception as exc:
+            logger.warning("dashboard[%s] projection failed for user %s: %s", type, user_id, exc)
+            projection = {"metric_label": "Projected health", "current": None, "projected": None, "unit": "", "tone": "mute"}
 
     return {
         "type": type,
