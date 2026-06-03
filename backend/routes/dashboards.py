@@ -586,7 +586,16 @@ def _goal_fan_projection(goals: list[dict], base_year: int) -> dict:
 
 async def _goals_composite(user_id: str) -> dict[str, Any]:
     """Serves screen 09 Goals Dashboard."""
+    import uuid as _uuid
     from datetime import date as _date
+
+    # user_id from auth is a Mongo-style string (e.g. 'user_abc123');
+    # user_goals.user_id is UUID — same deterministic mapping as routes/goals.py _user_uuid().
+    try:
+        pg_user_id = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        pg_user_id = _uuid.uuid5(_uuid.NAMESPACE_DNS, f"nivesh:user:{user_id}")
+
     pool = await pg_client.get_pool()
     goals = []
     if pool:
@@ -595,7 +604,7 @@ async def _goals_composite(user_id: str) -> dict[str, Any]:
                 "SELECT goal_name, goal_type, target_amount_rs, horizon_years, "
                 "on_track_pct, monthly_sip_rs, current_corpus_rs FROM user_goals "
                 "WHERE user_id = $1 AND status != 'abandoned' ORDER BY created_at",
-                user_id,
+                pg_user_id,
             )
             goals = [dict(r) for r in rows]
 
