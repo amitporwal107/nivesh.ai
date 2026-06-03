@@ -2,14 +2,12 @@
 OverlapEngine — Rules 4 + 9: EXIT when two funds have high stock overlap.
 
 OV-1 (Rule 4): Exit the weaker fund when overlap > 70% (consolidation candidate).
-               Uses OV-3 Keep Score to decide which fund to exit.
+               Uses canonical keep_score from survivor.py to decide which fund to exit.
 OV-2 (Rule 4): Emit lower-priority signal when 50–70% overlap (cleanup item).
 Rule 9: Suggest a replacement from a complementary category (cross-category variant).
 
-OV-3 Keep Score = 0.35×NIDP_score + 0.20×consistency + 0.15×risk_adjusted_return
-                + 0.10×expense + 0.10×manager_stability + 0.10×portfolio_fit
-
-Wires consolidation_score_engine.score_pair() for confidence scoring.
+Keep score delegates to services.recommendation_engine.survivor.raw_signals +
+normalize_signals_batch + keep_score_normalized (normalized, D-2 weights).
 """
 from __future__ import annotations
 
@@ -29,36 +27,17 @@ logger = logging.getLogger(__name__)
 
 
 def _ov3_keep_score(iid: Optional[str], v3_scores: Dict[str, Any]) -> float:
-    """OV-3 Keep Score (rule book §10.5).
+    """Thin wrapper — delegates to the canonical survivor.keep_score.
 
-    Combines NIDP quality composite, consistency, risk-adjusted return,
-    cost efficiency, manager stability, and portfolio fit into a single
-    0–10 score. Higher = better quality fund to keep.
+    For pairwise comparisons (OV-1/OV-2) where we only have two funds,
+    normalize across just those two using select_survivors' internal logic.
+    Returns a comparable float; higher = better fund to keep.
     """
-    v3 = v3_scores.get(iid or "", {})
-    if not v3:
-        return 5.0
-    prims = v3.get("v3_primitives") or {}
-
-    nidp = (v3.get("quality_score") or 0) / 10.0           # 0-100 → 0-10
-    consistency = float(prims.get("consistency_score") or 5.0)
-    sharpe = prims.get("sharpe")
-    risk_adj = max(0.0, min(10.0, 5.0 + float(sharpe) * 2.0)) if sharpe is not None else 5.0
-    ter = float(prims.get("expense_ratio_direct") or 1.0)
-    expense = max(0.0, min(10.0, 10.0 - (ter - 0.3) * 4.0))
-    tenure = float(prims.get("manager_tenure_years") or 2.0)
-    manager = min(10.0, tenure * 2.0)  # 5y+ → 10.0
-    portfolio_fit = 5.0  # neutral; would use gap-fit score if available
-
-    return round(
-        0.35 * nidp
-        + 0.20 * consistency
-        + 0.15 * risk_adj
-        + 0.10 * expense
-        + 0.10 * manager
-        + 0.10 * portfolio_fit,
-        2,
-    )
+    from services.recommendation_engine.survivor import raw_signals, normalize_signals_batch, keep_score_normalized
+    raw = raw_signals(iid, v3_scores)
+    # Single-fund normalization: normalize against itself → 0.5 neutral; used only for ordering
+    normed_list, overlap_available = normalize_signals_batch([raw])
+    return keep_score_normalized(normed_list[0], overlap_available)
 
 # Complementary category map: when exiting a fund in key category,
 # suggest adding one from the value category.

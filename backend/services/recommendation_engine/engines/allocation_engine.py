@@ -3,6 +3,16 @@ AllocationEngine — Rule 5 (V2.5 Dynamic Debt Target).
 
 ADD a debt fund when portfolio debt % is below the risk-profile-based target.
 
+Phase 2 demotion: DriftEngine now owns all bucket-level sizing (bidirectional).
+AllocationEngine is a fallback — it only fires when ctx.deviation_result is None
+(i.e. DriftEngine is inactive). Once Phase 3 wires compute_deviation() into
+action_plan_manager, AllocationEngine will be dormant for all users with
+holdings + risk profile, and can be retired in a future cleanup.
+
+Why this ordering: the two engines would otherwise double-count a debt
+underweight — AllocationEngine adds debt AND DriftEngine adds debt for the
+same gap. One signal per bucket is enforced by this guard.
+
 Pure engine: all data from context.
 """
 from __future__ import annotations
@@ -94,6 +104,12 @@ class AllocationEngine(BaseEngine):
 
     def generate(self, ctx: RecommendationContext) -> List[EngineSignal]:
         if ctx.total_value_rs <= 0:
+            return []
+
+        # Phase 2 demotion: DriftEngine owns bucket sizing when deviation_result is set.
+        # Return empty so the two engines never double-count the same bucket gap.
+        if ctx.deviation_result is not None:
+            logger.debug("[AllocationEngine] deferred to DriftEngine (deviation_result is set)")
             return []
 
         r5_params = (ctx.rules_cfg.get("rule_5_debt_allocation") or {}).get("params", {})

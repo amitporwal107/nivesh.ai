@@ -26,6 +26,10 @@ class DriftEngine(BaseEngine):
 
     def generate(self, ctx: RecommendationContext) -> List[EngineSignal]:
         if not ctx.deviation_result:
+            # Emit explicit telemetry so ops can distinguish "no target" from "no drift".
+            # Silent return here was masking how often this engine was actually skipped.
+            logger.info("[DriftEngine] skipped:no_target for user context (deviation_result is None)")
+            ctx.telemetry["skipped:no_target"] = True
             return []
 
         signals: List[EngineSignal] = []

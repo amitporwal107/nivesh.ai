@@ -186,6 +186,12 @@ function mapActionToRecommendation(a: PlanActionC): Recommendation {
     requiresConfirmation: a.requires_confirmation,
     expectedEffect,
     confidence: (a as Record<string, unknown>)["confidence"] as Recommendation["confidence"] | undefined,
+    convictionText: (a as Record<string, unknown>)["conviction_text"] as string | null | undefined,
+    confidenceTier: (a as Record<string, unknown>)["confidence_tier"] as Recommendation["confidenceTier"],
+    confidenceLabel: (a as Record<string, unknown>)["confidence_label"] as string | null | undefined,
+    planConfidenceScore: (a as Record<string, unknown>)["plan_confidence_score"] as number | null | undefined,
+    deferReason: (a as Record<string, unknown>)["defer_reason"] as string | null | undefined,
+    executionDate: (a as Record<string, unknown>)["execution_date"] as string | null | undefined,
   };
 }
 

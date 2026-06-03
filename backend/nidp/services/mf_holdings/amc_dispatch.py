@@ -180,6 +180,9 @@ _URL_TEMPLATES: dict[str, list[str]] = {
         "https://www.axismf.com/media/downloads/portfolio-{month}-{yyyy}.xlsx",
     ],
     "tata": [
+        # VERIFIED 2026-06: betacms CDN redirects to tatamutualfund.com; listing page scrape preferred
+        "https://betacms.tatamutualfund.com/system/files/{yyyy}-{mm}/Monthly%20Portfolio%20as%20on%20{dom_ord}-{Month}-{yyyy}%20%281%29.xlsx",
+        "https://betacms.tatamutualfund.com/system/files/{yyyy}-{mm}/Monthly%20Portfolio%20as%20on%20{dom_ord}-{Month}-{yyyy}.xlsx",
         "https://www.tatamutualfund.com/downloads/portfolio-disclosure-{month}-{yyyy}.xlsx",
         "https://www.tatamutualfund.com/downloads/portfolio-{month}-{yyyy}.xlsx",
         "https://www.tatamutualfund.com/siteassets/documents/portfolio-disclosure/{Month}-{yyyy}.xlsx",
@@ -371,7 +374,23 @@ def _discover_xlsx_link(html: str, base_url: str, m: date) -> Optional[str]:
             re.IGNORECASE,
         ):
             href = m_json.group(1)
-            # Also grab context for title/filename scoring
+            start = max(0, m_json.start() - 200)
+            context = html[start : m_json.end() + 200].lower()
+            token_source = (href + " " + context).lower()
+            sc = _score(token_source, href)
+            if sc >= 5:
+                xlsx_candidates.append((sc, href))
+
+    # ── Pass 2b: backslash-escaped JSON (Tata Next.js SSR) ───────────
+    # Tata embeds URLs as \"url\":\"https://betacms...xlsx\" in raw HTML.
+    # The standard Pass 2 regex doesn't match because the quotes are escaped.
+    if not xlsx_candidates:
+        for m_json in re.finditer(
+            r'\\"url\\"\s*:\s*\\"(https?://[^\\"]+\.xlsx?[^\\"]*)\\"',
+            html,
+            re.IGNORECASE,
+        ):
+            href = m_json.group(1)
             start = max(0, m_json.start() - 200)
             context = html[start : m_json.end() + 200].lower()
             token_source = (href + " " + context).lower()
@@ -583,7 +602,103 @@ async def _amfi_holdings_adapter(
 
 
 async def icici_pru(http: aiohttp.ClientSession, m: date) -> list[dict]:
-    return await _amfi_holdings_adapter("icici_pru", http, m)
+    """ICICI Pru — React SPA, requires Playwright to click the portfolio tab."""
+    return await _playwright_holdings_adapter("icici_pru", http, m)
+
+
+async def _playwright_holdings_adapter(
+    amc_id: str,
+    http: aiohttp.ClientSession,
+    as_of_month: date,
+) -> list[dict]:
+    """Generic adapter that uses playwright_scraper to download the portfolio file
+    and then parses it with the standard xlsx parser + scheme code resolver.
+    Falls back to the HTTP-based _amfi_holdings_adapter if Playwright is unavailable.
+    """
+    from .sbi_parser import parse_portfolio_xlsx
+    from .playwright_scraper import scrape_portfolio
+    from nidp.shared.storage.pg import get_pool
+
+    stealth = amc_id == "kotak"
+    data, used_url = await scrape_portfolio(amc_id, as_of_month, headless=True, stealth=stealth)
+
+    if data is None:
+        logger.warning(
+            "mf_holdings[%s]: playwright scrape returned no data — falling back to HTTP adapter",
+            amc_id,
+        )
+        return await _amfi_holdings_adapter(amc_id, http, as_of_month)
+
+    source_tag = f"{amc_id.upper()}_MF_PORTFOLIO_PLAYWRIGHT"
+
+    # Handle ZIP files (some AMCs bundle multiple xlsx files)
+    import io, zipfile
+    raw_rows: list[dict] = []
+
+    if used_url and (used_url.lower().endswith(".zip") or used_url.lower().endswith(".zip?")):
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                xlsx_names = [n for n in zf.namelist() if n.lower().endswith((".xlsx", ".xls"))]
+                for name in xlsx_names:
+                    try:
+                        rows = parse_portfolio_xlsx(zf.read(name), as_of_month,
+                                                    source_url=used_url, source_tag=source_tag)
+                        raw_rows.extend(rows or [])
+                    except Exception as e:
+                        logger.warning("mf_holdings[%s]: parse failed for %s: %s", amc_id, name, e)
+        except zipfile.BadZipFile:
+            raw_rows = parse_portfolio_xlsx(data, as_of_month, source_url=used_url,
+                                             source_tag=source_tag) or []
+    else:
+        raw_rows = parse_portfolio_xlsx(data, as_of_month, source_url=used_url,
+                                         source_tag=source_tag) or []
+
+    if not raw_rows:
+        return []
+
+    # Resolve scheme codes (same logic as all other adapters)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        db_schemes = await conn.fetch(
+            "SELECT scheme_code, scheme_name FROM nidp.mf_scheme_master WHERE amc_id = $1",
+            amc_id,
+        )
+    import re as _re
+    name_to_codes: dict[str, list[str]] = {}
+    base_to_codes: dict[str, list[str]] = {}
+    for r in db_schemes:
+        nm = r["scheme_name"].lower().strip()
+        name_to_codes.setdefault(nm, []).append(r["scheme_code"])
+        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if len(base) >= 10:
+            base_to_codes.setdefault(base, []).append(r["scheme_code"])
+
+    def _resolve(raw_name: str) -> list[str]:
+        nm = raw_name.lower().strip()
+        if nm in name_to_codes:
+            return name_to_codes[nm]
+        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if base in base_to_codes:
+            return base_to_codes[base]
+        return [c for n, codes in base_to_codes.items()
+                if len(n) >= 10 and (n in base or base in n) for c in codes][:1]
+
+    resolved: list[dict] = []
+    unmapped: set[str] = set()
+    for row in raw_rows:
+        codes = _resolve(row.get("scheme_code") or "")
+        if not codes:
+            unmapped.add(row.get("scheme_code", ""))
+        else:
+            for code in codes:
+                resolved.append({**row, "scheme_code": code})
+
+    if unmapped:
+        logger.warning("mf_holdings[%s]: %d unresolved names: %s",
+                       amc_id, len(unmapped), sorted(unmapped)[:5])
+    logger.info("mf_holdings[%s]: %d raw → %d resolved rows (playwright, from %s)",
+                amc_id, len(raw_rows), len(resolved), used_url)
+    return resolved
 
 async def _hdfc_multi_file_adapter(
     http: aiohttp.ClientSession,
@@ -714,17 +829,270 @@ async def hdfc(http: aiohttp.ClientSession, m: date) -> list[dict]:
 async def nippon(http: aiohttp.ClientSession, m: date) -> list[dict]:
     return await _amfi_holdings_adapter("nippon", http, m)
 
-async def kotak(http: aiohttp.ClientSession, m: date) -> list[dict]:
-    return await _amfi_holdings_adapter("kotak", http, m)
-
 async def absl(http: aiohttp.ClientSession, m: date) -> list[dict]:
-    return await _amfi_holdings_adapter("absl", http, m)
+    """ABSL publishes portfolios via a Sitecore CMS API that returns ZIP URLs.
+
+    All listing page URLs are dead (404). The API endpoint requires no auth.
+    Note: ZIP CDN is abcscprod.azureedge.net (Azure); may be unreachable from
+    some GCP egress IPs — logged as warning so the gap is visible.
+    Discovered 2026-06 via HAR analysis.
+    """
+    from .sbi_parser import parse_portfolio_xlsx
+    from nidp.shared.storage.pg import get_pool
+    import io, zipfile, json as _json
+
+    amc_id = "absl"
+    api_url = (
+        "https://mutualfund.adityabirlacapital.com/postlogin/CustomApi/Resources/FactsheetAccordionById"
+        "?id=3ccab227-9de5-4494-b78d-2b4f7c0c054a"
+        "&ctype=/sitecore/content/Root/BSL/Library/Lists/FAQ/Customer%20Types/Individual"
+        "&month=&year=0"
+    )
+
+    month_long  = m.strftime("%B").lower()   # "april"
+    year_full   = m.strftime("%Y")           # "2026"
+
+    zip_url: Optional[str] = None
+    try:
+        async with http.get(api_url, allow_redirects=True) as resp:
+            if resp.status != 200:
+                logger.warning("mf_holdings[absl]: CMS API → status=%d", resp.status)
+            else:
+                payload = await resp.json(content_type=None)
+                accordion = payload.get("AccordionList") or []
+                # Find the entry matching the target month+year
+                for entry in accordion:
+                    name = (entry.get("Name") or entry.get("name") or "").lower()
+                    if month_long in name and year_full in name:
+                        files = entry.get("Files") or entry.get("files") or []
+                        if files:
+                            zip_url = files[0].get("URL") or files[0].get("url")
+                        break
+                if not zip_url and accordion:
+                    # Fallback: take the first (most recent) entry
+                    first = accordion[0]
+                    files = first.get("Files") or first.get("files") or []
+                    if files:
+                        zip_url = files[0].get("URL") or files[0].get("url")
+                        logger.info("mf_holdings[absl]: no exact month match; using latest entry")
+                logger.info("mf_holdings[absl]: zip_url=%s", zip_url)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("mf_holdings[absl]: CMS API call failed: %s", e)
+
+    if not zip_url:
+        logger.warning("mf_holdings[absl]: no ZIP URL from CMS API; skipping %s", m.isoformat())
+        return []
+
+    # Download ZIP — may fail from some GCP egress IPs (Azure CDN DNS)
+    try:
+        async with http.get(zip_url, allow_redirects=True) as resp:
+            if resp.status != 200:
+                logger.warning(
+                    "mf_holdings[absl]: ZIP download %s → status=%d "
+                    "(if DNS/CDN failure from GCP, check abcscprod.azureedge.net egress)",
+                    zip_url, resp.status,
+                )
+                return []
+            zip_bytes = await resp.read()
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "mf_holdings[absl]: ZIP download failed: %s "
+            "(if DNS error, abcscprod.azureedge.net may be blocked from this GCP egress IP)",
+            e,
+        )
+        return []
+
+    if len(zip_bytes) < 1024:
+        logger.warning("mf_holdings[absl]: ZIP too small (%d bytes)", len(zip_bytes))
+        return []
+
+    source_tag = "ABSL_MF_PORTFOLIO_ZIP"
+    all_raw_rows: list[dict] = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            xlsx_names = [n for n in zf.namelist() if n.lower().endswith((".xlsx", ".xls"))]
+            logger.info("mf_holdings[absl]: ZIP contains %d xlsx file(s)", len(xlsx_names))
+            for name in xlsx_names:
+                try:
+                    xlsx_bytes = zf.read(name)
+                    rows = parse_portfolio_xlsx(xlsx_bytes, m, source_url=zip_url, source_tag=source_tag)
+                    if rows:
+                        all_raw_rows.extend(rows)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("mf_holdings[absl]: parse failed for %s: %s", name, e)
+    except zipfile.BadZipFile as e:
+        logger.warning("mf_holdings[absl]: bad ZIP from %s: %s", zip_url, e)
+        return []
+
+    if not all_raw_rows:
+        return []
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        db_schemes = await conn.fetch(
+            "SELECT scheme_code, scheme_name FROM nidp.mf_scheme_master WHERE amc_id = $1",
+            amc_id,
+        )
+    import re as _re
+    name_to_codes: dict[str, list[str]] = {}
+    base_to_codes: dict[str, list[str]] = {}
+    for r in db_schemes:
+        nm = r["scheme_name"].lower().strip()
+        name_to_codes.setdefault(nm, []).append(r["scheme_code"])
+        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if len(base) >= 10:
+            base_to_codes.setdefault(base, []).append(r["scheme_code"])
+
+    def _resolve_codes(raw_name: str) -> list[str]:
+        nm = raw_name.lower().strip()
+        if nm in name_to_codes:
+            return name_to_codes[nm]
+        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if base in base_to_codes:
+            return base_to_codes[base]
+        return [c for n, codes in base_to_codes.items()
+                if len(n) >= 10 and (n in base or base in n) for c in codes][:1]
+
+    resolved: list[dict] = []
+    unmapped: set[str] = set()
+    for row in all_raw_rows:
+        codes = _resolve_codes(row.get("scheme_code") or "")
+        if not codes:
+            unmapped.add(row.get("scheme_code", ""))
+        else:
+            for code in codes:
+                resolved.append({**row, "scheme_code": code})
+
+    if unmapped:
+        logger.warning("mf_holdings[absl]: %d unresolved: %s", len(unmapped), sorted(unmapped)[:5])
+    logger.info("mf_holdings[absl]: %d raw → %d resolved rows (from %s)", len(all_raw_rows), len(resolved), zip_url)
+    return resolved
 
 async def uti(http: aiohttp.ClientSession, m: date) -> list[dict]:
-    return await _amfi_holdings_adapter("uti", http, m)
+    """UTI publishes a consolidated ZIP via an Angular SPA API.
+
+    The listing pages (forms-and-downloads, factsheets, etc.) are all wrong —
+    UTI uses a JSON API that returns a CloudFront ZIP URL.
+    Discovered 2026-06 via HAR analysis.
+    """
+    from .sbi_parser import parse_portfolio_xlsx
+    from nidp.shared.storage.pg import get_pool
+    import io, zipfile
+
+    amc_id = "uti"
+    year_str  = m.strftime("%Y")
+    month_str = m.strftime("%B")  # Title-case e.g. "April"
+
+    api_url = (
+        f"https://www.utimf.com/api/get-consolidate-portfolio-disclosure"
+        f"?year={year_str}&month={month_str}"
+    )
+    zip_url: Optional[str] = None
+    try:
+        async with http.get(api_url, allow_redirects=True) as resp:
+            if resp.status != 200:
+                logger.warning("mf_holdings[uti]: API %s → status=%d", api_url, resp.status)
+            else:
+                data_json = await resp.json(content_type=None)
+                rows = data_json.get("rows") or []
+                if rows:
+                    zip_url = rows[0].get("url")
+                    logger.info("mf_holdings[uti]: API returned zip_url=%s", zip_url)
+                else:
+                    logger.warning("mf_holdings[uti]: API returned empty rows for %s %s", month_str, year_str)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("mf_holdings[uti]: API call failed: %s", e)
+
+    if not zip_url:
+        logger.warning("mf_holdings[uti]: no ZIP URL from API; skipping %s", m.isoformat())
+        return []
+
+    # Download ZIP
+    try:
+        async with http.get(zip_url, allow_redirects=True) as resp:
+            if resp.status != 200:
+                logger.warning("mf_holdings[uti]: ZIP download %s → status=%d", zip_url, resp.status)
+                return []
+            zip_bytes = await resp.read()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("mf_holdings[uti]: ZIP download failed: %s", e)
+        return []
+
+    if len(zip_bytes) < 1024:
+        logger.warning("mf_holdings[uti]: ZIP too small (%d bytes)", len(zip_bytes))
+        return []
+
+    # Extract xlsx files from ZIP and parse each
+    source_tag = "UTI_MF_PORTFOLIO_ZIP"
+    all_raw_rows: list[dict] = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            xlsx_names = [n for n in zf.namelist() if n.lower().endswith((".xlsx", ".xls"))]
+            logger.info("mf_holdings[uti]: ZIP contains %d xlsx file(s)", len(xlsx_names))
+            for name in xlsx_names:
+                try:
+                    xlsx_bytes = zf.read(name)
+                    rows = parse_portfolio_xlsx(xlsx_bytes, m, source_url=zip_url, source_tag=source_tag)
+                    if rows:
+                        all_raw_rows.extend(rows)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("mf_holdings[uti]: parse failed for %s: %s", name, e)
+    except zipfile.BadZipFile as e:
+        logger.warning("mf_holdings[uti]: bad ZIP from %s: %s", zip_url, e)
+        return []
+
+    if not all_raw_rows:
+        return []
+
+    # Resolve scheme codes
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        db_schemes = await conn.fetch(
+            "SELECT scheme_code, scheme_name FROM nidp.mf_scheme_master WHERE amc_id = $1",
+            amc_id,
+        )
+    import re as _re
+    name_to_codes: dict[str, list[str]] = {}
+    base_to_codes: dict[str, list[str]] = {}
+    for r in db_schemes:
+        nm = r["scheme_name"].lower().strip()
+        name_to_codes.setdefault(nm, []).append(r["scheme_code"])
+        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if len(base) >= 10:
+            base_to_codes.setdefault(base, []).append(r["scheme_code"])
+
+    def _resolve_codes(raw_name: str) -> list[str]:
+        nm = raw_name.lower().strip()
+        if nm in name_to_codes:
+            return name_to_codes[nm]
+        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if base in base_to_codes:
+            return base_to_codes[base]
+        return [c for n, codes in base_to_codes.items()
+                if len(n) >= 10 and (n in base or base in n) for c in codes][:1]
+
+    resolved: list[dict] = []
+    unmapped: set[str] = set()
+    for row in all_raw_rows:
+        codes = _resolve_codes(row.get("scheme_code") or "")
+        if not codes:
+            unmapped.add(row.get("scheme_code", ""))
+        else:
+            for code in codes:
+                resolved.append({**row, "scheme_code": code})
+
+    if unmapped:
+        logger.warning("mf_holdings[uti]: %d unresolved: %s", len(unmapped), sorted(unmapped)[:5])
+    logger.info("mf_holdings[uti]: %d raw → %d resolved rows (from %s)", len(all_raw_rows), len(resolved), zip_url)
+    return resolved
 
 async def axis(http: aiohttp.ClientSession, m: date) -> list[dict]:
-    return await _amfi_holdings_adapter("axis", http, m)
+    """Axis — lazy-loaded SPA accordion, requires Playwright."""
+    return await _playwright_holdings_adapter("axis", http, m)
+
+async def kotak(http: aiohttp.ClientSession, m: date) -> list[dict]:
+    """Kotak — hCaptcha-protected; Playwright stealth mode attempted first."""
+    return await _playwright_holdings_adapter("kotak", http, m)
 
 async def tata(http: aiohttp.ClientSession, m: date) -> list[dict]:
     return await _amfi_holdings_adapter("tata", http, m)

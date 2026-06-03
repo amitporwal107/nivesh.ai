@@ -61,6 +61,13 @@ class EngineSignal:
     suppressed: bool = False
     suppression_reason: Optional[str] = None
 
+    # Phase 5 (D-5): deferred action — signal is active but cannot execute now.
+    # defer_reason is non-empty when a fund should be exited but is lock-in or
+    # STCG-blocked. The action shows in the plan with a Clock icon and explanation.
+    defer_reason: Optional[str] = None
+    # execution_date: ISO date string (YYYY-MM-DD) for scheduled/staged exits
+    execution_date: Optional[str] = None
+
     # Dedup key for AR-1: same key means same "slot"; highest base_score wins.
     # Default: "<action_type>::<instrument_id>"
     dedup_key: str = ""
@@ -170,3 +177,19 @@ class RecommendationContext:
     tolerance_score: float = 50.0
     # True when |capacity - tolerance| >= 15 — engines should flag this to user
     capacity_tolerance_diverged: bool = False
+
+    # Pipeline telemetry — written by engines/orchestrator for observability.
+    # Keys: "skipped:no_target", "ran:no_drift", "ran:actions_emitted"
+    telemetry: dict = field(default_factory=dict)
+
+    # Phase 4 confidence tier — set by orchestrator from TargetAllocation
+    confidence_tier: str = "generic"
+    confidence_label: str = "Generic plan — add your profile"
+    # numeric confidence score (0-100) from the four-tier ladder
+    plan_confidence_score: float = 40.0
+
+    # D-4 user overrides (level 0 precedence): {instrument_id: {"reason": str, "timestamp": str}}
+    # Set by the API layer from user_profile.recommendation_overrides.
+    # An override suppresses EXIT/TRIM on that instrument regardless of engine verdict.
+    # Must be per-fund and timestamped (no blanket "ignore suitability" toggle).
+    user_overrides: dict = field(default_factory=dict)

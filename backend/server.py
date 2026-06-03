@@ -40,6 +40,7 @@ from routes.admin_rules import router as admin_rules_router
 from routes.admin_users import router as admin_users_router
 from routes.admin_data_pipeline import router as admin_pipeline_router
 from routes.admin_nidp import router as admin_nidp_router  # NIDP one-click diagnostic dump
+from routes.admin_allocation_bands import router as admin_allocation_bands_router  # allocation band config
 from routes.admin_nidp_replay import router as admin_nidp_replay_router  # NIDP 90-day replay engine
 from routes.admin_nidp_backfill import router as admin_nidp_backfill_router  # NIDP backfill status proxy
 from routes.copilot_prompts import router as copilot_prompts_router
@@ -95,6 +96,7 @@ from routes.copilot_agents import router as copilot_agents_router  # Copilot age
 from routes.copilot_widgets import router as copilot_widgets_router  # Copilot embedded-widget producers (Fund card, Market brief, ...)
 from routes.admin_swagger import router as admin_swagger_router  # Admin-only Swagger UI (/api/admin/swagger)
 from routes.grafana_alerts import router as grafana_alerts_router  # Grafana webhook receiver + active alerts query
+from routes.monitoring_actions import router as monitoring_actions_router  # Operator actions webhook + audit log
 
 # ── CAS ingestion module ──────────────────────────────────────────────
 # Used to be a standalone FastAPI service in its own container; now mounted
@@ -118,12 +120,20 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="nivesh.ai API", version="2.0")
 register_error_handlers(app)
 
+# Prometheus RED metrics — exposes /metrics for Prometheus scraping.
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator().instrument(app).expose(app, include_in_schema=False)
+except ImportError:
+    pass  # graceful no-op if not installed (local dev without the package)
+
 # Include all routers
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(admin_users_router)
 app.include_router(admin_v3_master_router)
 app.include_router(admin_v3_weights_router)
+app.include_router(admin_allocation_bands_router)  # GET/PUT/POST /api/admin/allocation-bands
 app.include_router(admin_v3_stock_router)
 app.include_router(admin_datastores_router)
 app.include_router(admin_rules_router)
@@ -193,6 +203,7 @@ app.include_router(cas_admin_router)      # GET  /api/admin/jobs/stale|summary, 
 app.include_router(cas_health_router)     # GET  /api/healthz, /api/readyz (CAS-specific; V2 has none)
 app.include_router(work_router)           # GET/POST/PATCH /api/work/issues, /api/work/stats
 app.include_router(grafana_alerts_router) # POST /api/internal/grafana-alerts, GET /api/admin/grafana-alerts
+app.include_router(monitoring_actions_router) # POST /api/admin/monitoring/action, GET /api/admin/monitoring/actions
 
 
 # Root endpoint
@@ -256,6 +267,8 @@ async def startup_seed():
         await _ff.hydrate_from_db(db)
         await _v3w.hydrate_from_db(db)
         await _sscore.hydrate_from_db(db)
+        from services import allocation_bands as _ab
+        await _ab.hydrate_from_db(db)
         cas_cfg = await db.system_config.find_one({"key": "cas_parser"}, {"_id": 0})
         if cas_cfg and "use_sandbox" in cas_cfg:
             cas_api_client.set_override(use_sandbox=cas_cfg["use_sandbox"])

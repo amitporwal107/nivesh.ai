@@ -27,13 +27,12 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
-# ── Step 1: base allocation by risk category ────────────────────────────
-# Each row = (equity, debt, gold, cash). Sums to 100.
-_BASE_BY_RISK: Dict[str, Dict[str, float]] = {
-    "aggressive":   {"equity": 75, "debt": 10, "gold": 10, "cash": 5},
-    "moderate":     {"equity": 60, "debt": 25, "gold": 10, "cash": 5},
-    "conservative": {"equity": 35, "debt": 50, "gold": 10, "cash": 5},
-}
+# ── Step 1: base allocation by risk tier ────────────────────────────────
+# Delegated to allocation_bands service (MongoDB-backed, admin-tunable).
+# Import is deferred to avoid circular-import at module load; the cache
+# is synchronous so no await is needed at call time.
+from services import allocation_bands as _ab  # noqa: E402
+
 # Default when no risk profile is set — moderate but lower confidence.
 _DEFAULT_RISK = "moderate"
 
@@ -130,15 +129,55 @@ def _scale(d: Dict[str, float], factor: float) -> Dict[str, float]:
 
 def _normalise_risk(value: Optional[str]) -> str:
     v = (value or "").strip().lower()
-    if v in _BASE_BY_RISK:
+    tiers = _ab.TIERS  # ["conservative","moderate","balanced","growth","aggressive"]
+    if v in tiers:
         return v
     if "aggress" in v:
         return "aggressive"
-    if "conserv" in v:
+    if "growth" in v or "high" in v:
+        return "growth"
+    if "balanced" in v:
+        return "balanced"
+    if "conserv" in v or "low" in v:
         return "conservative"
-    if "modera" in v or "balanced" in v:
+    if "modera" in v or "medium" in v:
         return "moderate"
     return _DEFAULT_RISK
+
+
+# ── Confidence ladder (Phase 4) ─────────────────────────────────────────
+# D-6 PROVISIONAL VALUES (2026-06-03) — pending advisory sign-off.
+# These are reasonable engineering defaults; the product owner must
+# confirm/amend before treating as final policy.
+# Tier    | Score | Label
+# --------+-------+------
+# goals+risk |  90  | "Full confidence"
+# risk-only  |  70  | "Risk-based plan"
+# dob-only   |  50  | "Age-rule estimate"
+# generic    |  40  | "Generic plan — add your profile"
+_CONFIDENCE_TIERS: Dict[str, Dict[str, Any]] = {
+    # D-6 confirmed 2026-06-03 — scores + labels approved by product owner
+    "goals_and_risk": {"score": 90.0, "label": "Full confidence"},
+    "risk_only":      {"score": 70.0, "label": "Risk-based plan"},
+    "dob_only":       {"score": 50.0, "label": "Age-rule estimate"},
+    "generic":        {"score": 40.0, "label": "Generic plan — add your profile"},
+}
+
+
+def _age_rule_equity(dob_str: Optional[str]) -> Optional[float]:
+    """Return equity % from the 110-minus-age rule, or None if DOB is absent/invalid."""
+    if not dob_str:
+        return None
+    try:
+        from datetime import date as _date
+        # Handle ISO format dates and partial strings
+        dob_clean = str(dob_str)[:10]  # take YYYY-MM-DD prefix
+        born = _date.fromisoformat(dob_clean)
+        today = _date.today()
+        age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+        return max(0.0, float(110 - age))
+    except Exception:
+        return None
 
 
 # ── Public API ──────────────────────────────────────────────────────────
@@ -149,6 +188,11 @@ class TargetAllocation:
     risk_category: str                        # normalised
     inputs_used: Dict[str, Any] = field(default_factory=dict)
     breakdown: Dict[str, Any] = field(default_factory=dict)  # for explainability
+    # Phase 0 — P0-AC-3: versioning so band changes are auditable
+    version: str = "v1.0.0"
+    # Phase 4 — confidence tier and user-facing label
+    confidence_tier: str = "generic"
+    confidence_label: str = "Generic plan — add your profile"
 
 
 async def compute_target_allocation(user_id: str) -> TargetAllocation:
@@ -163,7 +207,7 @@ async def compute_target_allocation(user_id: str) -> TargetAllocation:
     risk_profile = profile_doc.get("risk_profile") or {}
     risk_cat = _normalise_risk(risk_profile.get("category"))
     risk_score = risk_profile.get("score")
-    base = dict(_BASE_BY_RISK[risk_cat])
+    base = _ab.base_allocation(risk_cat)
 
     # ── INPUT 2: behaviour modifiers ──────────────────────────────
     # Pull derived signals from the behavioural-signals service and
@@ -239,28 +283,57 @@ async def compute_target_allocation(user_id: str) -> TargetAllocation:
     else:
         goal_overlay_avg = {"equity": 0, "debt": 0, "gold": 0, "cash": 0}
 
-    final = _normalise(_add(after_behaviour, goal_overlay_avg))
+    # ── Phase 4: four-tier confidence ladder ─────────────────────
+    # Tier is determined by which inputs are available, not by adding up bonuses.
+    # Each tier is a real (degraded) target — same object shape, different inputs.
+    has_risk_profile = bool(risk_profile.get("category"))
+    has_goals = bool(goals)
 
-    # ── Confidence score ──────────────────────────────────────────
-    # 50 base for any output. +20 if real risk profile. +20 if at
-    # least one goal. +10 if behaviour signals were applied. Cap 100.
-    conf = 50.0
-    if risk_profile.get("category"):
-        conf += 20.0
-    if goals:
-        conf += min(20.0, 5.0 * len(goals))
-    if behaviour_used:
-        conf += 10.0
-    conf = min(100.0, conf)
+    # Fetch DOB for age-rule tier (field name confirmed as `dob` in users collection)
+    dob_str: Optional[str] = profile_doc.get("dob") or profile_doc.get("date_of_birth")
+
+    if has_risk_profile and has_goals:
+        tier = "goals_and_risk"
+        # final allocation already incorporates goal overlay — no change needed
+    elif has_risk_profile:
+        tier = "risk_only"
+        # final allocation uses risk base only (goal_overlay_avg is all-zeros above)
+    elif dob_str:
+        tier = "dob_only"
+        # Age rule: equity = max(0, 110 - age); rest split debt-heavy
+        age_equity = _age_rule_equity(dob_str)
+        if age_equity is not None:
+            age_debt = max(0.0, 90.0 - age_equity)
+            age_gold = min(10.0, 100.0 - age_equity - age_debt)
+            age_cash = max(0.0, 100.0 - age_equity - age_debt - age_gold)
+            raw_age_alloc = {"equity": age_equity, "debt": age_debt,
+                              "gold": age_gold, "cash": age_cash}
+            final = _normalise(raw_age_alloc)
+            risk_cat = _DEFAULT_RISK  # generic base for age-rule tier
+    else:
+        tier = "generic"
+        # Generic moderate allocation — visibly provisional in the UI
+        final = _normalise(_ab.base_allocation(_DEFAULT_RISK))
+        risk_cat = _DEFAULT_RISK
+
+    tier_cfg = _CONFIDENCE_TIERS[tier]
+    # Behaviour signals add a small boost (max +5) within the tier
+    behaviour_boost = 5.0 if behaviour_used else 0.0
+    conf = min(100.0, tier_cfg["score"] + behaviour_boost)
 
     result = TargetAllocation(
         allocation=final,
         confidence_score=round(conf, 1),
+        confidence_tier=tier,
+        confidence_label=tier_cfg["label"],
+        version="v1.0.0",
         risk_category=risk_cat,
         inputs_used={
             "risk_category": risk_cat,
             "risk_score": risk_score,
+            "confidence_tier": tier,
             "n_goals": len(goals),
+            "has_dob": dob_str is not None,
             "behaviour_signals_applied": behaviour_used,
             "behaviour_signals": merged_behaviour,
             "behaviour_signal_confidence": derived_confidence,
@@ -287,6 +360,9 @@ async def compute_target_allocation(user_id: str) -> TargetAllocation:
                 "user_id": user_id,
                 "allocation": final,
                 "confidence_score": result.confidence_score,
+                "confidence_tier": result.confidence_tier,
+                "confidence_label": result.confidence_label,
+                "version": result.version,
                 "risk_category": risk_cat,
                 "inputs_used": result.inputs_used,
                 "breakdown": result.breakdown,

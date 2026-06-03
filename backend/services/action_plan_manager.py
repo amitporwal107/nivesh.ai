@@ -1021,8 +1021,26 @@ class ActionPlanManager:
                 ).sort("fetched_at", -1).to_list(50)
             except Exception:
                 pass
+
+            # Phase 3: compute deviation for every user with holdings + risk profile.
+            # DriftEngine requires a non-None deviation_result to fire.
+            # Best-effort: if deviation computation fails, DriftEngine falls back to
+            # skipped:no_target telemetry and the rest of the pipeline continues.
+            _deviation_result = None
+            _uid = portfolio_context.get("user_id", "")
+            if _uid and mf_holdings:
+                try:
+                    from services.deviation_engine import compute_deviation
+                    _deviation_result = await compute_deviation(_uid)
+                except Exception as _de:
+                    import logging as _lg
+                    _lg.getLogger(__name__).warning(
+                        "action_plan_manager: compute_deviation failed for %s: %s — DriftEngine will skip",
+                        _uid, _de,
+                    )
+
             _pipeline_actions, _pipeline_sim, _gate_flags = await run_engine_pipeline(
-                user_id=portfolio_context.get("user_id", ""),
+                user_id=_uid,
                 risk_profile=portfolio_context.get("risk_profile", "medium"),
                 total_value_rs=portfolio_context.get("total_value", 0.0),
                 holdings=holdings,
@@ -1035,6 +1053,7 @@ class ActionPlanManager:
                 rules_cfg=rcfg,
                 signals=signals,
                 goal_evaluations=goal_evaluations,
+                deviation_result=_deviation_result,
                 international_funds_cache=_intl_cache,
                 risk_score_numeric=portfolio_context.get("risk_score_numeric"),
                 behavioural_persona=portfolio_context.get("behavioural_persona"),
