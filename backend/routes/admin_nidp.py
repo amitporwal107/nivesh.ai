@@ -459,16 +459,17 @@ async def execute_job(
             }
         except _nq.NidpQueryClientError as e:
             if vm_only:
+                logger.warning("admin/nidp: VM execute failed for %s: %s", ingester, e.detail)
                 raise HTTPException(
                     status_code=503,
-                    detail=f"{ingester} is a VM-only cron job — NIDP Query API returned an error: {e.detail}",
+                    detail=f"Could not reach NIDP VM to trigger {ingester}: {e.detail}",
                 ) from e
             logger.warning("admin/nidp: VM execute failed for %s: %s — falling back to gcloud", ingester, e.detail)
     elif vm_only:
         raise HTTPException(
             status_code=503,
-            detail=f"{ingester} is a VM-only cron job and NIDP_QUERY_API_URL is not configured. "
-                   "Set NIDP_QUERY_API_URL + NIDP_QUERY_API_TOKEN to enable remote trigger.",
+            detail=f"{ingester} runs on the NIDP VM. NIDP_QUERY_API_URL is not configured — "
+                   "add the secret so the trigger can reach the VM.",
         )
 
     # ── Legacy path: gcloud Cloud Run jobs (not for VM-only services) ─

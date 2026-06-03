@@ -1,19 +1,30 @@
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Pencil, UserCircle2 } from "lucide-react";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MetricCard } from "@/components/shared/MetricCard";
 import { CapBar } from "@/components/charts/CapBar";
 import { formatINR, formatPct } from "@/lib/formatters";
+import { TARGET_ALLOCATION, type RiskProfile } from "@/hooks/use-risk-profile";
 import type { RiskSnapshot } from "@/types/risk";
+
+const ALLOC_COLOR: Record<string, string> = {
+  equity: "bg-[#3B82F6]",
+  debt:   "bg-[#10B981]",
+  gold:   "bg-[#F59E0B]",
+  cash:   "bg-ink-4",
+};
 
 interface Props {
   data: RiskSnapshot;
   isAdmin?: boolean;
   onRunPra?: () => void;
   isPraRunning?: boolean;
+  profile?: RiskProfile | null;
+  profileLoading?: boolean;
+  onAmendProfile?: () => void;
 }
 
-export function Risk({ data, isAdmin, onRunPra, isPraRunning }: Props) {
+export function Risk({ data, isAdmin, onRunPra, isPraRunning, profile, profileLoading, onAmendProfile }: Props) {
   const meta = data.meta;
   const showWarning = meta && (!meta.praAvailable || !meta.praRunToday);
 
@@ -76,6 +87,70 @@ export function Risk({ data, isAdmin, onRunPra, isPraRunning }: Props) {
           value={data.beta.toFixed(2)}
           subtext="vs NIFTY 500" />
       </div>
+
+      {/* Risk profile */}
+      <Card className="mt-5 p-6">
+        <div className="flex items-start justify-between gap-4">
+          <CardLabel>Your risk profile</CardLabel>
+          {!profileLoading && (
+            <button
+              onClick={onAmendProfile}
+              className="flex items-center gap-1.5 text-[12px] text-ink-3 hover:text-ink transition-colors shrink-0"
+            >
+              <Pencil className="w-3 h-3" />
+              {profile ? "Amend profile" : "Set profile"}
+            </button>
+          )}
+        </div>
+
+        {profileLoading ? (
+          <div className="mt-4 h-20 rounded-lg bg-surface-2 animate-pulse" />
+        ) : profile ? (
+          <div className="mt-4">
+            <div className="flex items-baseline gap-3 mb-4">
+              <span className="font-display text-2xl">{profile.category}</span>
+              <span className="font-mono text-[12px] text-ink-3">Score {profile.score}/100</span>
+            </div>
+            <div className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 mb-3">
+              Target allocation
+            </div>
+            <div className="space-y-2.5">
+              {(["equity", "debt", "gold", "cash"] as const).map((k) => {
+                const alloc = TARGET_ALLOCATION[profile.category];
+                return (
+                  <div key={k} className="flex items-center gap-3">
+                    <span className="font-mono text-[11px] text-ink-3 w-10 uppercase">{k}</span>
+                    <div className="relative flex-1 h-1.5 rounded-full bg-surface-2">
+                      <div
+                        className={`absolute inset-y-0 left-0 rounded-full ${ALLOC_COLOR[k]}`}
+                        style={{ width: `${alloc[k]}%` }}
+                      />
+                    </div>
+                    <span className="font-mono text-[11px] text-ink-2 w-8 text-right">{alloc[k]}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 flex items-start gap-3">
+            <UserCircle2 className="w-8 h-8 text-ink-4 shrink-0 mt-0.5" />
+            <div>
+              <div className="text-[14px] font-medium text-ink-1">No risk profile set yet</div>
+              <div className="text-[12.5px] text-ink-3 mt-0.5 max-w-[420px]">
+                Answer 6 quick questions to get your risk score and see how your portfolio
+                aligns with your actual risk appetite.
+              </div>
+              <button
+                onClick={onAmendProfile}
+                className="mt-3 text-[13px] font-medium text-accent hover:underline"
+              >
+                Set my risk profile →
+              </button>
+            </div>
+          </div>
+        )}
+      </Card>
 
       {/* Risk drivers */}
       <Card className="mt-5 p-6">
