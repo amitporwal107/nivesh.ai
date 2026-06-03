@@ -269,6 +269,15 @@ def _signal_to_action(
         # PRD §12 requires tax_impact to be non-null on all EXIT/TRIM actions.
         base["tax_impact"] = {}
 
+    # Carry reinvestment gap metadata from OverlapEngine R9 so the frontend
+    # can render "Exit X → Reinvest into Debt/Gold/International".
+    reinvest_gap = sig.__dict__.get("_reinvest_gap")
+    if reinvest_gap:
+        base["reinvest_into"] = reinvest_gap
+    tax_note = sig.__dict__.get("_tax_note")
+    if tax_note:
+        base["tax_note"] = tax_note
+
     if sig.action_type == "ADD":
         fund_details = sig.__dict__.get("_fund_details")
         if fund_details:
