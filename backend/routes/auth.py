@@ -113,6 +113,10 @@ async def google_auth(request: Request, response: Response):
         pass
 
     user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    # Use user_profiles as the authoritative source for onboarding_completed
+    # so that admin resets (which write to user_profiles) are reflected at login.
+    profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    user_doc["onboarding_completed"] = bool(profile.get("onboarding_completed", False))
     return user_doc
 
 
@@ -196,6 +200,8 @@ async def exchange_gmail_session(request: Request, response: Response):
         path="/", max_age=7 * 24 * 3600,
     )
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    user["onboarding_completed"] = bool(profile.get("onboarding_completed", False))
     return user
 
 
