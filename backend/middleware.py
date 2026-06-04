@@ -70,8 +70,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Idempotent fire-and-forget — exempt from limiting so a
             # rapid open-close-open of the drawer doesn't burn the bucket.
             return await call_next(request)
+        elif path in ("/api/auth/me", "/api/auth/google-client-id"):
+            max_req = 60   # Read-only session checks — no brute-force risk
         elif path.startswith("/api/auth/"):
-            max_req = 5    # Strict: protects login from brute-force
+            max_req = 5    # Strict: protects login/oauth from brute-force
         elif path.startswith("/api/admin/"):
             max_req = 10   # Management plane — low expected volume
         elif "/goals/" in path or "/scenarios/" in path or "/analytics/" in path:

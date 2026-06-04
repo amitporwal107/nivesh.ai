@@ -142,7 +142,8 @@ async function safeJson(res: Response): Promise<unknown> {
 }
 
 function shouldRetry(err: ApiError): boolean {
-  return err.kind === "network" || err.kind === "server" || err.kind === "rate_limit" || err.kind === "timeout";
+  // 429 is intentional — retrying without Retry-After just burns the same budget again
+  return err.kind === "network" || err.kind === "server" || err.kind === "timeout";
 }
 
 function backoff(attempt: number): number {
