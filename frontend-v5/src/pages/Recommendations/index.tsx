@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useRecommendations, useApplyRecommendation } from "@/hooks/use-recommendations";
+import { useRecommendations, useApplyRecommendation, useRefreshPlan } from "@/hooks/use-recommendations";
 import { useGateFlags } from "@/hooks/use-active-plan";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -15,6 +15,7 @@ export default function RecommendationsPage() {
   const [filter, setFilter] = useState<RecFilterGroup>("all");
   const q = useRecommendations();
   const apply = useApplyRecommendation();
+  const refresh = useRefreshPlan();
   const gates = useGateFlags();
 
   if (q.isPending || gates.isLoading) {
@@ -82,6 +83,8 @@ export default function RecommendationsPage() {
         onFilter={setFilter}
         onApply={(id) => apply.mutate(id)}
         isApplying={apply.isPending}
+        onRefresh={() => refresh.mutate()}
+        isRefreshing={refresh.isPending}
       />
     </div>
   );

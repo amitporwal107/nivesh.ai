@@ -64,13 +64,16 @@ test.describe("Gate state: requires_persona", () => {
 // ── Flow 2: Gate — requires_goal ─────────────────────────────────────────────
 
 test.describe("Gate state: requires_goal", () => {
-  test("shows add-a-goal CTA when no goals exist", async ({ page }) => {
+  test("shows goal-nudge banner when no goals exist (Phase 3: soft nudge, not hard gate)", async ({ page }) => {
     await mockApiWithPlan(page, "plans-requires-goal.json");
 
     await page.goto("/v5/recommendations");
     await waitForApp(page);
 
-    await expect(page.getByRole("heading", { name: /add a goal/i })).toBeVisible({ timeout: 10_000 });
+    // Phase 3: requires_goal is a soft nudge inline above the list, not a full-page block.
+    // The banner has role="status" and contains an "Add a goal" button.
+    await expect(page.getByRole("status", { name: /recommendation quality notice/i })).toBeVisible({ timeout: 10_000 });
+    // aria-label on the button is "Add your first goal to sharpen recommendations"
     await expect(page.getByRole("button", { name: /add your first goal/i })).toBeVisible();
   });
 });
