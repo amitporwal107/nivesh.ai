@@ -107,7 +107,12 @@ jobs:
             # including GCP_LOG_TRIAGE_PRIVATE_KEY and GF_INSTALL_PLUGINS.
             log "Recreating nidp-grafana container..."
             sudo -E docker compose -f "$INFRA_COMPOSE" up -d grafana
-            sleep 10
+            # Wait up to 60s for Grafana — first-run plugin install adds ~30s
+            for i in $(seq 1 12); do
+              sleep 5
+              curl -sf http://127.0.0.1:3000/api/health >/dev/null 2>&1 && break
+              log "  waiting for Grafana... (${i}/12)"
+            done
 
             # ── 5. Health check ────────────────────────────────────────────────
             if curl -sf http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
