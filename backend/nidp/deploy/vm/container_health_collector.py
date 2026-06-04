@@ -62,8 +62,8 @@ _CONTAINER_URLS: dict[str, str] = {
     "nivesh-backend":                "http://127.0.0.1:8001/api/",
     "nivesh-staging-app-backend":    "http://127.0.0.1:8002/api/",
     "nivesh-frontend":               "http://127.0.0.1:80/",
-    "nidp-daas-api":                 "http://127.0.0.1:8083/v1/health",
-    "nidp-query-api":                "http://127.0.0.1:8090/v1/health",
+    "nidp-daas-api":                 "http://127.0.0.1:8083/health",
+    "nidp-query-api":                "http://127.0.0.1:8090/health",
 }
 
 

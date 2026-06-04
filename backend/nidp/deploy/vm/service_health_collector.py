@@ -56,8 +56,8 @@ SERVICES: list[ServiceDef] = [
     ServiceDef("nidp-stack-vm", "minio",      "http://127.0.0.1:9001/minio/health/live"),
 
     # ── nidp-stack-vm: prod services ──────────────────────────────────────
-    ServiceDef("nidp-stack-vm", "daas-api",   "http://127.0.0.1:8083/v1/health"),
-    ServiceDef("nidp-stack-vm", "query-api",  "http://127.0.0.1:8090/v1/health"),
+    ServiceDef("nidp-stack-vm", "daas-api",   "http://127.0.0.1:8083/health"),
+    ServiceDef("nidp-stack-vm", "query-api",  "http://127.0.0.1:8090/health"),
     ServiceDef("nidp-stack-vm", "loki",       "http://127.0.0.1:3100/ready"),
     ServiceDef("nidp-stack-vm", "promtail",   "http://127.0.0.1:9080/ready"),
 
