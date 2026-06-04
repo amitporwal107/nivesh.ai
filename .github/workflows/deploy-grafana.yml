@@ -95,6 +95,7 @@ jobs:
             if [[ -n "$SA_B64" ]]; then
               sudo mkdir -p /opt/nidp/secrets
               echo "$SA_B64" | base64 -d | sudo tee "$SA_KEY_FILE" > /dev/null
+              sudo chown $USER:$USER "$SA_KEY_FILE"
               sudo chmod 600 "$SA_KEY_FILE"
               ok "GCP SA key written to $SA_KEY_FILE from GitHub secret"
             fi
