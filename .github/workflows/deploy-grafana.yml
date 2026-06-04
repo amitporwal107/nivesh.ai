@@ -92,15 +92,21 @@ jobs:
             chmod -R a+rX "$DST"
             ok "Provisioning files installed."
 
-            # ── 3. Read GCP SA key from VM secrets (no GitHub secret needed) ───
+            # ── 3. Write GCP SA key from GitHub secret, then read private key ──
             SA_KEY_FILE=/opt/nidp/secrets/log-triage-sa.json
+            SA_B64="${{ secrets.GCP_LOG_TRIAGE_SA_JSON_B64 }}"
+            if [[ -n "$SA_B64" ]]; then
+              sudo mkdir -p /opt/nidp/secrets
+              echo "$SA_B64" | base64 -d | sudo tee "$SA_KEY_FILE" > /dev/null
+              sudo chmod 600 "$SA_KEY_FILE"
+              ok "GCP SA key written to $SA_KEY_FILE from GitHub secret"
+            fi
             if [[ -f "$SA_KEY_FILE" ]]; then
               GCP_LOG_TRIAGE_PRIVATE_KEY="$(jq -r .private_key "$SA_KEY_FILE")"
               export GCP_LOG_TRIAGE_PRIVATE_KEY
-              ok "GCP SA key loaded from $SA_KEY_FILE"
+              ok "GCP SA key loaded — $(jq -r .client_email "$SA_KEY_FILE")"
             else
               warn "SA key not found at $SA_KEY_FILE — Cloud Logging datasource will have no credentials."
-              warn "Place the log-triage SA JSON at $SA_KEY_FILE on the VM."
               GCP_LOG_TRIAGE_PRIVATE_KEY=""
               export GCP_LOG_TRIAGE_PRIVATE_KEY
             fi
