@@ -58,8 +58,10 @@ function PlanCard({ action }: { action: PlanActionC }) {
         {action.asset_name ?? action.holding_name ?? "Action"}
         {(action as any).suggested_alternative ? ` → ${(action as any).suggested_alternative}` : ""}
       </div>
-      {(action.reason_text ?? (action as any).rationale) && (
-        <p className="mt-1.5 text-[12px] text-ink-3 leading-relaxed line-clamp-2">{action.reason_text ?? (action as any).rationale}</p>
+      {((action as any).conviction_text ?? action.reason_text ?? (action as any).rationale) && (
+        <p className="mt-1.5 text-[12px] text-ink-3 leading-relaxed line-clamp-2">
+          {(action as any).conviction_text ?? action.reason_text ?? (action as any).rationale}
+        </p>
       )}
       {/* meta row */}
       <div className="mt-2 flex items-center gap-2 text-[10px] font-mono text-ink-4">
