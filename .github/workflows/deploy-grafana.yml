@@ -67,7 +67,8 @@ jobs:
 
             # ── 2. Copy provisioning files ─────────────────────────────────────
             log "Installing datasources → $DST/datasources/"
-            mkdir -p "$DST/datasources" "$DST/dashboards/prod" "$DST/dashboards/staging" "$DST/alerting"
+            sudo mkdir -p "$DST/datasources" "$DST/dashboards/prod" "$DST/dashboards/staging" "$DST/alerting"
+            sudo chown -R $USER:$USER "$DST"
             cp "$SRC/datasources.yml"  "$DST/datasources/datasources.yml"
             cp "$SRC/dashboards.yml"   "$DST/dashboards/dashboards.yml"
 
