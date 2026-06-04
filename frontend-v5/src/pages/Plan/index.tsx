@@ -9,7 +9,7 @@ import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
-import { useGeneratePlan } from "@/hooks/use-recommendations";
+import { useGeneratePlan, useRefreshPlan } from "@/hooks/use-recommendations";
 import { RefreshCw } from "lucide-react";
 import type { PlanActionC, PlanC } from "@/services/contracts/plan.contract";
 
@@ -99,7 +99,7 @@ function EmptyPlan() {
   );
 }
 
-function PlanKanban({ plan }: { plan: PlanC }) {
+function PlanKanban({ plan, onRefresh, isRefreshing }: { plan: PlanC; onRefresh: () => void; isRefreshing: boolean }) {
   const navigate = useNavigate();
   const actions = plan.actions ?? [];
   const totalSavings = actions.reduce((s, a) => s + (a.estimated_impact?.annual_savings_rs ?? 0), 0);
@@ -164,6 +164,8 @@ function PlanKanban({ plan }: { plan: PlanC }) {
 export default function PlanPage() {
   const navigate = useNavigate();
   const { data: plan, isPending, isError, error, refetch } = usePlan();
+  const refresh = useRefreshPlan();
+  const generate = useGeneratePlan();
 
   if (isPending) {
     return <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1200px] mx-auto w-full"><LoadingSkeleton variant="card" /></div>;
@@ -171,6 +173,8 @@ export default function PlanPage() {
   if (isError) {
     return <ErrorState onRetry={() => refetch()} error={error} />;
   }
+
+  const isWorking = refresh.isPending || generate.isPending;
 
   return (
     <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1400px] mx-auto w-full">
@@ -180,8 +184,14 @@ export default function PlanPage() {
           Your plan, end-to-end.
         </h1>
         <div className="ml-auto flex gap-2 mt-1">
-          <button className="rounded-lg border border-hairline bg-surface-1 font-medium text-[13px] px-4 py-2.5 text-ink-2 hover:bg-surface-2 transition-colors">
-            Export PDF
+          {/* Re-generate plan from current portfolio */}
+          <button
+            onClick={() => plan ? refresh.mutate() : generate.mutate()}
+            disabled={isWorking}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-surface-1 font-medium text-[13px] px-4 py-2.5 text-ink-2 hover:bg-surface-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isWorking ? "animate-spin" : ""}`} aria-hidden />
+            {isWorking ? "Generating…" : "Refresh plan"}
           </button>
           {/* Execute → navigates to Recommendations where each action has an Apply button */}
           <button
@@ -193,7 +203,7 @@ export default function PlanPage() {
         </div>
       </div>
 
-      {plan ? <PlanKanban plan={plan} /> : <EmptyPlan />}
+      {plan ? <PlanKanban plan={plan} onRefresh={() => refresh.mutate()} isRefreshing={refresh.isPending} /> : <EmptyPlan />}
     </div>
   );
 }
