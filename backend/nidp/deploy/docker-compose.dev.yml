@@ -155,6 +155,10 @@ services:
       # mount Grafana at https://data.niveshcopilot.com/grafana/.
       GF_SERVER_ROOT_URL:            "https://data.niveshcopilot.com/grafana/"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # GCP Cloud Logging datasource plugin
+      GF_INSTALL_PLUGINS:            "googlecloud-logging-datasource"
+      # Export from SA key: jq -r .private_key log-triage-sa.json
+      GCP_LOG_TRIAGE_PRIVATE_KEY:    ${GCP_LOG_TRIAGE_PRIVATE_KEY:-}
     ports:
       # Loopback-bind: only the host's nginx can reach Grafana directly.
       - "127.0.0.1:3000:3000"
