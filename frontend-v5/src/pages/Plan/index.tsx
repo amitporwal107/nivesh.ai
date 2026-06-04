@@ -29,24 +29,25 @@ const COLUMNS: Col[] = [
   { id: "done",       label: "Done · 30d",   statuses: ["done", "completed"] },
 ];
 
-function actionSeverity(type: string): "warm" | "accent" | "good" | "neg" {
+function actionSeverity(type: string): "warm" | "accent" | "outline" | "neg" {
   const t = type.toLowerCase();
-  if (["sell", "switch", "reduce", "trim", "exit"].includes(t)) return "neg";
-  if (["buy", "sip_increase", "add"].includes(t)) return "good";
-  if (["sip_decrease"].includes(t)) return "warm";
-  return "accent";
+  if (["exit", "sell"].includes(t)) return "neg";
+  if (["trim", "reduce", "switch"].includes(t)) return "warm";
+  if (["add", "buy", "sip_increase", "redirect", "diversify"].includes(t)) return "accent";
+  return "outline";
 }
 
 function PlanCard({ action }: { action: PlanActionC }) {
-  const tone = actionSeverity(String(action.action_type ?? "").toLowerCase());
-  const label = String(action.action_type ?? "action").replace(/_/g, " ").toUpperCase();
+  // PRD §12 uses `action`; legacy plans may use `action_type`
+  const actionLabel = String(action.action ?? action.action_type ?? "").replace(/_/g, " ").toUpperCase() || "ACTION";
+  const tone = actionSeverity(String(action.action ?? action.action_type ?? ""));
   const impact = action.estimated_impact;
   const isDone = ["done", "completed"].includes(String(action.status ?? "pending").toLowerCase());
 
   return (
     <div className={`rounded-lg bg-surface-1 border border-hairline p-3.5 mb-2.5 ${isDone ? "opacity-60" : ""}`}>
       <div className="flex items-center gap-2 mb-2">
-        <Badge tone={tone} className="text-[9px]">{label}</Badge>
+        <Badge tone={tone} className="text-[9px]">{actionLabel}</Badge>
         {impact?.annual_savings_rs != null && (
           <span className="ml-auto font-mono num text-[11px] text-pos">
             +₹{Number(impact.annual_savings_rs).toLocaleString("en-IN")}/yr
@@ -54,11 +55,11 @@ function PlanCard({ action }: { action: PlanActionC }) {
         )}
       </div>
       <div className="text-[13px] font-medium leading-[1.35]">
-        {action.holding_name ?? action.asset_name ?? "Action"}
-        {action.suggested_alternative ? ` → ${action.suggested_alternative}` : ""}
+        {action.asset_name ?? action.holding_name ?? "Action"}
+        {(action as any).suggested_alternative ? ` → ${(action as any).suggested_alternative}` : ""}
       </div>
-      {(action.rationale ?? action.reason_text) && (
-        <p className="mt-1.5 text-[12px] text-ink-3 leading-relaxed line-clamp-2">{action.rationale ?? action.reason_text}</p>
+      {(action.reason_text ?? (action as any).rationale) && (
+        <p className="mt-1.5 text-[12px] text-ink-3 leading-relaxed line-clamp-2">{action.reason_text ?? (action as any).rationale}</p>
       )}
       {/* meta row */}
       <div className="mt-2 flex items-center gap-2 text-[10px] font-mono text-ink-4">
