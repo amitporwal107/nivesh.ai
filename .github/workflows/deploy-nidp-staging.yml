@@ -64,7 +64,10 @@ jobs:
 
             # Pull latest dev-branch code into the staging repo.
             # Separate from prod's /opt/nidp/repo (which tracks main).
+            # Fix ownership first: new files added by other users (e.g. nidp)
+            # block git reset when running as devops.
             log "Updating staging code at $DEV_REPO..."
+            sudo chown -R $USER:$USER "$DEV_REPO" 2>/dev/null || true
             git -C "$DEV_REPO" fetch --quiet origin "$BRANCH"
             git -C "$DEV_REPO" checkout --quiet "$BRANCH"
             git -C "$DEV_REPO" reset --hard --quiet "origin/$BRANCH"
