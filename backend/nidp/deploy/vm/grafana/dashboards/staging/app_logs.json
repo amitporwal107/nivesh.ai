@@ -2,7 +2,7 @@
   "title": "Centralized Application Logs",
   "uid": "app-logs-central",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": true,
   "tags": [
     "logs",
