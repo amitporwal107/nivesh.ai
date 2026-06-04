@@ -3,11 +3,14 @@
  * Design: Backlog | This week | In flight | Done · 30d
  */
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { plansService } from "@/services";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { useGeneratePlan } from "@/hooks/use-recommendations";
+import { RefreshCw } from "lucide-react";
 import type { PlanActionC, PlanC } from "@/services/contracts/plan.contract";
 
 function usePlan() {
@@ -71,29 +74,39 @@ function PlanCard({ action }: { action: PlanActionC }) {
 }
 
 function EmptyPlan() {
+  const generate = useGeneratePlan();
   return (
     <div className="py-16 text-center">
       <div className="font-display text-xl text-ink-2 mb-2">No active plan</div>
       <p className="text-[14px] text-ink-3 max-w-[400px] mx-auto mb-6">
         Generate an action plan from your portfolio analysis to see recommended moves here.
       </p>
-      <button className="rounded-lg bg-accent text-on-accent font-medium text-[13px] px-6 py-3 hover:opacity-90 transition-opacity">
-        Generate plan →
+      <button
+        onClick={() => generate.mutate()}
+        disabled={generate.isPending}
+        className="rounded-lg bg-accent text-on-accent font-medium text-[13px] px-6 py-3 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
+      >
+        {generate.isPending ? (
+          <><RefreshCw className="h-3.5 w-3.5 animate-spin" />Generating…</>
+        ) : (
+          "Generate plan →"
+        )}
       </button>
+      {generate.isError && (
+        <p className="mt-3 text-[12px] text-neg">Failed to generate plan. Make sure you have holdings uploaded.</p>
+      )}
     </div>
   );
 }
 
 function PlanKanban({ plan }: { plan: PlanC }) {
+  const navigate = useNavigate();
   const actions = plan.actions ?? [];
   const totalSavings = actions.reduce((s, a) => s + (a.estimated_impact?.annual_savings_rs ?? 0), 0);
   const scoreDelta = (plan.health_score_projected ?? plan.health_score_before ?? 0) - (plan.health_score_before ?? 0);
 
-  // Assign actions to columns. Actions without explicit column status go to backlog.
-  const colActions = (col: Col) => {
-    const matched = actions.filter((a) => col.statuses.includes(String(a.status ?? "pending").toLowerCase()));
-    return matched;
-  };
+  const colActions = (col: Col) =>
+    actions.filter((a) => col.statuses.includes(String(a.status ?? "pending").toLowerCase()));
 
   return (
     <>
@@ -149,6 +162,7 @@ function PlanKanban({ plan }: { plan: PlanC }) {
 }
 
 export default function PlanPage() {
+  const navigate = useNavigate();
   const { data: plan, isPending, isError, error, refetch } = usePlan();
 
   if (isPending) {
@@ -169,7 +183,11 @@ export default function PlanPage() {
           <button className="rounded-lg border border-hairline bg-surface-1 font-medium text-[13px] px-4 py-2.5 text-ink-2 hover:bg-surface-2 transition-colors">
             Export PDF
           </button>
-          <button className="rounded-lg bg-accent text-on-accent font-medium text-[13px] px-5 py-2.5 hover:opacity-90 transition-opacity">
+          {/* Execute → navigates to Recommendations where each action has an Apply button */}
+          <button
+            onClick={() => navigate("/recommendations")}
+            className="rounded-lg bg-accent text-on-accent font-medium text-[13px] px-5 py-2.5 hover:opacity-90 transition-opacity"
+          >
             Execute →
           </button>
         </div>

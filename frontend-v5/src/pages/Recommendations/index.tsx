@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useRecommendations, useApplyRecommendation, useRefreshPlan } from "@/hooks/use-recommendations";
+import { useRecommendations, useApplyRecommendation, useRefreshPlan, useGeneratePlan } from "@/hooks/use-recommendations";
 import { useGateFlags } from "@/hooks/use-active-plan";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { RefreshCw } from "lucide-react";
 import { RecGateState } from "@/components/shared/RecGateState";
 import { ProvisionalPlanBanner } from "@/components/shared/ProvisionalPlanBanner";
 import { Recommendations } from "./Recommendations";
@@ -16,6 +17,7 @@ export default function RecommendationsPage() {
   const q = useRecommendations();
   const apply = useApplyRecommendation();
   const refresh = useRefreshPlan();
+  const generate = useGeneratePlan();
   const gates = useGateFlags();
 
   if (q.isPending || gates.isLoading) {
@@ -42,11 +44,26 @@ export default function RecommendationsPage() {
     );
   }
 
-  // Healthy — no actions needed
+  // No recommendations — either no plan exists yet, or the plan has no actions (portfolio is healthy)
   if (!q.data?.length) {
     return (
       <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full">
         <RecGateState variant="healthy" />
+        <div className="mt-6 flex flex-col items-center gap-3">
+          <p className="text-[13px] text-ink-3">No recommendations yet? Generate a plan from your current portfolio.</p>
+          <button
+            onClick={() => generate.mutate()}
+            disabled={generate.isPending}
+            className="inline-flex items-center gap-2 rounded-lg bg-accent text-on-accent font-medium text-[13px] px-5 py-2.5 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {generate.isPending
+              ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" />Generating…</>
+              : "Generate plan →"}
+          </button>
+          {generate.isError && (
+            <p className="text-[12px] text-neg">Failed — make sure you have holdings uploaded first.</p>
+          )}
+        </div>
       </div>
     );
   }
