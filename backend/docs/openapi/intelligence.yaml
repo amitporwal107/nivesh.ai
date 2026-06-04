@@ -1,0 +1,4781 @@
+openapi: 3.1.0
+info:
+  title: Intelligence Layer
+  version: 1.0.0
+paths:
+  /api/copilot/models:
+    get:
+      tags:
+      - copilot
+      summary: List Models
+      description: 'Surfaces the 3 model options + default to the UI so the MFD can
+
+        choose cost vs. quality per-call.'
+      operationId: list_models_api_copilot_models_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/copilot/explain:
+    post:
+      tags:
+      - copilot
+      summary: Explain
+      operationId: explain_api_copilot_explain_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExplainRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/client-message:
+    post:
+      tags:
+      - copilot
+      summary: Client Message
+      operationId: client_message_api_copilot_client_message_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientMessageRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/ask:
+    post:
+      tags:
+      - copilot
+      summary: Ask
+      description: 'Free-form Q&A with the client''s full portfolio context. Not cached
+
+        (questions are unique by definition). History is optional — if
+
+        provided, included inline in the user prompt so the LLM sees continuity
+
+        without us needing a server-side session store in Pass 1.'
+      operationId: ask_api_copilot_ask_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/brief:
+    post:
+      tags:
+      - copilot
+      summary: Brief
+      description: 'One-shot CIO brief — returns {summary, risk, tax, performance,
+        priority}
+
+        in a single LLM call. Cached 24h. Use this for the Client 360 panel
+
+        instead of calling /explain four times.'
+      operationId: brief_api_copilot_brief_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BriefRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/macro/today:
+    get:
+      tags:
+      - macro
+      summary: Macro Today
+      description: 'Latest macro snapshot for the Copilot bar.
+
+
+        Auth: any logged-in user. The macro view is global (not per-user)
+
+        so we don''t gate by workspace.
+
+
+        Never 500s — any internal failure (missing tables, missing columns,
+
+        PG down) returns the `_uninitialised` payload with `_reason` set so
+
+        the operator can see what''s broken in the UI without checking logs.'
+      operationId: macro_today_api_macro_today_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/macro/refresh:
+    post:
+      tags:
+      - macro
+      summary: Macro Refresh
+      description: 'Manual trigger: ingest → features → regime for one day.
+
+
+        Used by the admin / debug surface. Production run is the scheduler at
+
+        18:30 IST in mf_scheduler.py.'
+      operationId: macro_refresh_api_macro_refresh_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/macro/backfill:
+    post:
+      tags:
+      - macro
+      summary: Macro Backfill
+      description: 'One-shot: backfill `macro_daily` so the feature engine has 50DMA
+
+        history. Run once after the migration lands (or click "Backfill" in
+
+        the MacroBar empty-state CTA).
+
+
+        For each prior trading day in the window we also recompute features +
+
+        regime so the time series is queryable end-to-end. Slow but correct.
+
+
+        Never 500s — wraps the whole flow in try/except and surfaces the
+
+        actual failure as JSON so the empty-state UI can show it inline.'
+      operationId: macro_backfill_api_macro_backfill_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackfillRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/macro/sector:
+    get:
+      tags:
+      - macro
+      summary: Macro Sector Heatmap
+      description: 'Per-sector macro tilt for the latest day. Returns rows sorted
+        by
+
+        tilt descending — UI renders as a heatmap or sorted strip.'
+      operationId: macro_sector_heatmap_api_macro_sector_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/macro/changes:
+    get:
+      tags:
+      - macro
+      summary: Macro Changes
+      description: "Diff today's macro_state + sector_macro_scores vs the previous\n\
+        trading day. Drives the \"What changed since yesterday\" strip on the\nMarket\
+        \ Dashboard.\n\nReturns a structured diff so the UI doesn't have to parse\
+        \ prose:\n  {\n    \"today_date\": \"2026-05-03\",\n    \"previous_date\"\
+        : \"2026-05-02\",\n    \"regime_changes\": [\n      {\"field\": \"risk\",\
+        \ \"from\": \"MEDIUM\", \"to\": \"HIGH\"},\n      {\"field\": \"market\",\
+        \ \"from\": \"BULL\", \"to\": \"NEUTRAL\"},\n    ],\n    \"sector_changes\"\
+        : [\n      {\"sector\": \"IT\", \"from\": 0.4, \"to\": 1.2, \"delta\": 0.8,\
+        \ \"tier_change\": \"BUY → STRONG BUY\"},\n      ...\n    ],\n    \"headline\"\
+        : \"USD ↑ → IT upgraded from BUY to STRONG BUY\"\n  }"
+      operationId: macro_changes_api_macro_changes_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/macro/aligned-picks:
+    get:
+      tags:
+      - macro
+      summary: Macro Aligned Picks
+      description: "Surface positional candidates whose sector aligns with today's\n\
+        macro tailwinds. Used as a \"Coming opportunities\" preview on the\nMarket\
+        \ Dashboard before today's actual signals fire.\n\nLogic:\n  1. Take sectors\
+        \ with macro_score ≥ 0.8 (BUY tier or stronger).\n  2. Find positional_signals\
+        \ (or stock_technical_features if no\n     signal yet) whose sector_key matches.\n\
+        \  3. Group by sector, return up to N candidates per sector.\n\nWhen no `positional_signals`\
+        \ exist yet for today, falls back to\n`stock_technical_features` so the user\
+        \ still gets a watchlist preview."
+      operationId: macro_aligned_picks_api_macro_aligned_picks_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 5
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/stock/{symbol}/why:
+    get:
+      tags:
+      - macro
+      summary: Stock Why
+      description: "Explainability payload for a single stock, combining:\n\n  • The\
+        \ macro state right now\n  • The stock's sector → macro tilt\n  • The position-size\
+        \ factor that the trade_planner would use\n\nReturns a self-contained JSON\
+        \ the UI can render as a \"why this score\"\npanel without needing to call\
+        \ /macro/today separately."
+      operationId: stock_why_api_stock__symbol__why_get
+      parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Symbol
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/feeds:
+    get:
+      tags:
+      - feeds
+      summary: List Feeds
+      description: 'List enabled feeds the user can subscribe to.
+
+
+        Tier gating (''pro''/''institutional'') is filtered server-side based on
+
+        the user''s entitlement; the placeholder below treats every user as
+
+        ''free'' until the entitlements module lands.'
+      operationId: list_feeds_api_feeds_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/FeedOut'
+                type: array
+                title: Response List Feeds Api Feeds Get
+  /api/feeds/subscriptions:
+    get:
+      tags:
+      - feeds
+      summary: List Subscriptions
+      operationId: list_subscriptions_api_feeds_subscriptions_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/SubscriptionOut'
+                type: array
+                title: Response List Subscriptions Api Feeds Subscriptions Get
+    post:
+      tags:
+      - feeds
+      summary: Subscribe
+      operationId: subscribe_api_feeds_subscriptions_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionIn'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/feeds/subscriptions/{feed_id}:
+    delete:
+      tags:
+      - feeds
+      summary: Unsubscribe
+      operationId: unsubscribe_api_feeds_subscriptions__feed_id__delete
+      parameters:
+      - name: feed_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Feed Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/feeds/subscriptions/{feed_id}/pause:
+    post:
+      tags:
+      - feeds
+      summary: Pause
+      operationId: pause_api_feeds_subscriptions__feed_id__pause_post
+      parameters:
+      - name: feed_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Feed Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/feeds/subscriptions/{feed_id}/resume:
+    post:
+      tags:
+      - feeds
+      summary: Resume
+      operationId: resume_api_feeds_subscriptions__feed_id__resume_post
+      parameters:
+      - name: feed_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Feed Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/feeds/search:
+    post:
+      tags:
+      - feeds
+      summary: Search Feeds
+      operationId: search_feeds_api_feeds_search_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/CitationOut'
+                type: array
+                title: Response Search Feeds Api Feeds Search Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/market/events:
+    get:
+      tags:
+      - market_events
+      summary: Market Events Today
+      description: 'Today''s corporate events with impact scores, AI signals, and
+        market confirmation.
+
+
+        Returns all events from event_calendar for the given date (default: today),
+
+        joined with any available AI signals and scoring data from
+
+        corporate_event_signals. Events without signals are included as
+
+        "pending" so the UI can show the full calendar.
+
+
+        Cached for 60 s (shared across all users).'
+      operationId: market_events_today_api_market_events_get
+      parameters:
+      - name: date_str
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Date Str
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/market/events/tomorrow:
+    get:
+      tags:
+      - market_events
+      summary: Market Events Tomorrow
+      description: 'D-1 pre-event briefings for tomorrow''s scheduled results.
+
+
+        Returns events from event_calendar for tomorrow, joined with
+
+        d1_prep signals generated by the evening D-1 preparation service.
+
+
+        Cached for 60 s (shared across all users).'
+      operationId: market_events_tomorrow_api_market_events_tomorrow_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/market/signals:
+    get:
+      tags:
+      - market_events
+      summary: Market Signals Feed
+      description: "High-confidence AI signal feed for the last N days.\n\nFilters:\n\
+        \  days            — look-back window (default 3, max 14)\n  min_confidence\
+        \  — minimum AI confidence % (default 60)\n  sentiment       — filter by sentiment\
+        \ string (e.g. 'bullish')\n  event_type      — filter by event type (e.g.\
+        \ 'order_win')\n\nReturns signals sorted by impact_score DESC, then confidence\
+        \ DESC."
+      operationId: market_signals_feed_api_market_signals_get
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 3
+          title: Days
+      - name: min_confidence
+        in: query
+        required: false
+        schema:
+          type: number
+          default: 60.0
+          title: Min Confidence
+      - name: sentiment
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sentiment
+      - name: event_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Event Type
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/intelligence/portfolio/360:
+    get:
+      tags:
+      - intelligence-v4
+      summary: Client 360
+      description: "6-domain client summary for the advisor.\n\nScreen 16 Client 360.\n\
+        \nRequires an active impersonation context\n(POST /api/mfd/profiles/{id}/activate\
+        \ sets active_profile_id cookie).\n\nComposes:\n  1. Health score (v3-portfolio)\n\
+        \  2. Domain scores (concentration / diversification / risk / performance\
+        \ / goals / tax)\n  3. Needs-attention items (priority-1 plan actions)\n\n\
+        ≤3 DB reads: (1) plan_doc, (2) user_profiles, (3) signal cache."
+      operationId: client_360_api_intelligence_portfolio_360_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Client 360 Api Intelligence Portfolio 360 Get
+  /api/copilot/agents:
+    get:
+      tags:
+      - copilot-agents
+      summary: List Agents
+      description: Return all 7 agents (including `auto`) so the picker UI can render.
+      operationId: list_agents_api_copilot_agents_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/copilot/models/picker:
+    get:
+      tags:
+      - copilot-agents
+      summary: List Models
+      description: 'Return the 3 supported LLM backends. Default = gpt-4o.
+
+
+        Note: lives at /models/picker (not /models) to avoid collision with
+
+        the legacy /api/copilot/models endpoint in routes/copilot.py which
+
+        exposes a different shape (key/tier/price_hint) for the
+
+        NiveshCopilotDrawer.'
+      operationId: list_models_api_copilot_models_picker_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/copilot/agents/route:
+    post:
+      tags:
+      - copilot-agents
+      summary: Route Intent
+      description: 'Deterministic intent router. Frontend calls this BEFORE sending
+        a
+
+        chat message so it can render the matching agent ribbon immediately
+
+        (and show a "Handed off" divider if the routed agent differs from the
+
+        previous turn''s agent).'
+      operationId: route_intent_api_copilot_agents_route_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RouteIntentRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/agents/oneshot:
+    post:
+      tags:
+      - copilot-agents
+      summary: Agent Oneshot
+      description: 'Single-turn agent call, used by widget-producing endpoints
+
+        (e.g. compose a rationale for a Fund card without going through the
+
+        full streaming chat loop). NOT used for the primary chat stream —
+
+        that path stays on /api/chat/stream.
+
+
+        Returns: {"text": "<assistant prose>"}.'
+      operationId: agent_oneshot_api_copilot_agents_oneshot_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentOneShotRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/feedback:
+    post:
+      tags:
+      - copilot-agents
+      summary: Message Feedback
+      description: 'Record a thumbs-up / thumbs-down on an assistant message. The
+        chat UI
+
+        fires this fire-and-forget when the user clicks the toolbar under a
+
+        bubble. We persist to `copilot_feedback` for offline review — no
+
+        business logic depends on the response shape beyond {ok: true}.'
+      operationId: message_feedback_api_copilot_feedback_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageFeedbackRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/widgets/fund_card:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Fund Card
+      description: 'Produce a Fund Card widget envelope for the given scheme.
+
+
+        Reads from `mf_master` for static facts (category, AUM, expense),
+
+        enriches with NIDP DaaS scorecard (composite_score, quality_label,
+
+        peer-group rank) and lifecycle events (manager changes, TER hikes, mergers)
+
+        when available. Falls back to heuristic scoring when NIDP has no data.'
+      operationId: fund_card_api_copilot_widgets_fund_card_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FundCardRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/widgets/market_brief:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Market Brief
+      description: 'Today''s market brief widget. Reads the NIDP DaaS
+
+        `/v1/intelligence/snapshots/market` endpoint (already deployed)
+
+        and overlays the user''s portfolio impact (Phase C will plug
+
+        the impact in; Phase B just shows market-side data).'
+      operationId: market_brief_api_copilot_widgets_market_brief_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/_LayoutOnlyRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/widgets/compare_funds:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Compare Funds
+      description: Build a Compare-Table widget for 2–4 schemes.
+      operationId: compare_funds_api_copilot_widgets_compare_funds_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompareRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/widgets/sip_plan:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Sip Plan
+      description: SIP allocation envelope backed by the sip.py projection engine.
+      operationId: sip_plan_api_copilot_widgets_sip_plan_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SipPlanRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/widgets/rebalance_plan:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Rebalance Plan
+      description: 'Build a rebalance-plan widget from the user''s current holdings.
+
+
+        Reads `holdings` collection for the authenticated user, computes
+
+        current asset-class weights, and generates BUY/SELL/SWITCH actions
+
+        toward a risk-appropriate target allocation.  Phase C will wire the
+
+        Advisor agent LLM for the rationale text; Phase B uses heuristics.'
+      operationId: rebalance_plan_api_copilot_widgets_rebalance_plan_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/_LayoutOnlyRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/widgets/tax_harvest:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Tax Harvest
+      description: 'LTCG harvest candidates for the authenticated user.
+
+
+        Reads `holdings` (or `portfolio_holdings`) and `capital_gains_summary`
+
+        collections.  Candidates = LTCG eligible (held > 365 days) with gains
+
+        under the ₹1L exemption limit still available.'
+      operationId: tax_harvest_api_copilot_widgets_tax_harvest_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/_LayoutOnlyRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/widgets/stress_test:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Stress Test
+      description: Simulate portfolio performance under a historical or custom crash
+        scenario.
+      operationId: stress_test_api_copilot_widgets_stress_test_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StressTestRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/widgets/sector_rotation:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Sector Rotation
+      description: RS quadrant chart data from DaaS, falling back to a static fixture.
+      operationId: sector_rotation_api_copilot_widgets_sector_rotation_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/_LayoutOnlyRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/widgets/overlap_reveal:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Overlap Reveal
+      description: 'Show stock-level overlap between two or more funds.
+
+
+        If `scheme_codes` is supplied, compares those funds.  Otherwise,
+
+        compares all funds in the user''s portfolio.  Uses `mf_portfolio_stocks`
+
+        (top-holdings per scheme) from the local DB.'
+      operationId: overlap_reveal_api_copilot_widgets_overlap_reveal_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OverlapRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/widgets/risk_suitability:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Risk Suitability Widget
+      description: 'Portfolio risk rating vs user''s risk profile.
+
+
+        Calls services.copilot_tools.risk.get_risk_suitability() which computes
+
+        equity %, small/mid-cap exposure, weighted portfolio beta from DAAS
+
+        volatility_20d, and flags misalignments vs the user''s stored risk profile
+
+        (conservative / moderate / aggressive).'
+      operationId: risk_suitability_widget_api_copilot_widgets_risk_suitability_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/_LayoutOnlyRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/widgets/portfolio_var:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Portfolio Var Widget
+      description: 'Parametric Value at Risk for the user''s portfolio.
+
+
+        Calls services.copilot_tools.risk.get_portfolio_var() which computes
+
+        weighted daily volatility using DAAS volatility_20d for stocks and
+
+        equity_allocation_pct proxies for MFs, then returns 1-day and 10-day
+
+        VaR at 95% and 99% confidence.'
+      operationId: portfolio_var_widget_api_copilot_widgets_portfolio_var_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/_LayoutOnlyRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/widgets/holding_technicals:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Holding Technicals Widget
+      description: 'Technical analysis + sector-peer rank for one stock holding.
+
+
+        Wired into the Holding Intelligence drawer so stocks get the same depth
+
+        of view that mutual funds already get from /fund_card.'
+      operationId: holding_technicals_widget_api_copilot_widgets_holding_technicals_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HoldingTechnicalsRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/widgets/fd_comparison:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Fd Comparison Widget
+      description: 'Compare portfolio XIRR vs FD benchmark rates.
+
+
+        Used for quick-action: ''Am I beating FD?'''
+      operationId: fd_comparison_widget_api_copilot_widgets_fd_comparison_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/copilot/widgets/tax_timing:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Tax Timing Widget
+      description: "Identify holdings where waiting for LTCG classification saves\
+        \ tax.\n\nUsed for: \"When should I sell?\", \"Am I close to long-term?\"\
+        ,\n          \"Which holdings flip to LTCG soon?\""
+      operationId: tax_timing_widget_api_copilot_widgets_tax_timing_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/copilot/widgets/company_financials:
+    post:
+      tags:
+      - copilot-widgets
+      summary: Company Financials Widget
+      description: "Multi-quarter P&L trend + balance sheet + shareholding + prospects\
+        \ signal.\n\nUsed for: \"Show RELIANCE quarterly results\", \"Future prospects\
+        \ of TCS\",\n          \"Company overview\", \"Revenue trend\", \"Earnings\
+        \ history\""
+      operationId: company_financials_widget_api_copilot_widgets_company_financials_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanyFinancialsRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/copilot/suggested-prompts:
+    get:
+      summary: Suggested Prompts
+      description: "Return the top 5 most relevant prompts for this user right now,\n\
+        grouped into 3 tiers: primary (1) · secondary (2-3) · advanced (collapsed).\n\
+        \nTwo modes:\n  • Advisor (ADVISORY workspace, not impersonating) → cross-client\n\
+        \    prompts (top AUM, who needs a call, underperformers, …).\n  • Individual\
+        \ investor (or advisor while impersonating a client) →\n    portfolio-context-driven\
+        \ prompts based on the actual holdings,\n    filtered by persona and (optional)\
+        \ intent category."
+      operationId: suggested_prompts_api_copilot_suggested_prompts_get
+      parameters:
+      - name: persona
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Persona override (PersonaType.value). Defaults to user's stored
+            persona.
+          title: Persona
+        description: Persona override (PersonaType.value). Defaults to user's stored
+          persona.
+      - name: category
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'Filter to one of: portfolio_health|performance|risk_diversification|tax|goal_planning'
+          title: Category
+        description: 'Filter to one of: portfolio_health|performance|risk_diversification|tax|goal_planning'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Suggested Prompts Api Copilot Suggested Prompts Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/mf/category-top:
+    get:
+      summary: Get Mf Category Top
+      description: 'Return top-N ranked funds in a SEBI category for the fund detail
+        comparison panel.
+
+
+        Proxies to NIDP DaaS /v1/mf/performance/category-top.
+
+        Requires auth; category is the SEBI category string (e.g. ''Equity Scheme
+        - Mid Cap Fund'').'
+      operationId: get_mf_category_top_api_mf_category_top_get
+      parameters:
+      - name: category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Category
+      - name: n
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 5
+          title: N
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/chat/sessions:
+    get:
+      summary: List Chat Sessions
+      operationId: list_chat_sessions_api_chat_sessions_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - intelligence
+    post:
+      summary: Create Chat Session
+      operationId: create_chat_session_api_chat_sessions_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - intelligence
+  /api/chat/rag:
+    post:
+      summary: Rag Chat
+      description: Retired — Copilot is NIDP-only. Use /chat/send or /chat/stream.
+      operationId: rag_chat_api_chat_rag_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RAGRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/chat/warmup:
+    post:
+      summary: Warmup Chat Context
+      description: 'Fire-and-forget context preload.
+
+
+        Called by the frontend when the Nivesh Copilot drawer first opens.
+
+        Triggers a fresh compute of the heaviest pieces of the chat context
+
+        (portfolio intelligence including AMC concentration, sector exposure,
+
+        overlap, etc.) and caches the rendered string in Redis. Subsequent
+
+        `/chat/send` and `/chat/stream` calls within the TTL window read
+
+        straight from the cache, so the user sees first-token latency
+
+        measured in hundreds of ms instead of seconds.
+
+
+        Advisor mode skips intelligence (uses the cross-client book instead),
+
+        so warmup is a no-op for that path.'
+      operationId: warmup_chat_context_api_chat_warmup_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - intelligence
+  /api/chat/sessions/{session_id}:
+    delete:
+      summary: Delete Chat Session
+      operationId: delete_chat_session_api_chat_sessions__session_id__delete
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/chat/messages:
+    get:
+      summary: Get Chat Messages
+      operationId: get_chat_messages_api_chat_messages_get
+      parameters:
+      - name: session_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/chat/send:
+    post:
+      summary: Send Chat
+      operationId: send_chat_api_chat_send_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatMessageInput'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/chat/stream:
+    post:
+      summary: Stream Chat
+      description: Stream AI response token-by-token via SSE.
+      operationId: stream_chat_api_chat_stream_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - intelligence
+  /api/chat/clear:
+    delete:
+      summary: Clear Chat
+      operationId: clear_chat_api_chat_clear_delete
+      parameters:
+      - name: session_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/mf/holdings:
+    get:
+      summary: Get Mf Holdings
+      operationId: get_mf_holdings_api_mf_holdings_get
+      parameters:
+      - name: scheme_name
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Scheme Name
+      - name: scheme_code
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scheme Code
+      - name: isin
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Isin
+      - name: slug
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Slug
+      - name: force
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Force
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/mf/lookup:
+    get:
+      summary: Lookup Mf
+      operationId: lookup_mf_api_mf_lookup_get
+      parameters:
+      - name: scheme_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scheme Name
+      - name: scheme_code
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scheme Code
+      - name: isin
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Isin
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/intelligence/portfolio:
+    get:
+      summary: Get Portfolio Intelligence
+      description: 'Full portfolio intelligence bundle with real stock-level overlap.
+
+
+        Returns the legacy `ai_insights` array AND a richer `top_recommendations`
+
+        array built by the dashboard orchestrator — the latter merges
+
+        portfolio_intelligence, copilot tools (rebalance, tax harvest,
+
+        risk suitability, MF intelligence, stock composite scores) into one
+
+        ranked list the frontend can render in Top3Actions + Intelligence Feed.'
+      operationId: get_portfolio_intelligence_api_intelligence_portfolio_get
+      parameters:
+      - name: narrate
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Narrate
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/intelligence/portfolio/{user_id}:
+    get:
+      summary: Admin Get Portfolio Intelligence
+      description: Admin view of any user's portfolio intelligence.
+      operationId: admin_get_portfolio_intelligence_api_intelligence_portfolio__user_id__get
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      - name: narrate
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Narrate
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/intelligence/simulate:
+    post:
+      summary: Simulate Removal
+      description: 'What-if simulation: recompute intelligence after removing N funds.
+
+
+        Re-uses the same compute pipeline but zeroes-out the removed MF amounts.'
+      operationId: simulate_removal_api_intelligence_simulate_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SimulateBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/intelligence/rate-fund/{instrument_id}:
+    post:
+      summary: Rate Single Fund
+      description: Admin-triggered AI rating for a single fund — cached in mutual_fund_metadata.
+      operationId: rate_single_fund_api_intelligence_rate_fund__instrument_id__post
+      parameters:
+      - name: instrument_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Instrument Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/intelligence/v3-score/{instrument_id}:
+    get:
+      summary: Get V3 Score
+      description: 'Return V3 Engine scores for a single fund.
+
+
+        Cache: reads from Redis first (24h TTL). Pass ?refresh=true to bypass
+
+        cache AND recompute NAV analytics before scoring.'
+      operationId: get_v3_score_api_intelligence_v3_score__instrument_id__get
+      parameters:
+      - name: instrument_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Instrument Id
+      - name: refresh
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Refresh
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/intelligence/v3-score/{instrument_id}/refresh-analytics:
+    post:
+      summary: Refresh Nav Analytics
+      description: Recompute max_drawdown/consistency/downside_capture/aum_trend from
+        NAV+AUM history.
+      operationId: refresh_nav_analytics_api_intelligence_v3_score__instrument_id__refresh_analytics_post
+      parameters:
+      - name: instrument_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Instrument Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+  /api/intelligence/sector-peers/{symbol}:
+    get:
+      summary: Sector Peer Comparison
+      description: 'Rank same-sector peers of a stock the user holds, scored by V3.
+
+
+        Powers the Quick Action "Compare My Funds" / "Sector Exposure" deep-link
+
+        for stock investors. Returns the user''s symbol + top peers sorted by
+
+        composite quality + momentum, so the dashboard can render a side-by-side
+
+        fundamental + technical comparison without going through the chat.'
+      operationId: sector_peer_comparison_api_intelligence_sector_peers__symbol__get
+      parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Symbol
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 10
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - intelligence
+components:
+  schemas:
+    ActionFeedback:
+      properties:
+        useful:
+          type: boolean
+          title: Useful
+        comment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Comment
+      type: object
+      required:
+      - useful
+      title: ActionFeedback
+      description: Request body for action feedback.
+    ActionRequest:
+      properties:
+        action:
+          type: string
+          title: Action
+        target:
+          type: string
+          title: Target
+        environment:
+          type: string
+          title: Environment
+          default: prod
+      type: object
+      required:
+      - action
+      - target
+      title: ActionRequest
+    ActionStatusUpdate:
+      properties:
+        status:
+          type: string
+          title: Status
+        completion_note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Completion Note
+      type: object
+      required:
+      - status
+      title: ActionStatusUpdate
+      description: Request body for updating action status.
+    AgentOneShotRequest:
+      properties:
+        agent_id:
+          type: string
+          title: Agent Id
+        model_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model Id
+        message:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Message
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+        system_prompt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: System Prompt
+      type: object
+      required:
+      - agent_id
+      - message
+      title: AgentOneShotRequest
+    AllocationItem:
+      properties:
+        asset_class:
+          type: string
+          title: Asset Class
+        value:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+        pct:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Pct
+      additionalProperties: false
+      type: object
+      required:
+      - asset_class
+      - value
+      - pct
+      title: AllocationItem
+    ApplyRequest:
+      properties:
+        scenario_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scenario Id
+        actions:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Actions
+        payload:
+          additionalProperties: true
+          type: object
+          title: Payload
+      type: object
+      required:
+      - actions
+      - payload
+      title: ApplyRequest
+    AskRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+          default: gpt-4o
+        question:
+          type: string
+          maxLength: 800
+          minLength: 2
+          title: Question
+        history:
+          anyOf:
+          - items:
+              additionalProperties:
+                type: string
+              type: object
+            type: array
+          - type: 'null'
+          title: History
+      type: object
+      required:
+      - question
+      title: AskRequest
+    AssetType:
+      type: string
+      enum:
+      - equity
+      - mutual_fund
+      - etf
+      - bond
+      - gold
+      - fd
+      - other
+      title: AssetType
+    BackfillRequest:
+      properties:
+        days:
+          type: integer
+          maximum: 730.0
+          minimum: 1.0
+          title: Days
+          description: Days of history to pull (capped at 2 years)
+          default: 60
+      type: object
+      title: BackfillRequest
+    BacktestRequest:
+      properties:
+        from_date:
+          type: string
+          title: From Date
+        to_date:
+          type: string
+          title: To Date
+        starting_capital:
+          type: number
+          title: Starting Capital
+          default: 1000000.0
+        max_positions:
+          type: integer
+          title: Max Positions
+          default: 10
+      type: object
+      required:
+      - from_date
+      - to_date
+      title: BacktestRequest
+    BandsPayload:
+      properties:
+        bands:
+          additionalProperties:
+            additionalProperties:
+              additionalProperties:
+                type: number
+              type: object
+            type: object
+          type: object
+          title: Bands
+      type: object
+      required:
+      - bands
+      title: BandsPayload
+    BasketRequest:
+      properties:
+        capital_rs:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Capital Rs
+          description: Total capital to deploy in INR (e.g. 1000000 for ₹10L)
+        max_positions:
+          type: integer
+          maximum: 20.0
+          minimum: 1.0
+          title: Max Positions
+          default: 8
+        min_conviction:
+          type: string
+          title: Min Conviction
+          default: HIGH_CONVICTION
+      type: object
+      required:
+      - capital_rs
+      title: BasketRequest
+    Body_admin_upload_scan_api_positional_scans_upload_post:
+      properties:
+        scan_name:
+          type: string
+          title: Scan Name
+        scan_date:
+          type: string
+          title: Scan Date
+        csv_file:
+          type: string
+          format: binary
+          title: Csv File
+      type: object
+      required:
+      - scan_name
+      - scan_date
+      - csv_file
+      title: Body_admin_upload_scan_api_positional_scans_upload_post
+    Body_client_upload_pdf_api_public_cas_invite__token__upload_pdf_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+        password:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Password
+      type: object
+      required:
+      - file
+      title: Body_client_upload_pdf_api_public_cas_invite__token__upload_pdf_post
+    Body_upload_cas_pdf_api_onboarding_upload_cas_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_cas_pdf_api_onboarding_upload_cas_post
+    Body_upload_csv_legacy_api_portfolio_upload_csv_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_csv_legacy_api_portfolio_upload_csv_post
+    Body_upload_portfolio_api_portfolio_upload_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_portfolio_api_portfolio_upload_post
+    BriefRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+          default: gpt-4o
+      type: object
+      title: BriefRequest
+    BuilderRequest:
+      properties:
+        monthly_sip_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Monthly Sip Rs
+        lumpsum_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Lumpsum Rs
+        monthly_surplus_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Monthly Surplus Rs
+        horizon_years:
+          anyOf:
+          - type: number
+            maximum: 100.0
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Horizon Years
+        risk_bucket:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Risk Bucket
+      type: object
+      title: BuilderRequest
+    ChatMessageInput:
+      properties:
+        message:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Message
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+      type: object
+      required:
+      - message
+      title: ChatMessageInput
+    CitationOut:
+      properties:
+        feed_id:
+          type: string
+          title: Feed Id
+        title:
+          type: string
+          title: Title
+        excerpt:
+          type: string
+          title: Excerpt
+        score:
+          type: number
+          title: Score
+        as_of:
+          type: string
+          title: As Of
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+      type: object
+      required:
+      - feed_id
+      - title
+      - excerpt
+      - score
+      - as_of
+      - url
+      - metadata
+      title: CitationOut
+    ClientDetailsRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 2
+          title: Name
+        mobile:
+          type: string
+          maxLength: 20
+          minLength: 7
+          title: Mobile
+        email:
+          type: string
+          maxLength: 255
+          minLength: 5
+          title: Email
+        pan:
+          type: string
+          maxLength: 10
+          minLength: 10
+          title: Pan
+        consent_cas_access:
+          type: boolean
+          title: Consent Cas Access
+          description: Client consents to sharing CAS holdings
+        consent_gmail_access:
+          type: boolean
+          title: Consent Gmail Access
+          description: Client consents to read-only Gmail scan for CAS emails
+          default: false
+        consent_advisor_access:
+          type: boolean
+          title: Consent Advisor Access
+          description: Client consents to advisor viewing + managing their data
+      type: object
+      required:
+      - name
+      - mobile
+      - email
+      - pan
+      - consent_cas_access
+      - consent_advisor_access
+      title: ClientDetailsRequest
+    ClientMessageRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+          default: gpt-4o
+        channel:
+          type: string
+          title: Channel
+          default: whatsapp
+        tone:
+          type: string
+          title: Tone
+          default: warm_professional
+        additional_note:
+          anyOf:
+          - type: string
+            maxLength: 400
+          - type: 'null'
+          title: Additional Note
+      type: object
+      title: ClientMessageRequest
+    ClientNotesPayload:
+      properties:
+        note:
+          anyOf:
+          - type: string
+            maxLength: 4000
+          - type: 'null'
+          title: Note
+        sip_amount_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Sip Amount Rs
+        sip_frequency:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sip Frequency
+        next_sip_due:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Sip Due
+        preferred_channel:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Preferred Channel
+      type: object
+      title: ClientNotesPayload
+      description: 'Structured notes about an MFD client. Stored per profile, editable
+
+        only by the workspace owner. SIP amount/due-date live here because
+
+        neither is reliably parsable from CAS — advisors input them manually
+
+        once, then we render it everywhere (snapshot · PDF report · priority
+
+        rules once we wire SIP-gap detection).'
+    CompanyFinancialsRequest:
+      properties:
+        symbol:
+          type: string
+          maxLength: 20
+          minLength: 1
+          title: Symbol
+          description: NSE symbol (e.g. RELIANCE, TCS, INFY)
+        quarters:
+          type: integer
+          maximum: 16.0
+          minimum: 2.0
+          title: Quarters
+          description: Number of quarters to fetch (2-16)
+          default: 8
+      type: object
+      required:
+      - symbol
+      title: CompanyFinancialsRequest
+    CompareRequest:
+      properties:
+        scheme_codes:
+          items:
+            type: string
+          type: array
+          maxItems: 4
+          minItems: 2
+          title: Scheme Codes
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      required:
+      - scheme_codes
+      title: CompareRequest
+    ConnectRequest:
+      properties:
+        broker:
+          type: string
+          maxLength: 40
+          minLength: 2
+          title: Broker
+        openalgo_url:
+          anyOf:
+          - type: string
+            maxLength: 300
+          - type: 'null'
+          title: Openalgo Url
+        api_key:
+          type: string
+          maxLength: 300
+          minLength: 8
+          title: Api Key
+        label:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Label
+      type: object
+      required:
+      - broker
+      - api_key
+      title: ConnectRequest
+    CopilotAskRequest:
+      properties:
+        query:
+          type: string
+          maxLength: 500
+          minLength: 2
+          title: Query
+      type: object
+      required:
+      - query
+      title: CopilotAskRequest
+    CreateActionRequest:
+      properties:
+        source_domain:
+          type: string
+          title: Source Domain
+        type:
+          type: string
+          title: Type
+        verb:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Verb
+        asset_type:
+          type: string
+          title: Asset Type
+        asset_name:
+          type: string
+          title: Asset Name
+        instrument_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Instrument Id
+        amount:
+          type: number
+          title: Amount
+          default: 0
+        priority:
+          type: integer
+          title: Priority
+          default: 2
+        priority_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Priority Label
+        impact:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Impact
+        effort:
+          type: string
+          title: Effort
+          default: MEDIUM
+        trade_off:
+          type: string
+          title: Trade Off
+          default: ''
+        expected_impact:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Expected Impact
+        exclusive:
+          type: boolean
+          title: Exclusive
+          default: false
+        reason_text:
+          type: string
+          title: Reason Text
+          default: ''
+        reason_codes:
+          items:
+            type: string
+          type: array
+          title: Reason Codes
+          default: []
+        confidence:
+          type: string
+          title: Confidence
+          default: MEDIUM
+      type: object
+      required:
+      - source_domain
+      - type
+      - asset_type
+      - asset_name
+      title: CreateActionRequest
+    DematAccount:
+      properties:
+        dp_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Dp Id
+        client_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Id
+        holdings:
+          $ref: '#/components/schemas/DematHoldingsBuckets'
+      type: object
+      title: DematAccount
+      description: "An aggregated demat account.\n\nThe SDK sends:\n    { dp_id?,\
+        \ client_id?, holdings: { equities: […], … } }\n\nThe legacy synthetic shape\
+        \ sent:\n    { dp_id?, client_id?, holdings: [DematHolding, …] }   # flat\
+        \ list\n\nBoth are normalised below into the canonical bucket object so the\n\
+        iterator + builder code below only ever sees one shape."
+    DematHolding:
+      properties:
+        isin:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Isin
+        name:
+          type: string
+          title: Name
+        quantity:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Quantity
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+        instrument_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Instrument Type
+      type: object
+      required:
+      - name
+      - quantity
+      - value
+      title: DematHolding
+      description: One line within a demat-account bucket (equity, ETF, MF unit, bond,
+        …).
+    DematHoldingsBuckets:
+      properties:
+        equities:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Equities
+        demat_mutual_funds:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Demat Mutual Funds
+        corporate_bonds:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Corporate Bonds
+        aifs:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Aifs
+        government_securities:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Government Securities
+      type: object
+      title: DematHoldingsBuckets
+      description: The bucket object that lives under ``demat_accounts[].holdings``.
+    DiscussActionRequest:
+      properties:
+        discussion_note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Discussion Note
+      type: object
+      title: DiscussActionRequest
+      description: Per PRD §10.2 — advisor records a Discuss event without touching
+        status.
+    ExplainRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+          default: gpt-4o
+        focus:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Focus
+      type: object
+      title: ExplainRequest
+    FeedOut:
+      properties:
+        feed_id:
+          type: string
+          title: Feed Id
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        retrieval_kind:
+          type: string
+          title: Retrieval Kind
+        tier:
+          type: string
+          title: Tier
+        params_schema:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Params Schema
+      type: object
+      required:
+      - feed_id
+      - name
+      - description
+      - retrieval_kind
+      - tier
+      - params_schema
+      title: FeedOut
+    FinancialSnapshot:
+      properties:
+        age:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Age
+        marital_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Marital Status
+        dependents:
+          type: integer
+          title: Dependents
+          default: 0
+        monthly_income_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Monthly Income Rs
+        income_growth_pct:
+          type: number
+          title: Income Growth Pct
+          default: 8.0
+        monthly_expenses_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Monthly Expenses Rs
+        inflation_pct:
+          type: number
+          title: Inflation Pct
+          default: 6.0
+        current_corpus_rs:
+          type: number
+          title: Current Corpus Rs
+          default: 0.0
+        total_liabilities_rs:
+          type: number
+          title: Total Liabilities Rs
+          default: 0.0
+        risk_profile:
+          type: string
+          title: Risk Profile
+          default: moderate
+        behavior_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Behavior Score
+      type: object
+      title: FinancialSnapshot
+    FundCardRequest:
+      properties:
+        query:
+          type: string
+          maxLength: 200
+          minLength: 2
+          title: Query
+          description: Scheme name, code, or natural-language fragment
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      required:
+      - query
+      title: FundCardRequest
+    GoalCreate:
+      properties:
+        goal_type:
+          type: string
+          title: Goal Type
+          description: retirement|education|home|wealth|custom
+        goal_name:
+          type: string
+          title: Goal Name
+        target_amount_rs:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Target Amount Rs
+        horizon_years:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Horizon Years
+        priority:
+          type: string
+          title: Priority
+          default: medium
+        inflation_pct:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Inflation Pct
+          default: 6.0
+        current_corpus_rs:
+          type: number
+          title: Current Corpus Rs
+          default: 0.0
+        monthly_sip_rs:
+          type: number
+          title: Monthly Sip Rs
+          default: 0.0
+        manual_allocation:
+          anyOf:
+          - additionalProperties:
+              type: number
+            type: object
+          - type: 'null'
+          title: Manual Allocation
+      type: object
+      required:
+      - goal_type
+      - goal_name
+      - target_amount_rs
+      - horizon_years
+      title: GoalCreate
+    GoalUpdate:
+      properties:
+        goal_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Goal Name
+        target_amount_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Amount Rs
+        horizon_years:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Horizon Years
+        priority:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Priority
+        monthly_sip_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Monthly Sip Rs
+        current_corpus_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Current Corpus Rs
+        allocation:
+          anyOf:
+          - additionalProperties:
+              type: number
+            type: object
+          - type: 'null'
+          title: Allocation
+        selected_funds:
+          anyOf:
+          - additionalProperties:
+              items:
+                additionalProperties: true
+                type: object
+              type: array
+            type: object
+          - type: 'null'
+          title: Selected Funds
+        manual_fund_override:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Manual Fund Override
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      type: object
+      title: GoalUpdate
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        service:
+          type: string
+          title: Service
+        version:
+          type: string
+          title: Version
+        env:
+          type: string
+          title: Env
+      type: object
+      required:
+      - status
+      - service
+      - version
+      - env
+      title: HealthResponse
+    HoldingCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Name
+        ticker:
+          anyOf:
+          - type: string
+            maxLength: 50
+          - type: 'null'
+          title: Ticker
+          default: ''
+        asset_type:
+          $ref: '#/components/schemas/AssetType'
+        quantity:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Quantity
+        buy_price:
+          type: number
+          minimum: 0.0
+          title: Buy Price
+        current_price:
+          type: number
+          minimum: 0.0
+          title: Current Price
+        sector:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Sector
+          default: Other
+        buy_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buy Date
+          default: ''
+        portfolio_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Portfolio Id
+          default: ''
+      type: object
+      required:
+      - name
+      - asset_type
+      - quantity
+      - buy_price
+      - current_price
+      title: HoldingCreate
+    HoldingTechnicalsRequest:
+      properties:
+        symbol:
+          type: string
+          title: Symbol
+          description: NSE symbol (e.g. RELIANCE)
+      type: object
+      required:
+      - symbol
+      title: HoldingTechnicalsRequest
+    HoldingUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Name
+        ticker:
+          anyOf:
+          - type: string
+            maxLength: 50
+          - type: 'null'
+          title: Ticker
+        asset_type:
+          anyOf:
+          - $ref: '#/components/schemas/AssetType'
+          - type: 'null'
+        quantity:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Quantity
+        buy_price:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Buy Price
+        current_price:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Current Price
+        sector:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Sector
+        buy_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buy Date
+      type: object
+      title: HoldingUpdate
+    HostedConnectRequest:
+      properties:
+        broker:
+          type: string
+          maxLength: 40
+          minLength: 2
+          title: Broker
+        label:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Label
+      type: object
+      required:
+      - broker
+      title: HostedConnectRequest
+    ImportRequest:
+      properties:
+        selections:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Selections
+          description: list of {message_id, attachment_id, filename}
+        password:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Password
+          description: Optional override — defaults to the PAN captured in client-details
+      type: object
+      required:
+      - selections
+      title: ImportRequest
+    InsurancePolicy:
+      properties:
+        policy_number:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Policy Number
+        name:
+          type: string
+          title: Name
+        sum_assured:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Sum Assured
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+          default: '0'
+      type: object
+      required:
+      - name
+      title: InsurancePolicy
+    InsuranceSection:
+      properties:
+        life_insurance_policies:
+          items:
+            $ref: '#/components/schemas/InsurancePolicy'
+          type: array
+          title: Life Insurance Policies
+      type: object
+      title: InsuranceSection
+    InvestmentGoal:
+      type: string
+      enum:
+      - retirement
+      - house
+      - education
+      - travel
+      - wealth
+      - emergency
+      title: InvestmentGoal
+    InvestmentHorizonLevel:
+      type: string
+      enum:
+      - short
+      - medium
+      - long
+      - very_long
+      title: InvestmentHorizonLevel
+    InviteCreateRequest:
+      properties:
+        ttl_hours:
+          anyOf:
+          - type: integer
+            maximum: 168.0
+            minimum: 1.0
+          - type: 'null'
+          title: Ttl Hours
+          default: 24
+        client_name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Client Name
+        client_mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Client Mobile
+        client_email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Client Email
+        regenerate:
+          type: boolean
+          title: Regenerate
+          description: If True, deactivate any existing active invite for this profile
+            before issuing a new one.
+          default: false
+      type: object
+      title: InviteCreateRequest
+    IssueCreate:
+      properties:
+        sig:
+          type: string
+          title: Sig
+        title:
+          type: string
+          title: Title
+        severity:
+          type: string
+          title: Severity
+          default: ERROR
+        priority:
+          type: string
+          title: Priority
+          default: P2
+        source:
+          type: string
+          title: Source
+          default: cloud_logging
+        exception_class:
+          type: string
+          title: Exception Class
+          default: ''
+        endpoint:
+          type: string
+          title: Endpoint
+          default: ''
+        job_name:
+          type: string
+          title: Job Name
+          default: ''
+        http_status:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Http Status
+        sample_message:
+          type: string
+          title: Sample Message
+          default: ''
+        sample_traceback:
+          type: string
+          title: Sample Traceback
+          default: ''
+        first_seen:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: First Seen
+        last_seen:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Seen
+        count_24h:
+          type: integer
+          title: Count 24H
+          default: 1
+        applications:
+          items:
+            type: string
+          type: array
+          title: Applications
+        rca:
+          anyOf:
+          - $ref: '#/components/schemas/RcaBlock'
+          - type: 'null'
+        labels:
+          items:
+            type: string
+          type: array
+          title: Labels
+      type: object
+      required:
+      - sig
+      - title
+      title: IssueCreate
+    IssueUpdate:
+      properties:
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        priority:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Priority
+        assignee:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Assignee
+        labels:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Labels
+        rca:
+          anyOf:
+          - $ref: '#/components/schemas/RcaBlock'
+          - type: 'null'
+        comment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Comment
+      type: object
+      title: IssueUpdate
+    JobSummary:
+      properties:
+        status:
+          type: string
+          title: Status
+        count:
+          type: integer
+          title: Count
+      type: object
+      required:
+      - status
+      - count
+      title: JobSummary
+    JourneyInput:
+      properties:
+        journey_type:
+          $ref: '#/components/schemas/JourneyType'
+      type: object
+      required:
+      - journey_type
+      title: JourneyInput
+    JourneyType:
+      type: string
+      enum:
+      - existing_investor
+      - new_investor
+      - mfd_advisor
+      title: JourneyType
+    ManualSnapshotRequest:
+      properties:
+        trigger:
+          type: string
+          maxLength: 32
+          title: Trigger
+          default: manual
+      type: object
+      title: ManualSnapshotRequest
+    MessageFeedbackRequest:
+      properties:
+        message_id:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Message Id
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+        rating:
+          type: string
+          pattern: ^(up|down)$
+          title: Rating
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        comment:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Comment
+      type: object
+      required:
+      - message_id
+      - rating
+      title: MessageFeedbackRequest
+    MfFolio:
+      properties:
+        amc:
+          type: string
+          title: Amc
+        folio:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Folio
+        registrar:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Registrar
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Value
+        schemes:
+          items:
+            $ref: '#/components/schemas/MfScheme'
+          type: array
+          title: Schemes
+      type: object
+      required:
+      - amc
+      title: MfFolio
+      description: 'A folio at one AMC.  `mutual_funds[]` is a list of these.
+
+
+        Accepts both the real SDK key ``folio_number`` and the legacy synthetic
+
+        key ``folio`` via the populate-by-name alias config.'
+    MfScheme:
+      properties:
+        isin:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Isin
+        name:
+          type: string
+          title: Name
+        units:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Units
+        nav:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Nav
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+        cost:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Cost
+        type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Type
+        scheme_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scheme Code
+      type: object
+      required:
+      - name
+      - units
+      - value
+      title: MfScheme
+      description: 'One scheme within a folio.  Real SDK fields:
+
+        isin, name, units, nav, value, cost, gain{absolute,percentage}, type, …'
+    NpsHolding:
+      properties:
+        pran:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pran
+        scheme:
+          type: string
+          title: Scheme
+        units:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Units
+        nav:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Nav
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+      type: object
+      required:
+      - scheme
+      - units
+      - value
+      title: NpsHolding
+    OverlapRequest:
+      properties:
+        scheme_codes:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Scheme Codes
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      title: OverlapRequest
+    PanInput:
+      properties:
+        pan:
+          type: string
+          maxLength: 10
+          minLength: 10
+          title: Pan
+      type: object
+      required:
+      - pan
+      title: PanInput
+    ParsedData:
+      properties:
+        meta:
+          additionalProperties: true
+          type: object
+          title: Meta
+        investor:
+          additionalProperties: true
+          type: object
+          title: Investor
+        summary:
+          additionalProperties: true
+          type: object
+          title: Summary
+        demat_accounts:
+          items:
+            $ref: '#/components/schemas/DematAccount'
+          type: array
+          title: Demat Accounts
+        mutual_funds:
+          items:
+            $ref: '#/components/schemas/MfFolio'
+          type: array
+          title: Mutual Funds
+        insurance:
+          $ref: '#/components/schemas/InsuranceSection'
+        nps:
+          items:
+            $ref: '#/components/schemas/NpsHolding'
+          type: array
+          title: Nps
+      type: object
+      title: ParsedData
+      description: The ``data`` field of the SDK ``onSuccess`` callback.
+    PersonaOverrideInput:
+      properties:
+        persona:
+          $ref: '#/components/schemas/PersonaType'
+      type: object
+      required:
+      - persona
+      title: PersonaOverrideInput
+    PersonaType:
+      type: string
+      enum:
+      - retail_investor
+      - mutual_fund_investor
+      - stock_investor
+      - active_trader
+      - swing_trader
+      - intraday_trader
+      - options_trader
+      - mfd_advisor
+      - hni_investor
+      - retirement_planner
+      - parents_planning
+      - tax_saver
+      - conservative_investor
+      - beginner_investor
+      - nri_investor
+      title: PersonaType
+    PortfolioCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        member_name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Member Name
+        relationship:
+          $ref: '#/components/schemas/Relationship'
+      type: object
+      required:
+      - name
+      - member_name
+      - relationship
+      title: PortfolioCreate
+    PortfolioResponse:
+      properties:
+        total_value:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Total Value
+        holdings_count:
+          type: integer
+          title: Holdings Count
+        allocation:
+          items:
+            $ref: '#/components/schemas/AllocationItem'
+          type: array
+          title: Allocation
+        top_holdings:
+          items:
+            $ref: '#/components/schemas/TopHolding'
+          type: array
+          title: Top Holdings
+      additionalProperties: false
+      type: object
+      required:
+      - total_value
+      - holdings_count
+      - allocation
+      - top_holdings
+      title: PortfolioResponse
+    ProfileCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+        aum_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Aum Rs
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tags
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Email
+        mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Mobile
+        pan:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Pan
+      type: object
+      required:
+      - name
+      title: ProfileCreate
+    ProfileUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Name
+        aum_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Aum Rs
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tags
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Email
+        mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Mobile
+        pan:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Pan
+        last_reviewed_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Reviewed At
+      type: object
+      title: ProfileUpdate
+    QuickSetupInput:
+      properties:
+        age:
+          type: integer
+          maximum: 100.0
+          minimum: 18.0
+          title: Age
+        goal:
+          $ref: '#/components/schemas/InvestmentGoal'
+        risk_appetite:
+          $ref: '#/components/schemas/RiskAppetiteLevel'
+        investment_horizon:
+          $ref: '#/components/schemas/InvestmentHorizonLevel'
+        monthly_investment:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Monthly Investment
+      type: object
+      required:
+      - age
+      - goal
+      - risk_appetite
+      - investment_horizon
+      title: QuickSetupInput
+    RAGRequest:
+      properties:
+        message:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Message
+        history:
+          anyOf:
+          - items:
+              additionalProperties:
+                type: string
+              type: object
+            type: array
+          - type: 'null'
+          title: History
+      type: object
+      required:
+      - message
+      title: RAGRequest
+    RcaBlock:
+      properties:
+        root_cause:
+          type: string
+          title: Root Cause
+          default: ''
+        fix_suggestion:
+          type: string
+          title: Fix Suggestion
+          default: ''
+        confidence:
+          type: number
+          title: Confidence
+          default: 0.0
+        source:
+          type: string
+          title: Source
+          default: unknown
+        fix_file:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fix File
+        fix_description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fix Description
+      type: object
+      title: RcaBlock
+    ReadyzResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        service:
+          type: string
+          title: Service
+        version:
+          type: string
+          title: Version
+        env:
+          type: string
+          title: Env
+        postgres:
+          type: string
+          title: Postgres
+        mongo:
+          type: string
+          title: Mongo
+        migration_version:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Migration Version
+        pg_pool_size:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Pg Pool Size
+      type: object
+      required:
+      - status
+      - service
+      - version
+      - env
+      - postgres
+      - mongo
+      - migration_version
+      - pg_pool_size
+      title: ReadyzResponse
+    RebalanceRequest:
+      properties:
+        target_equity:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Equity
+        target_debt:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Debt
+        target_gold:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Gold
+        target_amc_cap:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Amc Cap
+        switch_to_direct:
+          type: boolean
+          title: Switch To Direct
+          default: false
+        remove_dead:
+          type: boolean
+          title: Remove Dead
+          default: false
+      type: object
+      title: RebalanceRequest
+    RefreshRequest:
+      properties:
+        target_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Target Date
+          description: ISO date (YYYY-MM-DD); defaults to today
+      type: object
+      title: RefreshRequest
+    Relationship:
+      type: string
+      enum:
+      - Self
+      - Spouse
+      - Child
+      - Parent
+      - Sibling
+      - Other
+      title: Relationship
+    ReparseRequest:
+      properties:
+        password:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Password
+      type: object
+      title: ReparseRequest
+    ReviewPackRequest:
+      properties:
+        format:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Format
+          default: pdf
+        sections:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Sections
+      type: object
+      title: ReviewPackRequest
+    RiskAppetiteLevel:
+      type: string
+      enum:
+      - conservative
+      - moderate
+      - aggressive
+      title: RiskAppetiteLevel
+    RiskProfileInput:
+      properties:
+        answers:
+          items:
+            $ref: '#/components/schemas/models__RiskProfileAnswer'
+          type: array
+          title: Answers
+      type: object
+      required:
+      - answers
+      title: RiskProfileInput
+    RouteIntentRequest:
+      properties:
+        message:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Message
+      type: object
+      required:
+      - message
+      title: RouteIntentRequest
+    SaveScenarioRequest:
+      properties:
+        name:
+          type: string
+          title: Name
+        scenario_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scenario Id
+        payload:
+          additionalProperties: true
+          type: object
+          title: Payload
+        result:
+          additionalProperties: true
+          type: object
+          title: Result
+      type: object
+      required:
+      - name
+      - payload
+      - result
+      title: SaveScenarioRequest
+    SdkCallbackPayload:
+      properties:
+        upload_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Upload Id
+        checksum:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Checksum
+        statement_from:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Statement From
+        statement_to:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Statement To
+        generated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Generated At
+        source_type:
+          type: string
+          title: Source Type
+        metadata:
+          $ref: '#/components/schemas/SdkMetadata'
+        data:
+          $ref: '#/components/schemas/ParsedData'
+      type: object
+      required:
+      - source_type
+      - data
+      title: SdkCallbackPayload
+      description: Wire body of POST /api/cas/sdk-callback.
+    SdkCallbackResponse:
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          title: Job Id
+        snapshot_id:
+          type: string
+          format: uuid
+          title: Snapshot Id
+        is_new:
+          type: boolean
+          title: Is New
+        is_active:
+          type: boolean
+          title: Is Active
+        status:
+          type: string
+          enum:
+          - activated
+          - stored_inactive
+          title: Status
+        raw_pdf_available:
+          type: boolean
+          title: Raw Pdf Available
+          default: true
+        period:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Period
+        portfolio:
+          $ref: '#/components/schemas/PortfolioResponse'
+      additionalProperties: false
+      type: object
+      required:
+      - job_id
+      - snapshot_id
+      - is_new
+      - is_active
+      - status
+      - portfolio
+      title: SdkCallbackResponse
+    SdkMetadata:
+      properties:
+        method:
+          type: string
+          title: Method
+          default: upload
+        cas_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cas Type
+        processing_time_ms:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Processing Time Ms
+        raw_pdf_available:
+          type: boolean
+          title: Raw Pdf Available
+          default: true
+      type: object
+      title: SdkMetadata
+    SearchIn:
+      properties:
+        query:
+          type: string
+          title: Query
+        top_k:
+          type: integer
+          maximum: 50.0
+          minimum: 1.0
+          title: Top K
+          default: 10
+        feed_ids:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Feed Ids
+      type: object
+      required:
+      - query
+      title: SearchIn
+    SimulateBody:
+      properties:
+        remove_mf_ids:
+          items:
+            type: string
+          type: array
+          title: Remove Mf Ids
+          default: []
+      type: object
+      title: SimulateBody
+    SimulateBuilderRequest:
+      properties:
+        starting_corpus_rs:
+          type: number
+          minimum: 0.0
+          title: Starting Corpus Rs
+          default: 0
+        monthly_sip_rs:
+          type: number
+          minimum: 0.0
+          title: Monthly Sip Rs
+          default: 0
+        years:
+          type: number
+          maximum: 50.0
+          exclusiveMinimum: 0.0
+          title: Years
+        future_target_rs:
+          type: number
+          minimum: 0.0
+          title: Future Target Rs
+          default: 0
+        allocation:
+          anyOf:
+          - additionalProperties:
+              type: number
+            type: object
+          - type: 'null'
+          title: Allocation
+      type: object
+      required:
+      - years
+      title: SimulateBuilderRequest
+    SipPlanRequest:
+      properties:
+        monthly_budget:
+          type: number
+          maximum: 10000000.0
+          exclusiveMinimum: 0.0
+          title: Monthly Budget
+        risk_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Risk Label
+          default: Moderate
+        years:
+          anyOf:
+          - type: integer
+            maximum: 40.0
+            minimum: 1.0
+          - type: 'null'
+          title: Years
+          default: 10
+        goal_amount:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Goal Amount
+        step_up_pct:
+          anyOf:
+          - type: number
+            maximum: 0.5
+            minimum: 0.0
+          - type: 'null'
+          title: Step Up Pct
+          default: 0.0
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      required:
+      - monthly_budget
+      title: SipPlanRequest
+    SnapshotDetail:
+      properties:
+        snapshot:
+          $ref: '#/components/schemas/SnapshotItem'
+        portfolio:
+          $ref: '#/components/schemas/PortfolioResponse'
+      additionalProperties: false
+      type: object
+      required:
+      - snapshot
+      - portfolio
+      title: SnapshotDetail
+    SnapshotItem:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        source_type:
+          type: string
+          title: Source Type
+        statement_from:
+          type: string
+          title: Statement From
+        statement_to:
+          type: string
+          title: Statement To
+        period:
+          type: string
+          title: Period
+        generated_at:
+          type: string
+          title: Generated At
+        is_active:
+          type: boolean
+          title: Is Active
+        total_value:
+          anyOf:
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Total Value
+        holdings_count:
+          type: integer
+          title: Holdings Count
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - source_type
+      - statement_from
+      - statement_to
+      - period
+      - generated_at
+      - is_active
+      - total_value
+      - holdings_count
+      title: SnapshotItem
+    SnapshotsList:
+      properties:
+        snapshots:
+          items:
+            $ref: '#/components/schemas/SnapshotItem'
+          type: array
+          title: Snapshots
+      additionalProperties: false
+      type: object
+      required:
+      - snapshots
+      title: SnapshotsList
+    StaleJob:
+      properties:
+        id:
+          type: string
+          title: Id
+        pan_hash_prefix:
+          type: string
+          title: Pan Hash Prefix
+        source_type:
+          type: string
+          title: Source Type
+        method:
+          type: string
+          title: Method
+        status:
+          type: string
+          title: Status
+        minutes_stuck:
+          type: integer
+          title: Minutes Stuck
+      type: object
+      required:
+      - id
+      - pan_hash_prefix
+      - source_type
+      - method
+      - status
+      - minutes_stuck
+      title: StaleJob
+    StockWeightsPayload:
+      properties:
+        weights:
+          additionalProperties:
+            additionalProperties:
+              type: number
+            type: object
+          type: object
+          title: Weights
+      type: object
+      required:
+      - weights
+      title: StockWeightsPayload
+    StrategyCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        asset_class:
+          type: string
+          pattern: ^(STOCK|MF)$
+          title: Asset Class
+        definition:
+          additionalProperties: true
+          type: object
+          title: Definition
+      type: object
+      required:
+      - name
+      - asset_class
+      - definition
+      title: StrategyCreate
+    StrategyUpdate:
+      properties:
+        definition:
+          additionalProperties: true
+          type: object
+          title: Definition
+      type: object
+      required:
+      - definition
+      title: StrategyUpdate
+    StressTestRequest:
+      properties:
+        scenario:
+          type: string
+          title: Scenario
+          default: covid_2020
+        custom_drop_pct:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Custom Drop Pct
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      title: StressTestRequest
+    SubscriptionIn:
+      properties:
+        feed_id:
+          type: string
+          title: Feed Id
+        params:
+          additionalProperties: true
+          type: object
+          title: Params
+      type: object
+      required:
+      - feed_id
+      title: SubscriptionIn
+    SubscriptionOut:
+      properties:
+        feed_id:
+          type: string
+          title: Feed Id
+        feed_name:
+          type: string
+          title: Feed Name
+        params:
+          additionalProperties: true
+          type: object
+          title: Params
+        paused:
+          type: boolean
+          title: Paused
+        subscribed_at:
+          type: string
+          title: Subscribed At
+      type: object
+      required:
+      - feed_id
+      - feed_name
+      - params
+      - paused
+      - subscribed_at
+      title: SubscriptionOut
+    TokenResponse:
+      properties:
+        access_token:
+          type: string
+          title: Access Token
+        expires_at:
+          type: string
+          title: Expires At
+        stub:
+          type: boolean
+          title: Stub
+      additionalProperties: false
+      type: object
+      required:
+      - access_token
+      - expires_at
+      - stub
+      title: TokenResponse
+    TopHolding:
+      properties:
+        name:
+          type: string
+          title: Name
+        asset_class:
+          type: string
+          title: Asset Class
+        value:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+        pct:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Pct
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - asset_class
+      - value
+      - pct
+      title: TopHolding
+    TriggerDailyReq:
+      properties:
+        start_date:
+          type: string
+          format: date
+          title: Start Date
+        end_date:
+          type: string
+          format: date
+          title: End Date
+        ingesters:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Ingesters
+        wipe_first:
+          type: boolean
+          title: Wipe First
+          default: false
+        politeness_ms:
+          type: integer
+          maximum: 30000.0
+          minimum: 500.0
+          title: Politeness Ms
+          default: 4000
+        parallel:
+          type: integer
+          maximum: 8.0
+          minimum: 1.0
+          title: Parallel
+          default: 1
+      type: object
+      required:
+      - start_date
+      - end_date
+      - ingesters
+      title: TriggerDailyReq
+    TriggerFinancialsReq:
+      properties:
+        symbols:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Symbols
+          description: 'Comma-separated NSE symbols (default: Nifty 500)'
+        concurrency:
+          type: integer
+          maximum: 15.0
+          minimum: 1.0
+          title: Concurrency
+          default: 8
+        per_request_delay:
+          type: number
+          maximum: 10.0
+          minimum: 0.5
+          title: Per Request Delay
+          default: 1.5
+        only_missing:
+          type: boolean
+          title: Only Missing
+          description: Skip symbols already having ≥8 quarters
+          default: false
+      type: object
+      title: TriggerFinancialsReq
+    TriggerNavHistoryReq:
+      properties:
+        scheme_codes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scheme Codes
+          description: 'Comma-separated scheme codes (default: all active)'
+        from_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: From Date
+        to_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: To Date
+        concurrency:
+          type: integer
+          maximum: 40.0
+          minimum: 1.0
+          title: Concurrency
+          default: 30
+        only_stale_days:
+          type: integer
+          minimum: 0.0
+          title: Only Stale Days
+          description: 0 = full backfill (recommended for initial run)
+          default: 0
+      type: object
+      title: TriggerNavHistoryReq
+    TriggerRollingReq:
+      properties:
+        start_date:
+          type: string
+          format: date
+          title: Start Date
+        end_date:
+          type: string
+          format: date
+          title: End Date
+        services:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Services
+        skip_existing:
+          type: boolean
+          title: Skip Existing
+          default: true
+      type: object
+      required:
+      - start_date
+      - end_date
+      - services
+      title: TriggerRollingReq
+    TriggerYfinanceReq:
+      properties:
+        start_date:
+          type: string
+          format: date
+          title: Start Date
+        end_date:
+          type: string
+          format: date
+          title: End Date
+        symbols:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Symbols
+          description: 'Comma-separated NSE symbols (default: Nifty 500)'
+        concurrency:
+          type: integer
+          maximum: 20.0
+          minimum: 1.0
+          title: Concurrency
+          default: 8
+        per_request_delay:
+          type: number
+          maximum: 10.0
+          minimum: 0.5
+          title: Per Request Delay
+          default: 1.0
+      type: object
+      title: TriggerYfinanceReq
+    UniverseCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        asset_class:
+          type: string
+          pattern: ^(STOCK|MF)$
+          title: Asset Class
+        symbols:
+          items:
+            type: string
+          type: array
+          title: Symbols
+      type: object
+      required:
+      - name
+      - asset_class
+      title: UniverseCreate
+    UploadCompleteRequest:
+      properties:
+        upload_id:
+          type: string
+          format: uuid
+          title: Upload Id
+        checksum:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Checksum
+          description: SHA-256 of the uploaded PDF (hex). Optional in V1.
+      type: object
+      required:
+      - upload_id
+      title: UploadCompleteRequest
+    UploadInitRequest:
+      properties:
+        source_type:
+          type: string
+          title: Source Type
+          description: ECAS_CDSL | ECAS_NSDL | MF_CAMS | MF_KFIN
+        filename:
+          type: string
+          maxLength: 256
+          title: Filename
+          default: cas.pdf
+      type: object
+      required:
+      - source_type
+      title: UploadInitRequest
+    UploadInitResponse:
+      properties:
+        upload_id:
+          type: string
+          format: uuid
+          title: Upload Id
+        upload_url:
+          type: string
+          title: Upload Url
+        object_key:
+          type: string
+          title: Object Key
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+        stub:
+          type: boolean
+          title: Stub
+          default: false
+      additionalProperties: false
+      type: object
+      required:
+      - upload_id
+      - upload_url
+      - object_key
+      - expires_at
+      title: UploadInitResponse
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    WeightsPayload:
+      properties:
+        weights:
+          additionalProperties:
+            additionalProperties:
+              additionalProperties:
+                type: number
+              type: object
+            type: object
+          type: object
+          title: Weights
+      type: object
+      required:
+      - weights
+      title: WeightsPayload
+    WhatIfRequest:
+      properties:
+        monthly_sip_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Monthly Sip Rs
+        horizon_years:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Horizon Years
+        current_corpus_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Current Corpus Rs
+        allocation_override:
+          anyOf:
+          - additionalProperties:
+              type: number
+            type: object
+          - type: 'null'
+          title: Allocation Override
+      type: object
+      title: WhatIfRequest
+    WhatsAppShareRequest:
+      properties:
+        monthly_sip_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Monthly Sip Rs
+        lumpsum_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Lumpsum Rs
+        client_name:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Client Name
+        public_url:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Public Url
+      type: object
+      title: WhatsAppShareRequest
+    WorkspaceModeUpdate:
+      properties:
+        mode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mode
+          description: INDIVIDUAL | ADVISORY
+        firm_name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Firm Name
+        client_count_range:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Count Range
+          description: <100 | 100-500 | 500+
+        mfd_onboarding_completed:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Mfd Onboarding Completed
+        advisor_name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Advisor Name
+        advisor_mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Advisor Mobile
+        advisor_email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Advisor Email
+        arn_or_ria:
+          anyOf:
+          - type: string
+            maxLength: 50
+          - type: 'null'
+          title: Arn Or Ria
+          description: ARN-xxxxx or INA-xxxxx
+      type: object
+      title: WorkspaceModeUpdate
+    _LayoutOnlyRequest:
+      properties:
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      title: _LayoutOnlyRequest
+    models__RiskProfileAnswer:
+      properties:
+        question_id:
+          type: string
+          title: Question Id
+        answer:
+          type: string
+          title: Answer
+      type: object
+      required:
+      - question_id
+      - answer
+      title: RiskProfileAnswer
+    routes__portfolio_builder__RiskProfileAnswer:
+      properties:
+        question_id:
+          type: string
+          title: Question Id
+        value:
+          type: string
+          title: Value
+      type: object
+      required:
+      - question_id
+      - value
+      title: RiskProfileAnswer
+    routes__positional__SimulateRequest:
+      properties:
+        basket:
+          items: {}
+          type: array
+          title: Basket
+          description: Basket items from POST /basket — list of position dicts
+        horizon_days:
+          type: integer
+          maximum: 20.0
+          minimum: 5.0
+          title: Horizon Days
+          default: 10
+      type: object
+      required:
+      - basket
+      title: SimulateRequest
+    routes__scenarios__SimulateRequest:
+      properties:
+        scenario_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scenario Id
+        target_equity:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Equity
+        target_debt:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Debt
+        target_gold:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Gold
+        target_amc_cap:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Amc Cap
+        target_small_cap:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Small Cap
+        switch_to_direct:
+          type: boolean
+          title: Switch To Direct
+          default: false
+        remove_dead:
+          type: boolean
+          title: Remove Dead
+          default: false
+      type: object
+      title: SimulateRequest

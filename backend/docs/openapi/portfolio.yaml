@@ -1,0 +1,4986 @@
+openapi: 3.1.0
+info:
+  title: Portfolio
+  version: 1.0.0
+paths:
+  /api/portfolio/upload:
+    post:
+      tags:
+      - Portfolio Upload
+      summary: Upload portfolio file (CAS PDF / CSV / Excel)
+      description: 'Upload a portfolio file. Accepts **CSV**, **Excel (.xlsx / .xls)**
+        and
+
+        **CAS PDF** (NSDL / CDSL / CAMS / KFintech).
+
+
+        **CSV / Excel** are parsed synchronously — holdings are returned in the
+
+        response body.
+
+
+        **CAS PDF** uploads kick off background parsing via the tiered chain
+
+        in `helpers.parsing.parse_cas_pdf_with_data`:
+
+
+        | Tier | Parser | When it runs | Latency | Cost |
+
+        |------|--------|--------------|---------|------|
+
+        | 1 | **GPT-5 Vision** (default) | Always tried first if `OPENAI_API_KEY`
+        is set | 35-70 s | ~$0.30 / parse |
+
+        | 2 | casparser library | Fallback for text-based PDFs | < 1 s | free |
+
+        | 3 | Docling local OCR | Last resort if both above fail | 30-60 s | free
+        |
+
+
+        For PDFs the response contains a `task_id`; poll
+
+        `/portfolio/upload-status/{task_id}` until `status == "completed"`.
+
+        The completed payload carries the holdings list plus the
+
+        `parser_source` that produced them (`openai_gpt5` / `casparser_lib` /
+
+        `docling`).
+
+
+        **Password-protected CAS PDFs**: use the
+
+        `/portfolio/upload-raw` variant with the `X-Password` header (PAN in
+
+        UPPERCASE, e.g. `ABCDE1234F`).'
+      operationId: upload_portfolio_api_portfolio_upload_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_portfolio_api_portfolio_upload_post'
+        required: true
+      responses:
+        '200':
+          description: 'For CSV/Excel: holdings parsed synchronously and returned
+            immediately. For PDF: a `task_id` is returned and parsing continues in
+            the background; poll `/portfolio/upload-status/{task_id}` until `status
+            == "completed"`.'
+          content:
+            application/json:
+              schema: {}
+              examples:
+                pdf_accepted:
+                  summary: CAS PDF accepted for background parsing
+                  value:
+                    task_id: task_a1b2c3d4e5f6
+                    status: processing
+                    message: CAS PDF is being processed by AI. This may take 1-2 minutes.
+                    count: 0
+                    holdings: []
+                csv_done:
+                  summary: CSV / Excel parsed synchronously
+                  value:
+                    message: 3 holdings imported from CSV
+                    count: 3
+                    holdings:
+                    - ticker: INE040A01034
+                      quantity: 10
+        '400':
+          description: Unsupported format, empty file, or wrong CAS PDF password.
+        '413':
+          description: File exceeds the maximum upload size.
+        '415':
+          description: File magic-byte check failed (validate_upload).
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/upload-raw:
+    post:
+      tags:
+      - Portfolio Upload
+      summary: Raw stream upload (large files, password-protected CAS PDFs)
+      description: "Raw `application/octet-stream` upload endpoint. Use this when:\n\
+        \n- The file is too large for the multipart form path.\n- The CAS PDF needs\
+        \ a **password** (use the `X-Password` header — PAN\n  in UPPERCASE, e.g.\
+        \ `ABCDE1234F`).\n- You want to attach the upload to a specific portfolio\
+        \ (use the\n  `X-Portfolio-Id` header).\n\n**Required headers**\n\n| Header\
+        \ | Required | Notes |\n|--------|----------|-------|\n| `X-Filename` | Yes\
+        \ | e.g. `cas.pdf`, `portfolio.csv` — drives parser selection |\n| `X-Password`\
+        \ | Conditional | CAS PDF password (PAN uppercase). Empty for unprotected\
+        \ files. |\n| `X-Portfolio-Id` | Optional | Save holdings into this portfolio;\
+        \ defaults to the user's primary portfolio |\n\nParsing chain and async response\
+        \ semantics are identical to\n`/portfolio/upload` — see that endpoint's description\
+        \ for the tier\ntable (GPT-5 Vision → casparser → Docling)."
+      operationId: upload_portfolio_raw_api_portfolio_upload_raw_post
+      responses:
+        '200':
+          description: Same response shape as `/portfolio/upload` — async `task_id`
+            for PDFs, synchronous holdings list for CSV/Excel.
+          content:
+            application/json:
+              schema: {}
+        '400':
+          description: Empty body, unsupported format, or wrong CAS PDF password.
+        '413':
+          description: Body exceeds the maximum upload size.
+  /api/portfolio/upload-status/{task_id}:
+    get:
+      tags:
+      - Portfolio Upload
+      summary: Poll the status of an async CAS PDF parse task
+      description: 'Poll the status of an async CAS PDF parse task started by
+
+        `/portfolio/upload` or `/portfolio/upload-raw`.
+
+
+        Typical PDF parsing takes 35-70 s when GPT-5 Vision is the active
+
+        parser (`OPENAI_API_KEY` configured), under 1 s when the casparser-lib
+
+        fallback handles a text-based PDF, or 30-60 s for the Docling
+
+        fallback. Poll every ~2-5 s; stop when `status` leaves `processing`.'
+      operationId: get_upload_status_api_portfolio_upload_status__task_id__get
+      parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Task Id
+      responses:
+        '200':
+          description: Current task state. `status` ∈ {`processing`, `completed`,
+            `failed`}.
+          content:
+            application/json:
+              schema: {}
+              examples:
+                processing:
+                  value:
+                    task_id: task_a1b2c3d4e5f6
+                    status: processing
+                    message: Parsing CAS PDF with AI...
+                    count: 0
+                    holdings: []
+                completed:
+                  value:
+                    task_id: task_a1b2c3d4e5f6
+                    status: completed
+                    message: 23 holdings imported from CAS PDF
+                    count: 23
+                    holdings:
+                    - ticker: INE040A01034
+                      quantity: 50
+                      asset_type: equity
+                    parser_source: openai_gpt5
+                failed:
+                  value:
+                    task_id: task_a1b2c3d4e5f6
+                    status: failed
+                    message: Wrong CAS PDF password. Enter your PAN in UPPERCASE.
+                    count: 0
+                    holdings: []
+        '404':
+          description: No task with this ID belongs to the calling user.
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/upload-latest-task:
+    get:
+      tags:
+      - Portfolio Upload
+      summary: Return the most recent CAS upload task for the caller
+      description: 'Return the most recent CAS upload task for the authenticated user
+
+        (sorted by `created_at` descending). Useful for the frontend to
+
+        resume polling after a page reload without persisting the task_id
+
+        client-side.'
+      operationId: get_latest_upload_task_api_portfolio_upload_latest_task_get
+      responses:
+        '200':
+          description: Same shape as `/portfolio/upload-status/{task_id}`.
+          content:
+            application/json:
+              schema: {}
+        '404':
+          description: The caller has never uploaded a CAS PDF.
+  /api/portfolio-builder/generate:
+    post:
+      tags:
+      - portfolio-builder
+      summary: Generate Portfolio
+      description: "Generate a proposed portfolio for the current user.\n\nReads risk\
+        \ profile + active goals from the user's profile, runs\ntarget_allocator +\
+        \ goal_fund_picker, returns full builder payload.\n\nv4 additions (C.8):\n\
+        \  monthly_surplus_rs — investable surplus beyond the primary SIP\n  horizon_years\
+        \      — planning horizon in years\n  risk_bucket        — override risk classification\
+        \ (\"conservative\"|\"moderate\"|\"aggressive\")\n\nScreens served: 14_portfolio_builder.svg"
+      operationId: generate_portfolio_api_portfolio_builder_generate_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BuilderRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio-builder/simulate:
+    post:
+      tags:
+      - portfolio-builder
+      summary: Simulate Builder Portfolio
+      description: "Run the 4-scenario matrix (base / bull / bear / stress) on the\n\
+        proposed portfolio.\n\nReturns:\n    {\n      \"scenarios\": {base: {return_pct,\
+        \ corpus_rs, success_pct}, ...},\n      \"monte_carlo\": {p10, p50, p90, success_pct},\n\
+        \      \"allocation_used\": {...},\n      \"blended_return_pct\": 11.4,\n\
+        \      \"blended_vol_pct\": 14.2\n    }"
+      operationId: simulate_builder_portfolio_api_portfolio_builder_simulate_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SimulateBuilderRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio-builder/export.pdf:
+    post:
+      tags:
+      - portfolio-builder
+      summary: Export Portfolio Pdf
+      description: 'Generate the proposed portfolio AND render it as a PDF in one
+        call.
+
+
+        Single round-trip from the frontend''s "Download PDF" button — the
+
+        frontend doesn''t need to ship the builder payload separately.'
+      operationId: export_portfolio_pdf_api_portfolio_builder_export_pdf_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BuilderRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio-builder/whatsapp-share:
+    post:
+      tags:
+      - portfolio-builder
+      summary: Whatsapp Share
+      description: 'Generate the proposal + return a wa.me deeplink with a pre-filled
+
+        message. Frontend opens the deeplink; user''s WhatsApp picks contact.'
+      operationId: whatsapp_share_api_portfolio_builder_whatsapp_share_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WhatsAppShareRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/risk-profile/start:
+    post:
+      tags:
+      - portfolio-builder
+      summary: Risk Profile Start
+      description: Begin a new risk-profile chat session. Returns first question.
+      operationId: risk_profile_start_api_risk_profile_start_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/risk-profile/{session_id}/answer:
+    post:
+      tags:
+      - portfolio-builder
+      summary: Risk Profile Answer
+      description: 'Submit one answer. Returns next question, or final result + persists
+
+        the profile to user_profiles when complete.'
+      operationId: risk_profile_answer_api_risk_profile__session_id__answer_post
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/routes__portfolio_builder__RiskProfileAnswer'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/snapshots:
+    get:
+      tags:
+      - portfolio-read
+      summary: List Snapshots
+      operationId: list_snapshots_api_portfolio_snapshots_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      - name: X-User-External-Id
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-User-External-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnapshotsList'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/snapshot:
+    get:
+      tags:
+      - snapshots
+      summary: Get Snapshot
+      description: 'If `date` omitted → latest snapshot. If given → that exact date,
+
+        else the closest earlier snapshot (for timeline scrubbing).'
+      operationId: get_snapshot_api_portfolio_snapshot_get
+      parameters:
+      - name: date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Date
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - snapshots
+      summary: Manual Snapshot
+      description: 'Advisor-triggered snapshot. Overwrites today''s snapshot if
+
+        one already exists.'
+      operationId: manual_snapshot_api_portfolio_snapshot_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualSnapshotRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/trend:
+    get:
+      tags:
+      - snapshots
+      summary: Trend
+      operationId: trend_api_portfolio_trend_get
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 30
+          title: Days
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/compare:
+    get:
+      tags:
+      - snapshots
+      summary: Compare
+      description: '?to=YYYY-MM-DD&from=YYYY-MM-DD. Defaults: to=latest, from=2nd
+        latest.
+
+        (FastAPI aliases ''from_'' because `from` is a Python keyword — frontend
+
+        passes `from`.)'
+      operationId: compare_api_portfolio_compare_get
+      parameters:
+      - name: to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: To
+      - name: from_
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: 'From '
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/snapshots/backfill-names:
+    post:
+      tags:
+      - snapshots
+      summary: Backfill Holding Names
+      description: 'Repair truncated MF/ETF scheme names by looking up each holding''s
+
+        ISIN in the AMFI master. Idempotent — only renames when AMFI''s name
+
+        is materially better than what''s stored. Updates both the live
+
+        `holdings` table and embedded `portfolio_snapshots.holdings` arrays.'
+      operationId: backfill_holding_names_api_portfolio_snapshots_backfill_names_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/portfolio/snapshots/backfill-health:
+    post:
+      tags:
+      - snapshots
+      summary: Backfill Snapshot Health
+      description: 'One-shot: compute Portfolio Health for every historical snapshot
+
+        that''s missing it, so the Time Machine deltas + sparkline can plot
+
+        a real trend. Slow (one health compute per snapshot) — the route
+
+        awaits to completion so the UI can poll the result. Subsequent
+
+        calls are no-ops because `only_missing=True` skips populated rows.'
+      operationId: backfill_snapshot_health_api_portfolio_snapshots_backfill_health_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/portfolio/transactions:
+    get:
+      tags:
+      - cas-transactions
+      summary: List Transactions
+      description: 'List CAS-extracted transactions for the current user.
+
+
+        Supports optional ISIN / folio filters. Sorted by date desc.'
+      operationId: list_transactions_api_portfolio_transactions_get
+      parameters:
+      - name: isin
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by ISIN
+          title: Isin
+        description: Filter by ISIN
+      - name: folio
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by folio number
+          title: Folio
+        description: Filter by folio number
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 2000
+          default: 500
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/sips:
+    get:
+      tags:
+      - cas-transactions
+      summary: List Detected Sips
+      description: 'List SIPs detected from CAS transaction patterns.
+
+
+        Each SIP carries cadence (MONTHLY/QUARTERLY), amount, instalment count,
+
+        first/last dates, total invested, and ACTIVE/PAUSED status (PAUSED
+
+        when the most recent instalment is past 2× cadence).'
+      operationId: list_detected_sips_api_portfolio_sips_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/portfolio/cas-snapshots:
+    get:
+      tags:
+      - cas-snapshots
+      summary: List Cas Snapshots
+      description: 'Lightweight list of all CAS snapshots — no holdings payload.
+
+        Returns newest-first so the timeline UI can render tiles immediately.'
+      operationId: list_cas_snapshots_api_portfolio_cas_snapshots_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 60
+          title: Limit
+      - name: profile_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Profile Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/cas-snapshot:
+    get:
+      tags:
+      - cas-snapshots
+      summary: Get Cas Snapshot
+      description: 'Return full snapshot (including holdings). When `date` is omitted,
+
+        returns the latest snapshot. Passing `include_holdings=false` as a
+
+        query param skips the heavy holdings array.'
+      operationId: get_cas_snapshot_api_portfolio_cas_snapshot_get
+      parameters:
+      - name: date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Date
+      - name: profile_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Profile Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/cas-performance:
+    get:
+      tags:
+      - cas-snapshots
+      summary: Cas Performance
+      operationId: cas_performance_api_portfolio_cas_performance_get
+      parameters:
+      - name: from_date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: From Date
+      - name: to_date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: To Date
+      - name: profile_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Profile Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/cas-sip-summary:
+    get:
+      tags:
+      - cas-snapshots
+      summary: Cas Sip Summary
+      operationId: cas_sip_summary_api_portfolio_cas_sip_summary_get
+      parameters:
+      - name: from_date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: From Date
+      - name: to_date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: To Date
+      - name: profile_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Profile Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/cas-sip-breakdown:
+    get:
+      tags:
+      - cas-snapshots
+      summary: Cas Sip Breakdown
+      operationId: cas_sip_breakdown_api_portfolio_cas_sip_breakdown_get
+      parameters:
+      - name: month
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Month
+      - name: profile_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Profile Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/cas-top-transactions:
+    get:
+      tags:
+      - cas-snapshots
+      summary: Cas Top Transactions
+      operationId: cas_top_transactions_api_portfolio_cas_top_transactions_get
+      parameters:
+      - name: from_date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: From Date
+      - name: to_date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: To Date
+      - name: n
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 10
+          title: N
+      - name: profile_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Profile Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/cas-snapshot/{snapshot_date}/activate:
+    post:
+      tags:
+      - cas-snapshots
+      summary: Activate Cas Snapshot
+      operationId: activate_cas_snapshot_api_portfolio_cas_snapshot__snapshot_date__activate_post
+      parameters:
+      - name: snapshot_date
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Snapshot Date
+      - name: profile_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Profile Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/cas-transactions/backfill:
+    post:
+      tags:
+      - cas-snapshots
+      summary: Backfill Cas Transactions
+      description: 'Promote `transactions` arrays embedded in legacy
+
+        `portfolio_snapshots` into the canonical `cas_transactions`
+
+        collection so SIP/Top-Transactions aggregations reflect the actual
+
+        CAS data without re-parsing PDFs.
+
+
+        Idempotent — safe to call multiple times. Useful right after
+
+        deploying the "real-transactions" pivot (Feb 2026) for clients
+
+        whose snapshots were created before structured-txn persistence
+
+        was wired in.'
+      operationId: backfill_cas_transactions_api_portfolio_cas_transactions_backfill_post
+      parameters:
+      - name: profile_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Profile Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/exposure/concentration:
+    get:
+      tags:
+      - portfolio-exposure
+      summary: Get Concentration
+      description: 'Return AMC + Sector + Company concentration for the current
+
+        user''s portfolio. Pure read; cheap enough to compute on every call.'
+      operationId: get_concentration_api_portfolio_exposure_concentration_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Concentration Api Portfolio Exposure Concentration
+                  Get
+  /api/portfolio/exposure/fund-overlap/matrix:
+    get:
+      tags:
+      - portfolio-exposure
+      summary: Get Fund Overlap Matrix
+      description: "Pairwise stock-level overlap matrix between every MF/ETF in the\n\
+        user's portfolio.\n\nResponse:\n{\n  \"funds\": [{id, name, amc, category}],\n\
+        \  \"matrix\": [[100, 42.5, 12.0, ...], ...]   # symmetric, diagonal = 100\n\
+        \  \"pairs\": [{a, b, a_name, b_name, overlap_pct, shared_count}, ...]  #\
+        \ sorted desc\n  \"max_pct\": 67.2,\n  \"high_pairs\": 3,      # count where\
+        \ overlap_pct >= 65\n  \"coverage_pct\": 78,   # what % of MF AUM has fund_holdings_cache\
+        \ data\n  \"empty\": false\n}"
+      operationId: get_fund_overlap_matrix_api_portfolio_exposure_fund_overlap_matrix_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Fund Overlap Matrix Api Portfolio Exposure Fund
+                  Overlap Matrix Get
+  /api/portfolio/exposure/remediation:
+    get:
+      tags:
+      - portfolio-exposure
+      summary: Get Remediation
+      description: "Return ranked remediation recommendations for the current user's\
+        \ portfolio.\n\nComputes concentration envelope + fund clusters, then runs\
+        \ the\nremediation engine to produce concrete, direction-correct actions.\n\
+        \nResponse:\n{\n  \"recommendations\": [...],   # sorted by leverage_score\
+        \ DESC\n  \"total_value\": float,\n  \"empty\": bool               # true\
+        \ when portfolio has no holdings\n}"
+      operationId: get_remediation_api_portfolio_exposure_remediation_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Remediation Api Portfolio Exposure Remediation
+                  Get
+  /api/portfolio/risk-analytics:
+    get:
+      tags:
+      - portfolio-risk
+      summary: Get Risk Analytics
+      description: 'Portfolio-level risk metrics powered by NIDP V3 primitives.
+
+
+        period: optional hint for period-scoped Sharpe/volatility display (1M/3M/6M/1Y/3Y/inception).
+
+        Currently passed through to the response so the frontend can label the Sharpe
+        card correctly;
+
+        the underlying DAAS primitives are rolling-window by nature (sharpe_1y etc.).'
+      operationId: get_risk_analytics_api_portfolio_risk_analytics_get
+      parameters:
+      - name: period
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Period
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Risk Analytics Api Portfolio Risk Analytics Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/composition:
+    get:
+      tags:
+      - portfolio-composition
+      summary: Get Composition
+      description: "Portfolio composition breakdown for the Composition Explorer.\n\
+        \nQuery params:\n  dimension: asset_class | sector | fund | group  (default:\
+        \ asset_class)\n  metric:    weight | invested | current           (default:\
+        \ weight)\n  period:    1M|3M|6M|1Y|3Y|inception              (reserved; echoed\
+        \ back)"
+      operationId: get_composition_api_portfolio_composition_get
+      parameters:
+      - name: dimension
+        in: query
+        required: false
+        schema:
+          type: string
+          default: asset_class
+          title: Dimension
+      - name: metric
+        in: query
+        required: false
+        schema:
+          type: string
+          default: weight
+          title: Metric
+      - name: period
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Period
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Composition Api Portfolio Composition Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/me:
+    get:
+      tags:
+      - portfolio-read
+      summary: Get Me
+      operationId: get_me_api_portfolio_me_get
+      parameters:
+      - name: X-User-External-Id
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-User-External-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnapshotDetail'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/snapshots/{snapshot_id}:
+    get:
+      tags:
+      - portfolio-read
+      summary: Get Snapshot
+      operationId: get_snapshot_api_portfolio_snapshots__snapshot_id__get
+      parameters:
+      - name: snapshot_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Snapshot Id
+      - name: X-User-External-Id
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-User-External-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnapshotDetail'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/portfolio/upload-history:
+    get:
+      summary: Upload History
+      description: Get history of all file uploads for this user.
+      operationId: upload_history_api_portfolio_upload_history_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - portfolio
+  /api/portfolios:
+    get:
+      summary: List Portfolios
+      operationId: list_portfolios_api_portfolios_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - portfolio
+    post:
+      summary: Create Portfolio
+      operationId: create_portfolio_api_portfolios_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PortfolioCreate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolios/{portfolio_id}:
+    delete:
+      summary: Delete Portfolio
+      operationId: delete_portfolio_api_portfolios__portfolio_id__delete
+      parameters:
+      - name: portfolio_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Portfolio Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/holdings-enriched:
+    get:
+      summary: Get Enriched Holdings
+      description: 'Actionable Portfolio payload — per-holding scores + action badges
+        +
+
+        XIRR + portfolio alerts. Powers the new decision-engine Portfolio page.
+
+
+        Pass `?fresh=true` to bypass the 5-minute Redis cache. Useful when an
+
+        earlier empty response (e.g., a request that landed before CAS ingest
+
+        completed) got cached and is masking the real holdings.'
+      operationId: get_enriched_holdings_api_portfolio_holdings_enriched_get
+      parameters:
+      - name: fresh
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Fresh
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/international-recommendations:
+    get:
+      summary: International Recommendations
+      description: "End-to-end international FoF recommendation for the current user.\n\
+        \nReturns:\n  • target % + ₹ amount to invest in international\n  • current\
+        \ exposure\n  • Core / Selective / Tactical / Avoid bands with cached fund\
+        \ primitives\n  • portfolio context (risk, horizon, IT concentration, US exposure)\n\
+        \nIf the international fund cache is empty, response includes `_stale: true`\n\
+        and the caller should POST `/portfolio/international-funds/refresh` first."
+      operationId: international_recommendations_api_portfolio_international_recommendations_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - portfolio
+  /api/portfolio/international-funds/refresh:
+    post:
+      summary: Refresh International Fund Cache
+      description: 'Refresh the local international FoF cache by scraping Groww.
+
+
+        Walks the curated seed list and re-pulls primitives (returns, expense,
+
+        AUM, ratios, holdings) via the existing groww_client. Skips funds whose
+
+        cached row is < 24h old unless ?force=true. Returns a summary dict.
+
+
+        Auth: requires login (any user can trigger). Rate-limited at the cache
+
+        layer — repeated calls are no-ops.'
+      operationId: refresh_international_fund_cache_api_portfolio_international_funds_refresh_post
+      parameters:
+      - name: force
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Force
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/switch-candidates:
+    get:
+      summary: Switch Candidates
+      description: 'Return top same-category replacement funds for a given MF holding.
+
+
+        Ranks by (add_score + quality_score)/2 desc; skips the original fund and
+
+        its Regular/Direct sibling. Includes a computed switch_score breakdown.'
+      operationId: switch_candidates_api_portfolio_switch_candidates_get
+      parameters:
+      - name: holding_id
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Holding Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 3
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/holdings:
+    get:
+      summary: Get Holdings
+      operationId: get_holdings_api_portfolio_holdings_get
+      parameters:
+      - name: portfolio_id
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Portfolio Id
+      - name: asset_type
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Asset Type
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+    post:
+      summary: Add Holding
+      operationId: add_holding_api_portfolio_holdings_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HoldingCreate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/holdings/{holding_id}:
+    put:
+      summary: Update Holding
+      operationId: update_holding_api_portfolio_holdings__holding_id__put
+      parameters:
+      - name: holding_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Holding Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HoldingUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+    delete:
+      summary: Delete Holding
+      operationId: delete_holding_api_portfolio_holdings__holding_id__delete
+      parameters:
+      - name: holding_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Holding Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/holdings-all:
+    delete:
+      summary: Clear All Holdings
+      description: Delete ALL holdings and associated data for the current user.
+      operationId: clear_all_holdings_api_portfolio_holdings_all_delete
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - portfolio
+  /api/portfolio/refresh-stock-morningstar:
+    post:
+      summary: Refresh Stock Morningstar
+      description: 'Fetch Morningstar quantitative star ratings for all equity holdings
+
+        in the user''s portfolio and persist them to stock_scores.
+
+        Runs a Playwright token fetch once, then makes lightweight API calls.'
+      operationId: refresh_stock_morningstar_api_portfolio_refresh_stock_morningstar_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - portfolio
+  /api/portfolio/resync:
+    post:
+      summary: Resync Portfolio
+      description: 'Trigger a NAV + benchmark data refresh for the current user''s
+        portfolio.
+
+
+        Invalidates the portfolio_performance_cache rows for this user so the next
+
+        Performance page load recomputes fresh values. Returns the new last_synced_at
+
+        timestamp on success; preserves prior data and returns an error field on failure.'
+      operationId: resync_portfolio_api_portfolio_resync_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Resync Portfolio Api Portfolio Resync Post
+      tags:
+      - portfolio
+  /api/portfolio/holdings/export:
+    get:
+      summary: Export Self Holdings
+      description: 'Export holdings for the logged-in user (or impersonated profile
+        when
+
+        the MFD has activated a client). Returns 404 when there are zero
+
+        holdings — the UI renders a tooltip ("Nothing to export") instead of
+
+        downloading an empty file in that case.'
+      operationId: export_self_holdings_api_portfolio_holdings_export_get
+      parameters:
+      - name: format
+        in: query
+        required: false
+        schema:
+          type: string
+          default: csv
+          title: Format
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/upload-csv:
+    post:
+      summary: Upload Csv Legacy
+      operationId: upload_csv_legacy_api_portfolio_upload_csv_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_csv_legacy_api_portfolio_upload_csv_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/import-connect:
+    post:
+      summary: Portfolio Import From Connect
+      description: 'Ingest parsed portfolio from the CAS Connect widget.
+
+
+        Supports the ``Idempotency-Key`` request header: if the same key is sent
+
+        twice within 24 hours the second call replays the first response without
+
+        re-importing holdings, preventing duplicate-import on network retries.'
+      operationId: portfolio_import_from_connect_api_portfolio_import_connect_post
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/analytics:
+    get:
+      summary: Get Analytics
+      operationId: get_analytics_api_portfolio_analytics_get
+      parameters:
+      - name: portfolio_id
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Portfolio Id
+      - name: force_refresh
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Force Refresh
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/refresh-prices:
+    post:
+      summary: Refresh Equity Prices
+      description: 'Manually refresh live equity/ETF prices. Also fires background
+        stock
+
+        fundamentals + MF catalogue enrichment so Insights/Plan Board scores
+
+        stay fresh on the next render.'
+      operationId: refresh_equity_prices_api_portfolio_refresh_prices_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - portfolio
+  /api/portfolio/refresh-stock-fundamentals:
+    post:
+      summary: Refresh Stock Fundamentals
+      description: 'Trigger Groww fundamentals refresh for the user''s equity holdings.
+
+        Scrapes ROE, D/E, growth, margins, volatility + computes V3 composite
+
+        Quality/Health/Exit/Add scores. Typically takes 3-5s for a 10-stock
+
+        portfolio.'
+      operationId: refresh_stock_fundamentals_api_portfolio_refresh_stock_fundamentals_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - portfolio
+  /api/portfolio/refresh-mf-ratings:
+    post:
+      summary: Refresh Mf Ratings
+      description: 'Trigger Moneycontrol rescrape for the user''s mutual fund holdings
+        to
+
+        refresh Morningstar ratings + CAGR + investment-style primitives.
+
+
+        Runs sequentially with a 15-fund cap per call (~10s). Invalidates the
+
+        enriched-portfolio Redis cache on completion.'
+      operationId: refresh_mf_ratings_api_portfolio_refresh_mf_ratings_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - portfolio
+  /api/portfolio/stock-scores:
+    get:
+      summary: Get User Stock Scores
+      description: 'Return V3 composite scores (Quality/Health/Exit/Add) for every
+        equity
+
+        holding the user owns. Data lives in Postgres `stock_scores` — populated
+
+        by `refresh-stock-fundamentals` or the daily Nifty 100 cron.'
+      operationId: get_user_stock_scores_api_portfolio_stock_scores_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - portfolio
+  /api/portfolio/recommendations/v5:
+    get:
+      summary: Get Portfolio Recommendations V5
+      description: 'Recommendations driven by the full persona + risk + goal recommendation
+        engine.
+
+
+        Primary source: active action plan (db.action_plans, status=active) — this
+        is
+
+        the output of ActionPlanManager.refresh_plan() which runs all engines including
+
+        AMCConcentrationEngine, RiskAlignmentEngine, GoalAlignmentEngine, BehaviouralPersonaFilter,
+
+        CategorySuitabilityEngine, OverlapEngine, etc.
+
+
+        Supplementary: stock_scores table for equity holdings not in the active plan
+
+        (plan may not cover every stock individually).
+
+
+        Returns top-5 actionable items per asset class for the Performance page tile.'
+      operationId: get_portfolio_recommendations_v5_api_portfolio_recommendations_v5_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - portfolio
+  /api/portfolio/simulate:
+    get:
+      summary: Simulate Portfolio
+      description: Simulate optimized portfolio.
+      operationId: simulate_portfolio_api_portfolio_simulate_get
+      parameters:
+      - name: portfolio_id
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Portfolio Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/fund-performance:
+    get:
+      summary: Get Fund Performance
+      description: "Get MF benchmark ratings. Cached for 2 hours.\n\nQuery params:\n\
+        \  period    — lookback window: \"1y\" | \"3y\" | \"5y\" (default \"1y\")\n\
+        \  benchmark — comparison basis: \"peer\" | \"index\" (default \"peer\")\n\
+        \nScreens served: 10_performance.svg (mobile + webapp)"
+      operationId: get_fund_performance_api_portfolio_fund_performance_get
+      parameters:
+      - name: portfolio_id
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Portfolio Id
+      - name: force
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Force
+      - name: period
+        in: query
+        required: false
+        schema:
+          type: string
+          default: 1y
+          title: Period
+      - name: benchmark
+        in: query
+        required: false
+        schema:
+          type: string
+          default: peer
+          title: Benchmark
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/deep-analytics:
+    get:
+      summary: Get Deep Analytics
+      description: 'Advanced analytics: overexposure, fund overlap, performance cards.'
+      operationId: get_deep_analytics_api_portfolio_deep_analytics_get
+      parameters:
+      - name: portfolio_id
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Portfolio Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/allocation-analysis:
+    get:
+      summary: Get Allocation Analysis
+      description: AI-powered look-through company and sector allocation analysis.
+      operationId: get_allocation_analysis_api_portfolio_allocation_analysis_get
+      parameters:
+      - name: force
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Force
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/holding-detail/{isin}:
+    get:
+      summary: Get Holding Detail
+      description: 'Return V3 DaaS primitives + category peer data for a single ISIN.
+
+
+        Fetches from NIDP DaaS using get_v3_mf_primitives_bulk([isin]).
+
+        Also fetches top-3 peers from analytics.fund_category_rank via
+
+        the category leaderboard DaaS endpoint.
+
+
+        Returns daas_available=false (not an error) when the ISIN has no V3
+
+        data — e.g. equities or funds not yet in the NIDP analytics lake.'
+      operationId: get_holding_detail_api_portfolio_holding_detail__isin__get
+      parameters:
+      - name: isin
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Isin
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+  /api/portfolio/value-history:
+    get:
+      summary: Get Portfolio Value History
+      description: 'Monthly portfolio value history from CAS statement extraction.
+
+
+        Returns the [{month, value_rs}] array stored in the user''s profile
+
+        during CAS import (cas_summary_vision.py). These are the real monthly
+
+        portfolio values printed on the CAS statement — not modelled numbers.
+
+
+        Also returns the current_value from holdings so the last data-point
+
+        can be spliced in.'
+      operationId: get_portfolio_value_history_api_portfolio_value_history_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - portfolio
+  /api/portfolio/tax-summary:
+    get:
+      summary: Get Tax Summary
+      description: "LTCG harvest candidates + tax structuring opportunities.\n\nReturns\
+        \ a dashboard-grade payload matching docs/api-changes.md B.12.\n\nQuery params:\n\
+        \    fy — optional FY label (e.g. \"FY 2025-26\"). Defaults to current FY."
+      operationId: get_tax_summary_api_portfolio_tax_summary_get
+      parameters:
+      - name: fy
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fy
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Tax Summary Api Portfolio Tax Summary Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - portfolio
+components:
+  schemas:
+    ActionFeedback:
+      properties:
+        useful:
+          type: boolean
+          title: Useful
+        comment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Comment
+      type: object
+      required:
+      - useful
+      title: ActionFeedback
+      description: Request body for action feedback.
+    ActionRequest:
+      properties:
+        action:
+          type: string
+          title: Action
+        target:
+          type: string
+          title: Target
+        environment:
+          type: string
+          title: Environment
+          default: prod
+      type: object
+      required:
+      - action
+      - target
+      title: ActionRequest
+    ActionStatusUpdate:
+      properties:
+        status:
+          type: string
+          title: Status
+        completion_note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Completion Note
+      type: object
+      required:
+      - status
+      title: ActionStatusUpdate
+      description: Request body for updating action status.
+    AgentOneShotRequest:
+      properties:
+        agent_id:
+          type: string
+          title: Agent Id
+        model_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model Id
+        message:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Message
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+        system_prompt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: System Prompt
+      type: object
+      required:
+      - agent_id
+      - message
+      title: AgentOneShotRequest
+    AllocationItem:
+      properties:
+        asset_class:
+          type: string
+          title: Asset Class
+        value:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+        pct:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Pct
+      additionalProperties: false
+      type: object
+      required:
+      - asset_class
+      - value
+      - pct
+      title: AllocationItem
+    ApplyRequest:
+      properties:
+        scenario_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scenario Id
+        actions:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Actions
+        payload:
+          additionalProperties: true
+          type: object
+          title: Payload
+      type: object
+      required:
+      - actions
+      - payload
+      title: ApplyRequest
+    AskRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+          default: gpt-4o
+        question:
+          type: string
+          maxLength: 800
+          minLength: 2
+          title: Question
+        history:
+          anyOf:
+          - items:
+              additionalProperties:
+                type: string
+              type: object
+            type: array
+          - type: 'null'
+          title: History
+      type: object
+      required:
+      - question
+      title: AskRequest
+    AssetType:
+      type: string
+      enum:
+      - equity
+      - mutual_fund
+      - etf
+      - bond
+      - gold
+      - fd
+      - other
+      title: AssetType
+    BackfillRequest:
+      properties:
+        days:
+          type: integer
+          maximum: 730.0
+          minimum: 1.0
+          title: Days
+          description: Days of history to pull (capped at 2 years)
+          default: 60
+      type: object
+      title: BackfillRequest
+    BacktestRequest:
+      properties:
+        from_date:
+          type: string
+          title: From Date
+        to_date:
+          type: string
+          title: To Date
+        starting_capital:
+          type: number
+          title: Starting Capital
+          default: 1000000.0
+        max_positions:
+          type: integer
+          title: Max Positions
+          default: 10
+      type: object
+      required:
+      - from_date
+      - to_date
+      title: BacktestRequest
+    BandsPayload:
+      properties:
+        bands:
+          additionalProperties:
+            additionalProperties:
+              additionalProperties:
+                type: number
+              type: object
+            type: object
+          type: object
+          title: Bands
+      type: object
+      required:
+      - bands
+      title: BandsPayload
+    BasketRequest:
+      properties:
+        capital_rs:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Capital Rs
+          description: Total capital to deploy in INR (e.g. 1000000 for ₹10L)
+        max_positions:
+          type: integer
+          maximum: 20.0
+          minimum: 1.0
+          title: Max Positions
+          default: 8
+        min_conviction:
+          type: string
+          title: Min Conviction
+          default: HIGH_CONVICTION
+      type: object
+      required:
+      - capital_rs
+      title: BasketRequest
+    Body_admin_upload_scan_api_positional_scans_upload_post:
+      properties:
+        scan_name:
+          type: string
+          title: Scan Name
+        scan_date:
+          type: string
+          title: Scan Date
+        csv_file:
+          type: string
+          format: binary
+          title: Csv File
+      type: object
+      required:
+      - scan_name
+      - scan_date
+      - csv_file
+      title: Body_admin_upload_scan_api_positional_scans_upload_post
+    Body_client_upload_pdf_api_public_cas_invite__token__upload_pdf_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+        password:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Password
+      type: object
+      required:
+      - file
+      title: Body_client_upload_pdf_api_public_cas_invite__token__upload_pdf_post
+    Body_upload_cas_pdf_api_onboarding_upload_cas_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_cas_pdf_api_onboarding_upload_cas_post
+    Body_upload_csv_legacy_api_portfolio_upload_csv_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_csv_legacy_api_portfolio_upload_csv_post
+    Body_upload_portfolio_api_portfolio_upload_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_portfolio_api_portfolio_upload_post
+    BriefRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+          default: gpt-4o
+      type: object
+      title: BriefRequest
+    BuilderRequest:
+      properties:
+        monthly_sip_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Monthly Sip Rs
+        lumpsum_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Lumpsum Rs
+        monthly_surplus_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Monthly Surplus Rs
+        horizon_years:
+          anyOf:
+          - type: number
+            maximum: 100.0
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Horizon Years
+        risk_bucket:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Risk Bucket
+      type: object
+      title: BuilderRequest
+    ChatMessageInput:
+      properties:
+        message:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Message
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+      type: object
+      required:
+      - message
+      title: ChatMessageInput
+    CitationOut:
+      properties:
+        feed_id:
+          type: string
+          title: Feed Id
+        title:
+          type: string
+          title: Title
+        excerpt:
+          type: string
+          title: Excerpt
+        score:
+          type: number
+          title: Score
+        as_of:
+          type: string
+          title: As Of
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+      type: object
+      required:
+      - feed_id
+      - title
+      - excerpt
+      - score
+      - as_of
+      - url
+      - metadata
+      title: CitationOut
+    ClientDetailsRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 2
+          title: Name
+        mobile:
+          type: string
+          maxLength: 20
+          minLength: 7
+          title: Mobile
+        email:
+          type: string
+          maxLength: 255
+          minLength: 5
+          title: Email
+        pan:
+          type: string
+          maxLength: 10
+          minLength: 10
+          title: Pan
+        consent_cas_access:
+          type: boolean
+          title: Consent Cas Access
+          description: Client consents to sharing CAS holdings
+        consent_gmail_access:
+          type: boolean
+          title: Consent Gmail Access
+          description: Client consents to read-only Gmail scan for CAS emails
+          default: false
+        consent_advisor_access:
+          type: boolean
+          title: Consent Advisor Access
+          description: Client consents to advisor viewing + managing their data
+      type: object
+      required:
+      - name
+      - mobile
+      - email
+      - pan
+      - consent_cas_access
+      - consent_advisor_access
+      title: ClientDetailsRequest
+    ClientMessageRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+          default: gpt-4o
+        channel:
+          type: string
+          title: Channel
+          default: whatsapp
+        tone:
+          type: string
+          title: Tone
+          default: warm_professional
+        additional_note:
+          anyOf:
+          - type: string
+            maxLength: 400
+          - type: 'null'
+          title: Additional Note
+      type: object
+      title: ClientMessageRequest
+    ClientNotesPayload:
+      properties:
+        note:
+          anyOf:
+          - type: string
+            maxLength: 4000
+          - type: 'null'
+          title: Note
+        sip_amount_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Sip Amount Rs
+        sip_frequency:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sip Frequency
+        next_sip_due:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Sip Due
+        preferred_channel:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Preferred Channel
+      type: object
+      title: ClientNotesPayload
+      description: 'Structured notes about an MFD client. Stored per profile, editable
+
+        only by the workspace owner. SIP amount/due-date live here because
+
+        neither is reliably parsable from CAS — advisors input them manually
+
+        once, then we render it everywhere (snapshot · PDF report · priority
+
+        rules once we wire SIP-gap detection).'
+    CompanyFinancialsRequest:
+      properties:
+        symbol:
+          type: string
+          maxLength: 20
+          minLength: 1
+          title: Symbol
+          description: NSE symbol (e.g. RELIANCE, TCS, INFY)
+        quarters:
+          type: integer
+          maximum: 16.0
+          minimum: 2.0
+          title: Quarters
+          description: Number of quarters to fetch (2-16)
+          default: 8
+      type: object
+      required:
+      - symbol
+      title: CompanyFinancialsRequest
+    CompareRequest:
+      properties:
+        scheme_codes:
+          items:
+            type: string
+          type: array
+          maxItems: 4
+          minItems: 2
+          title: Scheme Codes
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      required:
+      - scheme_codes
+      title: CompareRequest
+    ConnectRequest:
+      properties:
+        broker:
+          type: string
+          maxLength: 40
+          minLength: 2
+          title: Broker
+        openalgo_url:
+          anyOf:
+          - type: string
+            maxLength: 300
+          - type: 'null'
+          title: Openalgo Url
+        api_key:
+          type: string
+          maxLength: 300
+          minLength: 8
+          title: Api Key
+        label:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Label
+      type: object
+      required:
+      - broker
+      - api_key
+      title: ConnectRequest
+    CopilotAskRequest:
+      properties:
+        query:
+          type: string
+          maxLength: 500
+          minLength: 2
+          title: Query
+      type: object
+      required:
+      - query
+      title: CopilotAskRequest
+    CreateActionRequest:
+      properties:
+        source_domain:
+          type: string
+          title: Source Domain
+        type:
+          type: string
+          title: Type
+        verb:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Verb
+        asset_type:
+          type: string
+          title: Asset Type
+        asset_name:
+          type: string
+          title: Asset Name
+        instrument_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Instrument Id
+        amount:
+          type: number
+          title: Amount
+          default: 0
+        priority:
+          type: integer
+          title: Priority
+          default: 2
+        priority_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Priority Label
+        impact:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Impact
+        effort:
+          type: string
+          title: Effort
+          default: MEDIUM
+        trade_off:
+          type: string
+          title: Trade Off
+          default: ''
+        expected_impact:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Expected Impact
+        exclusive:
+          type: boolean
+          title: Exclusive
+          default: false
+        reason_text:
+          type: string
+          title: Reason Text
+          default: ''
+        reason_codes:
+          items:
+            type: string
+          type: array
+          title: Reason Codes
+          default: []
+        confidence:
+          type: string
+          title: Confidence
+          default: MEDIUM
+      type: object
+      required:
+      - source_domain
+      - type
+      - asset_type
+      - asset_name
+      title: CreateActionRequest
+    DematAccount:
+      properties:
+        dp_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Dp Id
+        client_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Id
+        holdings:
+          $ref: '#/components/schemas/DematHoldingsBuckets'
+      type: object
+      title: DematAccount
+      description: "An aggregated demat account.\n\nThe SDK sends:\n    { dp_id?,\
+        \ client_id?, holdings: { equities: […], … } }\n\nThe legacy synthetic shape\
+        \ sent:\n    { dp_id?, client_id?, holdings: [DematHolding, …] }   # flat\
+        \ list\n\nBoth are normalised below into the canonical bucket object so the\n\
+        iterator + builder code below only ever sees one shape."
+    DematHolding:
+      properties:
+        isin:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Isin
+        name:
+          type: string
+          title: Name
+        quantity:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Quantity
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+        instrument_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Instrument Type
+      type: object
+      required:
+      - name
+      - quantity
+      - value
+      title: DematHolding
+      description: One line within a demat-account bucket (equity, ETF, MF unit, bond,
+        …).
+    DematHoldingsBuckets:
+      properties:
+        equities:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Equities
+        demat_mutual_funds:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Demat Mutual Funds
+        corporate_bonds:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Corporate Bonds
+        aifs:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Aifs
+        government_securities:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Government Securities
+      type: object
+      title: DematHoldingsBuckets
+      description: The bucket object that lives under ``demat_accounts[].holdings``.
+    DiscussActionRequest:
+      properties:
+        discussion_note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Discussion Note
+      type: object
+      title: DiscussActionRequest
+      description: Per PRD §10.2 — advisor records a Discuss event without touching
+        status.
+    ExplainRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+          default: gpt-4o
+        focus:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Focus
+      type: object
+      title: ExplainRequest
+    FeedOut:
+      properties:
+        feed_id:
+          type: string
+          title: Feed Id
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        retrieval_kind:
+          type: string
+          title: Retrieval Kind
+        tier:
+          type: string
+          title: Tier
+        params_schema:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Params Schema
+      type: object
+      required:
+      - feed_id
+      - name
+      - description
+      - retrieval_kind
+      - tier
+      - params_schema
+      title: FeedOut
+    FinancialSnapshot:
+      properties:
+        age:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Age
+        marital_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Marital Status
+        dependents:
+          type: integer
+          title: Dependents
+          default: 0
+        monthly_income_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Monthly Income Rs
+        income_growth_pct:
+          type: number
+          title: Income Growth Pct
+          default: 8.0
+        monthly_expenses_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Monthly Expenses Rs
+        inflation_pct:
+          type: number
+          title: Inflation Pct
+          default: 6.0
+        current_corpus_rs:
+          type: number
+          title: Current Corpus Rs
+          default: 0.0
+        total_liabilities_rs:
+          type: number
+          title: Total Liabilities Rs
+          default: 0.0
+        risk_profile:
+          type: string
+          title: Risk Profile
+          default: moderate
+        behavior_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Behavior Score
+      type: object
+      title: FinancialSnapshot
+    FundCardRequest:
+      properties:
+        query:
+          type: string
+          maxLength: 200
+          minLength: 2
+          title: Query
+          description: Scheme name, code, or natural-language fragment
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      required:
+      - query
+      title: FundCardRequest
+    GoalCreate:
+      properties:
+        goal_type:
+          type: string
+          title: Goal Type
+          description: retirement|education|home|wealth|custom
+        goal_name:
+          type: string
+          title: Goal Name
+        target_amount_rs:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Target Amount Rs
+        horizon_years:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Horizon Years
+        priority:
+          type: string
+          title: Priority
+          default: medium
+        inflation_pct:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Inflation Pct
+          default: 6.0
+        current_corpus_rs:
+          type: number
+          title: Current Corpus Rs
+          default: 0.0
+        monthly_sip_rs:
+          type: number
+          title: Monthly Sip Rs
+          default: 0.0
+        manual_allocation:
+          anyOf:
+          - additionalProperties:
+              type: number
+            type: object
+          - type: 'null'
+          title: Manual Allocation
+      type: object
+      required:
+      - goal_type
+      - goal_name
+      - target_amount_rs
+      - horizon_years
+      title: GoalCreate
+    GoalUpdate:
+      properties:
+        goal_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Goal Name
+        target_amount_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Amount Rs
+        horizon_years:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Horizon Years
+        priority:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Priority
+        monthly_sip_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Monthly Sip Rs
+        current_corpus_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Current Corpus Rs
+        allocation:
+          anyOf:
+          - additionalProperties:
+              type: number
+            type: object
+          - type: 'null'
+          title: Allocation
+        selected_funds:
+          anyOf:
+          - additionalProperties:
+              items:
+                additionalProperties: true
+                type: object
+              type: array
+            type: object
+          - type: 'null'
+          title: Selected Funds
+        manual_fund_override:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Manual Fund Override
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      type: object
+      title: GoalUpdate
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        service:
+          type: string
+          title: Service
+        version:
+          type: string
+          title: Version
+        env:
+          type: string
+          title: Env
+      type: object
+      required:
+      - status
+      - service
+      - version
+      - env
+      title: HealthResponse
+    HoldingCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Name
+        ticker:
+          anyOf:
+          - type: string
+            maxLength: 50
+          - type: 'null'
+          title: Ticker
+          default: ''
+        asset_type:
+          $ref: '#/components/schemas/AssetType'
+        quantity:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Quantity
+        buy_price:
+          type: number
+          minimum: 0.0
+          title: Buy Price
+        current_price:
+          type: number
+          minimum: 0.0
+          title: Current Price
+        sector:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Sector
+          default: Other
+        buy_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buy Date
+          default: ''
+        portfolio_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Portfolio Id
+          default: ''
+      type: object
+      required:
+      - name
+      - asset_type
+      - quantity
+      - buy_price
+      - current_price
+      title: HoldingCreate
+    HoldingTechnicalsRequest:
+      properties:
+        symbol:
+          type: string
+          title: Symbol
+          description: NSE symbol (e.g. RELIANCE)
+      type: object
+      required:
+      - symbol
+      title: HoldingTechnicalsRequest
+    HoldingUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Name
+        ticker:
+          anyOf:
+          - type: string
+            maxLength: 50
+          - type: 'null'
+          title: Ticker
+        asset_type:
+          anyOf:
+          - $ref: '#/components/schemas/AssetType'
+          - type: 'null'
+        quantity:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Quantity
+        buy_price:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Buy Price
+        current_price:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Current Price
+        sector:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Sector
+        buy_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buy Date
+      type: object
+      title: HoldingUpdate
+    HostedConnectRequest:
+      properties:
+        broker:
+          type: string
+          maxLength: 40
+          minLength: 2
+          title: Broker
+        label:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Label
+      type: object
+      required:
+      - broker
+      title: HostedConnectRequest
+    ImportRequest:
+      properties:
+        selections:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Selections
+          description: list of {message_id, attachment_id, filename}
+        password:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Password
+          description: Optional override — defaults to the PAN captured in client-details
+      type: object
+      required:
+      - selections
+      title: ImportRequest
+    InsurancePolicy:
+      properties:
+        policy_number:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Policy Number
+        name:
+          type: string
+          title: Name
+        sum_assured:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Sum Assured
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+          default: '0'
+      type: object
+      required:
+      - name
+      title: InsurancePolicy
+    InsuranceSection:
+      properties:
+        life_insurance_policies:
+          items:
+            $ref: '#/components/schemas/InsurancePolicy'
+          type: array
+          title: Life Insurance Policies
+      type: object
+      title: InsuranceSection
+    InvestmentGoal:
+      type: string
+      enum:
+      - retirement
+      - house
+      - education
+      - travel
+      - wealth
+      - emergency
+      title: InvestmentGoal
+    InvestmentHorizonLevel:
+      type: string
+      enum:
+      - short
+      - medium
+      - long
+      - very_long
+      title: InvestmentHorizonLevel
+    InviteCreateRequest:
+      properties:
+        ttl_hours:
+          anyOf:
+          - type: integer
+            maximum: 168.0
+            minimum: 1.0
+          - type: 'null'
+          title: Ttl Hours
+          default: 24
+        client_name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Client Name
+        client_mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Client Mobile
+        client_email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Client Email
+        regenerate:
+          type: boolean
+          title: Regenerate
+          description: If True, deactivate any existing active invite for this profile
+            before issuing a new one.
+          default: false
+      type: object
+      title: InviteCreateRequest
+    IssueCreate:
+      properties:
+        sig:
+          type: string
+          title: Sig
+        title:
+          type: string
+          title: Title
+        severity:
+          type: string
+          title: Severity
+          default: ERROR
+        priority:
+          type: string
+          title: Priority
+          default: P2
+        source:
+          type: string
+          title: Source
+          default: cloud_logging
+        exception_class:
+          type: string
+          title: Exception Class
+          default: ''
+        endpoint:
+          type: string
+          title: Endpoint
+          default: ''
+        job_name:
+          type: string
+          title: Job Name
+          default: ''
+        http_status:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Http Status
+        sample_message:
+          type: string
+          title: Sample Message
+          default: ''
+        sample_traceback:
+          type: string
+          title: Sample Traceback
+          default: ''
+        first_seen:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: First Seen
+        last_seen:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Seen
+        count_24h:
+          type: integer
+          title: Count 24H
+          default: 1
+        applications:
+          items:
+            type: string
+          type: array
+          title: Applications
+        rca:
+          anyOf:
+          - $ref: '#/components/schemas/RcaBlock'
+          - type: 'null'
+        labels:
+          items:
+            type: string
+          type: array
+          title: Labels
+      type: object
+      required:
+      - sig
+      - title
+      title: IssueCreate
+    IssueUpdate:
+      properties:
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        priority:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Priority
+        assignee:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Assignee
+        labels:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Labels
+        rca:
+          anyOf:
+          - $ref: '#/components/schemas/RcaBlock'
+          - type: 'null'
+        comment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Comment
+      type: object
+      title: IssueUpdate
+    JobSummary:
+      properties:
+        status:
+          type: string
+          title: Status
+        count:
+          type: integer
+          title: Count
+      type: object
+      required:
+      - status
+      - count
+      title: JobSummary
+    JourneyInput:
+      properties:
+        journey_type:
+          $ref: '#/components/schemas/JourneyType'
+      type: object
+      required:
+      - journey_type
+      title: JourneyInput
+    JourneyType:
+      type: string
+      enum:
+      - existing_investor
+      - new_investor
+      - mfd_advisor
+      title: JourneyType
+    ManualSnapshotRequest:
+      properties:
+        trigger:
+          type: string
+          maxLength: 32
+          title: Trigger
+          default: manual
+      type: object
+      title: ManualSnapshotRequest
+    MessageFeedbackRequest:
+      properties:
+        message_id:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Message Id
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+        rating:
+          type: string
+          pattern: ^(up|down)$
+          title: Rating
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        comment:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Comment
+      type: object
+      required:
+      - message_id
+      - rating
+      title: MessageFeedbackRequest
+    MfFolio:
+      properties:
+        amc:
+          type: string
+          title: Amc
+        folio:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Folio
+        registrar:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Registrar
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Value
+        schemes:
+          items:
+            $ref: '#/components/schemas/MfScheme'
+          type: array
+          title: Schemes
+      type: object
+      required:
+      - amc
+      title: MfFolio
+      description: 'A folio at one AMC.  `mutual_funds[]` is a list of these.
+
+
+        Accepts both the real SDK key ``folio_number`` and the legacy synthetic
+
+        key ``folio`` via the populate-by-name alias config.'
+    MfScheme:
+      properties:
+        isin:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Isin
+        name:
+          type: string
+          title: Name
+        units:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Units
+        nav:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Nav
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+        cost:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Cost
+        type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Type
+        scheme_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scheme Code
+      type: object
+      required:
+      - name
+      - units
+      - value
+      title: MfScheme
+      description: 'One scheme within a folio.  Real SDK fields:
+
+        isin, name, units, nav, value, cost, gain{absolute,percentage}, type, …'
+    NpsHolding:
+      properties:
+        pran:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pran
+        scheme:
+          type: string
+          title: Scheme
+        units:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Units
+        nav:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Nav
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+      type: object
+      required:
+      - scheme
+      - units
+      - value
+      title: NpsHolding
+    OverlapRequest:
+      properties:
+        scheme_codes:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Scheme Codes
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      title: OverlapRequest
+    PanInput:
+      properties:
+        pan:
+          type: string
+          maxLength: 10
+          minLength: 10
+          title: Pan
+      type: object
+      required:
+      - pan
+      title: PanInput
+    ParsedData:
+      properties:
+        meta:
+          additionalProperties: true
+          type: object
+          title: Meta
+        investor:
+          additionalProperties: true
+          type: object
+          title: Investor
+        summary:
+          additionalProperties: true
+          type: object
+          title: Summary
+        demat_accounts:
+          items:
+            $ref: '#/components/schemas/DematAccount'
+          type: array
+          title: Demat Accounts
+        mutual_funds:
+          items:
+            $ref: '#/components/schemas/MfFolio'
+          type: array
+          title: Mutual Funds
+        insurance:
+          $ref: '#/components/schemas/InsuranceSection'
+        nps:
+          items:
+            $ref: '#/components/schemas/NpsHolding'
+          type: array
+          title: Nps
+      type: object
+      title: ParsedData
+      description: The ``data`` field of the SDK ``onSuccess`` callback.
+    PersonaOverrideInput:
+      properties:
+        persona:
+          $ref: '#/components/schemas/PersonaType'
+      type: object
+      required:
+      - persona
+      title: PersonaOverrideInput
+    PersonaType:
+      type: string
+      enum:
+      - retail_investor
+      - mutual_fund_investor
+      - stock_investor
+      - active_trader
+      - swing_trader
+      - intraday_trader
+      - options_trader
+      - mfd_advisor
+      - hni_investor
+      - retirement_planner
+      - parents_planning
+      - tax_saver
+      - conservative_investor
+      - beginner_investor
+      - nri_investor
+      title: PersonaType
+    PortfolioCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        member_name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Member Name
+        relationship:
+          $ref: '#/components/schemas/Relationship'
+      type: object
+      required:
+      - name
+      - member_name
+      - relationship
+      title: PortfolioCreate
+    PortfolioResponse:
+      properties:
+        total_value:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Total Value
+        holdings_count:
+          type: integer
+          title: Holdings Count
+        allocation:
+          items:
+            $ref: '#/components/schemas/AllocationItem'
+          type: array
+          title: Allocation
+        top_holdings:
+          items:
+            $ref: '#/components/schemas/TopHolding'
+          type: array
+          title: Top Holdings
+      additionalProperties: false
+      type: object
+      required:
+      - total_value
+      - holdings_count
+      - allocation
+      - top_holdings
+      title: PortfolioResponse
+    ProfileCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+        aum_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Aum Rs
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tags
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Email
+        mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Mobile
+        pan:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Pan
+      type: object
+      required:
+      - name
+      title: ProfileCreate
+    ProfileUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Name
+        aum_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Aum Rs
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tags
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Email
+        mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Mobile
+        pan:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Pan
+        last_reviewed_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Reviewed At
+      type: object
+      title: ProfileUpdate
+    QuickSetupInput:
+      properties:
+        age:
+          type: integer
+          maximum: 100.0
+          minimum: 18.0
+          title: Age
+        goal:
+          $ref: '#/components/schemas/InvestmentGoal'
+        risk_appetite:
+          $ref: '#/components/schemas/RiskAppetiteLevel'
+        investment_horizon:
+          $ref: '#/components/schemas/InvestmentHorizonLevel'
+        monthly_investment:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Monthly Investment
+      type: object
+      required:
+      - age
+      - goal
+      - risk_appetite
+      - investment_horizon
+      title: QuickSetupInput
+    RAGRequest:
+      properties:
+        message:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Message
+        history:
+          anyOf:
+          - items:
+              additionalProperties:
+                type: string
+              type: object
+            type: array
+          - type: 'null'
+          title: History
+      type: object
+      required:
+      - message
+      title: RAGRequest
+    RcaBlock:
+      properties:
+        root_cause:
+          type: string
+          title: Root Cause
+          default: ''
+        fix_suggestion:
+          type: string
+          title: Fix Suggestion
+          default: ''
+        confidence:
+          type: number
+          title: Confidence
+          default: 0.0
+        source:
+          type: string
+          title: Source
+          default: unknown
+        fix_file:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fix File
+        fix_description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fix Description
+      type: object
+      title: RcaBlock
+    ReadyzResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        service:
+          type: string
+          title: Service
+        version:
+          type: string
+          title: Version
+        env:
+          type: string
+          title: Env
+        postgres:
+          type: string
+          title: Postgres
+        mongo:
+          type: string
+          title: Mongo
+        migration_version:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Migration Version
+        pg_pool_size:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Pg Pool Size
+      type: object
+      required:
+      - status
+      - service
+      - version
+      - env
+      - postgres
+      - mongo
+      - migration_version
+      - pg_pool_size
+      title: ReadyzResponse
+    RebalanceRequest:
+      properties:
+        target_equity:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Equity
+        target_debt:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Debt
+        target_gold:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Gold
+        target_amc_cap:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Amc Cap
+        switch_to_direct:
+          type: boolean
+          title: Switch To Direct
+          default: false
+        remove_dead:
+          type: boolean
+          title: Remove Dead
+          default: false
+      type: object
+      title: RebalanceRequest
+    RefreshRequest:
+      properties:
+        target_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Target Date
+          description: ISO date (YYYY-MM-DD); defaults to today
+      type: object
+      title: RefreshRequest
+    Relationship:
+      type: string
+      enum:
+      - Self
+      - Spouse
+      - Child
+      - Parent
+      - Sibling
+      - Other
+      title: Relationship
+    ReparseRequest:
+      properties:
+        password:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Password
+      type: object
+      title: ReparseRequest
+    ReviewPackRequest:
+      properties:
+        format:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Format
+          default: pdf
+        sections:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Sections
+      type: object
+      title: ReviewPackRequest
+    RiskAppetiteLevel:
+      type: string
+      enum:
+      - conservative
+      - moderate
+      - aggressive
+      title: RiskAppetiteLevel
+    RiskProfileInput:
+      properties:
+        answers:
+          items:
+            $ref: '#/components/schemas/models__RiskProfileAnswer'
+          type: array
+          title: Answers
+      type: object
+      required:
+      - answers
+      title: RiskProfileInput
+    RouteIntentRequest:
+      properties:
+        message:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Message
+      type: object
+      required:
+      - message
+      title: RouteIntentRequest
+    SaveScenarioRequest:
+      properties:
+        name:
+          type: string
+          title: Name
+        scenario_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scenario Id
+        payload:
+          additionalProperties: true
+          type: object
+          title: Payload
+        result:
+          additionalProperties: true
+          type: object
+          title: Result
+      type: object
+      required:
+      - name
+      - payload
+      - result
+      title: SaveScenarioRequest
+    SdkCallbackPayload:
+      properties:
+        upload_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Upload Id
+        checksum:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Checksum
+        statement_from:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Statement From
+        statement_to:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Statement To
+        generated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Generated At
+        source_type:
+          type: string
+          title: Source Type
+        metadata:
+          $ref: '#/components/schemas/SdkMetadata'
+        data:
+          $ref: '#/components/schemas/ParsedData'
+      type: object
+      required:
+      - source_type
+      - data
+      title: SdkCallbackPayload
+      description: Wire body of POST /api/cas/sdk-callback.
+    SdkCallbackResponse:
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          title: Job Id
+        snapshot_id:
+          type: string
+          format: uuid
+          title: Snapshot Id
+        is_new:
+          type: boolean
+          title: Is New
+        is_active:
+          type: boolean
+          title: Is Active
+        status:
+          type: string
+          enum:
+          - activated
+          - stored_inactive
+          title: Status
+        raw_pdf_available:
+          type: boolean
+          title: Raw Pdf Available
+          default: true
+        period:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Period
+        portfolio:
+          $ref: '#/components/schemas/PortfolioResponse'
+      additionalProperties: false
+      type: object
+      required:
+      - job_id
+      - snapshot_id
+      - is_new
+      - is_active
+      - status
+      - portfolio
+      title: SdkCallbackResponse
+    SdkMetadata:
+      properties:
+        method:
+          type: string
+          title: Method
+          default: upload
+        cas_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cas Type
+        processing_time_ms:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Processing Time Ms
+        raw_pdf_available:
+          type: boolean
+          title: Raw Pdf Available
+          default: true
+      type: object
+      title: SdkMetadata
+    SearchIn:
+      properties:
+        query:
+          type: string
+          title: Query
+        top_k:
+          type: integer
+          maximum: 50.0
+          minimum: 1.0
+          title: Top K
+          default: 10
+        feed_ids:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Feed Ids
+      type: object
+      required:
+      - query
+      title: SearchIn
+    SimulateBody:
+      properties:
+        remove_mf_ids:
+          items:
+            type: string
+          type: array
+          title: Remove Mf Ids
+          default: []
+      type: object
+      title: SimulateBody
+    SimulateBuilderRequest:
+      properties:
+        starting_corpus_rs:
+          type: number
+          minimum: 0.0
+          title: Starting Corpus Rs
+          default: 0
+        monthly_sip_rs:
+          type: number
+          minimum: 0.0
+          title: Monthly Sip Rs
+          default: 0
+        years:
+          type: number
+          maximum: 50.0
+          exclusiveMinimum: 0.0
+          title: Years
+        future_target_rs:
+          type: number
+          minimum: 0.0
+          title: Future Target Rs
+          default: 0
+        allocation:
+          anyOf:
+          - additionalProperties:
+              type: number
+            type: object
+          - type: 'null'
+          title: Allocation
+      type: object
+      required:
+      - years
+      title: SimulateBuilderRequest
+    SipPlanRequest:
+      properties:
+        monthly_budget:
+          type: number
+          maximum: 10000000.0
+          exclusiveMinimum: 0.0
+          title: Monthly Budget
+        risk_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Risk Label
+          default: Moderate
+        years:
+          anyOf:
+          - type: integer
+            maximum: 40.0
+            minimum: 1.0
+          - type: 'null'
+          title: Years
+          default: 10
+        goal_amount:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Goal Amount
+        step_up_pct:
+          anyOf:
+          - type: number
+            maximum: 0.5
+            minimum: 0.0
+          - type: 'null'
+          title: Step Up Pct
+          default: 0.0
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      required:
+      - monthly_budget
+      title: SipPlanRequest
+    SnapshotDetail:
+      properties:
+        snapshot:
+          $ref: '#/components/schemas/SnapshotItem'
+        portfolio:
+          $ref: '#/components/schemas/PortfolioResponse'
+      additionalProperties: false
+      type: object
+      required:
+      - snapshot
+      - portfolio
+      title: SnapshotDetail
+    SnapshotItem:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        source_type:
+          type: string
+          title: Source Type
+        statement_from:
+          type: string
+          title: Statement From
+        statement_to:
+          type: string
+          title: Statement To
+        period:
+          type: string
+          title: Period
+        generated_at:
+          type: string
+          title: Generated At
+        is_active:
+          type: boolean
+          title: Is Active
+        total_value:
+          anyOf:
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Total Value
+        holdings_count:
+          type: integer
+          title: Holdings Count
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - source_type
+      - statement_from
+      - statement_to
+      - period
+      - generated_at
+      - is_active
+      - total_value
+      - holdings_count
+      title: SnapshotItem
+    SnapshotsList:
+      properties:
+        snapshots:
+          items:
+            $ref: '#/components/schemas/SnapshotItem'
+          type: array
+          title: Snapshots
+      additionalProperties: false
+      type: object
+      required:
+      - snapshots
+      title: SnapshotsList
+    StaleJob:
+      properties:
+        id:
+          type: string
+          title: Id
+        pan_hash_prefix:
+          type: string
+          title: Pan Hash Prefix
+        source_type:
+          type: string
+          title: Source Type
+        method:
+          type: string
+          title: Method
+        status:
+          type: string
+          title: Status
+        minutes_stuck:
+          type: integer
+          title: Minutes Stuck
+      type: object
+      required:
+      - id
+      - pan_hash_prefix
+      - source_type
+      - method
+      - status
+      - minutes_stuck
+      title: StaleJob
+    StockWeightsPayload:
+      properties:
+        weights:
+          additionalProperties:
+            additionalProperties:
+              type: number
+            type: object
+          type: object
+          title: Weights
+      type: object
+      required:
+      - weights
+      title: StockWeightsPayload
+    StrategyCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        asset_class:
+          type: string
+          pattern: ^(STOCK|MF)$
+          title: Asset Class
+        definition:
+          additionalProperties: true
+          type: object
+          title: Definition
+      type: object
+      required:
+      - name
+      - asset_class
+      - definition
+      title: StrategyCreate
+    StrategyUpdate:
+      properties:
+        definition:
+          additionalProperties: true
+          type: object
+          title: Definition
+      type: object
+      required:
+      - definition
+      title: StrategyUpdate
+    StressTestRequest:
+      properties:
+        scenario:
+          type: string
+          title: Scenario
+          default: covid_2020
+        custom_drop_pct:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Custom Drop Pct
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      title: StressTestRequest
+    SubscriptionIn:
+      properties:
+        feed_id:
+          type: string
+          title: Feed Id
+        params:
+          additionalProperties: true
+          type: object
+          title: Params
+      type: object
+      required:
+      - feed_id
+      title: SubscriptionIn
+    SubscriptionOut:
+      properties:
+        feed_id:
+          type: string
+          title: Feed Id
+        feed_name:
+          type: string
+          title: Feed Name
+        params:
+          additionalProperties: true
+          type: object
+          title: Params
+        paused:
+          type: boolean
+          title: Paused
+        subscribed_at:
+          type: string
+          title: Subscribed At
+      type: object
+      required:
+      - feed_id
+      - feed_name
+      - params
+      - paused
+      - subscribed_at
+      title: SubscriptionOut
+    TokenResponse:
+      properties:
+        access_token:
+          type: string
+          title: Access Token
+        expires_at:
+          type: string
+          title: Expires At
+        stub:
+          type: boolean
+          title: Stub
+      additionalProperties: false
+      type: object
+      required:
+      - access_token
+      - expires_at
+      - stub
+      title: TokenResponse
+    TopHolding:
+      properties:
+        name:
+          type: string
+          title: Name
+        asset_class:
+          type: string
+          title: Asset Class
+        value:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+        pct:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Pct
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - asset_class
+      - value
+      - pct
+      title: TopHolding
+    TriggerDailyReq:
+      properties:
+        start_date:
+          type: string
+          format: date
+          title: Start Date
+        end_date:
+          type: string
+          format: date
+          title: End Date
+        ingesters:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Ingesters
+        wipe_first:
+          type: boolean
+          title: Wipe First
+          default: false
+        politeness_ms:
+          type: integer
+          maximum: 30000.0
+          minimum: 500.0
+          title: Politeness Ms
+          default: 4000
+        parallel:
+          type: integer
+          maximum: 8.0
+          minimum: 1.0
+          title: Parallel
+          default: 1
+      type: object
+      required:
+      - start_date
+      - end_date
+      - ingesters
+      title: TriggerDailyReq
+    TriggerFinancialsReq:
+      properties:
+        symbols:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Symbols
+          description: 'Comma-separated NSE symbols (default: Nifty 500)'
+        concurrency:
+          type: integer
+          maximum: 15.0
+          minimum: 1.0
+          title: Concurrency
+          default: 8
+        per_request_delay:
+          type: number
+          maximum: 10.0
+          minimum: 0.5
+          title: Per Request Delay
+          default: 1.5
+        only_missing:
+          type: boolean
+          title: Only Missing
+          description: Skip symbols already having ≥8 quarters
+          default: false
+      type: object
+      title: TriggerFinancialsReq
+    TriggerNavHistoryReq:
+      properties:
+        scheme_codes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scheme Codes
+          description: 'Comma-separated scheme codes (default: all active)'
+        from_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: From Date
+        to_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: To Date
+        concurrency:
+          type: integer
+          maximum: 40.0
+          minimum: 1.0
+          title: Concurrency
+          default: 30
+        only_stale_days:
+          type: integer
+          minimum: 0.0
+          title: Only Stale Days
+          description: 0 = full backfill (recommended for initial run)
+          default: 0
+      type: object
+      title: TriggerNavHistoryReq
+    TriggerRollingReq:
+      properties:
+        start_date:
+          type: string
+          format: date
+          title: Start Date
+        end_date:
+          type: string
+          format: date
+          title: End Date
+        services:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Services
+        skip_existing:
+          type: boolean
+          title: Skip Existing
+          default: true
+      type: object
+      required:
+      - start_date
+      - end_date
+      - services
+      title: TriggerRollingReq
+    TriggerYfinanceReq:
+      properties:
+        start_date:
+          type: string
+          format: date
+          title: Start Date
+        end_date:
+          type: string
+          format: date
+          title: End Date
+        symbols:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Symbols
+          description: 'Comma-separated NSE symbols (default: Nifty 500)'
+        concurrency:
+          type: integer
+          maximum: 20.0
+          minimum: 1.0
+          title: Concurrency
+          default: 8
+        per_request_delay:
+          type: number
+          maximum: 10.0
+          minimum: 0.5
+          title: Per Request Delay
+          default: 1.0
+      type: object
+      title: TriggerYfinanceReq
+    UniverseCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        asset_class:
+          type: string
+          pattern: ^(STOCK|MF)$
+          title: Asset Class
+        symbols:
+          items:
+            type: string
+          type: array
+          title: Symbols
+      type: object
+      required:
+      - name
+      - asset_class
+      title: UniverseCreate
+    UploadCompleteRequest:
+      properties:
+        upload_id:
+          type: string
+          format: uuid
+          title: Upload Id
+        checksum:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Checksum
+          description: SHA-256 of the uploaded PDF (hex). Optional in V1.
+      type: object
+      required:
+      - upload_id
+      title: UploadCompleteRequest
+    UploadInitRequest:
+      properties:
+        source_type:
+          type: string
+          title: Source Type
+          description: ECAS_CDSL | ECAS_NSDL | MF_CAMS | MF_KFIN
+        filename:
+          type: string
+          maxLength: 256
+          title: Filename
+          default: cas.pdf
+      type: object
+      required:
+      - source_type
+      title: UploadInitRequest
+    UploadInitResponse:
+      properties:
+        upload_id:
+          type: string
+          format: uuid
+          title: Upload Id
+        upload_url:
+          type: string
+          title: Upload Url
+        object_key:
+          type: string
+          title: Object Key
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+        stub:
+          type: boolean
+          title: Stub
+          default: false
+      additionalProperties: false
+      type: object
+      required:
+      - upload_id
+      - upload_url
+      - object_key
+      - expires_at
+      title: UploadInitResponse
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    WeightsPayload:
+      properties:
+        weights:
+          additionalProperties:
+            additionalProperties:
+              additionalProperties:
+                type: number
+              type: object
+            type: object
+          type: object
+          title: Weights
+      type: object
+      required:
+      - weights
+      title: WeightsPayload
+    WhatIfRequest:
+      properties:
+        monthly_sip_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Monthly Sip Rs
+        horizon_years:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Horizon Years
+        current_corpus_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Current Corpus Rs
+        allocation_override:
+          anyOf:
+          - additionalProperties:
+              type: number
+            type: object
+          - type: 'null'
+          title: Allocation Override
+      type: object
+      title: WhatIfRequest
+    WhatsAppShareRequest:
+      properties:
+        monthly_sip_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Monthly Sip Rs
+        lumpsum_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Lumpsum Rs
+        client_name:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Client Name
+        public_url:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Public Url
+      type: object
+      title: WhatsAppShareRequest
+    WorkspaceModeUpdate:
+      properties:
+        mode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mode
+          description: INDIVIDUAL | ADVISORY
+        firm_name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Firm Name
+        client_count_range:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Count Range
+          description: <100 | 100-500 | 500+
+        mfd_onboarding_completed:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Mfd Onboarding Completed
+        advisor_name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Advisor Name
+        advisor_mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Advisor Mobile
+        advisor_email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Advisor Email
+        arn_or_ria:
+          anyOf:
+          - type: string
+            maxLength: 50
+          - type: 'null'
+          title: Arn Or Ria
+          description: ARN-xxxxx or INA-xxxxx
+      type: object
+      title: WorkspaceModeUpdate
+    _LayoutOnlyRequest:
+      properties:
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      title: _LayoutOnlyRequest
+    models__RiskProfileAnswer:
+      properties:
+        question_id:
+          type: string
+          title: Question Id
+        answer:
+          type: string
+          title: Answer
+      type: object
+      required:
+      - question_id
+      - answer
+      title: RiskProfileAnswer
+    routes__portfolio_builder__RiskProfileAnswer:
+      properties:
+        question_id:
+          type: string
+          title: Question Id
+        value:
+          type: string
+          title: Value
+      type: object
+      required:
+      - question_id
+      - value
+      title: RiskProfileAnswer
+    routes__positional__SimulateRequest:
+      properties:
+        basket:
+          items: {}
+          type: array
+          title: Basket
+          description: Basket items from POST /basket — list of position dicts
+        horizon_days:
+          type: integer
+          maximum: 20.0
+          minimum: 5.0
+          title: Horizon Days
+          default: 10
+      type: object
+      required:
+      - basket
+      title: SimulateRequest
+    routes__scenarios__SimulateRequest:
+      properties:
+        scenario_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scenario Id
+        target_equity:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Equity
+        target_debt:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Debt
+        target_gold:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Gold
+        target_amc_cap:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Amc Cap
+        target_small_cap:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Small Cap
+        switch_to_direct:
+          type: boolean
+          title: Switch To Direct
+          default: false
+        remove_dead:
+          type: boolean
+          title: Remove Dead
+          default: false
+      type: object
+      title: SimulateRequest
