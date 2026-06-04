@@ -40,7 +40,7 @@ datasources:
     jsonData:
       authenticationType: jwt
       defaultProject: niveshdataintelligence
-      clientEmail: log-triage@niveshdataintelligence.iam.gserviceaccount.com
+      clientEmail: nivesh-log-triage-sa@niveshdataintelligence.iam.gserviceaccount.com
       tokenUri: https://oauth2.googleapis.com/token
     secureJsonData:
       # Set on host before starting: export GCP_LOG_TRIAGE_PRIVATE_KEY="$(jq -r .private_key /opt/nidp/secrets/log-triage-sa.json)"

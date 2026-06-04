@@ -11,7 +11,7 @@ datasources:
       defaultProject: niveshdataintelligence
       # Service account: log-triage@niveshdataintelligence.iam.gserviceaccount.com
       # Requires role: roles/logging.viewer
-      clientEmail: log-triage@niveshdataintelligence.iam.gserviceaccount.com
+      clientEmail: nivesh-log-triage-sa@niveshdataintelligence.iam.gserviceaccount.com
       tokenUri: https://oauth2.googleapis.com/token
     secureJsonData:
       # Export private key from the SA JSON:
