@@ -207,7 +207,8 @@ async def _load_prices(conn, *, since: Optional[date], symbols: Optional[List[st
                open_price, high_price, low_price, close_price,
                volume AS traded_volume
           FROM nidp.prices_eod
-         WHERE {' AND '.join(where)}
+         WHERE series = 'EQ'
+           AND {' AND '.join(where)}
     """
     # Long-running query — bump server-side and asyncpg timeouts.
     # SET (not SET LOCAL) since we're not in a transaction here.

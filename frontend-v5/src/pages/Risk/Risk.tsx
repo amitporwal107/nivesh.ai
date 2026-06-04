@@ -154,18 +154,48 @@ export function Risk({ data, isAdmin, onRunPra, isPraRunning, profile, profileLo
 
       {/* Risk drivers */}
       <Card className="mt-5 p-6">
-        <CardLabel>What's making it risky · share of σ</CardLabel>
+        <CardLabel>What's making it risky · composite risk</CardLabel>
         <ul className="mt-4 flex flex-col gap-3">
           {data.riskDrivers.map((d) => (
             <li key={d.name} className="py-1">
-              <div className="flex items-center justify-between gap-2 mb-1.5">
+              <div className="flex items-center justify-between gap-2 mb-1">
                 <span className="text-[14px]">{d.name}</span>
-                <span className="font-mono num text-[13px] shrink-0">{d.sharePct}%</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {d.fundamentalScore != null && d.fundamentalScore > 0 && (
+                    <span
+                      className="text-[11px] font-mono px-1.5 py-0.5 rounded"
+                      style={{
+                        background: d.fundamentalScore >= 50 ? "rgba(220,60,60,0.18)" : "rgba(220,140,30,0.18)",
+                        color:      d.fundamentalScore >= 50 ? "#e05555" : "#d08030",
+                      }}
+                    >
+                      F{d.fundamentalScore}
+                    </span>
+                  )}
+                  <span className="font-mono num text-[13px]">{d.sharePct}%</span>
+                </div>
               </div>
+              {d.riskFlags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-1.5">
+                  {d.riskFlags.map((f) => (
+                    <span
+                      key={f}
+                      className="text-[10px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded"
+                      style={{ background: "rgba(255,255,255,0.07)", color: "var(--color-ink-3)" }}
+                    >
+                      {f.replace(/_/g, " ")}
+                    </span>
+                  ))}
+                </div>
+              )}
               <CapBar pct={d.sharePct} height={6} />
             </li>
           ))}
         </ul>
+        <p className="mt-4 text-[11px] text-ink-3 leading-relaxed">
+          Ranked by composite risk (60% fundamental · 40% market volatility contribution).
+          F-score = fundamental risk 0–100. Flags highlight specific risk factors.
+        </p>
       </Card>
 
       {/* Stress scenarios */}

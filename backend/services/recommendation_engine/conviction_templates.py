@@ -134,8 +134,9 @@ def _add_text(name: str, codes: set, detail: str, sig: "EngineSignal") -> str:
             f"geographic concentration in India-only assets increases correlation risk. {detail}{amt_clause}"
         ).rstrip()
 
+    # Generic ADD — lead with the gap, not the fund name (fund name is already in the card title)
     return (
-        f"Add to {name} — this category is below its target in your portfolio.{amt_clause} "
+        f"This category is below its target in your portfolio — adding here closes the gap.{amt_clause} "
         f"{detail}"
     ).rstrip()
 

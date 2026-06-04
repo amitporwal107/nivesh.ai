@@ -256,6 +256,46 @@ async def _diversification_composite(user_id: str, lens: str) -> dict[str, Any]:
     }
 
 
+def _build_risk_drivers(drivers: list[dict]) -> list[dict]:
+    """Build the risk-driver breakdown items combining market risk (share of Σ)
+    with fundamental risk scores.
+
+    Composite ranking = 0.4 × normalised_sigma + 0.6 × (fundamental_score / 100).
+    Falls back to pure sigma when no fundamental data is present.
+    Stocks with a fundamental_risk_score > 0 get their risk flags surfaced.
+    """
+    if not drivers:
+        return []
+
+    max_sigma = max((float(d.get("share_of_sigma_pct") or 0) for d in drivers), default=1.0) or 1.0
+
+    scored = []
+    for d in drivers:
+        sigma = float(d.get("share_of_sigma_pct") or 0)
+        fund  = d.get("fundamental_risk_score")
+        if fund is not None:
+            composite = 0.4 * (sigma / max_sigma) + 0.6 * (float(fund) / 100.0)
+        else:
+            composite = sigma / max_sigma
+        scored.append((composite, sigma, d))
+
+    scored.sort(key=lambda t: t[0], reverse=True)
+
+    items = []
+    for composite, sigma, d in scored[:10]:
+        fund_score = d.get("fundamental_risk_score")
+        flags      = d.get("risk_flags") or []
+        items.append({
+            "name":               d.get("security_name") or d.get("security_key", "Unknown"),
+            "cls":                d.get("asset_class", ""),
+            "value":              round(sigma, 1),          # share of Σ % (bar width)
+            "weight":             round(float(d.get("effective_weight_pct") or 0), 1),
+            "fundamental_score":  round(float(fund_score), 1) if fund_score is not None else None,
+            "risk_flags":         flags,
+        })
+    return items
+
+
 async def _risk_composite(user_id: str) -> dict[str, Any]:
     """Serves screen 07 Risk Dashboard.
 
@@ -311,17 +351,9 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
                 {"label": "Beta",                "value": f"{beta:.2f}",     "sub": "vs NIFTY 500"},
             ],
             "breakdown": {
-                "lens": "component_var",
-                "lens_options": ["component_var"],
-                "items": [
-                    {
-                        "name":  d.get("security_name") or d.get("security_key", "Unknown"),
-                        "cls":   d.get("asset_class", ""),
-                        "value": round(float(d.get("share_of_sigma_pct") or 0), 1),
-                        "weight": round(float(d.get("effective_weight_pct") or 0), 1),
-                    }
-                    for d in drivers[:10]
-                ],
+                "lens": "composite_risk",
+                "lens_options": ["composite_risk"],
+                "items": _build_risk_drivers(drivers),
             },
             "stress_scenarios": [
                 {

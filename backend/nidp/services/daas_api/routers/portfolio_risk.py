@@ -98,7 +98,11 @@ async def get_portfolio_risk(
                 """
                 SELECT security_key, security_name, asset_class,
                        effective_weight_pct, marginal_var_pct,
-                       component_var_pct, share_of_sigma_pct, look_through_path
+                       component_var_pct, share_of_sigma_pct, look_through_path,
+                       altman_z_score, debt_to_equity, interest_coverage,
+                       current_ratio, cfo_pat_ratio, promoter_pledged_pct,
+                       free_float_pct, operating_margin_pct,
+                       fundamental_risk_score, risk_flags
                 FROM pra.component_var
                 WHERE result_id = $1
                 ORDER BY share_of_sigma_pct DESC

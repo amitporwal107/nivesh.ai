@@ -14,7 +14,12 @@ export interface RiskSnapshot {
   benchmarkVolPct: number;
   maxDrawdownPct: number;
   beta: number;
-  riskDrivers: Array<{ name: string; sharePct: number }>;
+  riskDrivers: Array<{
+    name: string;
+    sharePct: number;
+    fundamentalScore: number | null;
+    riskFlags: string[];
+  }>;
   stressScenarios: Array<{
     name: string;
     portfolioPct: number;

@@ -122,11 +122,18 @@ export const realAnalyticsAdapter: AnalyticsAdapter = {
       const benchMatch = tileSub("vol").match(/[\d.]+/);
       const benchVolPct = benchMatch ? parseFloat(benchMatch[0]) / 100 : 0;
 
-      // Risk drivers: new format uses breakdown.items with sharePct field
-      const breakdownItems = (body.breakdown as { items?: Array<{ name?: string; value?: number; cls?: string }> })?.items ?? [];
+      // Risk drivers: composite_risk format includes fundamental_score + risk_flags
+      const breakdownItems = (body.breakdown as {
+        items?: Array<{
+          name?: string; value?: number; cls?: string; weight?: number;
+          fundamental_score?: number | null; risk_flags?: string[];
+        }>
+      })?.items ?? [];
       const riskDrivers = breakdownItems.map((d) => ({
-        name: String(d.name ?? ""),
-        sharePct: Number(d.value ?? 0),
+        name:             String(d.name ?? ""),
+        sharePct:         Number(d.value ?? 0),
+        fundamentalScore: d.fundamental_score != null ? Number(d.fundamental_score) : null,
+        riskFlags:        Array.isArray(d.risk_flags) ? d.risk_flags : [],
       }));
 
       // Stress scenarios: new PRA path returns stress_scenarios array

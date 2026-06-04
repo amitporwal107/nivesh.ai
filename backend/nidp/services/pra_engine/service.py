@@ -20,6 +20,11 @@ from typing import Optional
 from nidp.shared.storage.pg import get_pool
 
 from .covariance import build_covariance, compute_component_var
+from .fundamental import (
+    compute_portfolio_fundamental_summary,
+    enrich_component_var,
+    fetch_fundamental_data,
+)
 from .returns import build_portfolio_returns
 from .stress import compute_stress_scenarios
 from .var_engine import compute_all, compute_hhi
@@ -181,6 +186,12 @@ async def _process_user(
             security_meta=security_meta,
         )
 
+        # Enrich with fundamental risk analytics
+        isins = [r["security_key"] for r in component_var_rows]
+        fundamental_data = await fetch_fundamental_data(conn, isins, target_date)
+        component_var_rows = enrich_component_var(component_var_rows, fundamental_data)
+        fundamental_summary = compute_portfolio_fundamental_summary(component_var_rows)
+
         # HHI
         hhi = compute_hhi(pr.effective_weights)
 
@@ -206,6 +217,7 @@ async def _process_user(
             component_var_rows=component_var_rows,
             stress_results=stress_results,
             lookthrough_coverage_pct=coverage_pct,
+            fundamental_summary=fundamental_summary,
             dry_run=dry_run,
         )
 
