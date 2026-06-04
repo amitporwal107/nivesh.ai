@@ -1,0 +1,6661 @@
+openapi: 3.1.0
+info:
+  title: Admin
+  version: 1.0.0
+paths:
+  /api/admin/data-pipeline/status:
+    get:
+      tags:
+      - admin-data-pipeline
+      summary: Get Pipeline Status
+      description: Last-success timestamps + next-run times + Redis cache stats.
+      operationId: get_pipeline_status_api_admin_data_pipeline_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Pipeline Status Api Admin Data Pipeline Status
+                  Get
+  /api/admin/data-pipeline/logs:
+    get:
+      tags:
+      - admin-data-pipeline
+      summary: Get Pipeline Logs
+      description: Recent job-log rows for the admin monitoring table.
+      operationId: get_pipeline_logs_api_admin_data_pipeline_logs_get
+      parameters:
+      - name: job
+        in: query
+        required: false
+        schema:
+          type: string
+          description: 'Filter by job: nav_cron | analytics_sweep | v3_rescore | nifty100_refresh'
+          title: Job
+        description: 'Filter by job: nav_cron | analytics_sweep | v3_rescore | nifty100_refresh'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 30
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Pipeline Logs Api Admin Data Pipeline Logs Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/data-pipeline/trigger/{job_name}:
+    post:
+      tags:
+      - admin-data-pipeline
+      summary: Trigger Job
+      description: 'Manually retrigger a pipeline job. Returns 202-like ack; the job
+        runs
+
+        in the background. Poll `/status` or `/logs` for completion.'
+      operationId: trigger_job_api_admin_data_pipeline_trigger__job_name__post
+      parameters:
+      - name: job_name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Trigger Job Api Admin Data Pipeline Trigger  Job Name  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/data-pipeline/cache/invalidate:
+    post:
+      tags:
+      - admin-data-pipeline
+      summary: Invalidate Cache
+      description: Nuke the entire V3 score Redis cache. Next API read recomputes.
+      operationId: invalidate_cache_api_admin_data_pipeline_cache_invalidate_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Invalidate Cache Api Admin Data Pipeline Cache Invalidate
+                  Post
+  /api/admin/data-pipeline/cache/invalidate-performance:
+    post:
+      tags:
+      - admin-data-pipeline
+      summary: Invalidate Performance Caches
+      description: "Clear all per-user performance caches so the next request recomputes\n\
+        with the current code.\n\nClears:\n  - MongoDB  fund_performance_cache  (mfapi.in-based\
+        \ 1Y/3M/1M rankings)\n  - Postgres portfolio_performance_cache  (XIRR / waterfall\
+        \ / contributors)\n\nCalled automatically by the GitHub Actions deploy workflow\
+        \ after each\nsuccessful health check, so users always see data computed with\
+        \ the\ndeployed code — never stale data from a previous version."
+      operationId: invalidate_performance_caches_api_admin_data_pipeline_cache_invalidate_performance_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Invalidate Performance Caches Api Admin Data Pipeline
+                  Cache Invalidate Performance Post
+  /api/admin/data-pipeline/progress/{job_name}/clear:
+    post:
+      tags:
+      - admin-data-pipeline
+      summary: Clear Progress
+      description: 'Clear a stuck live-progress record (admin recovery). Does NOT
+        kill the
+
+        underlying task — use when a progress record is orphaned (job crashed
+
+        silently) and you want the UI to stop showing ''running/stuck''.'
+      operationId: clear_progress_api_admin_data_pipeline_progress__job_name__clear_post
+      parameters:
+      - name: job_name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Clear Progress Api Admin Data Pipeline Progress  Job
+                  Name  Clear Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/diag:
+    get:
+      tags:
+      - admin-nidp
+      summary: Diag
+      description: 'Connection diagnostics — what URL admin_nidp is trying, whether
+
+        NIDP Query API is reachable + authenticated, plus whether the local
+
+        app Postgres pool connects. The first row tells you whether the
+
+        admin console can talk to the GCP-side warehouse at all.'
+      operationId: diag_api_admin_nidp_diag_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Diag Api Admin Nidp Diag Get
+  /api/admin/nidp/script:
+    get:
+      tags:
+      - admin-nidp
+      summary: Script Health
+      description: 'Pre-flight check the UI can hit before showing the Run button
+        —
+
+        confirms the script exists and is executable, plus whether `gh` is
+
+        on PATH (without that, the script will print to /tmp instead of
+
+        uploading).'
+      operationId: script_health_api_admin_nidp_script_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Script Health Api Admin Nidp Script Get
+  /api/admin/nidp/dump:
+    post:
+      tags:
+      - admin-nidp
+      summary: Trigger Dump
+      description: 'Run dump_for_claude.sh and return the gist URL it printed.
+
+
+        The script writes a /tmp/nidp_dump_*.md file *and* (when gh is
+
+        available) uploads it to a private gist. We capture both stdout
+
+        and stderr and surface the gist URL to the caller.'
+      operationId: trigger_dump_api_admin_nidp_dump_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Trigger Dump Api Admin Nidp Dump Post
+  /api/admin/nidp/jobs:
+    get:
+      tags:
+      - admin-nidp
+      summary: List Jobs
+      description: 'List all 13 NIDP ingesters with their latest run status (from
+
+        nidp.v_feed_status) and current Cloud Run image tag.
+
+
+        The DB query is one round-trip; the gcloud calls are fired in
+
+        parallel so the whole thing returns in ~1-2s even with 13 jobs.'
+      operationId: list_jobs_api_admin_nidp_jobs_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Jobs Api Admin Nidp Jobs Get
+  /api/admin/nidp/jobs/{ingester}/execute:
+    post:
+      tags:
+      - admin-nidp
+      summary: Execute Job
+      description: 'Trigger an ingester run for the given target date. Routes through
+
+        the NIDP Query API on the VM (which spawns run_service.sh detached).
+
+        Returns immediately — UI polls /jobs/{ingester}/runs to see the
+
+        job_log row land.'
+      operationId: execute_job_api_admin_nidp_jobs__ingester__execute_post
+      parameters:
+      - name: ingester
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Ingester
+      - name: target_date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^\d{4}-\d{2}-\d{2}$
+          - type: 'null'
+          description: ISO date (YYYY-MM-DD) for the run; defaults to last trading
+            day on the VM.
+          title: Target Date
+        description: ISO date (YYYY-MM-DD) for the run; defaults to last trading day
+          on the VM.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Execute Job Api Admin Nidp Jobs  Ingester  Execute
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/jobs/{ingester}/calendar:
+    get:
+      tags:
+      - admin-nidp
+      summary: Job Calendar
+      description: 'Per-day status strip for the last N days (default 7). Used by
+        the
+
+        Console''s week-view widget. Pass-through to the NIDP Query API.'
+      operationId: job_calendar_api_admin_nidp_jobs__ingester__calendar_get
+      parameters:
+      - name: ingester
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Ingester
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 30
+          minimum: 1
+          default: 7
+          title: Days
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Job Calendar Api Admin Nidp Jobs  Ingester  Calendar
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/jobs/{ingester}/runs:
+    get:
+      tags:
+      - admin-nidp
+      summary: Job Runs
+      description: 'Last N rows from nidp.job_log for this ingester (proxied through
+
+        the NIDP Query API, which already shapes the response).'
+      operationId: job_runs_api_admin_nidp_jobs__ingester__runs_get
+      parameters:
+      - name: ingester
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Ingester
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Job Runs Api Admin Nidp Jobs  Ingester  Runs Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/jobs/{ingester}/logs:
+    get:
+      tags:
+      - admin-nidp
+      summary: Job Logs
+      description: 'Tail logs for this ingester. VM-mode reads
+
+        /opt/nidp/logs/<ingester>/<ingester>.log via the query_api;
+
+        falls back to `gcloud logging read` against Cloud Run if the
+
+        query_api isn''t configured.'
+      operationId: job_logs_api_admin_nidp_jobs__ingester__logs_get
+      parameters:
+      - name: ingester
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Ingester
+      - name: window
+        in: query
+        required: false
+        schema:
+          type: string
+          description: Legacy gcloud freshness window (only used in fallback).
+          default: 4h
+          title: Window
+        description: Legacy gcloud freshness window (only used in fallback).
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 2000
+          minimum: 1
+          default: 200
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Job Logs Api Admin Nidp Jobs  Ingester  Logs Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/catalog:
+    get:
+      tags:
+      - admin-nidp
+      summary: Catalog
+      description: 'Holistic NIDP data catalog — proxies three NIDP Query API calls
+
+        in parallel and merges into the single payload the React panel binds
+
+        to. Tables/by_domain come from /catalog, feeds from /feeds, and
+
+        validation runs from /validation. Each is independent: a failure in
+
+        one section returns a partial catalog rather than a 500.'
+      operationId: catalog_api_admin_nidp_catalog_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Catalog Api Admin Nidp Catalog Get
+  /api/admin/nidp/quality/expectations:
+    get:
+      tags:
+      - admin-nidp
+      summary: Quality Expectations
+      description: 'Documentation endpoint: every Great-Expectations suite the
+
+        NIDP `quality_gate` runs, with the column, kwargs and rule type
+
+        for each expectation. Surfaced as the ''Expectations'' tab in the
+
+        admin console''s Data Quality page.'
+      operationId: quality_expectations_api_admin_nidp_quality_expectations_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Quality Expectations Api Admin Nidp Quality Expectations
+                  Get
+  /api/admin/nidp/dq/{tail}:
+    post:
+      tags:
+      - admin-nidp
+      summary: Authenticated proxy to NIDP DaaS /v1/dq/*
+      operationId: dq_proxy_api_admin_nidp_dq__tail__post
+      parameters:
+      - name: tail
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tail
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - admin-nidp
+      summary: Authenticated proxy to NIDP DaaS /v1/dq/*
+      operationId: dq_proxy_api_admin_nidp_dq__tail__post_patch
+      parameters:
+      - name: tail
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tail
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - admin-nidp
+      summary: Authenticated proxy to NIDP DaaS /v1/dq/*
+      operationId: dq_proxy_api_admin_nidp_dq__tail__post_delete
+      parameters:
+      - name: tail
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tail
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - admin-nidp
+      summary: Authenticated proxy to NIDP DaaS /v1/dq/*
+      operationId: dq_proxy_api_admin_nidp_dq__tail__post_get
+      parameters:
+      - name: tail
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tail
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/quality/summary:
+    get:
+      tags:
+      - admin-nidp
+      summary: Quality Summary
+      description: Aggregated quality snapshot — quality scores + certification +
+        gate per domain.
+      operationId: quality_summary_api_admin_nidp_quality_summary_get
+      parameters:
+      - name: domain
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Domain
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Quality Summary Api Admin Nidp Quality Summary Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/quality/consistency:
+    get:
+      tags:
+      - admin-nidp
+      summary: Quality Consistency
+      description: Consistency runs + findings in one call.
+      operationId: quality_consistency_api_admin_nidp_quality_consistency_get
+      parameters:
+      - name: domain
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Domain
+      - name: severity
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Severity
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 200
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Quality Consistency Api Admin Nidp Quality Consistency
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/quality/exceptions:
+    get:
+      tags:
+      - admin-nidp
+      summary: Quality Exceptions
+      description: Exception queue — unresolved REVIEW items awaiting ops action.
+      operationId: quality_exceptions_api_admin_nidp_quality_exceptions_get
+      parameters:
+      - name: resolved
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Resolved
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Quality Exceptions Api Admin Nidp Quality Exceptions
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/quality/exceptions/{queue_id}:
+    patch:
+      tags:
+      - admin-nidp
+      summary: Resolve Exception
+      description: Resolve or override an exception queue item (ops action).
+      operationId: resolve_exception_api_admin_nidp_quality_exceptions__queue_id__patch
+      parameters:
+      - name: queue_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Queue Id
+      - name: action
+        in: query
+        required: true
+        schema:
+          type: string
+          description: APPROVE | REJECT | OVERRIDE | ESCALATE
+          title: Action
+        description: APPROVE | REJECT | OVERRIDE | ESCALATE
+      - name: resolution_note
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Resolution Note
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Resolve Exception Api Admin Nidp Quality Exceptions  Queue
+                  Id  Patch
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/quality/quarantine:
+    get:
+      tags:
+      - admin-nidp
+      summary: Quality Quarantine
+      description: 'Dates condemned by the quality gate (FAIL → quarantine_log).
+
+        Returns empty list gracefully if the Query API hasn''t been redeployed
+
+        with the /quarantine endpoint yet (404 from upstream → empty response).'
+      operationId: quality_quarantine_api_admin_nidp_quality_quarantine_get
+      parameters:
+      - name: domain
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Domain
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Quality Quarantine Api Admin Nidp Quality Quarantine
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/archive/{ingester}:
+    get:
+      tags:
+      - admin-nidp
+      summary: List Archive
+      operationId: list_archive_api_admin_nidp_archive__ingester__get
+      parameters:
+      - name: ingester
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Ingester
+      - name: target_date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^\d{4}-\d{2}-\d{2}$
+          - type: 'null'
+          description: If set, list files only for this date.
+          title: Target Date
+        description: If set, list files only for this date.
+      - name: limit_dates
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 365
+          minimum: 1
+          default: 30
+          title: Limit Dates
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response List Archive Api Admin Nidp Archive  Ingester  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/archive/{ingester}/{target_date}/{filename}:
+    get:
+      tags:
+      - admin-nidp
+      summary: Download Archive
+      operationId: download_archive_api_admin_nidp_archive__ingester___target_date___filename__get
+      parameters:
+      - name: ingester
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Ingester
+      - name: target_date
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Target Date
+      - name: filename
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Filename
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/api-keys/{key}/regenerate:
+    post:
+      tags:
+      - admin-nidp
+      summary: Regenerate Nidp Api Key
+      description: 'Generate a new secure token for a NIDP API key and persist it
+        to the
+
+        secrets store. The new value is returned once — copy it immediately.
+
+
+        Supported keys: NIDP_DAAS_API_KEY, NIDP_QUERY_API_TOKEN'
+      operationId: regenerate_nidp_api_key_api_admin_nidp_api_keys__key__regenerate_post
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/run-job:
+    post:
+      tags:
+      - admin-nidp-static
+      summary: Run Job Static Key
+      description: "Trigger any NIDP ingester by name using a static admin key.\n\n\
+        Useful for scripts / cron / curl where a browser session is unavailable.\n\
+        Routes through the NIDP Query API on the VM — same behaviour as the\nsession-auth\
+        \ /jobs/{ingester}/execute endpoint.\n\ncurl -X POST https://niveshcopilot.com/api/admin/nidp/run-job\
+        \ \\\n     -H 'Content-Type: application/json' \\\n     -H 'X-Admin-Key: niv3sh-reset-2026'\
+        \ \\\n     -d '{\"ingester\": \"pra_engine\", \"target_date\": \"2026-06-03\"\
+        }'"
+      operationId: run_job_static_key_api_admin_nidp_run_job_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Run Job Static Key Api Admin Nidp Run Job Post
+  /api/admin/nidp/replay/policies:
+    get:
+      tags:
+      - admin-nidp-replay
+      summary: Get Policies
+      operationId: get_policies_api_admin_nidp_replay_policies_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Policies Api Admin Nidp Replay Policies Get
+  /api/admin/nidp/replay/{tail}:
+    post:
+      tags:
+      - admin-nidp-replay
+      summary: Authenticated proxy to NIDP DaaS /v1/replay/*
+      operationId: replay_proxy_api_admin_nidp_replay__tail__post
+      parameters:
+      - name: tail
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tail
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - admin-nidp-replay
+      summary: Authenticated proxy to NIDP DaaS /v1/replay/*
+      operationId: replay_proxy_api_admin_nidp_replay__tail__post_patch
+      parameters:
+      - name: tail
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tail
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - admin-nidp-replay
+      summary: Authenticated proxy to NIDP DaaS /v1/replay/*
+      operationId: replay_proxy_api_admin_nidp_replay__tail__post_delete
+      parameters:
+      - name: tail
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tail
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - admin-nidp-replay
+      summary: Authenticated proxy to NIDP DaaS /v1/replay/*
+      operationId: replay_proxy_api_admin_nidp_replay__tail__post_get
+      parameters:
+      - name: tail
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tail
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/backfill/readiness:
+    get:
+      tags:
+      - admin-nidp-backfill
+      summary: Readiness
+      operationId: readiness_api_admin_nidp_backfill_readiness_get
+      parameters:
+      - name: target_days
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 3650
+          minimum: 1
+          default: 90
+          title: Target Days
+      - name: only_mandatory
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Only Mandatory
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Readiness Api Admin Nidp Backfill Readiness Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/backfill/trigger/daily:
+    post:
+      tags:
+      - admin-nidp-backfill
+      summary: SSH into VM and launch nidp.services.backfill (daily NSE ingesters)
+      operationId: trigger_daily_api_admin_nidp_backfill_trigger_daily_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerDailyReq'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Trigger Daily Api Admin Nidp Backfill Trigger Daily
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/backfill/trigger/rolling:
+    post:
+      tags:
+      - admin-nidp-backfill
+      summary: SSH into VM and launch nidp.cli backfill (rolling + reference)
+      operationId: trigger_rolling_api_admin_nidp_backfill_trigger_rolling_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerRollingReq'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Trigger Rolling Api Admin Nidp Backfill Trigger Rolling
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/backfill/trigger/yfinance:
+    post:
+      tags:
+      - admin-nidp-backfill
+      summary: 'SSH → VM: launch yfinance 20-year price backfill (Priority 1a)'
+      description: 'Triggers `python -m nidp.services.yfinance_backfill` on the NIDP
+        VM.
+
+
+        Default: 20 years of daily OHLCV for all Nifty 500 symbols.
+
+        Populates `nidp.prices_eod` — unlocks 1Y/3Y/5Y CAGR, volatility,
+
+        Sharpe, Beta, drawdown, stress tests, and tax cost basis.
+
+        Runtime: ~5-6 hours at default concurrency.'
+      operationId: trigger_yfinance_api_admin_nidp_backfill_trigger_yfinance_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerYfinanceReq'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Trigger Yfinance Api Admin Nidp Backfill Trigger Yfinance
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/backfill/trigger/nav-history:
+    post:
+      tags:
+      - admin-nidp-backfill
+      summary: 'SSH → VM: launch AMFI full NAV history backfill (Priority 1b)'
+      description: 'Triggers `python -m nidp.services.amfi_nav_history --only-stale-days
+        0` on VM.
+
+
+        Fetches complete NAV history for all active MF schemes from MFAPI.in
+
+        (which has data from scheme inception). Populates `nidp.mf_nav_daily`.
+
+        Unlocks 1Y/3Y/5Y MF returns, rolling returns, MF stress tests, SIP projections.
+
+        Runtime: ~1.5-2 hours at default concurrency (12 concurrent).'
+      operationId: trigger_nav_history_api_admin_nidp_backfill_trigger_nav_history_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerNavHistoryReq'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Trigger Nav History Api Admin Nidp Backfill Trigger
+                  Nav History Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/backfill/trigger/financials:
+    post:
+      tags:
+      - admin-nidp-backfill
+      summary: 'SSH → VM: launch NSE quarterly financials batch backfill (Priority
+        2)'
+      description: 'Triggers `python -m nidp.services.nse_financials_backfill` on
+        the NIDP VM.
+
+
+        Batch-scrapes NSE XBRL comparator for all Nifty 500 symbols (up to 8 quarters),
+
+        then falls back to Screener.in for older quarters (up to 20 total).
+
+        Populates `nidp.nse_financials_quarterly` — the single most critical missing
+        dataset.
+
+
+        Unlocks: EPS CAGR, Revenue CAGR, earnings consistency, debt trend,
+
+        margin trend, ROE/ROCE, Piotroski F-Score, V3 quality score.
+
+        Runtime: ~3-4 hours at default concurrency (NSE rate-limited).'
+      operationId: trigger_financials_api_admin_nidp_backfill_trigger_financials_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerFinancialsReq'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Trigger Financials Api Admin Nidp Backfill Trigger
+                  Financials Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/backfill/trigger/price-adjuster:
+    post:
+      tags:
+      - admin-nidp-backfill
+      summary: 'SSH → VM: run price_adjuster to compute split/bonus-adjusted prices
+        (run after yfinance)'
+      description: 'Triggers the price_adjuster ingester over the backfill window.
+
+
+        Must be run AFTER yfinance_backfill completes. Computes split/bonus/dividend
+
+        adjusted prices into `nidp.prices_eod_adjusted` — required for accurate
+
+        multi-year return calculations.'
+      operationId: trigger_price_adjuster_api_admin_nidp_backfill_trigger_price_adjuster_post
+      parameters:
+      - name: start_date
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+          title: Start Date
+      - name: end_date
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+          title: End Date
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Trigger Price Adjuster Api Admin Nidp Backfill Trigger
+                  Price Adjuster Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/backfill/trigger/health:
+    get:
+      tags:
+      - admin-nidp-backfill
+      summary: Whether the pod can SSH into the NIDP VM
+      operationId: trigger_health_api_admin_nidp_backfill_trigger_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Trigger Health Api Admin Nidp Backfill Trigger Health
+                  Get
+  /api/admin/nidp/backfill/job_log:
+    get:
+      tags:
+      - admin-nidp-backfill
+      summary: Recent rows of nidp.job_log — covers rolling/reference ingesters not
+        tracked in audit.backfill_runs
+      operationId: job_log_api_admin_nidp_backfill_job_log_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: ingester
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Ingester
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(RUNNING|OK|FAILED|PARTIAL|SKIPPED)$
+          - type: 'null'
+          title: Status
+      - name: since_hours
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 720
+          minimum: 1
+          default: 24
+          title: Since Hours
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Job Log Api Admin Nidp Backfill Job Log Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/backfill/{tail}:
+    post:
+      tags:
+      - admin-nidp-backfill
+      summary: Authenticated proxy to NIDP DaaS /v1/backfill/*
+      operationId: backfill_proxy_api_admin_nidp_backfill__tail__post
+      parameters:
+      - name: tail
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tail
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - admin-nidp-backfill
+      summary: Authenticated proxy to NIDP DaaS /v1/backfill/*
+      operationId: backfill_proxy_api_admin_nidp_backfill__tail__post_delete
+      parameters:
+      - name: tail
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tail
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - admin-nidp-backfill
+      summary: Authenticated proxy to NIDP DaaS /v1/backfill/*
+      operationId: backfill_proxy_api_admin_nidp_backfill__tail__post_get
+      parameters:
+      - name: tail
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tail
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/nidp/stock-primitives/completeness:
+    get:
+      tags:
+      - admin-nidp
+      summary: Completeness
+      description: Run the full completeness check on the NIDP VM and return a JSON
+        envelope.
+      operationId: completeness_api_admin_nidp_stock_primitives_completeness_get
+      parameters:
+      - name: include_universe
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+          title: Include Universe
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Completeness Api Admin Nidp Stock Primitives Completeness
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/verify:
+    get:
+      tags:
+      - admin
+      summary: Verify
+      description: 'Confirm an admin token is valid — used by the staging test UI
+        to gate
+
+        access before exposing the upload form. No side effects.'
+      operationId: verify_api_admin_verify_get
+      parameters:
+      - name: X-Admin-Token
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Verify Api Admin Verify Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/diag/sdk-result:
+    post:
+      tags:
+      - admin
+      summary: Diag Sdk Result
+      description: 'Diagnostic-only — accepts ANY JSON body and dumps it to a Mongo
+
+        collection (_diag_sdk_results) so we can inspect the raw SDK widget
+
+        response server-side without relying on the browser console / session.
+
+
+        Open in staging; useful for debugging the CASParser SDK callback shape
+
+        when the integration sees less data than the SDK''s own UI does.'
+      operationId: diag_sdk_result_api_admin_diag_sdk_result_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Diag Sdk Result Api Admin Diag Sdk Result Post
+  /api/admin/jobs/stale:
+    get:
+      tags:
+      - admin
+      summary: Stale Jobs
+      description: Jobs in pending_upload/received/parsing for more than ``min_age_minutes``.
+      operationId: stale_jobs_api_admin_jobs_stale_get
+      parameters:
+      - name: min_age_minutes
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1440
+          minimum: 1
+          default: 15
+          title: Min Age Minutes
+      - name: X-Admin-Token
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StaleJob'
+                title: Response Stale Jobs Api Admin Jobs Stale Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/jobs/summary:
+    get:
+      tags:
+      - admin
+      summary: Jobs Summary
+      description: Job counts by status over the last 24h.
+      operationId: jobs_summary_api_admin_jobs_summary_get
+      parameters:
+      - name: X-Admin-Token
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JobSummary'
+                title: Response Jobs Summary Api Admin Jobs Summary Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/internal/grafana-alerts:
+    post:
+      tags:
+      - grafana-alerts
+      summary: Receive Grafana Alert
+      description: Receive a Grafana Unified Alerting webhook payload and persist
+        it.
+      operationId: receive_grafana_alert_api_internal_grafana_alerts_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Receive Grafana Alert Api Internal Grafana Alerts
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/grafana-alerts:
+    get:
+      tags:
+      - grafana-alerts
+      summary: Get Active Alerts
+      description: Return currently firing Grafana alerts for the frontend alert banner.
+      operationId: get_active_alerts_api_admin_grafana_alerts_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Active Alerts Api Admin Grafana Alerts Get
+  /api/admin/whitelist:
+    get:
+      summary: List Whitelist
+      description: List all whitelisted users. Admin only.
+      operationId: list_whitelist_api_admin_whitelist_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/whitelist/add:
+    post:
+      summary: Add To Whitelist
+      description: Add a single email to the whitelist. Admin only.
+      operationId: add_to_whitelist_api_admin_whitelist_add_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/whitelist/bulk-upload:
+    post:
+      summary: Bulk Upload Whitelist
+      description: Bulk upload emails via CSV. Admin only.
+      operationId: bulk_upload_whitelist_api_admin_whitelist_bulk_upload_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/whitelist/{email}:
+    delete:
+      summary: Remove From Whitelist
+      description: Remove an email from the whitelist. Admin only.
+      operationId: remove_from_whitelist_api_admin_whitelist__email__delete
+      parameters:
+      - name: email
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Email
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+    patch:
+      summary: Update Whitelist Entry
+      description: Update whitelist entry (toggle admin, change status). Admin only.
+      operationId: update_whitelist_entry_api_admin_whitelist__email__patch
+      parameters:
+      - name: email
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Email
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/stats:
+    get:
+      summary: Get Admin Stats
+      description: Get whitelist and usage statistics. Admin only.
+      operationId: get_admin_stats_api_admin_stats_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/ocr-correction/isin:
+    post:
+      summary: Add Ocr Isin Correction
+      description: 'Admin: teach OCR engine garbled ISIN -> correct ISIN.'
+      operationId: add_ocr_isin_correction_api_admin_ocr_correction_isin_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/ocr-correction/name:
+    post:
+      summary: Add Ocr Name Correction
+      description: 'Admin: teach OCR engine garbled name -> correct name + ISIN.'
+      operationId: add_ocr_name_correction_api_admin_ocr_correction_name_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/ocr-correction/holding:
+    post:
+      summary: Correct Holding
+      description: 'Admin: correct a parsed holding''s ISIN/name/qty/price.'
+      operationId: correct_holding_api_admin_ocr_correction_holding_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/ocr-correction/stats:
+    get:
+      summary: Get Ocr Correction Stats
+      description: Get OCR correction engine statistics.
+      operationId: get_ocr_correction_stats_api_admin_ocr_correction_stats_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/cas-config:
+    get:
+      summary: Get Cas Config
+      description: Return current CAS Parser config (prod key masked). Admin only.
+      operationId: get_cas_config_api_admin_cas_config_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+    put:
+      summary: Update Cas Config
+      description: 'Persist the sandbox toggle.
+
+
+        NOTE: CAS Parser API keys are no longer editable here — they live in
+
+        Google Secret Manager only (secret: `casparser-api-keys-{env}`).
+
+        Passing `prod_key` returns a 410 so callers know to retire that path.'
+      operationId: update_cas_config_api_admin_cas_config_put
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/cas-config/reload:
+    post:
+      summary: Reload Cas Key Pool
+      description: 'Re-read the CAS key pool from Google Secret Manager. Use after
+
+        `gcloud secrets versions add casparser-api-keys-<env> ...`.'
+      operationId: reload_cas_key_pool_api_admin_cas_config_reload_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/cas-config/test:
+    post:
+      summary: Test Cas Connection
+      description: Attempt to mint an access token to verify the key works. Admin
+        only.
+      operationId: test_cas_connection_api_admin_cas_config_test_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/cas-parser-provider:
+    get:
+      summary: Get Cas Parser Provider
+      description: Return CAS parser status. Admin only.
+      operationId: get_cas_parser_provider_api_admin_cas_parser_provider_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/secrets:
+    get:
+      summary: List Secrets
+      description: 'List secrets (masked) for the given environment. Admin only.
+
+
+        ?env=staging|production — defaults to the deploy''s current env.
+
+        The response also includes `current_env` so the UI can warn when the
+
+        operator is editing the *other* environment''s secrets.'
+      operationId: list_secrets_api_admin_secrets_get
+      parameters:
+      - name: env
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Env
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/secrets/{key}:
+    put:
+      summary: Upsert Secret
+      description: Set or update a secret value in the given environment. Admin only.
+      operationId: upsert_secret_api_admin_secrets__key__put
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Key
+      - name: env
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Env
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+    delete:
+      summary: Delete Secret
+      description: Remove override for a secret in the given environment. Admin only.
+      operationId: delete_secret_api_admin_secrets__key__delete
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Key
+      - name: env
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Env
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/secrets/{key}/reveal:
+    get:
+      summary: Reveal Secret
+      description: 'Return the FULL plaintext value of one secret for the given env.
+
+
+        Admin-only. Every successful reveal is recorded to the audit log so
+
+        we can see who looked at which credential and when. Use this for the
+
+        "show / copy" buttons on the admin Secrets page.'
+      operationId: reveal_secret_api_admin_secrets__key__reveal_get
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Key
+      - name: env
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Env
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/secrets/promote:
+    post:
+      summary: Promote Secrets
+      description: "Copy secrets from one environment to another. Admin only.\n\n\
+        Body: {source: \"staging\"|\"production\", target: \"staging\"|\"production\"\
+        ,\n       keys: [\"KEY1\",\"KEY2\",...] or null for \"all\"}"
+      operationId: promote_secrets_api_admin_secrets_promote_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/secrets/{key}/test:
+    post:
+      summary: Test Secret
+      description: Invoke the registered test handler for a known secret. Admin only.
+      operationId: test_secret_api_admin_secrets__key__test_post
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/feature-flags:
+    get:
+      summary: List Feature Flags
+      description: List all feature flags with modes + allowlists. Admin only.
+      operationId: list_feature_flags_api_admin_feature_flags_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/feature-flags/{flag}:
+    put:
+      summary: Update Feature Flag
+      description: Update mode and/or allowlist for a flag. Admin only.
+      operationId: update_feature_flag_api_admin_feature_flags__flag__put
+      parameters:
+      - name: flag
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Flag
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/feature-flags/{flag}/users:
+    post:
+      summary: Add Feature User
+      description: Add an email to a flag's allowlist. Admin only.
+      operationId: add_feature_user_api_admin_feature_flags__flag__users_post
+      parameters:
+      - name: flag
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Flag
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/feature-flags/{flag}/users/{email}:
+    delete:
+      summary: Remove Feature User
+      description: Remove an email from a flag's allowlist. Admin only.
+      operationId: remove_feature_user_api_admin_feature_flags__flag__users__email__delete
+      parameters:
+      - name: flag
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Flag
+      - name: email
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Email
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/nidp/export-portfolio:
+    post:
+      summary: Trigger Portfolio Gcs Export
+      description: 'Export Nivesh portfolio holdings to GCS landing zone for NIDP
+        consumption.
+
+
+        Optional body: {"date": "YYYY-MM-DD"} to export a specific snapshot date.
+
+        Default: latest snapshot per client.'
+      operationId: trigger_portfolio_gcs_export_api_admin_nidp_export_portfolio_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/nidp/full-portfolio-sync:
+    post:
+      summary: Trigger Full Portfolio Sync
+      description: "Run the full Nivesh → GCS → NIDP portfolio sync chain.\n\nStage\
+        \ 1 — Nivesh → GCS exporters (Mongo + PG → JSONL):\n  * portfolio_gcs_export.export_portfolio_to_gcs\
+        \       (holdings)\n  * portfolio_gcs_export.export_cas_transactions_to_gcs\
+        \ (CAS txns)\n  * portfolio_gcs_export.export_user_goals_to_gcs       (goals)\n\
+        \nStage 2 — NIDP-side ingesters (GCS → TimescaleDB), via NIDP Query API:\n\
+        \  * portfolio_holdings_sync\n  * portfolio_transactions_sync\n  * portfolio_goals_sync\n\
+        \  * portfolio_intelligence_sync (joins all three + computes analytics)\n\n\
+        Stage 2 is skipped (with a warning) if NIDP_QUERY_API_URL/TOKEN aren't\nconfigured\
+        \ — useful when smoke-testing just the export side.\n\nOptional body: {\"\
+        date\": \"YYYY-MM-DD\"} for the snapshot date label.\nAdmin only."
+      operationId: trigger_full_portfolio_sync_api_admin_nidp_full_portfolio_sync_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/users:
+    get:
+      summary: List Users
+      description: List all users with stats. Optional email-prefix search via `q`.
+      operationId: list_users_api_admin_users_get
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Q
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response List Users Api Admin Users Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+    post:
+      summary: Create User
+      description: 'Admin-create a user. Whitelists the email (which is what gates
+
+        Google sign-in) and pre-creates the `users` + `user_profiles` rows
+
+        so the user appears in the admin directory immediately. They become
+
+        fully active on first sign-in (Google OAuth fills picture/etc.).
+
+
+        Body: {email: str, name?: str, is_admin?: bool}'
+      operationId: create_user_api_admin_users_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Create User Api Admin Users Post
+      tags:
+      - admin
+  /api/admin/users/{user_id}:
+    get:
+      summary: Get User
+      operationId: get_user_api_admin_users__user_id__get
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get User Api Admin Users  User Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+    patch:
+      summary: Update User
+      description: Toggle is_admin (only editable field right now).
+      operationId: update_user_api_admin_users__user_id__patch
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Update User Api Admin Users  User Id  Patch
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/users/{user_id}/invalidate-sessions:
+    post:
+      summary: Invalidate User Sessions
+      description: Force-logout a user from all devices by deleting their sessions.
+      operationId: invalidate_user_sessions_api_admin_users__user_id__invalidate_sessions_post
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Invalidate User Sessions Api Admin Users  User Id  Invalidate
+                  Sessions Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/users/{user_id}/reset-portfolio:
+    post:
+      summary: Reset User Portfolio
+      description: 'Wipe a single user''s portfolio + insights data and reset their
+
+        onboarding flags so they appear as a brand-new user. Used by
+
+        admins to retest onboarding flows on a real account.
+
+
+        Preserves: the `users` row itself, sessions, whitelist, gmail_tokens,
+
+        workspaces, profiles (family members), consent_records, audit_log.
+
+        Also preserves NIDP Postgres rows (see /reset-full for that).'
+      operationId: reset_user_portfolio_api_admin_users__user_id__reset_portfolio_post
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Reset User Portfolio Api Admin Users  User Id  Reset
+                  Portfolio Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/users/{user_id}/reset-full:
+    post:
+      summary: Reset User Full
+      description: "Hard reset — everything /reset-portfolio does, PLUS:\n  * extra\
+        \ Mongo caches (portfolio_holdings, capital_gains_summary,\n    international_funds_cache,\
+        \ fund_holdings_cache)\n  * NIDP TimescaleDB rows keyed by external_user_id\
+        \ = email:\n    portfolio.user_intelligence_snapshot,\n    portfolio.user_holdings_snapshot\
+        \ (cascades to holding_security_map),\n    nidp.validation_findings.\n\nEquivalent\
+        \ to running scripts/reset_user_full.py from an admin shell.\nPreserves: the\
+        \ `users` row, sessions, whitelist, gmail_tokens,\nworkspaces, family profiles,\
+        \ consent_records, audit_log.\n\nUse with care — NIDP wipe is unrecoverable\
+        \ without re-running the\nportfolio_intelligence_sync job."
+      operationId: reset_user_full_api_admin_users__user_id__reset_full_post
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Reset User Full Api Admin Users  User Id  Reset Full
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/users/{user_id}/restore-holdings:
+    post:
+      summary: Restore Holdings From Snapshot
+      description: 'Re-mount the latest CAS snapshot into db.holdings for a user whose
+
+        holdings collection is empty despite a snapshot existing.
+
+
+        Safe to call multiple times — it replaces (not appends) the holdings.'
+      operationId: restore_holdings_from_snapshot_api_admin_users__user_id__restore_holdings_post
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Restore Holdings From Snapshot Api Admin Users  User
+                  Id  Restore Holdings Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/identity/duplicates:
+    get:
+      summary: List Identity Duplicates
+      description: 'Scan all users + profiles and surface every email / mobile / PAN
+
+        that maps to more than one record. Used by the admin UI to clean up
+
+        ghost users created before the uniqueness gate was added.'
+      operationId: list_identity_duplicates_api_admin_identity_duplicates_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/identity/check:
+    post:
+      summary: Check Identity
+      description: 'Pre-flight check — given (email, mobile, pan), report whether
+        any
+
+        of them already exist on a user or client profile. The advisor''s
+
+        "Add client" form calls this on blur before submitting so the
+
+        advisor sees the conflict inline instead of as a 409 on save.'
+      operationId: check_identity_api_admin_identity_check_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/identity/backfill:
+    post:
+      summary: Backfill Identity Norms
+      description: 'Compute `email_norm` / `mobile_norm` / `pan_norm` on every existing
+
+        row that''s missing them, so the duplicate-scan + uniqueness check
+
+        can find legacy data. Idempotent.'
+      operationId: backfill_identity_norms_api_admin_identity_backfill_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/datastore-isolation:
+    get:
+      summary: Datastore Isolation
+      description: 'Show whether staging and production point at distinct Postgres
+        /
+
+        Redis / Mongo datastores. Returns a per-key SHA-256 fingerprint
+
+        matrix (no full URLs leaked) and an explicit `collisions` list.
+
+
+        The operator should ensure all three keys differ between the two
+
+        environments. To fix a collision, set a distinct value for the key
+
+        on the production-scoped secrets doc via the existing secret-edit
+
+        flow (PATCH /api/admin/secrets ... env=production).'
+      operationId: datastore_isolation_api_admin_datastore_isolation_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/whitelist-repair:
+    post:
+      summary: Whitelist Repair
+      description: 'Check and repair whitelist entry for a user by email.
+
+        If the user exists in `users` but not in `whitelisted_users`, re-adds them.
+
+        Protected by a static secret key (X-Admin-Key header).
+
+
+        curl -X POST https://niveshcopilot.com/api/admin/whitelist-repair          -H
+        ''Content-Type: application/json''          -H ''X-Admin-Key: niv3sh-reset-2026''          -d
+        ''{"email": "user@example.com"}'''
+      operationId: whitelist_repair_api_admin_whitelist_repair_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Whitelist Repair Api Admin Whitelist Repair Post
+      tags:
+      - admin
+  /api/admin/reset-onboarding:
+    post:
+      summary: Reset Onboarding By Email
+      description: 'Reset onboarding flags for a user by email.
+
+        Protected by a static secret key (X-Admin-Key header).
+
+        curl -X POST https://niveshcopilot.com/api/admin/reset-onboarding          -H
+        ''Content-Type: application/json''          -H ''X-Admin-Key: niv3sh-reset-2026''          -d
+        ''{"email": "user@example.com"}'''
+      operationId: reset_onboarding_by_email_api_admin_reset_onboarding_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Reset Onboarding By Email Api Admin Reset Onboarding
+                  Post
+      tags:
+      - admin
+  /api/admin/reset-portfolio-by-email:
+    post:
+      summary: Reset Portfolio By Email
+      description: "Full portfolio reset by email — wipes all holdings, plans, insights,\n\
+        transactions, cache, and redis keys, then resets onboarding flags so\nthe\
+        \ user sees the upload screen on next login.\n\nProtected by the static X-Admin-Key\
+        \ (same as /reset-onboarding).\n\ncurl -X POST https://niveshcopilot.com/api/admin/reset-portfolio-by-email\
+        \ \\\n     -H 'Content-Type: application/json' \\\n     -H 'X-Admin-Key: niv3sh-reset-2026'\
+        \ \\\n     -d '{\"email\": \"user@example.com\"}'"
+      operationId: reset_portfolio_by_email_api_admin_reset_portfolio_by_email_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Reset Portfolio By Email Api Admin Reset Portfolio
+                  By Email Post
+      tags:
+      - admin
+  /api/admin/mark-onboarded:
+    post:
+      summary: Mark Onboarded By Email
+      description: "Flip onboarding_completed=True for a user by email — the inverse\
+        \ of\n/reset-onboarding. Used to repair accounts whose CAS import landed\n\
+        before the import-connect endpoint was fixed to set the flag.\n\ncurl -X POST\
+        \ https://niveshcopilot.com/api/admin/mark-onboarded \\\n     -H 'Content-Type:\
+        \ application/json' \\\n     -H 'X-Admin-Key: niv3sh-reset-2026' \\\n    \
+        \ -d '{\"email\": \"user@example.com\"}'"
+      operationId: mark_onboarded_by_email_api_admin_mark_onboarded_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Mark Onboarded By Email Api Admin Mark Onboarded Post
+      tags:
+      - admin
+  /api/admin/gmail-scan:
+    post:
+      summary: Admin Gmail Scan
+      description: "Scan Gmail for CAS emails using stored tokens for a user.\nProtected\
+        \ by X-Admin-Key header. Bypasses OAuth UI for testing.\n\ncurl -X POST https://niveshcopilot.com/api/admin/gmail-scan\
+        \ \\\n     -H 'X-Admin-Key: niv3sh-reset-2026' \\\n     -H 'Content-Type:\
+        \ application/json' \\\n     -d '{\"email\": \"user@example.com\"}'"
+      operationId: admin_gmail_scan_api_admin_gmail_scan_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Admin Gmail Scan Api Admin Gmail Scan Post
+      tags:
+      - admin
+  /api/admin/gmail-import:
+    post:
+      summary: Admin Gmail Import
+      description: "Import a specific CAS email for a user using stored Gmail tokens.\n\
+        Protected by X-Admin-Key header.\n\ncurl -X POST https://niveshcopilot.com/api/admin/gmail-import\
+        \ \\\n     -H 'X-Admin-Key: niv3sh-reset-2026' \\\n     -H 'Content-Type:\
+        \ application/json' \\\n     -d '{\"email\": \"user@example.com\", \"message_id\"\
+        : \"...\", \"attachment_id\": \"...\", \"filename\": \"CAS.pdf\", \"password\"\
+        : \"PANXXXX\"}'"
+      operationId: admin_gmail_import_api_admin_gmail_import_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Admin Gmail Import Api Admin Gmail Import Post
+      tags:
+      - admin
+  /api/admin/v3-master-funds:
+    get:
+      summary: V3 Master Funds
+      description: Return every scored mutual fund with primitives + Q/H sub-score
+        breakdown.
+      operationId: v3_master_funds_api_admin_v3_master_funds_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/v3-master-funds/export.xlsx:
+    get:
+      summary: V3 Master Funds Export
+      description: Download a multi-sheet Excel workbook of all V3-scored master funds.
+      operationId: v3_master_funds_export_api_admin_v3_master_funds_export_xlsx_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/v3-weights:
+    get:
+      summary: Get V3 Weights
+      operationId: get_v3_weights_api_admin_v3_weights_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+    put:
+      summary: Put V3 Weights
+      operationId: put_v3_weights_api_admin_v3_weights_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WeightsPayload'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/v3-weights/reset:
+    post:
+      summary: Reset V3 Weights
+      operationId: reset_v3_weights_api_admin_v3_weights_reset_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/allocation-bands:
+    get:
+      summary: Get Allocation Bands
+      operationId: get_allocation_bands_api_admin_allocation_bands_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+    put:
+      summary: Put Allocation Bands
+      operationId: put_allocation_bands_api_admin_allocation_bands_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BandsPayload'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/allocation-bands/reset:
+    post:
+      summary: Reset Allocation Bands
+      operationId: reset_allocation_bands_api_admin_allocation_bands_reset_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/v3-stock-weights:
+    get:
+      summary: Get V3 Stock Weights
+      operationId: get_v3_stock_weights_api_admin_v3_stock_weights_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+    put:
+      summary: Put V3 Stock Weights
+      operationId: put_v3_stock_weights_api_admin_v3_stock_weights_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockWeightsPayload'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/v3-stock-weights/reset:
+    post:
+      summary: Reset V3 Stock Weights
+      operationId: reset_v3_stock_weights_api_admin_v3_stock_weights_reset_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/v3-stock-refresh:
+    post:
+      summary: Trigger V3 Stock Refresh
+      description: 'Trigger Groww Nifty 100 scrape + score. `symbol` (optional) refreshes
+
+        just that NSE symbol. No-arg = full Nifty 100 refresh (runs in request
+
+        thread; typically 60-90s).'
+      operationId: trigger_v3_stock_refresh_api_admin_v3_stock_refresh_post
+      parameters:
+      - name: symbol
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Symbol
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/v3-stock-score-nidp:
+    post:
+      summary: Trigger Nidp Stock Score
+      description: 'Score all stocks from NIDP features (migration 053-055) for the
+        given
+
+        date (YYYY-MM-DD). Defaults to today. No Groww scraping — reads entirely
+
+        from nidp.v_v3_stock_primitives. Run nightly AFTER refresh_stock_features().'
+      operationId: trigger_nidp_stock_score_api_admin_v3_stock_score_nidp_post
+      parameters:
+      - name: as_of_date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: As Of Date
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/v3-stock-master:
+    get:
+      summary: Get V3 Stock Master
+      description: List stocks with current V3 scores. Defaults to Nifty 100 subset.
+      operationId: get_v3_stock_master_api_admin_v3_stock_master_get
+      parameters:
+      - name: nifty_100_only
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Nifty 100 Only
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 200
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/datastores/status:
+    get:
+      summary: Datastore Status
+      description: Return service status + data counts for Postgres and Redis.
+      operationId: datastore_status_api_admin_datastores_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Datastore Status Api Admin Datastores Status Get
+      tags:
+      - admin
+  /api/admin/datastores/{service}/{action}:
+    post:
+      summary: Datastore Control
+      description: Start/stop/restart a datastore service via supervisorctl. Admin
+        only.
+      operationId: datastore_control_api_admin_datastores__service___action__post
+      parameters:
+      - name: service
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Service
+      - name: action
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Action
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Datastore Control Api Admin Datastores  Service   Action  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/datastores/restore-pg-from-mongo:
+    post:
+      summary: Restore Pg From Mongo
+      description: 'Replay every `fund_holdings_cache` payload into Postgres.
+
+
+        Use this after a fork resets PG, or any time you want to reconcile.
+
+        Safe to re-run (upsert-based).'
+      operationId: restore_pg_from_mongo_api_admin_datastores_restore_pg_from_mongo_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Restore Pg From Mongo Api Admin Datastores Restore
+                  Pg From Mongo Post
+      tags:
+      - admin
+  /api/admin/datastores/apply-pg-schema:
+    post:
+      summary: Apply Pg Schema
+      description: 'Apply ALL PG schema migrations (001…006) in order, idempotent.
+
+
+        Uses asyncpg directly (no psql binary needed), tracks applied migrations
+
+        in `schema_migrations`. Safe to re-run on every deploy.'
+      operationId: apply_pg_schema_api_admin_datastores_apply_pg_schema_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Apply Pg Schema Api Admin Datastores Apply Pg Schema
+                  Post
+      tags:
+      - admin
+  /api/admin/datastores/mirror-pg-to-mongo:
+    post:
+      summary: Mirror Pg To Mongo
+      description: 'Snapshot PG master + analytics tables into Mongo `pg_mirror_*`
+
+        collections. Production deploys restore from these snapshots.'
+      operationId: mirror_pg_to_mongo_api_admin_datastores_mirror_pg_to_mongo_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Mirror Pg To Mongo Api Admin Datastores Mirror Pg
+                  To Mongo Post
+      tags:
+      - admin
+  /api/admin/datastores/post-deploy-migrate:
+    post:
+      summary: Post Deploy Migrate
+      description: "Run the full post-deploy migration sequence (7 phases).\n\nBody\
+        \ params:\n  skip_replay:  bool (default True — replay is slow and redundant\
+        \ if\n                mirrors are recent)\n  skip_sweep:   bool (default False)\n\
+        \  skip_rescore: bool (default False)"
+      operationId: post_deploy_migrate_api_admin_datastores_post_deploy_migrate_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Post Deploy Migrate Api Admin Datastores Post Deploy
+                  Migrate Post
+      tags:
+      - admin
+  /api/admin/groww/bootstrap:
+    post:
+      summary: Groww Bootstrap
+      description: 'Kick off a Groww scrape for ALL unique MF schemes across ALL users.
+
+
+        Builds the scrape queue from `holdings` collection (dedupe by scheme),
+
+        then runs the scrape batch in the background.
+
+        Returns immediately with a job summary; progress visible in `scrape_audit_log`.'
+      operationId: groww_bootstrap_api_admin_groww_bootstrap_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Groww Bootstrap Api Admin Groww Bootstrap Post
+      tags:
+      - admin
+  /api/admin/groww/progress:
+    get:
+      summary: Groww Progress
+      description: Return the current state of the scrape queue + recent audit log.
+      operationId: groww_progress_api_admin_groww_progress_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Groww Progress Api Admin Groww Progress Get
+      tags:
+      - admin
+  /api/admin/rules-config:
+    get:
+      summary: Get Rules Config
+      description: Return effective rules config + defaults for diff display.
+      operationId: get_rules_config_api_admin_rules_config_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Rules Config Api Admin Rules Config Get
+      tags:
+      - admin
+    put:
+      summary: Update Rules Config
+      description: Replace the rules-config overrides with the posted payload.
+      operationId: update_rules_config_api_admin_rules_config_put
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Update Rules Config Api Admin Rules Config Put
+      tags:
+      - admin
+  /api/admin/rules-config/reset:
+    post:
+      summary: Reset Rules Config
+      operationId: reset_rules_config_api_admin_rules_config_reset_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Reset Rules Config Api Admin Rules Config Reset Post
+      tags:
+      - admin
+  /api/admin/rules-config/custom:
+    get:
+      summary: List Custom Rules
+      operationId: list_custom_rules_api_admin_rules_config_custom_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Custom Rules Api Admin Rules Config Custom Get
+      tags:
+      - admin
+    post:
+      summary: Upsert Custom Rule
+      description: Add a new custom rule or update an existing one (by id).
+      operationId: upsert_custom_rule_api_admin_rules_config_custom_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Upsert Custom Rule Api Admin Rules Config Custom Post
+      tags:
+      - admin
+  /api/admin/rules-config/custom/{rule_id}:
+    delete:
+      summary: Delete Custom Rule
+      operationId: delete_custom_rule_api_admin_rules_config_custom__rule_id__delete
+      parameters:
+      - name: rule_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Rule Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Delete Custom Rule Api Admin Rules Config Custom  Rule
+                  Id  Delete
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/rules-config/custom/validate:
+    post:
+      summary: Validate Custom Rule
+      description: Validate an expression + optionally evaluate against a sample context.
+      operationId: validate_custom_rule_api_admin_rules_config_custom_validate_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Validate Custom Rule Api Admin Rules Config Custom
+                  Validate Post
+      tags:
+      - admin
+  /api/admin/prompts:
+    get:
+      summary: List Prompts
+      operationId: list_prompts_api_admin_prompts_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Prompts Api Admin Prompts Get
+      tags:
+      - admin
+  /api/admin/prompts/{name}:
+    get:
+      summary: Get Prompt
+      operationId: get_prompt_api_admin_prompts__name__get
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Prompt Api Admin Prompts  Name  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+    put:
+      summary: Update Prompt
+      operationId: update_prompt_api_admin_prompts__name__put
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Update Prompt Api Admin Prompts  Name  Put
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/prompts/{name}/reset:
+    post:
+      summary: Reset Prompt
+      operationId: reset_prompt_api_admin_prompts__name__reset_post
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Reset Prompt Api Admin Prompts  Name  Reset Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/prompts/{name}/test:
+    post:
+      summary: Test Prompt
+      description: 'Run the prompt against a sample user message and return the LLM
+        response.
+
+
+        Uses gpt-4o-mini. Timeout 15s. Returns {system, user, response, error}.'
+      operationId: test_prompt_api_admin_prompts__name__test_post
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Test Prompt Api Admin Prompts  Name  Test Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/mf/db-status:
+    get:
+      summary: Mf Db Status
+      operationId: mf_db_status_api_admin_mf_db_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/mf/funds:
+    get:
+      summary: List Funds
+      description: 'Dashboard list: all MF instruments with latest scrape metadata.'
+      operationId: list_funds_api_admin_mf_funds_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000
+          minimum: 1
+          default: 200
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/mf/funds/{instrument_id}:
+    get:
+      summary: Fund Detail
+      description: 'Dashboard drill-down: holdings + ratios history + audit trail.'
+      operationId: fund_detail_api_admin_mf_funds__instrument_id__get
+      parameters:
+      - name: instrument_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Instrument Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/mf/audit-log:
+    get:
+      summary: List Audit
+      operationId: list_audit_api_admin_mf_audit_log_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/mf/scrape-queue:
+    get:
+      summary: List Scrape Queue
+      operationId: list_scrape_queue_api_admin_mf_scrape_queue_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/mf/drain-queue:
+    post:
+      summary: Admin Drain Queue
+      operationId: admin_drain_queue_api_admin_mf_drain_queue_post
+      parameters:
+      - name: max_items
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Max Items
+      - name: force
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Bypass off-hours gate
+          default: false
+          title: Force
+        description: Bypass off-hours gate
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/mf/scrape-now:
+    post:
+      summary: Admin Scrape Now
+      operationId: admin_scrape_now_api_admin_mf_scrape_now_post
+      parameters:
+      - name: scheme_name
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Scheme Name
+      - name: scheme_code
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scheme Code
+      - name: isin
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Isin
+      - name: slug
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Slug
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/mf/seed-portfolio-queue:
+    post:
+      summary: Seed Portfolio Queue
+      description: Bulk-queue all MF schemes from portfolios into the scrape queue.
+      operationId: seed_portfolio_queue_api_admin_mf_seed_portfolio_queue_post
+      parameters:
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: User Id
+      - name: emails
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Comma-separated emails
+          title: Emails
+        description: Comma-separated emails
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - admin
+  /api/admin/mf/scheduler/start:
+    post:
+      summary: Scheduler Start
+      operationId: scheduler_start_api_admin_mf_scheduler_start_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/mf/scheduler/stop:
+    post:
+      summary: Scheduler Stop
+      operationId: scheduler_stop_api_admin_mf_scheduler_stop_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/ai/circuit/reset:
+    post:
+      summary: Reset Llm Circuit
+      operationId: reset_llm_circuit_api_admin_ai_circuit_reset_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/admin/ai/circuit:
+    get:
+      summary: Get Llm Circuit
+      operationId: get_llm_circuit_api_admin_ai_circuit_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+  /api/:
+    get:
+      summary: Root
+      operationId: root_api__get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - admin
+components:
+  schemas:
+    ActionFeedback:
+      properties:
+        useful:
+          type: boolean
+          title: Useful
+        comment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Comment
+      type: object
+      required:
+      - useful
+      title: ActionFeedback
+      description: Request body for action feedback.
+    ActionRequest:
+      properties:
+        action:
+          type: string
+          title: Action
+        target:
+          type: string
+          title: Target
+        environment:
+          type: string
+          title: Environment
+          default: prod
+      type: object
+      required:
+      - action
+      - target
+      title: ActionRequest
+    ActionStatusUpdate:
+      properties:
+        status:
+          type: string
+          title: Status
+        completion_note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Completion Note
+      type: object
+      required:
+      - status
+      title: ActionStatusUpdate
+      description: Request body for updating action status.
+    AgentOneShotRequest:
+      properties:
+        agent_id:
+          type: string
+          title: Agent Id
+        model_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model Id
+        message:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Message
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+        system_prompt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: System Prompt
+      type: object
+      required:
+      - agent_id
+      - message
+      title: AgentOneShotRequest
+    AllocationItem:
+      properties:
+        asset_class:
+          type: string
+          title: Asset Class
+        value:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+        pct:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Pct
+      additionalProperties: false
+      type: object
+      required:
+      - asset_class
+      - value
+      - pct
+      title: AllocationItem
+    ApplyRequest:
+      properties:
+        scenario_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scenario Id
+        actions:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Actions
+        payload:
+          additionalProperties: true
+          type: object
+          title: Payload
+      type: object
+      required:
+      - actions
+      - payload
+      title: ApplyRequest
+    AskRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+          default: gpt-4o
+        question:
+          type: string
+          maxLength: 800
+          minLength: 2
+          title: Question
+        history:
+          anyOf:
+          - items:
+              additionalProperties:
+                type: string
+              type: object
+            type: array
+          - type: 'null'
+          title: History
+      type: object
+      required:
+      - question
+      title: AskRequest
+    AssetType:
+      type: string
+      enum:
+      - equity
+      - mutual_fund
+      - etf
+      - bond
+      - gold
+      - fd
+      - other
+      title: AssetType
+    BackfillRequest:
+      properties:
+        days:
+          type: integer
+          maximum: 730.0
+          minimum: 1.0
+          title: Days
+          description: Days of history to pull (capped at 2 years)
+          default: 60
+      type: object
+      title: BackfillRequest
+    BacktestRequest:
+      properties:
+        from_date:
+          type: string
+          title: From Date
+        to_date:
+          type: string
+          title: To Date
+        starting_capital:
+          type: number
+          title: Starting Capital
+          default: 1000000.0
+        max_positions:
+          type: integer
+          title: Max Positions
+          default: 10
+      type: object
+      required:
+      - from_date
+      - to_date
+      title: BacktestRequest
+    BandsPayload:
+      properties:
+        bands:
+          additionalProperties:
+            additionalProperties:
+              additionalProperties:
+                type: number
+              type: object
+            type: object
+          type: object
+          title: Bands
+      type: object
+      required:
+      - bands
+      title: BandsPayload
+    BasketRequest:
+      properties:
+        capital_rs:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Capital Rs
+          description: Total capital to deploy in INR (e.g. 1000000 for ₹10L)
+        max_positions:
+          type: integer
+          maximum: 20.0
+          minimum: 1.0
+          title: Max Positions
+          default: 8
+        min_conviction:
+          type: string
+          title: Min Conviction
+          default: HIGH_CONVICTION
+      type: object
+      required:
+      - capital_rs
+      title: BasketRequest
+    Body_admin_upload_scan_api_positional_scans_upload_post:
+      properties:
+        scan_name:
+          type: string
+          title: Scan Name
+        scan_date:
+          type: string
+          title: Scan Date
+        csv_file:
+          type: string
+          format: binary
+          title: Csv File
+      type: object
+      required:
+      - scan_name
+      - scan_date
+      - csv_file
+      title: Body_admin_upload_scan_api_positional_scans_upload_post
+    Body_client_upload_pdf_api_public_cas_invite__token__upload_pdf_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+        password:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Password
+      type: object
+      required:
+      - file
+      title: Body_client_upload_pdf_api_public_cas_invite__token__upload_pdf_post
+    Body_upload_cas_pdf_api_onboarding_upload_cas_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_cas_pdf_api_onboarding_upload_cas_post
+    Body_upload_csv_legacy_api_portfolio_upload_csv_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_csv_legacy_api_portfolio_upload_csv_post
+    Body_upload_portfolio_api_portfolio_upload_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_portfolio_api_portfolio_upload_post
+    BriefRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+          default: gpt-4o
+      type: object
+      title: BriefRequest
+    BuilderRequest:
+      properties:
+        monthly_sip_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Monthly Sip Rs
+        lumpsum_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Lumpsum Rs
+        monthly_surplus_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Monthly Surplus Rs
+        horizon_years:
+          anyOf:
+          - type: number
+            maximum: 100.0
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Horizon Years
+        risk_bucket:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Risk Bucket
+      type: object
+      title: BuilderRequest
+    ChatMessageInput:
+      properties:
+        message:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Message
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+      type: object
+      required:
+      - message
+      title: ChatMessageInput
+    CitationOut:
+      properties:
+        feed_id:
+          type: string
+          title: Feed Id
+        title:
+          type: string
+          title: Title
+        excerpt:
+          type: string
+          title: Excerpt
+        score:
+          type: number
+          title: Score
+        as_of:
+          type: string
+          title: As Of
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+      type: object
+      required:
+      - feed_id
+      - title
+      - excerpt
+      - score
+      - as_of
+      - url
+      - metadata
+      title: CitationOut
+    ClientDetailsRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 2
+          title: Name
+        mobile:
+          type: string
+          maxLength: 20
+          minLength: 7
+          title: Mobile
+        email:
+          type: string
+          maxLength: 255
+          minLength: 5
+          title: Email
+        pan:
+          type: string
+          maxLength: 10
+          minLength: 10
+          title: Pan
+        consent_cas_access:
+          type: boolean
+          title: Consent Cas Access
+          description: Client consents to sharing CAS holdings
+        consent_gmail_access:
+          type: boolean
+          title: Consent Gmail Access
+          description: Client consents to read-only Gmail scan for CAS emails
+          default: false
+        consent_advisor_access:
+          type: boolean
+          title: Consent Advisor Access
+          description: Client consents to advisor viewing + managing their data
+      type: object
+      required:
+      - name
+      - mobile
+      - email
+      - pan
+      - consent_cas_access
+      - consent_advisor_access
+      title: ClientDetailsRequest
+    ClientMessageRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+          default: gpt-4o
+        channel:
+          type: string
+          title: Channel
+          default: whatsapp
+        tone:
+          type: string
+          title: Tone
+          default: warm_professional
+        additional_note:
+          anyOf:
+          - type: string
+            maxLength: 400
+          - type: 'null'
+          title: Additional Note
+      type: object
+      title: ClientMessageRequest
+    ClientNotesPayload:
+      properties:
+        note:
+          anyOf:
+          - type: string
+            maxLength: 4000
+          - type: 'null'
+          title: Note
+        sip_amount_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Sip Amount Rs
+        sip_frequency:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sip Frequency
+        next_sip_due:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Sip Due
+        preferred_channel:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Preferred Channel
+      type: object
+      title: ClientNotesPayload
+      description: 'Structured notes about an MFD client. Stored per profile, editable
+
+        only by the workspace owner. SIP amount/due-date live here because
+
+        neither is reliably parsable from CAS — advisors input them manually
+
+        once, then we render it everywhere (snapshot · PDF report · priority
+
+        rules once we wire SIP-gap detection).'
+    CompanyFinancialsRequest:
+      properties:
+        symbol:
+          type: string
+          maxLength: 20
+          minLength: 1
+          title: Symbol
+          description: NSE symbol (e.g. RELIANCE, TCS, INFY)
+        quarters:
+          type: integer
+          maximum: 16.0
+          minimum: 2.0
+          title: Quarters
+          description: Number of quarters to fetch (2-16)
+          default: 8
+      type: object
+      required:
+      - symbol
+      title: CompanyFinancialsRequest
+    CompareRequest:
+      properties:
+        scheme_codes:
+          items:
+            type: string
+          type: array
+          maxItems: 4
+          minItems: 2
+          title: Scheme Codes
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      required:
+      - scheme_codes
+      title: CompareRequest
+    ConnectRequest:
+      properties:
+        broker:
+          type: string
+          maxLength: 40
+          minLength: 2
+          title: Broker
+        openalgo_url:
+          anyOf:
+          - type: string
+            maxLength: 300
+          - type: 'null'
+          title: Openalgo Url
+        api_key:
+          type: string
+          maxLength: 300
+          minLength: 8
+          title: Api Key
+        label:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Label
+      type: object
+      required:
+      - broker
+      - api_key
+      title: ConnectRequest
+    CopilotAskRequest:
+      properties:
+        query:
+          type: string
+          maxLength: 500
+          minLength: 2
+          title: Query
+      type: object
+      required:
+      - query
+      title: CopilotAskRequest
+    CreateActionRequest:
+      properties:
+        source_domain:
+          type: string
+          title: Source Domain
+        type:
+          type: string
+          title: Type
+        verb:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Verb
+        asset_type:
+          type: string
+          title: Asset Type
+        asset_name:
+          type: string
+          title: Asset Name
+        instrument_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Instrument Id
+        amount:
+          type: number
+          title: Amount
+          default: 0
+        priority:
+          type: integer
+          title: Priority
+          default: 2
+        priority_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Priority Label
+        impact:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Impact
+        effort:
+          type: string
+          title: Effort
+          default: MEDIUM
+        trade_off:
+          type: string
+          title: Trade Off
+          default: ''
+        expected_impact:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Expected Impact
+        exclusive:
+          type: boolean
+          title: Exclusive
+          default: false
+        reason_text:
+          type: string
+          title: Reason Text
+          default: ''
+        reason_codes:
+          items:
+            type: string
+          type: array
+          title: Reason Codes
+          default: []
+        confidence:
+          type: string
+          title: Confidence
+          default: MEDIUM
+      type: object
+      required:
+      - source_domain
+      - type
+      - asset_type
+      - asset_name
+      title: CreateActionRequest
+    DematAccount:
+      properties:
+        dp_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Dp Id
+        client_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Id
+        holdings:
+          $ref: '#/components/schemas/DematHoldingsBuckets'
+      type: object
+      title: DematAccount
+      description: "An aggregated demat account.\n\nThe SDK sends:\n    { dp_id?,\
+        \ client_id?, holdings: { equities: […], … } }\n\nThe legacy synthetic shape\
+        \ sent:\n    { dp_id?, client_id?, holdings: [DematHolding, …] }   # flat\
+        \ list\n\nBoth are normalised below into the canonical bucket object so the\n\
+        iterator + builder code below only ever sees one shape."
+    DematHolding:
+      properties:
+        isin:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Isin
+        name:
+          type: string
+          title: Name
+        quantity:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Quantity
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+        instrument_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Instrument Type
+      type: object
+      required:
+      - name
+      - quantity
+      - value
+      title: DematHolding
+      description: One line within a demat-account bucket (equity, ETF, MF unit, bond,
+        …).
+    DematHoldingsBuckets:
+      properties:
+        equities:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Equities
+        demat_mutual_funds:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Demat Mutual Funds
+        corporate_bonds:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Corporate Bonds
+        aifs:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Aifs
+        government_securities:
+          items:
+            $ref: '#/components/schemas/DematHolding'
+          type: array
+          title: Government Securities
+      type: object
+      title: DematHoldingsBuckets
+      description: The bucket object that lives under ``demat_accounts[].holdings``.
+    DiscussActionRequest:
+      properties:
+        discussion_note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Discussion Note
+      type: object
+      title: DiscussActionRequest
+      description: Per PRD §10.2 — advisor records a Discuss event without touching
+        status.
+    ExplainRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+          default: gpt-4o
+        focus:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Focus
+      type: object
+      title: ExplainRequest
+    FeedOut:
+      properties:
+        feed_id:
+          type: string
+          title: Feed Id
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        retrieval_kind:
+          type: string
+          title: Retrieval Kind
+        tier:
+          type: string
+          title: Tier
+        params_schema:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Params Schema
+      type: object
+      required:
+      - feed_id
+      - name
+      - description
+      - retrieval_kind
+      - tier
+      - params_schema
+      title: FeedOut
+    FinancialSnapshot:
+      properties:
+        age:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Age
+        marital_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Marital Status
+        dependents:
+          type: integer
+          title: Dependents
+          default: 0
+        monthly_income_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Monthly Income Rs
+        income_growth_pct:
+          type: number
+          title: Income Growth Pct
+          default: 8.0
+        monthly_expenses_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Monthly Expenses Rs
+        inflation_pct:
+          type: number
+          title: Inflation Pct
+          default: 6.0
+        current_corpus_rs:
+          type: number
+          title: Current Corpus Rs
+          default: 0.0
+        total_liabilities_rs:
+          type: number
+          title: Total Liabilities Rs
+          default: 0.0
+        risk_profile:
+          type: string
+          title: Risk Profile
+          default: moderate
+        behavior_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Behavior Score
+      type: object
+      title: FinancialSnapshot
+    FundCardRequest:
+      properties:
+        query:
+          type: string
+          maxLength: 200
+          minLength: 2
+          title: Query
+          description: Scheme name, code, or natural-language fragment
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      required:
+      - query
+      title: FundCardRequest
+    GoalCreate:
+      properties:
+        goal_type:
+          type: string
+          title: Goal Type
+          description: retirement|education|home|wealth|custom
+        goal_name:
+          type: string
+          title: Goal Name
+        target_amount_rs:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Target Amount Rs
+        horizon_years:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Horizon Years
+        priority:
+          type: string
+          title: Priority
+          default: medium
+        inflation_pct:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Inflation Pct
+          default: 6.0
+        current_corpus_rs:
+          type: number
+          title: Current Corpus Rs
+          default: 0.0
+        monthly_sip_rs:
+          type: number
+          title: Monthly Sip Rs
+          default: 0.0
+        manual_allocation:
+          anyOf:
+          - additionalProperties:
+              type: number
+            type: object
+          - type: 'null'
+          title: Manual Allocation
+      type: object
+      required:
+      - goal_type
+      - goal_name
+      - target_amount_rs
+      - horizon_years
+      title: GoalCreate
+    GoalUpdate:
+      properties:
+        goal_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Goal Name
+        target_amount_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Amount Rs
+        horizon_years:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Horizon Years
+        priority:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Priority
+        monthly_sip_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Monthly Sip Rs
+        current_corpus_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Current Corpus Rs
+        allocation:
+          anyOf:
+          - additionalProperties:
+              type: number
+            type: object
+          - type: 'null'
+          title: Allocation
+        selected_funds:
+          anyOf:
+          - additionalProperties:
+              items:
+                additionalProperties: true
+                type: object
+              type: array
+            type: object
+          - type: 'null'
+          title: Selected Funds
+        manual_fund_override:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Manual Fund Override
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      type: object
+      title: GoalUpdate
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        service:
+          type: string
+          title: Service
+        version:
+          type: string
+          title: Version
+        env:
+          type: string
+          title: Env
+      type: object
+      required:
+      - status
+      - service
+      - version
+      - env
+      title: HealthResponse
+    HoldingCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Name
+        ticker:
+          anyOf:
+          - type: string
+            maxLength: 50
+          - type: 'null'
+          title: Ticker
+          default: ''
+        asset_type:
+          $ref: '#/components/schemas/AssetType'
+        quantity:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Quantity
+        buy_price:
+          type: number
+          minimum: 0.0
+          title: Buy Price
+        current_price:
+          type: number
+          minimum: 0.0
+          title: Current Price
+        sector:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Sector
+          default: Other
+        buy_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buy Date
+          default: ''
+        portfolio_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Portfolio Id
+          default: ''
+      type: object
+      required:
+      - name
+      - asset_type
+      - quantity
+      - buy_price
+      - current_price
+      title: HoldingCreate
+    HoldingTechnicalsRequest:
+      properties:
+        symbol:
+          type: string
+          title: Symbol
+          description: NSE symbol (e.g. RELIANCE)
+      type: object
+      required:
+      - symbol
+      title: HoldingTechnicalsRequest
+    HoldingUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Name
+        ticker:
+          anyOf:
+          - type: string
+            maxLength: 50
+          - type: 'null'
+          title: Ticker
+        asset_type:
+          anyOf:
+          - $ref: '#/components/schemas/AssetType'
+          - type: 'null'
+        quantity:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Quantity
+        buy_price:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Buy Price
+        current_price:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Current Price
+        sector:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Sector
+        buy_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buy Date
+      type: object
+      title: HoldingUpdate
+    HostedConnectRequest:
+      properties:
+        broker:
+          type: string
+          maxLength: 40
+          minLength: 2
+          title: Broker
+        label:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Label
+      type: object
+      required:
+      - broker
+      title: HostedConnectRequest
+    ImportRequest:
+      properties:
+        selections:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Selections
+          description: list of {message_id, attachment_id, filename}
+        password:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Password
+          description: Optional override — defaults to the PAN captured in client-details
+      type: object
+      required:
+      - selections
+      title: ImportRequest
+    InsurancePolicy:
+      properties:
+        policy_number:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Policy Number
+        name:
+          type: string
+          title: Name
+        sum_assured:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Sum Assured
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+          default: '0'
+      type: object
+      required:
+      - name
+      title: InsurancePolicy
+    InsuranceSection:
+      properties:
+        life_insurance_policies:
+          items:
+            $ref: '#/components/schemas/InsurancePolicy'
+          type: array
+          title: Life Insurance Policies
+      type: object
+      title: InsuranceSection
+    InvestmentGoal:
+      type: string
+      enum:
+      - retirement
+      - house
+      - education
+      - travel
+      - wealth
+      - emergency
+      title: InvestmentGoal
+    InvestmentHorizonLevel:
+      type: string
+      enum:
+      - short
+      - medium
+      - long
+      - very_long
+      title: InvestmentHorizonLevel
+    InviteCreateRequest:
+      properties:
+        ttl_hours:
+          anyOf:
+          - type: integer
+            maximum: 168.0
+            minimum: 1.0
+          - type: 'null'
+          title: Ttl Hours
+          default: 24
+        client_name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Client Name
+        client_mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Client Mobile
+        client_email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Client Email
+        regenerate:
+          type: boolean
+          title: Regenerate
+          description: If True, deactivate any existing active invite for this profile
+            before issuing a new one.
+          default: false
+      type: object
+      title: InviteCreateRequest
+    IssueCreate:
+      properties:
+        sig:
+          type: string
+          title: Sig
+        title:
+          type: string
+          title: Title
+        severity:
+          type: string
+          title: Severity
+          default: ERROR
+        priority:
+          type: string
+          title: Priority
+          default: P2
+        source:
+          type: string
+          title: Source
+          default: cloud_logging
+        exception_class:
+          type: string
+          title: Exception Class
+          default: ''
+        endpoint:
+          type: string
+          title: Endpoint
+          default: ''
+        job_name:
+          type: string
+          title: Job Name
+          default: ''
+        http_status:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Http Status
+        sample_message:
+          type: string
+          title: Sample Message
+          default: ''
+        sample_traceback:
+          type: string
+          title: Sample Traceback
+          default: ''
+        first_seen:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: First Seen
+        last_seen:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Seen
+        count_24h:
+          type: integer
+          title: Count 24H
+          default: 1
+        applications:
+          items:
+            type: string
+          type: array
+          title: Applications
+        rca:
+          anyOf:
+          - $ref: '#/components/schemas/RcaBlock'
+          - type: 'null'
+        labels:
+          items:
+            type: string
+          type: array
+          title: Labels
+      type: object
+      required:
+      - sig
+      - title
+      title: IssueCreate
+    IssueUpdate:
+      properties:
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        priority:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Priority
+        assignee:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Assignee
+        labels:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Labels
+        rca:
+          anyOf:
+          - $ref: '#/components/schemas/RcaBlock'
+          - type: 'null'
+        comment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Comment
+      type: object
+      title: IssueUpdate
+    JobSummary:
+      properties:
+        status:
+          type: string
+          title: Status
+        count:
+          type: integer
+          title: Count
+      type: object
+      required:
+      - status
+      - count
+      title: JobSummary
+    JourneyInput:
+      properties:
+        journey_type:
+          $ref: '#/components/schemas/JourneyType'
+      type: object
+      required:
+      - journey_type
+      title: JourneyInput
+    JourneyType:
+      type: string
+      enum:
+      - existing_investor
+      - new_investor
+      - mfd_advisor
+      title: JourneyType
+    ManualSnapshotRequest:
+      properties:
+        trigger:
+          type: string
+          maxLength: 32
+          title: Trigger
+          default: manual
+      type: object
+      title: ManualSnapshotRequest
+    MessageFeedbackRequest:
+      properties:
+        message_id:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Message Id
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+        rating:
+          type: string
+          pattern: ^(up|down)$
+          title: Rating
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        comment:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Comment
+      type: object
+      required:
+      - message_id
+      - rating
+      title: MessageFeedbackRequest
+    MfFolio:
+      properties:
+        amc:
+          type: string
+          title: Amc
+        folio:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Folio
+        registrar:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Registrar
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Value
+        schemes:
+          items:
+            $ref: '#/components/schemas/MfScheme'
+          type: array
+          title: Schemes
+      type: object
+      required:
+      - amc
+      title: MfFolio
+      description: 'A folio at one AMC.  `mutual_funds[]` is a list of these.
+
+
+        Accepts both the real SDK key ``folio_number`` and the legacy synthetic
+
+        key ``folio`` via the populate-by-name alias config.'
+    MfScheme:
+      properties:
+        isin:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Isin
+        name:
+          type: string
+          title: Name
+        units:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Units
+        nav:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Nav
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+        cost:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Cost
+        type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Type
+        scheme_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scheme Code
+      type: object
+      required:
+      - name
+      - units
+      - value
+      title: MfScheme
+      description: 'One scheme within a folio.  Real SDK fields:
+
+        isin, name, units, nav, value, cost, gain{absolute,percentage}, type, …'
+    NpsHolding:
+      properties:
+        pran:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pran
+        scheme:
+          type: string
+          title: Scheme
+        units:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Units
+        nav:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Nav
+        value:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+      type: object
+      required:
+      - scheme
+      - units
+      - value
+      title: NpsHolding
+    OverlapRequest:
+      properties:
+        scheme_codes:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Scheme Codes
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      title: OverlapRequest
+    PanInput:
+      properties:
+        pan:
+          type: string
+          maxLength: 10
+          minLength: 10
+          title: Pan
+      type: object
+      required:
+      - pan
+      title: PanInput
+    ParsedData:
+      properties:
+        meta:
+          additionalProperties: true
+          type: object
+          title: Meta
+        investor:
+          additionalProperties: true
+          type: object
+          title: Investor
+        summary:
+          additionalProperties: true
+          type: object
+          title: Summary
+        demat_accounts:
+          items:
+            $ref: '#/components/schemas/DematAccount'
+          type: array
+          title: Demat Accounts
+        mutual_funds:
+          items:
+            $ref: '#/components/schemas/MfFolio'
+          type: array
+          title: Mutual Funds
+        insurance:
+          $ref: '#/components/schemas/InsuranceSection'
+        nps:
+          items:
+            $ref: '#/components/schemas/NpsHolding'
+          type: array
+          title: Nps
+      type: object
+      title: ParsedData
+      description: The ``data`` field of the SDK ``onSuccess`` callback.
+    PersonaOverrideInput:
+      properties:
+        persona:
+          $ref: '#/components/schemas/PersonaType'
+      type: object
+      required:
+      - persona
+      title: PersonaOverrideInput
+    PersonaType:
+      type: string
+      enum:
+      - retail_investor
+      - mutual_fund_investor
+      - stock_investor
+      - active_trader
+      - swing_trader
+      - intraday_trader
+      - options_trader
+      - mfd_advisor
+      - hni_investor
+      - retirement_planner
+      - parents_planning
+      - tax_saver
+      - conservative_investor
+      - beginner_investor
+      - nri_investor
+      title: PersonaType
+    PortfolioCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        member_name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Member Name
+        relationship:
+          $ref: '#/components/schemas/Relationship'
+      type: object
+      required:
+      - name
+      - member_name
+      - relationship
+      title: PortfolioCreate
+    PortfolioResponse:
+      properties:
+        total_value:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Total Value
+        holdings_count:
+          type: integer
+          title: Holdings Count
+        allocation:
+          items:
+            $ref: '#/components/schemas/AllocationItem'
+          type: array
+          title: Allocation
+        top_holdings:
+          items:
+            $ref: '#/components/schemas/TopHolding'
+          type: array
+          title: Top Holdings
+      additionalProperties: false
+      type: object
+      required:
+      - total_value
+      - holdings_count
+      - allocation
+      - top_holdings
+      title: PortfolioResponse
+    ProfileCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+        aum_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Aum Rs
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tags
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Email
+        mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Mobile
+        pan:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Pan
+      type: object
+      required:
+      - name
+      title: ProfileCreate
+    ProfileUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Name
+        aum_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Aum Rs
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tags
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Email
+        mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Mobile
+        pan:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Pan
+        last_reviewed_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Reviewed At
+      type: object
+      title: ProfileUpdate
+    QuickSetupInput:
+      properties:
+        age:
+          type: integer
+          maximum: 100.0
+          minimum: 18.0
+          title: Age
+        goal:
+          $ref: '#/components/schemas/InvestmentGoal'
+        risk_appetite:
+          $ref: '#/components/schemas/RiskAppetiteLevel'
+        investment_horizon:
+          $ref: '#/components/schemas/InvestmentHorizonLevel'
+        monthly_investment:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Monthly Investment
+      type: object
+      required:
+      - age
+      - goal
+      - risk_appetite
+      - investment_horizon
+      title: QuickSetupInput
+    RAGRequest:
+      properties:
+        message:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Message
+        history:
+          anyOf:
+          - items:
+              additionalProperties:
+                type: string
+              type: object
+            type: array
+          - type: 'null'
+          title: History
+      type: object
+      required:
+      - message
+      title: RAGRequest
+    RcaBlock:
+      properties:
+        root_cause:
+          type: string
+          title: Root Cause
+          default: ''
+        fix_suggestion:
+          type: string
+          title: Fix Suggestion
+          default: ''
+        confidence:
+          type: number
+          title: Confidence
+          default: 0.0
+        source:
+          type: string
+          title: Source
+          default: unknown
+        fix_file:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fix File
+        fix_description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fix Description
+      type: object
+      title: RcaBlock
+    ReadyzResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        service:
+          type: string
+          title: Service
+        version:
+          type: string
+          title: Version
+        env:
+          type: string
+          title: Env
+        postgres:
+          type: string
+          title: Postgres
+        mongo:
+          type: string
+          title: Mongo
+        migration_version:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Migration Version
+        pg_pool_size:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Pg Pool Size
+      type: object
+      required:
+      - status
+      - service
+      - version
+      - env
+      - postgres
+      - mongo
+      - migration_version
+      - pg_pool_size
+      title: ReadyzResponse
+    RebalanceRequest:
+      properties:
+        target_equity:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Equity
+        target_debt:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Debt
+        target_gold:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Gold
+        target_amc_cap:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Amc Cap
+        switch_to_direct:
+          type: boolean
+          title: Switch To Direct
+          default: false
+        remove_dead:
+          type: boolean
+          title: Remove Dead
+          default: false
+      type: object
+      title: RebalanceRequest
+    RefreshRequest:
+      properties:
+        target_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Target Date
+          description: ISO date (YYYY-MM-DD); defaults to today
+      type: object
+      title: RefreshRequest
+    Relationship:
+      type: string
+      enum:
+      - Self
+      - Spouse
+      - Child
+      - Parent
+      - Sibling
+      - Other
+      title: Relationship
+    ReparseRequest:
+      properties:
+        password:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Password
+      type: object
+      title: ReparseRequest
+    ReviewPackRequest:
+      properties:
+        format:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Format
+          default: pdf
+        sections:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Sections
+      type: object
+      title: ReviewPackRequest
+    RiskAppetiteLevel:
+      type: string
+      enum:
+      - conservative
+      - moderate
+      - aggressive
+      title: RiskAppetiteLevel
+    RiskProfileInput:
+      properties:
+        answers:
+          items:
+            $ref: '#/components/schemas/models__RiskProfileAnswer'
+          type: array
+          title: Answers
+      type: object
+      required:
+      - answers
+      title: RiskProfileInput
+    RouteIntentRequest:
+      properties:
+        message:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Message
+      type: object
+      required:
+      - message
+      title: RouteIntentRequest
+    SaveScenarioRequest:
+      properties:
+        name:
+          type: string
+          title: Name
+        scenario_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scenario Id
+        payload:
+          additionalProperties: true
+          type: object
+          title: Payload
+        result:
+          additionalProperties: true
+          type: object
+          title: Result
+      type: object
+      required:
+      - name
+      - payload
+      - result
+      title: SaveScenarioRequest
+    SdkCallbackPayload:
+      properties:
+        upload_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Upload Id
+        checksum:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Checksum
+        statement_from:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Statement From
+        statement_to:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Statement To
+        generated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Generated At
+        source_type:
+          type: string
+          title: Source Type
+        metadata:
+          $ref: '#/components/schemas/SdkMetadata'
+        data:
+          $ref: '#/components/schemas/ParsedData'
+      type: object
+      required:
+      - source_type
+      - data
+      title: SdkCallbackPayload
+      description: Wire body of POST /api/cas/sdk-callback.
+    SdkCallbackResponse:
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          title: Job Id
+        snapshot_id:
+          type: string
+          format: uuid
+          title: Snapshot Id
+        is_new:
+          type: boolean
+          title: Is New
+        is_active:
+          type: boolean
+          title: Is Active
+        status:
+          type: string
+          enum:
+          - activated
+          - stored_inactive
+          title: Status
+        raw_pdf_available:
+          type: boolean
+          title: Raw Pdf Available
+          default: true
+        period:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Period
+        portfolio:
+          $ref: '#/components/schemas/PortfolioResponse'
+      additionalProperties: false
+      type: object
+      required:
+      - job_id
+      - snapshot_id
+      - is_new
+      - is_active
+      - status
+      - portfolio
+      title: SdkCallbackResponse
+    SdkMetadata:
+      properties:
+        method:
+          type: string
+          title: Method
+          default: upload
+        cas_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cas Type
+        processing_time_ms:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Processing Time Ms
+        raw_pdf_available:
+          type: boolean
+          title: Raw Pdf Available
+          default: true
+      type: object
+      title: SdkMetadata
+    SearchIn:
+      properties:
+        query:
+          type: string
+          title: Query
+        top_k:
+          type: integer
+          maximum: 50.0
+          minimum: 1.0
+          title: Top K
+          default: 10
+        feed_ids:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Feed Ids
+      type: object
+      required:
+      - query
+      title: SearchIn
+    SimulateBody:
+      properties:
+        remove_mf_ids:
+          items:
+            type: string
+          type: array
+          title: Remove Mf Ids
+          default: []
+      type: object
+      title: SimulateBody
+    SimulateBuilderRequest:
+      properties:
+        starting_corpus_rs:
+          type: number
+          minimum: 0.0
+          title: Starting Corpus Rs
+          default: 0
+        monthly_sip_rs:
+          type: number
+          minimum: 0.0
+          title: Monthly Sip Rs
+          default: 0
+        years:
+          type: number
+          maximum: 50.0
+          exclusiveMinimum: 0.0
+          title: Years
+        future_target_rs:
+          type: number
+          minimum: 0.0
+          title: Future Target Rs
+          default: 0
+        allocation:
+          anyOf:
+          - additionalProperties:
+              type: number
+            type: object
+          - type: 'null'
+          title: Allocation
+      type: object
+      required:
+      - years
+      title: SimulateBuilderRequest
+    SipPlanRequest:
+      properties:
+        monthly_budget:
+          type: number
+          maximum: 10000000.0
+          exclusiveMinimum: 0.0
+          title: Monthly Budget
+        risk_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Risk Label
+          default: Moderate
+        years:
+          anyOf:
+          - type: integer
+            maximum: 40.0
+            minimum: 1.0
+          - type: 'null'
+          title: Years
+          default: 10
+        goal_amount:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Goal Amount
+        step_up_pct:
+          anyOf:
+          - type: number
+            maximum: 0.5
+            minimum: 0.0
+          - type: 'null'
+          title: Step Up Pct
+          default: 0.0
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      required:
+      - monthly_budget
+      title: SipPlanRequest
+    SnapshotDetail:
+      properties:
+        snapshot:
+          $ref: '#/components/schemas/SnapshotItem'
+        portfolio:
+          $ref: '#/components/schemas/PortfolioResponse'
+      additionalProperties: false
+      type: object
+      required:
+      - snapshot
+      - portfolio
+      title: SnapshotDetail
+    SnapshotItem:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        source_type:
+          type: string
+          title: Source Type
+        statement_from:
+          type: string
+          title: Statement From
+        statement_to:
+          type: string
+          title: Statement To
+        period:
+          type: string
+          title: Period
+        generated_at:
+          type: string
+          title: Generated At
+        is_active:
+          type: boolean
+          title: Is Active
+        total_value:
+          anyOf:
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Total Value
+        holdings_count:
+          type: integer
+          title: Holdings Count
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - source_type
+      - statement_from
+      - statement_to
+      - period
+      - generated_at
+      - is_active
+      - total_value
+      - holdings_count
+      title: SnapshotItem
+    SnapshotsList:
+      properties:
+        snapshots:
+          items:
+            $ref: '#/components/schemas/SnapshotItem'
+          type: array
+          title: Snapshots
+      additionalProperties: false
+      type: object
+      required:
+      - snapshots
+      title: SnapshotsList
+    StaleJob:
+      properties:
+        id:
+          type: string
+          title: Id
+        pan_hash_prefix:
+          type: string
+          title: Pan Hash Prefix
+        source_type:
+          type: string
+          title: Source Type
+        method:
+          type: string
+          title: Method
+        status:
+          type: string
+          title: Status
+        minutes_stuck:
+          type: integer
+          title: Minutes Stuck
+      type: object
+      required:
+      - id
+      - pan_hash_prefix
+      - source_type
+      - method
+      - status
+      - minutes_stuck
+      title: StaleJob
+    StockWeightsPayload:
+      properties:
+        weights:
+          additionalProperties:
+            additionalProperties:
+              type: number
+            type: object
+          type: object
+          title: Weights
+      type: object
+      required:
+      - weights
+      title: StockWeightsPayload
+    StrategyCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        asset_class:
+          type: string
+          pattern: ^(STOCK|MF)$
+          title: Asset Class
+        definition:
+          additionalProperties: true
+          type: object
+          title: Definition
+      type: object
+      required:
+      - name
+      - asset_class
+      - definition
+      title: StrategyCreate
+    StrategyUpdate:
+      properties:
+        definition:
+          additionalProperties: true
+          type: object
+          title: Definition
+      type: object
+      required:
+      - definition
+      title: StrategyUpdate
+    StressTestRequest:
+      properties:
+        scenario:
+          type: string
+          title: Scenario
+          default: covid_2020
+        custom_drop_pct:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Custom Drop Pct
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      title: StressTestRequest
+    SubscriptionIn:
+      properties:
+        feed_id:
+          type: string
+          title: Feed Id
+        params:
+          additionalProperties: true
+          type: object
+          title: Params
+      type: object
+      required:
+      - feed_id
+      title: SubscriptionIn
+    SubscriptionOut:
+      properties:
+        feed_id:
+          type: string
+          title: Feed Id
+        feed_name:
+          type: string
+          title: Feed Name
+        params:
+          additionalProperties: true
+          type: object
+          title: Params
+        paused:
+          type: boolean
+          title: Paused
+        subscribed_at:
+          type: string
+          title: Subscribed At
+      type: object
+      required:
+      - feed_id
+      - feed_name
+      - params
+      - paused
+      - subscribed_at
+      title: SubscriptionOut
+    TokenResponse:
+      properties:
+        access_token:
+          type: string
+          title: Access Token
+        expires_at:
+          type: string
+          title: Expires At
+        stub:
+          type: boolean
+          title: Stub
+      additionalProperties: false
+      type: object
+      required:
+      - access_token
+      - expires_at
+      - stub
+      title: TokenResponse
+    TopHolding:
+      properties:
+        name:
+          type: string
+          title: Name
+        asset_class:
+          type: string
+          title: Asset Class
+        value:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Value
+        pct:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Pct
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - asset_class
+      - value
+      - pct
+      title: TopHolding
+    TriggerDailyReq:
+      properties:
+        start_date:
+          type: string
+          format: date
+          title: Start Date
+        end_date:
+          type: string
+          format: date
+          title: End Date
+        ingesters:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Ingesters
+        wipe_first:
+          type: boolean
+          title: Wipe First
+          default: false
+        politeness_ms:
+          type: integer
+          maximum: 30000.0
+          minimum: 500.0
+          title: Politeness Ms
+          default: 4000
+        parallel:
+          type: integer
+          maximum: 8.0
+          minimum: 1.0
+          title: Parallel
+          default: 1
+      type: object
+      required:
+      - start_date
+      - end_date
+      - ingesters
+      title: TriggerDailyReq
+    TriggerFinancialsReq:
+      properties:
+        symbols:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Symbols
+          description: 'Comma-separated NSE symbols (default: Nifty 500)'
+        concurrency:
+          type: integer
+          maximum: 15.0
+          minimum: 1.0
+          title: Concurrency
+          default: 8
+        per_request_delay:
+          type: number
+          maximum: 10.0
+          minimum: 0.5
+          title: Per Request Delay
+          default: 1.5
+        only_missing:
+          type: boolean
+          title: Only Missing
+          description: Skip symbols already having ≥8 quarters
+          default: false
+      type: object
+      title: TriggerFinancialsReq
+    TriggerNavHistoryReq:
+      properties:
+        scheme_codes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scheme Codes
+          description: 'Comma-separated scheme codes (default: all active)'
+        from_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: From Date
+        to_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: To Date
+        concurrency:
+          type: integer
+          maximum: 40.0
+          minimum: 1.0
+          title: Concurrency
+          default: 30
+        only_stale_days:
+          type: integer
+          minimum: 0.0
+          title: Only Stale Days
+          description: 0 = full backfill (recommended for initial run)
+          default: 0
+      type: object
+      title: TriggerNavHistoryReq
+    TriggerRollingReq:
+      properties:
+        start_date:
+          type: string
+          format: date
+          title: Start Date
+        end_date:
+          type: string
+          format: date
+          title: End Date
+        services:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Services
+        skip_existing:
+          type: boolean
+          title: Skip Existing
+          default: true
+      type: object
+      required:
+      - start_date
+      - end_date
+      - services
+      title: TriggerRollingReq
+    TriggerYfinanceReq:
+      properties:
+        start_date:
+          type: string
+          format: date
+          title: Start Date
+        end_date:
+          type: string
+          format: date
+          title: End Date
+        symbols:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Symbols
+          description: 'Comma-separated NSE symbols (default: Nifty 500)'
+        concurrency:
+          type: integer
+          maximum: 20.0
+          minimum: 1.0
+          title: Concurrency
+          default: 8
+        per_request_delay:
+          type: number
+          maximum: 10.0
+          minimum: 0.5
+          title: Per Request Delay
+          default: 1.0
+      type: object
+      title: TriggerYfinanceReq
+    UniverseCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        asset_class:
+          type: string
+          pattern: ^(STOCK|MF)$
+          title: Asset Class
+        symbols:
+          items:
+            type: string
+          type: array
+          title: Symbols
+      type: object
+      required:
+      - name
+      - asset_class
+      title: UniverseCreate
+    UploadCompleteRequest:
+      properties:
+        upload_id:
+          type: string
+          format: uuid
+          title: Upload Id
+        checksum:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Checksum
+          description: SHA-256 of the uploaded PDF (hex). Optional in V1.
+      type: object
+      required:
+      - upload_id
+      title: UploadCompleteRequest
+    UploadInitRequest:
+      properties:
+        source_type:
+          type: string
+          title: Source Type
+          description: ECAS_CDSL | ECAS_NSDL | MF_CAMS | MF_KFIN
+        filename:
+          type: string
+          maxLength: 256
+          title: Filename
+          default: cas.pdf
+      type: object
+      required:
+      - source_type
+      title: UploadInitRequest
+    UploadInitResponse:
+      properties:
+        upload_id:
+          type: string
+          format: uuid
+          title: Upload Id
+        upload_url:
+          type: string
+          title: Upload Url
+        object_key:
+          type: string
+          title: Object Key
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+        stub:
+          type: boolean
+          title: Stub
+          default: false
+      additionalProperties: false
+      type: object
+      required:
+      - upload_id
+      - upload_url
+      - object_key
+      - expires_at
+      title: UploadInitResponse
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    WeightsPayload:
+      properties:
+        weights:
+          additionalProperties:
+            additionalProperties:
+              additionalProperties:
+                type: number
+              type: object
+            type: object
+          type: object
+          title: Weights
+      type: object
+      required:
+      - weights
+      title: WeightsPayload
+    WhatIfRequest:
+      properties:
+        monthly_sip_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Monthly Sip Rs
+        horizon_years:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Horizon Years
+        current_corpus_rs:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Current Corpus Rs
+        allocation_override:
+          anyOf:
+          - additionalProperties:
+              type: number
+            type: object
+          - type: 'null'
+          title: Allocation Override
+      type: object
+      title: WhatIfRequest
+    WhatsAppShareRequest:
+      properties:
+        monthly_sip_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Monthly Sip Rs
+        lumpsum_rs:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Lumpsum Rs
+        client_name:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Client Name
+        public_url:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Public Url
+      type: object
+      title: WhatsAppShareRequest
+    WorkspaceModeUpdate:
+      properties:
+        mode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mode
+          description: INDIVIDUAL | ADVISORY
+        firm_name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Firm Name
+        client_count_range:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Count Range
+          description: <100 | 100-500 | 500+
+        mfd_onboarding_completed:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Mfd Onboarding Completed
+        advisor_name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Advisor Name
+        advisor_mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Advisor Mobile
+        advisor_email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Advisor Email
+        arn_or_ria:
+          anyOf:
+          - type: string
+            maxLength: 50
+          - type: 'null'
+          title: Arn Or Ria
+          description: ARN-xxxxx or INA-xxxxx
+      type: object
+      title: WorkspaceModeUpdate
+    _LayoutOnlyRequest:
+      properties:
+        layout:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Layout
+      type: object
+      title: _LayoutOnlyRequest
+    models__RiskProfileAnswer:
+      properties:
+        question_id:
+          type: string
+          title: Question Id
+        answer:
+          type: string
+          title: Answer
+      type: object
+      required:
+      - question_id
+      - answer
+      title: RiskProfileAnswer
+    routes__portfolio_builder__RiskProfileAnswer:
+      properties:
+        question_id:
+          type: string
+          title: Question Id
+        value:
+          type: string
+          title: Value
+      type: object
+      required:
+      - question_id
+      - value
+      title: RiskProfileAnswer
+    routes__positional__SimulateRequest:
+      properties:
+        basket:
+          items: {}
+          type: array
+          title: Basket
+          description: Basket items from POST /basket — list of position dicts
+        horizon_days:
+          type: integer
+          maximum: 20.0
+          minimum: 5.0
+          title: Horizon Days
+          default: 10
+      type: object
+      required:
+      - basket
+      title: SimulateRequest
+    routes__scenarios__SimulateRequest:
+      properties:
+        scenario_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scenario Id
+        target_equity:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Equity
+        target_debt:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Debt
+        target_gold:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Gold
+        target_amc_cap:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Amc Cap
+        target_small_cap:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Target Small Cap
+        switch_to_direct:
+          type: boolean
+          title: Switch To Direct
+          default: false
+        remove_dead:
+          type: boolean
+          title: Remove Dead
+          default: false
+      type: object
+      title: SimulateRequest
