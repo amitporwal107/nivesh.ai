@@ -61,7 +61,7 @@ if [[ "${BUILD_BACKEND}" == "true" && "${BUILD_FRONTEND}" == "true" ]]; then
 elif [[ "${BUILD_BACKEND}" == "true" ]]; then
     log "Building backend image only..."
     docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull app-backend
-    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d app-backend
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --force-recreate app-backend
 elif [[ "${BUILD_FRONTEND}" == "true" ]]; then
     log "Building frontend images only (v2 + v5)..."
     docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull app-frontend app-frontend-v5
