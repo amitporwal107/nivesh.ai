@@ -26,6 +26,7 @@ remain unchanged for existing mobile-app + partner callers.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Optional
 
@@ -303,7 +304,6 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
     via the NIDP DaaS /v1/portfolio-risk/{user_id} endpoint.
     Falls back to the legacy weighted-beta approach if no PRA result exists yet.
     """
-    import asyncio
     from datetime import date
     from services.copilot_tools import daas_client as _daas
 
@@ -763,47 +763,61 @@ async def get_dashboard(
     user = await get_current_user(request)
     user_id = user["user_id"]
 
-    # ── 1. Domain data ────────────────────────────────────────────────────────
-    try:
-        if type == "concentration":
-            domain = await _concentration_composite(user_id, lens)
-        elif type == "diversification":
-            domain = await _diversification_composite(user_id, lens)
-        elif type == "risk":
-            domain = await _risk_composite(user_id)
-        elif type == "performance":
-            force = request.query_params.get("force") == "1"
-            domain = await _performance_composite(user_id, period, force=force)
-        elif type == "goals":
-            domain = await _goals_composite(user_id)
-        else:  # tax
-            domain = await _tax_composite(user_id)
-    except Exception as exc:
-        logger.warning("dashboard[%s] domain failed for user %s: %s", type, user_id, exc)
-        domain = _empty_domain(type)
+    # ── 1-3. Domain + recommendations + projection — all concurrent ──────────
+    # Run all three in parallel so total latency = max(each), not sum(each).
+    _force = request.query_params.get("force") == "1"
 
-    # ── 2. Recommendations (plan actions filtered by source_domain) ───────────
-    try:
+    async def _safe_domain() -> dict:
+        if type == "concentration":
+            return await _concentration_composite(user_id, lens)
+        elif type == "diversification":
+            return await _diversification_composite(user_id, lens)
+        elif type == "risk":
+            return await _risk_composite(user_id)
+        elif type == "performance":
+            return await _performance_composite(user_id, period, force=_force)
+        elif type == "goals":
+            return await _goals_composite(user_id)
+        else:
+            return await _tax_composite(user_id)
+
+    async def _safe_plan() -> list:
         plan = await _plan_mgr.get_active_plan(user_id, source_domain=type)
-        actions = (plan.get("actions") or [])[:5]
-        # Normalise status to UPPERCASE for v4 consumers
-        for a in actions:
+        acts = (plan.get("actions") or [])[:5]
+        for a in acts:
             if isinstance(a.get("status"), str):
                 a["status"] = a["status"].upper()
-    except Exception as exc:
-        logger.warning("dashboard[%s] plan failed for user %s: %s", type, user_id, exc)
-        actions = []
+        return acts
 
-    # ── 3. Projection — domain provides its own (e.g. goals fan chart); others use health delta ──
+    async def _safe_projection() -> dict:
+        return await asyncio.wait_for(_health_projection(user_id, type), timeout=5.0)
+
+    _domain_r, _plan_r, _proj_r = await asyncio.gather(
+        _safe_domain(), _safe_plan(), _safe_projection(),
+        return_exceptions=True,
+    )
+
+    if isinstance(_domain_r, BaseException):
+        logger.warning("dashboard[%s] domain failed for user %s: %s", type, user_id, _domain_r)
+        domain = _empty_domain(type)
+    else:
+        domain = _domain_r
+
+    if isinstance(_plan_r, BaseException):
+        logger.warning("dashboard[%s] plan failed for user %s: %s", type, user_id, _plan_r)
+        actions = []
+    else:
+        actions = _plan_r
+
+    # Domain provides its own projection (e.g. goals fan chart); others use health delta.
     domain_projection = domain.pop("projection", None)
     if domain_projection is not None:
         projection = domain_projection
+    elif isinstance(_proj_r, BaseException):
+        logger.warning("dashboard[%s] projection failed for user %s: %s", type, user_id, _proj_r)
+        projection = {"metric_label": "Projected health", "current": None, "projected": None, "unit": "", "tone": "mute"}
     else:
-        try:
-            projection = await _health_projection(user_id, type)
-        except Exception as exc:
-            logger.warning("dashboard[%s] projection failed for user %s: %s", type, user_id, exc)
-            projection = {"metric_label": "Projected health", "current": None, "projected": None, "unit": "", "tone": "mute"}
+        projection = _proj_r
 
     return {
         "type": type,
