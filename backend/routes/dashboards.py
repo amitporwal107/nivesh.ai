@@ -304,7 +304,7 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
     via the NIDP DaaS /v1/portfolio-risk/{user_id} endpoint.
     Falls back to the legacy weighted-beta approach if no PRA result exists yet.
     """
-    from datetime import date
+    from datetime import date, datetime
     from services.copilot_tools import daas_client as _daas
 
     # ── Fetch PRA data and MongoDB holdings concurrently ──────────────
@@ -326,6 +326,35 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
 
     pra, holdings = await asyncio.gather(_fetch_pra(), _fetch_holdings())
     pra_error: Optional[str] = None
+    pra_from_cache = False
+
+    # ── Cache write: persist fresh PRA result to MongoDB pra_daily_cache ─
+    if pra and pra.get("var_95_1y_pct") and pra.get("computed_date"):
+        try:
+            await db.pra_daily_cache.update_one(
+                {"user_id": user_id, "date": pra["computed_date"]},
+                {"$set": {
+                    "user_id": user_id,
+                    "date": pra["computed_date"],
+                    "payload": pra,
+                    "cached_at": datetime.utcnow(),
+                }},
+                upsert=True,
+            )
+        except Exception as _exc:
+            logger.debug("pra_daily_cache write failed: %s", _exc)
+
+    # ── Cache read: fall back to MongoDB when DaaS has no data ────────────
+    if not (pra and pra.get("var_95_1y_pct")):
+        try:
+            cached_doc = await db.pra_daily_cache.find_one(
+                {"user_id": user_id}, sort=[("date", -1)]
+            )
+            if cached_doc and cached_doc.get("payload", {}).get("var_95_1y_pct"):
+                pra = cached_doc["payload"]
+                pra_from_cache = True
+        except Exception as _exc:
+            logger.debug("pra_daily_cache read failed: %s", _exc)
 
     # ── Primary path: precomputed PRA results ──────────────────────────
     if pra and pra.get("var_95_1y_pct"):
@@ -342,7 +371,12 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
         stress    = pra.get("stress_scenarios") or []
         computed_at   = pra.get("computed_at", "")
         computed_date = pra.get("computed_date", "")
-        pra_run_today = computed_date == str(date.today())
+        pra_run_today = computed_date == str(date.today()) and not pra_from_cache
+        if pra_from_cache:
+            pra_error = (
+                "Nightly PRA job did not complete today. "
+                f"Showing results from {computed_date}."
+            )
 
         tone = {"green": "moss", "amber": "saffron", "red": "rust"}.get(color, "saffron")
         badge_label = "High risk" if color == "red" else ("Moderate risk" if color == "amber" else "Low risk")
@@ -381,9 +415,9 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
                 "pra_available":    True,
                 "pra_run_today":    pra_run_today,
                 "pra_computed_date": computed_date,
-                "pra_error":        None,
+                "pra_error":        pra_error,
                 "computed_at":      computed_at,
-                "data_stale":       stale,
+                "data_stale":       stale or pra_from_cache,
                 "sharpe_1y":        sharpe,
             },
         }
