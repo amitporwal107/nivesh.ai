@@ -2,7 +2,7 @@
   "title": "Centralized Application Logs",
   "uid": "app-logs-central",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 5,
   "editable": true,
   "tags": [
     "logs",
@@ -182,7 +182,7 @@
           "refId": "A",
           "queryType": "logs",
           "projectName": "niveshdataintelligence",
-          "filter": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(\" [45][0-9][0-9] |error|Error)\""
+          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(\" [45][0-9][0-9] |error|Error)\""
         }
       ]
     },
@@ -233,7 +233,7 @@
           "refId": "A",
           "queryType": "logs",
           "projectName": "niveshdataintelligence",
-          "filter": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(critical|CRITICAL|500 |502 |503 )\""
+          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(critical|CRITICAL|500 |502 |503 )\""
         }
       ]
     },
@@ -288,7 +288,7 @@
           "refId": "A",
           "queryType": "logs",
           "projectName": "niveshdataintelligence",
-          "filter": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(warning|Warning|400 |401 |403 |404 )\""
+          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(warning|Warning|400 |401 |403 |404 )\""
         }
       ]
     },
@@ -327,7 +327,7 @@
           "refId": "A",
           "queryType": "logs",
           "projectName": "niveshdataintelligence",
-          "filter": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\""
+          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\""
         }
       ]
     },
@@ -361,7 +361,7 @@
           "refId": "A",
           "queryType": "logs",
           "projectName": "niveshdataintelligence",
-          "filter": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\""
+          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\""
         }
       ]
     },
