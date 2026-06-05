@@ -2,7 +2,7 @@
   "title": "Centralized Application Logs",
   "uid": "app-logs-central",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "editable": true,
   "tags": [
     "logs",
@@ -25,27 +25,22 @@
         "options": [
           {
             "text": "prod",
-            "value": "prod",
+            "value": "nivesh-app-vm",
             "selected": true
           },
           {
             "text": "staging",
-            "value": "staging",
-            "selected": false
-          },
-          {
-            "text": "dev",
-            "value": "dev",
+            "value": "nidp-stack-vm",
             "selected": false
           }
         ],
         "current": {
           "text": "prod",
-          "value": "prod"
+          "value": "nivesh-app-vm"
         },
         "multi": false,
         "includeAll": false,
-        "query": "prod,staging,dev"
+        "query": "prod : nivesh-app-vm,staging : nidp-stack-vm"
       },
       {
         "name": "service",
@@ -187,7 +182,7 @@
           "refId": "A",
           "queryType": "logs",
           "projectName": "niveshdataintelligence",
-          "filter": "severity>=\"ERROR\"\nlabels.environment=\"${env}\""
+          "filter": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(\" [45][0-9][0-9] |error|Error)\""
         }
       ]
     },
@@ -238,7 +233,7 @@
           "refId": "A",
           "queryType": "logs",
           "projectName": "niveshdataintelligence",
-          "filter": "severity=\"CRITICAL\"\nlabels.environment=\"${env}\""
+          "filter": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(critical|CRITICAL|500 |502 |503 )\""
         }
       ]
     },
@@ -293,7 +288,7 @@
           "refId": "A",
           "queryType": "logs",
           "projectName": "niveshdataintelligence",
-          "filter": "severity=\"WARNING\"\nlabels.environment=\"${env}\""
+          "filter": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(warning|Warning|400 |401 |403 |404 )\""
         }
       ]
     },
@@ -332,7 +327,7 @@
           "refId": "A",
           "queryType": "logs",
           "projectName": "niveshdataintelligence",
-          "filter": "labels.environment=\"${env}\""
+          "filter": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\""
         }
       ]
     },
@@ -366,7 +361,7 @@
           "refId": "A",
           "queryType": "logs",
           "projectName": "niveshdataintelligence",
-          "filter": "severity>=\"${min_severity}\"\nlabels.environment=\"${env}\""
+          "filter": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\""
         }
       ]
     },
