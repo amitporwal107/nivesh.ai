@@ -303,18 +303,31 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
     via the NIDP DaaS /v1/portfolio-risk/{user_id} endpoint.
     Falls back to the legacy weighted-beta approach if no PRA result exists yet.
     """
+    import asyncio
     from datetime import date
     from services.copilot_tools import daas_client as _daas
 
-    # ── Primary path: precomputed PRA results ──────────────────────────
-    pra: Optional[dict] = None
-    pra_error: Optional[str] = None
-    try:
-        pra = await _daas.get_portfolio_risk(user_id)
-    except Exception as exc:
-        pra_error = str(exc)
-        logger.warning("risk composite: PRA DaaS unavailable for user %s: %s — falling back to legacy", user_id, exc)
+    # ── Fetch PRA data and MongoDB holdings concurrently ──────────────
+    # Both DaaS calls capped at 5s; concurrent fetch keeps worst-case at
+    # max(5s PRA, ~0ms Mongo) + 5s MF bulk = 10s instead of the old 25s.
+    async def _fetch_pra() -> Optional[dict]:
+        return await _daas.get_portfolio_risk(user_id, timeout=5.0)
 
+    async def _fetch_holdings() -> list[dict]:
+        rows: list[dict] = await db.holdings.find(
+            {"user_id": user_id},
+            {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1,
+             "quantity": 1, "current_price": 1, "category": 1},
+        ).to_list(1000)
+        if not rows:
+            from services.pi_bridge import pi_holdings_for_user
+            rows = await pi_holdings_for_user(user_id)
+        return rows
+
+    pra, holdings = await asyncio.gather(_fetch_pra(), _fetch_holdings())
+    pra_error: Optional[str] = None
+
+    # ── Primary path: precomputed PRA results ──────────────────────────
     if pra and pra.get("var_95_1y_pct"):
         var_pct   = float(pra["var_95_1y_pct"])
         var_inr   = float(pra.get("var_95_1y_inr") or 0)
@@ -385,15 +398,7 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
         _pra_meta_error = "PRA results exist but are incomplete (VaR not yet computed)."
     _pra_computed_date = pra.get("computed_date") if pra else None
 
-    holdings: list[dict] = await db.holdings.find(
-        {"user_id": user_id},
-        {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1,
-         "quantity": 1, "current_price": 1, "category": 1},
-    ).to_list(1000)
-    if not holdings:
-        from services.pi_bridge import pi_holdings_for_user
-        holdings = await pi_holdings_for_user(user_id)
-
+    # holdings already fetched concurrently at the top of this function
     if not holdings:
         result = _empty_domain("risk")
         result["meta"] = {
@@ -414,7 +419,7 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
 
     if mf_isins:
         try:
-            mf_data = await _daas.get_v3_mf_primitives_bulk(mf_isins[:30])
+            mf_data = await _daas.get_v3_mf_primitives_bulk(mf_isins[:30], timeout=5.0)
             wb2 = wv2 = ws2 = 0.0
             for h in holdings:
                 isin = h.get("ticker")

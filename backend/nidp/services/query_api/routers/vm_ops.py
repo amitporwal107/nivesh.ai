@@ -139,21 +139,47 @@ async def feed_execute(
         )
         runner = "run_service.sh"
     else:
-        # Docker/dev path: invoke current Python directly
+        # Docker/dev path: invoke current Python directly.
+        # pra_engine is a VM-only nightly job and does not exist as a
+        # Python module inside the Query API container — reject early.
+        VM_ONLY_INGESTERS = {"pra_engine"}
+        if ingester in VM_ONLY_INGESTERS:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{ingester} is a VM-only job and can only be triggered when "
+                    f"run_service.sh is present ({RUN_SCRIPT}). "
+                    "Ensure the NIDP VM is the target, not a Docker/Cloud Run container."
+                ),
+            )
         import sys as _sys
         py_args = [_sys.executable, "-m", f"nidp.services.{ingester}"]
         if target_date:
             py_args += ["--date", target_date]
         log_dir = LOGS_DIR / ingester
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_path = log_dir / f"{ingester}.log"
-        with open(log_path, "ab") as _lf:
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / f"{ingester}.log"
+            _lf = open(log_path, "ab")
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Cannot open log file for {ingester}: {exc}",
+            ) from exc
+        try:
             proc = await asyncio.create_subprocess_exec(
                 *py_args,
                 stdout=_lf,
                 stderr=_lf,
                 start_new_session=True,
             )
+        except Exception as exc:
+            _lf.close()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to spawn {ingester}: {exc}",
+            ) from exc
+        _lf.close()
         runner = f"python -m nidp.services.{ingester}"
 
     try:
