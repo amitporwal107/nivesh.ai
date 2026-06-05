@@ -1,0 +1,353 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_SENTRY",
+      "label": "Sentry",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "grafana-sentry-datasource",
+      "pluginName": "Sentry"
+    }
+  ],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "datasource", "id": "grafana-sentry-datasource", "name": "Sentry", "version": "1.0.0" }
+  ],
+  "annotations": { "list": [] },
+  "description": "NiveshCopilot V5 — STAGING frontend error monitoring via Sentry",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "title": "Production Dashboard",
+      "url": "/grafana/d/v5-frontend-errors-prod",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+  "panels": [
+
+    {
+      "id": 100,
+      "type": "text",
+      "title": "",
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "## 🟡 STAGING — NiveshCopilot V5 Frontend\nFiltered to `environment:staging`. Errors here are expected during testing. Switch to **Production** via the link above."
+      }
+    },
+
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Component Crashes (24h)",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 2 },
+      "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "reduceOptions": { "calcs": ["sum"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "orange", "value": 50 }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+          "queryType": "issues",
+          "query": "is:unresolved tags[source]:component environment:staging",
+          "projectIds": []
+        }
+      ]
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Affected Users (24h)",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 2 },
+      "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "reduceOptions": { "calcs": ["sum"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 20 },
+              { "color": "orange", "value": 100 }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+          "queryType": "issues",
+          "query": "is:unresolved tags[source]:component environment:staging",
+          "projectIds": []
+        }
+      ]
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "API Errors (24h)",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 2 },
+      "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "reduceOptions": { "calcs": ["sum"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 20 },
+              { "color": "orange", "value": 100 }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+          "queryType": "issues",
+          "query": "is:unresolved tags[source]:api environment:staging",
+          "projectIds": []
+        }
+      ]
+    },
+
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Safe Mode Activations (24h)",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 2 },
+      "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "reduceOptions": { "calcs": ["sum"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+          "queryType": "issues",
+          "query": "is:unresolved tags[component]:root environment:staging",
+          "projectIds": []
+        }
+      ]
+    },
+
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Latest Staging Release",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 2 },
+      "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "fixed", "fixedColor": "yellow" }, "unit": "string" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+          "queryType": "releases",
+          "query": "environment:staging",
+          "projectIds": []
+        }
+      ]
+    },
+
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Component Crash Rate — Staging",
+      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 6 },
+      "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "max"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "yellow" },
+          "custom": { "lineWidth": 2, "fillOpacity": 12, "gradientMode": "opacity", "spanNulls": false },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+          "queryType": "events",
+          "query": "tags[source]:component environment:staging",
+          "projectIds": []
+        }
+      ]
+    },
+
+    {
+      "id": 7,
+      "type": "piechart",
+      "title": "Crashes by Component — Staging",
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 6 },
+      "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+      "options": {
+        "pieType": "donut",
+        "displayLabels": ["name", "percent"],
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+          "queryType": "issues",
+          "query": "is:unresolved tags[source]:component environment:staging",
+          "projectIds": []
+        }
+      ]
+    },
+
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Top Issues — Staging",
+      "description": "All unresolved issues in staging. Higher thresholds than prod — some noise expected.",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 15 },
+      "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Events", "desc": true }]
+      },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" }, "unit": "short" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Title" },
+            "properties": [{ "id": "custom.width", "value": 420 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Events" },
+            "properties": [
+              { "id": "custom.width", "value": 100 },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "green", "value": null },
+                    { "color": "yellow", "value": 10 },
+                    { "color": "orange", "value": 50 }
+                  ]
+                }
+              },
+              { "id": "custom.displayMode", "value": "color-background" }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+          "queryType": "issues",
+          "query": "is:unresolved environment:staging",
+          "projectIds": []
+        }
+      ]
+    },
+
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "API Error Rate — Staging",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 25 },
+      "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "orange" },
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "gradientMode": "none" },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-sentry-datasource", "uid": "sentry" },
+          "queryType": "events",
+          "query": "tags[source]:api environment:staging",
+          "projectIds": []
+        }
+      ]
+    }
+
+  ],
+  "refresh": "5m",
+  "schemaVersion": 38,
+  "tags": ["nivesh", "frontend", "sentry", "staging"],
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "Asia/Kolkata",
+  "title": "V5 Frontend Errors — Staging",
+  "uid": "v5-frontend-errors-staging",
+  "version": 1
+}
