@@ -768,6 +768,42 @@ def _empty_domain(domain: str) -> dict[str, Any]:
     }
 
 
+# ── Meta endpoint (lightweight freshness check) ───────────────────────────────
+
+@router.get("/meta")
+async def get_dashboard_meta(request: Request) -> dict[str, Any]:
+    """Return cache freshness info without computing full dashboard data.
+
+    Frontend calls this first on page load; if ``hasCachedData`` is true and
+    ``lastUpdated`` matches the locally-stored generatedAt, the page can skip
+    the full fetch and serve from localStorage.
+    """
+    from datetime import date
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+    today = str(date.today())
+
+    last_updated: Optional[str] = None
+    has_cache = False
+    try:
+        doc = await db.dashboard_daily_snapshot.find_one(
+            {"user_id": user_id, "date": today},
+            {"_id": 0, "updated_at": 1},
+            sort=[("updated_at", -1)],
+        )
+        if doc:
+            has_cache = True
+            last_updated = doc.get("updated_at")
+    except Exception:
+        pass
+
+    return {
+        "hasCachedData": has_cache,
+        "marketDate": today,
+        "lastUpdated": last_updated,
+    }
+
+
 # ── Main composite endpoint ───────────────────────────────────────────────────
 
 @router.get("/{type}")

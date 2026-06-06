@@ -88,11 +88,17 @@ async def set(user_id: str, dtype: str, data: dict) -> None:  # noqa: A001
 
 
 async def invalidate(user_id: str) -> None:
-    """Delete all dashboard Redis L1 keys for this user.
+    """Delete all dashboard Redis L1 keys and today's MongoDB L2 docs for this user.
 
-    MongoDB L2 docs are left intact — they serve as the warm-up source on
-    the next request.  A subsequent ``set()`` call overwrites today's L2 entry.
+    Both layers are cleared so that a Redis restart after a portfolio mutation
+    doesn't cause stale L2 data to be served.
     """
     for dtype in DASHBOARD_TYPES:
         await cache_del(_redis_key(user_id, dtype))
+    today = _today_utc()
+    try:
+        from deps import db  # late import to avoid circular at module load
+        await db.dashboard_daily_snapshot.delete_many({"user_id": user_id, "date": today})
+    except Exception as exc:
+        logger.warning("dashboard cache L2 invalidation failed for user %s: %s", user_id, exc)
     logger.info("dashboard cache invalidated user=%s", user_id)
