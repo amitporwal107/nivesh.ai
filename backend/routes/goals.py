@@ -18,6 +18,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
+
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -200,6 +201,7 @@ async def put_snapshot(payload: FinancialSnapshot, request: Request):
             payload.current_corpus_rs, payload.total_liabilities_rs,
             payload.risk_profile, payload.behavior_score,
         )
+    await _dc.invalidate(user_id)
     return await get_snapshot(request)
 
 
