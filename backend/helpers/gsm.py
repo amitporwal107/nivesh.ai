@@ -104,6 +104,32 @@ def get(name: str) -> Optional[str]:
     return value
 
 
+def get_for_env(name: str, default: Optional[str] = None) -> Optional[str]:
+    """Environment-aware secret read.
+
+    Resolution order:
+      1. GSM ``<NAME>_<ENV>``  (e.g. ``MONGO_URL_STAGING``) — env-specific
+      2. GSM ``<NAME>``        (e.g. ``OPENAI_API_KEY``)    — shared across envs
+      3. ``<NAME>`` env var                                  — last-resort fallback
+      4. ``default``
+
+    ``<ENV>`` is ``APP_ENV`` uppercased (``STAGING`` / ``PROD``). This lets a
+    single GSM project hold both env-specific secrets and shared ones, while
+    the env var stays as a fallback so nothing breaks before (or during) the
+    migration of values into GSM. Once every read site uses this and GSM is
+    populated, the secret can be removed from the env file.
+    """
+    env = (os.environ.get("APP_ENV") or "").strip().upper()
+    if env:
+        v = get(f"{name}_{env}")
+        if v:
+            return v
+    v = get(name)
+    if v:
+        return v
+    return os.environ.get(name, default)
+
+
 def reload(name: str) -> None:
     """Evict ``name`` from the cache so the next ``get`` re-fetches from GSM.
     Call after ``gcloud secrets versions add <name> --data-file=-``."""
