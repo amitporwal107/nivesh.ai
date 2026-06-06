@@ -15,6 +15,36 @@ import os
 COPILOT_LLM_MODEL: str = os.environ.get("COPILOT_LLM_MODEL", "gpt-5")
 
 
+def get_openai_api_key() -> str:
+    """Resolve the OpenAI API key at call time (NFR-09 order):
+
+      1. Google Secret Manager (``helpers.gsm`` — secret ``OPENAI_API_KEY``)
+      2. DB-backed admin override (``helpers.secrets``)
+      3. ``OPENAI_API_KEY`` env var
+
+    Every specialist node must use this rather than reading os.environ
+    directly, so the key can be rotated via GSM / the admin console
+    without a redeploy and without an env var being present on the box.
+    Returns "" if no source has it — the caller's LLM call then fails
+    loudly, which the node surfaces as an error (no silent fallback).
+    """
+    try:
+        from helpers import gsm as _gsm  # type: ignore
+        k = _gsm.get("OPENAI_API_KEY")
+        if k:
+            return k
+    except Exception:  # noqa: BLE001 — GSM unavailable in local dev; fall through
+        pass
+    try:
+        from helpers import secrets as _secrets  # type: ignore
+        k = _secrets.get("OPENAI_API_KEY")
+        if k:
+            return k
+    except Exception:  # noqa: BLE001
+        pass
+    return os.environ.get("OPENAI_API_KEY", "")
+
+
 # Appended verbatim to every specialist agent's system prompt. Kept
 # blunt and numbered because the failure mode (LLM inventing fund
 # names like "Fund A" when the tool didn't return per-fund data) is a

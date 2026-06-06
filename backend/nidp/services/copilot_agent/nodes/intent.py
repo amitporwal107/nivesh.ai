@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 
-from .._llm import COPILOT_LLM_MODEL
+from .._llm import COPILOT_LLM_MODEL, get_openai_api_key
 from ..schemas import AgentName, CopilotState, IntentClassification
 
 logger = logging.getLogger(__name__)
@@ -200,7 +200,7 @@ async def _llm_classify(text: str) -> IntentClassification:
         llm = ChatOpenAI(
             model=COPILOT_LLM_MODEL,
             temperature=0,
-            api_key=os.environ.get("OPENAI_API_KEY", ""),
+            api_key=get_openai_api_key(),
         )
         # Tag this LLM call so the SSE consumer can filter its tokens out of
         # the user-facing stream — otherwise the routing JSON leaks into the

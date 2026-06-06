@@ -12,7 +12,7 @@ import os
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
-from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL, get_openai_api_key
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -186,7 +186,7 @@ async def mf_node(state: CopilotState) -> dict:
     llm = ChatOpenAI(
         model=COPILOT_LLM_MODEL,
         temperature=0.1,
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
+        api_key=get_openai_api_key(),
     )
     resp = await llm.ainvoke([
         {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
