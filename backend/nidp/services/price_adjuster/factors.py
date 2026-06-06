@@ -32,13 +32,13 @@ class CorpActionEvent:
     `pret_factor`: applies to price-return adjustment (used for
         adj_close — what backtests should use).
     `tret_factor`: applies to total-return (adj_close × dividend
-        adjustment). Equals pret_factor for SPLIT/BONUS/RIGHTS;
-        differs only for DIVIDEND where pret_factor = 1.0 and
-        tret_factor accounts for the cash payout.
+        adjustment). Equals pret_factor for SPLIT/BONUS;
+        differs only for DIVIDEND/DISTRIBUTION where pret_factor = 1.0
+        and tret_factor accounts for the cash payout.
     """
     symbol:      str
     ex_date:     date
-    action_type: str              # 'SPLIT' | 'BONUS' | 'DIVIDEND'
+    action_type: str              # 'SPLIT' | 'BONUS' | 'DIVIDEND' | 'DISTRIBUTION'
     pret_factor: float
     tret_factor: float
 
@@ -148,7 +148,11 @@ def build_events(
                 continue
             out.append(CorpActionEvent(symbol, ex_date, action, f, f))
 
-        elif action == "DIVIDEND":
+        elif action in ("DIVIDEND", "DISTRIBUTION"):
+            # DISTRIBUTION: InvIT/REIT income distributions — same cash-payout
+            # mechanics as a regular dividend. pret_factor = 1.0 (the price
+            # drop on ex-date reflects the distribution but we don't scale
+            # historical prices); tret_factor accounts for the cash received.
             prev = prev_close_lookup(symbol, ex_date)
             if prev is not None:
                 prev = float(prev)
@@ -156,10 +160,30 @@ def build_events(
             f = dividend_factor(div_amt, prev)
             if f is None:
                 continue
-            # PRET unaffected by dividends
+            # PRET unaffected by cash payouts
             out.append(CorpActionEvent(symbol, ex_date, action, 1.0, f))
 
-        # RIGHTS, BUYBACK, MERGER, etc. — not auto-adjusted
+        elif action == "RIGHTS":
+            # Rights issues require the subscription price to compute the
+            # theoretical ex-rights price (TERP). We don't store subscription
+            # price in nidp.corporate_actions, so we cannot derive an accurate
+            # factor. Treating rights like bonus (dilution-only) would
+            # systematically overstate the adjustment. Skip and warn so the
+            # gap is visible in logs rather than silently wrong.
+            logger.warning(
+                "price_adjuster: skipping RIGHTS event for %s ex_date=%s "
+                "(ratio=%s) — subscription price not stored; "
+                "TERP-based adjustment cannot be computed",
+                symbol, ex_date, r.get("ratio"),
+            )
+
+        elif action == "BUYBACK":
+            # Buybacks are executed at market price (or a small premium via
+            # tender offer). They reduce share count but do not cause a
+            # defined per-share price drop on ex-date — no factor to apply.
+            pass
+
+        # INTEREST_PAYMENT, MERGER, DEMERGER, and other types: no adjustment.
     return out
 
 
