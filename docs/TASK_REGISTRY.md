@@ -492,6 +492,30 @@ Fixes shipped:
 - New scripts: `backend/scripts/run_positional_engine.py`, `backend/scripts/check_nidp_feed_health.py`
 - New cron + installer: `deploy/nivesh-app/positional-engine.cron`, `install-positional-engine.sh`
 
+---
+
+## EPIC — Secrets → Google Secret Manager migration (June 2026)
+
+Goal: move all ~40 backend secrets out of VM env files into GSM (project `niveshdataintelligence`), env-specific ones suffixed `_STAGING`/`_PROD`, shared ones unsuffixed. Foundation shipped: `gsm.get_for_env()` resolver (GSM `<NAME>_<ENV>` → GSM `<NAME>` → env → default), `deploy/migrate-secrets-to-gsm.sh` (VM-side value loader), `deploy/gsm-scaffold-secrets.sh` (creates empty containers). 51 entries scaffolded; `OPENAI_API_KEY` live; 8 copilot nodes already use the resolver. See [project_secrets_to_gsm](memory:project_secrets_to_gsm).
+
+### TASK-088 — Populate real secret values into GSM ⏳ BLOCKED-ON-OPS
+Run `migrate-secrets-to-gsm.sh staging /opt/nivesh-staging/.env.staging --apply` then the prod equivalent, on each VM (values live in the VM `.env`, not the repo). VM/SA needs `secretmanager.admin`. Fills the empty containers. Owner: ops (Claude has no VM access).
+
+### TASK-089 — Rewire AI/LLM key reads → `get_for_env` 🔨 BUILD
+`ANTHROPIC_API_KEY`, `EMERGENT_LLM_KEY`, `ALPHA_VANTAGE_KEY`, `FRED_API_KEY`, `CASPARSER_API_KEY` (`OPENAI_API_KEY` already done). Replace `os.environ.get(...)` at each read site with `helpers.gsm.get_for_env(...)`. Env stays as fallback, so safe to land before TASK-088 completes.
+
+### TASK-090 — Rewire DB/cache credential reads → `get_for_env` 🔨 BUILD
+`MONGO_URL`, `POSTGRES_URL`, `REDIS_URL` (+ the `PI_*` user/password parts the compose builds them from). Highest-blast-radius group — verify app boots & connects on staging before prod.
+
+### TASK-091 — Rewire token/encryption-key reads → `get_for_env` 🔨 BUILD
+`PI_ADMIN_TOKEN`, `PII_ENCRYPTION_KEY`, `PI_PAN_ENCRYPTION_KEY`, `NIDP_DAAS_INTERNAL_TOKEN`, `NIDP_QUERY_API_TOKEN`, `NIDP_DAAS_API_KEY`, `NIDP_MINIO_ACCESS_KEY`/`SECRET_KEY`, `PI_WEBHOOK_SECRET`, `ADMIN_SESSION_TOKEN`, `MONITORING_ACTION_SECRET`, `GRAFANA_WEBHOOK_SECRET`, `WORK_INGEST_SECRET`.
+
+### TASK-092 — Verify GSM reads live, then strip env files 🔨 BUILD
+After 088–091 + a deploy: confirm the app sources each secret from GSM (log/health check), then remove the migrated secrets from `/opt/nivesh-*/.env.*`, leaving only non-secret config. Last step — never before live verification.
+
+### TASK-093 — Decide + migrate the 2 deferred keys 🔨 BUILD
+`NIDP_TELEGRAM_BOT_TOKEN`, `OPENALGO_MANAGEMENT_TOKEN`: confirm shared vs per-env, add to the scaffold/SHARED list, scaffold + migrate.
+
 **Deployment**: `sudo bash /opt/nivesh/repo/deploy/nivesh-app/install-positional-engine.sh` on `nivesh-app-vm`, then redeploy frontend container.
 
 ---
@@ -527,4 +551,9 @@ THEN:  TASK-039–041     — risk suitability + VaR tools
 DONE:  TASK-042–045     — recommendation engine (composite scorer, screener, MF recommender, 60 tests)
 THEN:  TASK-062–063     — frontend wire-up
 THEN:  TASK-065–068     — observability + production hardening
+
+OPS:   TASK-088         — populate real secret values into GSM (run on VMs)
+THEN:  TASK-089–091     — rewire backend secret reads → gsm.get_for_env (AI keys → DB creds → tokens)
+THEN:  TASK-092         — verify GSM reads live, strip env files
+THEN:  TASK-093         — decide + migrate the 2 deferred keys
 ```
