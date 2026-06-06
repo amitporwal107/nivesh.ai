@@ -504,3 +504,4 @@ frontend-v5/test-results/
 
 # Local secret drop — OpenAI key for manual staging env injection (never commit)
 .open_api_key
+KEY_JSON
