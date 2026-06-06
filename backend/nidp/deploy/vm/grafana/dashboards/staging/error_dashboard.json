@@ -1,0 +1,409 @@
+{
+  "uid": "error-dashboard-staging",
+  "title": "Error & PRA Run Dashboard",
+  "description": "Surfaces ERROR/CRITICAL log lines and PRA engine failures from NIDP VM logs via Loki.",
+  "tags": ["errors", "pra", "monitoring", "staging"],
+  "timezone": "Asia/Kolkata",
+  "refresh": "1m",
+  "schemaVersion": 36,
+  "version": 1,
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "type": "custom",
+        "label": "VM",
+        "current": {
+          "text": "nidp-stack-vm (staging)",
+          "value": "nidp-stack-vm"
+        },
+        "options": [
+          { "text": "nidp-stack-vm (staging)", "value": "nidp-stack-vm", "selected": true },
+          { "text": "nivesh-app-vm (prod)", "value": "nivesh-app-vm" }
+        ],
+        "query": "nidp-stack-vm,nivesh-app-vm",
+        "hide": 0
+      },
+      {
+        "name": "log_root",
+        "type": "constant",
+        "hide": 2,
+        "current": { "value": "/nidp/logs" },
+        "query": "/nidp/logs"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "PRA Engine",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "PRA Errors (1h)",
+      "description": "ERROR + CRITICAL lines from pra_engine in the last 1 hour.",
+      "gridPos": { "x": 0, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "loki", "uid": "NIDP-Loki" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          },
+          "unit": "none"
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["count"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{filename=~\"/nidp/logs/.*\"} | json | service = `pra_engine` | severity =~ `ERROR|CRITICAL`",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "PRA Criticals (1h)",
+      "description": "CRITICAL lines from pra_engine only.",
+      "gridPos": { "x": 4, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "loki", "uid": "NIDP-Loki" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["count"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{filename=~\"/nidp/logs/.*\"} | json | service = `pra_engine` | severity = `CRITICAL`",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "All Service Errors (1h)",
+      "description": "ERROR + CRITICAL lines across all NIDP services.",
+      "gridPos": { "x": 8, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "loki", "uid": "NIDP-Loki" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["count"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{filename=~\"/nidp/logs/.*\"} | json | severity =~ `ERROR|CRITICAL`",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Intelligence Layer Errors (1h)",
+      "description": "ERROR + CRITICAL from intelligence_layer (risk / portfolio analysis).",
+      "gridPos": { "x": 12, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "loki", "uid": "NIDP-Loki" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["count"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{filename=~\"/nidp/logs/.*\"} | json | service = `intelligence_layer` | severity =~ `ERROR|CRITICAL`",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "API Errors (1h)",
+      "description": "ERROR + CRITICAL from nivesh-api / nidp-console / nidp-intelligence.",
+      "gridPos": { "x": 16, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "loki", "uid": "NIDP-Loki" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 3 },
+              { "color": "red", "value": 15 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["count"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{filename=~\"/nidp/logs/.*\"} | json | service =~ `nivesh-api|nidp-console|nidp-intelligence` | severity =~ `ERROR|CRITICAL`",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "PRA Error Rate Over Time",
+      "description": "5-minute rolling error count for pra_engine. Spikes indicate run failures.",
+      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 8 },
+      "datasource": { "type": "loki", "uid": "NIDP-Loki" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": true
+          },
+          "unit": "short"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "PRA_ERROR",
+          "legendFormat": "pra_engine ERRORs",
+          "expr": "sum(count_over_time({filename=~\"/nidp/logs/.*\"} | json | service = `pra_engine` | severity =~ `ERROR|CRITICAL` [5m]))",
+          "queryType": "range"
+        },
+        {
+          "refId": "INTEL_ERROR",
+          "legendFormat": "intelligence_layer ERRORs",
+          "expr": "sum(count_over_time({filename=~\"/nidp/logs/.*\"} | json | service = `intelligence_layer` | severity =~ `ERROR|CRITICAL` [5m]))",
+          "queryType": "range"
+        },
+        {
+          "refId": "API_ERROR",
+          "legendFormat": "API ERRORs",
+          "expr": "sum(count_over_time({filename=~\"/nidp/logs/.*\"} | json | service =~ `nivesh-api|nidp-console|nidp-intelligence` | severity =~ `ERROR|CRITICAL` [5m]))",
+          "queryType": "range"
+        },
+        {
+          "refId": "ALL_ERROR",
+          "legendFormat": "All services ERRORs",
+          "expr": "sum(count_over_time({filename=~\"/nidp/logs/.*\"} | json | severity =~ `ERROR|CRITICAL` [5m]))",
+          "queryType": "range"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "logs",
+      "title": "PRA Engine — Error Logs",
+      "description": "ERROR and CRITICAL log lines from pra_engine only. Sorted newest-first.",
+      "gridPos": { "x": 0, "y": 13, "w": 24, "h": 10 },
+      "datasource": { "type": "loki", "uid": "NIDP-Loki" },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{filename=~\"/nidp/logs/.*\"} | json | service = `pra_engine` | severity =~ `ERROR|CRITICAL`"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "All Application Errors",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 23, "w": 24, "h": 1 }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Error Rate by Service (5m buckets)",
+      "description": "Per-service ERROR+CRITICAL counts in 5-minute windows across all NIDP VM log files.",
+      "gridPos": { "x": 0, "y": 24, "w": 24, "h": 9 },
+      "datasource": { "type": "loki", "uid": "NIDP-Loki" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": true
+          },
+          "unit": "short"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{service}}",
+          "expr": "sum by (service) (count_over_time({filename=~\"/nidp/logs/.*\"} | json | severity =~ `ERROR|CRITICAL` [5m]))",
+          "queryType": "range"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "logs",
+      "title": "All ERROR + CRITICAL Logs",
+      "description": "All ERROR and CRITICAL log lines across every NIDP service. Use the time-range picker to narrow scope.",
+      "gridPos": { "x": 0, "y": 33, "w": 24, "h": 12 },
+      "datasource": { "type": "loki", "uid": "NIDP-Loki" },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{filename=~\"/nidp/logs/.*\"} | json | severity =~ `ERROR|CRITICAL`"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Risk / Portfolio Analysis Deep Dive",
+      "collapsed": true,
+      "gridPos": { "x": 0, "y": 45, "w": 24, "h": 1 },
+      "panels": [
+        {
+          "id": 13,
+          "type": "logs",
+          "title": "PRA + Risk — All Severity Levels",
+          "description": "All log lines from pra_engine and intelligence_layer (not just errors) for debugging a run.",
+          "gridPos": { "x": 0, "y": 46, "w": 24, "h": 12 },
+          "datasource": { "type": "loki", "uid": "NIDP-Loki" },
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{filename=~\"/nidp/logs/.*\"} | json | service =~ `pra_engine|intelligence_layer`"
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "type": "logs",
+          "title": "Traceback / Exception Lines",
+          "description": "Log lines containing 'Traceback', 'Exception', or 'Error:' — useful for finding Python stack traces.",
+          "gridPos": { "x": 0, "y": 58, "w": 24, "h": 12 },
+          "datasource": { "type": "loki", "uid": "NIDP-Loki" },
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{filename=~\"/nidp/logs/.*\"} |~ `(?i)(traceback|exception|Error:)`"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

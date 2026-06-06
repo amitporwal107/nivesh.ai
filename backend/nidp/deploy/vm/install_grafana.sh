@@ -31,7 +31,7 @@ log "Installing dashboard providers (NIDP Prod + NIDP Staging)"
 cp "$SRC/dashboards.yml"  "$DST/dashboards/dashboards.yml"
 
 # ── 4. Dashboards — prod + staging (hot-reload; no restart needed) ────────────
-DASHBOARDS="job_health infra dq_chain dq_analytics feed_sched environment_overview app_logs frontend-errors"
+DASHBOARDS="job_health infra dq_chain dq_analytics feed_sched environment_overview app_logs frontend-errors error_dashboard"
 for dash in $DASHBOARDS; do
     if [[ -f "$SRC/dashboards/prod/$dash.json" ]]; then
         log "  prod/$dash.json"
