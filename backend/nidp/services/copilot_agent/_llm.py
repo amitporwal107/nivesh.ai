@@ -12,7 +12,11 @@ from __future__ import annotations
 import os
 
 
-COPILOT_LLM_MODEL: str = os.environ.get("COPILOT_LLM_MODEL", "gpt-5")
+# Default per COPILOT_CHATBOT.prd §7 ("gpt-4o-mini — cheapest, fast"). The
+# previous "gpt-5" default broke the copilot nodes on accounts without gpt-5
+# access (the legacy /api/copilot path works on gpt-4o), surfacing as
+# "trouble connecting to my AI engine". Ops can still pin any snapshot via env.
+COPILOT_LLM_MODEL: str = os.environ.get("COPILOT_LLM_MODEL", "gpt-4o-mini")
 
 
 def get_openai_api_key() -> str:
