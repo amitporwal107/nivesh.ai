@@ -24,9 +24,15 @@ from typing import Optional, Dict, Any, List, Tuple
 DEFAULT_YEARS_TO_GOAL = 10
 DEFAULT_EXIT_LOAD_PCT = 0.0
 DEFAULT_DEBT_SLAB_RATE = 0.30
-LTCG_EXEMPTION_RS = 100_000
-LTCG_RATE = 0.10
-STCG_EQUITY_RATE = 0.15
+# Capital-gains rates — single source of truth: services/tax_constants.py
+# (FY 2025-26, Finance Act 2024: LTCG 12.5% / STCG 20% / ₹1.25L exemption).
+# Aliased to the historical names used throughout this module so the rest of
+# the file (and its public constants) is unchanged.
+from services.tax_constants import (  # noqa: E402
+    EQUITY_LTCG_EXEMPTION as LTCG_EXEMPTION_RS,
+    EQUITY_LTCG_RATE as LTCG_RATE,
+    EQUITY_STCG_RATE as STCG_EQUITY_RATE,
+)
 EXPENSE_DIFF_MIN_FOR_DIRECT = 0.005         # 0.5%
 MIN_AUM_CR = 500                            # ₹500 Cr minimum for candidate
 MIN_TRACK_RECORD_YEARS = 3
@@ -170,7 +176,7 @@ def compute_tax_cost(inp: DecisionInputs, *, apply_ltcg_exemption: bool = True) 
     """Compute tax on a hypothetical full redemption.
 
     Args:
-        apply_ltcg_exemption: if True (default), applies the ₹1L LTCG
+        apply_ltcg_exemption: if True (default), applies the ₹1.25L LTCG
             exemption. For per-holding switch panels, callers should pass
             False — the exemption is annual + portfolio-wide, so dividing
             it across many holdings makes each one understate true tax.

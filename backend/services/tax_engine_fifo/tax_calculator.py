@@ -1,8 +1,8 @@
 """Tax calculator — converts FIFO match output into typed tax events.
 
-Per FY2024-25 Indian regime:
-  • STCG (equity / equity-MF): < 365 days → 15%.
-  • LTCG (equity / equity-MF): ≥ 365 days → 10% above ₹1L exemption per FY.
+Per FY2025-26 Indian regime (Finance Act 2024, eff. 23-Jul-2024):
+  • STCG (equity / equity-MF): < 365 days → 20%.
+  • LTCG (equity / equity-MF): ≥ 365 days → 12.5% above ₹1.25L exemption per FY.
   • Debt / non-equity-MF: handled separately at slab rate (TODO when
     we differentiate categorically).
   • Gold/SGB: ≥ 36 months for LTCG; this calculator currently treats
@@ -10,8 +10,11 @@ Per FY2024-25 Indian regime:
     able for v1 because gold tax classification needs SGB-specific
     rules anyway.
 
+Rates are imported from services.tax_constants (the single source of truth)
+so a Budget change only has to be made in one place.
+
 The calculator is stateful within a single FY so the LTCG exemption
-is consumed cumulatively (₹1L exemption applied once across all LT
+is consumed cumulatively (₹1.25L exemption applied once across all LT
 events). Caller should construct one calculator per user-FY pair.
 """
 from __future__ import annotations
@@ -20,11 +23,12 @@ from datetime import datetime
 from typing import Iterable, List, Tuple
 
 from .models import HoldingLot, TaxEvent
-
-STCG_RATE = 0.15
-LTCG_RATE = 0.10
-LTCG_EXEMPTION_RS = 100_000  # ₹1L FY exemption
-LT_THRESHOLD_DAYS = 365      # equity / equity-MF default
+from services.tax_constants import (
+    EQUITY_STCG_RATE as STCG_RATE,
+    EQUITY_LTCG_RATE as LTCG_RATE,
+    EQUITY_LTCG_EXEMPTION as LTCG_EXEMPTION_RS,
+    EQUITY_LT_DAYS as LT_THRESHOLD_DAYS,
+)
 
 
 class TaxCalculator:

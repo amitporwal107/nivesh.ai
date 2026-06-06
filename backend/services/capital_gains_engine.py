@@ -55,6 +55,50 @@ CESS_RATE                  = 0.04           # 4% health & education cess
 GRANDFATHERING_DATE        = date(2018, 1, 31)  # FMV reference for pre-2018 assets
 DEBT_MF_SLAB_CUTOVER       = date(2023, 4, 1)   # debt MF acquired on/after → always slab
 
+# ── Indexation (Cost Inflation Index, Sec 48) ────────────────────────────
+# Budget 2024 (Finance (No.2) Act 2024) removed indexation for most assets and
+# set a flat 12.5% LTCG. The ONE surviving relief: immovable PROPERTY acquired
+# before 23-Jul-2024 may be taxed at the LOWER of
+#   (a) 12.5% on the unindexed gain, or
+#   (b) 20% on the indexed gain (CII benefit) — proviso to Sec 112.
+# We implement exactly that option; for all other assets indexation is gone.
+INDEXATION_PROPERTY_CUTOFF = date(2024, 7, 23)  # property bought before this → option applies
+PROPERTY_INDEXED_LTCG_RATE = 0.20               # 20% when the indexed option is elected
+
+# Official CBDT Cost Inflation Index, base FY 2001-02 = 100. Keyed by FY start
+# year (e.g. 2015 == FY 2015-16). Source: incometaxindia.gov.in CII notifications.
+_CII: Dict[int, int] = {
+    2001: 100, 2002: 105, 2003: 109, 2004: 113, 2005: 117, 2006: 122,
+    2007: 129, 2008: 137, 2009: 148, 2010: 167, 2011: 184, 2012: 200,
+    2013: 220, 2014: 240, 2015: 254, 2016: 264, 2017: 272, 2018: 280,
+    2019: 289, 2020: 301, 2021: 317, 2022: 331, 2023: 348, 2024: 363,
+    2025: 376,
+}
+
+
+def _fy_start_year(d: date) -> int:
+    """Indian financial year start year for a date (FY runs 1-Apr → 31-Mar)."""
+    return d.year if d.month >= 4 else d.year - 1
+
+
+def cost_inflation_index(d: date) -> int:
+    """CII for the FY containing ``d``, clamped to the published range."""
+    fy = _fy_start_year(d)
+    if fy <= 2001:
+        return _CII[2001]
+    if fy in _CII:
+        return _CII[fy]
+    return _CII[max(_CII)]  # sale in an FY not yet notified → latest published
+
+
+def indexed_cost(cost_basis: float, buy_date: date, sell_date: date) -> float:
+    """Indexed acquisition cost = cost × CII(sell FY) / CII(buy FY)."""
+    buy_cii = cost_inflation_index(buy_date)
+    sell_cii = cost_inflation_index(sell_date)
+    if buy_cii <= 0:
+        return cost_basis
+    return cost_basis * sell_cii / buy_cii
+
 # Holding-period thresholds (days)
 _THRESH_12M = 365    # listed equity, equity MF, SGB exchange, REIT/InvIT
 _THRESH_24M = 730    # property, gold ETF/MF, unlisted, bonds, debt MF pre-Apr23
@@ -120,6 +164,10 @@ class GainRecord:
     tax_category: str         # "equity_stcg" | "equity_ltcg" | "debt_slab" | …
     applicable_rate: Optional[float]  # None if slab, else fixed rate
     note: str = ""
+    # Indexation (property option only, per FY25-26 law)
+    indexed_cost_basis: Optional[float] = None  # cost × CII(sell)/CII(buy)
+    indexed_gain: Optional[float] = None        # sale_proceeds − indexed_cost_basis
+    indexation_applied: bool = False            # True → taxed at 20% on indexed_gain
 
     @property
     def is_gain(self) -> bool:
@@ -157,6 +205,7 @@ class CapitalGainsResult:
     property_ltcg: float = 0.0
     unlisted_stcg_slab: float = 0.0
     unlisted_ltcg: float = 0.0
+    property_ltcg_indexed: float = 0.0  # property LTCG where the 20%-indexed option won
     sgb_exempt_gain: float = 0.0
 
     # Losses (positive magnitudes)
@@ -169,6 +218,7 @@ class CapitalGainsResult:
     net_stcg_special: float = 0.0    # residual STCG at 20% (equity + REIT)
     net_ltcg_equity: float = 0.0     # residual equity LTCG before exemption
     net_ltcg_other: float = 0.0      # residual other LTCG
+    net_property_ltcg_indexed: float = 0.0  # residual property LTCG taxed at 20% indexed
     net_slab_gains: float = 0.0      # all slab-rate gains after set-off
 
     # Exemption
@@ -179,6 +229,7 @@ class CapitalGainsResult:
     stcg_tax: float = 0.0
     ltcg_equity_tax: float = 0.0
     ltcg_other_tax: float = 0.0
+    property_ltcg_indexed_tax: float = 0.0   # 20% on indexed property LTCG
     slab_tax: float = 0.0
     base_tax: float = 0.0
     surcharge: float = 0.0
@@ -212,6 +263,7 @@ class CapitalGainsResult:
             "property_ltcg": round(self.property_ltcg, 2),
             "unlisted_stcg_slab": round(self.unlisted_stcg_slab, 2),
             "unlisted_ltcg": round(self.unlisted_ltcg, 2),
+            "property_ltcg_indexed": round(self.property_ltcg_indexed, 2),
             "sgb_exempt_gain": round(self.sgb_exempt_gain, 2),
             # Losses
             "equity_stcl": round(self.equity_stcl, 2),
@@ -220,6 +272,7 @@ class CapitalGainsResult:
             "net_stcg_special_rate": round(self.net_stcg_special, 2),
             "net_ltcg_equity": round(self.net_ltcg_equity, 2),
             "net_ltcg_other": round(self.net_ltcg_other, 2),
+            "net_property_ltcg_indexed": round(self.net_property_ltcg_indexed, 2),
             "net_slab_gains": round(self.net_slab_gains, 2),
             # Exemption
             "equity_ltcg_exemption": round(self.equity_ltcg_exemption_applied, 2),
@@ -228,6 +281,7 @@ class CapitalGainsResult:
             "stcg_tax": round(self.stcg_tax, 2),
             "ltcg_equity_tax": round(self.ltcg_equity_tax, 2),
             "ltcg_other_tax": round(self.ltcg_other_tax, 2),
+            "property_ltcg_indexed_tax": round(self.property_ltcg_indexed_tax, 2),
             "slab_tax": round(self.slab_tax, 2),
             "base_tax": round(self.base_tax, 2),
             "surcharge": round(self.surcharge, 2),
@@ -458,6 +512,40 @@ def compute_single_gain(txn: Transaction) -> GainRecord:
     elif txn.asset_category == AssetCategory.PROPERTY:
         tax_cat = "property_ltcg" if is_lt else "property_stcg_slab"
         rate    = NON_EQUITY_LTCG_RATE if is_lt else None
+        # Indexation option (proviso to Sec 112): property acquired before
+        # 23-Jul-2024 and sold long-term at a gain may elect the LOWER of
+        # 12.5% unindexed vs 20% indexed. Elect per-transaction.
+        if is_lt and gross_gain > 0 and txn.buy_date < INDEXATION_PROPERTY_CUTOFF:
+            idx_cost = indexed_cost(cost_basis, txn.buy_date, txn.sell_date)
+            idx_gain = max(0.0, sale_proceeds - idx_cost)
+            tax_unindexed = gross_gain * NON_EQUITY_LTCG_RATE       # 12.5%
+            tax_indexed   = idx_gain * PROPERTY_INDEXED_LTCG_RATE   # 20%
+            if tax_indexed < tax_unindexed:
+                return GainRecord(
+                    transaction=txn, holding_days=days, is_long_term=True,
+                    cost_basis=cost_basis, sale_proceeds=sale_proceeds,
+                    gross_gain=idx_gain,  # taxed amount is the indexed gain
+                    is_grandfathered=False, is_exempt=False,
+                    tax_category="property_ltcg_indexed",
+                    applicable_rate=PROPERTY_INDEXED_LTCG_RATE,
+                    note=(f"property indexed option elected — 20% on indexed gain "
+                          f"₹{idx_gain:,.0f} (indexed cost ₹{idx_cost:,.0f}) beats "
+                          f"12.5% on unindexed ₹{gross_gain:,.0f}"),
+                    indexed_cost_basis=idx_cost, indexed_gain=idx_gain,
+                    indexation_applied=True,
+                )
+            # else: 12.5% unindexed wins — fall through, but record the comparison.
+            gran_note_idx = (f" (12.5% unindexed beats 20%-indexed; indexed cost "
+                             f"₹{idx_cost:,.0f})")
+            return GainRecord(
+                transaction=txn, holding_days=days, is_long_term=True,
+                cost_basis=cost_basis, sale_proceeds=sale_proceeds, gross_gain=gross_gain,
+                is_grandfathered=False, is_exempt=False,
+                tax_category="property_ltcg", applicable_rate=NON_EQUITY_LTCG_RATE,
+                note=gran_note_idx,
+                indexed_cost_basis=idx_cost, indexed_gain=idx_gain,
+                indexation_applied=False,
+            )
     elif txn.asset_category == AssetCategory.UNLISTED_EQUITY:
         tax_cat = "unlisted_ltcg" if is_lt else "unlisted_stcg_slab"
         rate    = NON_EQUITY_LTCG_RATE if is_lt else None
@@ -541,36 +629,42 @@ def compute_capital_gains(
     ltcg_other   = (result.debt_ltcg + result.gold_ltcg +
                     result.bond_ltcg + result.property_ltcg +
                     result.unlisted_ltcg + result.debt_stcg_slab)  # 12.5% fixed
+    ltcg_prop_indexed = result.property_ltcg_indexed               # 20% on indexed gain
     slab_gains   = (result.debt_slab_gain + result.gold_stcg_slab +
                     result.bond_stcg_slab + result.property_stcg_slab +
                     result.unlisted_stcg_slab)
 
-    # STCL offsets STCG first, then LTCG (per IT Act)
+    # STCL offsets STCG first, then LTCG (per IT Act). Within LTCG we offset
+    # the highest-rate pools first (equity-special then 20%-indexed property
+    # then 12.5% other) — that minimises tax, which the taxpayer may elect.
     stcl_rem = total_stcl
     if stcl_rem > 0:
         stcg_adj = min(stcl_rem, stcg_special)
         stcg_special -= stcg_adj
         stcl_rem     -= stcg_adj
-    if stcl_rem > 0:
-        ltcg_adj = min(stcl_rem, ltcg_equity + ltcg_other)
-        if ltcg_equity >= stcl_rem:
-            ltcg_equity -= stcl_rem
+    for _pool_name in ("equity", "prop_indexed", "other"):
+        if stcl_rem <= 0:
+            break
+        if _pool_name == "equity":
+            take = min(stcl_rem, ltcg_equity); ltcg_equity -= take
+        elif _pool_name == "prop_indexed":
+            take = min(stcl_rem, ltcg_prop_indexed); ltcg_prop_indexed -= take
         else:
-            stcl_rem -= ltcg_equity
-            ltcg_equity = 0
-            ltcg_other  = max(0, ltcg_other - stcl_rem)
-        stcl_rem = 0  # noqa: F841
+            take = min(stcl_rem, ltcg_other); ltcg_other -= take
+        stcl_rem -= take
 
-    # LTCL offsets only LTCG
+    # LTCL offsets only LTCG (same highest-rate-first ordering).
     ltcl_rem = total_ltcl
-    if ltcl_rem > 0:
-        ltcg_eq_adj = min(ltcl_rem, ltcg_equity)
-        ltcg_equity -= ltcg_eq_adj
-        ltcl_rem    -= ltcg_eq_adj
-    if ltcl_rem > 0:
-        ltcg_oth_adj = min(ltcl_rem, ltcg_other)
-        ltcg_other  -= ltcg_oth_adj
-        ltcl_rem    -= ltcg_oth_adj  # noqa: F841
+    for _pool_name in ("equity", "prop_indexed", "other"):
+        if ltcl_rem <= 0:
+            break
+        if _pool_name == "equity":
+            take = min(ltcl_rem, ltcg_equity); ltcg_equity -= take
+        elif _pool_name == "prop_indexed":
+            take = min(ltcl_rem, ltcg_prop_indexed); ltcg_prop_indexed -= take
+        else:
+            take = min(ltcl_rem, ltcg_other); ltcg_other -= take
+        ltcl_rem -= take
 
     # Brought-forward losses (Steps 4+5 — prior AY losses, same priority rules)
     bf_applied: List[Dict[str, Any]] = []
@@ -578,7 +672,7 @@ def compute_capital_gains(
         remaining_bfl = bfl.amount
         applied = 0.0
         if bfl.loss_type == "STCL":
-            adj = min(remaining_bfl, stcg_special + ltcg_equity + ltcg_other)
+            adj = min(remaining_bfl, stcg_special + ltcg_equity + ltcg_prop_indexed + ltcg_other)
             stcg_adj = min(adj, stcg_special)
             stcg_special -= stcg_adj
             adj -= stcg_adj
@@ -587,15 +681,23 @@ def compute_capital_gains(
                 ltcg_equity -= ltcg_eq_adj
                 adj -= ltcg_eq_adj
             if adj > 0:
+                pi_adj = min(adj, ltcg_prop_indexed)
+                ltcg_prop_indexed -= pi_adj
+                adj -= pi_adj
+            if adj > 0:
                 ltcg_oth_adj = min(adj, ltcg_other)
                 ltcg_other  -= ltcg_oth_adj
                 adj -= ltcg_oth_adj
             applied = bfl.amount - remaining_bfl + (bfl.amount - adj)
         elif bfl.loss_type == "LTCL":
-            adj = min(remaining_bfl, ltcg_equity + ltcg_other)
+            adj = min(remaining_bfl, ltcg_equity + ltcg_prop_indexed + ltcg_other)
             ltcg_eq_adj = min(adj, ltcg_equity)
             ltcg_equity -= ltcg_eq_adj
             adj -= ltcg_eq_adj
+            if adj > 0:
+                pi_adj = min(adj, ltcg_prop_indexed)
+                ltcg_prop_indexed -= pi_adj
+                adj -= pi_adj
             if adj > 0:
                 ltcg_oth_adj = min(adj, ltcg_other)
                 ltcg_other  -= ltcg_oth_adj
@@ -613,6 +715,7 @@ def compute_capital_gains(
     result.net_stcg_special  = max(0, stcg_special)
     result.net_ltcg_equity   = max(0, ltcg_equity)
     result.net_ltcg_other    = max(0, ltcg_other)
+    result.net_property_ltcg_indexed = max(0, ltcg_prop_indexed)
     result.net_slab_gains    = max(0, slab_gains)
     result.equity_ltcg_exemption_applied = exemption_applied
     result.taxable_equity_ltcg = taxable_equity_ltcg
@@ -621,13 +724,15 @@ def compute_capital_gains(
     stcg_tax       = result.net_stcg_special * EQUITY_STCG_RATE
     ltcg_eq_tax    = taxable_equity_ltcg * EQUITY_LTCG_RATE
     ltcg_other_tax = result.net_ltcg_other * NON_EQUITY_LTCG_RATE
+    prop_idx_tax   = result.net_property_ltcg_indexed * PROPERTY_INDEXED_LTCG_RATE
     slab_tax       = result.net_slab_gains * slab_rate
 
-    base_tax = stcg_tax + ltcg_eq_tax + ltcg_other_tax + slab_tax
+    base_tax = stcg_tax + ltcg_eq_tax + ltcg_other_tax + prop_idx_tax + slab_tax
 
     result.stcg_tax       = round(stcg_tax, 2)
     result.ltcg_equity_tax = round(ltcg_eq_tax, 2)
     result.ltcg_other_tax  = round(ltcg_other_tax, 2)
+    result.property_ltcg_indexed_tax = round(prop_idx_tax, 2)
     result.slab_tax        = round(slab_tax, 2)
     result.base_tax        = round(base_tax, 2)
 
@@ -691,6 +796,10 @@ def _bucket_gain(result: CapitalGainsResult, gr: GainRecord, slab_rate: float) -
         else:      result.other_stcl += abs(g)
     elif tc == "property_ltcg":
         if g >= 0: result.property_ltcg += g
+        else:      result.other_ltcl += abs(g)
+    elif tc == "property_ltcg_indexed":
+        # Only ever bucketed for gains (the option is elected only when gain > 0).
+        if g >= 0: result.property_ltcg_indexed += g
         else:      result.other_ltcl += abs(g)
     elif tc == "property_stcg_slab":
         if g >= 0: result.property_stcg_slab += g

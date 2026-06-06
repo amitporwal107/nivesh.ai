@@ -32,19 +32,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────────────
-# ClearTax FY 2025-26 rates (https://cleartax.in/s/capital-gains-income)
+# FY 2025-26 rates — single source of truth: services.tax_constants
+# (ClearTax ref: https://cleartax.in/s/capital-gains-income)
 # ──────────────────────────────────────────────────────────────────────
-EQUITY_STCG_RATE = 0.20          # 20% (Sec 111A)
-EQUITY_LTCG_RATE = 0.125         # 12.5% (Sec 112A)
-EQUITY_LTCG_EXEMPTION = 125000   # ₹1.25L per FY, aggregated across equity
-
-NON_EQUITY_LTCG_RATE = 0.125     # Gold/SGB/listed bonds/debt-pre-Apr23
+from services.tax_constants import (
+    EQUITY_STCG_RATE,        # 20% (Sec 111A)
+    EQUITY_LTCG_RATE,        # 12.5% (Sec 112A)
+    EQUITY_LTCG_EXEMPTION,   # ₹1.25L per FY, aggregated across equity
+    NON_EQUITY_LTCG_RATE,    # Gold/SGB/listed bonds/debt-pre-Apr23
+    EQUITY_LT_DAYS as THRESHOLD_EQUITY_DAYS,    # 12 months
+    NON_EQUITY_LT_DAYS as THRESHOLD_OTHERS_DAYS,  # 24 months
+)
 
 DEFAULT_SLAB_RATE = 0.30         # fallback when user slab unknown
-
-# Holding period thresholds (days)
-THRESHOLD_EQUITY_DAYS = 365      # 12 months
-THRESHOLD_OTHERS_DAYS = 730      # 24 months (close enough; tax year calendar OK)
 
 # Debt-MF cutover date (post-Finance Act 2023 — always short-term / slab)
 DEBT_MF_SLAB_CUTOVER = date(2023, 4, 1)

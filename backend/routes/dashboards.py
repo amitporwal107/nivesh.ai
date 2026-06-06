@@ -718,44 +718,158 @@ async def _goals_composite(user_id: str) -> dict[str, Any]:
     }
 
 
+def _tax_timeline_from_events(events: list, today) -> Optional[dict]:
+    """Realized gains(booked)/losses by month for the current FY, built from
+    FIFO ``TaxEvent``s. Returns ``None`` when there are no realized events so
+    the UI shows its honest 'pending' state rather than a fabricated chart."""
+    from datetime import date as _d
+    if not events:
+        return None
+    fy_start_year = today.year if today.month >= 4 else today.year - 1
+    order: list[tuple[str, dict]] = []
+    buckets: dict[str, dict] = {}
+    for i in range(12):
+        m = ((4 - 1 + i) % 12) + 1
+        y = fy_start_year + ((4 - 1 + i) // 12)
+        key = f"{y}-{m:02d}"
+        cell = {
+            "label": _d(y, m, 1).strftime("%b"),
+            "gains": 0.0,
+            "losses": 0.0,
+            "highlighted": (y == today.year and m == today.month),
+        }
+        buckets[key] = cell
+        order.append((key, cell))
+
+    any_event = False
+    for e in events:
+        sd = getattr(e, "sell_date", None)
+        if sd is None:
+            continue
+        key = f"{sd.year}-{sd.month:02d}"
+        cell = buckets.get(key)
+        if cell is None:
+            continue
+        g = float(getattr(e, "gain_rs", 0) or 0)
+        any_event = True
+        if g >= 0:
+            cell["gains"] += g
+        else:
+            cell["losses"] += abs(g)
+
+    if not any_event:
+        return None
+    return {"months": [cell for _, cell in order]}
+
+
 async def _tax_composite(user_id: str) -> dict[str, Any]:
-    """Serves screen 10 Tax Dashboard."""
-    from routes.portfolio_tax import get_tax_summary
-    from fastapi import Request as _Req
+    """Serves screen 10 Tax Dashboard.
 
-    # Re-use the GET /api/portfolio/tax-summary logic directly
-    cg_doc = await db.capital_gains_summary.find_one({"user_id": user_id}) or {}
-    ltcg_remaining = max(0.0, 125_000.0 - float(cg_doc.get("ltcg_booked_rs") or 0))
-    harvestable_raw = []
-    async for h in db.holdings.find({"user_id": user_id}, {"_id": 0}):
-        gain = float(h.get("unrealised_gain") or 0)
-        days = int(h.get("days_held") or 0)
-        if gain > 0 and days >= 365:
-            harvestable_raw.append(gain)
-    total_harvestable = sum(g for g in harvestable_raw if g <= ltcg_remaining)
-
-    tone = "moss" if total_harvestable > 0 else "mute"
+    Reuses services.tax_engine (Phase-1 tax-aware classifier + loss
+    harvesting), services.tax_constants (canonical FY25-26 rates) and the
+    FIFO engine's realised events for the timeline — no parallel tax math
+    is done here. Tones use the Tax page's vocab (good/warm/neg/info).
+    """
     from datetime import date
-    fy_end_year = date.today().year if date.today().month < 4 else date.today().year + 1
-    days_left = max(0, (date(fy_end_year, 3, 31) - date.today()).days)
+    from services import tax_engine
+    from services.tax_constants import (
+        EQUITY_LTCG_EXEMPTION, EQUITY_LTCG_RATE, EQUITY_STCG_RATE,
+    )
+
+    enriched = await tax_engine._enriched_holdings(user_id)
+    if not enriched:
+        return _empty_domain("tax")
+
+    today = date.today()
+    fy_end_year = today.year if today.month < 4 else today.year + 1
+    days_left = max(0, (date(fy_end_year, 3, 31) - today).days)
+
+    cg_doc = await db.capital_gains_summary.find_one({"user_id": user_id}) or {}
+    ltcg_used = float(cg_doc.get("ltcg_booked_rs") or 0)
+    ltcg_remaining = max(0.0, EQUITY_LTCG_EXEMPTION - ltcg_used)
+
+    # Bucket unrealized gains by LT/ST classification; tally losses.
+    lt_gain = st_gain = 0.0
+    for h in enriched:
+        g = h["_gain"]
+        if g < 0:
+            continue
+        cls = tax_engine.classify_holding(h)
+        if cls.tier == "LIKELY_LTCG":
+            lt_gain += g
+        else:  # STCG or UNKNOWN → conservative short-term bucket
+            st_gain += g
+
+    lt_taxable = max(0.0, lt_gain - ltcg_remaining)
+    lt_tax = lt_taxable * EQUITY_LTCG_RATE
+    st_tax = st_gain * EQUITY_STCG_RATE
+    est_total_tax = lt_tax + st_tax
+
+    # Harvest lots = unrealized losses (reuse the engine, incl. FIFO lots).
+    loss_scores = await tax_engine.loss_harvesting_candidates(user_id)
+    harvest_lots = [
+        {
+            "name": s.name,
+            "ticker": (s.asset_type.replace("_", " ").title() if s.asset_type else None),
+            "loss": round(abs(s.gain_rs)),
+        }
+        for s in loss_scores[:8]
+    ]
+    harvestable_loss = sum(abs(s.gain_rs) for s in loss_scores)
+    # Tax saved by using those losses to offset gains (STCG first — higher
+    # rate), capped at the gains actually available to offset.
+    st_offset = min(harvestable_loss, st_gain)
+    lt_offset = min(harvestable_loss - st_offset, lt_gain)
+    net_saved = round(st_offset * EQUITY_STCG_RATE + lt_offset * EQUITY_LTCG_RATE)
+
+    # Realized gains/losses timeline — real FIFO events, else honest pending.
+    projection = None
+    try:
+        from services import tax_engine_fifo as _tef
+        state = await _tef.build_user_tax_state(user_id)
+        projection = _tax_timeline_from_events(state.calculator.events, today)
+    except Exception as _e:  # noqa: BLE001
+        logger.debug("tax timeline build failed for %s: %s", user_id, _e)
+
+    has_harvest = bool(harvest_lots)
+    has_gains = (lt_gain + st_gain) > 0
+    if has_harvest:
+        badge = {"label": "Harvest available", "tone": "good"}
+        headline = f"₹{harvestable_loss / 1000:.0f}K in losses you can harvest this FY."
+    elif has_gains:
+        badge = {"label": "Gains to watch", "tone": "warm"}
+        headline = f"₹{est_total_tax / 1000:.0f}K estimated tax if you exit everything today."
+    else:
+        badge = {"label": "All clear", "tone": "good"}
+        headline = "No taxable gains or harvest opportunities right now."
 
     return {
-        "badge": {"label": "Harvest available" if total_harvestable > 0 else "Nothing to harvest", "tone": tone},
+        "badge": badge,
         "insight": {
-            "headline": f"₹{total_harvestable / 1000:.0f}K LTCG harvestable within ₹1.25L limit." if total_harvestable > 0 else "No LTCG harvest opportunities right now.",
-            "subtext": f"{days_left} days until FY end.",
-            "hero": {"label": "HARVESTABLE", "value": f"₹{total_harvestable / 1000:.0f}K" if total_harvestable else "—", "tone": tone},
+            "headline": headline,
+            "subtext": f"{days_left} days until FY end · ₹{ltcg_remaining / 1000:.0f}K LTCG exemption left.",
+            "hero": {
+                "label": "HARVESTABLE",
+                "value": f"₹{harvestable_loss / 1000:.0f}K" if has_harvest else "—",
+                "tone": "good",
+            },
         },
         "stat_tiles": [
-            {"label": "LTCG remaining", "value": f"₹{ltcg_remaining / 1000:.0f}K", "tone": "moss" if ltcg_remaining > 0 else "rust"},
-            {"label": "Days to FY end", "value": str(days_left)},
-            {"label": "Harvest opp.", "value": str(len(harvestable_raw))},
+            {"label": "LTCG exempt left", "value": f"₹{ltcg_remaining / 1000:.0f}K", "tone": "good" if ltcg_remaining > 0 else "neg"},
+            {"label": "Harvestable loss", "value": f"₹{harvestable_loss / 1000:.0f}K", "tone": "good" if harvestable_loss > 0 else "info"},
+            {"label": "Est. tax if exit", "value": f"₹{est_total_tax / 1000:.0f}K", "tone": "warm" if est_total_tax > 0 else "info"},
+            {"label": "Days to FY end", "value": str(days_left), "tone": "info"},
         ],
-        "breakdown": {
-            "lens": "harvest",
-            "lens_options": ["harvest", "structure"],
-            "items": [],  # full list via /api/portfolio/tax-summary
-        },
+        # Tax page renders breakdown as an array of rows (label/value/rate/tax/tone).
+        "breakdown": [
+            {"label": "Long-term gains", "value": f"₹{lt_gain / 1000:.0f}K", "rate": "12.5%", "tax": f"~₹{lt_tax / 1000:.1f}K tax", "tone": "warm"},
+            {"label": "Short-term gains", "value": f"₹{st_gain / 1000:.0f}K", "rate": "20%", "tax": f"~₹{st_tax / 1000:.1f}K tax", "tone": "neg"},
+            {"label": "Harvestable losses", "value": f"₹{harvestable_loss / 1000:.0f}K", "rate": "offset", "tax": f"~₹{net_saved / 1000:.1f}K saved", "tone": "good"},
+            {"label": "LTCG exemption", "value": f"₹{ltcg_remaining / 1000:.0f}K", "rate": "of ₹1.25L", "tax": f"₹{ltcg_used / 1000:.0f}K used", "tone": "info"},
+        ],
+        "harvest_lots": harvest_lots,
+        "net_saved": net_saved if net_saved > 0 else None,
+        "projection": projection,
     }
 
 
