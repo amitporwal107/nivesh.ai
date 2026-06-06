@@ -4,7 +4,7 @@
  *   POST  /api/chat/send                  { message, session_id? } → {user_message, ai_message}
  *   GET   /api/chat/sessions              → list
  *   POST  /api/chat/sessions              { title? } → created
- *   GET   /api/chat/sessions/{id}         → messages
+ *   GET   /api/chat/messages?session_id=  → messages (no GET /sessions/{id} exists)
  *   DELETE /api/chat/sessions/{id}
  *   GET   /api/copilot/suggested-prompts  → 5 prompts
  *
@@ -63,10 +63,13 @@ export const realChatAdapter: ChatAdapter = {
     return { id: obj.id ?? obj.session_id ?? "" };
   },
   async getSession(id) {
-    const res = await http({ path: `/api/chat/sessions/${encodeURIComponent(id)}` });
-    const obj = res.data as { messages?: unknown[] };
-    const messages = Array.isArray(obj.messages) ? obj.messages : [];
-    return { messages: messages.map((m) => ChatMessageC.parse(m)) };
+    // History lives at GET /api/chat/messages?session_id= (returns an array).
+    // There is no GET /api/chat/sessions/{id} on the backend.
+    const res = await http({ path: "/api/chat/messages", query: { session_id: id } });
+    const raw = Array.isArray(res.data)
+      ? res.data
+      : (res.data as { messages?: unknown[] })?.messages ?? [];
+    return { messages: raw.map((m) => ChatMessageC.parse(m)) };
   },
   async suggestedPrompts() {
     const res = await http({ path: "/api/copilot/suggested-prompts" });
