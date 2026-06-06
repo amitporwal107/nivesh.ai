@@ -1,0 +1,28 @@
+{
+  "stat_tiles": [
+    {"label": "VaR · 95th · 1Y", "value": "18.5%", "sub": "~₹18L"},
+    {"label": "Volatility", "value": "14.2%", "sub": "Bench 12.8%"},
+    {"label": "Max drawdown", "value": "32.4%", "sub": "historical worst"},
+    {"label": "Beta", "value": "0.91", "sub": "vs NIFTY 500"}
+  ],
+  "breakdown": {
+    "items": [
+      {"name": "HDFC Balanced Advantage Fund", "value": 28.5, "fundamental_score": 42, "risk_flags": ["high_overlap", "amc_concentration"]},
+      {"name": "Nippon India Small Cap Fund", "value": 5.8, "fundamental_score": 68, "risk_flags": ["high_volatility"]},
+      {"name": "Quant Small Cap Fund", "value": 4.2, "fundamental_score": 75, "risk_flags": ["sector_concentration"]}
+    ]
+  },
+  "stress_scenarios": [
+    {"name": "2020 COVID Crash", "portfolio_pct": -22.5, "benchmark_pct": -38.2, "recovery": "~8 months"},
+    {"name": "2008 Financial Crisis", "portfolio_pct": -51.4, "benchmark_pct": -62.8, "recovery": "~4 years"},
+    {"name": "2015 China Slowdown", "portfolio_pct": -12.1, "benchmark_pct": -14.9, "recovery": "~14 months"},
+    {"name": "2022 Rate Hike Cycle", "portfolio_pct": -9.8, "benchmark_pct": -8.4, "recovery": "~9 months"},
+    {"name": "US Recession (−30%)", "portfolio_pct": -28.3, "benchmark_pct": -35.1, "recovery": "~18 months"}
+  ],
+  "meta": {
+    "pra_available": true,
+    "pra_run_today": true,
+    "pra_computed_date": "2026-06-05",
+    "pra_error": null
+  }
+}

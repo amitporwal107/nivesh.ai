@@ -1,0 +1,15 @@
+{
+  "risk_profile": {
+    "score": 72,
+    "category": "Moderately Aggressive",
+    "answers": {
+      "q1": "a",
+      "q2": "b",
+      "q3": "c"
+    },
+    "completed_at": "2026-05-20T10:00:00Z",
+    "capacity_score": 70,
+    "tolerance_score": 74,
+    "capacity_tolerance_diverged": false
+  }
+}
