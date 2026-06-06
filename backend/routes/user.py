@@ -5,6 +5,7 @@ import logging
 
 from deps import db, get_current_user
 from models import JourneyInput, RiskProfileInput, QuickSetupInput, PersonaOverrideInput
+from services import dashboard_cache
 from services.persona_engine import PERSONAS, infer_persona, refresh_persona
 
 logger = logging.getLogger(__name__)
@@ -137,6 +138,7 @@ async def save_risk_profile(request: Request, body: RiskProfileInput):
         }},
         upsert=True
     )
+    await dashboard_cache.invalidate(user["user_id"])
 
     return {"risk_profile": risk_profile}
 

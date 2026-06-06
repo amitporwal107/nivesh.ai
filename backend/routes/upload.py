@@ -7,6 +7,7 @@ import asyncio
 import logging
 
 from deps import db, get_current_user
+from services import dashboard_cache
 from core.idempotency import IdempotencyState, check_idempotency, store_idempotency_result
 from helpers.upload_validation import validate_upload_async
 from helpers.parsing import (
@@ -126,6 +127,7 @@ async def upload_portfolio(request: Request, file: UploadFile = File(...)):
         return {"message": "No holdings found in the uploaded file", "count": 0, "holdings": []}
 
     holdings_added = await save_holdings(user_id, parsed, file_type)
+    await dashboard_cache.invalidate(user_id)
     return {
         "message": f"{len(holdings_added)} holdings imported from {file_type}",
         "count": len(holdings_added),
@@ -212,6 +214,7 @@ async def upload_portfolio_raw(request: Request):
     if not parsed:
         return {"message": "No holdings found", "count": 0, "holdings": []}
     holdings_added = await save_holdings(user_id, parsed, file_type, portfolio_id=portfolio_id)
+    await dashboard_cache.invalidate(user_id)
     return {"message": f"{len(holdings_added)} holdings imported from {file_type}", "count": len(holdings_added), "holdings": holdings_added}
 
 
@@ -448,6 +451,7 @@ async def portfolio_import_from_connect(
         # Kick off NIDP sync + PRA so the Risk screen populates without manual admin action.
         asyncio.create_task(_trigger_nidp_pipeline_background(user["user_id"]))
 
+    await dashboard_cache.invalidate(user["user_id"])
     result = {
         "message": f"{len(saved)} holdings imported via Portfolio Connect",
         "count": len(saved),

@@ -33,7 +33,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from deps import db, get_current_user
-from services import pg_client
+from services import dashboard_cache, pg_client
 from services.action_plan_manager import ActionPlanManager
 
 logger = logging.getLogger(__name__)
@@ -797,9 +797,19 @@ async def get_dashboard(
     user = await get_current_user(request)
     user_id = user["user_id"]
 
+    # ── 0. Cache check (L1 Redis → L2 MongoDB) ───────────────────────────────
+    # Cache only default-param requests (lens=sector, period=1y).  Param
+    # variants and force-refresh bypass the cache so callers can still get
+    # fresh data on demand.
+    _force = request.query_params.get("force") == "1"
+    _is_default_params = (lens == "sector" and period == "1y")
+    if not _force and _is_default_params:
+        cached = await dashboard_cache.get(user_id, type)
+        if cached is not None:
+            return cached
+
     # ── 1-3. Domain + recommendations + projection — all concurrent ──────────
     # Run all three in parallel so total latency = max(each), not sum(each).
-    _force = request.query_params.get("force") == "1"
 
     async def _safe_domain() -> dict:
         if type == "concentration":
@@ -853,9 +863,15 @@ async def get_dashboard(
     else:
         projection = _proj_r
 
-    return {
+    result = {
         "type": type,
         **domain,
         "recommendations": actions,
         "projection": projection,
     }
+
+    # ── Cache the computed result (default params only) ───────────────────────
+    if _is_default_params and not _force:
+        await dashboard_cache.set(user_id, type, result)
+
+    return result
