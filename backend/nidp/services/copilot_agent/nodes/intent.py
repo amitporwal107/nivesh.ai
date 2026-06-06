@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 
-from .._llm import COPILOT_LLM_MODEL, get_openai_api_key
+from .._llm import COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
 from ..schemas import AgentName, CopilotState, IntentClassification
 
 logger = logging.getLogger(__name__)
@@ -199,7 +199,7 @@ async def _llm_classify(text: str) -> IntentClassification:
     try:
         llm = ChatOpenAI(
             model=COPILOT_LLM_MODEL,
-            temperature=0,
+            temperature=temperature_for(0),
             api_key=get_openai_api_key(),
         )
         # Tag this LLM call so the SSE consumer can filter its tokens out of

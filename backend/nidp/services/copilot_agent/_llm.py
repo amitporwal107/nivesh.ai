@@ -20,6 +20,18 @@ import os
 COPILOT_LLM_MODEL: str = os.environ.get("COPILOT_LLM_MODEL", "gpt-5.5")
 
 
+def temperature_for(requested: float) -> float:
+    """Return a temperature the configured model will accept.
+
+    gpt-5.x reasoning models only support the default temperature (1) — any
+    other value returns a 400 ("Only the default (1) value is supported"),
+    which the nodes catch and surface as "trouble connecting to my AI engine".
+    For those models we force 1.0; for others (e.g. gpt-4o) we honour the
+    node's requested value so determinism tuning still applies.
+    """
+    return 1.0 if COPILOT_LLM_MODEL.startswith("gpt-5") else requested
+
+
 def get_openai_api_key() -> str:
     """Resolve the OpenAI API key at call time (NFR-09 order):
 
