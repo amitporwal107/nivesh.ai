@@ -12,11 +12,12 @@ from __future__ import annotations
 import os
 
 
-# Default per COPILOT_CHATBOT.prd §7 ("gpt-4o-mini — cheapest, fast"). The
-# previous "gpt-5" default broke the copilot nodes on accounts without gpt-5
-# access (the legacy /api/copilot path works on gpt-4o), surfacing as
-# "trouble connecting to my AI engine". Ops can still pin any snapshot via env.
-COPILOT_LLM_MODEL: str = os.environ.get("COPILOT_LLM_MODEL", "gpt-4o-mini")
+# Copilot model. Set to gpt-5.5 per product direction (2026-06). NOTE: this
+# id is unverified against the live OpenAI account from CI — if the account's
+# exact id differs (e.g. a dated snapshot) or lacks gpt-5.5 access, the nodes
+# will 'model_not_found' and surface "trouble connecting to my AI engine".
+# Override without a code change via the COPILOT_LLM_MODEL env var / GSM.
+COPILOT_LLM_MODEL: str = os.environ.get("COPILOT_LLM_MODEL", "gpt-5.5")
 
 
 def get_openai_api_key() -> str:
