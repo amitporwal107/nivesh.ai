@@ -2,7 +2,7 @@
   "title": "Centralized Application Logs",
   "uid": "app-logs-central",
   "schemaVersion": 39,
-  "version": 8,
+  "version": 10,
   "editable": true,
   "tags": [
     "logs",
@@ -48,45 +48,71 @@
         "type": "custom",
         "hide": 0,
         "includeAll": true,
-        "allValue": "",
+        "allValue": ".*",
         "options": [
-          {
-            "text": "All",
-            "value": "",
-            "selected": true
-          },
-          {
-            "text": "nivesh-api",
-            "value": "nivesh-api",
-            "selected": false
-          },
-          {
-            "text": "nidp-console",
-            "value": "nidp-console",
-            "selected": false
-          },
-          {
-            "text": "nidp-intelligence",
-            "value": "nidp-intelligence",
-            "selected": false
-          },
-          {
-            "text": "nidp-nse-financials",
-            "value": "nidp-nse-financials",
-            "selected": false
-          },
-          {
-            "text": "nidp-mf-holdings",
-            "value": "nidp-mf-holdings",
-            "selected": false
-          }
+          {"text": "All", "value": "$__all", "selected": true},
+          {"text": "nivesh-api", "value": "nivesh-api", "selected": false},
+          {"text": "nidp-console", "value": "nidp-console", "selected": false},
+          {"text": "nidp-intelligence", "value": "nidp-intelligence", "selected": false},
+          {"text": "nidp-nse-financials", "value": "nidp-nse-financials", "selected": false},
+          {"text": "nidp-mf-holdings", "value": "nidp-mf-holdings", "selected": false},
+          {"text": "bhavcopy", "value": "bhavcopy", "selected": false},
+          {"text": "index_close", "value": "index_close", "selected": false},
+          {"text": "fii_dii", "value": "fii_dii", "selected": false},
+          {"text": "bulk_deals", "value": "bulk_deals", "selected": false},
+          {"text": "block_deals", "value": "block_deals", "selected": false},
+          {"text": "delivery", "value": "delivery", "selected": false},
+          {"text": "corporate_actions", "value": "corporate_actions", "selected": false},
+          {"text": "rbi_yields", "value": "rbi_yields", "selected": false},
+          {"text": "fred_macro", "value": "fred_macro", "selected": false},
+          {"text": "nse_calendar", "value": "nse_calendar", "selected": false},
+          {"text": "index_constituents", "value": "index_constituents", "selected": false},
+          {"text": "fno_bhavcopy", "value": "fno_bhavcopy", "selected": false},
+          {"text": "nse_financials", "value": "nse_financials", "selected": false},
+          {"text": "nse_financials.bank_npa_patch", "value": "nse_financials.bank_npa_patch", "selected": false},
+          {"text": "nse_shareholding", "value": "nse_shareholding", "selected": false},
+          {"text": "nse_equity_master", "value": "nse_equity_master", "selected": false},
+          {"text": "price_adjuster", "value": "price_adjuster", "selected": false},
+          {"text": "snapshot_builder", "value": "snapshot_builder", "selected": false},
+          {"text": "mf_analytics_engine", "value": "mf_analytics_engine", "selected": false},
+          {"text": "mf_category_ranking", "value": "mf_category_ranking", "selected": false},
+          {"text": "technical_indicator_engine", "value": "technical_indicator_engine", "selected": false},
+          {"text": "fundamental_engine", "value": "fundamental_engine", "selected": false},
+          {"text": "corporate_announcements_nse", "value": "corporate_announcements_nse", "selected": false},
+          {"text": "corporate_announcements_bse", "value": "corporate_announcements_bse", "selected": false},
+          {"text": "announcement_classifier", "value": "announcement_classifier", "selected": false},
+          {"text": "document_parser", "value": "document_parser", "selected": false},
+          {"text": "amfi_nav", "value": "amfi_nav", "selected": false},
+          {"text": "amfi_circulars", "value": "amfi_circulars", "selected": false},
+          {"text": "mf_disclosure_snapshot", "value": "mf_disclosure_snapshot", "selected": false},
+          {"text": "mf_holdings", "value": "mf_holdings", "selected": false},
+          {"text": "mf_derived_refresh", "value": "mf_derived_refresh", "selected": false},
+          {"text": "bank_scoring", "value": "bank_scoring", "selected": false},
+          {"text": "v3_scores_engine", "value": "v3_scores_engine", "selected": false},
+          {"text": "analytics_refresh", "value": "analytics_refresh", "selected": false},
+          {"text": "amc_urls_drift_check", "value": "amc_urls_drift_check", "selected": false},
+          {"text": "event_calendar", "value": "event_calendar", "selected": false},
+          {"text": "event_day_poller", "value": "event_day_poller", "selected": false},
+          {"text": "d1_prep", "value": "d1_prep", "selected": false},
+          {"text": "intelligence", "value": "intelligence", "selected": false},
+          {"text": "quality_gate", "value": "quality_gate", "selected": false},
+          {"text": "portfolio_holdings_sync", "value": "portfolio_holdings_sync", "selected": false},
+          {"text": "portfolio_transactions_sync", "value": "portfolio_transactions_sync", "selected": false},
+          {"text": "portfolio_goals_sync", "value": "portfolio_goals_sync", "selected": false},
+          {"text": "intelligence_layer", "value": "intelligence_layer", "selected": false},
+          {"text": "portfolio_intelligence_sync", "value": "portfolio_intelligence_sync", "selected": false},
+          {"text": "pra_engine", "value": "pra_engine", "selected": false},
+          {"text": "parquet_exporter", "value": "parquet_exporter", "selected": false},
+          {"text": "container_health", "value": "container_health", "selected": false},
+          {"text": "service_health", "value": "service_health", "selected": false},
+          {"text": "gate4", "value": "gate4", "selected": false}
         ],
         "current": {
           "text": "All",
-          "value": ""
+          "value": "$__all"
         },
         "multi": false,
-        "query": "nivesh-api,nidp-console,nidp-intelligence,nidp-nse-financials,nidp-mf-holdings"
+        "query": "nivesh-api,nidp-console,nidp-intelligence,nidp-nse-financials,nidp-mf-holdings,bhavcopy,index_close,fii_dii,bulk_deals,block_deals,delivery,corporate_actions,rbi_yields,fred_macro,nse_calendar,index_constituents,fno_bhavcopy,nse_financials,nse_financials.bank_npa_patch,nse_shareholding,nse_equity_master,price_adjuster,snapshot_builder,mf_analytics_engine,mf_category_ranking,technical_indicator_engine,fundamental_engine,corporate_announcements_nse,corporate_announcements_bse,announcement_classifier,document_parser,amfi_nav,amfi_circulars,mf_disclosure_snapshot,mf_holdings,mf_derived_refresh,bank_scoring,v3_scores_engine,analytics_refresh,amc_urls_drift_check,event_calendar,event_day_poller,d1_prep,intelligence,quality_gate,portfolio_holdings_sync,portfolio_transactions_sync,portfolio_goals_sync,intelligence_layer,portfolio_intelligence_sync,pra_engine,parquet_exporter,container_health,service_health,gate4"
       },
       {
         "name": "min_severity",
@@ -182,7 +208,7 @@
           "refId": "A",
           "queryType": "logs",
           "projectId": "niveshdataintelligence",
-          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(\" [45][0-9][0-9] |error|Error)\""
+          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(\" [45][0-9][0-9] |error|Error)\"\nAND jsonPayload.service=~\"${service}\""
         }
       ]
     },
@@ -233,7 +259,7 @@
           "refId": "A",
           "queryType": "logs",
           "projectId": "niveshdataintelligence",
-          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(critical|CRITICAL|500 |502 |503 )\""
+          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(critical|CRITICAL|500 |502 |503 )\"\nAND jsonPayload.service=~\"${service}\""
         }
       ]
     },
@@ -288,7 +314,7 @@
           "refId": "A",
           "queryType": "logs",
           "projectId": "niveshdataintelligence",
-          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(warning|Warning|400 |401 |403 |404 )\""
+          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(warning|Warning|400 |401 |403 |404 )\"\nAND jsonPayload.service=~\"${service}\""
         }
       ]
     },

@@ -7,13 +7,17 @@ in a structured format. SBI MF's Excel typically has one sheet per scheme
   Name of Instrument | ISIN | Industry/Sector | Rating | Quantity |
   Market/Fair Value (Rs in Lakhs) | % to Net Assets
 
+Debt-fund disclosures additionally include:
+  Maturity Date | Coupon Rate | YTM (%)
+
 The scheme name appears as a merged-cell header above each block.
 """
 from __future__ import annotations
 
 import io
 import logging
-from datetime import date
+import re
+from datetime import date, datetime
 from typing import Any, Optional
 
 import openpyxl
@@ -45,7 +49,47 @@ _COL_ALIASES: list[tuple[str, str]] = [
     ("% of net",           "weight_pct"),
     ("% to nav",           "weight_pct"),      # Nippon
     ("% to aum",           "weight_pct"),
+    # Debt-fund specific columns (SEBI circular format)
+    ("maturity date",      "maturity_date"),   # "Maturity Date", "Maturity  Date"
+    ("residual maturity",  "maturity_date"),   # some AMCs use "Residual Maturity"
+    ("redemption date",    "maturity_date"),   # alternate naming
+    ("ytm",                "ytm_pct"),         # "YTM", "YTM (%)", "YTM(%)"
+    ("yield to maturity",  "ytm_pct"),
+    ("yield",              "ytm_pct"),         # "Yield (%)" — catch-all
 ]
+
+# Date format patterns used in AMFI disclosures (try in order)
+_DATE_FORMATS = [
+    "%d-%m-%Y",    # 31-03-2027
+    "%d/%m/%Y",    # 31/03/2027
+    "%d-%b-%Y",    # 31-Mar-2027
+    "%d/%b/%Y",    # 31/Mar/2027
+    "%d-%B-%Y",    # 31-March-2027
+    "%d %b %Y",    # 31 Mar 2027  (after ordinal-suffix strip: "31st Mar 2027" → "31 Mar 2027")
+    "%d %B %Y",    # 31 March 2027
+    "%Y-%m-%d",    # 2027-03-31 (ISO)
+]
+
+
+def _to_date(v: Any) -> Optional[date]:
+    """Parse a cell value to a date. Returns None on failure."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    s = str(v).strip()
+    if not s or s in {"-", "N.A.", "NA", "—", "N/A"}:
+        return None
+    # Strip ordinal suffixes: "31st" → "31"
+    s = re.sub(r"(\d+)(st|nd|rd|th)\b", r"\1", s, flags=re.IGNORECASE)
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 _ITYPE_KEYWORDS: list[tuple[str, str]] = [
     ("equity shares",              "EQUITY"),
@@ -222,6 +266,15 @@ def parse_sbi_multisheet_xlsx(
             if mkt_val is not None:
                 mkt_val *= 100_000  # Lakhs → INR
             weight  = _to_float(_get("weight_pct"))
+            # Debt-fund specific: maturity date and YTM
+            mat_raw = next(
+                (row[ci] for ci, fn in header_map.items() if fn == "maturity_date" and ci < len(row)),
+                None,
+            )
+            mat_date = _to_date(mat_raw)
+            ytm_raw  = _to_float(_get("ytm_pct"))
+            if ytm_raw is not None and ytm_raw < 1.0:
+                ytm_raw = round(ytm_raw * 100, 4)
 
             result.append({
                 "scheme_code":      scheme_name,
@@ -234,6 +287,8 @@ def parse_sbi_multisheet_xlsx(
                 "quantity":         qty,
                 "market_value_inr": mkt_val,
                 "weight_pct":       weight,
+                "maturity_date":    mat_date,
+                "ytm_pct":          ytm_raw,
                 "source":           source_tag,
                 "source_url":       source_url,
             })
@@ -396,6 +451,16 @@ def _parse_sheet(
         if mkt_val is not None:
             mkt_val *= 100_000          # Lakhs → INR
         weight  = _to_float(_get("weight_pct"))
+        # Debt-fund specific: maturity date and YTM
+        mat_raw = next(
+            (row[ci] for ci, fn in header_map.items() if fn == "maturity_date" and ci < len(row)),
+            None,
+        )
+        mat_date = _to_date(mat_raw)
+        ytm_raw  = _to_float(_get("ytm_pct"))
+        # YTM may be published as a decimal (0.0721) or percentage (7.21); normalise to %
+        if ytm_raw is not None and ytm_raw < 1.0:
+            ytm_raw = round(ytm_raw * 100, 4)
 
         result.append({
             # scheme_code will be resolved by the adapter (name → AMFI code).
@@ -409,6 +474,8 @@ def _parse_sheet(
             "quantity":         qty,
             "market_value_inr": mkt_val,
             "weight_pct":       weight,
+            "maturity_date":    mat_date,
+            "ytm_pct":          ytm_raw,
             "source":           source_tag,
             "source_url":       source_url,
         })
