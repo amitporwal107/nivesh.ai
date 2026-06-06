@@ -101,6 +101,7 @@ def test_fund_switch_strong_when_alt_exists_and_signals_high():
         direct_plan_available=False,
         current_return_5y=0.10, current_drawdown=0.28, current_consistency=60,
         candidate_funds=[_strong_alt()],
+        invested_amount=1_470_000, current_value=1_470_000,   # no gain → isolate signal logic from tax-stagger
     ), plan_type="direct")
     assert r.action == sde.ACTION_STRONG_SWITCH
     assert r.allocation_pct == 100
@@ -239,14 +240,14 @@ def test_tax_equity_stcg():
     t = sde.compute_tax_cost(_inp(
         holding_period_days=100, invested_amount=100_000, current_value=200_000,
     ))
-    assert t == 15_000
+    assert t == 20_000        # FY25-26: ₹1L STCG × 20%
 
 
 def test_tax_equity_ltcg_with_exemption():
     t = sde.compute_tax_cost(_inp(
         holding_period_days=400, invested_amount=100_000, current_value=300_000,
     ))
-    assert t == 10_000
+    assert t == 9_375         # FY25-26: (₹2L gain − ₹1.25L exemption) × 12.5%
 
 
 def test_tax_debt_slab():

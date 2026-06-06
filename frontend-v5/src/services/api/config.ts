@@ -15,10 +15,15 @@ export interface ApiConfig {
 
 const env = (import.meta as ImportMeta & { env: Record<string, string | undefined> }).env ?? {};
 
+// A blank VITE_API_BASE_URL is documented to mean "issue relative /api/* calls"
+// (see .env.local). Treat empty/whitespace as unset so it resolves against the
+// current origin instead of throwing in `new URL(path, "")`.
+const firstNonBlank = (...vals: (string | undefined)[]): string | undefined =>
+  vals.find((v) => typeof v === "string" && v.trim() !== "");
+
 export const apiConfig: ApiConfig = {
   baseUrl:
-    env.VITE_API_BASE_URL ??
-    env.VITE_API_URL ??
+    firstNonBlank(env.VITE_API_BASE_URL, env.VITE_API_URL) ??
     (typeof window !== "undefined" ? window.location.origin : ""),
   useMock: (env.VITE_USE_MOCK_API ?? "false").toLowerCase() === "true",
   requestTimeoutMs: Number(env.VITE_API_TIMEOUT_MS ?? 15_000),

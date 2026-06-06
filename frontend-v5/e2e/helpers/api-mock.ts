@@ -36,6 +36,12 @@ const POPULATED_ROUTES: Record<string, string> = {
   "**/api/dashboards/tax": "dashboards-tax.json",
   "**/api/plans/active": "plans-active.json",
   "**/api/copilot/suggested-prompts": "suggested-prompts.json",
+  "**/api/portfolio/fund-performance*": "fund-performance.json",
+  "**/api/portfolio/recommendations/v5*": "recommendations-v5.json",
+  "**/api/dashboards/risk": "dashboards-risk.json",
+  "**/api/onboarding/state": "onboarding-state.json",
+  "**/api/user/risk-profile": "risk-profile.json",
+  "**/api/portfolio/composition*": "composition.json",
 };
 
 /** Empty portfolio state — auth works but no holdings */
@@ -52,6 +58,13 @@ export type MockPreset = "populated" | "empty";
 
 export async function mockApi(page: Page, preset: MockPreset = "populated") {
   const routes = preset === "empty" ? EMPTY_ROUTES : POPULATED_ROUTES;
+
+  // Catch-all FIRST so it has lowest priority (Playwright runs handlers LIFO).
+  // Any /api/* endpoint without an explicit fixture below resolves to 200 {}
+  // instead of hitting Vite (no proxy in test config) and 404-hanging networkidle.
+  await page.route(/\/\/[^/]+\/api\//, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
+  );
 
   for (const [pattern, fixture] of Object.entries(routes)) {
     const data = loadFixture(fixture);
@@ -84,6 +97,10 @@ export async function mockApiWithPlan(page: Page, planFixture: string) {
     ...POPULATED_ROUTES,
     // Override plans/active with the provided fixture (do NOT add a second handler)
   };
+  // Catch-all FIRST (lowest priority under LIFO) — see mockApi for rationale.
+  await page.route(/\/\/[^/]+\/api\//, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
+  );
   // Register all non-plan routes
   for (const [pattern, fixture] of Object.entries(routes)) {
     if (pattern === "**/api/plans/active") continue; // skip — we handle below
