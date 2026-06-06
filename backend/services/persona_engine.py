@@ -32,6 +32,10 @@ PERSONAS: dict[str, dict] = {
     "tax_saver":            {"label": "Tax Saver",             "icon": "Receipt",     "color": "green"},
     "beginner_investor":    {"label": "Beginner Investor",     "icon": "Sprout",      "color": "lime"},
     "nri_investor":         {"label": "NRI Investor",          "icon": "Globe",       "color": "sky"},
+    # Manually-set only — not inferred from CAS
+    "active_trader":        {"label": "Active Trader",         "icon": "Zap",         "color": "orange"},
+    "parents_planning":     {"label": "Planning for Children", "icon": "Heart",       "color": "pink"},
+    "conservative_investor":{"label": "Conservative Investor", "icon": "ShieldCheck", "color": "blue"},
 }
 
 # Personas that CAN be inferred from portfolio data
