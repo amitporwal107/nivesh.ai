@@ -167,3 +167,18 @@ async def cache_del(key: str) -> bool:
     except Exception as e:  # noqa: BLE001
         logger.warning("redis cache_del failed: %s", e)
         return False
+
+
+async def cache_del_pattern(pattern: str) -> int:
+    """Delete all keys matching a glob pattern (relative to nivesh:cache:). Returns count deleted."""
+    c = await get_client()
+    if c is None:
+        return 0
+    try:
+        keys = await c.keys(f"nivesh:cache:{pattern}")
+        if keys:
+            await c.delete(*keys)
+        return len(keys)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("redis cache_del_pattern failed: %s", e)
+        return 0
