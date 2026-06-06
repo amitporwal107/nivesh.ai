@@ -488,3 +488,33 @@ async def get_portfolio_risk(
     if not payload:
         return None
     return payload.get("data") or payload
+
+
+async def get_portfolio_snapshot(
+    external_user_id: str,
+    timeout: float = 8.0,
+) -> Optional[Dict[str, Any]]:
+    """Fetch the latest NIDP portfolio snapshot for a user.
+
+    Calls GET /v1/intelligence/portfolio/{external_user_id}/snapshot.
+    Returns a dict with keys like: total_market_value_inr, equity_weight_pct,
+    debt_weight_pct, avg_beta_90d, top_sector, top_sector_weight_pct,
+    concentration_top5_pct, quality_tier, avg_rsi_14, high_corr_pairs,
+    snapshot_date.
+    Returns None on 404 / connectivity failure so callers can fall back.
+    """
+    if not external_user_id:
+        return None
+    try:
+        payload = await _get(
+            f"/intelligence/portfolio/{external_user_id}/snapshot",
+            timeout=timeout,
+        )
+    except DaasError as exc:
+        if getattr(exc, "status_code", None) == 404:
+            return None
+        logger.warning("get_portfolio_snapshot[%s]: %s", external_user_id, exc)
+        return None
+    if not payload:
+        return None
+    return payload.get("data") or payload
