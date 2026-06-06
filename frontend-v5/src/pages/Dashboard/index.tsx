@@ -16,6 +16,7 @@ import { usePortfolioSummary, usePortfolioNavHistory, useHoldings } from "@/hook
 import { useHealthAnalysis, useInsightsList } from "@/hooks/use-insights";
 import { useRiskProfile } from "@/hooks/use-risk-profile";
 import { useGoals } from "@/hooks/use-goals";
+import type { PortfolioInsight } from "@/types/portfolio";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -100,6 +101,30 @@ export default function DashboardPage() {
 
   const hasGoal = (goalsQ.data?.goals?.length ?? 0) > 0;
 
+  // Synthesise goal-at-risk insights and merge with backend insights
+  const goalInsights: PortfolioInsight[] = (goalsQ.data?.goals ?? []).flatMap(g => {
+    const insights: PortfolioInsight[] = [];
+    if (g.progress < 0.60) {
+      insights.push({
+        id: `goal_atrisk_${g.id}`,
+        category: "goal",
+        severity: "fix",
+        title: `Goal at risk: ${g.name}`,
+        detail: g.message !== "On track" ? g.message : "Significantly behind target — increase SIP or extend horizon.",
+      } as PortfolioInsight);
+    } else if (!g.onTrack) {
+      insights.push({
+        id: `goal_watch_${g.id}`,
+        category: "goal",
+        severity: "watch",
+        title: `${g.name} needs attention`,
+        detail: g.message,
+      } as PortfolioInsight);
+    }
+    return insights;
+  });
+  const mergedInsights = [...goalInsights, ...(insightsQ.data?.insights ?? [])];
+
   function invalidateAll() {
     qc.invalidateQueries({ queryKey: ["user", "risk-profile"] });
     qc.invalidateQueries({ queryKey: ["onboarding", "state"] });
@@ -112,7 +137,7 @@ export default function DashboardPage() {
       summary={dashSummary}
       navHistory={nav}
       healthBreakdown={breakdown}
-      insights={insightsQ.data?.insights ?? []}
+      insights={mergedInsights}
       riskProfile={riskProfileQ.data ?? null}
       holdingsCount={holdings.data?.length ?? 0}
       hasGoal={hasGoal}

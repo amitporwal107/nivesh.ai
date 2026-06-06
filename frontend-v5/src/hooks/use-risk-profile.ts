@@ -18,6 +18,9 @@ export interface RiskProfile {
   category: RiskCategory;
   answers?: Record<string, string>;
   completed_at?: string;
+  capacity_score?: number;
+  tolerance_score?: number;
+  capacity_tolerance_diverged?: boolean;
 }
 
 /** Target allocation by risk category (mirrors backend target_allocator.py). */

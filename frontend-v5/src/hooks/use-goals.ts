@@ -32,3 +32,19 @@ export function useGoalWhatIf() {
       goalsService.whatIf(args.goalId, args.body),
   });
 }
+
+export function useGoalArchive() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (goalId: string) => goalsService.archive(goalId),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goals"] }); },
+  });
+}
+
+export function useSnapshotUpsert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Parameters<typeof goalsService.upsertSnapshot>[0]) => goalsService.upsertSnapshot(body),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goals", "snapshot"] }); },
+  });
+}

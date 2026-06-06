@@ -86,6 +86,7 @@ class GoalAlignmentEngine(BaseEngine):
                 health        = eval_.get("goal_health") or eval_.get("health_status") or ""
                 on_track_pct  = float(eval_.get("on_track_pct") or eval_.get("on_track_probability_pct") or 50.0)
                 goal_name     = eval_.get("goal_name") or eval_.get("name") or "Goal"
+                goal_id_val   = eval_.get("goal_id") or None
                 goal_gap_rs   = float(eval_.get("shortfall_rs") or eval_.get("gap_rs") or 0)
                 horizon_years = float(eval_.get("horizon_years") or 10.0)
                 goal_type     = (eval_.get("goal_type") or eval_.get("type") or "").upper()
@@ -95,6 +96,7 @@ class GoalAlignmentEngine(BaseEngine):
                                       getattr(eval_, "on_track_probability_pct", 50.0) or 50.0)
                 goal_name     = (getattr(eval_, "goal_name", "") or
                                  getattr(eval_, "name", "") or "Goal")
+                goal_id_val   = getattr(eval_, "goal_id", None) or None
                 goal_gap_rs   = float(getattr(eval_, "shortfall_rs", None) or
                                       getattr(eval_, "gap_rs", 0) or 0)
                 horizon_years = float(getattr(eval_, "horizon_years", None) or 10.0)
@@ -216,6 +218,35 @@ class GoalAlignmentEngine(BaseEngine):
                         requires_confirmation=horizon_years < 5,
                     ))
 
+            # ── GA-5: Goal nearly achieved (>90%) → de-risk ──────────────────
+            if on_track_pct >= 90.0:
+                signals.append(EngineSignal(
+                    signal_id=f"goal_alignment::ga5::{goal_name[:20]}::trim_near",
+                    engine_name=self.engine_name,
+                    rule_label="GA-5",
+                    action_type="TRIM",
+                    instrument_id=None,
+                    instrument_name="Equity Funds (goal nearly achieved)",
+                    amount_rs=ctx.total_value_rs * 0.10,
+                    base_score=7.5,
+                    confidence=0.75,
+                    risk_reduction=0.7,
+                    goal_impact=0.3,
+                    urgency=0.6,
+                    implementation_ease=0.5,
+                    reason_codes=["GOAL_ALIGNMENT", "GA5_NEAR_ACHIEVED"],
+                    reason_text=(
+                        f"Goal '{goal_name}' is {on_track_pct:.0f}% funded — almost there! "
+                        f"Gradually de-risk by trimming equity exposure to lock in gains "
+                        f"and protect your corpus from a late-stage market drawdown."
+                    ),
+                    dedup_key=f"TRIM::near_achieved::{goal_name[:30]}",
+                    severity="mismatch",
+                    execution_path="stagger",
+                    goal_id=goal_id_val,
+                    goal_name=goal_name,
+                ))
+
             # ── GA-4: Goal shortfall — exit underperformer + add missing class ──
             if health not in ("critical", "at_risk"):
                 continue
@@ -267,6 +298,8 @@ class GoalAlignmentEngine(BaseEngine):
                     severity="severe" if health == "critical" else "mismatch",
                     execution_path="harvest",
                     requires_confirmation=health == "critical" or ctx.behavioural_confidence < 0.7,
+                    goal_id=goal_id_val,
+                    goal_name=goal_name,
                 )
                 exit_sig.__dict__["_holding"] = h
                 exit_sig.__dict__["_candidate"] = best_candidate
@@ -308,6 +341,8 @@ class GoalAlignmentEngine(BaseEngine):
                             dedup_key=f"ADD::{missing_class}::goal",
                             severity="mismatch",
                             execution_path="redirect",
+                            goal_id=goal_id_val,
+                            goal_name=goal_name,
                         )
                         signals.append(add_sig)
                 except Exception as e:

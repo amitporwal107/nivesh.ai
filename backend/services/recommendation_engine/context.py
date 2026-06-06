@@ -80,6 +80,10 @@ class EngineSignal:
     # requires_confirmation: True when persona confidence is medium + EXIT is large  (PRD §10)
     requires_confirmation: bool = False
 
+    # Goal linkage — set by GoalAlignmentEngine so action cards can show "for [goal]"
+    goal_id: Optional[str] = None
+    goal_name: Optional[str] = None
+
     def __post_init__(self) -> None:
         if not self.dedup_key:
             self.dedup_key = f"{self.action_type}::{self.instrument_id or self.instrument_name}"

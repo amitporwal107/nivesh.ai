@@ -5,12 +5,13 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useDashboard } from "@/hooks/use-dashboards";
-import { useGoals } from "@/hooks/use-goals";
+import { useGoals, useGoalWhatIf } from "@/hooks/use-goals";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { ProfileWizardModal } from "@/pages/Dashboard/ProfileWizardModal";
+import type { WhatIfRes } from "@/services/contracts/goal.contract";
 
 function formatRs(paise: number) {
   const rs = Math.abs(paise) / 100;
@@ -134,11 +135,83 @@ function GoalTrajectory({ projection }: { projection: unknown }) {
   );
 }
 
+// ── Simulate what-if panel ────────────────────────────────────────────────────
+
+function SimulatePanel({ goal }: { goal: { id: string; monthlySip: number; targetAmount: number; progress: number } }) {
+  const whatIf = useGoalWhatIf();
+  const [sipDelta, setSipDelta] = useState(0);   // ₹ offset from current SIP
+  const [result, setResult] = useState<WhatIfRes | null>(null);
+
+  const baseSipRs = goal.monthlySip / 100;       // paise → ₹
+  const newSipRs  = Math.max(0, baseSipRs + sipDelta);
+
+  async function simulate() {
+    const res = await whatIf.mutateAsync({
+      goalId: goal.id,
+      body: { monthly_sip_rs: newSipRs },
+    });
+    setResult(res);
+  }
+
+  const deltaLabel = sipDelta >= 0 ? `+₹${sipDelta.toLocaleString("en-IN")}` : `-₹${Math.abs(sipDelta).toLocaleString("en-IN")}`;
+
+  return (
+    <div className="mt-4 rounded-lg border border-hairline bg-surface-2 p-3">
+      <div className="font-mono text-[9px] uppercase tracking-[.14em] text-ink-3 mb-3">What if I change my SIP?</div>
+      <div className="flex items-center gap-3 mb-3">
+        <input
+          type="range"
+          min={-Math.round(baseSipRs * 0.5)}
+          max={Math.round(baseSipRs * 2)}
+          step={500}
+          value={sipDelta}
+          onChange={e => { setSipDelta(Number(e.target.value)); setResult(null); }}
+          className="flex-1 accent-accent"
+        />
+        <span className="font-mono text-[11px] text-ink-2 shrink-0 w-20 text-right">{deltaLabel}/mo</span>
+      </div>
+      <div className="font-mono text-[10px] text-ink-3 mb-3">
+        New SIP: ₹{Math.round(newSipRs).toLocaleString("en-IN")}/mo
+      </div>
+      <button
+        onClick={simulate}
+        disabled={whatIf.isPending}
+        className="w-full py-2 rounded-md bg-accent text-on-accent text-[12px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+      >
+        {whatIf.isPending ? "Simulating…" : "Run simulation"}
+      </button>
+      {result && (
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="rounded-md bg-surface-1 p-2 text-center">
+            <div className="font-mono text-[9px] text-ink-3 uppercase tracking-widest">Current</div>
+            <div className={`font-display text-[18px] mt-0.5 ${result.current_on_track_pct >= 70 ? "text-pos" : "text-warm"}`}>
+              {Math.round(result.current_on_track_pct)}%
+            </div>
+          </div>
+          <div className="rounded-md bg-surface-1 p-2 text-center">
+            <div className="font-mono text-[9px] text-ink-3 uppercase tracking-widest">With change</div>
+            <div className={`font-display text-[18px] mt-0.5 ${result.what_if_on_track_pct >= 70 ? "text-pos" : "text-warm"}`}>
+              {Math.round(result.what_if_on_track_pct)}%
+            </div>
+          </div>
+        </div>
+      )}
+      {result?.verdict && (
+        <p className="mt-2 text-[11px] text-ink-2 leading-relaxed">{result.verdict}</p>
+      )}
+      {whatIf.isError && (
+        <p className="mt-2 text-[11px] text-neg">Simulation failed — try again.</p>
+      )}
+    </div>
+  );
+}
+
 export default function GoalsPage() {
   const dash = useDashboard("goals");
   const goalsQ = useGoals();
   const qc = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
+  const [simulateOpen, setSimulateOpen] = useState(false);
 
   if (dash.isPending || goalsQ.isLoading) {
     return <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full"><LoadingSkeleton variant="card" /></div>;
@@ -188,6 +261,22 @@ export default function GoalsPage() {
           ))}
         </div>
       )}
+
+      {/* Nearly-achieved banner */}
+      {goals.filter(g => g.progress >= 0.9 && g.progress < 1).map(g => (
+        <div key={g.id} className="mb-5 rounded-lg border border-[rgba(var(--pos)/0.35)] bg-[rgba(var(--pos)/0.06)] px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2">
+          <span className="text-[15px] shrink-0">{g.icon}</span>
+          <div className="flex-1 min-w-0">
+            <div className="font-medium text-[13.5px] text-ink">
+              {g.name} is {Math.round(g.progress * 100)}% funded — nearly there!
+            </div>
+            <div className="text-[12px] text-ink-3 mt-0.5">
+              Consider shifting to lower-risk funds to lock in your gains before the finish line.
+            </div>
+          </div>
+          <span className="shrink-0 font-mono text-[10px] text-pos bg-[rgba(var(--pos)/0.12)] px-2.5 py-1 rounded-full">De-risk recommended</span>
+        </div>
+      ))}
 
       {/* main grid: trajectory chart + drill panel */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5">
@@ -241,9 +330,15 @@ export default function GoalsPage() {
                   </div>
                 </div>
                 {!focus.onTrack && (
-                  <button className="mt-4 w-full rounded-lg bg-accent text-on-accent font-medium text-[13px] py-2.5 hover:opacity-90 transition-opacity">
-                    Suggest fix →
+                  <button
+                    onClick={() => setSimulateOpen(o => !o)}
+                    className="mt-4 w-full rounded-lg bg-accent text-on-accent font-medium text-[13px] py-2.5 hover:opacity-90 transition-opacity"
+                  >
+                    {simulateOpen ? "Hide simulator" : "Simulate fix →"}
                   </button>
+                )}
+                {simulateOpen && !focus.onTrack && (
+                  <SimulatePanel goal={focus} />
                 )}
               </div>
             );

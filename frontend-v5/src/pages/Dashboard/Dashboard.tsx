@@ -313,6 +313,11 @@ function ActionMatrix({ actions, total, onViewAll }: { actions: PlanActionC[]; t
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[13px] font-medium truncate">{name}</span>
                             {amtRs && <span className="font-mono text-[10px] text-ink-3">{amtRs}</span>}
+                            {a.goal_name && (
+                              <span className="font-mono text-[9px] text-accent bg-[rgba(var(--accent)/0.08)] px-1.5 py-0.5 rounded-full">
+                                for {a.goal_name}
+                              </span>
+                            )}
                             {needsConfirm && (
                               <span className="flex items-center gap-0.5 font-mono text-[9px] text-ink-3 bg-surface-2 px-1.5 py-0.5 rounded-full border border-hairline">
                                 <Lock className="h-2.5 w-2.5" />confirm
@@ -603,10 +608,12 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
         </div>
       )}
 
-      {/* Action matrix */}
-      <SafeWidget name="ActionMatrix" flagKey="action_matrix">
-        <ActionMatrix actions={pending} total={totalPending} onViewAll={() => navigate("/recommendations")} />
-      </SafeWidget>
+      {/* Action matrix — hidden until risk profile + goal are both set */}
+      {!gates.requiresPersona && !gates.requiresGoal && (
+        <SafeWidget name="ActionMatrix" flagKey="action_matrix">
+          <ActionMatrix actions={pending} total={totalPending} onViewAll={() => navigate("/recommendations")} />
+        </SafeWidget>
+      )}
 
       {/* The one thing / gate CTA */}
       <SafeWidget name="ImproveCTA" flagKey="improve_cta">

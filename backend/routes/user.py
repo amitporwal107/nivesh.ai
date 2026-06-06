@@ -77,6 +77,8 @@ async def save_risk_profile(request: Request, body: RiskProfileInput):
     capacity_map = {
         "investment_horizon": {"less_1yr": 80, "1_3yr": 60, "3_5yr": 40, "5_10yr": 20, "10yr_plus": 10},
         "income_stability":   {"very_stable": 15, "stable": 30, "moderate": 50, "unstable": 75},
+        "loan_obligations":   {"none": 10, "low": 25, "moderate": 50, "high": 80},
+        "savings_rate":       {"above_30": 10, "15_to_30": 30, "5_to_15": 55, "below_5": 85},
     }
     tolerance_map = {
         "market_drop":    {"hold": 30, "buy_more": 10, "sell_some": 60, "sell_all": 90},
@@ -103,7 +105,7 @@ async def save_risk_profile(request: Request, body: RiskProfileInput):
     tolerance_score = round(tol_total / tol_count) if tol_count > 0 else 50
     # Governing score = min(capacity, tolerance) — more conservative wins (PRD §4.4)
     risk_score = max(capacity_score, tolerance_score)  # higher = more conservative
-    capacity_tolerance_diverged = abs(capacity_score - tolerance_score) >= 15
+    capacity_tolerance_diverged = abs(capacity_score - tolerance_score) >= 20
 
     def _score_to_category(s: int) -> str:
         if s <= 25:   return "Aggressive"

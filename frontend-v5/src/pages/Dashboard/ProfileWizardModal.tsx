@@ -99,6 +99,26 @@ const RISK_QUESTIONS = [
       { value: "safety",            label: "Capital safety",    sub: "Preserve purchasing power" },
     ],
   },
+  {
+    id: "loan_obligations",
+    question: "What is your current loan or EMI burden?",
+    options: [
+      { value: "none",     label: "None",         sub: "No outstanding EMIs or loans" },
+      { value: "low",      label: "Low",          sub: "< 20% of income" },
+      { value: "moderate", label: "Moderate",     sub: "20–40% of income" },
+      { value: "high",     label: "High",         sub: "> 40% of income" },
+    ],
+  },
+  {
+    id: "savings_rate",
+    question: "What fraction of your monthly income do you save or invest?",
+    options: [
+      { value: "above_30", label: "Above 30%",  sub: "Strong savings habit" },
+      { value: "15_to_30", label: "15–30%",     sub: "Healthy savings rate" },
+      { value: "5_to_15",  label: "5–15%",      sub: "Moderate" },
+      { value: "below_5",  label: "Below 5%",   sub: "Tight on surplus" },
+    ],
+  },
 ];
 
 // ── Goal types ────────────────────────────────────────────────────────────────
@@ -113,6 +133,25 @@ const GOAL_TYPES = [
 
 // ── Step 0: Risk Profile ──────────────────────────────────────────────────────
 
+function ScoreBar({ label, score, color }: { label: string; score: number; color: string }) {
+  // Backend uses higher score = more conservative; invert for "capacity" display (high = more capacity)
+  const displayPct = Math.max(0, Math.min(100, 100 - score));
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="font-mono text-[10px] uppercase tracking-[.1em] text-ink-3">{label}</span>
+        <span className={cn("font-mono text-[11px]", color)}>
+          {displayPct >= 70 ? "High" : displayPct >= 40 ? "Moderate" : "Low"}
+        </span>
+      </div>
+      <div className="h-2 rounded-full bg-surface-3 overflow-hidden">
+        <div className={cn("h-full rounded-full transition-all duration-500", color === "text-pos" ? "bg-pos" : color === "text-warm" ? "bg-warm" : "bg-accent")}
+          style={{ width: `${displayPct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 function RiskStep({
   existingProfile,
   onSaved,
@@ -124,6 +163,7 @@ function RiskStep({
 }) {
   const [qIdx, setQIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>(existingProfile?.answers ?? {});
+  const [savedProfile, setSavedProfile] = useState<RiskProfile | null>(null);
   const save = useSaveRiskProfile();
 
   const q = RISK_QUESTIONS[qIdx];
@@ -133,7 +173,54 @@ function RiskStep({
   async function submit() {
     const payload: RiskAnswer[] = Object.entries(answers).map(([question_id, answer]) => ({ question_id, answer }));
     const profile = await save.mutateAsync(payload);
-    onSaved(profile);
+    setSavedProfile(profile);
+  }
+
+  // ── Result sub-screen: show capacity vs tolerance bars then advance ──
+  if (savedProfile) {
+    const capScore  = savedProfile.capacity_score  ?? savedProfile.score;
+    const tolScore  = savedProfile.tolerance_score ?? savedProfile.score;
+    const diverged  = savedProfile.capacity_tolerance_diverged ?? false;
+    const capPct    = Math.max(0, Math.min(100, 100 - capScore));
+    const tolPct    = Math.max(0, Math.min(100, 100 - tolScore));
+    return (
+      <div>
+        <div className="text-center mb-5">
+          <div className="font-mono text-[10px] uppercase tracking-[.16em] text-ink-3 mb-1">Your risk profile</div>
+          <div className="font-display text-[28px] tracking-tightish text-accent">{savedProfile.category}</div>
+          <div className="font-mono text-[11px] text-ink-3 mt-0.5">Score {savedProfile.score} · governing = min(capacity, tolerance)</div>
+        </div>
+
+        <div className="space-y-4 mb-5">
+          <ScoreBar
+            label="Financial capacity"
+            score={capScore}
+            color={capPct >= 60 ? "text-pos" : capPct >= 35 ? "text-warm" : "text-neg"}
+          />
+          <ScoreBar
+            label="Risk tolerance"
+            score={tolScore}
+            color={tolPct >= 60 ? "text-pos" : tolPct >= 35 ? "text-warm" : "text-neg"}
+          />
+        </div>
+
+        {diverged && (
+          <div className="mb-4 rounded-lg border border-[rgba(var(--warm)/0.35)] bg-[rgba(var(--warm)/0.06)] px-4 py-3">
+            <p className="text-[12.5px] text-ink-2 leading-relaxed">
+              <span className="font-medium text-warm">Heads up:</span> your financial capacity and risk tolerance diverge by more than 20 points.
+              We'll use the more conservative score so your plan stays realistic.
+            </p>
+          </div>
+        )}
+
+        <button
+          onClick={() => onSaved(savedProfile)}
+          className="w-full flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-accent text-on-accent text-[13px] font-medium hover:opacity-90"
+        >
+          Continue <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    );
   }
 
   return (

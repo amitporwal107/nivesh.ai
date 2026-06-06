@@ -291,6 +291,12 @@ def _signal_to_action(
         base["status"] = "SUPPRESSED"
         base["suppression_reason"] = sig.suppression_reason
 
+    # Goal linkage — surfaced in action cards as "for [goal]"
+    if sig.goal_id:
+        base["goal_id"] = sig.goal_id
+    if sig.goal_name:
+        base["goal_name"] = sig.goal_name
+
     # PRD §12: expected_effect — risk-band Δ, score Δ, funding-probability Δ
     # Computed from the signal's AR-3 priority components as a best-effort estimate.
     # Exact values require a full portfolio re-simulation; these are directional signals.
