@@ -148,7 +148,12 @@ async def _fetch_mf_data(state: CopilotState) -> list[ToolResult]:
             ))
         else:
             if user_id:
-                overlap = await mf_mod.get_portfolio_overlap(user_id)
+                # Portfolio-level overlap lives in the portfolio tool, not mf
+                # (mf.py only has get_fund_overlap(scheme_codes)). Calling the
+                # wrong module raised AttributeError → empty TOOL_DATA → the
+                # "couldn't retrieve the data" reply.
+                portfolio_mod = importlib.import_module("services.copilot_tools.portfolio")
+                overlap = await portfolio_mod.get_portfolio_overlap(user_id)
                 results.append(ToolResult(
                     ok=overlap.ok, tool_name="get_portfolio_overlap",
                     summary=overlap.summary, data=overlap.data, rows=overlap.rows,
