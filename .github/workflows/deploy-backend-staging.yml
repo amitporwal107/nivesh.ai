@@ -9,6 +9,11 @@ name: Deploy backend → nivesh-app-vm [staging]
     paths:
       - 'backend/**'
       - '!backend/nidp/**'
+      # copilot_agent lives under backend/nidp/ but EXECUTES in the Nivesh app
+      # backend (imported by routes/chat.py), not the NIDP stack — so its
+      # changes must redeploy nivesh-app-vm. Re-include it after the nidp
+      # exclusion (last matching pattern wins).
+      - 'backend/nidp/services/copilot_agent/**'
       - 'deploy/nivesh-app/Dockerfile.backend.prod'
       - 'deploy/nivesh-staging/**'
 
