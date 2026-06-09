@@ -120,23 +120,28 @@ async def get_portfolio_xirr(user_id: str) -> PortfolioResult:
 
     portfolio_gain = total_current - total_invested
     portfolio_return_pct = (portfolio_gain / total_invested * 100.0) if total_invested > 0 else 0.0
-    portfolio_xirr = (weighted_xirr_sum / weighted_xirr_weight) if weighted_xirr_weight > 0 else None
+    avg_xirr = (weighted_xirr_sum / weighted_xirr_weight) if weighted_xirr_weight > 0 else None
 
-    # XIRR guard: invested-weighting per-holding ANNUALISED XIRR explodes for
-    # short-horizon holdings (a few weeks of gain annualises to triple digits),
-    # producing implausible portfolio figures like +1211% that contradict the
-    # absolute return. A true portfolio XIRR needs dated cashflows we don't have
-    # here, so rather than report a number we know is wrong, suppress anything
-    # outside a sane band and fall back to the absolute return. The raw value is
-    # kept (xirr_raw) so callers can explain why it's withheld.
-    xirr_raw = round(portfolio_xirr, 2) if portfolio_xirr is not None else None
-    xirr_unreliable = portfolio_xirr is not None and abs(portfolio_xirr) > 100.0
-    portfolio_xirr_safe = None if xirr_unreliable else portfolio_xirr
+    # TRUE portfolio XIRR — solve a single money-weighted IRR over the dated
+    # `cas_transactions` ledger (purchases negative, redemptions positive, plus
+    # today's value). This replaces the old "average of per-holding annualised
+    # rates", which is mathematically invalid and explodes to figures like
+    # +1211% for short-horizon holdings. The ledger result is reported only when
+    # transaction coverage is good enough to trust; otherwise we fall back to
+    # the absolute return and keep the avg figure purely to explain the gap.
+    from services.portfolio_enrichment import portfolio_xirr_from_ledger
+    ledger = await portfolio_xirr_from_ledger(user_id, total_current, cost_basis=total_invested)
 
-    if xirr_unreliable:
-        xirr_str = f" (per-holding XIRR averages to {portfolio_xirr:+.0f}% — a short-horizon calc artifact, ignore it)"
-    elif portfolio_xirr is not None:
-        xirr_str = f" (XIRR {portfolio_xirr:+.1f}%)"
+    portfolio_xirr_safe = ledger.get("xirr_pct") if ledger.get("reliable") else None
+    xirr_raw = round(avg_xirr, 2) if avg_xirr is not None else ledger.get("xirr_raw_pct")
+    # "Unreliable" only matters for the broken-number alert: true when we have a
+    # raw figure to flag but no trustworthy XIRR to show.
+    xirr_unreliable = portfolio_xirr_safe is None and xirr_raw is not None and abs(xirr_raw) > 100.0
+
+    if portfolio_xirr_safe is not None:
+        xirr_str = f" (money-weighted XIRR {portfolio_xirr_safe:+.1f}%, from {ledger.get('n_txn')} txns)"
+    elif xirr_unreliable:
+        xirr_str = f" (XIRR not shown — ledger coverage too thin / annualisation artifact {xirr_raw:+.0f}%)"
     else:
         xirr_str = ""
     summary = (
@@ -156,6 +161,8 @@ async def get_portfolio_xirr(user_id: str) -> PortfolioResult:
             "portfolio_xirr_pct": round(portfolio_xirr_safe, 2) if portfolio_xirr_safe is not None else None,
             "portfolio_xirr_raw_pct": xirr_raw,
             "xirr_unreliable": xirr_unreliable,
+            "xirr_source": ledger.get("source"),
+            "xirr_coverage_pct": ledger.get("coverage_pct"),
             "position_count": len(rows),
         },
         rows=sorted(rows, key=lambda r: r.get("xirr_pct") or -999, reverse=True),
@@ -966,6 +973,10 @@ def build_allocation_review_widget(summary: Any, rebalance: Any, xirr: Any) -> D
     if invested and current:
         tiles.append({"label": "Invested → now", "value": f"{_inr_short(invested)} → {_inr_short(current)}",
                       "sub": f"{abs_ret:+.1f}% absolute" if abs_ret is not None else ""})
+    xirr_pct = xd.get("portfolio_xirr_pct")
+    if xirr_pct is not None:
+        tiles.append({"label": "XIRR (money-weighted)", "value": f"{xirr_pct:+.1f}%",
+                      "sub": "annualised, from real cashflows"})
     if gold:
         tiles.append({"label": "Gold", "value": f"{gold}%", "sub": "meaningful — review vs plan"})
     if sec_pct is not None:

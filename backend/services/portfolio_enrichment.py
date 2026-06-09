@@ -61,6 +61,105 @@ def xirr(flows: List[Tuple[date, float]], guess: float = 0.1) -> Optional[float]
     return None
 
 
+# ── True money-weighted portfolio XIRR (from the dated transaction ledger) ──
+_LEDGER_BUY_TYPES = ("PURCHASE", "SIP_PURCHASE", "BUY")
+_LEDGER_SELL_KEYS = ("REDEMPTION", "REDEEM", "SELL", "SWITCH OUT", "SWITCH-OUT", "SWITCHOUT")
+_LEDGER_SKIP_KEYS = ("REVERSAL", "PLEDGE", "STT", "STAMP", "TAX")  # fees / non-cashflow
+
+
+async def portfolio_xirr_from_ledger(
+    user_id: str,
+    current_value: float,
+    cost_basis: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Money-weighted portfolio XIRR from the dated `cas_transactions` ledger.
+
+    Pools EVERY transaction into a single cashflow series — purchases negative,
+    redemptions/sells positive, on their actual dates — plus today's total
+    market value as the final positive flow, then solves ONE IRR. This is the
+    textbook money-weighted return; unlike averaging per-holding *annualised*
+    rates (which explodes for short-horizon holdings), it stays sane because a
+    small recent buy contributes a small cashflow, not an outsized rate.
+
+    Returns {xirr_pct, xirr_raw_pct, reliable, coverage_pct, n_txn, source}.
+    `xirr_pct` is None (reliable=False) when the ledger can't be trusted —
+    too few transactions, or the buys cover well under the current cost basis
+    (i.e. positions predate the statement / lack opening balances). The caller
+    should then fall back to the absolute return rather than show a number we
+    know is incomplete.
+    """
+    try:
+        from deps import db
+    except Exception:  # noqa: BLE001
+        return {"xirr_pct": None, "reliable": False, "coverage_pct": None, "n_txn": 0, "source": "no_db"}
+
+    flows: List[Tuple[date, float]] = []
+    buy_total = 0.0
+    sell_total = 0.0
+    n_txn = 0
+    try:
+        cursor = db.cas_transactions.find(
+            {"user_id": user_id},
+            {"_id": 0, "date": 1, "type": 1, "transaction_type": 1,
+             "description": 1, "raw_description": 1, "amount": 1, "amount_inr": 1},
+        )
+        async for t in cursor:
+            amt = 0.0
+            try:
+                amt = float(t.get("amount") or t.get("amount_inr") or 0)
+            except (TypeError, ValueError):
+                continue
+            if amt <= 0:
+                continue
+            d = (t.get("date") or "")[:10]
+            if not d:
+                continue
+            try:
+                dt = datetime.strptime(d, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            ttype = (t.get("type") or t.get("transaction_type") or "").upper()
+            desc = (t.get("description") or t.get("raw_description") or "").upper()
+            blob = f"{ttype} {desc}"
+            if any(k in blob for k in _LEDGER_SKIP_KEYS):
+                continue
+            if any(k in blob for k in _LEDGER_SELL_KEYS):
+                flows.append((dt, amt)); sell_total += amt; n_txn += 1
+            elif ttype in _LEDGER_BUY_TYPES or any(k in blob for k in ("PURCHASE", "SIP", "BUY", "ALLOTMENT")):
+                flows.append((dt, -amt)); buy_total += amt; n_txn += 1
+            # unknown types are ignored
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("portfolio_xirr_from_ledger: ledger read failed for %s: %s", user_id, exc)
+        return {"xirr_pct": None, "reliable": False, "coverage_pct": None, "n_txn": 0, "source": "ledger_error"}
+
+    if n_txn < 2 or buy_total <= 0 or current_value <= 0:
+        return {"xirr_pct": None, "reliable": False, "coverage_pct": None,
+                "n_txn": n_txn, "source": "insufficient_ledger"}
+
+    flows.append((datetime.now(timezone.utc).date(), float(current_value)))
+    r = xirr(flows)
+    xirr_pct = round(r * 100.0, 2) if r is not None else None
+
+    # Reliability: the ledger's net invested should explain most of the current
+    # cost basis. If it covers well under it, the statement is missing opening
+    # balances → the IRR overstates and we shouldn't report it.
+    net_invested = buy_total - sell_total
+    coverage = (net_invested / cost_basis) if (cost_basis and cost_basis > 0) else None
+    reliable = (
+        xirr_pct is not None
+        and -60.0 <= xirr_pct <= 120.0
+        and (coverage is None or coverage >= 0.6)
+    )
+    return {
+        "xirr_pct": xirr_pct if reliable else None,
+        "xirr_raw_pct": xirr_pct,
+        "reliable": reliable,
+        "coverage_pct": round(coverage * 100.0, 1) if coverage is not None else None,
+        "n_txn": n_txn,
+        "source": "ledger",
+    }
+
+
 def _holding_xirr(buy_date: Optional[str], buy_price: float,
                    current_price: float, qty: float) -> Optional[float]:
     if not buy_date or buy_price <= 0 or qty <= 0:

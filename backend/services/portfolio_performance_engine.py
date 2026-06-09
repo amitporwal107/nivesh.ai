@@ -317,8 +317,8 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
         # Use period return as the primary KPI for bounded periods
         portfolio_xirr = period_return
     else:
-        # inception or no CAS data → fall back to weighted XIRR
-        portfolio_xirr = await _portfolio_xirr(holdings)
+        # inception or no CAS data → money-weighted XIRR (ledger-based)
+        portfolio_xirr = await _portfolio_xirr(user_id, holdings, grand_total)
 
     # ── Benchmark return — match same window as portfolio return ─────────────
     # Bounded periods: use weighted average of fund period returns vs category avg.
@@ -383,9 +383,29 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
 
 # ── Sub-computations ──────────────────────────────────────────────────────────
 
-async def _portfolio_xirr(holdings: list[dict]) -> Optional[float]:
-    """Weighted-average XIRR across holdings that have cost basis."""
-    from services.portfolio_enrichment import _holding_xirr
+async def _portfolio_xirr(
+    user_id: str, holdings: list[dict], current_value: float
+) -> Optional[float]:
+    """Money-weighted portfolio XIRR.
+
+    Primary: a single IRR solved over the dated `cas_transactions` ledger
+    (purchases negative, redemptions positive, today's value as the final
+    flow) — the textbook money-weighted return. Fallback when the ledger is
+    too thin/absent: a value-weighted average of per-holding XIRR, with each
+    holding CLAMPED to a sane band so a short-horizon annualisation artifact
+    can't blow the portfolio figure up (the old +1211% bug).
+    """
+    from services.portfolio_enrichment import portfolio_xirr_from_ledger, _holding_xirr
+
+    cost_basis = sum(
+        float(h.get("quantity") or 0) * float(h.get("buy_price") or 0) for h in holdings
+    )
+    ledger = await portfolio_xirr_from_ledger(
+        user_id, current_value, cost_basis=cost_basis or None
+    )
+    if ledger.get("reliable") and ledger.get("xirr_pct") is not None:
+        return ledger["xirr_pct"]
+
     weighted_sum = 0.0
     weight_den = 0.0
     for h in holdings:
@@ -396,7 +416,7 @@ async def _portfolio_xirr(holdings: list[dict]) -> Optional[float]:
             continue
         val = qty * cp
         xirr = _holding_xirr(h.get("buy_date"), bp, cp, qty)
-        if xirr is not None:
+        if xirr is not None and -60.0 <= xirr <= 120.0:
             weighted_sum += xirr * val
             weight_den += val
     if weight_den <= 0:
