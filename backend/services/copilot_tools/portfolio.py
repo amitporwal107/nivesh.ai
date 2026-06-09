@@ -716,6 +716,163 @@ def build_cap_education_widget(overlap: Any) -> Dict[str, Any]:
     }
 
 
+# ── Goal-simulation widget builder ────────────────────────────────────────
+
+def _inr_rupees(v: Any) -> str:
+    """Indian-grouped exact rupees, e.g. 50043 → '₹50,043'."""
+    import re as _re
+    try:
+        n = int(round(float(v)))
+    except (TypeError, ValueError):
+        return "—"
+    s = str(abs(n))
+    if len(s) > 3:
+        last3, rest = s[-3:], s[:-3]
+        rest = _re.sub(r"(\d)(?=(\d\d)+$)", r"\1,", rest)
+        s = f"{rest},{last3}"
+    return ("-" if n < 0 else "") + "₹" + s
+
+
+def _inr_crl(v: Any) -> str:
+    """Crore/lakh rupee label, e.g. 50000000 → '₹5.00 Cr', 9990000 → '₹99.9 L'."""
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    if abs(n) >= 1e7:
+        return f"₹{n / 1e7:.2f} Cr"
+    if abs(n) >= 1e5:
+        return f"₹{n / 1e5:.1f} L"
+    return f"₹{n:,.0f}"
+
+
+def _sip_curve(monthly: float, years: int, annual_rate: float) -> List[float]:
+    """Year-by-year future value of a monthly SIP (year 0 = 0). Mirrors
+    sip._yearly_projection so the chart and the headline numbers agree."""
+    r = annual_rate / 12.0
+    fv = 0.0
+    out = [0.0]
+    for _ in range(1, years + 1):
+        fv = (fv * (1 + r) ** 12 + monthly * 12) if r == 0 else \
+            fv * (1 + r) ** 12 + monthly * ((1 + r) ** 12 - 1) / r * (1 + r)
+        out.append(round(fv))
+    return out
+
+
+def build_goal_simulation_widget(goal: Any, sip: Any, summary: Any) -> Dict[str, Any]:
+    """Build the 'simulate my plan' widget: goal-funding progress, target/current/
+    gap/SIP-needed KPIs, a projected-SIP-growth line chart (needed vs an
+    illustrative baseline vs the target line), today's allocation donut, an
+    overlap nudge, and two actions. All numbers come from the goal +
+    SIP-projection + portfolio-summary tools."""
+    gd = getattr(goal, "data", None) or {}
+    sd_ = getattr(sip, "data", None) or {}
+    pd = getattr(summary, "data", None) or {}
+    prows = getattr(summary, "rows", None) or []
+    pg = gd.get("primary_goal") or {}
+
+    def _n(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    name = pg.get("name") or "Your goal"
+    target = _n(pg.get("target_rs")) or _n(sd_.get("goal_amount")) or 0.0
+    current = _n(sd_.get("current_corpus")) or _n(pd.get("total_value_rs")) or 0.0
+    on_track = _n(pg.get("on_track_pct")) or 0.0
+    years = int(_n(sd_.get("years")) or 20)
+    rate = _n(sd_.get("annual_rate_pct")) or 12.0
+    sip_needed = _n(sd_.get("sip_needed")) or 0.0
+    base_monthly = _n(sd_.get("monthly_sip")) or 10000.0
+    gap = max(0.0, target - current)               # funding gap: target − corpus
+    funded_pct = round(current / target * 100, 1) if target else 0.0
+    # Badge uses the goal record's on_track_pct (SIP-adequacy signal); the
+    # progress bar separately shows funded_pct (corpus vs target).
+    on_track_flag = on_track >= 80
+
+    # ── Chart series: needed SIP vs illustrative baseline, both to `years` ────
+    needed_curve = _sip_curve(sip_needed, years, rate / 100.0) if sip_needed else []
+    base_curve = _sip_curve(base_monthly, years, rate / 100.0)
+    points = []
+    for y in range(years + 1):
+        p = {"year": y, "target": round(target)}
+        if needed_curve:
+            p["needed"] = needed_curve[y]
+        p["baseline"] = base_curve[y]
+        points.append(p)
+    base_final = base_curve[-1] if base_curve else 0.0
+
+    chart = {
+        "title": f"Projected SIP growth over {years} years @ {rate:.0f}%",
+        "subtitle": (f"Growth of contributions only — excludes your existing {_inr_crl(current)} "
+                     f"corpus, which compounds separately."),
+        "target": round(target),
+        "series": [
+            *( [{"key": "needed", "color": "green", "dash": "solid",
+                 "label": f"{_inr_rupees(sip_needed)}/mo → {_inr_crl(target)}"}] if sip_needed else [] ),
+            {"key": "baseline", "color": "grey", "dash": "dashed",
+             "label": f"{_inr_rupees(base_monthly)}/mo → {_inr_crl(base_final)}"},
+            {"key": "target", "color": "red", "dash": "dotted", "label": f"Target {_inr_crl(target)}"},
+        ],
+        "points": points,
+    }
+
+    # ── Allocation donut ─────────────────────────────────────────────────────
+    eq = round(_n(pd.get("equity_pct")) or 0)
+    gold = round(_n(pd.get("gold_pct")) or 0)
+    debt = round(_n(pd.get("debt_pct")) or 0)
+    other = round(_n(pd.get("other_pct")) or 0)
+    slices = [s for s in (
+        {"label": "Equity", "pct": eq, "color": "blue"},
+        {"label": "Gold", "pct": gold, "color": "amber"},
+        {"label": "Debt", "pct": debt, "color": "grey"},
+        {"label": "Other", "pct": other, "color": "green"},
+    ) if s["pct"] > 0]
+    top_stock = pd.get("top_stock") or next(
+        ({"name": r.get("label"), "pct": r.get("value")} for r in prows if r.get("type") == "stock_exposure"), None)
+    top_sector = pd.get("top_sector") or next(
+        ({"name": r.get("label"), "pct": r.get("value")} for r in prows if r.get("type") == "sector"), None)
+    donut = {
+        "title": f"Portfolio today — {_inr_crl(current)}",
+        "slices": slices,
+        "top_stock": (f"{top_stock.get('name')} {float(top_stock.get('pct') or 0):.1f}%" if top_stock else None),
+        "top_sector": (f"{top_sector.get('name')} {round(float(top_sector.get('pct') or 0))}%" if top_sector else None),
+    }
+
+    overlap_n = pd.get("high_overlap_pairs")
+    alert = ({
+        "text": (f"{overlap_n} high-overlap fund pairs — funds holding largely the same stocks. "
+                 f"Consolidating reduces hidden concentration and can make exits more tax-efficient."),
+    } if overlap_n else None)
+
+    return {
+        "hero": {
+            "title": f"{name} — {_inr_crl(target)}",
+            "badge": (f"On track · {track_pct:.0f}%" if on_track_flag else f"Not on track · {track_pct:.0f}%"),
+            "tone": "accent" if on_track_flag else "warm",
+            "funded_label": f"{_inr_crl(current)} funded ({funded_pct:.1f}%)",
+            "target_label": f"{_inr_crl(target)} target",
+            "funded_pct": funded_pct,
+        },
+        "kpis": [
+            {"label": "Target corpus", "value": _inr_crl(target)},
+            {"label": "Current corpus", "value": _inr_crl(current)},
+            {"label": "Gap", "value": _inr_crl(gap), "tone": "neg"},
+            {"label": "SIP needed", "value": f"{_inr_rupees(sip_needed)}/mo", "tone": "pos"},
+        ],
+        "chart": chart,
+        "donut": donut,
+        "alert": alert,
+        "actions": [
+            {"label": "Review overlapping funds", "intent": "review_overlap"},
+            {"label": "Recalculate with my real SIP", "intent": "recalc_sip"},
+        ],
+        "caveat": ("Assumes a constant 12% annual return and excludes taxes, fees and inflation. "
+                   "Illustrative, not a guarantee. Not financial advice."),
+    }
+
+
 # ── Concentration widget builder ──────────────────────────────────────────
 
 _NUM_WORD = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}

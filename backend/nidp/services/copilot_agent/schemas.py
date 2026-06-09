@@ -60,6 +60,7 @@ class WidgetType(str, Enum):
     ALLOCATION_REVIEW = "allocation_review"
     RISK_ASSESSMENT = "risk_assessment"
     INSTRUMENT_DETAIL = "instrument_detail"
+    GOAL_SIMULATION = "goal_simulation"
     NONE = "none"
 
 

@@ -1016,6 +1016,137 @@ function RiskAssessmentWidget({ data }: { data: any }) {
 }
 
 // ── dispatcher ─────────────────────────────────────────────────────────────
+// ── goal_simulation ─────────────────────────────────────────────────────────
+// "Simulate my plan" — goal-funding progress, target/current/gap/SIP-needed
+// KPIs, a projected-SIP-growth line chart (needed vs baseline vs target), the
+// allocation donut, an overlap nudge, and actions. Data: build_goal_simulation_widget.
+const DONUT_COLOR: Record<string, string> = { blue: "#3B82F6", amber: "#F59E0B", grey: "#9CA3AF", green: "#10B981", red: "#E5484D" };
+const KPI_TONE: Record<string, string> = { neg: "text-neg", pos: "text-accent" };
+
+function GoalKpi({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="rounded-lg bg-surface-2/60 border border-hairline px-4 py-3 flex-1 min-w-[130px]">
+      <div className="text-[12.5px] text-ink-3 leading-tight">{label}</div>
+      <div className={cn("font-display text-[26px] tracking-tightish mt-1 leading-none", tone ? KPI_TONE[tone] : "text-ink")}>{value}</div>
+    </div>
+  );
+}
+
+function GoalSimulationWidget({ data }: { data: any }) {
+  if (!data) return null;
+  const { hero, kpis = [], chart, donut, alert, actions = [], caveat } = data;
+  const heroWarm = hero?.tone !== "accent";
+  const yFmt = (v: number) => `₹${Math.round(v / 1e5)}L`;
+  const dashFor = (d: string) => (d === "dotted" ? "2 4" : d === "dashed" ? "8 6" : undefined);
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      {hero && (
+        <div className="rounded-lg border border-hairline p-5" style={{ background: heroWarm ? "rgb(var(--warm) / 0.10)" : "rgb(var(--accent) / 0.08)" }}>
+          <div className="flex items-start justify-between gap-3">
+            <Heading>{hero.title}</Heading>
+            {hero.badge && <ToneBadge text={hero.badge} tone={heroWarm ? "neg" : "accent"} />}
+          </div>
+          <div className="mt-3"><Bar pct={hero.funded_pct} color={BAR.blue} /></div>
+          <div className="flex items-baseline justify-between gap-3 mt-1.5 text-[12.5px] text-ink-3">
+            <span>{hero.funded_label}</span>
+            <span>{hero.target_label}</span>
+          </div>
+        </div>
+      )}
+
+      {kpis.length > 0 && (
+        <div className="flex flex-wrap gap-2.5">
+          {kpis.map((k: any, i: number) => <GoalKpi key={i} label={k.label} value={k.value} tone={k.tone} />)}
+        </div>
+      )}
+
+      {chart?.points?.length > 0 && (
+        <Card>
+          <Heading>{chart.title}</Heading>
+          {chart.subtitle && <p className="text-[13px] text-ink-3 leading-relaxed mt-1">{chart.subtitle}</p>}
+          <div className="flex flex-wrap gap-x-5 gap-y-1.5 mt-3">
+            {chart.series.map((s: any, i: number) => (
+              <span key={i} className="inline-flex items-center gap-1.5 text-[12px] text-ink-2">
+                <svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke={BAR[s.color] || BAR.green} strokeWidth="2.5" strokeDasharray={dashFor(s.dash)} /></svg>
+                {s.label}
+              </span>
+            ))}
+          </div>
+          <div className="h-[300px] mt-3 -ml-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chart.points} margin={{ top: 6, right: 10, bottom: 4, left: 0 }}>
+                <CartesianGrid stroke="rgb(var(--hairline))" vertical={false} />
+                <XAxis dataKey="year" tick={{ fontSize: 11, fill: "rgb(var(--ink-3))" }} tickLine={false} axisLine={false} />
+                <YAxis tickFormatter={yFmt} tick={{ fontSize: 11, fill: "rgb(var(--ink-3))" }} tickLine={false} axisLine={false} width={48} />
+                {chart.points[0]?.needed !== undefined && (
+                  <Line type="monotone" dataKey="needed" stroke={BAR.green} strokeWidth={2.5} dot={false} isAnimationActive={false} />
+                )}
+                <Line type="monotone" dataKey="baseline" stroke={DONUT_COLOR.grey} strokeWidth={2} strokeDasharray="8 6" dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="target" stroke={BAR.red} strokeWidth={1.5} strokeDasharray="2 4" dot={false} isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      )}
+
+      {donut?.slices?.length > 0 && (
+        <Card>
+          <Heading>{donut.title}</Heading>
+          <div className="flex items-center gap-5 mt-3 flex-wrap">
+            <div className="h-[160px] w-[160px] shrink-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={donut.slices} dataKey="pct" nameKey="label" cx="50%" cy="50%" innerRadius={48} outerRadius={76} paddingAngle={1} stroke="none">
+                    {donut.slices.map((s: any, i: number) => <Cell key={i} fill={DONUT_COLOR[s.color] || DONUT_COLOR.grey} />)}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex-1 min-w-[200px]">
+              {donut.slices.map((s: any, i: number) => (
+                <div key={i} className="flex items-center justify-between gap-3 py-1">
+                  <span className="inline-flex items-center gap-2 text-[14px] text-ink-2">
+                    <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: DONUT_COLOR[s.color] || DONUT_COLOR.grey }} />{s.label}
+                  </span>
+                  <span className="font-display text-[15px] text-ink">{s.pct}%</span>
+                </div>
+              ))}
+              {(donut.top_stock || donut.top_sector) && (
+                <div className="border-t border-hairline mt-2 pt-2 text-[13px] text-ink-3 flex flex-col gap-1">
+                  {donut.top_stock && <div className="flex justify-between"><span>Top stock</span><span className="text-ink-2">{donut.top_stock}</span></div>}
+                  {donut.top_sector && <div className="flex justify-between"><span>Top sector</span><span className="text-ink-2">{donut.top_sector}</span></div>}
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {alert?.text && (
+        <div className="rounded-lg border border-hairline p-5" style={{ background: "rgb(var(--warm) / 0.10)" }}>
+          <div className="flex items-start gap-2.5">
+            <span className="mt-1 h-3.5 w-3.5 rounded-[3px] border-2 border-warm shrink-0" />
+            <p className="text-[14px] text-ink-2 leading-relaxed">{alert.text}</p>
+          </div>
+        </div>
+      )}
+
+      {actions.length > 0 && (
+        <div className="flex flex-wrap gap-2.5">
+          {actions.map((a: any, i: number) => (
+            <span key={i} className="inline-flex items-center gap-1 px-3.5 py-2 rounded-md border border-hairline-2 text-[12.5px] text-ink-2">
+              {a.label} <span className="text-ink-3">↗</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {caveat && <p className="text-[12px] text-ink-3 leading-relaxed px-1">{caveat}</p>}
+    </div>
+  );
+}
+
+// ── dispatcher ─────────────────────────────────────────────────────────────
 export function ChatWidget({ widget }: { widget?: { widget_type?: string; data?: any } }) {
   if (!widget?.widget_type) return null;
   try {
@@ -1029,6 +1160,7 @@ export function ChatWidget({ widget }: { widget?: { widget_type?: string; data?:
       case "allocation_review":  return <AllocationReviewWidget data={widget.data} />;
       case "instrument_detail":  return <InstrumentDetailWidget data={widget.data} />;
       case "risk_assessment":    return <RiskAssessmentWidget data={widget.data} />;
+      case "goal_simulation":    return <GoalSimulationWidget data={widget.data} />;
     }
   } catch {
     return null;

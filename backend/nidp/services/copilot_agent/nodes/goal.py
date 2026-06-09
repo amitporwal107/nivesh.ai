@@ -280,8 +280,15 @@ async def goal_node(state: CopilotState) -> dict:
     # Prefer SIP_PLAN widget over GOAL_TRACKER when a projection was computed
     sip_tr = next((r for r in tool_results if r.widget_type == WidgetType.SIP_PLAN and r.ok), None)
     goal_tr = next((r for r in tool_results if r.widget_type == WidgetType.GOAL_TRACKER and r.ok), None)
+    summary_tr = next((r for r in tool_results if r.tool_name == "get_portfolio_summary" and r.ok), None)
 
-    if sip_tr:
+    if goal_tr and sip_tr:
+        # "Simulate my plan" — the comprehensive goal-simulation widget (progress,
+        # KPIs, SIP-growth chart, allocation donut, overlap nudge, actions).
+        from services.copilot_tools.portfolio import build_goal_simulation_widget
+        widget_type = WidgetType.GOAL_SIMULATION
+        widget_data = build_goal_simulation_widget(goal_tr, sip_tr, summary_tr)
+    elif sip_tr:
         widget_type = WidgetType.SIP_PLAN
         # Build SipPlanData-compatible structure that SipPlanWidget can render.
         # The raw SipResult has projection math; we wrap it into allocations format.
