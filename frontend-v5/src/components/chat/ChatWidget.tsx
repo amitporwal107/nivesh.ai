@@ -9,6 +9,7 @@
  */
 import { Fragment } from "react";
 import { cn } from "@/lib/utils";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 const BAR: Record<string, string> = {
   blue: "#3B82F6",
@@ -854,7 +855,12 @@ function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
           <Heading>Trailing returns (CAGR)</Heading>
           <div className="flex flex-wrap gap-2.5 mt-3">
             {data.returns.map((r, i) => (
-              <StatTile key={i} label={r.label} value={r.value} valueCls={r.muted ? "text-ink" : "text-pos"} />
+              <StatTile
+                key={i}
+                label={r.label}
+                value={r.value}
+                valueCls={r.muted ? "text-ink" : (String(r.value).trim().startsWith("-") ? "text-neg" : "text-pos")}
+              />
             ))}
           </div>
         </div>

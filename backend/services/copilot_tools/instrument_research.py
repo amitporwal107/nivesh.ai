@@ -65,6 +65,14 @@ def _pick(d: Dict[str, Any], *keys: str) -> Optional[float]:
     return None
 
 
+def _ratio(v: Any) -> Optional[float]:
+    """A valuation ratio (P/E, P/B, D/E) is only meaningful when > 0. NIDP returns
+    a literal 0.0 when the underlying input is missing, so treat 0/negative as
+    'not available' rather than render a misleading 0.00."""
+    n = _num(v)
+    return n if (n is not None and n > 0) else None
+
+
 def _money(v: Optional[float], decimals: int = 2) -> Optional[str]:
     if v is None:
         return None
@@ -158,12 +166,14 @@ def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[
         caption = f"Top {math.ceil(rank / size * 100)}% in {sector}" if sector else f"Top {math.ceil(rank / size * 100)}%"
         widget["rank"] = {"value": int(rank), "of": int(size), "label": "Sector rank", "caption": caption}
 
-    # Fundamental analysis.
+    # Fundamental analysis. P/E, P/B, D/E omit when not > 0 (NIDP returns 0.0
+    # for a missing input — rendering "0.00" would be a false reading).
+    pe, pb, de = _ratio(feat.get("pe_ttm")), _ratio(feat.get("pb")), _ratio(feat.get("debt_to_equity"))
     f_rows = _compact([
-        _row("P / E", f"{feat['pe_ttm']:.1f}" if _num(feat.get("pe_ttm")) is not None else None),
-        _row("P / B", f"{feat['pb']:.2f}" if _num(feat.get("pb")) is not None else None),
+        _row("P / E", f"{pe:.1f}" if pe is not None else None),
+        _row("P / B", f"{pb:.2f}" if pb is not None else None),
         _row("ROE", _pct(_num(feat.get("roe_pct")))),
-        _row("Debt / equity", f"{feat['debt_to_equity']:.2f}" if _num(feat.get("debt_to_equity")) is not None else None),
+        _row("Debt / equity", f"{de:.2f}" if de is not None else None),
         _row("Revenue growth (YoY)", _pct(_pick(feat, "revenue_growth_yoy_pct"), signed=True)),
         _row("Net margin", _pct(_pick(feat, "profit_margin_pct", "net_margin_pct"))),
     ])
@@ -316,11 +326,12 @@ def build_mf_widget(scheme_code: str, sc: Dict[str, Any]) -> Dict[str, Any]:
             "change_positive": (nav_change >= 0) if nav_change is not None else None,
         }
 
-    # Quality score + category rank.
+    # Quality score + category rank. Derive label AND tone from the score so
+    # they never disagree (NIDP's own quality_label has drifted from the score
+    # for some schemes — e.g. "Weak" at 56).
     q_score = _pick(sc, "composite_score", "quality_score")
     if q_score is not None:
-        label = sc.get("quality_label") or _quality_label_tone(q_score)[0]
-        _, tone = _quality_label_tone(q_score)
+        label, tone = _quality_label_tone(q_score)
         widget["quality"] = {"score": int(round(q_score)), "label": label, "tone": tone}
 
     rank = _pick(sc, "composite_rank", "category_rank")
@@ -361,14 +372,14 @@ def build_mf_widget(scheme_code: str, sc: Dict[str, Any]) -> Dict[str, Any]:
                 lbl, tone = "Top quartile", "pos"
             widget["fundamental"]["badge"] = {"text": lbl, "tone": tone}
 
-    # Technical analysis (NAV-based).
+    # Technical analysis (NAV-based). Only real NAV indicators + max drawdown —
+    # we deliberately DON'T synthesise a "vs benchmark" row from alpha_1y, whose
+    # values in the scorecard are unreliable (observed -42% on a large-cap fund).
     t_rows = _compact([
         _row("NAV trend", sc.get("nav_trend"), "pos" if (sc.get("nav_trend") or "").lower().startswith("up") else None),
         _row("50-day MA", _money(_pick(sc, "nav_sma50", "sma50"))),
         _row("200-day MA", _money(_pick(sc, "nav_sma200", "sma200"))),
         _row("RSI (14, NAV)", f"{_pick(sc, 'nav_rsi14', 'rsi14'):.1f}" if _pick(sc, "nav_rsi14", "rsi14") is not None else None),
-        _row("vs benchmark (1Y)", _pct(_pick(sc, "alpha_1y", "excess_return_1y"), signed=True),
-             "pos" if (_pick(sc, "alpha_1y", "excess_return_1y") or 0) >= 0 else "neg"),
         _row("Max drawdown (1Y)", _pct(_pick(sc, "max_drawdown_1y", "maxdd_1y")), "neg"),
     ])
     if t_rows:
