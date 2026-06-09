@@ -121,10 +121,25 @@ async def stock_node(state: CopilotState) -> dict:
         m = re.search(r"\b([A-Z]{2,10})\b", user_msg)
         symbol = m.group(1) if m else "NIFTY50"
 
-    tool_results = await _fetch_stock_data(symbol)
-    tool_context = "TOOL_DATA:\n" + "\n".join(
-        f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results
-    )
+    # Fetch the per-section tool data AND the composed research card (quality
+    # score + sector rank + fundamental/technical) concurrently. The research
+    # card drives the instrument_detail widget; its summary also grounds the LLM.
+    import asyncio as _asyncio
+    research = None
+    try:
+        research_mod = __import__("services.copilot_tools.instrument_research", fromlist=["get_stock_research"])
+        tool_results, research = await _asyncio.gather(
+            _fetch_stock_data(symbol),
+            research_mod.get_stock_research(symbol),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("stock research fetch failed for %s: %s", symbol, exc)
+        tool_results = await _fetch_stock_data(symbol)
+
+    ctx_lines = [f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results]
+    if research is not None and research.ok:
+        ctx_lines.insert(0, f"  [instrument_research] {research.as_llm_context()}")
+    tool_context = "TOOL_DATA:\n" + "\n".join(ctx_lines)
 
     user_msg = next(
         (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
@@ -142,9 +157,17 @@ async def stock_node(state: CopilotState) -> dict:
     ])
     answer_text = resp.content
 
+    widget_type = WidgetType.NONE
+    widget_data: dict = {}
+    if research is not None and research.ok and research.widget:
+        widget_type = WidgetType.INSTRUMENT_DETAIL
+        widget_data = research.widget
+
     response = AgentResponse(
         agent=AgentName.STOCK,
         text=answer_text,
+        widget_type=widget_type,
+        widget_data=widget_data,
         tool_results=tool_results,
     )
     return {

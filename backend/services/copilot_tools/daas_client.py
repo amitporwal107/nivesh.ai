@@ -153,6 +153,27 @@ async def get_stock_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     return data.get("data")
 
 
+async def get_stock_scores(symbol: str) -> Optional[Dict[str, Any]]:
+    """Fetch the latest persisted V3 composite scores + sector ranking for a symbol.
+
+    Calls GET /v1/stocks/scores/{symbol} (nidp.v_v3_stock_scores_latest, with the
+    sector-ranking columns from migration 086): quality_score, health_score,
+    sector, industry, sector_rank, sector_size, sector_pct, band,
+    fundamental_score, technical_score, final_score.
+
+    Returns the score dict or None on 404 / connectivity failure so callers can
+    omit the quality/rank section rather than fabricate it.
+    """
+    try:
+        data = await _get(f"/stocks/scores/{symbol}")
+    except DaasError as exc:
+        logger.debug("get_stock_scores(%s): %s", symbol, exc)
+        return None
+    if data is None:
+        return None
+    return data.get("data") or None
+
+
 async def get_quarterly_financials(
     symbol: str,
     limit: int = 8,

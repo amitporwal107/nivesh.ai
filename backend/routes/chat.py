@@ -908,7 +908,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                     agent_block = {"id": agent_id or "risk_analyst", "confidence": 85}
                     # Structured V5-native widgets pass through verbatim — no
                     # insight_card transform.
-                    if wt_str in ("fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "risk_assessment"):
+                    if wt_str in ("fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "risk_assessment", "instrument_detail"):
                         widget_envelope = {
                             "widget_type": wt_str, "data": wd,
                             "freshness": freshness, "agent": agent_block,
@@ -1196,13 +1196,16 @@ async def stream_chat(request: Request):
                                         "id": agent_id or "risk_analyst",
                                         "confidence": int(round(confidence)),
                                     }
-                                    try:
-                                        from services.copilot_tools.insight_card_transformers import (
-                                            nidp_widget_to_insight_card,
-                                        )
-                                        unified = nidp_widget_to_insight_card(wt, wd)
-                                    except Exception:
-                                        unified = None
+                                    if wt == "instrument_detail":
+                                        unified = None  # V5-native widget — pass through verbatim
+                                    else:
+                                        try:
+                                            from services.copilot_tools.insight_card_transformers import (
+                                                nidp_widget_to_insight_card,
+                                            )
+                                            unified = nidp_widget_to_insight_card(wt, wd)
+                                        except Exception:
+                                            unified = None
                                     if unified is not None:
                                         widget_envelope = {
                                             "widget_type": "insight_card",

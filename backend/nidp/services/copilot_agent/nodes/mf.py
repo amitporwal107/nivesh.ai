@@ -405,6 +405,20 @@ async def mf_node(state: CopilotState) -> dict:
                 widget_data = {"rows": tr.rows, **tr.data}
                 break
 
+    # Single-scheme research question ("tell me about / is this a good fund?")
+    # → render the instrument_detail card (quality score, category rank,
+    # trailing returns, fundamental + technical, risk ratios).
+    scheme_code = state.intent.scheme_code if state.intent else None
+    if widget_type == WidgetType.NONE and scheme_code and not (is_count or is_fix or is_severity or is_cap):
+        try:
+            from services.copilot_tools.instrument_research import get_mf_research
+            research = await get_mf_research(scheme_code)
+            if research.ok and research.widget:
+                widget_type = WidgetType.INSTRUMENT_DETAIL
+                widget_data = research.widget
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("mf research fetch failed for %s: %s", scheme_code, exc)
+
     response = AgentResponse(
         agent=AgentName.MF,
         text=answer_text,
