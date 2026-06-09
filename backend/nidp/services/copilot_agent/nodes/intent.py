@@ -104,8 +104,10 @@ _P_PORTFOLIO = re.compile(
 )
 
 _P_RISK = re.compile(
-    r"\b(risk\s+(?:profile|suitability|capacity|tolerance)|"
+    r"\b(risk\s+(?:profile|suitability|capacity|tolerance|level|score|assessment|exposure|rating)|"
     r"portfolio\s+risk|my\s+risk|too\s+(?:much|aggressive|risky)|"
+    r"how\s+risk(?:y)?|risk(?:y|ier)?\s+(?:is|am|right\s+now)|"
+    r"is\s+my\s+portfolio\s+(?:too\s+)?risky|how\s+much\s+risk|"
     r"var\b|value\s+at\s+risk|volatility|drawdown|beta|"
     r"am\s+i\s+(?:over|under)(?:weight|invested|exposed)|"
     r"risk(?:y|ier)?\s+(?:stocks?|funds?|portfolio)|"
