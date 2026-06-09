@@ -498,100 +498,68 @@ async def get_tax_harvest_candidates(
     *,
     slab_rate: float = 0.30,
 ) -> PortfolioResult:
-    """Per-holding tax estimate using the FY 2025-26 capital gains engine.
-
-    Uses `capital_gains_engine.quick_tax_estimate()` which correctly applies:
-    - ₹1,25,000 LTCG exemption (shared across equity + REIT)
-    - Grandfathering (pre-31-Jan-2018 cost basis)
-    - 20% STCG / 12.5% LTCG rates + 4% cess
-    - SGB-RBI full exemption
-    - Debt MF acquired post-Apr-2023 → slab rate
-
-    Returns rows sorted: losses first (harvest immediately), then LTCG
-    with high tax liability (review urgently), then STCG.
-
-    Used for: "Which positions should I sell for tax savings?",
-              "Help me harvest tax losses", "Show my capital gains exposure"
+    """Tax-loss harvesting via services.tax_engine — the SAME engine the Tax
+    dashboard (_tax_composite) uses: loss_harvesting_candidates (FIFO-aware) plus
+    ST/LT-offset netting. The previous implementation used a flat
+    harvestable_loss x slab_rate estimate, which disagreed with the dashboard
+    (e.g. Rs 10,997 vs Rs 22,693). `slab_rate` is kept for signature
+    compatibility; canonical equity ST/LT rates are used for net savings.
     """
-    from services.capital_gains_engine import quick_tax_estimate
+    from services import tax_engine
+    from services.tax_constants import (
+        EQUITY_LTCG_EXEMPTION, EQUITY_LTCG_RATE, EQUITY_STCG_RATE,
+    )
 
-    holdings = await _load_holdings(user_id)
-    if not holdings:
+    enriched = await tax_engine._enriched_holdings(user_id)
+    if not enriched:
         return PortfolioResult(ok=False, summary="No holdings found", error="no_holdings")
 
-    rows: List[Dict[str, Any]] = []
-    ltcg_used = 0.0          # track ₹1,25,000 exemption consumed as we iterate
-    total_tax_if_sold = 0.0
-    total_harvestable_loss = 0.0
-
-    for h in holdings:
-        est = quick_tax_estimate(h, ltcg_used=ltcg_used, slab_rate=slab_rate)
-        if not est.get("ok"):
+    # Bucket unrealised GAINS by long/short term (losses handled below).
+    lt_gain = st_gain = 0.0
+    for h in enriched:
+        g = h.get("_gain") or 0.0
+        if g <= 0:
             continue
+        if tax_engine.classify_holding(h).tier == "LIKELY_LTCG":
+            lt_gain += g
+        else:  # STCG / UNKNOWN -> conservative short-term bucket
+            st_gain += g
 
-        capital_gain = est["capital_gain"]
-        tax_if_sold = est["tax_liability"]
-        is_lt = est["is_long_term"]
-        regime = est.get("tax_regime", "")
+    # Harvestable losses (FIFO-aware) -- the exact call the dashboard makes.
+    loss_scores = await tax_engine.loss_harvesting_candidates(user_id)
+    harvestable_loss = sum(abs(s.gain_rs) for s in loss_scores)
 
-        # Update LTCG exemption tracker for subsequent holdings
-        if is_lt and capital_gain > 0 and "equity" in regime:
-            ltcg_used += capital_gain
+    # Tax saved by offsetting gains with those losses: STCG first (higher rate),
+    # then LTCG, each capped at the gains actually available to offset.
+    st_offset = min(harvestable_loss, st_gain)
+    lt_offset = min(harvestable_loss - st_offset, lt_gain)
+    net_saved = round(st_offset * EQUITY_STCG_RATE + lt_offset * EQUITY_LTCG_RATE)
 
-        gain_type = (
-            "EXEMPT" if regime == "sgb_rbi_exempt" else
-            "LTCG"   if is_lt else
-            "STCG"
-        )
-        harvest_saving = abs(tax_if_sold) if capital_gain < 0 else 0.0
-
-        name = h.get("fund_name") or h.get("scheme_name") or h.get("name", "Unknown")
-        rows.append({
-            "name":             name,
-            "asset_category":   est.get("asset_category", ""),
-            "gain_type":        gain_type,
-            "capital_gain":     round(capital_gain, 0),
-            "tax_if_sold":      round(tax_if_sold, 0),
-            "tax_saved_if_harvested": round(harvest_saving, 0),
-            "holding_days":     est.get("holding_days", 0),
-            "is_long_term":     is_lt,
-            "is_grandfathered": est.get("is_grandfathered", False),
-            "tax_rate":         est.get("tax_rate", 0),
-            "tax_regime":       regime,
-            "note":             est.get("note", ""),
-        })
-
-        if capital_gain < 0:
-            total_harvestable_loss += abs(capital_gain)
-        if capital_gain > 0:
-            total_tax_if_sold += tax_if_sold
-
-    if not rows:
-        return PortfolioResult(
-            ok=True,
-            summary="Insufficient holding data for tax estimate",
-            rows=[],
-        )
-
-    # Sort: losses first, then by descending tax liability
-    rows.sort(key=lambda r: (0 if r["capital_gain"] < 0 else 1, -abs(r["tax_if_sold"])))
-
-    loss_count = sum(1 for r in rows if r["capital_gain"] < 0)
-    gain_count = len(rows) - loss_count
+    rows: List[Dict[str, Any]] = [
+        {
+            "name":       s.name,
+            "asset_type": (s.asset_type or "").replace("_", " ").title(),
+            "loss_rs":    round(abs(s.gain_rs)),
+            "tax_tier":   s.classification.tier,
+        }
+        for s in loss_scores
+    ]
+    loss_count = len(loss_scores)
     summary = (
-        f"{loss_count} loss position(s) to harvest (saving up to ₹{total_harvestable_loss * slab_rate:,.0f} tax); "
-        f"{gain_count} gain position(s) with ₹{total_tax_if_sold:,.0f} total tax if exited today"
+        f"{loss_count} loss position(s); Rs {harvestable_loss:,.0f} harvestable loss "
+        f"-> up to Rs {net_saved:,.0f} tax saved by offsetting gains "
+        f"(short-term gains Rs {st_gain:,.0f}, long-term gains Rs {lt_gain:,.0f})"
     )
     return PortfolioResult(
         ok=True,
         summary=summary,
         data={
-            "total_harvestable_loss_rs": round(total_harvestable_loss, 0),
-            "total_tax_if_sold_rs": round(total_tax_if_sold, 0),
-            "ltcg_exemption_used_rs": round(ltcg_used, 0),
-            "ltcg_exemption_remaining_rs": max(0, 125_000 - round(ltcg_used, 0)),
-            "candidate_count": len(rows),
-            "slab_rate_used": slab_rate,
+            "harvestable_loss_rs":  round(harvestable_loss),
+            "net_tax_saved_rs":     net_saved,
+            "loss_position_count":  loss_count,
+            "short_term_gain_rs":   round(st_gain),
+            "long_term_gain_rs":    round(lt_gain),
+            "ltcg_exemption_rs":    EQUITY_LTCG_EXEMPTION,
         },
         rows=rows,
     )
