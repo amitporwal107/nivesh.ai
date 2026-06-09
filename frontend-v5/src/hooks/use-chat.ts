@@ -46,3 +46,14 @@ export function useCreateChatSession() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["chat", "sessions"] }); },
   });
 }
+
+export function useDeleteChatSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => chatService.deleteSession(id),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["chat", "sessions"] });
+      qc.removeQueries({ queryKey: ["chat", "sessions", id] });
+    },
+  });
+}

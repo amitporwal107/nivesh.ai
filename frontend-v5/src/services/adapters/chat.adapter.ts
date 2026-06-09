@@ -37,10 +37,17 @@ export const ChatSendRes = z.object({
 
 export interface ChatAdapter {
   send(message: string, sessionId?: string): Promise<{ reply: string; sessionId?: string }>;
-  listSessions(): Promise<unknown[]>;
+  listSessions(): Promise<ChatSession[]>;
   createSession(title?: string): Promise<{ id: string }>;
   getSession(id: string): Promise<{ messages: ChatMessageC[] }>;
+  deleteSession(id: string): Promise<void>;
   suggestedPrompts(): Promise<string[]>;
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  updatedAt?: string;
 }
 
 export const realChatAdapter: ChatAdapter = {
@@ -66,13 +73,28 @@ export const realChatAdapter: ChatAdapter = {
     return { reply: typeof res.data === "string" ? res.data : "" };
   },
   async listSessions() {
+    // Backend returns raw session docs sorted by updated_at desc, each with
+    // session_id + an auto-title (first 50 chars of the first user message).
     const res = await http({ path: "/api/chat/sessions" });
-    return Array.isArray(res.data) ? res.data : [];
+    const arr = Array.isArray(res.data) ? res.data : [];
+    return arr
+      .map((s) => {
+        const o = s as { session_id?: string; id?: string; title?: string; updated_at?: string; created_at?: string };
+        return {
+          id: o.session_id ?? o.id ?? "",
+          title: (o.title && o.title.trim()) || "New conversation",
+          updatedAt: o.updated_at ?? o.created_at,
+        };
+      })
+      .filter((s) => s.id);
   },
   async createSession(title) {
     const res = await http({ method: "POST", path: "/api/chat/sessions", body: { title } });
     const obj = res.data as { id?: string; session_id?: string };
     return { id: obj.id ?? obj.session_id ?? "" };
+  },
+  async deleteSession(id) {
+    await http({ method: "DELETE", path: `/api/chat/sessions/${id}` });
   },
   async getSession(id) {
     // History lives at GET /api/chat/messages?session_id= (returns an array).
