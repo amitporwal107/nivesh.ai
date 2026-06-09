@@ -34,6 +34,18 @@ _VAR_RATING_THRESHOLDS = [
     (0.22, "HIGH"),
 ]
 
+# Name/category keywords that mark a fund as NON-equity. Used to classify
+# MF/ETF holdings when an explicit equity_allocation_pct isn't available on the
+# holding (the common case for CAS-imported holdings).
+_NON_EQUITY_KEYWORDS = (
+    "liquid", "money market", "overnight", "gilt", "g-sec", "bond", "debt",
+    "duration", "credit risk", "arbitrage", "gold", "silver", "ultra short",
+    "ultra-short", "short term", "short duration", "low duration",
+    "corporate bond", "banking & psu", "banking and psu", "dynamic bond",
+    "floating rate", "fixed maturity", "fmp", "income fund",
+)
+
+
 # Historical / hypothetical stress scenarios. Each entry encodes the
 # asset-class shocks needed to project portfolio drawdown. Recovery years
 # come from the post-event mean-reversion windows observed in Nifty 50.
@@ -276,13 +288,27 @@ async def get_risk_suitability(user_id: str) -> RiskResult:
         sector = h.get("sector") or "Other"
         eq_pct = h.get("equity_allocation_pct")  # for MFs
 
-        # Classify as equity
-        try:
-            is_equity = asset_type in ("STOCK", "ETF", "EQUITY") or (
-                asset_type in ("MF", "MUTUAL_FUND") and eq_pct is not None and float(eq_pct) >= 65.0
-            )
-        except (TypeError, ValueError):
-            is_equity = asset_type in ("STOCK", "ETF", "EQUITY")
+        # Classify as equity.
+        #   • direct stocks → always equity
+        #   • MF/ETF → use equity_allocation_pct when present; otherwise (the
+        #     common case — Mongo holdings don't carry it) treat the fund as
+        #     equity UNLESS its name/category marks it non-equity (debt / liquid
+        #     / gold / arbitrage). Without this, equity MFs were dropped and
+        #     equity% read ~23% for a 93%-equity portfolio.
+        name_cat = ((h.get("name") or "") + " " + str(h.get("category") or "")
+                    + " " + str(sector or "")).lower()
+        if asset_type in ("STOCK", "EQUITY"):
+            is_equity = True
+        elif asset_type in ("MF", "MUTUAL_FUND", "ETF"):
+            if eq_pct is not None:
+                try:
+                    is_equity = float(eq_pct) >= 65.0
+                except (TypeError, ValueError):
+                    is_equity = not any(kw in name_cat for kw in _NON_EQUITY_KEYWORDS)
+            else:
+                is_equity = not any(kw in name_cat for kw in _NON_EQUITY_KEYWORDS)
+        else:
+            is_equity = False
         if is_equity:
             equity_value += value
 
