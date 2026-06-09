@@ -522,6 +522,17 @@ async def run(target_date: Optional[date] = None) -> dict:
     pool = await create_pool(url)
     try:
         report = await compute_for_date(pool, target_date)
+        # Refresh the materialized v_v3_mf_primitives (migration 098) so fast
+        # reads pick up today's ranks/analytics. Non-concurrent REFRESH re-runs
+        # the heavy view query (~110s); the brief read-lock during this off-peak
+        # nightly run is acceptable. Best-effort — a failure here must not fail
+        # the analytics run.
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute("REFRESH MATERIALIZED VIEW nidp.v_v3_mf_primitives")
+            logger.info("refreshed materialized view nidp.v_v3_mf_primitives")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("v_v3_mf_primitives refresh failed: %s", exc)
         return report.as_dict() if hasattr(report, "as_dict") else {"rank_date": str(target_date)}
     finally:
         await pool.close()
