@@ -61,17 +61,32 @@ export default function ChatPage() {
   const messages = session.data?.messages ?? [];
   const sessionList = sessions.data ?? [];
 
-  const handleSend = async () => {
-    const text = composer.trim();
-    if (!text || send.isPending) return;
-    setComposer("");
+  const submitMessage = async (text: string) => {
+    const t = text.trim();
+    if (!t || send.isPending) return;
     let sid = sessionId;
     if (!sid) {
       const created = await createSession.mutateAsync(undefined);
       sid = created.id;
       setSessionId(sid);
     }
-    await send.mutateAsync({ message: text, sessionId: sid });
+    await send.mutateAsync({ message: t, sessionId: sid });
+  };
+
+  const handleSend = async () => {
+    const text = composer.trim();
+    if (!text || send.isPending) return;
+    setComposer("");
+    await submitMessage(text);
+  };
+
+  // Widget action chips → drive a follow-up. Some send immediately; "recalc"
+  // prefills the composer so the user can type their real SIP amount.
+  const handleWidgetAction = (a: { intent?: string; query?: string; label?: string }) => {
+    if (a.intent === "review_overlap") void submitMessage("Which of my funds overlap the most?");
+    else if (a.intent === "recalc_sip") setComposer("Recalculate my retirement plan with a monthly SIP of ₹");
+    else if (a.query) void submitMessage(a.query);
+    else if (a.label) void submitMessage(a.label);
   };
 
   // Start a fresh thread — old conversations stay in history.
@@ -257,7 +272,7 @@ export default function ChatPage() {
                 )}
                 <div className={isUser ? "" : "flex-1 min-w-0"}>
                   {hasWidget ? (
-                    <ChatWidget widget={widget} />
+                    <ChatWidget widget={widget} onAction={handleWidgetAction} />
                   ) : (
                     <p className={isUser ? "text-[14px]" : "text-[15.5px] leading-relaxed whitespace-pre-wrap"}>{m.content}</p>
                   )}

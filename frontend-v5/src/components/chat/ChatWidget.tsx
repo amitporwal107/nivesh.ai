@@ -1032,7 +1032,7 @@ function GoalKpi({ label, value, tone }: { label: string; value: string; tone?: 
   );
 }
 
-function GoalSimulationWidget({ data }: { data: any }) {
+function GoalSimulationWidget({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
   if (!data) return null;
   const { hero, kpis = [], chart, donut, alert, actions = [], caveat } = data;
   const heroWarm = hero?.tone !== "accent";
@@ -1134,9 +1134,15 @@ function GoalSimulationWidget({ data }: { data: any }) {
       {actions.length > 0 && (
         <div className="flex flex-wrap gap-2.5">
           {actions.map((a: any, i: number) => (
-            <span key={i} className="inline-flex items-center gap-1 px-3.5 py-2 rounded-md border border-hairline-2 text-[12.5px] text-ink-2">
+            <button
+              key={i}
+              type="button"
+              onClick={() => onAction?.(a)}
+              disabled={!onAction}
+              className="inline-flex items-center gap-1 px-3.5 py-2 rounded-md border border-hairline-2 text-[12.5px] text-ink-2 hover:bg-surface-2 hover:text-ink transition-colors disabled:opacity-60 disabled:cursor-default"
+            >
               {a.label} <span className="text-ink-3">↗</span>
-            </span>
+            </button>
           ))}
         </div>
       )}
@@ -1147,7 +1153,10 @@ function GoalSimulationWidget({ data }: { data: any }) {
 }
 
 // ── dispatcher ─────────────────────────────────────────────────────────────
-export function ChatWidget({ widget }: { widget?: { widget_type?: string; data?: any } }) {
+// `onAction` lets a widget's action chips drive a follow-up — the host passes a
+// handler that submits a chat query (or prefills the composer).
+export type WidgetAction = { intent?: string; label?: string; query?: string };
+export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: string; data?: any }; onAction?: (a: WidgetAction) => void }) {
   if (!widget?.widget_type) return null;
   try {
     switch (widget.widget_type) {
@@ -1160,7 +1169,7 @@ export function ChatWidget({ widget }: { widget?: { widget_type?: string; data?:
       case "allocation_review":  return <AllocationReviewWidget data={widget.data} />;
       case "instrument_detail":  return <InstrumentDetailWidget data={widget.data} />;
       case "risk_assessment":    return <RiskAssessmentWidget data={widget.data} />;
-      case "goal_simulation":    return <GoalSimulationWidget data={widget.data} />;
+      case "goal_simulation":    return <GoalSimulationWidget data={widget.data} onAction={onAction} />;
     }
   } catch {
     return null;

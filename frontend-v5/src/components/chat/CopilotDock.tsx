@@ -78,19 +78,30 @@ export function CopilotDock() {
   // The dock is redundant on the full chat page — let that page own the screen.
   if (location.pathname === "/chat") return null;
 
-  const handleSend = async () => {
-    const text = composer.trim();
-    if (!text || send.isPending) return;
-    setComposer("");
-    // Mint the session up-front (same flow as the full Chat page) so the
-    // history query — keyed by sessionId — has a real id to read messages back.
+  const submitMessage = async (text: string) => {
+    const t = text.trim();
+    if (!t || send.isPending) return;
     let sid = sessionId;
     if (!sid) {
       const created = await createSession.mutateAsync(undefined);
       sid = created.id;
       setSessionId(sid);
     }
-    await send.mutateAsync({ message: text, sessionId: sid, page: page ?? undefined });
+    await send.mutateAsync({ message: t, sessionId: sid, page: page ?? undefined });
+  };
+
+  const handleSend = async () => {
+    const text = composer.trim();
+    if (!text || send.isPending) return;
+    setComposer("");
+    await submitMessage(text);
+  };
+
+  const handleWidgetAction = (a: { intent?: string; query?: string; label?: string }) => {
+    if (a.intent === "review_overlap") void submitMessage("Which of my funds overlap the most?");
+    else if (a.intent === "recalc_sip") setComposer("Recalculate my retirement plan with a monthly SIP of ₹");
+    else if (a.query) void submitMessage(a.query);
+    else if (a.label) void submitMessage(a.label);
   };
 
   const handleNew = () => {
@@ -194,7 +205,7 @@ export function CopilotDock() {
                 )}
                 <div className={isUser ? "" : "flex-1 min-w-0"}>
                   {hasWidget ? (
-                    <ChatWidget widget={widget} />
+                    <ChatWidget widget={widget} onAction={handleWidgetAction} />
                   ) : (
                     <p className={isUser ? "text-[13.5px]" : "text-[14px] leading-relaxed whitespace-pre-wrap"}>{m.content}</p>
                   )}
