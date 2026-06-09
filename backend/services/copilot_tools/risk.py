@@ -270,6 +270,141 @@ def build_risk_overview_widget(pra_tr: Any, suit_tr: Any) -> Dict[str, Any]:
     }
 
 
+def _inr_in(v: Any) -> str:
+    """Indian-grouped rupee string, e.g. 108211 → '₹1,08,211'."""
+    import re as _re
+    try:
+        n = int(round(float(v)))
+    except (TypeError, ValueError):
+        return "—"
+    s = str(abs(n))
+    if len(s) > 3:
+        last3, rest = s[-3:], s[:-3]
+        rest = _re.sub(r"(\d)(?=(\d\d)+$)", r"\1,", rest)
+        s = f"{rest},{last3}"
+    return ("-" if n < 0 else "") + "₹" + s
+
+
+def build_risk_assessment_widget(pra_tr: Any, suit_tr: Any, stress_tr: Any) -> Dict[str, Any]:
+    """Comprehensive risk view: an overall suitability rating, VaR / volatility /
+    equity KPI tiles, the stress-test downside per scenario (₹ value-after +
+    loss), the key risk drivers, and a profile-misalignment alert. Built from
+    the PRA, suitability and stress tool results — nothing invented."""
+    pd = getattr(pra_tr, "data", None) or {}
+    sd = getattr(suit_tr, "data", None) or {}
+    std = getattr(stress_tr, "data", None) or {}
+
+    def _n(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    vol = _n(pd.get("volatility_annual_pct"))
+    equity = _n(sd.get("equity_pct"))
+    smallmid = _n(sd.get("small_mid_pct"))
+    rating = str(sd.get("risk_rating") or pd.get("risk_rating") or "—").upper()
+    profile = str(sd.get("user_profile") or "moderate").replace("_", " ")
+    misalignment = sd.get("misalignment") or []
+    current_value = (_n(std.get("current_value_rs")) or _n(sd.get("total_portfolio_value"))
+                     or _n(pd.get("portfolio_value_rs")))
+
+    # ── VaR: parametric 1-day / 10-day from annual volatility ─────────────────
+    # σ_daily = σ_annual / √252; 95% VaR = 1.645 · σ_daily · value; 10-day = ·√10.
+    var_1d = var_10d = None
+    if vol and current_value:
+        daily_sigma = (vol / 100.0) / (252 ** 0.5)
+        var_1d = 1.645 * daily_sigma * current_value
+        var_10d = var_1d * (10 ** 0.5)
+    # VaR model confidence: parametric/normal assumption → medium model risk.
+    var_model_risk = "medium" if (var_1d is not None) else "high"
+
+    # Overall rating tone
+    _tone = {"VERY HIGH": "neg", "HIGH": "neg", "MEDIUM": "warm", "LOW": "accent"}.get(rating, "warm")
+    hero = {
+        "tone": _tone,
+        "title": "Overall suitability risk",
+        "rating": rating,
+        "profile": profile,
+        "var_model_risk": var_model_risk,
+    }
+
+    kpis = []
+    if var_1d is not None:
+        kpis.append({"label": "1-day 95% VaR", "value": _inr_in(var_1d)})
+    if var_10d is not None:
+        kpis.append({"label": "10-day 95% VaR", "value": _inr_in(var_10d)})
+    if vol is not None:
+        kpis.append({"label": "Annual volatility", "value": f"{vol:.1f}%"})
+    if equity is not None:
+        kpis.append({"label": "Equity allocation", "value": f"{round(equity)}%"})
+
+    # ── Stress-test downside ──────────────────────────────────────────────────
+    scenarios = std.get("scenarios") or []
+    base = current_value or _n(std.get("current_value_rs"))
+    rows = []
+    any_recovery = False
+    s_sorted = sorted(scenarios, key=lambda s: _n(s.get("drop_pct")) or 0)  # worst (most negative) first
+    max_drop = max((abs(_n(s.get("drop_pct")) or 0) for s in scenarios), default=1) or 1
+    for s in s_sorted:
+        drop = _n(s.get("drop_pct"))
+        after = _n(s.get("stressed_value_rs"))
+        if drop is None or after is None:
+            continue
+        loss = (base - after) if base else None
+        rec = s.get("recovery_years")
+        if rec:
+            any_recovery = True
+        ad = abs(drop)
+        color = "red" if ad >= 25 else "amber" if ad >= 15 else "blue"
+        rows.append({
+            "name": s.get("name") or s.get("key", "Scenario"),
+            "drop_label": f"−{ad:.1f}%",
+            "bar_pct": round(ad / max_drop * 100, 1),
+            "color": color,
+            "value_after": _inr_in(after),
+            "loss": _inr_in(loss) if loss is not None else None,
+            "recovery_years": rec,
+        })
+    stress = ({
+        "title": "Stress-test downside",
+        "subtitle": (f"Estimated portfolio value after each scenario (base ≈ {_inr_in(base)})."
+                     + ("" if any_recovery else " Recovery horizons: data unavailable.")),
+        "rows": rows,
+    } if rows else None)
+
+    # ── Key risk drivers ──────────────────────────────────────────────────────
+    drivers = []
+    if equity is not None and equity >= 60:
+        drivers.append(f"High equity concentration at {round(equity)}%")
+    if smallmid is not None and smallmid >= 10:
+        drivers.append(f"Small/mid exposure at {round(smallmid)}% can amplify crash drawdowns")
+    if rows:
+        drivers.append(f"Stress sensitivity is highest in a {rows[0]['name'].split('(')[0].strip()}")
+
+    # ── Misalignment alert ────────────────────────────────────────────────────
+    alert = None
+    if misalignment:
+        body = (str(misalignment[0]) if isinstance(misalignment, (list, tuple)) else str(misalignment))
+        alert = {
+            "title": "Misalignment alert",
+            "body": (f"Portfolio risk is above a {profile} profile. Suggested action: reduce equity "
+                     f"and small/mid exposure, and rebalance toward lower-volatility debt, gold, "
+                     f"international, or alternatives in a tax-aware manner."),
+            "detail": body,
+        }
+
+    return {
+        "hero": hero,
+        "kpis": kpis,
+        "stress": stress,
+        "drivers": {"title": "Key risk drivers", "items": drivers} if drivers else None,
+        "alert": alert,
+        "caveat": ("Risk metrics and asset-class stress assumptions only — scheme-level analysis isn't "
+                   "included here. VaR is a parametric estimate, not a guarantee. Not financial advice."),
+    }
+
+
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 async def _load_holdings(user_id: str) -> List[Dict[str, Any]]:

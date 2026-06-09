@@ -718,6 +718,297 @@ function AllocationReviewWidget({ data }: { data: any }) {
   );
 }
 
+// ── instrument_detail (stock / mutual-fund detail card) ────────────────────
+// One card, two variants keyed by `data.kind`. Backend (NIDP DaaS) produces the
+// shape deterministically; every value here is read straight from `data` — the
+// widget invents nothing. Missing sections are omitted, never faked.
+
+const TONE_HEX: Record<string, string> = {
+  pos: "#0E8A55",   // --accent / --pos  (green)
+  warm: "#B86A12",  // --warm            (amber)
+  neg: "#C5303E",   // --neg             (red)
+  grey: "#9CA3AF",
+};
+
+function toneText(tone?: string): string {
+  return tone === "pos" ? "text-pos" : tone === "neg" ? "text-neg" : tone === "warm" ? "text-warm" : "text-ink";
+}
+
+/** Single-value score ring, coloured by tone. Number centred, no inner sublabel
+ *  (the qualitative label sits beside it, matching the design). */
+function ScoreDonut({ score, tone = "pos", size = 96 }: { score: number; tone?: string; size?: number }) {
+  const sw = 9;
+  const r = (size - sw - 2) / 2;
+  const C = 2 * Math.PI * r;
+  const dash = C * Math.min(1, Math.max(0, score / 100));
+  const cx = size / 2;
+  const color = TONE_HEX[tone] ?? TONE_HEX.pos;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`Quality score ${score} out of 100`} className="shrink-0">
+      <circle cx={cx} cy={cx} r={r} fill="none" stroke="rgb(var(--surface-3))" strokeWidth={sw} />
+      <circle cx={cx} cy={cx} r={r} fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round"
+        strokeDasharray={`${dash} ${C - dash}`} transform={`rotate(-90 ${cx} ${cx})`} />
+      <text x={cx} y={cx} textAnchor="middle" dominantBaseline="central" className="fill-ink font-display"
+        style={{ fontSize: size * 0.36, letterSpacing: "-0.04em" }}>{score}</text>
+    </svg>
+  );
+}
+
+/** label → value row used by the fundamental / technical columns. */
+function DetailRow({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2.5 border-b border-hairline last:border-0">
+      <span className="text-[14px] text-ink-2">{label}</span>
+      <span className={`text-[14px] font-medium ${toneText(tone)}`}>{value}</span>
+    </div>
+  );
+}
+
+/** Compact KPI tile (trailing returns / risk ratios), value colour controllable. */
+function StatTile({ label, value, valueCls = "text-ink", center }: { label: string; value: string; valueCls?: string; center?: boolean }) {
+  return (
+    <div className={`rounded-lg bg-surface-2/60 border border-hairline px-3.5 py-3 flex-1 min-w-[92px] ${center ? "text-center" : ""}`}>
+      <div className="text-[12px] text-ink-3 leading-tight">{label}</div>
+      <div className={`font-display text-[20px] tracking-tightish mt-1 leading-none ${valueCls}`}>{value}</div>
+    </div>
+  );
+}
+
+interface InstrumentDetailData {
+  kind?: "stock" | "mf";
+  name?: string;
+  badge?: string;
+  subtitle?: string;
+  meta?: string;
+  price?: { label?: string; value?: string; change?: string; change_positive?: boolean };
+  quality?: { score?: number; label?: string; tone?: string };
+  rank?: { value?: number; of?: number; caption?: string; label?: string };
+  returns?: { label: string; value: string; muted?: boolean }[];
+  fundamental?: { badge?: { text: string; tone?: string }; rows?: { label: string; value: string }[] };
+  technical?: { title?: string; badge?: { text: string; tone?: string }; rows?: { label: string; value: string; tone?: string }[] };
+  ratios?: { title?: string; items?: { label: string; value: string }[] };
+  disclaimer?: string;
+  source?: string;
+  actions?: { label: string }[];
+}
+
+function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
+  if (!data || !data.name) return null;
+  const isMf = data.kind === "mf";
+  const badge = data.badge ?? (isMf ? "MUTUAL FUND" : "STOCK");
+  const q = data.quality;
+  const rank = data.rank;
+  const fund = data.fundamental;
+  const tech = data.technical;
+
+  return (
+    <div className="mt-1 w-full rounded-xl bg-surface-1 border border-hairline shadow-card p-5 sm:p-6 flex flex-col gap-5">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-display text-[19px] text-ink tracking-tightish leading-snug">{data.name}</span>
+            <span className="shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide" style={{ background: "#E7EEF9", color: "#3E6CA8" }}>{badge}</span>
+          </div>
+          {data.subtitle && <div className="text-[13.5px] text-ink-2 mt-1">{data.subtitle}</div>}
+          {data.meta && <div className="text-[12.5px] text-ink-3 mt-0.5">{data.meta}</div>}
+        </div>
+        {data.price?.value && (
+          <div className="text-right shrink-0">
+            {data.price.label && <div className="text-[12px] text-ink-3">{data.price.label}</div>}
+            <div className="font-display text-[22px] text-ink tracking-tightish leading-tight">{data.price.value}</div>
+            {data.price.change && (
+              <div className={`text-[13px] font-medium ${data.price.change_positive === false ? "text-neg" : "text-pos"}`}>{data.price.change}</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Quality score + rank */}
+      {(q?.score != null || rank?.value != null) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {q?.score != null && (
+            <div className="rounded-lg bg-surface-2/60 border border-hairline p-4 flex items-center gap-4">
+              <ScoreDonut score={q.score} tone={q.tone} />
+              <div className="min-w-0">
+                <div className="text-[13px] text-ink-3">Quality score</div>
+                <div className={`font-display text-[20px] leading-tight ${toneText(q.tone)}`}>{q.label ?? "—"}</div>
+                <div className="text-[12px] text-ink-3">out of 100</div>
+              </div>
+            </div>
+          )}
+          {rank?.value != null && rank?.of != null && (
+            <div className="rounded-lg bg-surface-2/60 border border-hairline p-4 flex flex-col justify-center">
+              <div className="text-[13px] text-ink-3">{rank.label ?? (isMf ? "Category rank" : "Sector rank")}</div>
+              <div className="mt-0.5"><span className="font-display text-[24px] text-ink tracking-tightish">#{rank.value}</span><span className="text-[14px] text-ink-3"> of {rank.of}</span></div>
+              <div className="mt-2"><Bar pct={((rank.of - rank.value + 1) / rank.of) * 100} color={BAR.blue} /></div>
+              {rank.caption && <div className="text-[12px] text-ink-3 mt-2">{rank.caption}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Trailing returns (MF) */}
+      {data.returns?.length ? (
+        <div>
+          <Heading>Trailing returns (CAGR)</Heading>
+          <div className="flex flex-wrap gap-2.5 mt-3">
+            {data.returns.map((r, i) => (
+              <StatTile key={i} label={r.label} value={r.value} valueCls={r.muted ? "text-ink" : "text-pos"} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Fundamental + technical columns */}
+      {(fund?.rows?.length || tech?.rows?.length) ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
+          {fund?.rows?.length ? (
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <Heading>Fundamental analysis</Heading>
+                {fund.badge && <ToneBadge text={fund.badge.text} tone={fund.badge.tone} />}
+              </div>
+              <div className="mt-1.5">
+                {fund.rows.map((r, i) => <DetailRow key={i} label={r.label} value={r.value} />)}
+              </div>
+            </div>
+          ) : null}
+          {tech?.rows?.length ? (
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <Heading>{tech.title ?? "Technical analysis"}</Heading>
+                {tech.badge && <ToneBadge text={tech.badge.text} tone={tech.badge.tone} />}
+              </div>
+              <div className="mt-1.5">
+                {tech.rows.map((r, i) => <DetailRow key={i} label={r.label} value={r.value} tone={r.tone} />)}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Risk & ratios (MF) */}
+      {data.ratios?.items?.length ? (
+        <div>
+          <Heading>{data.ratios.title ?? "Risk & ratios"}</Heading>
+          <div className="flex flex-wrap gap-2.5 mt-3">
+            {data.ratios.items.map((r, i) => <StatTile key={i} label={r.label} value={r.value} center />)}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Disclaimer */}
+      {data.disclaimer && (
+        <div className="rounded-lg bg-surface-2/60 border border-hairline px-4 py-3 text-[12px] text-ink-3 leading-relaxed">{data.disclaimer}</div>
+      )}
+
+      {/* Footer */}
+      {(data.source || data.actions?.length) && (
+        <div className="flex items-center justify-between gap-3 pt-1 border-t border-hairline -mb-0.5">
+          <span className="text-[11.5px] text-ink-3 pt-3">{data.source ? `Source: ${data.source}` : ""}</span>
+          {data.actions?.length ? (
+            <div className="flex flex-wrap gap-2 pt-3 justify-end">
+              {data.actions.map((a, i) => (
+                <span key={i} className="rounded-full border border-hairline px-3.5 py-1.5 text-[12.5px] text-ink-2 bg-surface-1">{a.label} ↗</span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── risk_assessment ─────────────────────────────────────────────────────────
+// "How risky is my portfolio?" — overall suitability rating, VaR/vol KPIs, the
+// stress-test downside per scenario, key risk drivers, and a misalignment
+// alert. Data: build_risk_assessment_widget.
+const RISK_TONE: Record<string, { bg: string; text: string }> = {
+  neg: { bg: "rgb(var(--neg) / 0.08)", text: "text-neg" },
+  warm: { bg: "rgb(var(--warm) / 0.12)", text: "text-warm" },
+  accent: { bg: "rgb(var(--accent) / 0.10)", text: "text-accent" },
+};
+
+function RiskAssessmentWidget({ data }: { data: any }) {
+  if (!data) return null;
+  const { hero, kpis = [], stress, drivers, alert, caveat } = data;
+  const tone = RISK_TONE[hero?.tone] || RISK_TONE.warm;
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      {hero && (
+        <div className="rounded-lg border border-hairline p-5 flex items-start justify-between gap-4" style={{ background: tone.bg }}>
+          <div>
+            <div className={cn("text-[13px]", tone.text)}>{hero.title}</div>
+            <div className={cn("font-display text-[34px] leading-none tracking-tightish mt-1", tone.text)}>{hero.rating}</div>
+          </div>
+          <div className="text-right shrink-0">
+            {hero.profile && <div className="text-[13px] text-ink-2">Profile: {hero.profile}</div>}
+            {hero.var_model_risk && <div className="text-[12.5px] text-ink-3 mt-0.5">VaR model risk: {hero.var_model_risk}</div>}
+          </div>
+        </div>
+      )}
+
+      {kpis.length > 0 && (
+        <div className="flex flex-wrap gap-2.5">
+          {kpis.map((k: any, i: number) => <KpiTile key={i} label={k.label} value={k.value} sub={k.sub} />)}
+        </div>
+      )}
+
+      {stress?.rows?.length > 0 && (
+        <Card>
+          <Heading>{stress.title}</Heading>
+          {stress.subtitle && <p className="text-[13px] text-ink-3 leading-relaxed mt-1">{stress.subtitle}</p>}
+          <div className="flex flex-col gap-4 mt-4">
+            {stress.rows.map((r: any, i: number) => (
+              <div key={i}>
+                <div className="flex items-baseline justify-between gap-3 mb-1.5">
+                  <span className="text-[14px] font-medium text-ink">{r.name}</span>
+                  <span className="font-display text-[15px] shrink-0" style={{ color: BAR[r.color] || BAR.red }}>{r.drop_label}</span>
+                </div>
+                <Bar pct={r.bar_pct} color={BAR[r.color] || BAR.red} />
+                <div className="flex items-baseline justify-between gap-3 mt-1.5 text-[12.5px] text-ink-3">
+                  <span>Value after: {r.value_after}</span>
+                  {r.loss && <span>Loss ≈ {r.loss}</span>}
+                </div>
+                {r.recovery_years && <p className="text-[12px] text-ink-3 mt-0.5">Recovery ≈ {r.recovery_years}y</p>}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {drivers?.items?.length > 0 && (
+        <Card>
+          <Heading>{drivers.title}</Heading>
+          <div className="flex flex-col gap-2.5 mt-3.5">
+            {drivers.items.map((d: string, i: number) => (
+              <div key={i} className="flex items-start gap-2.5">
+                <span className="mt-0.5 h-3.5 w-3.5 rounded-[3px] border-2 border-hairline-2 shrink-0" />
+                <span className="text-[14px] text-ink-2 leading-snug">{d}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {alert && (
+        <div className="rounded-lg border border-hairline p-5" style={{ background: "rgb(var(--warm) / 0.10)" }}>
+          <div className="flex items-start gap-2.5">
+            <span className="mt-1 h-3.5 w-3.5 rounded-[3px] border-2 border-warm shrink-0" />
+            <div>
+              <div className="font-display text-[16px] text-warm tracking-tightish leading-snug">{alert.title}</div>
+              {alert.body && <p className="text-[14px] text-ink-2 leading-relaxed mt-1.5">{alert.body}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {caveat && <p className="text-[12px] text-ink-3 leading-relaxed px-1">{caveat}</p>}
+    </div>
+  );
+}
+
 // ── dispatcher ─────────────────────────────────────────────────────────────
 export function ChatWidget({ widget }: { widget?: { widget_type?: string; data?: any } }) {
   if (!widget?.widget_type) return null;
@@ -730,6 +1021,8 @@ export function ChatWidget({ widget }: { widget?: { widget_type?: string; data?:
       case "cap_education":      return <CapEducationWidget data={widget.data} />;
       case "concentration":      return <ConcentrationWidget data={widget.data} />;
       case "allocation_review":  return <AllocationReviewWidget data={widget.data} />;
+      case "instrument_detail":  return <InstrumentDetailWidget data={widget.data} />;
+      case "risk_assessment":    return <RiskAssessmentWidget data={widget.data} />;
     }
   } catch {
     return null;

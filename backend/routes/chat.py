@@ -869,7 +869,19 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                         lg_messages.append(_HumanMessage(content=m["content"]))
                     elif m["role"] == "assistant":
                         lg_messages.append(_AIMessage(content=m["content"]))
-                lg_messages.append(_HumanMessage(content=msg.message))
+                # Page-aware grounding: when the question comes from the global
+                # Copilot dock on a specific dashboard, prefix a light context
+                # hint so "explain this" / "why is this high?" resolve to the
+                # screen in view. Stored user message (above) stays clean.
+                current_message = msg.message
+                if msg.page:
+                    page_label = msg.page.strip()[:60]
+                    if page_label:
+                        current_message = (
+                            f"[Context: I'm currently viewing the {page_label} "
+                            f"dashboard.]\n\n{msg.message}"
+                        )
+                lg_messages.append(_HumanMessage(content=current_message))
                 persona_ctx = await _load_persona_context(db, user_id) if _load_persona_context else {}
                 result = await graph.ainvoke(
                     {
@@ -896,7 +908,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                     agent_block = {"id": agent_id or "risk_analyst", "confidence": 85}
                     # Structured V5-native widgets pass through verbatim — no
                     # insight_card transform.
-                    if wt_str in ("fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review"):
+                    if wt_str in ("fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "risk_assessment"):
                         widget_envelope = {
                             "widget_type": wt_str, "data": wd,
                             "freshness": freshness, "agent": agent_block,

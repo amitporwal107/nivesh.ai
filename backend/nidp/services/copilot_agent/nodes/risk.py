@@ -129,19 +129,21 @@ async def _fetch_risk_data(state: CopilotState, user_text: str) -> List[ToolResu
                 error=var_result.error,
             ))
 
-        # ── Stress test scenarios (only when the user asked) ─────────────────
-        if _wants_stress_test(user_text):
-            scen_keys = _select_scenarios(user_text)
-            stress = await risk_mod.get_stress_scenarios(user_id, scenario_keys=scen_keys)
-            results.append(ToolResult(
-                ok=stress.ok,
-                tool_name="get_stress_scenarios",
-                summary=stress.summary,
-                data=stress.data,
-                rows=stress.rows,
-                widget_type=WidgetType.STRESS_TEST,
-                error=stress.error,
-            ))
+        # ── Stress test scenarios ────────────────────────────────────────────
+        # Always run so the risk-assessment widget can show the downside per
+        # scenario. If the user named specific scenarios, use those; otherwise
+        # the full default set (GFC / COVID / inflation / rate shock).
+        scen_keys = _select_scenarios(user_text) if _wants_stress_test(user_text) else None
+        stress = await risk_mod.get_stress_scenarios(user_id, scenario_keys=scen_keys)
+        results.append(ToolResult(
+            ok=stress.ok,
+            tool_name="get_stress_scenarios",
+            summary=stress.summary,
+            data=stress.data,
+            rows=stress.rows,
+            widget_type=WidgetType.STRESS_TEST,
+            error=stress.error,
+        ))
 
     except Exception as exc:
         logger.warning("risk data fetch failed: %s", exc)
@@ -187,13 +189,15 @@ async def risk_node(state: CopilotState) -> dict:
         (r for r in tool_results if r.tool_name == "get_portfolio_risk" and r.ok),
         None,
     )
-    if stress_tr:
+    if suitability_tr or pra_tr:
+        # Comprehensive risk view: suitability rating + VaR/vol KPIs + stress
+        # downside + drivers + misalignment, in one widget.
+        from services.copilot_tools.risk import build_risk_assessment_widget
+        widget_type = WidgetType.RISK_ASSESSMENT
+        widget_data = build_risk_assessment_widget(pra_tr, suitability_tr, stress_tr)
+    elif stress_tr:
         widget_type = WidgetType.STRESS_TEST
         widget_data = {**stress_tr.data, "rows": stress_tr.rows}
-    elif suitability_tr or pra_tr:
-        from services.copilot_tools.risk import build_risk_overview_widget
-        widget_type = WidgetType.RISK_OVERVIEW
-        widget_data = build_risk_overview_widget(pra_tr, suitability_tr)
     else:
         widget_type = WidgetType.NONE
         widget_data = {}
