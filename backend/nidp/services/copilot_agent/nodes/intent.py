@@ -60,6 +60,19 @@ _P_MF = re.compile(
     re.IGNORECASE,
 )
 
+# Fund overlap / consolidation questions must reach mf_analyst (which renders
+# the fund_consolidation / fund_overlap / overlap_severity widgets), NOT
+# portfolio_analyst — _P_PORTFOLIO greedily matches "overlap". Checked FIRST.
+_P_FUND_OVERLAP = re.compile(
+    r"too many (?:mutual )?funds?|how many (?:mutual )?funds?|"
+    r"(?:fix|reduce|cut|trim|too much|significant\w*)\s+(?:the\s+)?overlap|"
+    r"overlap\w*\s+(?:in|between|of|among|significan)\s*(?:my\s+)?funds?|"
+    r"(?:my |fund\s+)?funds?\s+overlap\w*|"
+    r"(?:are|do)\s+my\s+funds?\s+overlap|"
+    r"consolidat\w*\s+(?:my\s+)?(?:funds?|portfolio)",
+    re.IGNORECASE,
+)
+
 _P_PORTFOLIO = re.compile(
     r"\b((?:my\s+)?portfolio|my\s+investments?|my\s+holdings?|"
     r"xirr|portfolio\s+(?:return|performance|summary|health|snapshot)|"
@@ -127,6 +140,7 @@ _P_RECOMMENDATION = re.compile(
 # RISK before PORTFOLIO so "portfolio risk" → risk_analyst
 # MARKET before STOCK so "What is Nifty?" → market_analyst (not stock_analyst)
 _PATTERNS = [
+    (_P_FUND_OVERLAP,    AgentName.MF),       # fund overlap/consolidation → mf (widgets) before PORTFOLIO grabs "overlap"
     (_P_RISK,            AgentName.RISK),
     (_P_GOAL,            AgentName.GOAL),
     (_P_PORTFOLIO,       AgentName.PORTFOLIO),
