@@ -849,7 +849,7 @@ def build_goal_simulation_widget(goal: Any, sip: Any, summary: Any) -> Dict[str,
     return {
         "hero": {
             "title": f"{name} — {_inr_crl(target)}",
-            "badge": (f"On track · {track_pct:.0f}%" if on_track_flag else f"Not on track · {track_pct:.0f}%"),
+            "badge": (f"On track · {on_track:.0f}%" if on_track_flag else f"Not on track · {on_track:.0f}%"),
             "tone": "accent" if on_track_flag else "warm",
             "funded_label": f"{_inr_crl(current)} funded ({funded_pct:.1f}%)",
             "target_label": f"{_inr_crl(target)} target",
