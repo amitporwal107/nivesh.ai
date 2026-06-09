@@ -42,7 +42,16 @@ export interface ChatAdapter {
 
 export const realChatAdapter: ChatAdapter = {
   async send(message, sessionId) {
-    const res = await http({ method: "POST", path: "/api/chat/send", body: { message, session_id: sessionId } });
+    // Chat runs a reasoning model + tools and legitimately takes 20-30s — far
+    // past the 15s default. Use a generous timeout, and noRetry because
+    // /chat/send is non-idempotent (a retry creates duplicate messages).
+    const res = await http({
+      method: "POST",
+      path: "/api/chat/send",
+      body: { message, session_id: sessionId },
+      timeoutMs: 90_000,
+      noRetry: true,
+    });
     const parsed = ChatSendRes.safeParse(res.data);
     if (parsed.success) {
       const d = parsed.data;

@@ -300,12 +300,16 @@ async def get_risk_suitability(user_id: str) -> RiskResult:
         if asset_type in ("STOCK", "EQUITY"):
             is_equity = True
         elif asset_type in ("MF", "MUTUAL_FUND", "ETF"):
-            if eq_pct is not None:
-                try:
-                    is_equity = float(eq_pct) >= 65.0
-                except (TypeError, ValueError):
-                    is_equity = not any(kw in name_cat for kw in _NON_EQUITY_KEYWORDS)
+            try:
+                eqf = float(eq_pct) if eq_pct is not None else None
+            except (TypeError, ValueError):
+                eqf = None
+            if eqf is not None and eqf > 0:
+                # trust an explicit, positive equity allocation
+                is_equity = eqf >= 65.0
             else:
+                # eq_pct missing or zero (unreliable for CAS-imported holdings)
+                # → classify by name/category/sector keywords
                 is_equity = not any(kw in name_cat for kw in _NON_EQUITY_KEYWORDS)
         else:
             is_equity = False
@@ -351,6 +355,10 @@ async def get_risk_suitability(user_id: str) -> RiskResult:
 
     equity_pct = (equity_value / total_value * 100) if total_value > 0 else 0.0
     small_mid_pct = (small_mid_value / total_value * 100) if total_value > 0 else 0.0
+    _mf_rows = [r for r in rows if str(r.get("asset_type", "")).upper() in ("MF", "MUTUAL_FUND", "ETF")]
+    logger.info("EQUITY_DIAG user=%s equity_pct=%.1f mf_count=%d mf_equity=%d sample=%s",
+                user_id, equity_pct, len(_mf_rows), sum(1 for r in _mf_rows if r.get("equity")),
+                [(r.get("name", "")[:18], r.get("equity")) for r in _mf_rows[:4]])
 
     top_sector = max(sector_buckets, key=sector_buckets.get) if sector_buckets else None
     top_sector_pct = (

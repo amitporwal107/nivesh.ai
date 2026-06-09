@@ -64,7 +64,13 @@ async function main() {
       route = j?.ai_message?.agent_used ?? j?.agent ?? "";
     } catch (e) { content = `EXC: ${e.message}`; }
     const dt = ((Date.now() - t0) / 1000).toFixed(1);
-    const [verdict, why] = classify(content);
+    let [verdict, why] = classify(content);
+    // The V5 client aborts /chat/send at 15s (apiConfig.requestTimeoutMs). A
+    // response that arrives later is a real timeout for users even if curl
+    // (120s) eventually got 200 — count it as a failure so the harness stops
+    // masking latency.
+    const CLIENT_BUDGET_S = 15;
+    if (verdict === "PASS" && Number(dt) > CLIENT_BUDGET_S) { verdict = "SLOW"; why = `>${CLIENT_BUDGET_S}s client budget`; }
     if (verdict === "PASS") pass++; else fail++;
     rows.push({ agent, verdict, status, dt, why, preview: content.slice(0, 110).replace(/\n/g, " ") });
     console.log(`[${verdict}] ${agent.padEnd(18)} ${String(status).padEnd(4)} ${dt}s  ${why || ""}`);
