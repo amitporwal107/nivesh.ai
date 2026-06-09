@@ -145,10 +145,20 @@ async def _run_sip_projection(
             summary=f"SIP calculation failed: {result.error}",
             error=result.error,
         )
+    # Surface the goal-gap numbers in the summary — as_llm_context() hides
+    # `data`, so sip_needed/shortfall must be in the summary text to be usable.
+    summary = result.summary
+    d = result.data or {}
+    if d.get("sip_needed") is not None:
+        feas = "on track" if d.get("goal_feasible") else "short of target"
+        summary += (
+            f" | GOAL GAP: to hit ₹{goal:,.0f} in {years}y you need ₹{d['sip_needed']:,.0f}/month"
+            f"; current-path shortfall ₹{d.get('shortfall', 0):,.0f} ({feas})."
+        )
     return ToolResult(
         ok=True,
         tool_name="sip_projection",
-        summary=result.summary,
+        summary=summary,
         data=result.data,
         rows=result.rows,
         widget_type=WidgetType.SIP_PLAN,
@@ -174,10 +184,22 @@ async def _fetch_goal_data(state: CopilotState) -> List[ToolResult]:
             gs = await goals_status(state.user_id)
             if gs.ok and gs.rows:
                 primary_goal = gs.rows[0]  # rows are priority-ordered (high first)
+                # as_llm_context() only shows `summary`, never `data` — so the
+                # primary goal's numbers must live IN the summary or the LLM
+                # answers "primary goal details unavailable".
+                pg = primary_goal
+                others = ", ".join(g.get("name", "?") for g in gs.rows[1:]) if len(gs.rows) > 1 else ""
+                goal_summary = (
+                    f"{len(gs.rows)} active goals. PRIMARY GOAL — name='{pg.get('name')}', "
+                    f"target=₹{pg.get('target_rs', 0):,.0f}, horizon={pg.get('horizon_years', 0):g}y, "
+                    f"corpus_earmarked=₹{pg.get('corpus_rs', 0):,.0f}, "
+                    f"plan_sip=₹{pg.get('plan_sip_rs', 0):,.0f}/mo, on_track={pg.get('on_track_pct', 0):g}%."
+                    + (f" Other goals: {others}." if others else "")
+                )
                 results.append(ToolResult(
                     ok=True,
                     tool_name="get_user_goals",
-                    summary=gs.summary,
+                    summary=goal_summary,
                     data={"goals": gs.rows, "primary_goal": primary_goal},
                     rows=gs.rows,
                     widget_type=WidgetType.GOAL_TRACKER,
