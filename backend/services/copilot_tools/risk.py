@@ -122,10 +122,6 @@ async def get_portfolio_risk_pra(user_id: str) -> RiskResult:
                 pra = doc["payload"]
         except Exception:  # noqa: BLE001
             pass
-    logger.info("PRA_DIAG user=%s pra_has_var=%s var=%s vol=%s beta=%s",
-                user_id, bool(pra and pra.get("var_95_1y_pct") is not None),
-                (pra or {}).get("var_95_1y_pct"), (pra or {}).get("volatility_annual_pct"),
-                (pra or {}).get("beta_nifty500"))
     if not pra or pra.get("var_95_1y_pct") is None:
         return RiskResult(ok=False, summary="No precomputed PRA risk result for this user yet")
 
