@@ -591,7 +591,7 @@ function TargetBar({ segments }: { segments: any[] }) {
 
 function AllocationReviewWidget({ data }: { data: any }) {
   if (!data) return null;
-  const { hero, comparison, xirr_alert, reliable, actions, caveat } = data;
+  const { hero, comparison, xirr_alert, reliable, plan, actions, caveat } = data;
   const heroWarm = hero?.tone === "warm";
   return (
     <div className="flex flex-col gap-3.5 mt-1 w-full">
@@ -627,6 +627,65 @@ function AllocationReviewWidget({ data }: { data: any }) {
           <div className="font-display text-[16px] text-neg tracking-tightish leading-snug">{xirr_alert.title}</div>
           {xirr_alert.body && <p className="text-[13.5px] text-neg/90 leading-relaxed mt-1.5">{xirr_alert.body}</p>}
         </div>
+      )}
+
+      {plan && (
+        <Card>
+          <Heading>{plan.title}</Heading>
+          {plan.headline && <p className="text-[14px] text-ink leading-relaxed mt-1.5">{plan.headline}</p>}
+
+          {plan.exit?.rows?.length > 0 && (
+            <div className="mt-4">
+              <div className="text-[13px] font-medium text-ink">{plan.exit.title}</div>
+              {plan.exit.subtitle && <p className="text-[12.5px] text-ink-3 mt-0.5">{plan.exit.subtitle}</p>}
+              <div className="flex flex-col mt-2.5">
+                {plan.exit.rows.map((r: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-md odd:bg-surface-2/50">
+                    <div className="min-w-0">
+                      <span className="inline-flex items-center gap-1.5 text-[14px] text-ink">
+                        <span className="h-1.5 w-1.5 rounded-full bg-neg shrink-0" />{r.name}
+                      </span>
+                      {r.note && <span className="block text-[12px] text-ink-3 mt-0.5 pl-3">{r.note}</span>}
+                    </div>
+                    {r.amount && <span className="font-display text-[15px] text-ink shrink-0">{r.amount}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {plan.redeploy?.rows?.length > 0 && (
+            <div className="mt-4">
+              <div className="text-[13px] font-medium text-ink">{plan.redeploy.title}</div>
+              <div className="flex flex-col mt-2.5">
+                {plan.redeploy.rows.map((r: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-md bg-surface-2/50">
+                    <div className="min-w-0">
+                      <span className="inline-flex items-center gap-1.5 text-[14px] text-ink">
+                        <span className="h-1.5 w-1.5 rounded-full bg-accent shrink-0" />{r.label}
+                      </span>
+                      {r.note && <span className="block text-[12px] text-ink-3 mt-0.5 pl-3">{r.note}</span>}
+                    </div>
+                    {r.amount && <span className="font-display text-[15px] text-ink shrink-0">{r.amount}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {plan.switch?.names?.length > 0 && (
+            <div className="mt-4">
+              <div className="text-[13px] font-medium text-ink">{plan.switch.title}</div>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {plan.switch.names.map((nm: string, i: number) => (
+                  <span key={i} className="rounded-full bg-surface-2 border border-hairline px-2.5 py-1 text-[12px] text-ink-2">{nm}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {plan.note && <p className="text-[12px] text-ink-3 leading-relaxed mt-4">{plan.note}</p>}
+        </Card>
       )}
 
       {reliable?.tiles?.length > 0 && (

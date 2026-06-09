@@ -1040,11 +1040,59 @@ def build_allocation_review_widget(summary: Any, rebalance: Any, xirr: Any) -> D
     items.append({"n": n, "title": "Hold off on new PMS/AIF",
                   "body": "until the core allocation is rebalanced toward target."})
 
+    # ── Rebalance plan: which to exit + where to redeploy ────────────────────
+    # Named, valued exits (redundancy engine) + the equity-trim amount → debt.
+    trim_rs = rd.get("trim_equity_rs") or 0
+    add_rs = rd.get("add_equity_rs") or 0
+    redundancy = rd.get("redundancy") or []
+    switches = [r.get("asset") for r in rrows if r.get("action") == "SWITCH" and r.get("asset")]
+
+    plan = None
+    if not conflict:
+        if gap > 5:
+            headline = (f"Move ~{_inr_short(trim_rs)} out of equity into debt to bring equity "
+                        f"from {equity}% down to your {target_eq}% target.")
+        elif gap < -5:
+            headline = (f"Add ~{_inr_short(add_rs)} to equity to bring it from {equity}% up to your "
+                        f"{target_eq}% target.")
+        else:
+            headline = (f"Equity is on target ({equity}% vs {target_eq}%). No big trade needed — "
+                        f"just consolidate duplicates below.")
+
+        exit_rows = [
+            {"name": _short_fund(r.get("name", "")),
+             "amount": _inr_short(r.get("amount_rs")) if r.get("amount_rs") else None,
+             "note": (f"cuts overlap ~{r.get('overlap_reduced_pp'):.0f}pp"
+                      if r.get("overlap_reduced_pp") else "duplicate exposure")}
+            for r in redundancy
+        ]
+        redeploy_rows = []
+        if gap > 5 and trim_rs:
+            redeploy_rows.append({"label": "Short-duration / corporate-bond debt fund",
+                                  "amount": _inr_short(trim_rs), "note": "the defensive sleeve you're missing"})
+        elif gap < -5 and add_rs:
+            redeploy_rows.append({"label": "One diversified flexi-cap equity fund",
+                                  "amount": _inr_short(add_rs), "note": "adds equity without new overlap"})
+
+        plan = {
+            "title": "Your rebalance plan",
+            "headline": headline,
+            "exit": ({"title": "Exit these first — duplicate exposure, little lost",
+                      "subtitle": "Selling these to fund the move loses almost no diversification.",
+                      "rows": exit_rows} if exit_rows else None),
+            "redeploy": ({"title": "Redeploy into", "rows": redeploy_rows} if redeploy_rows else None),
+            "switch": ({"title": "Also switch to Direct plans (same fund, ~0.8% p.a. cheaper)",
+                        "names": [_short_fund(s) for s in switches[:6]]} if switches else None),
+            "note": ("Specific replacement schemes need the recommendation view — this lists the safe "
+                     "exits and the rupee amounts to move, not buy-this-exact-fund calls."),
+        }
+
     return {
         "hero": hero,
         "comparison": comparison,
         "xirr_alert": xirr_alert,
         "reliable": {"title": "What looks reliable", "tiles": tiles},
+        "plan": plan,
         "actions": {"title": "Do this, in order", "items": items},
         "caveat": ("International, alternatives, and tax/estate impact weren't available — treat this as a "
                    "directional review, not a full plan. Not financial advice."),
@@ -1272,6 +1320,7 @@ async def get_rebalance_plan(user_id: str, risk_profile: Optional[str] = None) -
     # contradicted each other. Use the canonical figure; fall back to the
     # holdings heuristic only if intelligence is unavailable.
     equity_pct = None
+    _intel: Dict[str, Any] = {}
     try:
         from services import portfolio_intelligence as PI
         _intel = await PI.compute_portfolio_intelligence(user_id)
@@ -1281,6 +1330,21 @@ async def get_rebalance_plan(user_id: str, risk_profile: Optional[str] = None) -
             current_value = float(_intel.get("total_value") or current_value) or current_value
     except Exception as exc:  # noqa: BLE001
         logger.warning("rebalance: canonical allocation unavailable, falling back: %s", exc)
+
+    # Named, valued exit candidates — funds removable with little/no loss of
+    # exposure (the redundancy engine already ranks by overlap-cut vs sector
+    # drift). These are the safe instruments to exit first when freeing money to
+    # rebalance, and each carries its ₹ value so we can show what redeploys.
+    redundancy = [
+        {
+            "name": r.get("remove_name"),
+            "amount_rs": r.get("remove_amount_rs"),
+            "overlap_reduced_pp": r.get("overlap_reduced_pp"),
+            "sector_drift_pct": r.get("sector_l1_drift_pct"),
+        }
+        for r in (_intel.get("redundancy_suggestions") or [])[:4]
+        if r.get("remove_name")
+    ]
     if equity_pct is None:
         equity_val = sum(
             float(h.get("current_value") or float(h.get("current_price") or 0) * float(h.get("quantity") or 0))
@@ -1368,6 +1432,9 @@ async def get_rebalance_plan(user_id: str, risk_profile: Optional[str] = None) -
             "target_risk_profile_known": _target["risk_profile_known"],
             "target_horizon_years": _target["horizon_years"],
             "target_horizon_source": _target["horizon_source"],
+            "trim_equity_rs": round((equity_pct - target_equity) / 100 * current_value, -2) if equity_pct > target_equity + 5 else 0,
+            "add_equity_rs": round((target_equity - equity_pct) / 100 * current_value, -2) if equity_pct < target_equity - 5 else 0,
+            "redundancy": redundancy,
         },
         rows=actions,
     )
