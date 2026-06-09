@@ -167,6 +167,8 @@ async def get_portfolio_xirr(user_id: str) -> PortfolioResult:
             "xirr_source": ledger.get("source"),
             "xirr_coverage_pct": ledger.get("coverage_pct"),
             "xirr_n_txn": ledger.get("n_txn"),
+            "xirr_n_raw": ledger.get("n_raw"),
+            "xirr_types_seen": ledger.get("types_seen"),
             "position_count": len(rows),
         },
         rows=sorted(rows, key=lambda r: r.get("xirr_pct") or -999, reverse=True),
@@ -1026,7 +1028,8 @@ def build_allocation_review_widget(summary: Any, rebalance: Any, xirr: Any) -> D
         "caveat": ("International, alternatives, and tax/estate impact weren't available — treat this as a "
                    "directional review, not a full plan. Not financial advice."),
         "_xirr_debug": {"source": xd.get("xirr_source"), "n_txn": xd.get("xirr_n_txn"),
-                        "coverage": xd.get("xirr_coverage_pct")},
+                        "coverage": xd.get("xirr_coverage_pct"),
+                        "n_raw": xd.get("xirr_n_raw"), "types": xd.get("xirr_types_seen")},
     }
 
 

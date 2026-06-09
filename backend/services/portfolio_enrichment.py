@@ -97,6 +97,8 @@ async def portfolio_xirr_from_ledger(
     buy_total = 0.0
     sell_total = 0.0
     n_txn = 0
+    n_raw = 0
+    types_seen: set = set()
     try:
         cursor = db.cas_transactions.find(
             {"user_id": user_id},
@@ -104,7 +106,10 @@ async def portfolio_xirr_from_ledger(
              "amount": 1, "amount_inr": 1, "units": 1, "nav": 1},
         )
         async for t in cursor:
+            n_raw += 1
             ttype = (t.get("type") or t.get("transaction_type") or "").upper()
+            if len(types_seen) < 10:
+                types_seen.add(ttype or "<empty>")
             # Dividend reinvestment is INTERNAL to the portfolio (the payout was
             # already counted in value), not an external contribution — counting
             # it as a buy would understate the money-weighted return.
@@ -135,7 +140,8 @@ async def portfolio_xirr_from_ledger(
 
     if n_txn < 2 or buy_total <= 0 or current_value <= 0:
         return {"xirr_pct": None, "reliable": False, "coverage_pct": None,
-                "n_txn": n_txn, "source": "insufficient_ledger"}
+                "n_txn": n_txn, "n_raw": n_raw, "types_seen": sorted(types_seen),
+                "source": "insufficient_ledger"}
 
     flows.append((datetime.now(timezone.utc).date(), float(current_value)))
     r = xirr(flows)
