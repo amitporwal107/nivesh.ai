@@ -36,7 +36,10 @@ export const ChatSendRes = z.object({
 }).passthrough();
 
 export interface ChatAdapter {
-  send(message: string, sessionId?: string): Promise<{ reply: string; sessionId?: string }>;
+  /** `page` is the human-readable dashboard label the user is viewing when
+   *  asking from the global Copilot dock (e.g. "Risk"). Omitted on the full
+   *  chat page. */
+  send(message: string, sessionId?: string, page?: string): Promise<{ reply: string; sessionId?: string }>;
   listSessions(): Promise<ChatSession[]>;
   createSession(title?: string): Promise<{ id: string }>;
   getSession(id: string): Promise<{ messages: ChatMessageC[] }>;
@@ -51,14 +54,14 @@ export interface ChatSession {
 }
 
 export const realChatAdapter: ChatAdapter = {
-  async send(message, sessionId) {
+  async send(message, sessionId, page) {
     // Chat runs a reasoning model + tools and legitimately takes 20-30s — far
     // past the 15s default. Use a generous timeout, and noRetry because
     // /chat/send is non-idempotent (a retry creates duplicate messages).
     const res = await http({
       method: "POST",
       path: "/api/chat/send",
-      body: { message, session_id: sessionId },
+      body: { message, session_id: sessionId, page },
       timeoutMs: 90_000,
       noRetry: true,
     });

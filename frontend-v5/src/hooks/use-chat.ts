@@ -30,8 +30,8 @@ export function useChatSession(id: string) {
 export function useSendChat() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { message: string; sessionId?: string }) =>
-      chatService.send(args.message, args.sessionId),
+    mutationFn: (args: { message: string; sessionId?: string; page?: string }) =>
+      chatService.send(args.message, args.sessionId, args.page),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["chat", "sessions"] });
       if (vars.sessionId) qc.invalidateQueries({ queryKey: ["chat", "sessions", vars.sessionId] });

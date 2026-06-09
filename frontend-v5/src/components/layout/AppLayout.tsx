@@ -2,6 +2,7 @@ import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { MobileBottomNav } from "./MobileBottomNav";
+import { CopilotDock } from "@/components/chat/CopilotDock";
 
 /**
  * AppLayout — chrome around all authenticated pages.
@@ -21,6 +22,9 @@ export default function AppLayout() {
         </main>
         <MobileBottomNav className="lg:hidden" />
       </div>
+      {/* Global page-aware AI copilot — floats on every authenticated screen,
+          hides itself on the full /chat page. */}
+      <CopilotDock />
     </div>
   );
 }
