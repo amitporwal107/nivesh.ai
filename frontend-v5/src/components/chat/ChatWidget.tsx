@@ -459,6 +459,119 @@ function CapEducationWidget({ data }: { data: any }) {
   );
 }
 
+// ── concentration ──────────────────────────────────────────────────────────
+// "Where is concentration risk highest?" — hero verdict, 4 KPI tiles, three
+// concentration lenses (asset-class stacked bar + top sector + top stock), the
+// actionable fund-overlap layer, and a prioritised fix list.
+// Data: build_concentration_widget.
+const CIRCLE: Record<string, string> = { red: "#E5484D", amber: "#F59E0B", green: "#10B981", grey: "#9CA3AF", blue: "#3B82F6" };
+
+function KpiTile({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-lg bg-surface-2/60 border border-hairline px-4 py-3 flex-1 min-w-[120px]">
+      <div className="text-[12.5px] text-ink-3 leading-tight">{label}</div>
+      <div className="font-display text-[26px] text-ink tracking-tightish mt-1 leading-none">{value}</div>
+      {sub && <div className="text-[12px] text-ink-3 mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function StackedBar({ segments }: { segments: any[] }) {
+  return (
+    <div className="flex h-7 w-full rounded-md overflow-hidden">
+      {segments.map((s: any, i: number) => (
+        <div key={i} className="flex items-center px-2 min-w-0 whitespace-nowrap"
+             style={{ width: `${Math.max(0.5, s.pct)}%`, background: CIRCLE[s.color] || CIRCLE.grey }}>
+          {s.label && <span className="text-[12px] font-medium text-white truncate">{s.label}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ConcentrationWidget({ data }: { data: any }) {
+  if (!data) return null;
+  const { hero, kpis = [], lenses, overlap, fix_order, caveat } = data;
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      {hero && (
+        <div className="rounded-lg border border-hairline p-5" style={{ background: "rgb(var(--warm) / 0.10)" }}>
+          <div className="flex items-start gap-3">
+            <span className="mt-1 h-3.5 w-3.5 rounded-[3px] border-2 border-warm shrink-0" />
+            <div>
+              <div className="font-display text-[17px] text-ink tracking-tightish leading-snug">{hero.title}</div>
+              {hero.body && <p className="text-[14px] text-ink-2 leading-relaxed mt-1.5">{hero.body}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {kpis.length > 0 && (
+        <div className="flex flex-wrap gap-2.5">
+          {kpis.map((k: any, i: number) => <KpiTile key={i} label={k.label} value={k.value} sub={k.sub} />)}
+        </div>
+      )}
+
+      {lenses?.items?.length > 0 && (
+        <Card>
+          <Heading>{lenses.title}</Heading>
+          <div className="flex flex-col gap-5 mt-4">
+            {lenses.items.map((l: any, i: number) => (
+              <div key={i}>
+                <div className="text-[13.5px] text-ink mb-2">{l.label}</div>
+                {l.kind === "stacked"
+                  ? <StackedBar segments={l.segments || []} />
+                  : <Bar pct={l.pct} color={CIRCLE[l.color] || CIRCLE.amber} />}
+                {l.note && <p className="text-[12.5px] text-ink-3 leading-relaxed mt-2">{l.note}</p>}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {overlap?.rows?.length > 0 && (
+        <Card>
+          <div className="flex items-start justify-between gap-3">
+            <Heading>{overlap.title}</Heading>
+            {overlap.badge && <ToneBadge text={overlap.badge} tone="warm" />}
+          </div>
+          {overlap.subtitle && <p className="text-[13.5px] text-ink-2 leading-relaxed mt-1.5">{overlap.subtitle}</p>}
+          <div className="flex flex-col gap-3.5 mt-4">
+            {overlap.rows.map((r: any, i: number) => (
+              <div key={i}>
+                <div className="flex items-baseline justify-between gap-3 mb-1.5">
+                  <span className="text-[14px] text-ink">{r.label}</span>
+                  <span className="font-display text-[15px] text-ink shrink-0">{r.pct}%</span>
+                </div>
+                <Bar pct={r.pct} color={CIRCLE[r.color] || CIRCLE.red} />
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {fix_order?.items?.length > 0 && (
+        <div className="rounded-lg bg-surface-2 border border-hairline p-5">
+          <Heading>{fix_order.title}</Heading>
+          <div className="flex flex-col gap-3.5 mt-3.5">
+            {fix_order.items.map((f: any, i: number) => (
+              <div key={i} className="flex items-start gap-3">
+                <span className="mt-0.5 h-5 w-5 rounded-full shrink-0 flex items-center justify-center text-[11px] font-semibold text-white"
+                      style={{ background: CIRCLE[f.color] || CIRCLE.grey }}>{f.n}</span>
+                <p className="text-[14px] text-ink-2 leading-relaxed">
+                  <span className="font-medium text-ink">{f.title}</span> — {f.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {caveat && <p className="text-[12px] text-ink-3 leading-relaxed px-1">{caveat}</p>}
+    </div>
+  );
+}
+
 // ── dispatcher ─────────────────────────────────────────────────────────────
 export function ChatWidget({ widget }: { widget?: { widget_type?: string; data?: any } }) {
   if (!widget?.widget_type) return null;
@@ -469,6 +582,7 @@ export function ChatWidget({ widget }: { widget?: { widget_type?: string; data?:
       case "overlap_severity":   return <OverlapSeverityWidget data={widget.data} />;
       case "risk_overview":      return <RiskOverviewWidget data={widget.data} />;
       case "cap_education":      return <CapEducationWidget data={widget.data} />;
+      case "concentration":      return <ConcentrationWidget data={widget.data} />;
     }
   } catch {
     return null;

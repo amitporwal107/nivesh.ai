@@ -56,6 +56,7 @@ class WidgetType(str, Enum):
     OVERLAP_SEVERITY = "overlap_severity"
     RISK_OVERVIEW = "risk_overview"
     CAP_EDUCATION = "cap_education"
+    CONCENTRATION = "concentration"
     NONE = "none"
 
 

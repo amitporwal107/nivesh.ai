@@ -224,9 +224,15 @@ async def get_portfolio_summary(user_id: str) -> PortfolioResult:
             "total_value_rs": total_rs,
             "equity_pct": equity_pct,
             "debt_pct": debt_pct,
+            "gold_pct": gold_pct,
+            "other_pct": other_pct,
             "high_overlap_pairs": len(high_overlap),
-            "effective_stocks": intel.get("effective_stocks"),
+            "effective_stocks": effective_stocks,
             "compression_score": intel.get("compression_score"),
+            "top_stock": ({"name": top_stocks[0].get("name") or top_stocks[0].get("slug", ""),
+                           "pct": top_stocks[0].get("exposure_pct", 0)} if top_stocks else None),
+            "top_sector": ({"name": sectors[0].get("sector", ""),
+                            "pct": sectors[0].get("pct", 0)} if sectors else None),
         },
         rows=rows,
     )
@@ -668,6 +674,164 @@ def build_cap_education_widget(overlap: Any) -> Dict[str, Any]:
             "mid-cap funds can't be ranked here — no scheme-level scorecard, expense ratio, manager "
             "tenure or overlap data available. Not financial advice."
         ),
+    }
+
+
+# ── Concentration widget builder ──────────────────────────────────────────
+
+_NUM_WORD = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}
+
+
+def _pair_label(r: Dict[str, Any]) -> str:
+    """Display label for an overlap pair. Regular+Direct of the same scheme
+    collapses to '<scheme> · Regular ↔ Direct'; a genuine cross-fund pair shows
+    both short names."""
+    a, b = r.get("fund_a", ""), r.get("fund_b", "")
+    if r.get("is_plan_duplicate"):
+        return f"{_short_fund(a)} · Regular ↔ Direct"
+    return f"{_short_fund(a)} ↔ {_short_fund(b)}"
+
+
+def build_concentration_widget(summary: Any, overlap: Any) -> Dict[str, Any]:
+    """Build the 'where is concentration risk highest' widget: a hero verdict,
+    four KPI tiles, three concentration lenses (asset-class stacked bar, top
+    sector, top stock — each with a worry note), the actionable fund-overlap
+    layer, and a prioritised fix list. All values come from
+    get_portfolio_summary + get_portfolio_overlap — nothing is invented."""
+    sd = getattr(summary, "data", None) or {}
+    srows = getattr(summary, "rows", None) or []
+    od = getattr(overlap, "data", None) or {}
+    orows = getattr(overlap, "rows", None) or []
+
+    equity = round(sd.get("equity_pct") or 0)
+    debt = round(sd.get("debt_pct") or 0)
+    gold = round(sd.get("gold_pct") or 0)
+    other = round(sd.get("other_pct") or 0)
+
+    top_stock = sd.get("top_stock") or (
+        {"name": r.get("label"), "pct": r.get("value")}
+        for r in srows if r.get("type") == "stock_exposure"
+    )
+    if not isinstance(top_stock, dict):
+        top_stock = next(top_stock, None)
+    top_sector = sd.get("top_sector") or next(
+        ({"name": r.get("label"), "pct": r.get("value")}
+         for r in srows if r.get("type") == "sector"), None)
+
+    ts_pct = round(float(top_stock["pct"]), 1) if top_stock and top_stock.get("pct") is not None else None
+    ts_name = top_stock.get("name") if top_stock else None
+    sec_pct = round(float(top_sector["pct"])) if top_sector and top_sector.get("pct") is not None else None
+    sec_name = top_sector.get("name") if top_sector else None
+
+    mf_count = od.get("mf_count")
+    high_count = od.get("high_overlap_count")
+    pairs = sorted(
+        [r for r in orows if (r.get("overlap_pct") or 0) >= 40],
+        key=lambda r: -(r.get("overlap_pct") or 0),
+    )[:5]
+    if high_count is None:
+        high_count = len([r for r in orows if (r.get("overlap_pct") or 0) >= 40])
+    dupe_count = sum(1 for r in pairs if r.get("is_plan_duplicate"))
+    all_dupe = bool(pairs) and dupe_count == len(pairs)
+
+    # ── KPI tiles ────────────────────────────────────────────────────────
+    kpis = [{"label": "Equity", "value": f"{equity}%", "sub": ""}]
+    if sec_pct is not None:
+        kpis.append({"label": "Top sector", "value": f"{sec_pct}%", "sub": sec_name})
+    if ts_pct is not None:
+        kpis.append({"label": "Top stock", "value": f"{ts_pct}%", "sub": ts_name})
+    kpis.append({"label": "Overlap pairs", "value": str(high_count),
+                 "sub": f"across {mf_count} funds" if mf_count else ""})
+
+    # ── Lens 1: asset-class stacked bar ──────────────────────────────────
+    segs = []
+    for label, pct, color in (("Equity", equity, "red"), ("Gold", gold, "amber"),
+                              ("Debt", debt, "blue"), ("Other", other, "grey")):
+        if pct > 0:
+            segs.append({"label": f"{label} {pct}%" if pct >= 8 else "", "pct": pct, "color": color})
+    asset_note = (
+        f"Debt just {debt}% — little cushion. This is the real asset-class skew."
+        if debt < 5 else
+        f"Equity {equity}% / debt {debt}% — a more balanced asset-class mix."
+    )
+
+    # ── Lens 2: top sector ───────────────────────────────────────────────
+    lenses = [{"label": "Asset class", "kind": "stacked", "segments": segs, "note": asset_note}]
+    if sec_pct is not None:
+        fin = bool(sec_name) and any(w in sec_name.lower() for w in ("financ", "bank"))
+        sec_color = "red" if sec_pct >= 35 else "amber" if sec_pct >= 20 else "green"
+        if fin:
+            sec_note = (f"{sec_pct}% — elevated, but financials are a large share of the Indian "
+                        f"market too, so this is partly index-like, not unusual.")
+        elif sec_pct >= 35:
+            sec_note = f"{sec_pct}% — high single-sector concentration; worth trimming."
+        else:
+            sec_note = f"{sec_pct}% — somewhat elevated; worth keeping an eye on."
+        lenses.append({"label": f"Top sector — {sec_name}", "kind": "single",
+                       "pct": sec_pct, "color": sec_color, "note": sec_note})
+
+    # ── Lens 3: top stock ────────────────────────────────────────────────
+    if ts_pct is not None:
+        if ts_pct >= 20:
+            stock_color, stock_note = "red", f"{ts_pct}% — high single-stock concentration; review the position size."
+        elif ts_pct >= 10:
+            stock_color, stock_note = "amber", f"{ts_pct}% — moderate; keep an eye on it."
+        else:
+            stock_color, stock_note = "green", f"{ts_pct}% — actually low. Single-stock concentration isn't a problem here."
+        lenses.append({"label": f"Top stock — {ts_name}", "kind": "single",
+                       "pct": ts_pct, "color": stock_color, "note": stock_note})
+
+    # ── Actionable layer: fund overlap ───────────────────────────────────
+    overlap_rows = [
+        {"label": _pair_label(r), "pct": round(r.get("overlap_pct") or 0),
+         "color": "red" if (r.get("overlap_pct") or 0) >= 80 else "amber"}
+        for r in pairs
+    ]
+    if all_dupe:
+        overlap_sub = (f"All {_NUM_WORD.get(len(pairs), len(pairs))} worst pairs are the same fund in "
+                       f"Regular + Direct — pure cost duplication, the easiest thing to clean up.")
+    elif dupe_count:
+        overlap_sub = (f"{dupe_count} of the worst pairs are the same fund in Regular + Direct "
+                       f"(cost duplication); the rest are genuinely overlapping funds.")
+    else:
+        overlap_sub = "These funds hold heavily overlapping portfolios — consolidating removes hidden duplication."
+
+    # ── Hero verdict ─────────────────────────────────────────────────────
+    asset_label = "equities" if equity >= max(debt, gold, other) else "your largest asset class"
+    title = "Highest in " + asset_label + (f", then the {sec_name} sector" if sec_name else "")
+    if all_dupe:
+        body = (f"But the most fixable concentration is duplicate funds — and all "
+                f"{_NUM_WORD.get(len(pairs), len(pairs))} worst overlaps are the same scheme held in two plans.")
+    elif dupe_count:
+        body = (f"But the most fixable concentration is duplicate funds — {dupe_count} of the worst "
+                f"overlaps are the same scheme held in two plans.")
+    elif pairs:
+        body = "The most fixable concentration is fund overlap — consolidating removes hidden duplication."
+    else:
+        body = "No high-overlap fund pairs found — the concentration is in the asset-class and sector mix."
+
+    # ── Prioritised fix list ─────────────────────────────────────────────
+    fix_items, n = [], 1
+    if dupe_count:
+        fix_items.append({"n": n, "color": "red", "title": "Duplicate funds",
+                          "body": f"switch the {dupe_count} Regular plans to Direct. Free, identical exposure, lower cost."})
+        n += 1
+    fix_items.append({"n": n, "color": "amber", "title": "Equity allocation",
+                      "body": f"{equity}% with {debt}% debt. Consider whether a debt sleeve fits your goals."})
+    n += 1
+    if sec_pct is not None:
+        fix_items.append({"n": n, "color": "grey", "title": f"{sec_name} sector",
+                          "body": f"{sec_pct}%. Worth watching, but largely mirrors the market; lowest priority."})
+
+    return {
+        "hero": {"tone": "warm", "title": title, "body": body},
+        "kpis": kpis,
+        "lenses": {"title": "Three lenses — and how worried to be", "items": lenses},
+        "overlap": {"title": "The actionable layer — fund overlap", "badge": "fix first",
+                    "subtitle": overlap_sub, "rows": overlap_rows},
+        "fix_order": {"title": "Fix in this order", "items": fix_items},
+        "caveat": ("Switching plans is a sell-and-rebuy — check exit load and capital-gains tax, and "
+                   "stagger across financial years. Not financial advice."),
     }
 
 

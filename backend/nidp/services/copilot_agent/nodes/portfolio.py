@@ -184,19 +184,34 @@ async def portfolio_node(state: CopilotState) -> dict:
     ])
     answer_text = resp.content
 
-    # pick the richest widget to surface
-    _PRIORITY = [
-        WidgetType.STRESS_TEST, WidgetType.TAX_HARVEST, WidgetType.REBALANCE_PLAN,
-        WidgetType.FUND_COMPARISON, WidgetType.OVERLAP_REVEAL, WidgetType.PORTFOLIO_OVERVIEW,
-    ]
-    widget_type = WidgetType.NONE
-    widget_data: dict = {}
-    for wt in _PRIORITY:
-        tr = next((r for r in tool_results if r.widget_type == wt and r.ok), None)
-        if tr:
-            widget_type = wt
-            widget_data = {"rows": tr.rows, **tr.data}
-            break
+    # "Where is concentration risk highest?" gets the dedicated concentration
+    # widget (V5-native), built from the summary + overlap tool results.
+    is_concentration = any(
+        kw in user_msg.lower()
+        for kw in ("concentrat", "where is the risk", "where is risk", "most exposed",
+                   "biggest risk", "diversif")
+    )
+    summary_tr = next((r for r in tool_results if r.tool_name == "get_portfolio_summary" and r.ok), None)
+    overlap_tr = next((r for r in tool_results if r.tool_name == "get_portfolio_overlap" and r.ok), None)
+
+    if is_concentration and summary_tr:
+        from services.copilot_tools.portfolio import build_concentration_widget
+        widget_type = WidgetType.CONCENTRATION
+        widget_data = build_concentration_widget(summary_tr, overlap_tr)
+    else:
+        # pick the richest widget to surface
+        _PRIORITY = [
+            WidgetType.STRESS_TEST, WidgetType.TAX_HARVEST, WidgetType.REBALANCE_PLAN,
+            WidgetType.FUND_COMPARISON, WidgetType.OVERLAP_REVEAL, WidgetType.PORTFOLIO_OVERVIEW,
+        ]
+        widget_type = WidgetType.NONE
+        widget_data = {}
+        for wt in _PRIORITY:
+            tr = next((r for r in tool_results if r.widget_type == wt and r.ok), None)
+            if tr:
+                widget_type = wt
+                widget_data = {"rows": tr.rows, **tr.data}
+                break
 
     response = AgentResponse(
         agent=AgentName.PORTFOLIO,
