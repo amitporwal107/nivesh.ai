@@ -62,6 +62,21 @@ def _is_count_question(text: str) -> bool:
     return bool(_COUNT_Q.search(text or ""))
 
 
+# Detects "fix the overlap" / consolidation requests (action-led, distinct from
+# the count question). Checked BEFORE the count question so "consolidate" routes
+# here.
+_FIX_Q = re.compile(
+    r"fix (?:the )?overlap|reduce (?:the )?overlap|consolidat|overlap|"
+    r"clean up (?:my )?(?:funds|portfolio)|merge (?:my )?funds|redundan|"
+    r"what should i do about (?:the )?overlap|de[\s-]?duplicat|switch to direct",
+    re.IGNORECASE,
+)
+
+
+def _is_fix_question(text: str) -> bool:
+    return bool(_FIX_Q.search(text or ""))
+
+
 # Plain-text answer format for "do I have too many funds?" and similar
 # count/portfolio-size questions. Replaces the default markdown style because
 # the V5 chat surface renders Markdown as literal characters.
@@ -115,6 +130,58 @@ FAILURE CASE — if TOOL_DATA has overlap pairs but mf_count is missing or 0, do
 NOT estimate the count. Output exactly one line:
 "I can see which funds overlap, but not your total fund count — so I can flag
 redundancy but not strictly whether you hold too many."
+""" + ANTI_HALLUCINATION_RULES
+
+
+# Plain-text answer format for "fix the overlap" / consolidation requests.
+# Action-led (state the fix first); overlap numbers are justification, not the
+# headline.
+_FIX_FORMAT = """You are answering a "fix the overlap" / consolidation request.
+
+OUTPUT IN PLAIN TEXT ONLY. No '#', the asterisk character, backticks, or pipe
+('|') tables — they render as literal characters here. Allowed: line breaks,
+the arrow →, and block-bar characters █ ░.
+
+LEAD WITH THE ACTION, not the analysis. The user wants to know what to DO. State
+the fix first; the overlap numbers are the justification, not the headline.
+
+SEPARATE THE TWO PROBLEM TYPES — they have different fixes (use TOOL_DATA:
+each overlap row has is_plan_duplicate; counts are regular_direct_duplicate_pairs
+and cross_fund_overlap_pairs):
+- Regular vs Direct of the SAME scheme = a COST fix, not overlap. Identical
+  portfolio; the Direct plan just costs less. Action: redirect future SIPs to
+  Direct and switch existing units to Direct. NEVER call this "duplicate
+  exposure" or "diversification overlap."
+- Two DIFFERENT funds with high overlap = a genuine redundancy review. Action:
+  keep one, ask whether the second earns its place.
+
+REQUIRED ORDER:
+1. One-line summary: how many pairs overlap and the single biggest fix.
+2. Cost fix (only if regular_direct_duplicate_pairs > 0), one "→" line per scheme:
+   → {Scheme}: redirect SIP to Direct, switch existing units across.
+   Close: "Same fund, lower cost. Switching is a sell+rebuy — check exit load
+   and capital-gains tax first."
+3. Redundancy review (only if cross_fund_overlap_pairs > 0), one "→" line each:
+   → {Fund A} vs {Fund B}: ~{x}% overlap — keep one. {one-line question}
+4. How to execute (one sentence): redirect SIPs now (free, immediate); move
+   existing units gradually, not in one large redemption, to manage tax.
+5. Caveat (fixed, verbatim): "Based on holdings overlap only — no returns, fees
+   or manager record here. Not financial advice; confirm tax and exit load
+   before acting."
+
+RULES:
+- Total under ~140 words. Each action line is one line.
+- Omit any block whose issue does not exist — never write "none found."
+- Do NOT create a column/row for a value you do not have. If switch or
+  redemption amounts are unavailable, say so ONCE at the end: "Exact switch
+  amounts aren't available here." Never repeat "data unavailable" cell by cell.
+- If total_value_rs or equity_pct IS available in TOOL_DATA, use it to frame
+  pacing (a large equity-heavy book means stagger the switches), but NEVER
+  invent per-fund amounts from a total.
+
+PRIORITY when multiple fixes apply: cost duplicates (Regular→Direct) first —
+free and unambiguous — then active-vs-index overlap, then multiple same-index
+funds.
 """ + ANTI_HALLUCINATION_RULES
 
 
@@ -258,9 +325,12 @@ async def mf_node(state: CopilotState) -> dict:
         "Tell me about mutual funds",
     )
 
-    # Count / portfolio-size questions get the plain-text count format (the V5
-    # chat surface renders Markdown literally); everything else uses _SYSTEM.
-    style = _COUNT_FORMAT if _is_count_question(user_msg) else _SYSTEM
+    # "Fix overlap"/consolidate and "too many funds" questions answer with a
+    # structured consolidation widget (the V5 chat renders it natively); the
+    # text is a short plain-text fallback. Other MF questions use _SYSTEM.
+    is_fix = _is_fix_question(user_msg)
+    is_count = _is_count_question(user_msg)
+    style = _FIX_FORMAT if is_fix else (_COUNT_FORMAT if is_count else _SYSTEM)
 
     llm = ChatOpenAI(
         model=COPILOT_LLM_MODEL,
@@ -275,11 +345,24 @@ async def mf_node(state: CopilotState) -> dict:
 
     widget_type = WidgetType.NONE
     widget_data: dict = {}
-    for tr in tool_results:
-        if tr.widget_type and tr.widget_type != WidgetType.NONE:
-            widget_type = tr.widget_type
-            widget_data = {"rows": tr.rows, **tr.data}
-            break
+    overlap_tr = next(
+        (tr for tr in tool_results if tr.tool_name == "get_portfolio_overlap" and tr.ok),
+        None,
+    )
+    if is_count and overlap_tr:
+        from services.copilot_tools.portfolio import build_consolidation_widget
+        widget_type = WidgetType.FUND_CONSOLIDATION
+        widget_data = build_consolidation_widget(overlap_tr)
+    elif is_fix and overlap_tr:
+        from services.copilot_tools.portfolio import build_overlap_widget
+        widget_type = WidgetType.FUND_OVERLAP
+        widget_data = build_overlap_widget(overlap_tr)
+    else:
+        for tr in tool_results:
+            if tr.widget_type and tr.widget_type != WidgetType.NONE:
+                widget_type = tr.widget_type
+                widget_data = {"rows": tr.rows, **tr.data}
+                break
 
     response = AgentResponse(
         agent=AgentName.MF,

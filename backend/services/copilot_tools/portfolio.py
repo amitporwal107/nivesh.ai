@@ -288,9 +288,223 @@ async def get_portfolio_overlap(user_id: str) -> PortfolioResult:
             "regular_direct_duplicate_pairs": len(dupe_pairs),
             "cross_fund_overlap_pairs":       len(cross_pairs),
             "removable_fund_count":           removable_count,
+            # For pacing only — never derive per-fund switch amounts from these.
+            "total_value_rs":                 intel.get("total_value"),
+            "equity_pct":                     (intel.get("asset_allocation") or {}).get("equity_pct"),
         },
         rows=rows,
     )
+
+
+# ── Fund-consolidation widget builder ─────────────────────────────────────
+
+def _short_fund(name: str) -> str:
+    """Trim a scheme name for display (drop plan/option/growth noise)."""
+    import re as _re
+    n = name or ""
+    for tok in ("Regular Plan", "Direct Plan", "Growth Plan", "Growth Option",
+                "Regular", "Direct", "Growth", "Plan", "Option", "Fund", "Scheme", "-"):
+        n = _re.sub(_re.escape(tok), " ", n, flags=_re.I)
+    return _re.sub(r"\s+", " ", n).strip()
+
+
+def _redundancy_question(a: str, b: str) -> str:
+    t = (a + " " + b).lower()
+    if "index" in t or "nifty" in t or "sensex" in t:
+        return "Same index exposure, different weighting — keep both only if you want the tilt."
+    return "Keep one — does the second earn its place vs the cheaper option?"
+
+
+def build_consolidation_widget(overlap: Any) -> Dict[str, Any]:
+    """Build the structured fund-consolidation widget_data (verdict, stat tiles,
+    hold→need bars, Step 1 cost fixes, Step 2 redundancy review, caveat) from a
+    get_portfolio_overlap result (anything with .data and .rows). Every count
+    comes from the tool data — no invented numbers.
+    """
+    d = getattr(overlap, "data", None) or {}
+    rows = getattr(overlap, "rows", None) or []
+    n = int(d.get("mf_count") or 0)
+    dupe_rows = [r for r in rows if r.get("is_plan_duplicate") and (r.get("overlap_pct") or 0) >= 40]
+    cross_rows = [r for r in rows if not r.get("is_plan_duplicate") and (r.get("overlap_pct") or 0) >= 40]
+    high = int(d.get("high_overlap_count") or (len(dupe_rows) + len(cross_rows)))
+    distinct = max(1, n - len(dupe_rows))
+    target_lo, target_hi, target_mid = 8, 12, 10
+    too_many = n > 15
+
+    verdict = {
+        "tone": "warm" if too_many else "good",
+        "title": "Yes — more funds than any goal needs" if too_many else "About right — minor cleanup only",
+        "subtitle": (
+            f"{distinct} distinct funds is well past a sensible count on its own — before overlap "
+            f"even enters the picture. This is a count problem first, an overlap problem second."
+            if too_many else
+            f"{distinct} distinct strategies is a manageable count; only a little overlap to tidy."
+        ),
+    }
+    tiles = [
+        {"label": "Holdings you own",    "value": str(n)},
+        {"label": "Distinct strategies", "value": str(distinct)},
+        {"label": "Healthy target",      "value": f"~{target_lo}–{target_hi}"},
+        {"label": "High-overlap pairs",  "value": str(high)},
+    ]
+    bars = {
+        "title": "From what you hold to what you need",
+        "max": max(n, 1),
+        "items": [
+            {"label": "Holdings owned", "value": n, "color": "blue"},
+            {"label": "Distinct strategies", "sublabel": f"{len(dupe_rows)} plan-duplicate pairs collapse",
+             "value": distinct, "color": "green"},
+            {"label": "Healthy target", "sublabel": "one fund per role", "value": target_mid,
+             "color": "amber", "approx": True},
+        ],
+        "reading": (
+            f"Removing duplicates gets you from {n} to {distinct} — but the real gap is "
+            f"{distinct} → ~{target_mid}. You only need one fund per role: a large-cap, a mid, a "
+            f"small, a hybrid, and a debt sleeve cover most goals."
+        ),
+    }
+    step1 = None
+    if dupe_rows:
+        step1 = {
+            "title": "Step 1 — switch same-scheme duplicates (free)",
+            "subtitle": "Identical portfolio, just a cheaper plan. Move Regular units to Direct.",
+            "rows": [
+                {"name": f"{_short_fund(r.get('fund_a', ''))} — Regular → Direct",
+                 "meta": f"{round(r.get('overlap_pct') or 0)}% overlap"}
+                for r in dupe_rows[:5]
+            ],
+        }
+    step2 = None
+    if cross_rows:
+        step2 = {
+            "title": "Step 2 — question redundant pairs (keep one each)",
+            "rows": [
+                {"name": f"{_short_fund(r.get('fund_a', ''))} vs {_short_fund(r.get('fund_b', ''))}",
+                 "meta": f"~{round(r.get('overlap_pct') or 0)}%",
+                 "detail": _redundancy_question(r.get('fund_a', ''), r.get('fund_b', ''))}
+                for r in cross_rows[:4]
+            ],
+        }
+    tv = d.get("total_value_rs")
+    eq = d.get("equity_pct")
+    lead = ""
+    if tv:
+        lead = f"Book size ₹{tv / 1e7:.2f} cr"
+        if eq is not None:
+            lead += f" · {round(eq)}% equity"
+        lead += ". Stagger switches across financial years to manage capital-gains tax — don't redeem in one go. "
+    caveat = lead + (
+        "Based on holdings overlap and counts only — no returns, fees, fund size or manager record "
+        "here. Exact switch amounts aren't available from this data. Not financial advice; confirm "
+        "tax and exit load before acting."
+    )
+    return {"verdict": verdict, "tiles": tiles, "bars": bars, "step1": step1, "step2": step2, "caveat": caveat}
+
+
+def _abbrev(name: str) -> str:
+    """Short code for a fund used in the heatmap (initials of significant words)."""
+    short = _short_fund(name)
+    stop = {"of", "the", "and", "&", "india", "asset", "mutual"}
+    words = [w for w in short.split() if w.lower() not in stop]
+    if not words:
+        return short[:3].upper()
+    code = "".join(w[0] for w in words[:4]).upper()
+    return code[:4] if len(code) >= 2 else short[:3].upper()
+
+
+def build_overlap_widget(overlap: Any) -> Dict[str, Any]:
+    """Build the structured fund-overlap widget_data (tiles, same-scheme cost
+    fixes, different-funds redundancy review, a cluster heatmap of the most
+    inter-correlated funds, caveat) from a get_portfolio_overlap result.
+    """
+    d = getattr(overlap, "data", None) or {}
+    rows = getattr(overlap, "rows", None) or []
+    pair_count = int(d.get("pair_count") or len(rows))
+    high_rows = [r for r in rows if (r.get("overlap_pct") or 0) >= 40]
+    dupe_rows = [r for r in high_rows if r.get("is_plan_duplicate")]
+    cross_rows = [r for r in high_rows if not r.get("is_plan_duplicate")]
+    highest = round(max((r.get("overlap_pct") or 0) for r in rows)) if rows else 0
+
+    tiles = [
+        {"label": "Pairs analysed",       "value": str(pair_count)},
+        {"label": "High overlap (≥40%)",  "value": str(len(high_rows))},
+        {"label": "Highest overlap",      "value": f"{highest}%"},
+    ]
+    same_scheme = None
+    if dupe_rows:
+        same_scheme = {
+            "title": "Same scheme, two plans",
+            "subtitle": "Identical portfolio. Switch Regular units to Direct for a lower expense ratio.",
+            "badge": "cost fix — free",
+            "tone": "neg",
+            "rows": [
+                {"name": f"{_short_fund(r.get('fund_a', ''))} · Regular ↔ Direct",
+                 "overlap_pct": round(r.get("overlap_pct") or 0)}
+                for r in dupe_rows[:5]
+            ],
+        }
+    different_funds = None
+    if cross_rows:
+        top = sorted(cross_rows, key=lambda r: -(r.get("overlap_pct") or 0))
+        shown = top[:2]
+        rest = len(top) - len(shown)
+        lo = round(min((r.get("overlap_pct") or 0) for r in top[len(shown):])) if rest > 0 else 0
+        hi = round(max((r.get("overlap_pct") or 0) for r in top[len(shown):])) if rest > 0 else 0
+        different_funds = {
+            "title": "Different funds, similar holdings",
+            "subtitle": "Not duplicates — a judgement call on whether each earns its place.",
+            "badge": "review — keep one",
+            "tone": "warm",
+            "rows": [
+                {"name": f"{_short_fund(r.get('fund_a', ''))} ↔ {_short_fund(r.get('fund_b', ''))}",
+                 "overlap_pct": round(r.get("overlap_pct") or 0),
+                 "detail": _redundancy_question(r.get("fund_a", ""), r.get("fund_b", ""))}
+                for r in shown
+            ],
+            "more_note": (f"+ {rest} more pair(s) in the {lo}–{hi}% range — lower priority." if rest > 0 else None),
+        }
+
+    # ── Heatmap: the 4 funds that appear most in high cross-fund pairs ──────
+    heatmap = None
+    if cross_rows:
+        from collections import defaultdict
+        deg: Dict[str, int] = defaultdict(int)
+        pct: Dict[frozenset, int] = {}
+        for r in cross_rows:
+            a, b = r.get("fund_a", ""), r.get("fund_b", "")
+            if not a or not b:
+                continue
+            deg[a] += 1
+            deg[b] += 1
+            pct[frozenset((a, b))] = round(r.get("overlap_pct") or 0)
+        cluster = [f for f, _ in sorted(deg.items(), key=lambda kv: -kv[1])[:4]]
+        if len(cluster) >= 3:
+            labels = [{"key": _abbrev(f), "full": _short_fund(f)} for f in cluster]
+            matrix = [
+                [None if i == j else pct.get(frozenset((ci, cj)), 0)
+                 for j, cj in enumerate(cluster)]
+                for i, ci in enumerate(cluster)
+            ]
+            heatmap = {
+                "title": "How the most-overlapping funds cluster",
+                "subtitle": "Darker = more shared holdings.",
+                "labels": labels,
+                "matrix": matrix,
+                "legend": " · ".join(f"{l['key']} = {l['full']}" for l in labels),
+            }
+
+    caveat = (
+        "Based on holdings overlap only — no returns, fees, fund size or manager record here. "
+        "Switching is a sell-and-rebuy: stagger across financial years and check exit load and "
+        "capital-gains tax. Not financial advice."
+    )
+    return {
+        "tiles": tiles,
+        "same_scheme": same_scheme,
+        "different_funds": different_funds,
+        "heatmap": heatmap,
+        "caveat": caveat,
+    }
 
 
 # ── Portfolio fund comparison (rolling returns + TER + overlap) ───────────

@@ -883,17 +883,9 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                 resp = result.get("response")
                 prose = (getattr(resp, "text", None) or "") if resp else ""
                 wt = getattr(resp, "widget_type", None)
+                wt_str = wt.value if hasattr(wt, "value") else (str(wt) if wt else None)
                 wd = getattr(resp, "widget_data", None)
-                if wt and wt != "none" and wd:
-                    # Upgrade NIDP widget to the unified insight_card layout
-                    # (matches /chat/stream behaviour).
-                    try:
-                        from services.copilot_tools.insight_card_transformers import (
-                            nidp_widget_to_insight_card,
-                        )
-                        unified = nidp_widget_to_insight_card(wt, wd)
-                    except Exception:
-                        unified = None
+                if wt_str and wt_str != "none" and wd:
                     agent_val = getattr(resp, "agent", None)
                     agent_id = agent_val.value if hasattr(agent_val, "value") else agent_val
                     freshness = {
@@ -902,20 +894,35 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                         "source": ["NIDP", "portfolio_holdings"],
                     }
                     agent_block = {"id": agent_id or "risk_analyst", "confidence": 85}
-                    if unified is not None:
+                    # Structured V5-native widgets pass through verbatim — no
+                    # insight_card transform.
+                    if wt_str in ("fund_consolidation", "fund_overlap"):
                         widget_envelope = {
-                            "widget_type": "insight_card",
-                            "data":        unified.model_dump(),
-                            "freshness":   freshness,
-                            "agent":       agent_block,
+                            "widget_type": wt_str, "data": wd,
+                            "freshness": freshness, "agent": agent_block,
                         }
                     else:
-                        widget_envelope = {
-                            "widget_type": wt,
-                            "data":        wd,
-                            "freshness":   freshness,
-                            "agent":       agent_block,
-                        }
+                        try:
+                            from services.copilot_tools.insight_card_transformers import (
+                                nidp_widget_to_insight_card,
+                            )
+                            unified = nidp_widget_to_insight_card(wt, wd)
+                        except Exception:
+                            unified = None
+                        if unified is not None:
+                            widget_envelope = {
+                                "widget_type": "insight_card",
+                                "data":        unified.model_dump(),
+                                "freshness":   freshness,
+                                "agent":       agent_block,
+                            }
+                        else:
+                            widget_envelope = {
+                                "widget_type": wt_str,
+                                "data":        wd,
+                                "freshness":   freshness,
+                                "agent":       agent_block,
+                            }
                 validated = validate_chart_blocks(prose)
                 ai_response = validated["clean_text"]
                 await log_invalid_chart_specs(

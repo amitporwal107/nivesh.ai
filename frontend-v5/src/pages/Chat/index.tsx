@@ -6,6 +6,9 @@ import { ArrowRight, Plus, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSendChat, useSuggestedPrompts, useChatSession, useCreateChatSession } from "@/hooks/use-chat";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ChatWidget } from "@/components/chat/ChatWidget";
+
+const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap"]);
 
 const FALLBACK_PROMPTS = [
   "Why is my score 74?",
@@ -79,13 +82,19 @@ export default function ChatPage() {
 
         {messages.map((m, i) => {
           const isUser = m.role === "user";
+          const widget = !isUser ? (m as { widget?: { widget_type?: string; data?: unknown } }).widget : undefined;
+          const hasWidget = !!widget?.widget_type && WIDGET_TYPES.has(widget.widget_type);
           return (
             <div key={m.id ?? i} className={cn(isUser ? "self-end max-w-[520px] px-4 py-3 rounded-2xl rounded-br-md bg-surface-2 border border-hairline" : "flex gap-3.5")}>
               {!isUser && (
                 <span className="grid place-items-center h-9 w-9 rounded-md bg-ink text-on-accent font-display text-base leading-none shrink-0">न</span>
               )}
-              <div className={isUser ? "" : "flex-1"}>
-                <p className={isUser ? "text-[14px]" : "text-[15.5px] leading-relaxed"}>{m.content}</p>
+              <div className={isUser ? "" : "flex-1 min-w-0"}>
+                {hasWidget ? (
+                  <ChatWidget widget={widget} />
+                ) : (
+                  <p className={isUser ? "text-[14px]" : "text-[15.5px] leading-relaxed whitespace-pre-wrap"}>{m.content}</p>
+                )}
               </div>
             </div>
           );

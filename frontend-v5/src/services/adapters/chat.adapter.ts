@@ -19,6 +19,9 @@ export const ChatMessageC = z.object({
   role: z.enum(["user", "assistant", "system"]).or(z.string()),
   content: z.string(),
   created_at: z.string().optional(),
+  // Structured widget envelope: { widget_type, data, ... }. Rendered below the
+  // bubble by ChatWidget. passthrough already preserves it; typed here for use.
+  widget: z.object({ widget_type: z.string(), data: z.any() }).passthrough().optional(),
 }).passthrough();
 export type ChatMessageC = z.infer<typeof ChatMessageC>;
 

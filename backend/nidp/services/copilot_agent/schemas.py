@@ -51,6 +51,8 @@ class WidgetType(str, Enum):
     FUND_COMPARISON = "fund_comparison"
     GOAL_TRACKER = "goal_tracker"
     SIP_PLAN = "sip_plan"
+    FUND_CONSOLIDATION = "fund_consolidation"
+    FUND_OVERLAP = "fund_overlap"
     NONE = "none"
 
 
