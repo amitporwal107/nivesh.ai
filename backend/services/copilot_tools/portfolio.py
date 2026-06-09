@@ -122,7 +122,23 @@ async def get_portfolio_xirr(user_id: str) -> PortfolioResult:
     portfolio_return_pct = (portfolio_gain / total_invested * 100.0) if total_invested > 0 else 0.0
     portfolio_xirr = (weighted_xirr_sum / weighted_xirr_weight) if weighted_xirr_weight > 0 else None
 
-    xirr_str = f" (XIRR {portfolio_xirr:+.1f}%)" if portfolio_xirr is not None else ""
+    # XIRR guard: invested-weighting per-holding ANNUALISED XIRR explodes for
+    # short-horizon holdings (a few weeks of gain annualises to triple digits),
+    # producing implausible portfolio figures like +1211% that contradict the
+    # absolute return. A true portfolio XIRR needs dated cashflows we don't have
+    # here, so rather than report a number we know is wrong, suppress anything
+    # outside a sane band and fall back to the absolute return. The raw value is
+    # kept (xirr_raw) so callers can explain why it's withheld.
+    xirr_raw = round(portfolio_xirr, 2) if portfolio_xirr is not None else None
+    xirr_unreliable = portfolio_xirr is not None and abs(portfolio_xirr) > 100.0
+    portfolio_xirr_safe = None if xirr_unreliable else portfolio_xirr
+
+    if xirr_unreliable:
+        xirr_str = f" (per-holding XIRR averages to {portfolio_xirr:+.0f}% — a short-horizon calc artifact, ignore it)"
+    elif portfolio_xirr is not None:
+        xirr_str = f" (XIRR {portfolio_xirr:+.1f}%)"
+    else:
+        xirr_str = ""
     summary = (
         f"Portfolio: invested ₹{total_invested:,.0f} → current ₹{total_current:,.0f} "
         f"= {portfolio_return_pct:+.1f}% absolute return{xirr_str} "
@@ -137,7 +153,9 @@ async def get_portfolio_xirr(user_id: str) -> PortfolioResult:
             "total_current_rs": round(total_current, 0),
             "total_gain_rs": round(portfolio_gain, 0),
             "portfolio_return_pct": round(portfolio_return_pct, 2),
-            "portfolio_xirr_pct": round(portfolio_xirr, 2) if portfolio_xirr is not None else None,
+            "portfolio_xirr_pct": round(portfolio_xirr_safe, 2) if portfolio_xirr_safe is not None else None,
+            "portfolio_xirr_raw_pct": xirr_raw,
+            "xirr_unreliable": xirr_unreliable,
             "position_count": len(rows),
         },
         rows=sorted(rows, key=lambda r: r.get("xirr_pct") or -999, reverse=True),
@@ -841,6 +859,156 @@ def build_concentration_widget(summary: Any, overlap: Any) -> Dict[str, Any]:
     }
 
 
+# ── Allocation-review widget builder ──────────────────────────────────────
+
+def _inr_short(v: Any) -> str:
+    v = float(v or 0)
+    if v >= 1e7:
+        return f"₹{v / 1e7:.2f}cr"
+    if v >= 1e5:
+        return f"₹{v / 1e5:.1f}L"
+    return f"₹{v:,.0f}"
+
+
+def build_allocation_review_widget(summary: Any, rebalance: Any, xirr: Any) -> Dict[str, Any]:
+    """Build the 'is my wealth allocation optimal?' verdict widget: a verdict
+    hero (over/under/aligned vs target), a current-vs-target comparison, an
+    optional broken-XIRR alert, the reliable figures, and a prioritised action
+    list. If the canonical and rebalance equity readings STILL disagree (they
+    shouldn't, post-fix) it falls back to an honest data-conflict hero rather
+    than guessing a verdict."""
+    sd = getattr(summary, "data", None) or {}
+    rd = getattr(rebalance, "data", None) or {}
+    xd = getattr(xirr, "data", None) or {}
+    srows = getattr(summary, "rows", None) or []
+    rrows = getattr(rebalance, "rows", None) or []
+
+    equity = round(float(sd.get("equity_pct") or 0))
+    gold = round(float(sd.get("gold_pct") or 0))
+    debt = round(float(sd.get("debt_pct") or 0))
+    other = round(float(sd.get("other_pct") or 0))
+    target_eq = round(float(rd.get("target_equity_pct") or 65))
+    target_dt = round(float(rd.get("target_debt_pct") or 35))
+    rebalance_eq = rd.get("equity_pct")
+
+    top_sector = sd.get("top_sector") or next(
+        ({"name": r.get("label"), "pct": r.get("value")} for r in srows if r.get("type") == "sector"), None)
+    sec_pct = round(float(top_sector["pct"])) if top_sector and top_sector.get("pct") is not None else None
+    sec_name = top_sector.get("name") if top_sector else None
+    overlap_n = sd.get("high_overlap_pairs")
+
+    invested = xd.get("total_invested_rs")
+    current = xd.get("total_current_rs")
+    abs_ret = xd.get("portfolio_return_pct")
+    xirr_unreliable = bool(xd.get("xirr_unreliable"))
+    xirr_raw = xd.get("portfolio_xirr_raw_pct")
+
+    # ── Integrity guard: only if the two equity feeds STILL conflict badly ──
+    conflict = None
+    if rebalance_eq is not None and abs(round(float(rebalance_eq)) - equity) > 15:
+        conflict = {
+            "tone": "warm",
+            "title": "Can't confirm — your allocation data conflicts",
+            "body": (f"Two sources disagree on your equity weight ({equity}% vs "
+                     f"{round(float(rebalance_eq))}%). Until that's reconciled, any 'optimal or not' "
+                     f"verdict would be guesswork — don't rebalance yet."),
+        }
+
+    # ── Verdict ────────────────────────────────────────────────────────────
+    gap = equity - target_eq
+    if gap > 5:
+        v_title = "You're overweight equity vs your target"
+        v_body = (f"You're at {equity}% equity against a {target_eq}% target — about {gap}pp over. "
+                  f"Trimming toward target adds ballast for a market drawdown.")
+    elif gap < -5:
+        v_title = "You're underweight equity vs your target"
+        v_body = (f"You're at {equity}% equity against a {target_eq}% target — about {abs(gap)}pp under. "
+                  f"Adding equity (e.g. a flexi-cap) moves you toward the growth your plan assumes.")
+    else:
+        v_title = "Your equity weight is broadly on target"
+        v_body = (f"You're at {equity}% equity against a {target_eq}% target — within a few points. "
+                  f"The bigger levers now are fund overlap and sector concentration.")
+    hero = conflict or {"tone": "accent", "title": v_title, "body": v_body}
+
+    # ── Current vs target comparison ─────────────────────────────────────────
+    cur_segs = []
+    for label, pct, color in (("Equity", equity, "red"), ("Gold", gold, "amber"),
+                              ("Debt", debt, "blue"), ("Other", other, "grey")):
+        if pct > 0:
+            cur_segs.append({"label": f"{label} {pct}%" if pct >= 8 else "", "pct": pct, "color": color})
+    tgt_segs = [
+        {"label": f"Equity {target_eq}%", "pct": target_eq, "color": "red"},
+        {"label": f"Debt {target_dt}%", "pct": target_dt, "color": "blue"},
+    ]
+    comparison = {
+        "title": "Current vs your target",
+        "rows": [
+            {"label": "Current", "segments": cur_segs},
+            {"label": "Target", "dashed": True, "segments": tgt_segs},
+        ],
+        "note": (f"{equity}% equity vs a {target_eq}% target — a {abs(gap)}pp "
+                 f"{'overweight' if gap > 0 else 'underweight' if gap < 0 else 'match'}."),
+    }
+
+    # ── Broken-XIRR alert (only when genuinely implausible) ──────────────────
+    xirr_alert = None
+    if xirr_unreliable and xirr_raw is not None:
+        xirr_alert = {
+            "title": "Your XIRR figure is unreliable",
+            "body": (f"The reported annualised XIRR works out to {xirr_raw:+.0f}% while your absolute "
+                     f"return is {abs_ret:+.1f}%. That annualised number is a short-horizon calculation "
+                     f"artifact, not a real result — use the absolute return. Invested and current "
+                     f"values themselves look fine."),
+        }
+
+    # ── Reliable figures ─────────────────────────────────────────────────────
+    tiles = []
+    if invested and current:
+        tiles.append({"label": "Invested → now", "value": f"{_inr_short(invested)} → {_inr_short(current)}",
+                      "sub": f"{abs_ret:+.1f}% absolute" if abs_ret is not None else ""})
+    if gold:
+        tiles.append({"label": "Gold", "value": f"{gold}%", "sub": "meaningful — review vs plan"})
+    if sec_pct is not None:
+        tiles.append({"label": "Top sector", "value": f"{sec_pct}%",
+                      "sub": f"{sec_name} — some concentration"})
+    if overlap_n:
+        tiles.append({"label": "Overlap pairs", "value": str(overlap_n), "sub": "possible duplication"})
+
+    # ── Action list ──────────────────────────────────────────────────────────
+    trim = next((r for r in rrows if r.get("action") in ("SELL", "BUY") and r.get("asset") in ("equity",)), None)
+    items, n = [], 1
+    if conflict:
+        items.append({"n": n, "title": "Verify the equity/debt split",
+                      "body": "which feed is right? Nothing else is safe until this is settled."})
+        n += 1
+    elif gap > 5:
+        amt = f" (~{_inr_short(trim.get('amount_rs'))})" if trim and trim.get("amount_rs") else ""
+        items.append({"n": n, "title": "Trim equity toward target",
+                      "body": f"move{amt} from equity into a short-term debt sleeve to reach ~{target_eq}%."})
+        n += 1
+    elif gap < -5:
+        amt = f" (~{_inr_short(trim.get('amount_rs'))})" if trim and trim.get("amount_rs") else ""
+        items.append({"n": n, "title": "Add to equity toward target",
+                      "body": f"add{amt} to a flexi-cap fund to reach ~{target_eq}%."})
+        n += 1
+    if overlap_n or (sec_pct is not None and sec_pct >= 25):
+        items.append({"n": n, "title": "Reduce overlap and sector concentration",
+                      "body": "consolidate duplicate funds and watch the top sector weight."})
+        n += 1
+    items.append({"n": n, "title": "Hold off on new PMS/AIF",
+                  "body": "until the core allocation is rebalanced toward target."})
+
+    return {
+        "hero": hero,
+        "comparison": comparison,
+        "xirr_alert": xirr_alert,
+        "reliable": {"title": "What looks reliable", "tiles": tiles},
+        "actions": {"title": "Do this, in order", "items": items},
+        "caveat": ("International, alternatives, and tax/estate impact weren't available — treat this as a "
+                   "directional review, not a full plan. Not financial advice."),
+    }
+
+
 # ── Portfolio fund comparison (rolling returns + TER + overlap) ───────────
 
 async def compare_portfolio_funds(user_id: str) -> PortfolioResult:
@@ -997,14 +1165,33 @@ async def get_rebalance_plan(user_id: str) -> PortfolioResult:
     if current_value <= 0:
         return PortfolioResult(ok=False, summary="Cannot compute — holdings have no current value", error="no_value")
 
-    equity_val = sum(
-        float(h.get("current_value") or float(h.get("current_price") or 0) * float(h.get("quantity") or 0))
-        for h in holdings
-        if (h.get("asset_class") or h.get("asset_type") or "equity").lower() in ("equity", "stock")
-    )
-    debt_val = current_value - equity_val
-    equity_pct = round(equity_val / current_value * 100, 1)
-    debt_pct = round(debt_val / current_value * 100, 1)
+    # Equity weight MUST come from the canonical look-through allocation (the
+    # same source get_portfolio_summary / the dashboard use). The naive
+    # holdings-level `asset_class in (equity, stock)` test counted every equity
+    # MUTUAL FUND as non-equity (debt), so an MF-heavy portfolio reported ~15%
+    # equity while its true look-through weight was ~81% — the two feeds
+    # contradicted each other. Use the canonical figure; fall back to the
+    # holdings heuristic only if intelligence is unavailable.
+    equity_pct = None
+    try:
+        from services import portfolio_intelligence as PI
+        _intel = await PI.compute_portfolio_intelligence(user_id)
+        _alloc = _intel.get("asset_allocation") or {}
+        if _alloc.get("equity_pct") is not None:
+            equity_pct = round(float(_alloc["equity_pct"]), 1)
+            current_value = float(_intel.get("total_value") or current_value) or current_value
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("rebalance: canonical allocation unavailable, falling back: %s", exc)
+    if equity_pct is None:
+        equity_val = sum(
+            float(h.get("current_value") or float(h.get("current_price") or 0) * float(h.get("quantity") or 0))
+            for h in holdings
+            if (h.get("asset_class") or h.get("asset_type") or "equity").lower() in ("equity", "stock")
+        )
+        equity_pct = round(equity_val / current_value * 100, 1)
+    # "Debt" here is the non-equity remainder (debt + gold + other) for the
+    # two-way equity/debt rebalance model.
+    debt_pct = round(100.0 - equity_pct, 1)
 
     target_equity = 65.0
     target_debt = 35.0

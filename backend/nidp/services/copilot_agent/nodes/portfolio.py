@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
@@ -184,17 +185,31 @@ async def portfolio_node(state: CopilotState) -> dict:
     ])
     answer_text = resp.content
 
+    _msg = user_msg.lower()
+    # "Is my wealth allocation optimal?" → the allocation-review verdict widget.
+    is_allocation = bool(re.search(
+        r"allocation\s+optimal|optimal\s+allocation|wealth\s+allocation|"
+        r"is\s+my\s+(?:asset\s+)?allocation|(?:asset\s+)?allocation\s+(?:optimal|right|good|ok|balanced)|"
+        r"review\s+my\s+allocation|how(?:'s| is)\s+my\s+allocation|am\s+i\s+well\s+allocated|asset\s+mix",
+        _msg,
+    ))
     # "Where is concentration risk highest?" gets the dedicated concentration
     # widget (V5-native), built from the summary + overlap tool results.
     is_concentration = any(
-        kw in user_msg.lower()
+        kw in _msg
         for kw in ("concentrat", "where is the risk", "where is risk", "most exposed",
                    "biggest risk", "diversif")
     )
     summary_tr = next((r for r in tool_results if r.tool_name == "get_portfolio_summary" and r.ok), None)
     overlap_tr = next((r for r in tool_results if r.tool_name == "get_portfolio_overlap" and r.ok), None)
+    rebalance_tr = next((r for r in tool_results if r.tool_name == "get_rebalance_plan" and r.ok), None)
+    xirr_tr = next((r for r in tool_results if r.tool_name == "get_portfolio_xirr" and r.ok), None)
 
-    if is_concentration and summary_tr:
+    if is_allocation and summary_tr:
+        from services.copilot_tools.portfolio import build_allocation_review_widget
+        widget_type = WidgetType.ALLOCATION_REVIEW
+        widget_data = build_allocation_review_widget(summary_tr, rebalance_tr, xirr_tr)
+    elif is_concentration and summary_tr:
         from services.copilot_tools.portfolio import build_concentration_widget
         widget_type = WidgetType.CONCENTRATION
         widget_data = build_concentration_widget(summary_tr, overlap_tr)

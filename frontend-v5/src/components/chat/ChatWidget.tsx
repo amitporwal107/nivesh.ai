@@ -8,6 +8,7 @@
  * nothing (the text bubble still shows).
  */
 import { Fragment } from "react";
+import { cn } from "@/lib/utils";
 
 const BAR: Record<string, string> = {
   blue: "#3B82F6",
@@ -572,6 +573,92 @@ function ConcentrationWidget({ data }: { data: any }) {
   );
 }
 
+// ── allocation_review ───────────────────────────────────────────────────────
+// "Is my wealth allocation optimal?" — verdict hero (over/under/aligned vs
+// target), current-vs-target comparison, optional broken-XIRR alert, reliable
+// figures, and a prioritised action list. Data: build_allocation_review_widget.
+function TargetBar({ segments }: { segments: any[] }) {
+  return (
+    <div className="flex h-7 w-full rounded-md overflow-hidden border border-dashed border-hairline-2 bg-surface-2/40">
+      {segments.map((s: any, i: number) => (
+        <div key={i} className="flex items-center px-2 min-w-0 whitespace-nowrap border-r border-dashed border-hairline-2 last:border-r-0" style={{ width: `${Math.max(0.5, s.pct)}%` }}>
+          {s.label && <span className="text-[12px] text-ink-2 truncate">{s.label}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AllocationReviewWidget({ data }: { data: any }) {
+  if (!data) return null;
+  const { hero, comparison, xirr_alert, reliable, actions, caveat } = data;
+  const heroWarm = hero?.tone === "warm";
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      {hero && (
+        <div className="rounded-lg border border-hairline p-5" style={{ background: heroWarm ? "rgb(var(--warm) / 0.10)" : "rgb(var(--accent) / 0.08)" }}>
+          <div className="flex items-start gap-3">
+            <span className={cn("mt-1 h-3.5 w-3.5 rounded-[3px] border-2 shrink-0", heroWarm ? "border-warm" : "border-accent")} />
+            <div>
+              <div className="font-display text-[17px] text-ink tracking-tightish leading-snug">{hero.title}</div>
+              {hero.body && <p className="text-[14px] text-ink-2 leading-relaxed mt-1.5">{hero.body}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {comparison?.rows?.length > 0 && (
+        <Card>
+          <Heading>{comparison.title}</Heading>
+          <div className="flex flex-col gap-4 mt-4">
+            {comparison.rows.map((r: any, i: number) => (
+              <div key={i}>
+                <div className="text-[12.5px] text-ink-3 mb-1.5">{r.label}</div>
+                {r.dashed ? <TargetBar segments={r.segments || []} /> : <StackedBar segments={r.segments || []} />}
+              </div>
+            ))}
+          </div>
+          {comparison.note && <p className="text-[13px] text-ink-2 leading-relaxed mt-4">{comparison.note}</p>}
+        </Card>
+      )}
+
+      {xirr_alert && (
+        <div className="rounded-lg border border-hairline p-5" style={{ background: "rgb(var(--neg) / 0.07)" }}>
+          <div className="font-display text-[16px] text-neg tracking-tightish leading-snug">{xirr_alert.title}</div>
+          {xirr_alert.body && <p className="text-[13.5px] text-neg/90 leading-relaxed mt-1.5">{xirr_alert.body}</p>}
+        </div>
+      )}
+
+      {reliable?.tiles?.length > 0 && (
+        <Card>
+          <Heading>{reliable.title}</Heading>
+          <div className="flex flex-wrap gap-2.5 mt-4">
+            {reliable.tiles.map((t: any, i: number) => <KpiTile key={i} label={t.label} value={t.value} sub={t.sub} />)}
+          </div>
+        </Card>
+      )}
+
+      {actions?.items?.length > 0 && (
+        <div className="rounded-lg bg-surface-2 border border-hairline p-5">
+          <Heading>{actions.title}</Heading>
+          <div className="flex flex-col gap-3.5 mt-3.5">
+            {actions.items.map((f: any, i: number) => (
+              <div key={i} className="flex items-start gap-3">
+                <span className="mt-0.5 h-5 w-5 rounded-full shrink-0 grid place-items-center text-[11px] font-semibold bg-ink text-on-accent">{f.n}</span>
+                <p className="text-[14px] text-ink-2 leading-relaxed">
+                  <span className="font-medium text-ink">{f.title}</span> — {f.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {caveat && <p className="text-[12px] text-ink-3 leading-relaxed px-1">{caveat}</p>}
+    </div>
+  );
+}
+
 // ── dispatcher ─────────────────────────────────────────────────────────────
 export function ChatWidget({ widget }: { widget?: { widget_type?: string; data?: any } }) {
   if (!widget?.widget_type) return null;
@@ -583,6 +670,7 @@ export function ChatWidget({ widget }: { widget?: { widget_type?: string; data?:
       case "risk_overview":      return <RiskOverviewWidget data={widget.data} />;
       case "cap_education":      return <CapEducationWidget data={widget.data} />;
       case "concentration":      return <ConcentrationWidget data={widget.data} />;
+      case "allocation_review":  return <AllocationReviewWidget data={widget.data} />;
     }
   } catch {
     return null;
