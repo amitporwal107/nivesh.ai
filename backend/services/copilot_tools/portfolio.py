@@ -240,20 +240,55 @@ async def get_portfolio_overlap(user_id: str) -> PortfolioResult:
     ]
     rows.sort(key=lambda r: r["overlap_pct"], reverse=True)
 
+    # Regular vs Direct of the SAME scheme is a cost issue, not overlap. Flag
+    # each pair so the LLM can separate "switch Regular→Direct" (Fix #1) from
+    # genuine cross-fund overlap (Fix #2).
+    import re as _re
+
+    def _base_scheme(name: str) -> str:
+        n = (name or "").lower()
+        for tok in ("direct", "regular", "growth", "idcw", "dividend", "payout",
+                    "reinvestment", "plan", "option", "-"):
+            n = n.replace(tok, " ")
+        return _re.sub(r"\s+", " ", n).strip()
+
+    for r in rows:
+        r["is_plan_duplicate"] = bool(
+            r["fund_a"] and r["fund_b"]
+            and _base_scheme(r["fund_a"]) == _base_scheme(r["fund_b"])
+        )
+
     high = [r for r in rows if r["overlap_pct"] >= 40]
-    # Embed top high-overlap pairs (names + %) so the LLM can quote them verbatim
+    dupe_pairs = [r for r in high if r["is_plan_duplicate"]]
+    cross_pairs = [r for r in high if not r["is_plan_duplicate"]]
+
+    # Counts needed to answer "do I have too many funds?" (count, not overlap).
+    mf_count = len(intel.get("mf_investments") or [])
+    removable_count = len(intel.get("redundancy_suggestions") or [])
+
     top_lines = "; ".join(
         f"{r['fund_a']} ↔ {r['fund_b']} {r['overlap_pct']:.0f}%"
         for r in high[:5]
     ) if high else ""
     summary = (
-        f"{len(rows)} fund pair(s) analysed; {len(high)} pair(s) with ≥40% overlap"
+        f"{mf_count} mutual fund(s) held; {len(rows)} pair(s) analysed; "
+        f"{len(high)} pair(s) with ≥40% overlap "
+        f"({len(dupe_pairs)} are Regular+Direct duplicates of the same scheme, "
+        f"{len(cross_pairs)} are cross-fund); ~{removable_count} fund(s) removable "
+        f"with no loss of exposure"
         + (f" — top: {top_lines}" if top_lines else "")
     )
     return PortfolioResult(
         ok=True,
         summary=summary,
-        data={"pair_count": len(rows), "high_overlap_count": len(high)},
+        data={
+            "mf_count":                       mf_count,
+            "pair_count":                     len(rows),
+            "high_overlap_count":             len(high),
+            "regular_direct_duplicate_pairs": len(dupe_pairs),
+            "cross_fund_overlap_pairs":       len(cross_pairs),
+            "removable_fund_count":           removable_count,
+        },
         rows=rows,
     )
 
