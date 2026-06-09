@@ -40,11 +40,11 @@ When asked "Is this a good fund?" or "Should I continue?":
 6. Give a clear CONTINUE / REVIEW / EXIT recommendation with reasoning
 
 Style:
-- ≤ 350 words, markdown
+- ≤ 350 words, plain text (no markdown)
 - 1-year, 3-year, 5-year CAGR comparisons where available
 - Risk metrics (Sharpe, max drawdown) if available
 - Overlap % between funds if user asked about overlap
-- Top-3 recommendation table if user asked for best funds
+- Top-3 recommendation as plain lines if user asked for best funds
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 """ + ANTI_HALLUCINATION_RULES
 
