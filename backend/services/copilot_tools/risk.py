@@ -169,6 +169,107 @@ async def get_portfolio_risk_pra(user_id: str) -> RiskResult:
     return RiskResult(ok=True, summary=summary, data=data)
 
 
+# ── Risk-overview widget builder ──────────────────────────────────────────
+
+_PROFILE_BAND = {
+    "conservative": [0, 4], "moderate": [3, 6],
+    "moderately_aggressive": [4, 7], "aggressive": [6, 10],
+}
+
+
+def build_risk_overview_widget(pra_tr: Any, suit_tr: Any) -> Dict[str, Any]:
+    """Build the 'rebalance my risk' widget (gauge, stat tiles, worst-case VaR,
+    risk drivers, suggested action) from the PRA and suitability tool results.
+    """
+    pd = (getattr(pra_tr, "data", None) or {})
+    sd = (getattr(suit_tr, "data", None) or {})
+
+    def _n(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    var_pct  = _n(pd.get("var_95_1y_pct"))
+    var_inr  = _n(pd.get("var_95_1y_inr"))
+    vol      = _n(pd.get("volatility_annual_pct"))
+    beta     = _n(pd.get("beta_nifty500")) or _n(sd.get("portfolio_beta"))
+    mdd      = _n(pd.get("max_drawdown_pct"))
+    equity   = _n(sd.get("equity_pct"))
+    smallmid = _n(sd.get("small_mid_pct"))
+    score    = _n(sd.get("risk_score"))
+    rating   = (sd.get("risk_rating") or "—")
+    profile  = str(sd.get("user_profile") or "moderate")
+
+    band = _PROFILE_BAND.get(profile.lower().replace(" ", "_").replace("-", "_"), [3, 6])
+    profile_label = profile.replace("_", " ").title()
+    sc = score if score is not None else 5.0
+    over = sc > band[1]
+
+    description = (
+        "The needle sits just past the top of your stated band — not wildly off-profile, but at the "
+        "high edge. The drivers below are why." if over else
+        "The needle sits inside your stated tolerance band; the drivers below are the main contributors."
+    )
+    tiles = []
+    if equity is not None: tiles.append({"label": "Equity exposure", "value": f"{round(equity)}%"})
+    if beta is not None:   tiles.append({"label": "Beta vs NIFTY 500", "value": f"{beta:.2f}"})
+    if vol is not None:    tiles.append({"label": "Volatility", "value": f"{vol:.1f}%"})
+    if mdd is not None:    tiles.append({"label": "Max drawdown", "value": f"−{abs(mdd):.0f}%"})
+
+    var_block = None
+    if var_pct is not None:
+        lakh = (var_inr or 0) / 1e5
+        var_block = {
+            "pct": -abs(var_pct),
+            "inr": round(var_inr) if var_inr else None,
+            "inr_label": f"₹{lakh:.1f} lakh" if var_inr else None,
+            "subtitle": (
+                f"In a severe year (1-in-20), losses of about ₹{round(var_inr):,} are within range. "
+                f"1-day VaR isn't available from this data." if var_inr else
+                "1-in-20 worst case over 12 months."
+            ),
+        }
+
+    items = []
+    if equity is not None:
+        items.append({"label": "Equity concentration", "value_label": f"{round(equity)}%", "pct": equity,
+                      "color": "red" if equity >= 85 else "amber",
+                      "note": "Almost no debt cushion — full exposure to market drawdowns." if equity >= 85
+                              else "Heavy equity tilt."})
+    if beta is not None:
+        items.append({"label": "Market sensitivity (beta)", "value_label": f"{beta:.2f}×",
+                      "pct": min(100, beta / 2 * 100), "color": "amber",
+                      "note": (f"Tends to fall ~{round((beta - 1) * 100)}% more than the broad market on down days."
+                               if beta > 1 else "Roughly market-like.")})
+    if smallmid is not None:
+        items.append({"label": "Small / mid-cap exposure", "value_label": f"{round(smallmid)}%",
+                      "pct": smallmid, "color": "amber",
+                      "note": "Modest, but adds extra volatility on top of the large-cap core."
+                              if smallmid < 30 else "Meaningful small/mid tilt — a real volatility driver."})
+
+    action = {
+        "title": "Suggested action",
+        "text": (
+            f"Nudge risk down toward the middle of your band: redirect future SIPs and rebalances toward "
+            f"lower-risk categories (a debt sleeve, given {round(equity) if equity is not None else 0}% "
+            f"equity today) rather than selling in one go." if over else
+            "You're within band — keep contributions on plan and review the allocation periodically."
+        ),
+    }
+    caveat = (
+        "Risk metrics only — scheme-level overlap, expense ratios, manager tenure, AUM trend and "
+        "category-gap analysis aren't available from this data. Not financial advice."
+    )
+    return {
+        "gauge": {"rating": str(rating).upper(), "score": round(sc, 1), "max": 10,
+                  "profile": profile_label, "band": band},
+        "description": description, "tiles": tiles, "var": var_block,
+        "drivers": {"title": "What's driving the risk", "items": items},
+        "action": action, "caveat": caveat,
+    }
+
+
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 async def _load_holdings(user_id: str) -> List[Dict[str, Any]]:

@@ -77,6 +77,20 @@ def _is_fix_question(text: str) -> bool:
     return bool(_FIX_Q.search(text or ""))
 
 
+# Detects an overlap-SEVERITY/assessment question ("are my funds overlapping
+# significantly?") — checked before the action-oriented fix question.
+_SEVERITY_Q = re.compile(
+    r"overlap\w*\s+significan|significan\w*\s+overlap|how much overlap|"
+    r"(?:are|do)\s+my funds?\s+overlap|is (?:my|the)\s+overlap|"
+    r"overlap\w*\s+(?:bad|serious|a problem|too much)",
+    re.IGNORECASE,
+)
+
+
+def _is_severity_question(text: str) -> bool:
+    return bool(_SEVERITY_Q.search(text or ""))
+
+
 # Plain-text answer format for "do I have too many funds?" and similar
 # count/portfolio-size questions. Replaces the default markdown style because
 # the V5 chat surface renders Markdown as literal characters.
@@ -328,9 +342,10 @@ async def mf_node(state: CopilotState) -> dict:
     # "Fix overlap"/consolidate and "too many funds" questions answer with a
     # structured consolidation widget (the V5 chat renders it natively); the
     # text is a short plain-text fallback. Other MF questions use _SYSTEM.
-    is_fix = _is_fix_question(user_msg)
     is_count = _is_count_question(user_msg)
-    style = _FIX_FORMAT if is_fix else (_COUNT_FORMAT if is_count else _SYSTEM)
+    is_severity = _is_severity_question(user_msg)
+    is_fix = _is_fix_question(user_msg)
+    style = _COUNT_FORMAT if is_count else (_FIX_FORMAT if (is_fix or is_severity) else _SYSTEM)
 
     llm = ChatOpenAI(
         model=COPILOT_LLM_MODEL,
@@ -353,6 +368,10 @@ async def mf_node(state: CopilotState) -> dict:
         from services.copilot_tools.portfolio import build_consolidation_widget
         widget_type = WidgetType.FUND_CONSOLIDATION
         widget_data = build_consolidation_widget(overlap_tr)
+    elif is_severity and overlap_tr:
+        from services.copilot_tools.portfolio import build_overlap_severity_widget
+        widget_type = WidgetType.OVERLAP_SEVERITY
+        widget_data = build_overlap_severity_widget(overlap_tr)
     elif is_fix and overlap_tr:
         from services.copilot_tools.portfolio import build_overlap_widget
         widget_type = WidgetType.FUND_OVERLAP

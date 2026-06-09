@@ -896,7 +896,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                     agent_block = {"id": agent_id or "risk_analyst", "confidence": 85}
                     # Structured V5-native widgets pass through verbatim — no
                     # insight_card transform.
-                    if wt_str in ("fund_consolidation", "fund_overlap"):
+                    if wt_str in ("fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview"):
                         widget_envelope = {
                             "widget_type": wt_str, "data": wd,
                             "freshness": freshness, "agent": agent_block,

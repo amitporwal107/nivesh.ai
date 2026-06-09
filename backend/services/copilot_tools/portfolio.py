@@ -507,6 +507,77 @@ def build_overlap_widget(overlap: Any) -> Dict[str, Any]:
     }
 
 
+def build_overlap_severity_widget(overlap: Any) -> Dict[str, Any]:
+    """Build the 'are my funds overlapping significantly?' widget: verdict,
+    tiles, severity bands (effectively-identical / high / moderate), and the
+    biggest offenders. Assessment-oriented (vs the action-oriented fund_overlap).
+    """
+    d = getattr(overlap, "data", None) or {}
+    rows = getattr(overlap, "rows", None) or []
+    high = [r for r in rows if (r.get("overlap_pct") or 0) >= 40]
+    dupe = [r for r in high if r.get("is_plan_duplicate")]
+    identical = [r for r in high if (r.get("overlap_pct") or 0) >= 80]
+    high_band = [r for r in high if 60 <= (r.get("overlap_pct") or 0) < 80]
+    moderate = [r for r in high if 40 <= (r.get("overlap_pct") or 0) < 60]
+    highest = round(max((r.get("overlap_pct") or 0) for r in rows)) if rows else 0
+    removable = int(d.get("removable_fund_count") or 0)
+    mx = max(len(identical), len(high_band), len(moderate), 1)
+
+    concentrated = len(identical) > 0 and len(moderate) >= len(identical)
+    verdict = {
+        "tone": "warm",
+        "title": "Yes — but it's concentrated, not everywhere" if concentrated else "Some overlap worth a look",
+        "subtitle": (
+            "A handful of holdings are near-identical; the rest only partly overlap. The fix is "
+            "small and targeted, not a portfolio teardown." if concentrated else
+            "A few pairs share a lot; most are only partial overlap."
+        ),
+    }
+    tiles = [
+        {"label": "High-overlap pairs", "value": str(len(high))},
+        {"label": "Funds removable",    "value": f"~{removable}"},
+        {"label": "Highest overlap",    "value": f"{highest}%"},
+    ]
+    bands = {
+        "title": "How severe is the overlap?",
+        "subtitle": f"{len(high)} high-overlap pairs, split by how much they actually share.",
+        "max": mx,
+        "items": [
+            {"label": "Effectively identical", "note": "≥80% — same-scheme duplicates",
+             "value": len(identical), "unit": "pairs", "color": "red"},
+            {"label": "High", "note": "60–79% — index/large-cap",
+             "value": len(high_band), "unit": "pairs", "color": "amber"},
+            {"label": "Moderate", "note": "40–59% — partial",
+             "value": len(moderate), "unit": "pairs", "color": "blue"},
+        ],
+        "reading": (
+            f"The “significant” overlap is really {len(dupe)} duplicate pair(s) — and those are "
+            f"the cheapest to fix (same fund, just switch Regular to Direct). Most pairs are only "
+            f"partial overlap, which is normal for funds in the same category."
+        ),
+    }
+    offenders = None
+    top = sorted(high, key=lambda r: -(r.get("overlap_pct") or 0))[:3]
+    if top:
+        offenders = {
+            "title": "The biggest offenders",
+            "rows": [
+                {"name": (f"{_short_fund(r.get('fund_a',''))} · Regular ↔ Direct" if r.get("is_plan_duplicate")
+                          else f"{_short_fund(r.get('fund_a',''))} ↔ {_short_fund(r.get('fund_b',''))}"),
+                 "overlap_pct": round(r.get("overlap_pct") or 0)}
+                for r in top
+            ],
+            "note": ("All same-scheme held in two plans — a cost issue, not a diversification one. "
+                     "Switch Regular units to Direct first." if all(r.get("is_plan_duplicate") for r in top)
+                     else "Mix of plan duplicates and similar funds — handle the duplicates first."),
+        }
+    caveat = (
+        "Based on holdings overlap only — no returns, fees or manager record here. Switching is a "
+        "sell-and-rebuy: check exit load and capital-gains tax. Not financial advice."
+    )
+    return {"verdict": verdict, "tiles": tiles, "bands": bands, "offenders": offenders, "caveat": caveat}
+
+
 # ── Portfolio fund comparison (rolling returns + TER + overlap) ───────────
 
 async def compare_portfolio_funds(user_id: str) -> PortfolioResult:

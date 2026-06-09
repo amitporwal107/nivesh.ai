@@ -53,6 +53,8 @@ class WidgetType(str, Enum):
     SIP_PLAN = "sip_plan"
     FUND_CONSOLIDATION = "fund_consolidation"
     FUND_OVERLAP = "fund_overlap"
+    OVERLAP_SEVERITY = "overlap_severity"
+    RISK_OVERVIEW = "risk_overview"
     NONE = "none"
 
 
