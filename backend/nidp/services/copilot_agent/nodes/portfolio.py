@@ -70,7 +70,7 @@ async def _fetch_portfolio_data(state: CopilotState) -> list:
         ).lower()
 
         if any(kw in user_msg for kw in ("rebalanc", "drift", "allocation", "trim", "overweight", "underweight", "which sector", "which fund", "which stock", "which holding")):
-            rb = await port_mod.get_rebalance_plan(user_id)
+            rb = await port_mod.get_rebalance_plan(user_id, state.risk_profile)
             results.append(ToolResult(
                 ok=rb.ok, tool_name="get_rebalance_plan",
                 summary=rb.summary, data=rb.data, rows=rb.rows,

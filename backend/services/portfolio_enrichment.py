@@ -98,7 +98,6 @@ async def portfolio_xirr_from_ledger(
     sell_total = 0.0
     n_txn = 0
     n_raw = 0
-    types_seen: set = set()
     try:
         cursor = db.cas_transactions.find(
             {"user_id": user_id},
@@ -108,8 +107,6 @@ async def portfolio_xirr_from_ledger(
         async for t in cursor:
             n_raw += 1
             ttype = (t.get("type") or t.get("transaction_type") or "").upper()
-            if len(types_seen) < 10:
-                types_seen.add(ttype or "<empty>")
             # Dividend reinvestment is INTERNAL to the portfolio (the payout was
             # already counted in value), not an external contribution — counting
             # it as a buy would understate the money-weighted return.
@@ -139,9 +136,11 @@ async def portfolio_xirr_from_ledger(
         return {"xirr_pct": None, "reliable": False, "coverage_pct": None, "n_txn": 0, "source": "ledger_error"}
 
     if n_txn < 2 or buy_total <= 0 or current_value <= 0:
+        # n_raw distinguishes "no ledger on file at all" (snapshot-only import)
+        # from "ledger present but unusable" — different message to the user.
         return {"xirr_pct": None, "reliable": False, "coverage_pct": None,
-                "n_txn": n_txn, "n_raw": n_raw, "types_seen": sorted(types_seen),
-                "source": "insufficient_ledger"}
+                "n_txn": n_txn, "n_raw": n_raw, "has_ledger": n_raw > 0,
+                "source": "no_ledger" if n_raw == 0 else "insufficient_ledger"}
 
     flows.append((datetime.now(timezone.utc).date(), float(current_value)))
     r = xirr(flows)
@@ -163,6 +162,8 @@ async def portfolio_xirr_from_ledger(
         "reliable": reliable,
         "coverage_pct": round(coverage * 100.0, 1) if coverage is not None else None,
         "n_txn": n_txn,
+        "n_raw": n_raw,
+        "has_ledger": True,
         "source": "ledger",
     }
 

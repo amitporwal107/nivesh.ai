@@ -139,12 +139,18 @@ async def get_portfolio_xirr(user_id: str) -> PortfolioResult:
     xirr_unreliable = portfolio_xirr_safe is None and xirr_raw is not None and abs(xirr_raw) > 100.0
 
     _cov = ledger.get("coverage_pct")
+    _has_ledger = bool(ledger.get("has_ledger"))
     if portfolio_xirr_safe is not None:
         xirr_str = f" (money-weighted XIRR {portfolio_xirr_safe:+.1f}%, from {ledger.get('n_txn')} txns)"
     elif xirr_unreliable:
-        _cov_txt = f"~{_cov:.0f}% of cost basis" if _cov is not None else "too little of cost basis"
-        xirr_str = (f" (XIRR withheld — transaction ledger covers {_cov_txt}, so a money-weighted "
-                    f"XIRR isn't reliable; the naive annualised {xirr_raw:+.0f}% is an artifact)")
+        if not _has_ledger:
+            xirr_str = (" (a money-weighted XIRR needs your dated buy/sell history; this account has "
+                        "only a holdings snapshot on file, so we report the absolute return)")
+        elif _cov is not None:
+            xirr_str = (f" (XIRR withheld — transaction ledger covers only ~{_cov:.0f}% of cost basis, "
+                        f"so a money-weighted XIRR isn't reliable; absolute return shown)")
+        else:
+            xirr_str = " (XIRR withheld — transaction ledger too incomplete; absolute return shown)"
     else:
         xirr_str = ""
     summary = (
@@ -166,9 +172,7 @@ async def get_portfolio_xirr(user_id: str) -> PortfolioResult:
             "xirr_unreliable": xirr_unreliable,
             "xirr_source": ledger.get("source"),
             "xirr_coverage_pct": ledger.get("coverage_pct"),
-            "xirr_n_txn": ledger.get("n_txn"),
-            "xirr_n_raw": ledger.get("n_raw"),
-            "xirr_types_seen": ledger.get("types_seen"),
+            "xirr_has_ledger": _has_ledger,
             "position_count": len(rows),
         },
         rows=sorted(rows, key=lambda r: r.get("xirr_pct") or -999, reverse=True),
@@ -903,6 +907,10 @@ def build_allocation_review_widget(summary: Any, rebalance: Any, xirr: Any) -> D
     target_eq = round(float(rd.get("target_equity_pct") or 65))
     target_dt = round(float(rd.get("target_debt_pct") or 35))
     rebalance_eq = rd.get("equity_pct")
+    target_rp = rd.get("target_risk_profile") or "moderate"
+    target_rp_known = rd.get("target_risk_profile_known", False)
+    target_h = rd.get("target_horizon_years")
+    target_h_src = rd.get("target_horizon_source")
 
     top_sector = sd.get("top_sector") or next(
         ({"name": r.get("label"), "pct": r.get("value")} for r in srows if r.get("type") == "sector"), None)
@@ -953,13 +961,21 @@ def build_allocation_review_widget(summary: Any, rebalance: Any, xirr: Any) -> D
         {"label": f"Equity {target_eq}%", "pct": target_eq, "color": "red"},
         {"label": f"Debt {target_dt}%", "pct": target_dt, "color": "blue"},
     ]
+    # Basis line: where the recommended target comes from.
+    if target_rp_known:
+        basis = f"Recommended for your {target_rp} risk profile"
+        basis += (f" and {target_h:.0f}-year goal horizon" if target_h_src == "goals" and target_h
+                  else " (long-term horizon)")
+    else:
+        basis = (f"Default {target_rp} target — set your risk profile and goals for a tailored "
+                 f"allocation")
     comparison = {
-        "title": "Current vs your target",
+        "title": "Current vs recommended",
         "rows": [
             {"label": "Current", "segments": cur_segs},
-            {"label": "Target", "dashed": True, "segments": tgt_segs},
+            {"label": f"Recommended · {target_rp} profile", "dashed": True, "segments": tgt_segs},
         ],
-        "note": (f"{equity}% equity vs a {target_eq}% target — a {abs(gap)}pp "
+        "note": (f"{basis}. You're {equity}% equity vs the {target_eq}% target — a {abs(gap)}pp "
                  f"{'overweight' if gap > 0 else 'underweight' if gap < 0 else 'match'}."),
     }
 
@@ -967,15 +983,20 @@ def build_allocation_review_widget(summary: Any, rebalance: Any, xirr: Any) -> D
     xirr_alert = None
     if xirr_unreliable and xirr_raw is not None:
         cov = xd.get("xirr_coverage_pct")
-        cov_txt = (f"Your transaction history covers only ~{cov:.0f}% of your cost basis"
-                   if cov is not None else "We don't have your full transaction history")
+        has_ledger = bool(xd.get("xirr_has_ledger"))
+        if not has_ledger:
+            reason = ("A money-weighted XIRR needs your dated buy/sell history, and this account has "
+                      "only a current-holdings snapshot on file — no transaction ledger. ")
+        elif cov is not None:
+            reason = (f"Your transaction history covers only ~{cov:.0f}% of your cost basis, so older "
+                      f"positions are missing and a XIRR from a partial ledger would overstate. ")
+        else:
+            reason = "Your transaction history is too incomplete to compute a reliable XIRR. "
         xirr_alert = {
-            "title": "XIRR can't be computed reliably yet — using absolute return",
-            "body": (f"A true money-weighted XIRR needs your dated purchase/redemption history. "
-                     f"{cov_txt}, so positions that predate your statement are missing — and a XIRR "
-                     f"from a partial ledger overstates. The naive annualised figure ({xirr_raw:+.0f}%) "
-                     f"is a short-horizon artifact that contradicts your {abs_ret:+.1f}% absolute "
-                     f"return, so we show the absolute. Invested and current values are accurate."),
+            "title": "XIRR can't be computed reliably — using absolute return",
+            "body": (f"{reason}The naive annualised figure ({xirr_raw:+.0f}%) is a short-horizon "
+                     f"artifact that contradicts your {abs_ret:+.1f}% absolute return, so we show the "
+                     f"absolute. Invested and current values are accurate."),
         }
 
     # ── Reliable figures ─────────────────────────────────────────────────────
@@ -1027,9 +1048,6 @@ def build_allocation_review_widget(summary: Any, rebalance: Any, xirr: Any) -> D
         "actions": {"title": "Do this, in order", "items": items},
         "caveat": ("International, alternatives, and tax/estate impact weren't available — treat this as a "
                    "directional review, not a full plan. Not financial advice."),
-        "_xirr_debug": {"source": xd.get("xirr_source"), "n_txn": xd.get("xirr_n_txn"),
-                        "coverage": xd.get("xirr_coverage_pct"),
-                        "n_raw": xd.get("xirr_n_raw"), "types": xd.get("xirr_types_seen")},
     }
 
 
@@ -1170,10 +1188,67 @@ async def compare_portfolio_funds(user_id: str) -> PortfolioResult:
     )
 
 
+# ── Target allocation (risk profile + goal horizon) ───────────────────────
+
+_RISK_ALIASES = {
+    "conservative": "conservative", "cautious": "conservative", "defensive": "conservative", "low": "conservative",
+    "moderate": "moderate", "balanced": "moderate", "medium": "moderate", "moderately aggressive": "moderate",
+    "aggressive": "aggressive", "growth": "aggressive", "high": "aggressive", "very aggressive": "aggressive",
+}
+
+
+async def get_target_allocation(user_id: str, risk_profile: Optional[str] = None) -> Dict[str, Any]:
+    """Recommended equity/debt target derived from the user's RISK PROFILE and
+    GOAL horizon — not a hardcoded 65/35. Uses goal_engine.allocation_for_profile
+    (conservative 30/70, moderate 60/40, aggressive 80/20) with its <5y horizon
+    guardrail (caps equity at 40 for short goals). The longest active goal drives
+    the horizon (you can hold equity for long goals)."""
+    rp = (risk_profile or "").strip().lower() or None
+    if not rp:
+        try:
+            from deps import db
+            prof = await db.user_profiles.find_one(
+                {"user_id": user_id}, {"_id": 0, "risk_profile": 1, "risk_category": 1}) or {}
+            rpv = prof.get("risk_profile") or prof.get("risk_category")
+            if isinstance(rpv, dict):
+                rpv = rpv.get("category")
+            rp = rpv.strip().lower() if isinstance(rpv, str) else None
+        except Exception:  # noqa: BLE001
+            pass
+    rp_norm = _RISK_ALIASES.get(rp or "", "moderate")
+
+    horizon = 10.0
+    horizon_source = "default"
+    try:
+        from services.copilot_rag.retrievers import goals_status
+        gs = await goals_status(user_id)
+        if gs.ok and gs.rows:
+            hs = [float(r.get("horizon_years") or 0) for r in gs.rows if r.get("horizon_years")]
+            if hs:
+                horizon = max(hs)
+                horizon_source = "goals"
+    except Exception:  # noqa: BLE001
+        pass
+
+    from services import goal_engine
+    alloc = goal_engine.allocation_for_profile(rp_norm, horizon)
+    equity = round(float(alloc.get("equity", 60)))
+    return {
+        "equity_pct": equity,
+        "debt_pct": round(100 - equity),                     # debt + hybrid (two-way model)
+        "hybrid_pct": round(float(alloc.get("hybrid", 0))),
+        "risk_profile": rp_norm,
+        "risk_profile_known": rp is not None,
+        "horizon_years": round(horizon, 1),
+        "horizon_source": horizon_source,
+    }
+
+
 # ── Rebalance plan ────────────────────────────────────────────────────────
 
-async def get_rebalance_plan(user_id: str) -> PortfolioResult:
-    """Compute equity/debt rebalance actions from current holdings.
+async def get_rebalance_plan(user_id: str, risk_profile: Optional[str] = None) -> PortfolioResult:
+    """Compute equity/debt rebalance actions from current holdings, against a
+    target derived from the user's risk profile + goal horizon.
 
     Used for: "Should I rebalance?", "How should I rebalance my portfolio?"
     """
@@ -1217,8 +1292,10 @@ async def get_rebalance_plan(user_id: str) -> PortfolioResult:
     # two-way equity/debt rebalance model.
     debt_pct = round(100.0 - equity_pct, 1)
 
-    target_equity = 65.0
-    target_debt = 35.0
+    # Target from the user's risk profile + goal horizon (was hardcoded 65/35).
+    _target = await get_target_allocation(user_id, risk_profile)
+    target_equity = float(_target["equity_pct"])
+    target_debt = float(_target["debt_pct"])
     actions: List[Dict[str, Any]] = []
 
     if equity_pct > target_equity + 5:
@@ -1270,9 +1347,12 @@ async def get_rebalance_plan(user_id: str) -> PortfolioResult:
                 "reason": "Switch to Direct plan to save ~0.8% p.a. in expenses",
             })
 
+    _basis = (f"{_target['risk_profile']} risk profile"
+              + (f", {_target['horizon_years']:.0f}y goal horizon" if _target["horizon_source"] == "goals"
+                 else ", default long-term horizon"))
     summary = (
         f"Portfolio ₹{current_value:,.0f}: equity {equity_pct:.0f}% / debt {debt_pct:.0f}% "
-        f"vs target {target_equity:.0f}/{target_debt:.0f}. "
+        f"vs target {target_equity:.0f}/{target_debt:.0f} (from your {_basis}). "
         f"{len(actions)} action(s) suggested."
     )
     return PortfolioResult(
@@ -1284,6 +1364,10 @@ async def get_rebalance_plan(user_id: str) -> PortfolioResult:
             "debt_pct": debt_pct,
             "target_equity_pct": target_equity,
             "target_debt_pct": target_debt,
+            "target_risk_profile": _target["risk_profile"],
+            "target_risk_profile_known": _target["risk_profile_known"],
+            "target_horizon_years": _target["horizon_years"],
+            "target_horizon_source": _target["horizon_source"],
         },
         rows=actions,
     )
