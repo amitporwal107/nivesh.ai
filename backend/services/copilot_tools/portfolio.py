@@ -274,8 +274,12 @@ async def get_portfolio_overlap(user_id: str) -> PortfolioResult:
 
     def _base_scheme(name: str) -> str:
         n = (name or "").lower()
+        # "fund"/"scheme" must be stripped too: source names are inconsistent
+        # ("HDFC Flexi Cap Fund Growth" vs "HDFC Flexi Cap Direct Plan Growth"),
+        # so without them a genuine Regular/Direct pair fails to match and gets
+        # mislabelled as cross-fund overlap.
         for tok in ("direct", "regular", "growth", "idcw", "dividend", "payout",
-                    "reinvestment", "plan", "option", "-"):
+                    "reinvestment", "plan", "option", "fund", "scheme", "-"):
             n = n.replace(tok, " ")
         return _re.sub(r"\s+", " ", n).strip()
 
@@ -782,11 +786,13 @@ def build_concentration_widget(summary: Any, overlap: Any) -> Dict[str, Any]:
                        "pct": ts_pct, "color": stock_color, "note": stock_note})
 
     # ── Actionable layer: fund overlap ───────────────────────────────────
-    overlap_rows = [
-        {"label": _pair_label(r), "pct": round(r.get("overlap_pct") or 0),
-         "color": "red" if (r.get("overlap_pct") or 0) >= 80 else "amber"}
-        for r in pairs
-    ]
+    overlap_rows = []
+    for r in pairs:
+        pct = round(r.get("overlap_pct") or 0)
+        # Colour off the rounded value so a row labelled "80%" doesn't render
+        # amber because its raw value was 79.x.
+        overlap_rows.append({"label": _pair_label(r), "pct": pct,
+                             "color": "red" if pct >= 80 else "amber"})
     if all_dupe:
         overlap_sub = (f"All {_NUM_WORD.get(len(pairs), len(pairs))} worst pairs are the same fund in "
                        f"Regular + Direct — pure cost duplication, the easiest thing to clean up.")
