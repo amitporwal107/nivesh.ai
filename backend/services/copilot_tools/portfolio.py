@@ -138,10 +138,13 @@ async def get_portfolio_xirr(user_id: str) -> PortfolioResult:
     # raw figure to flag but no trustworthy XIRR to show.
     xirr_unreliable = portfolio_xirr_safe is None and xirr_raw is not None and abs(xirr_raw) > 100.0
 
+    _cov = ledger.get("coverage_pct")
     if portfolio_xirr_safe is not None:
         xirr_str = f" (money-weighted XIRR {portfolio_xirr_safe:+.1f}%, from {ledger.get('n_txn')} txns)"
     elif xirr_unreliable:
-        xirr_str = f" (XIRR not shown — ledger coverage too thin / annualisation artifact {xirr_raw:+.0f}%)"
+        _cov_txt = f"~{_cov:.0f}% of cost basis" if _cov is not None else "too little of cost basis"
+        xirr_str = (f" (XIRR withheld — transaction ledger covers {_cov_txt}, so a money-weighted "
+                    f"XIRR isn't reliable; the naive annualised {xirr_raw:+.0f}% is an artifact)")
     else:
         xirr_str = ""
     summary = (
@@ -960,12 +963,16 @@ def build_allocation_review_widget(summary: Any, rebalance: Any, xirr: Any) -> D
     # ── Broken-XIRR alert (only when genuinely implausible) ──────────────────
     xirr_alert = None
     if xirr_unreliable and xirr_raw is not None:
+        cov = xd.get("xirr_coverage_pct")
+        cov_txt = (f"Your transaction history covers only ~{cov:.0f}% of your cost basis"
+                   if cov is not None else "We don't have your full transaction history")
         xirr_alert = {
-            "title": "Your XIRR figure is unreliable",
-            "body": (f"The reported annualised XIRR works out to {xirr_raw:+.0f}% while your absolute "
-                     f"return is {abs_ret:+.1f}%. That annualised number is a short-horizon calculation "
-                     f"artifact, not a real result — use the absolute return. Invested and current "
-                     f"values themselves look fine."),
+            "title": "XIRR can't be computed reliably yet — using absolute return",
+            "body": (f"A true money-weighted XIRR needs your dated purchase/redemption history. "
+                     f"{cov_txt}, so positions that predate your statement are missing — and a XIRR "
+                     f"from a partial ledger overstates. The naive annualised figure ({xirr_raw:+.0f}%) "
+                     f"is a short-horizon artifact that contradicts your {abs_ret:+.1f}% absolute "
+                     f"return, so we show the absolute. Invested and current values are accurate."),
         }
 
     # ── Reliable figures ─────────────────────────────────────────────────────
