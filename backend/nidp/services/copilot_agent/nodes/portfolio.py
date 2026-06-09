@@ -146,7 +146,9 @@ async def _fetch_portfolio_data(state: CopilotState) -> list:
                 widget_type=WidgetType.FUND_COMPARISON,
             ))
 
-        if any(kw in user_msg for kw in ("overlap", "duplicate", "similar fund")):
+        if any(kw in user_msg for kw in ("overlap", "duplicate", "similar fund",
+                                         "concentrat", "diversif", "most exposed",
+                                         "biggest holding", "top holding", "where is")):
             ov = await port_mod.get_portfolio_overlap(user_id)
             results.append(ToolResult(
                 ok=ov.ok, tool_name="get_portfolio_overlap",

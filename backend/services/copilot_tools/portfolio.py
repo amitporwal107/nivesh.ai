@@ -170,13 +170,34 @@ async def get_portfolio_summary(user_id: str) -> PortfolioResult:
 
     equity_pct = alloc.get("equity_pct", 0)
     debt_pct = alloc.get("debt_pct", 0)
+    gold_pct = alloc.get("gold_pct", 0)
+    other_pct = alloc.get("other_pct", 0)
     total_rs = intel.get("total_value", 0) or alloc.get("total_value", 0)
+    effective_stocks = intel.get("effective_stocks")
 
+    # The summary string is the ONLY thing the copilot LLM sees (as_llm_context
+    # drops data/rows). So the concentration drivers — asset split, top stock,
+    # top sector, effective-stock count — must live here, or the agent reports
+    # them as "data unavailable" when they are in fact present.
     summary_parts = [f"Total ₹{total_rs:,.0f}" if total_rs else "Portfolio"]
     if equity_pct:
         summary_parts.append(f"equity {equity_pct:.0f}%")
     if debt_pct:
         summary_parts.append(f"debt {debt_pct:.0f}%")
+    if gold_pct:
+        summary_parts.append(f"gold {gold_pct:.0f}%")
+    if other_pct:
+        summary_parts.append(f"other {other_pct:.0f}%")
+    if top_stocks:
+        ts = top_stocks[0]
+        summary_parts.append(
+            f"top stock {ts.get('name') or ts.get('slug', '?')} {ts.get('exposure_pct', 0):.1f}%"
+        )
+    if sectors:
+        sc = sectors[0]
+        summary_parts.append(f"top sector {sc.get('sector', '?')} {sc.get('pct', 0):.0f}%")
+    if effective_stocks:
+        summary_parts.append(f"~{effective_stocks:.0f} effective stocks")
     if high_overlap:
         summary_parts.append(f"{len(high_overlap)} high-overlap fund pair(s)")
 
