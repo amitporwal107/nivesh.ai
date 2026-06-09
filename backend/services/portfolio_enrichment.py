@@ -62,11 +62,6 @@ def xirr(flows: List[Tuple[date, float]], guess: float = 0.1) -> Optional[float]
 
 
 # ── True money-weighted portfolio XIRR (from the dated transaction ledger) ──
-_LEDGER_BUY_TYPES = ("PURCHASE", "SIP_PURCHASE", "BUY")
-_LEDGER_SELL_KEYS = ("REDEMPTION", "REDEEM", "SELL", "SWITCH OUT", "SWITCH-OUT", "SWITCHOUT")
-_LEDGER_SKIP_KEYS = ("REVERSAL", "PLEDGE", "STT", "STAMP", "TAX")  # fees / non-cashflow
-
-
 async def portfolio_xirr_from_ledger(
     user_id: str,
     current_value: float,
@@ -90,6 +85,11 @@ async def portfolio_xirr_from_ledger(
     """
     try:
         from deps import db
+        # Reuse the tax engine's VALIDATED parsers — robust date handling
+        # (_parse_dt accepts datetime objects + ISO strings, where a naive
+        # strptime silently dropped every row) and the canonical buy/sell type
+        # sets, so this reads exactly the transactions the FIFO engine does.
+        from services.tax_engine_fifo import _parse_dt, _BUY_TYPES, _SELL_TYPES
     except Exception:  # noqa: BLE001
         return {"xirr_pct": None, "reliable": False, "coverage_pct": None, "n_txn": 0, "source": "no_db"}
 
@@ -101,33 +101,34 @@ async def portfolio_xirr_from_ledger(
         cursor = db.cas_transactions.find(
             {"user_id": user_id},
             {"_id": 0, "date": 1, "type": 1, "transaction_type": 1,
-             "description": 1, "raw_description": 1, "amount": 1, "amount_inr": 1},
+             "amount": 1, "amount_inr": 1, "units": 1, "nav": 1},
         )
         async for t in cursor:
+            ttype = (t.get("type") or t.get("transaction_type") or "").upper()
+            # Dividend reinvestment is INTERNAL to the portfolio (the payout was
+            # already counted in value), not an external contribution — counting
+            # it as a buy would understate the money-weighted return.
+            is_buy = ttype in _BUY_TYPES and ttype != "DIV_REINVEST"
+            is_sell = ttype in _SELL_TYPES
+            if not (is_buy or is_sell):
+                continue
             amt = 0.0
             try:
                 amt = float(t.get("amount") or t.get("amount_inr") or 0)
+                if amt <= 0:  # reconstruct from units × NAV when amount missing
+                    amt = float(t.get("units") or 0) * float(t.get("nav") or 0)
             except (TypeError, ValueError):
                 continue
             if amt <= 0:
                 continue
-            d = (t.get("date") or "")[:10]
-            if not d:
+            dt = _parse_dt(t.get("date"))
+            if dt is None:
                 continue
-            try:
-                dt = datetime.strptime(d, "%Y-%m-%d").date()
-            except ValueError:
-                continue
-            ttype = (t.get("type") or t.get("transaction_type") or "").upper()
-            desc = (t.get("description") or t.get("raw_description") or "").upper()
-            blob = f"{ttype} {desc}"
-            if any(k in blob for k in _LEDGER_SKIP_KEYS):
-                continue
-            if any(k in blob for k in _LEDGER_SELL_KEYS):
-                flows.append((dt, amt)); sell_total += amt; n_txn += 1
-            elif ttype in _LEDGER_BUY_TYPES or any(k in blob for k in ("PURCHASE", "SIP", "BUY", "ALLOTMENT")):
-                flows.append((dt, -amt)); buy_total += amt; n_txn += 1
-            # unknown types are ignored
+            d = dt.date()
+            if is_buy:
+                flows.append((d, -amt)); buy_total += amt; n_txn += 1
+            else:
+                flows.append((d, amt)); sell_total += amt; n_txn += 1
     except Exception as exc:  # noqa: BLE001
         logger.warning("portfolio_xirr_from_ledger: ledger read failed for %s: %s", user_id, exc)
         return {"xirr_pct": None, "reliable": False, "coverage_pct": None, "n_txn": 0, "source": "ledger_error"}
