@@ -158,7 +158,11 @@ async def get_portfolio_summary(user_id: str) -> PortfolioResult:
         logger.warning("portfolio_summary pi_failed user=%s error=%s", user_id, exc)
         return PortfolioResult(ok=False, summary="Portfolio intelligence unavailable", error=str(exc))
 
-    alloc = intel.get("holistic_allocation") or {}
+    # compute_portfolio_intelligence exposes the canonical allocation under
+    # "asset_allocation" (equity 93.6% etc. — same as the dashboard). The old
+    # key "holistic_allocation" doesn't exist on the response, so this silently
+    # read {} and reported a wrong/zero equity split.
+    alloc = intel.get("asset_allocation") or {}
     top_stocks = (intel.get("top_stocks") or [])[:5]
     pairs = (intel.get("pairwise_overlap") or [])
     high_overlap = [p for p in pairs if p.get("overlap_pct", 0) >= 40]
@@ -166,7 +170,7 @@ async def get_portfolio_summary(user_id: str) -> PortfolioResult:
 
     equity_pct = alloc.get("equity_pct", 0)
     debt_pct = alloc.get("debt_pct", 0)
-    total_rs = alloc.get("total_value", 0)
+    total_rs = intel.get("total_value", 0) or alloc.get("total_value", 0)
 
     summary_parts = [f"Total ₹{total_rs:,.0f}" if total_rs else "Portfolio"]
     if equity_pct:
