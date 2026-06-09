@@ -402,14 +402,15 @@ def build_consolidation_widget(overlap: Any) -> Dict[str, Any]:
 
 
 def _abbrev(name: str) -> str:
-    """Short code for a fund used in the heatmap (initials of significant words)."""
-    short = _short_fund(name)
-    stop = {"of", "the", "and", "&", "india", "asset", "mutual"}
-    words = [w for w in short.split() if w.lower() not in stop]
-    if not words:
-        return short[:3].upper()
-    code = "".join(w[0] for w in words[:4]).upper()
-    return code[:4] if len(code) >= 2 else short[:3].upper()
+    """Short, readable code for a fund in the heatmap — the AMC/first word, with
+    an ·EW suffix for equal-weight variants (e.g. Mirae, UTI, ICICI, SBI, HDFC·EW)."""
+    s = _short_fund(name)
+    words = s.split()
+    base = (words[0] if words else s)[:6]
+    low = (name or "").lower()
+    if "equal weight" in low:
+        base += "·EW"
+    return base
 
 
 def build_overlap_widget(overlap: Any) -> Dict[str, Any]:
@@ -464,30 +465,36 @@ def build_overlap_widget(overlap: Any) -> Dict[str, Any]:
             "more_note": (f"+ {rest} more pair(s) in the {lo}–{hi}% range — lower priority." if rest > 0 else None),
         }
 
-    # ── Heatmap: the 4 funds that appear most in high cross-fund pairs ──────
+    # ── Heatmap: the funds carrying the most cross-fund overlap (the large-cap/
+    #    index cluster). Cluster picked by TOTAL overlap weight (not pair count,
+    #    which mis-ranks funds tied on count); up to 5 members so the whole
+    #    cluster shows. Matrix values come from ALL non-duplicate pairs, so even
+    #    sub-40% cluster cells show their real %.
     heatmap = None
     if cross_rows:
         from collections import defaultdict
-        deg: Dict[str, int] = defaultdict(int)
-        pct: Dict[frozenset, int] = {}
+        all_pct: Dict[frozenset, int] = {}
+        for r in rows:
+            a, b = r.get("fund_a", ""), r.get("fund_b", "")
+            if a and b and not r.get("is_plan_duplicate"):
+                all_pct[frozenset((a, b))] = round(r.get("overlap_pct") or 0)
+        weight: Dict[str, float] = defaultdict(float)
         for r in cross_rows:
             a, b = r.get("fund_a", ""), r.get("fund_b", "")
-            if not a or not b:
-                continue
-            deg[a] += 1
-            deg[b] += 1
-            pct[frozenset((a, b))] = round(r.get("overlap_pct") or 0)
-        cluster = [f for f, _ in sorted(deg.items(), key=lambda kv: -kv[1])[:4]]
+            if a and b:
+                weight[a] += (r.get("overlap_pct") or 0)
+                weight[b] += (r.get("overlap_pct") or 0)
+        cluster = [f for f, _ in sorted(weight.items(), key=lambda kv: -kv[1])[:5]]
         if len(cluster) >= 3:
             labels = [{"key": _abbrev(f), "full": _short_fund(f)} for f in cluster]
             matrix = [
-                [None if i == j else pct.get(frozenset((ci, cj)), 0)
+                [None if i == j else all_pct.get(frozenset((ci, cj)), 0)
                  for j, cj in enumerate(cluster)]
                 for i, ci in enumerate(cluster)
             ]
             heatmap = {
-                "title": "How the most-overlapping funds cluster",
-                "subtitle": "Darker = more shared holdings.",
+                "title": "How the large-cap / index funds cluster",
+                "subtitle": "Darker = more shared holdings. These funds overlap heavily with each other.",
                 "labels": labels,
                 "matrix": matrix,
                 "legend": " · ".join(f"{l['key']} = {l['full']}" for l in labels),
