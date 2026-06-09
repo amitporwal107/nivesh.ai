@@ -62,7 +62,9 @@ async function main() {
   // ── RISK: copilot must report PRA VaR/vol/beta, matching the dashboard ──
   {
     const a = await ask(ctx, "How risky is my portfolio? Give VaR, volatility and beta.");
-    const cv = pctNear(a, "VaR"), cvol = pctNear(a, "volatilit"), cbeta = num((a.match(/beta[^\d-]{0,15}(-?\d+\.?\d*)/i) || [])[1]);
+    // VaR magnitude is the % AFTER "1Y" (skip the "95%" confidence label)
+    const cv = num((a.match(/VaR[^%]*?1Y[^%\d−-]*([−-]?\s*\d+(?:\.\d+)?)\s*%/i) || [])[1]);
+    const cvol = pctNear(a, "volatilit"), cbeta = num((a.match(/beta[^\d-]{0,15}(-?\d+\.?\d*)/i) || [])[1]);
     add("risk.VaR",  near(Math.abs(cv), Math.abs(canon.var_pct), 5) ? "PASS" : "FAIL",
         `copilot=${cv}% vs canon=${canon.var_pct}%`);
     add("risk.vol",  near(cvol, canon.vol_pct, 3) ? "PASS" : "FAIL", `copilot=${cvol}% vs canon=${canon.vol_pct}%`);

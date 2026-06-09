@@ -89,7 +89,8 @@ async def _fetch_risk_data(state: CopilotState, user_text: str) -> List[ToolResu
         # Same PRA source the Risk dashboard uses — prefer it over the
         # parametric estimate so the copilot agrees with the dashboard.
         pra_risk = await risk_mod.get_portfolio_risk_pra(user_id)
-        if pra_risk.ok:
+        pra_ok = pra_risk.ok
+        if pra_ok:
             results.append(ToolResult(
                 ok=True,
                 tool_name="get_portfolio_risk",
@@ -114,16 +115,19 @@ async def _fetch_risk_data(state: CopilotState, user_text: str) -> List[ToolResu
             error=suitability.error,
         ))
 
-        # ── Portfolio VaR ─────────────────────────────────────────────────────
-        var_result = await risk_mod.get_portfolio_var(user_id, confidence=0.95)
-        results.append(ToolResult(
-            ok=var_result.ok,
-            tool_name="get_portfolio_var",
-            summary=var_result.summary,
-            data=var_result.data,
-            rows=var_result.rows,
-            error=var_result.error,
-        ))
+        # ── Portfolio VaR (parametric) — ONLY when PRA is unavailable ────────
+        # The parametric estimate is noisy and disagrees with the dashboard, so
+        # we skip it whenever the canonical PRA result above is present.
+        if not pra_ok:
+            var_result = await risk_mod.get_portfolio_var(user_id, confidence=0.95)
+            results.append(ToolResult(
+                ok=var_result.ok,
+                tool_name="get_portfolio_var",
+                summary=var_result.summary,
+                data=var_result.data,
+                rows=var_result.rows,
+                error=var_result.error,
+            ))
 
         # ── Stress test scenarios (only when the user asked) ─────────────────
         if _wants_stress_test(user_text):

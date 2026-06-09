@@ -107,10 +107,21 @@ async def get_portfolio_risk_pra(user_id: str) -> RiskResult:
     so the caller can fall back to the parametric estimate.
     """
     from services.copilot_tools.daas_client import get_portfolio_risk as _pra
+    pra: Optional[Dict[str, Any]] = None
     try:
         pra = await _pra(user_id, timeout=8.0)
-    except Exception as exc:  # noqa: BLE001
-        return RiskResult(ok=False, summary="PRA risk unavailable", error=str(exc))
+    except Exception:  # noqa: BLE001 — live PRA often times out; fall back to cache
+        pra = None
+    # Fall back to pra_daily_cache (written by the Risk dashboard) so the copilot
+    # shows the same VaR/vol/beta even when the live PRA endpoint is unavailable.
+    if not (pra and pra.get("var_95_1y_pct") is not None):
+        try:
+            from deps import db
+            doc = await db.pra_daily_cache.find_one({"user_id": user_id}, sort=[("date", -1)])
+            if doc and (doc.get("payload") or {}).get("var_95_1y_pct") is not None:
+                pra = doc["payload"]
+        except Exception:  # noqa: BLE001
+            pass
     if not pra or pra.get("var_95_1y_pct") is None:
         return RiskResult(ok=False, summary="No precomputed PRA risk result for this user yet")
 
