@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Send, History as HistoryIcon, Trash2, X } from "lucide-react";
+import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   useSendChat,
@@ -43,6 +43,13 @@ export default function ChatPage() {
   const [composer, setComposer] = useState("");
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [historyOpen, setHistoryOpen] = useState(false); // mobile drawer
+  // Icon-only collapse of the history rail (desktop), persisted across sessions.
+  const [historyCollapsed, setHistoryCollapsed] = useState<boolean>(
+    () => localStorage.getItem("nv-chat-history-collapsed") === "1",
+  );
+  useEffect(() => {
+    localStorage.setItem("nv-chat-history-collapsed", historyCollapsed ? "1" : "0");
+  }, [historyCollapsed]);
 
   const prompts = useSuggestedPrompts();
   const send = useSendChat();
@@ -101,53 +108,85 @@ export default function ChatPage() {
       {/* ── History sidebar (static on md+, slide-over drawer on mobile) ── */}
       <aside
         className={cn(
-          "shrink-0 w-64 border-r border-hairline bg-surface-1/40 flex-col",
+          "shrink-0 w-64 border-r border-hairline bg-surface-1/40 flex-col transition-[width] duration-200",
+          historyCollapsed && "md:w-14",
           historyOpen
             ? "flex fixed inset-y-0 left-0 z-30 bg-bg shadow-xl md:static md:shadow-none md:bg-surface-1/40"
             : "hidden md:flex",
         )}
       >
-        <div className="p-3 flex items-center gap-2">
+        {/* Collapsed rail — desktop only, icons only */}
+        <div className={cn("hidden flex-col items-center gap-2 p-2", historyCollapsed && "md:flex")}>
           <button
             onClick={handleNewChat}
-            className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md border border-hairline-2 text-[13px] text-ink hover:bg-surface-2 transition-colors"
+            className="p-2 rounded-md border border-hairline-2 text-ink hover:bg-surface-2 transition-colors"
+            aria-label="New chat"
+            title="New chat"
           >
-            <Plus className="h-4 w-4" /> New chat
+            <Plus className="h-4 w-4" />
           </button>
-          <button onClick={() => setHistoryOpen(false)} className="md:hidden p-2 text-ink-3" aria-label="Close history">
-            <X className="h-4 w-4" />
+          <button
+            onClick={() => setHistoryCollapsed(false)}
+            className="p-2 rounded-md text-ink-3 hover:text-ink hover:bg-surface-2 transition-colors"
+            aria-label="Expand history"
+            title="Expand history"
+          >
+            <PanelLeftOpen className="h-4 w-4" />
           </button>
         </div>
-        <div className="px-4 pb-1.5 font-mono text-[10px] uppercase tracking-[.18em] text-ink-3">History</div>
-        <div className="flex-1 overflow-y-auto px-2 pb-3">
-          {sessions.isPending && Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-11 w-full rounded-md mb-1.5" />
-          ))}
-          {!sessions.isPending && sessionList.length === 0 && (
-            <p className="px-3 py-2 text-[12.5px] text-ink-3 leading-relaxed">No conversations yet. Start one on the right.</p>
-          )}
-          {sessionList.map((s) => (
-            <div
-              key={s.id}
-              onClick={() => handleOpen(s.id)}
-              className={cn(
-                "group flex items-center justify-between gap-2 px-3 py-2 rounded-md cursor-pointer transition-colors",
-                s.id === sessionId ? "bg-surface-2" : "hover:bg-surface-2/60",
-              )}
+
+        {/* Full panel — mobile drawer + expanded desktop */}
+        <div className={cn("flex flex-col flex-1 min-h-0", historyCollapsed && "md:hidden")}>
+          <div className="p-3 flex items-center gap-2">
+            <button
+              onClick={handleNewChat}
+              className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md border border-hairline-2 text-[13px] text-ink hover:bg-surface-2 transition-colors"
             >
-              <div className="min-w-0">
-                <div className="truncate text-[13px] text-ink">{s.title}</div>
-                {s.updatedAt && <div className="text-[11px] text-ink-3 mt-0.5">{relTime(s.updatedAt)}</div>}
-              </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); void handleDelete(s.id); }}
-                className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded text-ink-3 hover:text-neg transition"
-                aria-label="Delete conversation"
+              <Plus className="h-4 w-4" /> New chat
+            </button>
+            <button
+              onClick={() => setHistoryCollapsed(true)}
+              className="hidden md:inline-flex p-2 rounded-md text-ink-3 hover:text-ink hover:bg-surface-2 transition-colors"
+              aria-label="Collapse history"
+              title="Collapse history"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
+            <button onClick={() => setHistoryOpen(false)} className="md:hidden p-2 text-ink-3" aria-label="Close history">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="px-4 pb-1.5 font-mono text-[10px] uppercase tracking-[.18em] text-ink-3">History</div>
+          <div className="flex-1 overflow-y-auto px-2 pb-3">
+            {sessions.isPending && Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-11 w-full rounded-md mb-1.5" />
+            ))}
+            {!sessions.isPending && sessionList.length === 0 && (
+              <p className="px-3 py-2 text-[12.5px] text-ink-3 leading-relaxed">No conversations yet. Start one on the right.</p>
+            )}
+            {sessionList.map((s) => (
+              <div
+                key={s.id}
+                onClick={() => handleOpen(s.id)}
+                className={cn(
+                  "group flex items-center justify-between gap-2 px-3 py-2 rounded-md cursor-pointer transition-colors",
+                  s.id === sessionId ? "bg-surface-2" : "hover:bg-surface-2/60",
+                )}
               >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ))}
+                <div className="min-w-0">
+                  <div className="truncate text-[13px] text-ink">{s.title}</div>
+                  {s.updatedAt && <div className="text-[11px] text-ink-3 mt-0.5">{relTime(s.updatedAt)}</div>}
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); void handleDelete(s.id); }}
+                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded text-ink-3 hover:text-neg transition"
+                  aria-label="Delete conversation"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       </aside>
 
