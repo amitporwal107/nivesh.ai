@@ -285,14 +285,17 @@ def _inr_in(v: Any) -> str:
     return ("-" if n < 0 else "") + "₹" + s
 
 
-def build_risk_assessment_widget(pra_tr: Any, suit_tr: Any, stress_tr: Any) -> Dict[str, Any]:
+def build_risk_assessment_widget(pra_tr: Any, suit_tr: Any, stress_tr: Any,
+                                 var_tr: Any = None) -> Dict[str, Any]:
     """Comprehensive risk view: an overall suitability rating, VaR / volatility /
     equity KPI tiles, the stress-test downside per scenario (₹ value-after +
     loss), the key risk drivers, and a profile-misalignment alert. Built from
-    the PRA, suitability and stress tool results — nothing invented."""
+    the PRA, suitability, stress and (fallback) parametric-VaR tool results —
+    nothing invented."""
     pd = getattr(pra_tr, "data", None) or {}
     sd = getattr(suit_tr, "data", None) or {}
     std = getattr(stress_tr, "data", None) or {}
+    vd = getattr(var_tr, "data", None) or {}
 
     def _n(x):
         try:
@@ -300,24 +303,31 @@ def build_risk_assessment_widget(pra_tr: Any, suit_tr: Any, stress_tr: Any) -> D
         except (TypeError, ValueError):
             return None
 
-    vol = _n(pd.get("volatility_annual_pct"))
+    vol = _n(pd.get("volatility_annual_pct")) or _n(vd.get("portfolio_annual_vol_pct"))
     equity = _n(sd.get("equity_pct"))
     smallmid = _n(sd.get("small_mid_pct"))
     rating = str(sd.get("risk_rating") or pd.get("risk_rating") or "—").upper()
     profile = str(sd.get("user_profile") or "moderate").replace("_", " ")
     misalignment = sd.get("misalignment") or []
     current_value = (_n(std.get("current_value_rs")) or _n(sd.get("total_portfolio_value"))
-                     or _n(pd.get("portfolio_value_rs")))
+                     or _n(vd.get("total_portfolio_value_rs")) or _n(pd.get("portfolio_value_rs")))
 
-    # ── VaR: parametric 1-day / 10-day from annual volatility ─────────────────
-    # σ_daily = σ_annual / √252; 95% VaR = 1.645 · σ_daily · value; 10-day = ·√10.
-    var_1d = var_10d = None
-    if vol and current_value:
-        daily_sigma = (vol / 100.0) / (252 ** 0.5)
-        var_1d = 1.645 * daily_sigma * current_value
-        var_10d = var_1d * (10 ** 0.5)
-    # VaR model confidence: parametric/normal assumption → medium model risk.
-    var_model_risk = "medium" if (var_1d is not None) else "high"
+    # ── VaR 1-day / 10-day (95%) ──────────────────────────────────────────────
+    # Prefer the parametric VaR tool's directly-computed figures (used as the
+    # fallback when the precomputed PRA result isn't available for this user);
+    # otherwise derive from annual volatility: σ_daily = σ_annual/√252,
+    # 95% VaR = 1.645·σ_daily·value, 10-day = ·√10.
+    var_1d = _n(vd.get("var_1d_95_rs"))
+    var_10d = _n(vd.get("var_10d_95_rs"))
+    if not (var_1d and var_1d > 0):
+        var_1d = var_10d = None
+        if vol and current_value:
+            daily_sigma = (vol / 100.0) / (252 ** 0.5)
+            var_1d = 1.645 * daily_sigma * current_value
+            var_10d = var_1d * (10 ** 0.5)
+    # Model confidence: PRA-backed → medium; pure parametric estimate → medium
+    # too (normal-assumption), only "high" model risk when we have no VaR at all.
+    var_model_risk = "medium" if var_1d is not None else "high"
 
     # Overall rating tone
     _tone = {"VERY HIGH": "neg", "HIGH": "neg", "MEDIUM": "warm", "LOW": "accent"}.get(rating, "warm")

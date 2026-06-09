@@ -189,12 +189,18 @@ async def risk_node(state: CopilotState) -> dict:
         (r for r in tool_results if r.tool_name == "get_portfolio_risk" and r.ok),
         None,
     )
-    if suitability_tr or pra_tr:
+    # Parametric VaR fallback — fetched by _fetch_risk_data when PRA is absent;
+    # supplies the 1-day / 10-day VaR + annual vol the PRA result would have.
+    var_tr = next(
+        (r for r in tool_results if r.tool_name == "get_portfolio_var" and r.ok),
+        None,
+    )
+    if suitability_tr or pra_tr or var_tr:
         # Comprehensive risk view: suitability rating + VaR/vol KPIs + stress
         # downside + drivers + misalignment, in one widget.
         from services.copilot_tools.risk import build_risk_assessment_widget
         widget_type = WidgetType.RISK_ASSESSMENT
-        widget_data = build_risk_assessment_widget(pra_tr, suitability_tr, stress_tr)
+        widget_data = build_risk_assessment_widget(pra_tr, suitability_tr, stress_tr, var_tr)
     elif stress_tr:
         widget_type = WidgetType.STRESS_TEST
         widget_data = {**stress_tr.data, "rows": stress_tr.rows}
