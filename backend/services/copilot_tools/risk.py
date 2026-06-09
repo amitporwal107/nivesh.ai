@@ -96,6 +96,56 @@ class RiskResult:
         return self.summary + " | " + ", ".join(parts)
 
 
+# ── Canonical precomputed risk (PRA) ─────────────────────────────────────────
+
+async def get_portfolio_risk_pra(user_id: str) -> RiskResult:
+    """Precomputed portfolio risk (VaR / volatility / beta / max-drawdown) from
+    the PRA engine — the SAME source the Risk dashboard reads via
+    ``daas_client.get_portfolio_risk``. The copilot must prefer this over
+    recomputing parametric VaR from per-symbol volatility_20d (which times out
+    and disagrees with the dashboard). ``ok=False`` when PRA has no result yet,
+    so the caller can fall back to the parametric estimate.
+    """
+    from services.copilot_tools.daas_client import get_portfolio_risk as _pra
+    try:
+        pra = await _pra(user_id, timeout=8.0)
+    except Exception as exc:  # noqa: BLE001
+        return RiskResult(ok=False, summary="PRA risk unavailable", error=str(exc))
+    if not pra or pra.get("var_95_1y_pct") is None:
+        return RiskResult(ok=False, summary="No precomputed PRA risk result for this user yet")
+
+    def _f(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    var_pct = _f(pra.get("var_95_1y_pct"))      # PRA stores the loss magnitude (e.g. 33.1)
+    var_inr = _f(pra.get("var_95_1y_inr"))
+    vol     = _f(pra.get("volatility_annual_pct"))
+    beta    = _f(pra.get("beta_nifty500"))
+    mdd     = _f(pra.get("max_drawdown_pct"))
+    data = {
+        "var_95_1y_pct":         round(var_pct, 1) if var_pct is not None else None,
+        "var_95_1y_inr":         round(var_inr) if var_inr is not None else None,
+        "volatility_annual_pct": round(vol, 1) if vol is not None else None,
+        "beta_nifty500":         round(beta, 2) if beta is not None else None,
+        "max_drawdown_pct":      round(mdd, 1) if mdd is not None else None,
+        "source":                "PRA (precomputed nightly)",
+    }
+    bits: List[str] = []
+    if var_pct is not None:
+        bits.append(f"VaR 95% 1Y −{abs(var_pct):.1f}%" + (f" (~₹{round(var_inr):,})" if var_inr else ""))
+    if vol is not None:
+        bits.append(f"volatility {vol:.1f}%")
+    if beta is not None:
+        bits.append(f"beta {beta:.2f} vs NIFTY 500")
+    if mdd is not None:
+        bits.append(f"max drawdown −{abs(mdd):.1f}%")
+    summary = "Precomputed portfolio risk — " + ", ".join(bits) if bits else "Precomputed portfolio risk available"
+    return RiskResult(ok=True, summary=summary, data=data)
+
+
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 async def _load_holdings(user_id: str) -> List[Dict[str, Any]]:

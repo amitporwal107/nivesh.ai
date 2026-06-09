@@ -85,6 +85,18 @@ async def _fetch_risk_data(state: CopilotState, user_text: str) -> List[ToolResu
         risk_mod = importlib.import_module("services.copilot_tools.risk")
         user_id = state.user_id
 
+        # ── Canonical precomputed risk (VaR/volatility/beta/max-DD) ──────────
+        # Same PRA source the Risk dashboard uses — prefer it over the
+        # parametric estimate so the copilot agrees with the dashboard.
+        pra_risk = await risk_mod.get_portfolio_risk_pra(user_id)
+        if pra_risk.ok:
+            results.append(ToolResult(
+                ok=True,
+                tool_name="get_portfolio_risk",
+                summary=pra_risk.summary,
+                data=pra_risk.data,
+            ))
+
         # ── Risk suitability ──────────────────────────────────────────────────
         suitability = await risk_mod.get_risk_suitability(user_id)
         results.append(ToolResult(
