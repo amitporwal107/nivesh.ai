@@ -8,7 +8,7 @@ import { useSendChat, useSuggestedPrompts, useChatSession, useCreateChatSession 
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatWidget } from "@/components/chat/ChatWidget";
 
-const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview"]);
+const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education"]);
 
 const FALLBACK_PROMPTS = [
   "Why is my score 74?",

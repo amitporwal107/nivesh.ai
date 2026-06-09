@@ -73,6 +73,16 @@ _P_FUND_OVERLAP = re.compile(
     re.IGNORECASE,
 )
 
+# Cap-category education ("large-cap vs flexi-cap vs mid-cap", "which category").
+# Must reach mf_analyst (renders the cap_education widget). Handles hyphenated
+# forms that _P_MF's `\s*cap` patterns miss. Checked FIRST.
+_P_CAP = re.compile(
+    r"(?:large|mid|small|flexi|multi)[\s-]?cap.{0,40}\b(?:vs|versus|or)\b.{0,40}(?:large|mid|small|flexi|multi)[\s-]?cap|"
+    r"which\s+(?:cap|category|type\s+of\s+fund)|"
+    r"difference\s+between\s+(?:large|mid|small|flexi)[\s-]?cap",
+    re.IGNORECASE,
+)
+
 _P_PORTFOLIO = re.compile(
     r"\b((?:my\s+)?portfolio|my\s+investments?|my\s+holdings?|"
     r"xirr|portfolio\s+(?:return|performance|summary|health|snapshot)|"
@@ -140,6 +150,7 @@ _P_RECOMMENDATION = re.compile(
 # RISK before PORTFOLIO so "portfolio risk" → risk_analyst
 # MARKET before STOCK so "What is Nifty?" → market_analyst (not stock_analyst)
 _PATTERNS = [
+    (_P_CAP,             AgentName.MF),       # cap-category education → mf (cap_education widget) before others
     (_P_FUND_OVERLAP,    AgentName.MF),       # fund overlap/consolidation → mf (widgets) before PORTFOLIO grabs "overlap"
     (_P_RISK,            AgentName.RISK),
     (_P_GOAL,            AgentName.GOAL),

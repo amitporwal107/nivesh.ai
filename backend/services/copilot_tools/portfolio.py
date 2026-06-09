@@ -585,6 +585,71 @@ def build_overlap_severity_widget(overlap: Any) -> Dict[str, Any]:
     return {"verdict": verdict, "tiles": tiles, "bands": bands, "offenders": offenders, "caveat": caveat}
 
 
+def build_cap_education_widget(overlap: Any) -> Dict[str, Any]:
+    """Build the large-cap vs flexi-cap vs mid-cap education widget: a core→
+    satellite spectrum, three category cards, a PERSONALISED large-cap-overlap
+    insight (from the user's overlap data), and an illustrative allocation
+    shape. The category roles are general; only the insight is user-specific.
+    """
+    rows = getattr(overlap, "rows", None) or []
+    cross = sorted(
+        [r for r in rows if not r.get("is_plan_duplicate") and (r.get("overlap_pct") or 0) >= 40],
+        key=lambda r: -(r.get("overlap_pct") or 0),
+    )
+    insight = None
+    if cross:
+        parts = [
+            f"{_short_fund(r.get('fund_a', ''))} ↔ {_short_fund(r.get('fund_b', ''))} at {round(r.get('overlap_pct') or 0)}% overlap"
+            for r in cross[:2]
+        ]
+        insight = {
+            "tone": "warm",
+            "title": "Your large-cap bucket is already doubled up",
+            "body": (
+                f"{', and '.join(parts)}. Adding another large-cap fund would buy little new exposure "
+                f"— fix this bucket before extending elsewhere."
+            ),
+        }
+    return {
+        "spectrum": {
+            "title": "Where each sits — steady core to punchy satellite",
+            "left_label": "Lower volatility · core",
+            "right_label": "Higher growth · satellite",
+            "points": [
+                {"label": "Large-cap", "pos": 0.2, "color": "blue"},
+                {"label": "Flexi-cap", "pos": 0.5, "color": "green"},
+                {"label": "Mid-cap",   "pos": 0.8, "color": "amber"},
+            ],
+        },
+        "cards": [
+            {"title": "Large-cap", "color": "blue",
+             "body": "Your core — steadier exposure to large, established companies.",
+             "watch": "Overlaps heavily with Nifty/Sensex index funds — easy to duplicate."},
+            {"title": "Flexi-cap", "color": "green",
+             "body": "One flexible active fund — the manager moves across caps for you.",
+             "watch": "Outcome rides on the manager's style and calls."},
+            {"title": "Mid-cap", "color": "amber",
+             "body": "A satellite for growth — a smaller, deliberate tilt.",
+             "watch": "Bigger swings and drawdowns — don't over-allocate."},
+        ],
+        "insight": insight,
+        "shape": {
+            "title": "A cleaner shape (illustrative, not a recommendation)",
+            "subtitle": "One fund per role usually beats many overlapping ones.",
+            "bars": [
+                {"label": "Large-cap index — core", "weight": 100, "color": "blue", "note": "biggest weight"},
+                {"label": "Flexi-cap", "weight": 65, "color": "green", "note": "flexible middle"},
+                {"label": "Mid-cap", "weight": 35, "color": "amber", "note": "small satellite"},
+            ],
+        },
+        "caveat": (
+            "Category roles are general principles, not personalised weights. Specific flexi-cap and "
+            "mid-cap funds can't be ranked here — no scheme-level scorecard, expense ratio, manager "
+            "tenure or overlap data available. Not financial advice."
+        ),
+    }
+
+
 # ── Portfolio fund comparison (rolling returns + TER + overlap) ───────────
 
 async def compare_portfolio_funds(user_id: str) -> PortfolioResult:

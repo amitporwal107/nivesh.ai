@@ -91,6 +91,20 @@ def _is_severity_question(text: str) -> bool:
     return bool(_SEVERITY_Q.search(text or ""))
 
 
+# Detects a cap-category comparison/education question ("large-cap vs flexi-cap
+# vs mid-cap", "which category should I use").
+_CAP_Q = re.compile(
+    r"(?:large|mid|small|flexi|multi)[\s-]?cap.{0,40}\b(?:vs|versus|or)\b.{0,40}(?:large|mid|small|flexi|multi)[\s-]?cap|"
+    r"large[\s-]?cap\s+vs|flexi[\s-]?cap\s+vs|which (?:cap|category|type of fund)|"
+    r"difference between (?:large|mid|small|flexi)[\s-]?cap",
+    re.IGNORECASE,
+)
+
+
+def _is_cap_question(text: str) -> bool:
+    return bool(_CAP_Q.search(text or ""))
+
+
 # Plain-text answer format for "do I have too many funds?" and similar
 # count/portfolio-size questions. Replaces the default markdown style because
 # the V5 chat surface renders Markdown as literal characters.
@@ -342,6 +356,7 @@ async def mf_node(state: CopilotState) -> dict:
     # "Fix overlap"/consolidate and "too many funds" questions answer with a
     # structured consolidation widget (the V5 chat renders it natively); the
     # text is a short plain-text fallback. Other MF questions use _SYSTEM.
+    is_cap = _is_cap_question(user_msg)
     is_count = _is_count_question(user_msg)
     is_severity = _is_severity_question(user_msg)
     is_fix = _is_fix_question(user_msg)
@@ -364,7 +379,14 @@ async def mf_node(state: CopilotState) -> dict:
         (tr for tr in tool_results if tr.tool_name == "get_portfolio_overlap" and tr.ok),
         None,
     )
-    if is_count and overlap_tr:
+    if is_cap:
+        # Cap-category education ("large-cap vs flexi-cap vs mid-cap"). The
+        # widget is mostly general guidance; overlap_tr (may be None) only
+        # personalises the large-cap-doubling insight.
+        from services.copilot_tools.portfolio import build_cap_education_widget
+        widget_type = WidgetType.CAP_EDUCATION
+        widget_data = build_cap_education_widget(overlap_tr)
+    elif is_count and overlap_tr:
         from services.copilot_tools.portfolio import build_consolidation_widget
         widget_type = WidgetType.FUND_CONSOLIDATION
         widget_data = build_consolidation_widget(overlap_tr)

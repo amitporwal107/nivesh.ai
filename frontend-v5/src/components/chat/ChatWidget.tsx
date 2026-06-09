@@ -379,6 +379,86 @@ function RiskOverviewWidget({ data }: { data: any }) {
   );
 }
 
+// ── cap_education ──────────────────────────────────────────────────────────
+// "Large-cap vs flexi-cap vs mid-cap?" — a core→satellite spectrum, three
+// category cards, an optional personalised overlap insight, and an
+// illustrative allocation shape. Data: build_cap_education_widget.
+function Spectrum({ data }: { data: any }) {
+  if (!data) return null;
+  const { title, left_label, right_label, points = [] } = data;
+  return (
+    <Card>
+      {title && <Heading>{title}</Heading>}
+      <div className="relative mt-8 mb-7 mx-2">
+        <div className="h-1.5 w-full rounded-full" style={{ background: "linear-gradient(90deg,#3B82F6,#10B981,#F59E0B)" }} />
+        {points.map((p: any, i: number) => (
+          <div key={i} className="absolute -translate-x-1/2 flex flex-col items-center" style={{ left: `${(p.pos ?? 0.5) * 100}%`, top: -2 }}>
+            <span className="h-3 w-3 rounded-full border-2 border-surface-1" style={{ background: BAR[p.color] || BAR.blue }} />
+            <span className="mt-1.5 text-[12px] text-ink whitespace-nowrap">{p.label}</span>
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-between text-[11.5px] text-ink-3">
+        <span>{left_label}</span>
+        <span>{right_label}</span>
+      </div>
+    </Card>
+  );
+}
+
+function CapEducationWidget({ data }: { data: any }) {
+  if (!data) return null;
+  const { spectrum, cards = [], insight, shape, caveat } = data;
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      <Spectrum data={spectrum} />
+      {cards.length > 0 && (
+        <div className="flex flex-col gap-2.5">
+          {cards.map((c: any, i: number) => (
+            <Card key={i}>
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: BAR[c.color] || BAR.blue }} />
+                <Heading>{c.title}</Heading>
+              </div>
+              {c.body && <p className="text-[14px] text-ink-2 leading-relaxed mt-2">{c.body}</p>}
+              {c.watch && <p className="text-[12.5px] text-ink-3 leading-relaxed mt-2">Watch: {c.watch}</p>}
+            </Card>
+          ))}
+        </div>
+      )}
+      {insight && (
+        <div className="rounded-lg border border-hairline p-5" style={{ background: "rgb(var(--warm) / 0.08)" }}>
+          <div className="flex items-start gap-2.5">
+            <span className="mt-1 h-2.5 w-2.5 rounded-full bg-warm shrink-0" />
+            <div>
+              <Heading>{insight.title}</Heading>
+              {insight.body && <p className="text-[14px] text-ink-2 leading-relaxed mt-1.5">{insight.body}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+      {shape?.bars?.length > 0 && (
+        <Card>
+          <Heading>{shape.title}</Heading>
+          {shape.subtitle && <p className="text-[12.5px] text-ink-3 mt-1">{shape.subtitle}</p>}
+          <div className="flex flex-col gap-4 mt-4">
+            {shape.bars.map((b: any, i: number) => (
+              <div key={i}>
+                <div className="flex items-baseline justify-between gap-3 mb-1.5">
+                  <span className="text-[14px] text-ink">{b.label}</span>
+                  {b.note && <span className="text-[12px] text-ink-3 shrink-0">{b.note}</span>}
+                </div>
+                <Bar pct={b.weight} color={BAR[b.color] || BAR.blue} />
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+      {caveat && <p className="text-[12px] text-ink-3 leading-relaxed px-1">{caveat}</p>}
+    </div>
+  );
+}
+
 // ── dispatcher ─────────────────────────────────────────────────────────────
 export function ChatWidget({ widget }: { widget?: { widget_type?: string; data?: any } }) {
   if (!widget?.widget_type) return null;
@@ -388,6 +468,7 @@ export function ChatWidget({ widget }: { widget?: { widget_type?: string; data?:
       case "fund_overlap":       return <FundOverlapWidget data={widget.data} />;
       case "overlap_severity":   return <OverlapSeverityWidget data={widget.data} />;
       case "risk_overview":      return <RiskOverviewWidget data={widget.data} />;
+      case "cap_education":      return <CapEducationWidget data={widget.data} />;
     }
   } catch {
     return null;
