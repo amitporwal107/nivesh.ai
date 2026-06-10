@@ -1,54 +1,41 @@
 /**
- * One-line typed summary shown above a widget answer.
- *
- * The full narrative is suppressed when a widget is shown (it just repeats the
- * card), but a single typed headline restores the "being written" feel. The
- * headline is the FIRST SENTENCE of the narrative — which the copilot tends to
- * write as a punchy summary (e.g. "More than you need — it's a consolidation
- * issue, not a bad-funds issue."). It types out as the narrative streams in.
+ * Types a widget's hero summary line out character-by-character the first time
+ * it appears, so a widget answer reads as "being written" right at the top —
+ * where the user looks first — without a separate (redundant) headline. The
+ * hero is the widget's first section, so it lands early in the staggered build.
  */
 import { useEffect, useRef, useState } from "react";
-import { cn } from "@/lib/utils";
-
-/** First sentence (to . ! ? or newline), trimmed, capped so it stays one line. */
-export function firstSentence(text: string): string {
-  const t = (text ?? "").trim();
-  if (!t) return "";
-  const m = t.match(/^[\s\S]*?[.!?](\s|$)/);
-  const s = (m ? m[0] : t.split("\n")[0]).trim();
-  return s.length > 160 ? s.slice(0, 159).trimEnd() + "…" : s;
-}
 
 const CPS = 42; // characters per second — brisk but readable
 
-export function TypedHeadline(
-  { source, typing = true, className }: { source: string; typing?: boolean; className?: string },
-) {
-  const headline = firstSentence(source);
-  const [shown, setShown] = useState(typing ? 0 : headline.length);
-  const headlineRef = useRef(headline);
-  headlineRef.current = headline;
-  const startRef = useRef<number | null>(null);
+// Texts that have already typed once — so re-mounts (streaming→persisted swap,
+// scrolling history back into view) render instantly instead of re-typing.
+const _typedOnce = new Set<string>();
 
+export function TypedText({ text, className }: { text: string; className?: string }) {
+  const done0 = !text || _typedOnce.has(text);
+  const [shown, setShown] = useState(done0 ? text.length : 0);
+  const ref = useRef(text);
+  ref.current = text;
   useEffect(() => {
-    if (!typing || !headline) return;
-    if (startRef.current == null) startRef.current = performance.now();
+    if (done0) return;
+    const start = performance.now();
     let raf = requestAnimationFrame(function tick(now: number) {
-      const h = headlineRef.current;
-      const elapsed = now - (startRef.current ?? now);
-      const target = Math.min(h.length, Math.floor((elapsed / 1000) * CPS));
+      const t = ref.current;
+      const target = Math.min(t.length, Math.floor(((now - start) / 1000) * CPS));
       setShown(target);
-      if (target < h.length) raf = requestAnimationFrame(tick);
+      if (target < t.length) raf = requestAnimationFrame(tick);
+      else _typedOnce.add(t);
     });
     return () => cancelAnimationFrame(raf);
-  }, [typing, headline]);
-
-  if (!headline) return null;
-  const done = !typing || shown >= headline.length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (!text) return null;
+  const isDone = done0 || shown >= text.length;
   return (
-    <p className={cn("text-ink", className)}>
-      {headline.slice(0, typing ? shown : headline.length)}
-      {!done && <span className="inline-block w-[2px] h-[1.05em] -mb-[0.12em] ml-0.5 bg-accent align-baseline animate-pulse" />}
-    </p>
+    <span className={className}>
+      {text.slice(0, isDone ? text.length : shown)}
+      {!isDone && <span className="inline-block w-[2px] h-[1.05em] -mb-[0.12em] ml-0.5 bg-accent align-baseline animate-pulse" />}
+    </span>
   );
 }

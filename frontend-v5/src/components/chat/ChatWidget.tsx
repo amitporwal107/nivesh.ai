@@ -9,6 +9,7 @@
  */
 import { Fragment } from "react";
 import { cn } from "@/lib/utils";
+import { TypedText } from "@/components/chat/TypedHeadline";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 const BAR: Record<string, string> = {
@@ -502,7 +503,7 @@ function ConcentrationWidget({ data }: { data: any }) {
             <span className="mt-1 h-3.5 w-3.5 rounded-[3px] border-2 border-warm shrink-0" />
             <div>
               <div className="font-display text-[17px] text-ink tracking-tightish leading-snug">{hero.title}</div>
-              {hero.body && <p className="text-[14px] text-ink-2 leading-relaxed mt-1.5">{hero.body}</p>}
+              {hero.body && <p className="text-[14px] text-ink-2 leading-relaxed mt-1.5"><TypedText text={hero.body} /></p>}
             </div>
           </div>
         </div>
@@ -602,7 +603,7 @@ function AllocationReviewWidget({ data }: { data: any }) {
             <span className={cn("mt-1 h-3.5 w-3.5 rounded-[3px] border-2 shrink-0", heroWarm ? "border-warm" : "border-accent")} />
             <div>
               <div className="font-display text-[17px] text-ink tracking-tightish leading-snug">{hero.title}</div>
-              {hero.body && <p className="text-[14px] text-ink-2 leading-relaxed mt-1.5">{hero.body}</p>}
+              {hero.body && <p className="text-[14px] text-ink-2 leading-relaxed mt-1.5"><TypedText text={hero.body} /></p>}
             </div>
           </div>
         </div>

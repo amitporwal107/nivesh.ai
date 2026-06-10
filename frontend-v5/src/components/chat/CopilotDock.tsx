@@ -19,7 +19,6 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatWidget } from "@/components/chat/ChatWidget";
 import { Markdown, prefetchStreamdown } from "@/components/chat/Markdown";
-import { TypedHeadline } from "@/components/chat/TypedHeadline";
 import { useTypewriterReveal, remainingRevealMs } from "@/components/chat/useTypewriter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useChatSession, useSuggestedPrompts, useCreateChatSession } from "@/hooks/use-chat";
@@ -256,12 +255,7 @@ export function CopilotDock() {
                   {isUser ? (
                     <p className="text-[13.5px]">{m.content}</p>
                   ) : hasWidget ? (
-                    <>
-                      {m.content?.trim() && (
-                        <TypedHeadline source={m.content} typing={false} className="text-[14px] leading-relaxed mb-2.5" />
-                      )}
-                      <ChatWidget widget={widget} onAction={handleWidgetAction} />
-                    </>
+                    <ChatWidget widget={widget} onAction={handleWidgetAction} />
                   ) : m.content?.trim() ? (
                     <Markdown className="text-[14px] leading-relaxed text-ink-2">{m.content}</Markdown>
                   ) : null}
@@ -283,15 +277,10 @@ export function CopilotDock() {
                 {streaming.error ? (
                   <p className="text-[14px] text-neg">{streaming.error}</p>
                 ) : streaming.widget && WIDGET_TYPES.has(streaming.widget.widget_type) ? (
-                  // One-line summary types above; the card builds in steps below.
-                  <>
-                    {streaming.buffer?.trim() && (
-                      <TypedHeadline source={streaming.buffer} className="text-[14px] leading-relaxed mb-2.5" />
-                    )}
-                    <div className="sd-stagger">
-                      <ChatWidget widget={streaming.widget} onAction={handleWidgetAction} />
-                    </div>
-                  </>
+                  // Builds in steps; the hero line (section 1) types the summary.
+                  <div className="sd-stagger">
+                    <ChatWidget widget={streaming.widget} onAction={handleWidgetAction} />
+                  </div>
                 ) : streaming.content ? (
                   <Markdown caret className="text-[14px] leading-relaxed text-ink-2">
                     {streaming.content}
