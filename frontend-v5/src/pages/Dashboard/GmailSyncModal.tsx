@@ -99,8 +99,13 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
     }, 600);
 
     try {
+      // The app is served under a base path (e.g. /v5/ in prod); the OAuth
+      // callback redirects the popup to return_to, so it must carry that base
+      // or nginx's SPA fallback won't match and the popup 404s.
+      const base = (((import.meta as any).env?.BASE_URL as string) || "/").replace(/\/$/, "");
+      const returnTo = `${base}/gmail-callback`;
       const res = await fetch(
-        `/api/gmail/connect?return_to=${encodeURIComponent("/gmail-callback")}`,
+        `/api/gmail/connect?return_to=${encodeURIComponent(returnTo)}`,
         { credentials: "include" },
       );
       if (!res.ok) throw new Error(`Server error ${res.status}`);
@@ -143,7 +148,8 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean; message?: string; detail?: string;
         source_used?: string; imported_holdings?: number; imported_files?: number;
-        scanned?: number; files?: Array<{ statement_period?: string }>;
+        scanned?: number; parse_errors?: number;
+        files?: Array<{ statement_period?: string; status?: string; error?: string }>;
       };
       if (!res.ok) {
         // 401 = token expired → user must reconnect.
@@ -152,7 +158,15 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
       }
       if (!data.ok || (data.imported_files ?? 0) === 0) {
         if ((data.scanned ?? 0) === 0) throw new Error(data.message ?? "No CAS emails found in your Gmail.");
-        throw new Error("Found a CAS email but couldn't read it — check your PAN is correct.");
+        const fileErr = data.files?.find((f) => f.status === "error")?.error;
+        if (fileErr === "download_failed") {
+          throw new Error("Found your CAS email but couldn't download the attachment from Gmail — try again.");
+        }
+        // parse_failed (the common case): the PDF couldn't be parsed. By far the
+        // most common cause is an incorrect PAN — it's the password CAMS/KFin
+        // statements are locked with. Be honest that the parser could also be at
+        // fault rather than asserting it's definitely the PAN.
+        throw new Error("Found your latest CAS statement but couldn't open it. The usual cause is an incorrect PAN (it's the statement password). Double-check it and try again.");
       }
       setResult({
         source: data.source_used,
