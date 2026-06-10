@@ -506,3 +506,10 @@ frontend-v5/test-results/
 .open_api_key
 KEY_JSON
 .staging_session
+
+# OpenAI key handoff file (never commit)
+docs/.OPENAI_API_KEY
+.OPENAI_API_KEY
+
+# CAS parser key — local secret, never commit
+.CAS_PARSER_KEY

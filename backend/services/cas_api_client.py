@@ -55,14 +55,37 @@ def _secret_name() -> str:
     return f"casparser-api-keys-{env}"
 
 
+def _env_pool() -> str:
+    """Key pool supplied via the deploy environment (e.g. staging .env), used
+    when GSM is empty/unavailable. Accepts newline- or comma-separated keys.
+    `CASPARSER_API_KEYS` is canonical; the singular forms are conveniences."""
+    return (
+        os.environ.get("CASPARSER_API_KEYS")
+        or os.environ.get("CASPARSER_API_KEY")
+        or os.environ.get("PI_CASPARSER_API_KEY")
+        or ""
+    )
+
+
 def _load_pool() -> List[str]:
     raw = _gsm.get(_secret_name()) or ""
     if not raw.strip():
-        logger.warning(
-            "CAS Parser API key pool empty from GSM (%s) — using hardcoded fallback key",
-            _secret_name(),
-        )
-        return [_HARDCODED_FALLBACK_KEY]
+        # GSM empty/unavailable → prefer an env-provided pool (lets ops rotate
+        # keys via the deploy env without a code change while GSM is down),
+        # then the hardcoded fallback as a last resort.
+        env_raw = _env_pool()
+        if env_raw.strip():
+            logger.info(
+                "CAS Parser key pool loaded from env (GSM %s empty/unavailable)",
+                _secret_name(),
+            )
+            raw = env_raw
+        else:
+            logger.warning(
+                "CAS Parser API key pool empty from GSM (%s) and env — using hardcoded fallback key",
+                _secret_name(),
+            )
+            return [_HARDCODED_FALLBACK_KEY]
     # then split each remaining line on any whitespace or comma so admins
     # can shape the GSM payload however is convenient.
     out: List[str] = []
