@@ -322,16 +322,12 @@ export default function ChatPage() {
                 <div className={isUser ? "" : "flex-1 min-w-0"}>
                   {isUser ? (
                     <p className="text-[14px]">{m.content}</p>
-                  ) : (
-                    <>
-                      {hasWidget && <ChatWidget widget={widget} onAction={handleWidgetAction} />}
-                      {m.content?.trim() && (
-                        <Markdown className={cn("text-[15.5px] leading-relaxed text-ink-2", hasWidget && "mt-3")}>
-                          {m.content}
-                        </Markdown>
-                      )}
-                    </>
-                  )}
+                  ) : hasWidget ? (
+                    // Widget is the answer — its narrative would just repeat it.
+                    <ChatWidget widget={widget} onAction={handleWidgetAction} />
+                  ) : m.content?.trim() ? (
+                    <Markdown className="text-[15.5px] leading-relaxed text-ink-2">{m.content}</Markdown>
+                  ) : null}
                 </div>
               </div>
             );
@@ -351,30 +347,25 @@ export default function ChatPage() {
               <div className="flex-1 min-w-0">
                 {streaming.error ? (
                   <p className="text-[14px] text-neg">{streaming.error}</p>
+                ) : streaming.widget && WIDGET_TYPES.has(streaming.widget.widget_type) ? (
+                  // Widget is the answer — its sections fade-rise in sequence
+                  // (sd-stagger) over ~9s; the narrative is suppressed since the
+                  // widget already says it.
+                  <div className="sd-stagger">
+                    <ChatWidget widget={streaming.widget} onAction={handleWidgetAction} />
+                  </div>
+                ) : streaming.content ? (
+                  <Markdown caret className="text-[15.5px] leading-relaxed text-ink-2">
+                    {streaming.content}
+                  </Markdown>
                 ) : (
-                  <>
-                    {/* Widget arrives before the narrative; its sections
-                        fade-rise in sequence (sd-stagger) so the card builds
-                        over a ~9s window instead of popping in at once. */}
-                    {streaming.widget && WIDGET_TYPES.has(streaming.widget.widget_type) && (
-                      <div className="sd-stagger">
-                        <ChatWidget widget={streaming.widget} onAction={handleWidgetAction} />
-                      </div>
-                    )}
-                    {streaming.content ? (
-                      <Markdown caret className={cn("text-[15.5px] leading-relaxed text-ink-2", streaming.widget && "mt-3")}>
-                        {streaming.content}
-                      </Markdown>
+                  <div className="flex items-center gap-2 text-ink-3">
+                    {streaming.thinking ? (
+                      <span className="text-[13px]">Reading your portfolio…</span>
                     ) : (
-                      <div className={cn("flex items-center gap-2 text-ink-3", streaming.widget && "mt-3")}>
-                        {streaming.thinking ? (
-                          <span className="text-[13px]">Reading your portfolio…</span>
-                        ) : (
-                          <><Dot delay={0} /><Dot delay={150} /><Dot delay={300} /></>
-                        )}
-                      </div>
+                      <><Dot delay={0} /><Dot delay={150} /><Dot delay={300} /></>
                     )}
-                  </>
+                  </div>
                 )}
               </div>
             </div>
