@@ -846,12 +846,26 @@ def parse_cas_offline(content: bytes, password: str = "") -> tuple:
                           "detail": "casparser_lib_missing"}
     try:
         raw = _cp.read_cas_pdf(io.BytesIO(content), password or "", output="dict")
+    except TypeError:
+        # Newer casparser drops the `output` kwarg and returns a typed model.
+        raw = _cp.read_cas_pdf(io.BytesIO(content), password or "")
     except Exception as e:  # noqa: BLE001
         msg = str(e)
         kind = "password" if _is_password_error(msg) else "parse"
         logger.warning("offline casparser parse failed: %s", msg)
         return [], None, {"kind": kind, "message": "The CAS statement couldn't be read (offline parser).",
                           "detail": msg[:300]}
+
+    # casparser may hand back a pydantic/dataclass model (NSDLCASData, CASData,
+    # …) rather than a plain dict — coerce so the dict-based mapper works.
+    if not isinstance(raw, dict):
+        if hasattr(raw, "model_dump"):
+            raw = raw.model_dump()
+        elif hasattr(raw, "dict"):
+            raw = raw.dict()
+        else:
+            import dataclasses as _dc
+            raw = _dc.asdict(raw) if _dc.is_dataclass(raw) else getattr(raw, "__dict__", {})
     try:
         from helpers.parsing import convert_casparser_to_holdings
         holdings = convert_casparser_to_holdings(raw) or []
