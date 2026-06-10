@@ -236,19 +236,27 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             })
             continue
 
-        # Server-side parse. parse_cas_via_api returns [] on any failure
-        # (bad password, scanned PDF too large, API down, etc.).
+        # Server-side parse. The _with_error variant tells us *why* it failed
+        # (wrong PAN vs. unreadable PDF vs. service issue) so the UI can react.
         try:
-            holdings, raw_data, _ = cas_api_client.parse_cas_via_sdk_flow_with_data(content, password=pan)
+            holdings, raw_data, _, parse_err = cas_api_client.parse_cas_via_sdk_flow_with_error(content, password=pan)
         except Exception as e:  # noqa: BLE001
             logger.exception("parse_cas_via_sdk_flow crashed for %s: %s", filename, e)
-            holdings, raw_data = [], None
+            holdings, raw_data, parse_err = [], None, {
+                "kind": "service", "message": "The CAS parser hit an error — try again.", "detail": str(e)[:200],
+            }
 
         if not holdings:
             parse_errors += 1
+            logger.warning(
+                "auto-import: parse failed for %s (%s) — kind=%s detail=%s",
+                filename, user_id, (parse_err or {}).get("kind"), (parse_err or {}).get("detail"),
+            )
             per_file.append({
                 "message_id": msg_id, "filename": filename,
                 "status": "error", "error": "parse_failed",
+                "error_kind": (parse_err or {}).get("kind", "parse"),
+                "error_message": (parse_err or {}).get("message", "The CAS statement couldn't be read."),
                 "holdings_count": 0,
             })
             continue
@@ -370,6 +378,16 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         from routes.upload import _trigger_nidp_pipeline_background
         _aio.create_task(_trigger_nidp_pipeline_background(user_id))
 
+    # Surface the first parse failure at the top level so the UI can react
+    # (e.g. re-prompt for PAN on a "password" error) without digging into files.
+    first_err = next((f for f in per_file if f.get("status") == "error"), None)
+    parse_error = None
+    if imported_files == 0 and first_err:
+        parse_error = {
+            "kind": first_err.get("error_kind", "parse"),
+            "message": first_err.get("error_message", "The CAS statement couldn't be read."),
+        }
+
     return {
         "ok": imported_files > 0,
         "scanned": len(emails),
@@ -378,6 +396,7 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         "imported_files": imported_files,
         "imported_holdings": len(all_holdings),
         "parse_errors": parse_errors,
+        "parse_error": parse_error,
         "files": per_file,
     }
 

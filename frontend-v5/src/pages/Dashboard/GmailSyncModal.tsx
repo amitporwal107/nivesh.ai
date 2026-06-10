@@ -149,6 +149,7 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
         ok?: boolean; message?: string; detail?: string;
         source_used?: string; imported_holdings?: number; imported_files?: number;
         scanned?: number; parse_errors?: number;
+        parse_error?: { kind?: string; message?: string } | null;
         files?: Array<{ statement_period?: string; status?: string; error?: string }>;
       };
       if (!res.ok) {
@@ -158,15 +159,17 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
       }
       if (!data.ok || (data.imported_files ?? 0) === 0) {
         if ((data.scanned ?? 0) === 0) throw new Error(data.message ?? "No CAS emails found in your Gmail.");
-        const fileErr = data.files?.find((f) => f.status === "error")?.error;
-        if (fileErr === "download_failed") {
-          throw new Error("Found your CAS email but couldn't download the attachment from Gmail — try again.");
+        // The backend now tells us *why* the parse failed.
+        const kind = data.parse_error?.kind;
+        const why = data.parse_error?.message;
+        if (kind === "password") {
+          // Wrong PAN — go back to the PAN step and let the user re-enter it.
+          setPanError(why ?? "That PAN didn't unlock the statement — re-enter it.");
+          setStep("pan");
+          return;
         }
-        // parse_failed (the common case): the PDF couldn't be parsed. By far the
-        // most common cause is an incorrect PAN — it's the password CAMS/KFin
-        // statements are locked with. Be honest that the parser could also be at
-        // fault rather than asserting it's definitely the PAN.
-        throw new Error("Found your latest CAS statement but couldn't open it. The usual cause is an incorrect PAN (it's the statement password). Double-check it and try again.");
+        // service (parser unreachable) / parse (unreadable PDF) — show the real reason.
+        throw new Error(why ?? "Found your latest CAS statement but couldn't read it. Please try again.");
       }
       setResult({
         source: data.source_used,
