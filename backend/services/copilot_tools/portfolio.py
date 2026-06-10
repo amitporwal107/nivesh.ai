@@ -374,6 +374,22 @@ def _short_fund(name: str) -> str:
     return _re.sub(r"\s+", " ", n).strip()
 
 
+def _norm_scheme(name: str) -> str:
+    """Aggressively normalise a scheme name to a base key for matching across
+    sources (intel scheme_name vs holdings name vs leaderboard) — strips plan,
+    option, payout and all punctuation so 'HDFC Flexi Cap Fund - Growth' and
+    'HDFC Flexi Cap Fund Growth' collapse to the same key."""
+    import re as _re
+    n = (name or "").lower()
+    for tok in ("direct", "regular", "growth", "idcw", "dividend", "payout",
+                "reinvestment", "reinvest", "plan", "option", "fund", "scheme",
+                "retail", "monthly", "weekly", "daily", "fortnightly", "income",
+                "distribution", "cum", "capital", "withdrawal"):
+        n = _re.sub(rf"\b{tok}\b", " ", n)
+    n = _re.sub(r"[^a-z0-9 ]", " ", n)
+    return _re.sub(r"\s+", " ", n).strip()
+
+
 def _redundancy_question(a: str, b: str) -> str:
     t = (a + " " + b).lower()
     if "index" in t or "nifty" in t or "sensex" in t:
@@ -1545,17 +1561,17 @@ async def get_rebalance_plan(user_id: str, risk_profile: Optional[str] = None) -
         enriched = await build_enriched_portfolio(user_id)
         score_map = {}
         for h in (enriched.get("holdings") or []):
-            nm = (h.get("name") or h.get("scheme_name") or "").lower().strip()
-            if not nm:
+            key = _norm_scheme(h.get("name") or h.get("scheme_name") or "")
+            if not key:
                 continue
             sc = h.get("scores") or {}
-            score_map[nm] = {
+            score_map[key] = {
                 "quality": sc.get("quality"),
                 "exit": sc.get("exit"),
                 "reason": h.get("recommendation_reason") or h.get("action_badge"),
             }
         for cand in redundancy:
-            m = score_map.get((cand.get("name") or "").lower().strip())
+            m = score_map.get(_norm_scheme(cand.get("name") or ""))
             if m:
                 cand["quality_score"] = round(m["quality"]) if m["quality"] is not None else None
                 cand["exit_score"] = round(float(m["exit"]), 1) if m["exit"] is not None else None
@@ -1568,17 +1584,31 @@ async def get_rebalance_plan(user_id: str, risk_profile: Optional[str] = None) -
     redeploy_recs: List[Dict[str, Any]] = []
     try:
         from services.copilot_tools.mf import get_top_funds
-        top = await get_top_funds("Debt", metric="composite_rank", limit=3)
+        # Fetch a wider slice, then keep only one GROWTH plan per distinct fund —
+        # the raw leaderboard is polluted by IDCW/reinvestment plan-variants of
+        # the same scheme (which also show misleading ~0% NAV "returns").
+        top = await get_top_funds("Debt", metric="composite_rank", limit=15)
+        seen_base = set()
         for t in top:
             d = getattr(t, "data", None) or {}
+            nm = d.get("scheme_name") or d.get("name") or ""
+            low = nm.lower()
+            if any(k in low for k in ("idcw", "dividend", "reinvest", "payout",
+                                      "daily", "weekly", "monthly", "fortnight")):
+                continue  # not a growth plan — skip the payout/reinvest variants
+            base = _norm_scheme(nm)
+            if not base or base in seen_base:
+                continue
+            seen_base.add(base)
             redeploy_recs.append({
-                "name": d.get("scheme_name") or d.get("name"),
+                "name": _short_fund(nm),
                 "category": d.get("sub_category") or d.get("category"),
                 "composite_score": round(float(d["composite_score"])) if d.get("composite_score") is not None else None,
                 "return_3y": round(float(d["return_3y"]), 1) if d.get("return_3y") is not None else None,
                 "rank": d.get("composite_rank") or d.get("category_rank"),
             })
-        redeploy_recs = [r for r in redeploy_recs if r.get("name")]
+            if len(redeploy_recs) >= 3:
+                break
     except Exception as exc:  # noqa: BLE001
         logger.warning("rebalance: debt fund recommendations unavailable: %s", exc)
     if equity_pct is None:
