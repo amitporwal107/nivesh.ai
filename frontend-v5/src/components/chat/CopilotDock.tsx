@@ -18,7 +18,11 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatWidget } from "@/components/chat/ChatWidget";
-import { useSendChat, useChatSession, useSuggestedPrompts, useCreateChatSession } from "@/hooks/use-chat";
+import { useQueryClient } from "@tanstack/react-query";
+import { useChatSession, useSuggestedPrompts, useCreateChatSession } from "@/hooks/use-chat";
+import { chatService } from "@/services";
+
+type DockStream = { content: string; thinking?: string; widget?: { widget_type: string; data: unknown }; error?: string };
 
 const WIDGET_TYPES = new Set([
   "fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview",
@@ -62,37 +66,62 @@ export function CopilotDock() {
   const [composer, setComposer] = useState("");
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
 
-  const send = useSendChat();
+  const qc = useQueryClient();
   const createSession = useCreateChatSession();
   const prompts = useSuggestedPrompts();
   const session = useChatSession(sessionId ?? "");
   const messages = session.data?.messages ?? [];
 
+  const [streaming, setStreaming] = useState<DockStream | null>(null);
+  const [pendingUser, setPendingUser] = useState<string | null>(null);
+  const isBusy = streaming !== null;
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Keep the latest message in view as the thread grows / while thinking.
+  // Keep the latest message in view as the thread grows / while streaming.
   useEffect(() => {
     if (open && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [open, messages.length, send.isPending]);
+  }, [open, messages.length, streaming?.content, isBusy]);
 
   // The dock is redundant on the full chat page — let that page own the screen.
   if (location.pathname === "/chat") return null;
 
   const submitMessage = async (text: string) => {
     const t = text.trim();
-    if (!t || send.isPending) return;
+    if (!t || isBusy) return;
     let sid = sessionId;
     if (!sid) {
       const created = await createSession.mutateAsync(undefined);
       sid = created.id;
       setSessionId(sid);
     }
-    await send.mutateAsync({ message: t, sessionId: sid, page: page ?? undefined });
+    setPendingUser(t);
+    setStreaming({ content: "" });
+    try {
+      await chatService.streamSend(t, sid, (ev) => {
+        setStreaming((s) => {
+          if (!s) return s;
+          switch (ev.type) {
+            case "thinking": return { ...s, thinking: ev.status === "start" ? ev.tool : undefined };
+            case "token":    return { ...s, content: s.content + (ev.content ?? ""), thinking: undefined };
+            case "widget":   return { ...s, widget: { widget_type: ev.widget_type, data: ev.data } };
+            case "error":    return { ...s, error: ev.content };
+            default:         return s;
+          }
+        });
+      }, { page: page ?? undefined });
+    } catch {
+      setStreaming((s) => (s ? { ...s, error: "Connection interrupted — please try again." } : s));
+    }
+    setStreaming(null);
+    setPendingUser(null);
+    qc.invalidateQueries({ queryKey: ["chat", "sessions", sid] });
+    qc.invalidateQueries({ queryKey: ["chat", "sessions"] });
   };
 
   const handleSend = async () => {
     const text = composer.trim();
-    if (!text || send.isPending) return;
+    if (!text || isBusy) return;
     setComposer("");
     await submitMessage(text);
   };
@@ -110,7 +139,7 @@ export function CopilotDock() {
   };
 
   const promptList = prompts.data && prompts.data.length > 0 ? prompts.data : FALLBACK_PROMPTS;
-  const showEmpty = messages.length === 0 && !send.isPending;
+  const showEmpty = messages.length === 0 && !isBusy && !pendingUser;
 
   return (
     <>
@@ -214,17 +243,33 @@ export function CopilotDock() {
             );
           })}
 
-          {send.isPending && (
-            <div className="flex gap-2.5">
-              <span className="grid place-items-center h-7 w-7 rounded-md bg-ink text-on-accent font-display text-[13px] leading-none shrink-0">न</span>
-              <div className="flex-1 flex items-center gap-1.5 text-ink-3 pt-2">
-                <Dot delay={0} /><Dot delay={150} /><Dot delay={300} />
-              </div>
+          {pendingUser && (
+            <div className="self-end max-w-[85%] px-3.5 py-2.5 rounded-2xl rounded-br-md bg-surface-2 border border-hairline">
+              <p className="text-[13.5px]">{pendingUser}</p>
             </div>
           )}
 
-          {send.isError && (
-            <div className="text-[12px] text-neg font-mono">{(send.error as Error).message}</div>
+          {streaming && (
+            <div className="flex gap-2.5">
+              <span className="grid place-items-center h-7 w-7 rounded-md bg-ink text-on-accent font-display text-[13px] leading-none shrink-0">न</span>
+              <div className="flex-1 min-w-0">
+                {streaming.error ? (
+                  <p className="text-[14px] text-neg">{streaming.error}</p>
+                ) : streaming.content ? (
+                  <>
+                    <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{streaming.content}</p>
+                    {streaming.widget && WIDGET_TYPES.has(streaming.widget.widget_type) && (
+                      <ChatWidget widget={streaming.widget} onAction={handleWidgetAction} />
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-ink-3 pt-2">
+                    {streaming.thinking ? <span className="text-[12.5px]">Reading your portfolio…</span>
+                      : <><Dot delay={0} /><Dot delay={150} /><Dot delay={300} /></>}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
 
@@ -238,9 +283,9 @@ export function CopilotDock() {
               onChange={(e) => setComposer(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleSend(); }}
               className="flex-1 bg-transparent outline-none text-[14px]"
-              disabled={send.isPending}
+              disabled={isBusy}
             />
-            <Button variant="accent" size="sm" disabled={!composer.trim() || send.isPending} onClick={handleSend}>
+            <Button variant="accent" size="sm" disabled={!composer.trim() || isBusy} onClick={handleSend}>
               <Send className="h-3.5 w-3.5" />
             </Button>
           </div>
