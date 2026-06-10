@@ -197,20 +197,34 @@
   .bg-pos-soft { background-color: rgb(var(--pos) / 0.12); }
 }
 
-/* Staggered widget reveal — while an answer streams, the widget's sections
-   (direct children of its flex-col root) fade-rise in sequence so the card
-   "builds" over a ~9s window instead of popping in at once. Applied only to the
-   live streaming bubble (class `sd-stagger`); the persisted copy renders
-   instantly. `both` fill keeps each section hidden until its delay elapses.
-   Self-contained keyframe (not Tailwind's) so it can't be purged. */
-@keyframes sd-rise {
-  from { opacity: 0; transform: translateY(8px) scale(0.985); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+/* Staggered widget reveal — while an answer streams, the card BUILDS in steps:
+   each section (direct child of the widget's flex-col root) starts at height 0
+   and grows to its natural height, in sequence, so the card gets taller as it
+   loads instead of popping in full at once. Applied only to the live streaming
+   bubble (class `sd-stagger`); the persisted copy renders instantly.
+
+   Mechanics: override the root flex `gap` to 0 and recreate the spacing with an
+   animated `margin-top`, so a not-yet-loaded section (height 0, margin 0) takes
+   ZERO space — the card truly grows from nothing. `interpolate-size:
+   allow-keywords` lets `height: 0 → auto` animate to the real content height;
+   where unsupported it degrades to a clean stepped fade (opacity still animates,
+   delays still stagger). `both` fill keeps each section collapsed until its
+   delay. Self-contained keyframes so Tailwind can't purge them. */
+@keyframes sd-grow {
+  from { height: 0; opacity: 0; transform: translateY(4px); margin-top: 0; }
+  to   { height: auto; opacity: 1; transform: translateY(0); margin-top: 0.875rem; }
+}
+@keyframes sd-grow-first {
+  from { height: 0; opacity: 0; transform: translateY(4px); }
+  to   { height: auto; opacity: 1; transform: translateY(0); }
 }
 @layer utilities {
+  .sd-stagger > * { gap: 0 !important; interpolate-size: allow-keywords; }
   .sd-stagger > * > * {
-    animation: sd-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+    overflow: hidden;
+    animation: sd-grow 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
+  .sd-stagger > * > *:first-child { animation-name: sd-grow-first; }
   .sd-stagger > * > *:nth-child(1)  { animation-delay: 0ms; }
   .sd-stagger > * > *:nth-child(2)  { animation-delay: 1500ms; }
   .sd-stagger > * > *:nth-child(3)  { animation-delay: 2950ms; }
