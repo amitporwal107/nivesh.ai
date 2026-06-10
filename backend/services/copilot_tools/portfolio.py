@@ -1239,7 +1239,7 @@ def build_allocation_review_widget(summary: Any, rebalance: Any, xirr: Any) -> D
             # Build a "why exit" line from the real scores + overlap.
             bits = []
             if ex is not None:
-                bits.append(f"exit score {ex}/10")
+                bits.append(f"exit score {ex}/100")
             if q is not None:
                 bits.append(f"quality {q}/100")
             if r.get("overlap_reduced_pp"):
@@ -1264,6 +1264,8 @@ def build_allocation_review_widget(summary: Any, rebalance: Any, xirr: Any) -> D
                     sub = []
                     if rec.get("composite_score") is not None:
                         sub.append(f"score {rec['composite_score']}/100")
+                    elif rec.get("rank"):
+                        sub.append(f"#{rec['rank']} in category")
                     if rec.get("category"):
                         sub.append(str(rec["category"]))
                     if rec.get("return_3y") is not None:
@@ -1574,7 +1576,7 @@ async def get_rebalance_plan(user_id: str, risk_profile: Optional[str] = None) -
             m = score_map.get(_norm_scheme(cand.get("name") or ""))
             if m:
                 cand["quality_score"] = round(m["quality"]) if m["quality"] is not None else None
-                cand["exit_score"] = round(float(m["exit"]), 1) if m["exit"] is not None else None
+                cand["exit_score"] = round(float(m["exit"])) if m["exit"] is not None else None
                 cand["score_reason"] = m["reason"]
     except Exception as exc:  # noqa: BLE001
         logger.warning("rebalance: exit-score enrichment unavailable: %s", exc)
@@ -1600,8 +1602,10 @@ async def get_rebalance_plan(user_id: str, risk_profile: Optional[str] = None) -
             if not base or base in seen_base:
                 continue
             seen_base.add(base)
+            import re as _re_n
+            clean_nm = _short_fund(_re_n.sub(r"\(.*?\)", " ", nm).replace("Retail", " "))
             redeploy_recs.append({
-                "name": _short_fund(nm),
+                "name": clean_nm,
                 "category": d.get("sub_category") or d.get("category"),
                 "composite_score": round(float(d["composite_score"])) if d.get("composite_score") is not None else None,
                 "return_3y": round(float(d["return_3y"]), 1) if d.get("return_3y") is not None else None,
