@@ -19,11 +19,13 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatWidget } from "@/components/chat/ChatWidget";
 import { Markdown } from "@/components/chat/Markdown";
+import { useTypewriterReveal, remainingRevealMs } from "@/components/chat/useTypewriter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useChatSession, useSuggestedPrompts, useCreateChatSession } from "@/hooks/use-chat";
 import { chatService } from "@/services";
 
-type DockStream = { content: string; thinking?: string; widget?: { widget_type: string; data: unknown }; error?: string };
+// `buffer` is everything received; `content` is the paced, typed-out slice.
+type DockStream = { buffer: string; content: string; thinking?: string; widget?: { widget_type: string; data: unknown }; error?: string };
 
 const WIDGET_TYPES = new Set([
   "fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview",
@@ -74,8 +76,12 @@ export function CopilotDock() {
   const messages = session.data?.messages ?? [];
 
   const [streaming, setStreaming] = useState<DockStream | null>(null);
+  const firstTokenRef = useRef<number | null>(null);
   const [pendingUser, setPendingUser] = useState<string | null>(null);
   const isBusy = streaming !== null;
+
+  // Pace the visible text toward the received buffer over a ~10s window.
+  useTypewriterReveal(streaming, setStreaming, firstTokenRef);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -97,14 +103,16 @@ export function CopilotDock() {
       setSessionId(sid);
     }
     setPendingUser(t);
-    setStreaming({ content: "" });
+    firstTokenRef.current = null;
+    setStreaming({ buffer: "", content: "" });
     try {
       await chatService.streamSend(t, sid, (ev) => {
         setStreaming((s) => {
           if (!s) return s;
           switch (ev.type) {
             case "thinking": return { ...s, thinking: ev.status === "start" ? ev.tool : undefined };
-            case "token":    return { ...s, content: s.content + (ev.content ?? ""), thinking: undefined };
+            // Tokens accumulate into `buffer`; the typewriter reveals `content`.
+            case "token":    return { ...s, buffer: s.buffer + (ev.content ?? ""), thinking: undefined };
             case "widget":   return { ...s, widget: { widget_type: ev.widget_type, data: ev.data } };
             case "error":    return { ...s, error: ev.content };
             default:         return s;
@@ -114,6 +122,8 @@ export function CopilotDock() {
     } catch {
       setStreaming((s) => (s ? { ...s, error: "Connection interrupted — please try again." } : s));
     }
+    // Hold the bubble open until the paced reveal finishes its ~10s window.
+    await new Promise((r) => setTimeout(r, remainingRevealMs(firstTokenRef.current)));
     setStreaming(null);
     setPendingUser(null);
     qc.invalidateQueries({ queryKey: ["chat", "sessions", sid] });

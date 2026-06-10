@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen } from "lucide-react";
@@ -15,8 +15,11 @@ import { chatService } from "@/services";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatWidget } from "@/components/chat/ChatWidget";
 import { Markdown } from "@/components/chat/Markdown";
+import { useTypewriterReveal, remainingRevealMs } from "@/components/chat/useTypewriter";
 
-type StreamState = { content: string; thinking?: string; widget?: { widget_type: string; data: unknown }; error?: string };
+// `buffer` is everything received from the stream; `content` is the paced,
+// typed-out slice the user sees (see useTypewriterReveal).
+type StreamState = { buffer: string; content: string; thinking?: string; widget?: { widget_type: string; data: unknown }; error?: string };
 
 const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "instrument_detail", "risk_assessment", "goal_simulation"]);
 
@@ -65,7 +68,11 @@ export default function ChatPage() {
   // Live streaming state for the in-flight answer + the optimistic user bubble.
   const [streaming, setStreaming] = useState<StreamState | null>(null);
   const [pendingUser, setPendingUser] = useState<string | null>(null);
+  const firstTokenRef = useRef<number | null>(null);
   const isBusy = streaming !== null;
+
+  // Pace the visible text toward the received buffer over a ~10s window.
+  useTypewriterReveal(streaming, setStreaming, firstTokenRef);
 
   const messages = session.data?.messages ?? [];
   const sessionList = sessions.data ?? [];
@@ -83,14 +90,16 @@ export default function ChatPage() {
       setSessionId(sid);
     }
     setPendingUser(t);
-    setStreaming({ content: "" });
+    firstTokenRef.current = null;
+    setStreaming({ buffer: "", content: "" });
     try {
       await chatService.streamSend(t, sid, (ev) => {
         setStreaming((s) => {
           if (!s) return s;
           switch (ev.type) {
             case "thinking": return { ...s, thinking: ev.status === "start" ? ev.tool : undefined };
-            case "token":    return { ...s, content: s.content + (ev.content ?? ""), thinking: undefined };
+            // Tokens accumulate into `buffer`; the typewriter reveals `content`.
+            case "token":    return { ...s, buffer: s.buffer + (ev.content ?? ""), thinking: undefined };
             case "widget":   return { ...s, widget: { widget_type: ev.widget_type, data: ev.data } };
             case "error":    return { ...s, error: ev.content };
             default:         return s;
@@ -100,6 +109,9 @@ export default function ChatPage() {
     } catch {
       setStreaming((s) => (s ? { ...s, error: "Connection interrupted — please try again." } : s));
     }
+    // Hold the bubble open until the paced reveal finishes its ~10s window
+    // (the stream itself may have completed in ~1s).
+    await new Promise((r) => setTimeout(r, remainingRevealMs(firstTokenRef.current)));
     setStreaming(null);
     setPendingUser(null);
     qc.invalidateQueries({ queryKey: ["chat", "sessions", sid] });
