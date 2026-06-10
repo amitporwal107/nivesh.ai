@@ -1056,6 +1056,39 @@ async def send_chat(request: Request, msg: ChatMessageInput):
     }
 
 
+def _widget_envelope(wt: Optional[str], wd: Optional[Dict[str, Any]],
+                     agent_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Build the SSE widget envelope from a (widget_type, widget_data) pair.
+    V5-native widgets pass through verbatim; legacy ones become the unified
+    insight_card. Returns None when there's no widget. Shared by the early
+    custom-event emit and the final on_chain_end emit."""
+    if not (wt and wt != "none" and wd):
+        return None
+    title_map = {
+        "stress_test": (wd.get("scenario_name") or "Portfolio Stress Test"),
+        "rebalance_plan": "Rebalance Plan", "tax_harvest": "Tax Harvest Plan",
+        "sip_plan": "SIP Plan", "overlap_reveal": "Fund Overlap",
+        "sector_rotation": "Sector Rotation", "fund_comparison": "Fund Comparison",
+        "portfolio_overview": "Portfolio Overview", "goal_tracker": "Goal Tracker",
+        "stock_screener": "Stock Screener",
+    }
+    title = title_map.get(wt, "Insight")
+    freshness = {"state": "cached", "last_updated": datetime.now(timezone.utc).isoformat(),
+                 "source": ["NIDP", "portfolio_holdings"]}
+    agent = {"id": agent_id or "portfolio_analyst", "confidence": 90}
+    unified = None
+    if wt != "instrument_detail":
+        try:
+            from services.copilot_tools.insight_card_transformers import nidp_widget_to_insight_card
+            unified = nidp_widget_to_insight_card(wt, wd)
+        except Exception:  # noqa: BLE001
+            unified = None
+    if unified is not None:
+        return {"widget_type": "insight_card", "data": unified.model_dump(),
+                "title": title, "freshness": freshness, "agent": agent}
+    return {"widget_type": wt, "data": wd, "title": title, "freshness": freshness, "agent": agent}
+
+
 @router.post("/chat/stream")
 async def stream_chat(request: Request):
     """Stream AI response token-by-token via SSE."""
@@ -1193,10 +1226,21 @@ async def stream_chat(request: Request):
                     }
                     prose = ""
                     streamed_any = False  # True once real LLM tokens are emitted
+                    widget_streamed = False  # True once a widget frame is emitted (early or final)
                     widget_envelope: Optional[Dict] = None
                     async for event in graph.astream_events(lg_input, config=lg_config, version="v2"):
                         kind = event.get("event", "")
-                        if kind == "on_tool_start":
+                        if kind == "on_custom_event" and event.get("name") == "copilot_widget":
+                            # A node pushed its widget early (data ready, before
+                            # the narrative). Emit it now so the client renders
+                            # the widget first and streams the text underneath.
+                            cdata = event.get("data") or {}
+                            env = _widget_envelope(cdata.get("widget_type"), cdata.get("widget_data"))
+                            if env and not widget_streamed:
+                                widget_envelope = env
+                                widget_streamed = True
+                                yield f"data: {json.dumps({'type': 'widget', **env})}\n\n"
+                        elif kind == "on_tool_start":
                             tool_name = event.get("name") or event.get("data", {}).get("input", {}).get("name", "tool")
                             yield f"data: {json.dumps({'type': 'thinking', 'tool': tool_name, 'status': 'start'})}\n\n"
                         elif kind == "on_tool_end":
@@ -1233,58 +1277,16 @@ async def stream_chat(request: Request):
                                     prose = getattr(final_resp, "text", "") or str(final_resp)
                                 wt = getattr(final_resp, "widget_type", None)
                                 wd = getattr(final_resp, "widget_data", None)
-                                if wt and wt != "none" and wd:
+                                wt_s = wt.value if hasattr(wt, "value") else (str(wt) if wt else None)
+                                if wt_s and wt_s != "none" and wd:
                                     agent_val = getattr(final_resp, "agent", None)
                                     agent_id = agent_val.value if hasattr(agent_val, "value") else agent_val
-                                    confidence = float(getattr(final_resp, "confidence", 0.85) or 0.85) * 100
-                                    title_map = {
-                                        "stress_test":         (wd.get("scenario_name") or "Portfolio Stress Test"),
-                                        "rebalance_plan":      "Rebalance Plan",
-                                        "tax_harvest":         "Tax Harvest Plan",
-                                        "sip_plan":            "SIP Plan",
-                                        "overlap_reveal":      "Fund Overlap",
-                                        "sector_rotation":     "Sector Rotation",
-                                        "fund_comparison":     "Fund Comparison",
-                                        "portfolio_overview":  "Portfolio Overview",
-                                        "goal_tracker":        "Goal Tracker",
-                                        "stock_screener":      "Stock Screener",
-                                    }
-                                    title = title_map.get(wt, "Insight")
-                                    freshness = {
-                                        "state": "cached",
-                                        "last_updated": datetime.now(timezone.utc).isoformat(),
-                                        "source": ["NIDP", "portfolio_holdings"],
-                                    }
-                                    agent = {
-                                        "id": agent_id or "risk_analyst",
-                                        "confidence": int(round(confidence)),
-                                    }
-                                    if wt == "instrument_detail":
-                                        unified = None  # V5-native widget — pass through verbatim
-                                    else:
-                                        try:
-                                            from services.copilot_tools.insight_card_transformers import (
-                                                nidp_widget_to_insight_card,
-                                            )
-                                            unified = nidp_widget_to_insight_card(wt, wd)
-                                        except Exception:
-                                            unified = None
-                                    if unified is not None:
-                                        widget_envelope = {
-                                            "widget_type": "insight_card",
-                                            "data":        unified.model_dump(),
-                                            "title":       title,
-                                            "freshness":   freshness,
-                                            "agent":       agent,
-                                        }
-                                    else:
-                                        widget_envelope = {
-                                            "widget_type": wt,
-                                            "data":        wd,
-                                            "title":       title,
-                                            "freshness":   freshness,
-                                            "agent":       agent,
-                                        }
+                                    # Same envelope the node already emitted early
+                                    # — kept here for the DB save (and as a fallback
+                                    # if the early custom event didn't fire).
+                                    env = _widget_envelope(wt_s, wd, agent_id)
+                                    if env:
+                                        widget_envelope = env
                                 fu = getattr(final_resp, "follow_ups", None) or []
                                 if fu:
                                     follow_ups = list(fu)[:3]
@@ -1303,8 +1305,11 @@ async def stream_chat(request: Request):
                         full_response = prose
 
                     if widget_envelope:
-                        pending_widget = widget_envelope
-                        yield f"data: {json.dumps({'type': 'widget', **widget_envelope})}\n\n"
+                        pending_widget = widget_envelope  # always persist for the DB save
+                        # Only emit here if the node didn't already stream it early.
+                        if not widget_streamed:
+                            widget_streamed = True
+                            yield f"data: {json.dumps({'type': 'widget', **widget_envelope})}\n\n"
             else:
                 # Advisor (cross-client) mode — legacy book-block path.
                 full_context = portfolio_context
