@@ -14,7 +14,7 @@ import {
 import { chatService } from "@/services";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatWidget } from "@/components/chat/ChatWidget";
-import { Markdown } from "@/components/chat/Markdown";
+import { Markdown, prefetchStreamdown } from "@/components/chat/Markdown";
 import { useTypewriterReveal, remainingRevealMs } from "@/components/chat/useTypewriter";
 
 // `buffer` is everything received from the stream; `content` is the paced,
@@ -73,6 +73,10 @@ export default function ChatPage() {
 
   // Pace the visible text toward the received buffer over a ~10s window.
   useTypewriterReveal(streaming, setStreaming, firstTokenRef);
+
+  // Warm the lazy Streamdown chunk on entry so the first answer renders
+  // markdown without a fallback flash.
+  useEffect(() => { void prefetchStreamdown(); }, []);
 
   const messages = session.data?.messages ?? [];
   const sessionList = sessions.data ?? [];

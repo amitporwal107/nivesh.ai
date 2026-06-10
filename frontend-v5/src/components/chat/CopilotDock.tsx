@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatWidget } from "@/components/chat/ChatWidget";
-import { Markdown } from "@/components/chat/Markdown";
+import { Markdown, prefetchStreamdown } from "@/components/chat/Markdown";
 import { useTypewriterReveal, remainingRevealMs } from "@/components/chat/useTypewriter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useChatSession, useSuggestedPrompts, useCreateChatSession } from "@/hooks/use-chat";
@@ -82,6 +82,10 @@ export function CopilotDock() {
 
   // Pace the visible text toward the received buffer over a ~10s window.
   useTypewriterReveal(streaming, setStreaming, firstTokenRef);
+
+  // Warm the lazy Streamdown chunk when the dock is opened — keeps it out of the
+  // initial bundle on pages where the copilot is never used.
+  useEffect(() => { if (open) void prefetchStreamdown(); }, [open]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
