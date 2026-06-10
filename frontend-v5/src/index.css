@@ -212,15 +212,15 @@
     animation: sd-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
   .sd-stagger > * > *:nth-child(1)  { animation-delay: 0ms; }
-  .sd-stagger > * > *:nth-child(2)  { animation-delay: 1300ms; }
-  .sd-stagger > * > *:nth-child(3)  { animation-delay: 2500ms; }
-  .sd-stagger > * > *:nth-child(4)  { animation-delay: 3600ms; }
-  .sd-stagger > * > *:nth-child(5)  { animation-delay: 4600ms; }
-  .sd-stagger > * > *:nth-child(6)  { animation-delay: 5500ms; }
-  .sd-stagger > * > *:nth-child(7)  { animation-delay: 6300ms; }
-  .sd-stagger > * > *:nth-child(8)  { animation-delay: 7000ms; }
-  .sd-stagger > * > *:nth-child(9)  { animation-delay: 7600ms; }
-  .sd-stagger > * > *:nth-child(10) { animation-delay: 8100ms; }
-  .sd-stagger > * > *:nth-child(11) { animation-delay: 8500ms; }
-  .sd-stagger > * > *:nth-child(n+12) { animation-delay: 8800ms; }
+  .sd-stagger > * > *:nth-child(2)  { animation-delay: 1500ms; }
+  .sd-stagger > * > *:nth-child(3)  { animation-delay: 2950ms; }
+  .sd-stagger > * > *:nth-child(4)  { animation-delay: 4350ms; }
+  .sd-stagger > * > *:nth-child(5)  { animation-delay: 5650ms; }
+  .sd-stagger > * > *:nth-child(6)  { animation-delay: 6850ms; }
+  .sd-stagger > * > *:nth-child(7)  { animation-delay: 7950ms; }
+  .sd-stagger > * > *:nth-child(8)  { animation-delay: 8900ms; }
+  .sd-stagger > * > *:nth-child(9)  { animation-delay: 9600ms; }
+  .sd-stagger > * > *:nth-child(10) { animation-delay: 10100ms; }
+  .sd-stagger > * > *:nth-child(11) { animation-delay: 10500ms; }
+  .sd-stagger > * > *:nth-child(n+12) { animation-delay: 10800ms; }
 }
