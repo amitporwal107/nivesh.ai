@@ -236,15 +236,32 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             })
             continue
 
-        # Server-side parse. The _with_error variant tells us *why* it failed
-        # (wrong PAN vs. unreadable PDF vs. service issue) so the UI can react.
+        # Parse: prefer the OFFLINE casparser library (no subscription gate,
+        # no OCR — the real CAS parser). Fall back to the hosted casparser.in
+        # API only if the offline parser can't read the statement (and it's
+        # not a wrong-PAN case, which neither parser can fix).
+        offline_used = False
         try:
-            holdings, raw_data, _, parse_err = cas_api_client.parse_cas_via_sdk_flow_with_error(content, password=pan)
+            holdings, raw_data, parse_err = cas_api_client.parse_cas_offline(content, password=pan)
+            offline_used = bool(holdings)
         except Exception as e:  # noqa: BLE001
-            logger.exception("parse_cas_via_sdk_flow crashed for %s: %s", filename, e)
+            logger.exception("parse_cas_offline crashed for %s: %s", filename, e)
             holdings, raw_data, parse_err = [], None, {
                 "kind": "service", "message": "The CAS parser hit an error — try again.", "detail": str(e)[:200],
             }
+
+        if not holdings and (parse_err or {}).get("kind") != "password":
+            try:
+                h2, raw2, _n2, err2 = cas_api_client.parse_cas_via_sdk_flow_with_error(content, password=pan)
+            except Exception as e:  # noqa: BLE001
+                logger.exception("parse_cas_via_sdk_flow crashed for %s: %s", filename, e)
+                h2, raw2, err2 = [], None, {
+                    "kind": "service", "message": "The CAS parser hit an error — try again.", "detail": str(e)[:200],
+                }
+            if h2:
+                holdings, raw_data, parse_err, offline_used = h2, raw2, None, False
+            elif err2:
+                parse_err = err2  # surface the hosted API's (often clearer) reason
 
         if not holdings:
             parse_errors += 1
@@ -262,17 +279,27 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             })
             continue
 
-        statement_period   = cas_api_client.extract_statement_period(raw_data) if raw_data else None
-        cas_total_value    = _extract_portfolio_value(raw_data)
-        cas_statement_date = _extract_statement_date(raw_data)
-        # Vision API: extract monthly portfolio values from the CAS Summary page
-        # Pass PAN as PDF password (NSDL/CAMS CAS PDFs are PAN-locked)
-        vision = _extract_vision_summary(content, password=pan)
-        if vision:
-            if vision.get("current_value_rs"):
-                cas_total_value = float(vision["current_value_rs"])
-            if vision.get("statement_date"):
-                cas_statement_date = vision["statement_date"]
+        if offline_used:
+            # Offline parser: value comes straight from the parsed holdings
+            # (quantity × NAV) — accurate, no OCR. Period from the casparser dict.
+            statement_period   = cas_api_client.offline_statement_period(raw_data)
+            cas_total_value    = round(sum(
+                (h.get("quantity") or 0) * (h.get("current_price") or 0) for h in holdings
+            ), 2) or None
+            cas_statement_date = None
+            vision = None
+        else:
+            statement_period   = cas_api_client.extract_statement_period(raw_data) if raw_data else None
+            cas_total_value    = _extract_portfolio_value(raw_data)
+            cas_statement_date = _extract_statement_date(raw_data)
+            # Vision API: extract monthly portfolio values from the CAS Summary page
+            # Pass PAN as PDF password (NSDL/CAMS CAS PDFs are PAN-locked)
+            vision = _extract_vision_summary(content, password=pan)
+            if vision:
+                if vision.get("current_value_rs"):
+                    cas_total_value = float(vision["current_value_rs"])
+                if vision.get("statement_date"):
+                    cas_statement_date = vision["statement_date"]
         all_holdings.extend(holdings)
         used_email = email
         logger.info(

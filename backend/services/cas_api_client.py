@@ -831,6 +831,52 @@ def parse_cas_via_sdk_flow_with_error(content: bytes, password: str = "") -> tup
     return holdings, data, normalized, None
 
 
+def parse_cas_offline(content: bytes, password: str = "") -> tuple:
+    """Parse a CAS PDF with the OFFLINE `casparser` library — no API call, no
+    subscription gate, no OCR. Works for digitally-generated NSDL/CDSL/CAMS/
+    KFintech statements. Returns (holdings, raw_dict, error); error is None on
+    success, else {"kind": "password"|"parse"|"service", "message", "detail"}.
+
+    NOTE: the shared mapper (`convert_casparser_to_holdings`) maps mutual-fund
+    folios; demat equity lines in an NSDL/CDSL CAS are not mapped here."""
+    try:
+        import casparser as _cp
+    except ImportError:
+        return [], None, {"kind": "service", "message": "Offline CAS parser is unavailable.",
+                          "detail": "casparser_lib_missing"}
+    try:
+        raw = _cp.read_cas_pdf(io.BytesIO(content), password or "", output="dict")
+    except Exception as e:  # noqa: BLE001
+        msg = str(e)
+        kind = "password" if _is_password_error(msg) else "parse"
+        logger.warning("offline casparser parse failed: %s", msg)
+        return [], None, {"kind": kind, "message": "The CAS statement couldn't be read (offline parser).",
+                          "detail": msg[:300]}
+    try:
+        from helpers.parsing import convert_casparser_to_holdings
+        holdings = convert_casparser_to_holdings(raw) or []
+    except Exception as e:  # noqa: BLE001
+        logger.warning("offline casparser mapping failed: %s", e)
+        return [], raw, {"kind": "parse", "message": "Parsed the statement but couldn't map holdings.",
+                         "detail": str(e)[:200]}
+    if not holdings:
+        return [], raw, {"kind": "parse", "message": "Offline parser found no mutual-fund holdings.",
+                         "detail": "empty_holdings"}
+    return holdings, raw, None
+
+
+def offline_statement_period(raw: dict) -> Optional[str]:
+    """'Mon/YYYY' from the offline casparser dict's statement_period.to."""
+    try:
+        to = ((raw or {}).get("statement_period") or {}).get("to")
+        if to:
+            from datetime import datetime as _dt
+            return _dt.fromisoformat(str(to)).strftime("%b/%Y")
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 def parse_cas_via_api(content: bytes, password: str = "") -> List[Dict]:
     """
     Convenience: call API and return holdings in internal format.
