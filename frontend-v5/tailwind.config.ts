@@ -7,7 +7,13 @@ import type { Config } from "tailwindcss";
  * Light & dark themes set the variable values; classes stay the same.
  */
 export default {
-  content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  content: [
+    "./index.html",
+    "./src/**/*.{ts,tsx}",
+    // Streamdown ships Tailwind utility class names in its compiled output;
+    // scan them so the classes it uses are generated in our v3 build.
+    "./node_modules/streamdown/dist/**/*.js",
+  ],
   theme: {
     extend: {
       fontFamily: {
@@ -37,6 +43,19 @@ export default {
         neg: "rgb(var(--neg) / <alpha-value>)",
         warm: "rgb(var(--warm) / <alpha-value>)",
         line: "rgb(var(--line) / <alpha-value>)",
+        // shadcn-style aliases mapped to our tokens — so Streamdown's default
+        // classes (text-foreground, text-muted-foreground, bg-muted,
+        // border-border, text-primary) render in our dark theme.
+        foreground: "rgb(var(--ink) / <alpha-value>)",
+        muted: {
+          DEFAULT: "rgb(var(--surface-2) / <alpha-value>)",
+          foreground: "rgb(var(--ink-3) / <alpha-value>)",
+        },
+        border: "rgb(var(--line) / <alpha-value>)",
+        primary: {
+          DEFAULT: "rgb(var(--accent) / <alpha-value>)",
+          foreground: "rgb(var(--accent-fg) / <alpha-value>)",
+        },
       },
       borderColor: { DEFAULT: "rgb(var(--line) / 1)" },
       borderRadius: {
@@ -60,15 +79,10 @@ export default {
           "0%": { opacity: "0", transform: "translateY(8px) scale(0.985)" },
           "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
         },
-        caret: {
-          "0%, 49%": { opacity: "1" },
-          "50%, 100%": { opacity: "0" },
-        },
       },
       animation: {
         shimmer: "shimmer 1.6s linear infinite",
         "widget-in": "widget-in 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
-        caret: "caret 1s step-start infinite",
       },
     },
   },

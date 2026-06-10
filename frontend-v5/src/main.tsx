@@ -8,6 +8,7 @@ import { buildDiagnosticPayload } from "./lib/diagnostic-payload";
 import { setObserver } from "./lib/observability";
 import { sentryObserver } from "./lib/observability/sentry";
 import "./index.css";
+import "streamdown/styles.css"; // Streamdown's streaming/caret keyframes
 
 // ── Sentry init (no-op when VITE_SENTRY_DSN is absent) ───────────────────────
 // Dynamic import keeps @sentry/react out of the main bundle and prevents

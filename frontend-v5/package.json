@@ -25,6 +25,7 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.0",
     "recharts": "^2.12.7",
+    "streamdown": "^2.5.0",
     "tailwind-merge": "^2.4.0",
     "zod": "^3.23.8",
     "zustand": "^4.5.4"
