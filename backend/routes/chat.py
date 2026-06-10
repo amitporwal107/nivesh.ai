@@ -665,12 +665,52 @@ async def _compute_portfolio_intelligence_context(user_id: str,
 
 
 
+# ── Per-user chat-history cache (Redis) ────────────────────────────────────
+# Chat history is read on every session open / post-send refetch. Cache the
+# session list and per-session message list in Redis, namespaced per user, and
+# bust on every write so a just-sent message can never be hidden by a stale
+# read. The TTL is only a safety net — explicit busts are the real invalidator.
+_CHAT_CACHE_TTL_S = 6 * 3600
+
+
+def _sessions_key(user_id: str) -> str:
+    return f"chat:sessions:{user_id}"
+
+
+def _messages_key(user_id: str, session_id: str) -> str:
+    return f"chat:msgs:{user_id}:{session_id}"
+
+
+async def _bust_chat_cache(user_id: str, session_id: Optional[str] = None) -> None:
+    """Drop a user's session-list cache and (optionally) one session's messages."""
+    try:
+        from services import redis_client as _redis
+        await _redis.cache_del(_sessions_key(user_id))
+        if session_id:
+            await _redis.cache_del(_messages_key(user_id, session_id))
+    except Exception:  # noqa: BLE001 — cache is best-effort; never break a write
+        pass
+
+
 @router.get("/chat/sessions")
 async def list_chat_sessions(request: Request):
     user = await get_current_user(request)
+    uid = user["user_id"]
+    try:
+        from services import redis_client as _redis
+        cached = await _redis.cache_get(_sessions_key(uid))
+        if isinstance(cached, list):
+            return cached
+    except Exception:  # noqa: BLE001
+        pass
     sessions = await db.chat_sessions.find(
-        {"user_id": user["user_id"]}, {"_id": 0}
+        {"user_id": uid}, {"_id": 0}
     ).sort("updated_at", -1).to_list(50)
+    try:
+        from services import redis_client as _redis
+        await _redis.cache_set(_sessions_key(uid), sessions, ttl_s=_CHAT_CACHE_TTL_S)
+    except Exception:  # noqa: BLE001
+        pass
     return sessions
 
 
@@ -685,6 +725,7 @@ async def create_chat_session(request: Request):
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.chat_sessions.insert_one(session_doc)
+    await _bust_chat_cache(user["user_id"])
     return {k: v for k, v in session_doc.items() if k != "_id"}
 
 
@@ -769,18 +810,35 @@ async def delete_chat_session(request: Request, session_id: str):
     user = await get_current_user(request)
     await db.chat_sessions.delete_one({"session_id": session_id, "user_id": user["user_id"]})
     await db.chat_messages.delete_many({"session_id": session_id, "user_id": user["user_id"]})
+    await _bust_chat_cache(user["user_id"], session_id)
     return {"message": "Session deleted"}
 
 
 @router.get("/chat/messages")
 async def get_chat_messages(request: Request, session_id: Optional[str] = None):
     user = await get_current_user(request)
-    query = {"user_id": user["user_id"]}
+    uid = user["user_id"]
+    # Cache only the common per-session read (the cross-session case is rare).
+    if session_id:
+        try:
+            from services import redis_client as _redis
+            cached = await _redis.cache_get(_messages_key(uid, session_id))
+            if isinstance(cached, list):
+                return cached
+        except Exception:  # noqa: BLE001
+            pass
+    query = {"user_id": uid}
     if session_id:
         query["session_id"] = session_id
     messages = await db.chat_messages.find(
         query, {"_id": 0}
     ).sort("created_at", 1).to_list(200)
+    if session_id:
+        try:
+            from services import redis_client as _redis
+            await _redis.cache_set(_messages_key(uid, session_id), messages, ttl_s=_CHAT_CACHE_TTL_S)
+        except Exception:  # noqa: BLE001
+            pass
     return messages
 
 
@@ -818,6 +876,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.chat_messages.insert_one(user_msg_doc)
+    await _bust_chat_cache(user_id, session_id)
 
     # Auto-title session
     session_msgs_count = await db.chat_messages.count_documents({"session_id": session_id, "role": "user"})
@@ -989,6 +1048,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
     if widget_envelope:
         ai_msg_doc["widget"] = widget_envelope
     await db.chat_messages.insert_one(ai_msg_doc)
+    await _bust_chat_cache(user_id, session_id)
 
     return {
         "user_message": {k: v for k, v in user_msg_doc.items() if k != "_id"},
@@ -1038,6 +1098,7 @@ async def stream_chat(request: Request):
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.chat_messages.insert_one(user_msg_doc)
+    await _bust_chat_cache(user_id, session_id)
 
     # Auto-title
     session_msgs_count = await db.chat_messages.count_documents({"session_id": session_id, "role": "user"})
@@ -1282,6 +1343,7 @@ async def stream_chat(request: Request):
             if pending_widget:
                 ai_msg_doc["widget"] = pending_widget
             await db.chat_messages.insert_one(ai_msg_doc)
+            await _bust_chat_cache(user_id, session_id)
 
             done_payload = {
                 "type": "done",
@@ -1305,6 +1367,7 @@ async def stream_chat(request: Request):
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
             await db.chat_messages.insert_one(ai_msg_doc)
+            await _bust_chat_cache(user_id, session_id)
             yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
 
     return StreamingResponse(
@@ -1329,4 +1392,5 @@ async def clear_chat(request: Request, session_id: Optional[str] = None):
         await db.chat_sessions.delete_one({"session_id": session_id, "user_id": user["user_id"]})
     else:
         await db.chat_sessions.delete_many({"user_id": user["user_id"]})
+    await _bust_chat_cache(user["user_id"], session_id)
     return {"message": "Chat cleared"}
