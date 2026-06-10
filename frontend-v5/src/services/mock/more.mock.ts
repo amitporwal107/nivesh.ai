@@ -53,6 +53,10 @@ export const mockMfdAdapter: MfdAdapter = {
 
 export const mockChatAdapter: ChatAdapter = {
   async send(_message) { await delay(420); return { reply: "This is a mocked reply.", sessionId: "sess_mock" }; },
+  async streamSend(_message, _sid, onEvent) {
+    for (const w of ["This ", "is ", "a ", "mocked ", "streamed ", "reply."]) { await delay(80); onEvent({ type: "token", content: w }); }
+    onEvent({ type: "done", content: "This is a mocked streamed reply." });
+  },
   async listSessions() { await delay(180); return []; },
   async createSession(){ await delay(180); return { id: "sess_mock" }; },
   async getSession()   { await delay(220); return { messages: [] }; },

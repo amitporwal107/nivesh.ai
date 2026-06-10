@@ -12,7 +12,18 @@
  * Response shape: {user_message: {content, role, ...}, ai_message: {content, role, ...}}
  */
 import { http } from "@/services/api/http";
+import { apiConfig } from "@/services/api/config";
 import { z } from "zod";
+
+/** Server-Sent-Event frames emitted by POST /api/chat/stream. */
+export type StreamEvent =
+  | { type: "meta"; session_id?: string; ai_msg_id?: string; user_msg_id?: string }
+  | { type: "route"; agent?: string; confidence?: number }
+  | { type: "thinking"; tool?: string; status?: "start" | "end" }
+  | { type: "token"; content: string }
+  | { type: "widget"; widget_type: string; data: unknown; [k: string]: unknown }
+  | { type: "done"; content?: string; follow_ups?: string[] }
+  | { type: "error"; content?: string };
 
 export const ChatMessageC = z.object({
   id: z.string().optional(),
@@ -40,6 +51,14 @@ export interface ChatAdapter {
    *  asking from the global Copilot dock (e.g. "Risk"). Omitted on the full
    *  chat page. */
   send(message: string, sessionId?: string, page?: string): Promise<{ reply: string; sessionId?: string }>;
+  /** Stream the answer token-by-token via SSE. `onEvent` fires for every frame
+   *  (meta/thinking/token/widget/done/error). Resolves when the stream ends. */
+  streamSend(
+    message: string,
+    sessionId: string | undefined,
+    onEvent: (ev: StreamEvent) => void,
+    opts?: { page?: string; signal?: AbortSignal },
+  ): Promise<void>;
   listSessions(): Promise<ChatSession[]>;
   createSession(title?: string): Promise<{ id: string }>;
   getSession(id: string): Promise<{ messages: ChatMessageC[] }>;
@@ -74,6 +93,42 @@ export const realChatAdapter: ChatAdapter = {
       return { reply, sessionId: sid };
     }
     return { reply: typeof res.data === "string" ? res.data : "" };
+  },
+  async streamSend(message, sessionId, onEvent, opts) {
+    // SSE via fetch (EventSource can't POST). Same-origin cookie auth.
+    const res = await fetch(`${apiConfig.baseUrl}/api/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ message, session_id: sessionId, page: opts?.page }),
+      signal: opts?.signal,
+    });
+    if (!res.ok || !res.body) {
+      onEvent({ type: "error", content: "Couldn't start the response stream." });
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      // SSE frames are separated by a blank line ("\n\n").
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const raw = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 2);
+        if (!raw.startsWith("data:")) continue;
+        const payload = raw.slice(5).trim();
+        if (!payload) continue;
+        try {
+          onEvent(JSON.parse(payload) as StreamEvent);
+        } catch {
+          /* ignore a malformed/partial frame */
+        }
+      }
+    }
   },
   async listSessions() {
     // Backend returns raw session docs sorted by updated_at desc, each with

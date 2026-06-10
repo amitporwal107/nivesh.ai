@@ -3,16 +3,19 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
 import {
-  useSendChat,
   useSuggestedPrompts,
   useChatSession,
   useChatSessions,
   useCreateChatSession,
   useDeleteChatSession,
 } from "@/hooks/use-chat";
+import { chatService } from "@/services";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatWidget } from "@/components/chat/ChatWidget";
+
+type StreamState = { content: string; thinking?: string; widget?: { widget_type: string; data: unknown }; error?: string };
 
 const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "instrument_detail", "risk_assessment", "goal_simulation"]);
 
@@ -52,30 +55,59 @@ export default function ChatPage() {
   }, [historyCollapsed]);
 
   const prompts = useSuggestedPrompts();
-  const send = useSendChat();
+  const qc = useQueryClient();
   const createSession = useCreateChatSession();
   const deleteSession = useDeleteChatSession();
   const sessions = useChatSessions();
   const session = useChatSession(sessionId ?? "");
 
+  // Live streaming state for the in-flight answer + the optimistic user bubble.
+  const [streaming, setStreaming] = useState<StreamState | null>(null);
+  const [pendingUser, setPendingUser] = useState<string | null>(null);
+  const isBusy = streaming !== null;
+
   const messages = session.data?.messages ?? [];
   const sessionList = sessions.data ?? [];
 
+  // Stream the answer token-by-token via SSE. The server persists both the user
+  // and AI messages, so when the stream ends we just refetch history and drop
+  // the local streaming/optimistic state.
   const submitMessage = async (text: string) => {
     const t = text.trim();
-    if (!t || send.isPending) return;
+    if (!t || isBusy) return;
     let sid = sessionId;
     if (!sid) {
       const created = await createSession.mutateAsync(undefined);
       sid = created.id;
       setSessionId(sid);
     }
-    await send.mutateAsync({ message: t, sessionId: sid });
+    setPendingUser(t);
+    setStreaming({ content: "" });
+    try {
+      await chatService.streamSend(t, sid, (ev) => {
+        setStreaming((s) => {
+          if (!s) return s;
+          switch (ev.type) {
+            case "thinking": return { ...s, thinking: ev.status === "start" ? ev.tool : undefined };
+            case "token":    return { ...s, content: s.content + (ev.content ?? ""), thinking: undefined };
+            case "widget":   return { ...s, widget: { widget_type: ev.widget_type, data: ev.data } };
+            case "error":    return { ...s, error: ev.content };
+            default:         return s;
+          }
+        });
+      });
+    } catch {
+      setStreaming((s) => (s ? { ...s, error: "Connection interrupted — please try again." } : s));
+    }
+    setStreaming(null);
+    setPendingUser(null);
+    qc.invalidateQueries({ queryKey: ["chat", "sessions", sid] });
+    qc.invalidateQueries({ queryKey: ["chat", "sessions"] });
   };
 
   const handleSend = async () => {
     const text = composer.trim();
-    if (!text || send.isPending) return;
+    if (!text || isBusy) return;
     setComposer("");
     await submitMessage(text);
   };
@@ -252,7 +284,7 @@ export default function ChatPage() {
         </div>
 
         <div className="mt-7 flex-1 flex flex-col gap-5">
-          {messages.length === 0 && !send.isPending && (
+          {messages.length === 0 && !isBusy && !pendingUser && (
             <div className="flex flex-col items-center text-center mt-6">
               <Badge tone="accent" className="mb-3">Ready</Badge>
               <p className="text-ink-2 text-[14px] max-w-md leading-relaxed">
@@ -281,11 +313,36 @@ export default function ChatPage() {
             );
           })}
 
-          {send.isPending && (
+          {/* optimistic user bubble (its persisted copy replaces it on refetch) */}
+          {pendingUser && (
+            <div className="self-end max-w-[520px] px-4 py-3 rounded-2xl rounded-br-md bg-surface-2 border border-hairline">
+              <p className="text-[14px]">{pendingUser}</p>
+            </div>
+          )}
+
+          {/* live streaming answer */}
+          {streaming && (
             <div className="flex gap-3.5">
               <span className="grid place-items-center h-9 w-9 rounded-md bg-ink text-on-accent font-display text-base leading-none shrink-0">न</span>
-              <div className="flex-1 flex items-center gap-1.5 text-ink-3">
-                <Dot delay={0} /><Dot delay={150} /><Dot delay={300} />
+              <div className="flex-1 min-w-0">
+                {streaming.error ? (
+                  <p className="text-[14px] text-neg">{streaming.error}</p>
+                ) : streaming.content ? (
+                  <>
+                    <p className="text-[15.5px] leading-relaxed whitespace-pre-wrap">{streaming.content}</p>
+                    {streaming.widget && WIDGET_TYPES.has(streaming.widget.widget_type) && (
+                      <ChatWidget widget={streaming.widget} onAction={handleWidgetAction} />
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2 text-ink-3">
+                    {streaming.thinking ? (
+                      <span className="text-[13px]">Reading your portfolio…</span>
+                    ) : (
+                      <><Dot delay={0} /><Dot delay={150} /><Dot delay={300} /></>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -307,17 +364,12 @@ export default function ChatPage() {
               onChange={(e) => setComposer(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleSend(); }}
               className="flex-1 bg-transparent outline-none text-[14.5px]"
-              disabled={send.isPending}
+              disabled={isBusy}
             />
-            <Button variant="accent" size="sm" disabled={!composer.trim() || send.isPending} onClick={handleSend}>
+            <Button variant="accent" size="sm" disabled={!composer.trim() || isBusy} onClick={handleSend}>
               <Send className="h-3.5 w-3.5" /> Send
             </Button>
           </div>
-          {send.isError && (
-            <div className="text-[12px] text-neg mt-2 font-mono">
-              {(send.error as Error).message}
-            </div>
-          )}
         </div>
       </div>
     </div>
