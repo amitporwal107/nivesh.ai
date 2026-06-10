@@ -261,7 +261,14 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             if h2:
                 holdings, raw_data, parse_err, offline_used = h2, raw2, None, False
             elif err2:
-                parse_err = err2  # surface the hosted API's (often clearer) reason
+                # Keep BOTH reasons so we can see whether the offline parser
+                # failed because the lib is missing vs the format is unsupported.
+                offline_detail = (parse_err or {}).get("detail", "")
+                parse_err = {
+                    "kind": err2.get("kind", "parse"),
+                    "message": err2.get("message", "The CAS statement couldn't be read."),
+                    "detail": f"offline=[{offline_detail}] api=[{err2.get('detail', '')}]"[:300],
+                }
 
         if not holdings:
             parse_errors += 1
