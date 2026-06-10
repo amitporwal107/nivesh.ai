@@ -196,3 +196,31 @@
   .bg-warm-soft { background-color: rgb(var(--warm) / 0.12); }
   .bg-pos-soft { background-color: rgb(var(--pos) / 0.12); }
 }
+
+/* Staggered widget reveal — while an answer streams, the widget's sections
+   (direct children of its flex-col root) fade-rise in sequence so the card
+   "builds" over a ~9s window instead of popping in at once. Applied only to the
+   live streaming bubble (class `sd-stagger`); the persisted copy renders
+   instantly. `both` fill keeps each section hidden until its delay elapses.
+   Self-contained keyframe (not Tailwind's) so it can't be purged. */
+@keyframes sd-rise {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@layer utilities {
+  .sd-stagger > * > * {
+    animation: sd-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .sd-stagger > * > *:nth-child(1)  { animation-delay: 0ms; }
+  .sd-stagger > * > *:nth-child(2)  { animation-delay: 1300ms; }
+  .sd-stagger > * > *:nth-child(3)  { animation-delay: 2500ms; }
+  .sd-stagger > * > *:nth-child(4)  { animation-delay: 3600ms; }
+  .sd-stagger > * > *:nth-child(5)  { animation-delay: 4600ms; }
+  .sd-stagger > * > *:nth-child(6)  { animation-delay: 5500ms; }
+  .sd-stagger > * > *:nth-child(7)  { animation-delay: 6300ms; }
+  .sd-stagger > * > *:nth-child(8)  { animation-delay: 7000ms; }
+  .sd-stagger > * > *:nth-child(9)  { animation-delay: 7600ms; }
+  .sd-stagger > * > *:nth-child(10) { animation-delay: 8100ms; }
+  .sd-stagger > * > *:nth-child(11) { animation-delay: 8500ms; }
+  .sd-stagger > * > *:nth-child(n+12) { animation-delay: 8800ms; }
+}

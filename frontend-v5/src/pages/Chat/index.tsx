@@ -100,7 +100,11 @@ export default function ChatPage() {
             case "thinking": return { ...s, thinking: ev.status === "start" ? ev.tool : undefined };
             // Tokens accumulate into `buffer`; the typewriter reveals `content`.
             case "token":    return { ...s, buffer: s.buffer + (ev.content ?? ""), thinking: undefined };
-            case "widget":   return { ...s, widget: { widget_type: ev.widget_type, data: ev.data } };
+            case "widget":
+              // Start the reveal window at widget arrival so the staggered
+              // build (and the bubble hold) span ~10s even with little/no text.
+              if (firstTokenRef.current == null) firstTokenRef.current = performance.now();
+              return { ...s, widget: { widget_type: ev.widget_type, data: ev.data } };
             case "error":    return { ...s, error: ev.content };
             default:         return s;
           }
@@ -349,10 +353,11 @@ export default function ChatPage() {
                   <p className="text-[14px] text-neg">{streaming.error}</p>
                 ) : (
                   <>
-                    {/* Widget renders the moment its data arrives (before the
-                        narrative), with a soft fade-rise so the chart "draws in." */}
+                    {/* Widget arrives before the narrative; its sections
+                        fade-rise in sequence (sd-stagger) so the card builds
+                        over a ~9s window instead of popping in at once. */}
                     {streaming.widget && WIDGET_TYPES.has(streaming.widget.widget_type) && (
-                      <div className="animate-widget-in">
+                      <div className="sd-stagger">
                         <ChatWidget widget={streaming.widget} onAction={handleWidgetAction} />
                       </div>
                     )}
