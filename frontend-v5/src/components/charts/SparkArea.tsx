@@ -6,13 +6,15 @@ interface SparkAreaProps {
   data: NavPoint[];
   height?: number;
   showAxis?: boolean;
+  /** Draw the area on mount instead of rendering it static. */
+  animate?: boolean;
 }
 
 /**
  * Single-series area sparkline using Recharts. The token-aware colors come
  * through inline so the chart respects light/dark theme switches.
  */
-export function SparkArea({ data, height = 80, showAxis = false }: SparkAreaProps) {
+export function SparkArea({ data, height = 80, showAxis = false, animate = false }: SparkAreaProps) {
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
@@ -53,7 +55,9 @@ export function SparkArea({ data, height = 80, showAxis = false }: SparkAreaProp
           stroke="rgb(var(--accent))"
           strokeWidth={2}
           fill="url(#sparkArea)"
-          isAnimationActive={false}
+          isAnimationActive={animate}
+          animationDuration={1300}
+          animationEasing="ease-out"
         />
       </AreaChart>
     </ResponsiveContainer>
