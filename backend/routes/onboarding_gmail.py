@@ -194,23 +194,23 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             "message": "No CAS emails found in this Gmail account.",
         }
 
-    # ── Step 3: pick the single best email (highest-priority source) ──
-    # scan_for_cas_emails returns emails sorted by SOURCE_PRIORITY so the
-    # first item is already the preferred source (NSDL > CDSL > CAMS > KFintech).
-    best_email = emails[0]
+    # ── Step 3: try each source in priority order until one parses ───
+    # scan_for_cas_emails sorts by SOURCE_PRIORITY (NSDL > CDSL > CAMS >
+    # KFintech). Attempt the best source first and fall back to the next when
+    # a parse fails — e.g. the casparser plan may not include a given source
+    # (NSDL/CDSL are add-on features) or a particular statement is unreadable.
+    # Stop at the first source that yields holdings.
     logger.info(
-        "auto-import: using %s email — '%s' (%s); %d other source(s) found but skipped",
-        best_email.get("source", "unknown"),
-        best_email.get("subject", "")[:50],
-        best_email.get("date", "")[:20],
-        len(emails) - 1,
+        "auto-import: %d source(s) found (%s) — trying in priority order for %s",
+        len(emails), ",".join(e.get("source", "?") for e in emails), user_id,
     )
 
     all_holdings: List[Dict[str, Any]] = []
     per_file: List[Dict[str, Any]] = []
     parse_errors = 0
+    used_email: Optional[Dict[str, Any]] = None
 
-    for email in [best_email]:
+    for email in emails:
         msg_id = email.get("message_id")
         first_att = (email.get("attachments") or [{}])[0]
         att_id = email.get("attachment_id") or first_att.get("attachment_id")
@@ -274,14 +274,21 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             if vision.get("statement_date"):
                 cas_statement_date = vision["statement_date"]
         all_holdings.extend(holdings)
+        used_email = email
+        logger.info(
+            "auto-import: parsed %s holdings from %s eCAS for %s",
+            len(holdings), email.get("source", "?"), user_id,
+        )
         per_file.append({
             "message_id": msg_id, "filename": filename,
             "status": "completed", "holdings_count": len(holdings),
+            "source": email.get("source"),
             "statement_period": statement_period,
             "portfolio_value_rs": cas_total_value,
             "statement_date": cas_statement_date,
             "monthly_values": vision.get("monthly_values") if vision else None,
         })
+        break  # first source that parses wins — don't burn the others
 
     # ── Step 4: persist ──────────────────────────────────────────────
     if all_holdings:
@@ -393,7 +400,7 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
     return {
         "ok": imported_files > 0,
         "scanned": len(emails),
-        "source_used": best_email.get("source", "unknown"),
+        "source_used": (used_email or emails[0]).get("source", "unknown"),
         "sources_available": [e.get("source") for e in emails],
         "imported_files": imported_files,
         "imported_holdings": len(all_holdings),
