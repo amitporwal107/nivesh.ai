@@ -42,10 +42,10 @@ interface DashboardProps {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function healthLabel(score: number): { phrase: string; tone: string } {
-  if (score >= 85) return { phrase: "in great shape",  tone: "text-pos"  };
-  if (score >= 70) return { phrase: "mostly healthy",  tone: "text-accent" };
-  if (score >= 55) return { phrase: "needs some work", tone: "text-warm"  };
-  return { phrase: "needs attention", tone: "text-neg" };
+  if (score >= 85) return { phrase: "in great shape",      tone: "text-pos"  };
+  if (score >= 70) return { phrase: "mostly healthy",      tone: "text-accent" };
+  if (score >= 55) return { phrase: "in need of some work", tone: "text-warm"  };
+  return { phrase: "in need of attention", tone: "text-neg" };
 }
 
 function fmtLakh(rs: number | null | undefined): string | null {
@@ -378,29 +378,39 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
     setSyncing(true);
     setSyncResult(null);
     try {
-      const res = await fetch("/api/gmail/auto-import/run", {
+      // Reuse the same proven orchestrator onboarding uses: it scans Gmail,
+      // picks the latest eCAS by source priority, parses it server-side and
+      // re-imports holdings. Keeps a single source of truth for Gmail import.
+      const res = await fetch("/api/onboarding/gmail/auto-import", {
         method: "POST",
         credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setSyncResult({ ok: false, message: data.detail ?? "Sync failed" });
+        // 401 (token expired) and 400 (PAN/Gmail missing) carry a friendly
+        // `detail`; non-JSON proxy errors (404/502/504) leave it undefined.
+        const needsReconnect = res.status === 401 || res.status === 400;
+        const msg = data.detail ?? `Sync failed (${res.status})`;
+        setSyncResult({ ok: false, message: msg });
+        if (needsReconnect) navigate("/onboarding?sync=gmail");
         return;
       }
-      const status = data.status ?? "";
-      if (status === "no_new_emails") {
-        setSyncResult({ ok: true, message: "Already up to date" });
-      } else if (status === "skipped" && data.reason === "no_saved_password") {
-        setSyncResult({ ok: false, message: "Enter your PAN to enable auto-sync" });
-        navigate("/onboarding?sync=gmail");
-      } else if (status === "ok" && (data.imported ?? 0) > 0) {
-        setSyncResult({ ok: true, message: `Imported ${data.imported} statement${data.imported !== 1 ? "s" : ""}` });
+      const importedFiles = data.imported_files ?? 0;
+      const importedHoldings = data.imported_holdings ?? 0;
+      if (importedFiles > 0) {
+        setSyncResult({
+          ok: true,
+          message: `Imported ${importedHoldings} holding${importedHoldings !== 1 ? "s" : ""} from your latest CAS`,
+        });
         qc.invalidateQueries({ queryKey: ["onboarding", "state"] });
         qc.invalidateQueries({ queryKey: ["portfolio"] });
         qc.invalidateQueries({ queryKey: ["plans"] });
+      } else if ((data.scanned ?? 0) === 0) {
+        setSyncResult({ ok: false, message: data.message ?? "No CAS emails found in Gmail" });
       } else {
-        setSyncResult({ ok: true, message: "Sync complete" });
-        qc.invalidateQueries({ queryKey: ["onboarding", "state"] });
+        // Found a CAS email but parsing produced nothing — usually a PAN mismatch.
+        setSyncResult({ ok: false, message: "Couldn't read your CAS — check your PAN" });
+        navigate("/onboarding?sync=gmail");
       }
     } catch {
       setSyncResult({ ok: false, message: "Network error — try again" });
