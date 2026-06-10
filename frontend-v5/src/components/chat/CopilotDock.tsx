@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatWidget } from "@/components/chat/ChatWidget";
+import { Markdown } from "@/components/chat/Markdown";
 import { useQueryClient } from "@tanstack/react-query";
 import { useChatSession, useSuggestedPrompts, useCreateChatSession } from "@/hooks/use-chat";
 import { chatService } from "@/services";
@@ -233,10 +234,17 @@ export function CopilotDock() {
                   <span className="grid place-items-center h-7 w-7 rounded-md bg-ink text-on-accent font-display text-[13px] leading-none shrink-0">न</span>
                 )}
                 <div className={isUser ? "" : "flex-1 min-w-0"}>
-                  {hasWidget ? (
-                    <ChatWidget widget={widget} onAction={handleWidgetAction} />
+                  {isUser ? (
+                    <p className="text-[13.5px]">{m.content}</p>
                   ) : (
-                    <p className={isUser ? "text-[13.5px]" : "text-[14px] leading-relaxed whitespace-pre-wrap"}>{m.content}</p>
+                    <>
+                      {hasWidget && <ChatWidget widget={widget} onAction={handleWidgetAction} />}
+                      {m.content?.trim() && (
+                        <Markdown className={cn("text-[14px] leading-relaxed text-ink-2", hasWidget && "mt-2.5")}>
+                          {m.content}
+                        </Markdown>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -255,18 +263,25 @@ export function CopilotDock() {
               <div className="flex-1 min-w-0">
                 {streaming.error ? (
                   <p className="text-[14px] text-neg">{streaming.error}</p>
-                ) : streaming.content ? (
+                ) : (
                   <>
-                    <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{streaming.content}</p>
+                    {/* Widget draws in first, the moment its data arrives. */}
                     {streaming.widget && WIDGET_TYPES.has(streaming.widget.widget_type) && (
-                      <ChatWidget widget={streaming.widget} onAction={handleWidgetAction} />
+                      <div className="animate-widget-in">
+                        <ChatWidget widget={streaming.widget} onAction={handleWidgetAction} />
+                      </div>
+                    )}
+                    {streaming.content ? (
+                      <Markdown caret className={cn("text-[14px] leading-relaxed text-ink-2", streaming.widget && "mt-2.5")}>
+                        {streaming.content}
+                      </Markdown>
+                    ) : (
+                      <div className={cn("flex items-center gap-1.5 text-ink-3 pt-2", streaming.widget && "pt-2.5")}>
+                        {streaming.thinking ? <span className="text-[12.5px]">Reading your portfolio…</span>
+                          : <><Dot delay={0} /><Dot delay={150} /><Dot delay={300} /></>}
+                      </div>
                     )}
                   </>
-                ) : (
-                  <div className="flex items-center gap-1.5 text-ink-3 pt-2">
-                    {streaming.thinking ? <span className="text-[12.5px]">Reading your portfolio…</span>
-                      : <><Dot delay={0} /><Dot delay={150} /><Dot delay={300} /></>}
-                  </div>
                 )}
               </div>
             </div>

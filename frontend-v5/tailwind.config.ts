@@ -56,8 +56,20 @@ export default {
           "0%": { backgroundPosition: "-200% 0" },
           "100%": { backgroundPosition: "200% 0" },
         },
+        "widget-in": {
+          "0%": { opacity: "0", transform: "translateY(8px) scale(0.985)" },
+          "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
+        },
+        caret: {
+          "0%, 49%": { opacity: "1" },
+          "50%, 100%": { opacity: "0" },
+        },
       },
-      animation: { shimmer: "shimmer 1.6s linear infinite" },
+      animation: {
+        shimmer: "shimmer 1.6s linear infinite",
+        "widget-in": "widget-in 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+        caret: "caret 1s step-start infinite",
+      },
     },
   },
   plugins: [],
