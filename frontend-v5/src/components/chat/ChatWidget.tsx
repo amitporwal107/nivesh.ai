@@ -658,6 +658,7 @@ function AllocationReviewWidget({ data }: { data: any }) {
           {plan.redeploy?.rows?.length > 0 && (
             <div className="mt-4">
               <div className="text-[13px] font-medium text-ink">{plan.redeploy.title}</div>
+              {plan.redeploy.subtitle && <p className="text-[12.5px] text-ink-3 mt-0.5">{plan.redeploy.subtitle}</p>}
               <div className="flex flex-col mt-2.5">
                 {plan.redeploy.rows.map((r: any, i: number) => (
                   <div key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-md bg-surface-2/50">

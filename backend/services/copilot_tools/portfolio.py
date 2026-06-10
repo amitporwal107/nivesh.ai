@@ -1216,32 +1216,65 @@ def build_allocation_review_widget(summary: Any, rebalance: Any, xirr: Any) -> D
             headline = (f"Equity is on target ({equity}% vs {target_eq}%). No big trade needed — "
                         f"just consolidate duplicates below.")
 
-        exit_rows = [
-            {"name": _short_fund(r.get("name", "")),
-             "amount": _inr_short(r.get("amount_rs")) if r.get("amount_rs") else None,
-             "note": (f"cuts overlap ~{r.get('overlap_reduced_pp'):.0f}pp"
-                      if r.get("overlap_reduced_pp") else "duplicate exposure")}
-            for r in redundancy
-        ]
+        exit_rows = []
+        for r in redundancy:
+            q = r.get("quality_score")
+            ex = r.get("exit_score")
+            # Build a "why exit" line from the real scores + overlap.
+            bits = []
+            if ex is not None:
+                bits.append(f"exit score {ex}/10")
+            if q is not None:
+                bits.append(f"quality {q}/100")
+            if r.get("overlap_reduced_pp"):
+                bits.append(f"cuts overlap ~{r.get('overlap_reduced_pp'):.0f}pp")
+            note = " · ".join(bits) if bits else "duplicate exposure"
+            exit_rows.append({
+                "name": _short_fund(r.get("name", "")),
+                "amount": _inr_short(r.get("amount_rs")) if r.get("amount_rs") else None,
+                "quality_score": q,
+                "exit_score": ex,
+                "note": note,
+                "reason": r.get("score_reason"),
+            })
+
+        # Redeploy: name the top-3 debt funds (recommendation engine) when we're
+        # trimming into debt; otherwise the generic add target.
         redeploy_rows = []
+        redeploy_recs = rd.get("redeploy_recommendations") or []
         if gap > 5 and trim_rs:
-            redeploy_rows.append({"label": "Short-duration / corporate-bond debt fund",
-                                  "amount": _inr_short(trim_rs), "note": "the defensive sleeve you're missing"})
+            if redeploy_recs:
+                for rec in redeploy_recs[:3]:
+                    sub = []
+                    if rec.get("composite_score") is not None:
+                        sub.append(f"score {rec['composite_score']}/100")
+                    if rec.get("category"):
+                        sub.append(str(rec["category"]))
+                    if rec.get("return_3y") is not None:
+                        sub.append(f"3y {rec['return_3y']:+.1f}%")
+                    redeploy_rows.append({"label": rec["name"], "amount": None,
+                                          "note": " · ".join(sub) if sub else "top-ranked debt fund"})
+            else:
+                redeploy_rows.append({"label": "Short-duration / corporate-bond debt fund",
+                                      "amount": _inr_short(trim_rs), "note": "the defensive sleeve you're missing"})
         elif gap < -5 and add_rs:
             redeploy_rows.append({"label": "One diversified flexi-cap equity fund",
                                   "amount": _inr_short(add_rs), "note": "adds equity without new overlap"})
 
+        redeploy_subtitle = (f"~{_inr_short(trim_rs)} to move — top-ranked debt funds by category score:"
+                             if (gap > 5 and trim_rs and redeploy_recs) else None)
+
         plan = {
             "title": "Your rebalance plan",
             "headline": headline,
-            "exit": ({"title": "Exit these first — duplicate exposure, little lost",
-                      "subtitle": "Selling these to fund the move loses almost no diversification.",
+            "exit": ({"title": "Exit these first — scored for redundancy & quality",
+                      "subtitle": "Ranked by exit score (overlap + quality + cost). Selling these loses almost no diversification.",
                       "rows": exit_rows} if exit_rows else None),
-            "redeploy": ({"title": "Redeploy into", "rows": redeploy_rows} if redeploy_rows else None),
+            "redeploy": ({"title": "Redeploy into", "subtitle": redeploy_subtitle, "rows": redeploy_rows} if redeploy_rows else None),
             "switch": ({"title": "Also switch to Direct plans (same fund, ~0.8% p.a. cheaper)",
                         "names": [_short_fund(s) for s in switches[:6]]} if switches else None),
-            "note": ("Specific replacement schemes need the recommendation view — this lists the safe "
-                     "exits and the rupee amounts to move, not buy-this-exact-fund calls."),
+            "note": ("Exit/quality scores are the V3 engine's; debt picks are the top of the category "
+                     "ranking. Review fund-level details before acting. Not financial advice."),
         }
 
     return {
@@ -1502,6 +1535,52 @@ async def get_rebalance_plan(user_id: str, risk_profile: Optional[str] = None) -
         for r in (_intel.get("redundancy_suggestions") or [])[:4]
         if r.get("remove_name")
     ]
+
+    # Attach REAL quality + exit scores (V3 scoring via build_enriched_portfolio,
+    # Redis-cached) so the exit list explains WHY each fund is a candidate —
+    # not just "cuts overlap". Matched by scheme name; missing scores are left
+    # null rather than invented.
+    try:
+        from services.portfolio_enrichment import build_enriched_portfolio
+        enriched = await build_enriched_portfolio(user_id)
+        score_map = {}
+        for h in (enriched.get("holdings") or []):
+            nm = (h.get("name") or h.get("scheme_name") or "").lower().strip()
+            if not nm:
+                continue
+            sc = h.get("scores") or {}
+            score_map[nm] = {
+                "quality": sc.get("quality"),
+                "exit": sc.get("exit"),
+                "reason": h.get("recommendation_reason") or h.get("action_badge"),
+            }
+        for cand in redundancy:
+            m = score_map.get((cand.get("name") or "").lower().strip())
+            if m:
+                cand["quality_score"] = round(m["quality"]) if m["quality"] is not None else None
+                cand["exit_score"] = round(float(m["exit"]), 1) if m["exit"] is not None else None
+                cand["score_reason"] = m["reason"]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("rebalance: exit-score enrichment unavailable: %s", exc)
+
+    # Top-3 debt funds for the redeploy target — from the category ranking
+    # (recommendation engine), so we name real funds instead of a category.
+    redeploy_recs: List[Dict[str, Any]] = []
+    try:
+        from services.copilot_tools.mf import get_top_funds
+        top = await get_top_funds("Debt", metric="composite_rank", limit=3)
+        for t in top:
+            d = getattr(t, "data", None) or {}
+            redeploy_recs.append({
+                "name": d.get("scheme_name") or d.get("name"),
+                "category": d.get("sub_category") or d.get("category"),
+                "composite_score": round(float(d["composite_score"])) if d.get("composite_score") is not None else None,
+                "return_3y": round(float(d["return_3y"]), 1) if d.get("return_3y") is not None else None,
+                "rank": d.get("composite_rank") or d.get("category_rank"),
+            })
+        redeploy_recs = [r for r in redeploy_recs if r.get("name")]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("rebalance: debt fund recommendations unavailable: %s", exc)
     if equity_pct is None:
         equity_val = sum(
             float(h.get("current_value") or float(h.get("current_price") or 0) * float(h.get("quantity") or 0))
@@ -1589,6 +1668,7 @@ async def get_rebalance_plan(user_id: str, risk_profile: Optional[str] = None) -
             "target_risk_profile_known": _target["risk_profile_known"],
             "target_horizon_years": _target["horizon_years"],
             "target_horizon_source": _target["horizon_source"],
+            "redeploy_recommendations": redeploy_recs,
             "trim_equity_rs": round((equity_pct - target_equity) / 100 * current_value, -2) if equity_pct > target_equity + 5 else 0,
             "add_equity_rs": round((target_equity - equity_pct) / 100 * current_value, -2) if equity_pct < target_equity - 5 else 0,
             "redundancy": redundancy,
