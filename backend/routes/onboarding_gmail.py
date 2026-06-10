@@ -267,7 +267,7 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
                 parse_err = {
                     "kind": err2.get("kind", "parse"),
                     "message": err2.get("message", "The CAS statement couldn't be read."),
-                    "detail": f"offline=[{offline_detail}] api=[{err2.get('detail', '')}]"[:300],
+                    "detail": f"offline=[{offline_detail}] api=[{err2.get('detail', '')}]"[:1500],
                 }
 
         if not holdings:
@@ -281,7 +281,7 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
                 "status": "error", "error": "parse_failed",
                 "error_kind": (parse_err or {}).get("kind", "parse"),
                 "error_message": (parse_err or {}).get("message", "The CAS statement couldn't be read."),
-                "error_detail": str((parse_err or {}).get("detail", ""))[:300],
+                "error_detail": str((parse_err or {}).get("detail", ""))[:1500],
                 "holdings_count": 0,
             })
             continue

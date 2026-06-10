@@ -879,15 +879,19 @@ def parse_cas_offline(content: bytes, password: str = "") -> tuple:
         struct = "n/a"
         try:
             if isinstance(raw, dict):
-                keys = list(raw.keys())
-                nfolios = len(raw.get("folios") or [])
-                demat = raw.get("accounts") or raw.get("demat_accounts") or raw.get("additional_info")
-                dkeys = list(demat.keys()) if isinstance(demat, dict) else (f"list[{len(demat)}]" if isinstance(demat, list) else type(demat).__name__)
-                struct = f"keys={keys} folios={nfolios} demat={dkeys}"
-        except Exception:  # noqa: BLE001
-            pass
+                acc = raw.get("accounts") or []
+                a0 = acc[0] if acc and isinstance(acc[0], dict) else {}
+                hold = a0.get("holdings") if isinstance(a0.get("holdings"), dict) else {}
+                cats = {}
+                for k, v in (hold or {}).items():
+                    if isinstance(v, list):
+                        sample = v[0] if v and isinstance(v[0], dict) else None
+                        cats[k] = {"n": len(v), "fields": list(sample.keys())[:14] if sample else None}
+                struct = f"accounts={len(acc)} acc0_keys={list(a0.keys())[:12]} holdings={cats}"
+        except Exception as _e:  # noqa: BLE001
+            struct = f"introspect_failed:{_e}"
         return [], raw, {"kind": "parse", "message": "Offline parser found no mutual-fund holdings.",
-                         "detail": f"empty_holdings | {struct}"[:300]}
+                         "detail": f"empty_holdings | {struct}"[:1200]}
     return holdings, raw, None
 
 
