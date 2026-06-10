@@ -879,15 +879,19 @@ def parse_cas_offline(content: bytes, password: str = "") -> tuple:
         struct = "n/a"
         try:
             if isinstance(raw, dict):
-                acc = raw.get("accounts") or []
-                a0 = acc[0] if acc and isinstance(acc[0], dict) else {}
-                hold = a0.get("holdings") if isinstance(a0.get("holdings"), dict) else {}
-                cats = {}
-                for k, v in (hold or {}).items():
-                    if isinstance(v, list):
-                        sample = v[0] if v and isinstance(v[0], dict) else None
-                        cats[k] = {"n": len(v), "fields": list(sample.keys())[:14] if sample else None}
-                struct = f"accounts={len(acc)} acc0_keys={list(a0.keys())[:12]} holdings={cats}"
+                acc = [a for a in (raw.get("accounts") or []) if isinstance(a, dict)]
+                def _shape(item):
+                    return {k: (round(v, 2) if isinstance(v, (int, float)) else (str(v)[:10] if v else v))
+                            for k, v in list(item.items())[:14]} if isinstance(item, dict) else None
+                eq_sample = mf_sample = None
+                for a in acc:
+                    if eq_sample is None and a.get("equities"):
+                        eq_sample = _shape(a["equities"][0])
+                    if mf_sample is None and a.get("mutual_funds"):
+                        mf_sample = _shape(a["mutual_funds"][0])
+                neq = sum(len(a.get("equities") or []) for a in acc)
+                nmf = sum(len(a.get("mutual_funds") or []) for a in acc)
+                struct = f"accounts={len(acc)} neq={neq} nmf={nmf} eq_sample={eq_sample} mf_sample={mf_sample}"
         except Exception as _e:  # noqa: BLE001
             struct = f"introspect_failed:{_e}"
         return [], raw, {"kind": "parse", "message": "Offline parser found no mutual-fund holdings.",
