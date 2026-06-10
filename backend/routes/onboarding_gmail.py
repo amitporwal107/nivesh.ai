@@ -257,6 +257,7 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
                 "status": "error", "error": "parse_failed",
                 "error_kind": (parse_err or {}).get("kind", "parse"),
                 "error_message": (parse_err or {}).get("message", "The CAS statement couldn't be read."),
+                "error_detail": str((parse_err or {}).get("detail", ""))[:300],
                 "holdings_count": 0,
             })
             continue
@@ -386,6 +387,7 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         parse_error = {
             "kind": first_err.get("error_kind", "parse"),
             "message": first_err.get("error_message", "The CAS statement couldn't be read."),
+            "detail": first_err.get("error_detail", ""),
         }
 
     return {
