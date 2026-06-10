@@ -874,8 +874,20 @@ def parse_cas_offline(content: bytes, password: str = "") -> tuple:
         return [], raw, {"kind": "parse", "message": "Parsed the statement but couldn't map holdings.",
                          "detail": str(e)[:200]}
     if not holdings:
+        # Diagnostic: surface the parsed dict's shape so we can map whatever
+        # section actually holds the positions (e.g. NSDL/CDSL demat equity).
+        struct = "n/a"
+        try:
+            if isinstance(raw, dict):
+                keys = list(raw.keys())
+                nfolios = len(raw.get("folios") or [])
+                demat = raw.get("accounts") or raw.get("demat_accounts") or raw.get("additional_info")
+                dkeys = list(demat.keys()) if isinstance(demat, dict) else (f"list[{len(demat)}]" if isinstance(demat, list) else type(demat).__name__)
+                struct = f"keys={keys} folios={nfolios} demat={dkeys}"
+        except Exception:  # noqa: BLE001
+            pass
         return [], raw, {"kind": "parse", "message": "Offline parser found no mutual-fund holdings.",
-                         "detail": "empty_holdings"}
+                         "detail": f"empty_holdings | {struct}"[:300]}
     return holdings, raw, None
 
 
