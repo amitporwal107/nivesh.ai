@@ -1131,6 +1131,7 @@ async def stream_chat(request: Request):
                         **persona_ctx,
                     }
                     prose = ""
+                    streamed_any = False  # True once real LLM tokens are emitted
                     widget_envelope: Optional[Dict] = None
                     async for event in graph.astream_events(lg_input, config=lg_config, version="v2"):
                         kind = event.get("event", "")
@@ -1147,6 +1148,7 @@ async def stream_chat(request: Request):
                             chunk = event.get("data", {}).get("chunk")
                             if chunk and hasattr(chunk, "content") and chunk.content:
                                 prose += chunk.content
+                                streamed_any = True
                                 yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
                         elif kind == "on_chain_end" and event.get("name") == "intent_node":
                             output = event.get("data", {}).get("output", {})
@@ -1226,7 +1228,11 @@ async def stream_chat(request: Request):
                                 if fu:
                                     follow_ups = list(fu)[:3]
 
-                    if prose and not full_response:
+                    # Only chunk-emit the final prose when NOTHING was streamed
+                    # live (e.g. a node returned text without token events).
+                    # When real tokens already streamed, re-emitting here would
+                    # DOUBLE the answer in the client.
+                    if prose and not streamed_any:
                         CHUNK = 24
                         for i in range(0, len(prose), CHUNK):
                             tok = prose[i:i + CHUNK]
