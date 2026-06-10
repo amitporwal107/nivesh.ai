@@ -164,17 +164,6 @@ async def risk_node(state: CopilotState) -> dict:
         f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results
     )
 
-    llm = ChatOpenAI(
-        model=COPILOT_LLM_MODEL,
-        temperature=temperature_for(0.1),
-        api_key=get_openai_api_key(),
-    )
-    resp = await llm.ainvoke([
-        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
-        {"role": "user", "content": user_msg},
-    ])
-    answer_text = resp.content
-
     # Prefer the stress-test widget when the user asked for it; otherwise
     # the risk-suitability widget (data shape comes from the matching tool).
     stress_tr = next(
@@ -207,6 +196,22 @@ async def risk_node(state: CopilotState) -> dict:
     else:
         widget_type = WidgetType.NONE
         widget_data = {}
+
+    # Widget data is ready (built from the tools, not the LLM) — push it now so
+    # the client renders it first and streams the narrative underneath.
+    from .._stream import emit_widget
+    await emit_widget(widget_type, widget_data)
+
+    llm = ChatOpenAI(
+        model=COPILOT_LLM_MODEL,
+        temperature=temperature_for(0.1),
+        api_key=get_openai_api_key(),
+    )
+    resp = await llm.ainvoke([
+        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
+        {"role": "user", "content": user_msg},
+    ])
+    answer_text = resp.content
 
     response = AgentResponse(
         agent=AgentName.RISK,

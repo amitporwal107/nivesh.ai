@@ -362,17 +362,6 @@ async def mf_node(state: CopilotState) -> dict:
     is_fix = _is_fix_question(user_msg)
     style = _COUNT_FORMAT if is_count else (_FIX_FORMAT if (is_fix or is_severity) else _SYSTEM)
 
-    llm = ChatOpenAI(
-        model=COPILOT_LLM_MODEL,
-        temperature=temperature_for(0.1),
-        api_key=get_openai_api_key(),
-    )
-    resp = await llm.ainvoke([
-        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + style + "\n\n" + tool_context},
-        {"role": "user", "content": user_msg},
-    ])
-    answer_text = resp.content
-
     widget_type = WidgetType.NONE
     widget_data: dict = {}
     overlap_tr = next(
@@ -418,6 +407,22 @@ async def mf_node(state: CopilotState) -> dict:
                 widget_data = research.widget
         except Exception as exc:  # noqa: BLE001
             logger.warning("mf research fetch failed for %s: %s", scheme_code, exc)
+
+    # Widget data is ready (built from the tools, not the LLM) — push it now so
+    # the client renders it first and streams the narrative underneath.
+    from .._stream import emit_widget
+    await emit_widget(widget_type, widget_data)
+
+    llm = ChatOpenAI(
+        model=COPILOT_LLM_MODEL,
+        temperature=temperature_for(0.1),
+        api_key=get_openai_api_key(),
+    )
+    resp = await llm.ainvoke([
+        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + style + "\n\n" + tool_context},
+        {"role": "user", "content": user_msg},
+    ])
+    answer_text = resp.content
 
     response = AgentResponse(
         agent=AgentName.MF,

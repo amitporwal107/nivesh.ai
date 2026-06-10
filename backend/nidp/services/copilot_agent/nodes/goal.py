@@ -266,17 +266,6 @@ async def goal_node(state: CopilotState) -> dict:
         "Am I on track for my financial goals?",
     )
 
-    llm = ChatOpenAI(
-        model=COPILOT_LLM_MODEL,
-        temperature=temperature_for(0.15),
-        api_key=get_openai_api_key(),
-    )
-    resp = await llm.ainvoke([
-        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
-        {"role": "user", "content": user_msg},
-    ])
-    answer_text = resp.content
-
     # Prefer SIP_PLAN widget over GOAL_TRACKER when a projection was computed
     sip_tr = next((r for r in tool_results if r.widget_type == WidgetType.SIP_PLAN and r.ok), None)
     goal_tr = next((r for r in tool_results if r.widget_type == WidgetType.GOAL_TRACKER and r.ok), None)
@@ -330,6 +319,22 @@ async def goal_node(state: CopilotState) -> dict:
     else:
         widget_type = WidgetType.NONE
         widget_data = {}
+
+    # Widget data is ready (built from the tools, not the LLM) — push it now so
+    # the client renders it first and streams the narrative underneath.
+    from .._stream import emit_widget
+    await emit_widget(widget_type, widget_data)
+
+    llm = ChatOpenAI(
+        model=COPILOT_LLM_MODEL,
+        temperature=temperature_for(0.15),
+        api_key=get_openai_api_key(),
+    )
+    resp = await llm.ainvoke([
+        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
+        {"role": "user", "content": user_msg},
+    ])
+    answer_text = resp.content
 
     response = AgentResponse(
         agent=AgentName.GOAL,
