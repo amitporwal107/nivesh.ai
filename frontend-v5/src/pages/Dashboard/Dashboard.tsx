@@ -17,12 +17,16 @@ import { TARGET_ALLOCATION } from "@/hooks/use-risk-profile";
 import { cn } from "@/lib/utils";
 import { SafeWidget } from "@/components/shared/SafeWidget";
 import { ProfileWizardModal, type WizardCompleteness } from "./ProfileWizardModal";
+import { GmailSyncModal } from "./GmailSyncModal";
+import { Reveal } from "./Reveal";
+import { PortfolioXray } from "./PortfolioXray";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface OboardingState {
   cas_statement_period?: string | null;
   gmail_connected?: boolean;
+  pan_on_file?: boolean;
   persona?: string | null;
   persona_confidence?: number | null;
   has_risk_profile?: boolean;
@@ -71,11 +75,9 @@ function useCasState() {
 
 // ── CAS banner ────────────────────────────────────────────────────────────────
 
-function CasStatementBanner({ period, gmailConnected, syncing, syncResult, onSync, onUpload }: {
+function CasStatementBanner({ period, gmailConnected, onSync, onUpload }: {
   period: string | null | undefined;
   gmailConnected: boolean;
-  syncing: boolean;
-  syncResult: { ok: boolean; message: string } | null;
   onSync: () => void;
   onUpload: () => void;
 }) {
@@ -86,26 +88,9 @@ function CasStatementBanner({ period, gmailConnected, syncing, syncResult, onSyn
       <span className="hidden sm:inline text-ink-4">·</span>
       <span className="hidden sm:inline text-ink-3">Update if you have a newer statement</span>
       <div className="flex items-center gap-2 ml-auto shrink-0">
-        {syncResult && (
-          <span className={`text-[11px] ${syncResult.ok ? "text-pos" : "text-neg"}`}>
-            {syncResult.message}
-          </span>
-        )}
-        {gmailConnected && (
-          <button
-            onClick={onSync}
-            disabled={syncing}
-            className="flex items-center gap-1.5 text-accent font-medium hover:underline text-[12px] disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "Syncing…" : "Sync Gmail"}
-          </button>
-        )}
-        {!gmailConnected && (
-          <button onClick={onSync} className="flex items-center gap-1.5 text-accent font-medium hover:underline text-[12px]">
-            <RefreshCw className="h-3 w-3" />Connect Gmail
-          </button>
-        )}
+        <button onClick={onSync} className="flex items-center gap-1.5 text-accent font-medium hover:underline text-[12px]">
+          <RefreshCw className="h-3 w-3" />{gmailConnected ? "Sync Gmail" : "Connect Gmail"}
+        </button>
         <span className="text-ink-4">·</span>
         <button onClick={onUpload} className="flex items-center gap-1.5 text-ink-2 hover:text-accent hover:underline text-[12px]">
           <Upload className="h-3 w-3" />Upload file
@@ -366,58 +351,13 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
   const planQuery = useActivePlan();
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStart, setWizardStart] = useState<0 | 1 | 2>(0);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [gmailModalOpen, setGmailModalOpen] = useState(false);
 
-  async function handleGmailSync() {
-    const connected = casState.data?.gmail_connected ?? false;
-    if (!connected) {
-      navigate("/onboarding?sync=gmail");
-      return;
-    }
-    setSyncing(true);
-    setSyncResult(null);
-    try {
-      // Reuse the same proven orchestrator onboarding uses: it scans Gmail,
-      // picks the latest eCAS by source priority, parses it server-side and
-      // re-imports holdings. Keeps a single source of truth for Gmail import.
-      const res = await fetch("/api/onboarding/gmail/auto-import", {
-        method: "POST",
-        credentials: "include",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        // 401 (token expired) and 400 (PAN/Gmail missing) carry a friendly
-        // `detail`; non-JSON proxy errors (404/502/504) leave it undefined.
-        const needsReconnect = res.status === 401 || res.status === 400;
-        const msg = data.detail ?? `Sync failed (${res.status})`;
-        setSyncResult({ ok: false, message: msg });
-        if (needsReconnect) navigate("/onboarding?sync=gmail");
-        return;
-      }
-      const importedFiles = data.imported_files ?? 0;
-      const importedHoldings = data.imported_holdings ?? 0;
-      if (importedFiles > 0) {
-        setSyncResult({
-          ok: true,
-          message: `Imported ${importedHoldings} holding${importedHoldings !== 1 ? "s" : ""} from your latest CAS`,
-        });
-        qc.invalidateQueries({ queryKey: ["onboarding", "state"] });
-        qc.invalidateQueries({ queryKey: ["portfolio"] });
-        qc.invalidateQueries({ queryKey: ["plans"] });
-      } else if ((data.scanned ?? 0) === 0) {
-        setSyncResult({ ok: false, message: data.message ?? "No CAS emails found in Gmail" });
-      } else {
-        // Found a CAS email but parsing produced nothing — usually a PAN mismatch.
-        setSyncResult({ ok: false, message: "Couldn't read your CAS — check your PAN" });
-        navigate("/onboarding?sync=gmail");
-      }
-    } catch {
-      setSyncResult({ ok: false, message: "Network error — try again" });
-    } finally {
-      setSyncing(false);
-      setTimeout(() => setSyncResult(null), 6000);
-    }
+  // After a successful Gmail import, refresh everything the new CAS affects.
+  function handleImported() {
+    qc.invalidateQueries({ queryKey: ["onboarding", "state"] });
+    qc.invalidateQueries({ queryKey: ["portfolio"] });
+    qc.invalidateQueries({ queryKey: ["plans"] });
   }
 
   const gates = useGateFlags();
@@ -484,6 +424,15 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
         }}
       />
 
+      {/* Gmail → latest-eCAS sync */}
+      <GmailSyncModal
+        open={gmailModalOpen}
+        onClose={() => setGmailModalOpen(false)}
+        gmailConnected={casState.data?.gmail_connected ?? false}
+        panOnFile={casState.data?.pan_on_file ?? false}
+        onImported={handleImported}
+      />
+
       {/* Profile completion banner — shown until both risk + goal are done */}
       {profileIncomplete && (
         <div className="mb-5 rounded-lg border border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.06)] px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -525,25 +474,25 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
       <CasStatementBanner
         period={casState.data?.cas_statement_period}
         gmailConnected={casState.data?.gmail_connected ?? false}
-        syncing={syncing}
-        syncResult={syncResult}
-        onSync={handleGmailSync}
+        onSync={() => setGmailModalOpen(true)}
         onUpload={() => navigate("/onboarding?tab=upload")}
       />
 
       {/* eyebrow + headline */}
-      <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">Dashboard</div>
-      <h1 className="font-display text-3xl sm:text-4xl tracking-tightish leading-[1.05] mt-1.5">
-        Your portfolio is <span className={tone}>{phrase}</span>.
-      </h1>
-      <p className="text-[15.5px] sm:text-base text-ink-2 mt-3 leading-relaxed max-w-[600px]">
-        {pending.length > 0
-          ? `${totalPending} action${totalPending !== 1 ? "s" : ""} identified — apply them to improve your score.`
-          : "Upload your latest CAS statement to see personalised actions."}
-      </p>
+      <Reveal delay={40}>
+        <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">Dashboard</div>
+        <h1 className="font-display text-3xl sm:text-4xl tracking-tightish leading-[1.05] mt-1.5">
+          Your portfolio is <span className={tone}>{phrase}</span>.
+        </h1>
+        <p className="text-[15.5px] sm:text-base text-ink-2 mt-3 leading-relaxed max-w-[600px]">
+          {pending.length > 0
+            ? `${totalPending} action${totalPending !== 1 ? "s" : ""} identified — apply them to improve your score.`
+            : "Upload your latest CAS statement to see personalised actions."}
+        </p>
+      </Reveal>
 
       {/* Persona card */}
-      <div className="mt-7">
+      <Reveal delay={120} className="mt-7">
         <SafeWidget name="PersonaCard" flagKey="persona_card" retryDelayMs={5000}>
           <PersonaCard
             persona={persona}
@@ -556,10 +505,10 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
             onOpenWizard={openWizard}
           />
         </SafeWidget>
-      </div>
+      </Reveal>
 
       {/* Hero: value · health · risk */}
-      <div className="rounded-lg bg-surface-1 border border-hairline shadow-card">
+      <Reveal delay={200} className="rounded-lg bg-surface-1 border border-hairline shadow-card">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-y-7 md:divide-x md:divide-[rgb(var(--line)/0.10)] p-6 sm:p-7">
           <SafeWidget name="PortfolioValueCard" flagKey="portfolio_value_card">
             <PortfolioValueCard value={summary.totalValue} yearChangePct={summary.yearChange.pct} navHistory={navHistory} />
@@ -597,35 +546,45 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
             </InfoTooltip>
           </div>
         </div>
-      </div>
+      </Reveal>
+
+      {/* Portfolio X-ray — look-through "what you actually own" (real concentration data) */}
+      <Reveal delay={280} className="mt-7">
+        <SafeWidget name="PortfolioXray" flagKey="portfolio_xray">
+          <PortfolioXray />
+        </SafeWidget>
+      </Reveal>
 
       {/* Intelligence feed + Quick actions (side-by-side on desktop) */}
       {((insights && insights.length > 0) || allocationDrift) && (
-        <div className="mt-7 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+        <Reveal delay={360} className="mt-7 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
           <SafeWidget name="IntelligenceFeed" flagKey="intelligence_feed" retryDelayMs={5000}>
             <IntelligenceFeed insights={insights ?? []} allocationDrift={allocationDrift} />
           </SafeWidget>
           <SafeWidget name="QuickActions" flagKey="quick_actions">
             <QuickActions persona={persona} riskCategory={riskProfile?.category} />
           </SafeWidget>
-        </div>
+        </Reveal>
       )}
       {(!insights || insights.length === 0) && !allocationDrift && (
-        <div className="mt-7">
+        <Reveal delay={360} className="mt-7">
           <SafeWidget name="QuickActions" flagKey="quick_actions">
             <QuickActions persona={persona} riskCategory={riskProfile?.category} />
           </SafeWidget>
-        </div>
+        </Reveal>
       )}
 
       {/* Action matrix — hidden until risk profile + goal are both set */}
       {!gates.requiresPersona && !gates.requiresGoal && (
-        <SafeWidget name="ActionMatrix" flagKey="action_matrix">
-          <ActionMatrix actions={pending} total={totalPending} onViewAll={() => navigate("/recommendations")} />
-        </SafeWidget>
+        <Reveal delay={440}>
+          <SafeWidget name="ActionMatrix" flagKey="action_matrix">
+            <ActionMatrix actions={pending} total={totalPending} onViewAll={() => navigate("/recommendations")} />
+          </SafeWidget>
+        </Reveal>
       )}
 
       {/* The one thing / gate CTA */}
+      <Reveal delay={520}>
       <SafeWidget name="ImproveCTA" flagKey="improve_cta">
         {gates.requiresPersona ? (
           <div className="mt-7 p-5 rounded-lg border border-[rgba(var(--warm)/0.35)] bg-[rgba(var(--warm)/0.06)] flex flex-col sm:flex-row gap-4 sm:items-center">
@@ -673,6 +632,7 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
           </div>
         ) : null}
       </SafeWidget>
+      </Reveal>
     </div>
   );
 }

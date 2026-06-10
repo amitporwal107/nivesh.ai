@@ -20,7 +20,7 @@ export function RiskMeterCard({ level, bucket }: Props) {
     <div className="md:pl-7">
       <CardLabel>Risk level</CardLabel>
       <div className="font-display text-2xl sm:text-[26px] tracking-tightish mt-2">{PRETTY[bucket]}</div>
-      <RiskMeter level={level} className="mt-4" label={PRETTY[bucket].toUpperCase()} />
+      <RiskMeter level={level} className="mt-4" label={PRETTY[bucket].toUpperCase()} animate />
       <div className="font-mono text-[10px] tracking-[.06em] text-ink-3 mt-2">
         ALIGNED WITH YOUR PROFILE
       </div>
