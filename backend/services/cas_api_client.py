@@ -867,35 +867,22 @@ def parse_cas_offline(content: bytes, password: str = "") -> tuple:
             import dataclasses as _dc
             raw = _dc.asdict(raw) if _dc.is_dataclass(raw) else getattr(raw, "__dict__", {})
     try:
-        from helpers.parsing import convert_casparser_to_holdings
+        from helpers.parsing import (
+            convert_casparser_to_holdings, convert_nsdl_offline_to_holdings,
+        )
+        # CAMS/KFin folio-style dicts map via the folio mapper; NSDL/CDSL
+        # consolidated dicts keep positions under accounts[] (equities / demat
+        # MF / folios) — map those when no top-level folios are present.
         holdings = convert_casparser_to_holdings(raw) or []
+        if not holdings and raw.get("accounts"):
+            holdings = convert_nsdl_offline_to_holdings(raw) or []
     except Exception as e:  # noqa: BLE001
         logger.warning("offline casparser mapping failed: %s", e)
         return [], raw, {"kind": "parse", "message": "Parsed the statement but couldn't map holdings.",
                          "detail": str(e)[:200]}
     if not holdings:
-        # Diagnostic: surface the parsed dict's shape so we can map whatever
-        # section actually holds the positions (e.g. NSDL/CDSL demat equity).
-        struct = "n/a"
-        try:
-            if isinstance(raw, dict):
-                acc = [a for a in (raw.get("accounts") or []) if isinstance(a, dict)]
-                def _shape(item):
-                    return {k: (round(v, 2) if isinstance(v, (int, float)) else (str(v)[:10] if v else v))
-                            for k, v in list(item.items())[:14]} if isinstance(item, dict) else None
-                eq_sample = mf_sample = None
-                for a in acc:
-                    if eq_sample is None and a.get("equities"):
-                        eq_sample = _shape(a["equities"][0])
-                    if mf_sample is None and a.get("mutual_funds"):
-                        mf_sample = _shape(a["mutual_funds"][0])
-                neq = sum(len(a.get("equities") or []) for a in acc)
-                nmf = sum(len(a.get("mutual_funds") or []) for a in acc)
-                struct = f"accounts={len(acc)} neq={neq} nmf={nmf} eq_sample={eq_sample} mf_sample={mf_sample}"
-        except Exception as _e:  # noqa: BLE001
-            struct = f"introspect_failed:{_e}"
-        return [], raw, {"kind": "parse", "message": "Offline parser found no mutual-fund holdings.",
-                         "detail": f"empty_holdings | {struct}"[:1200]}
+        return [], raw, {"kind": "parse", "message": "Offline parser found no holdings in the statement.",
+                         "detail": "empty_holdings"}
     return holdings, raw, None
 
 

@@ -309,9 +309,18 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
                     cas_statement_date = vision["statement_date"]
         all_holdings.extend(holdings)
         used_email = email
+        # Per-asset-class breakdown for reconciliation against the CAS summary.
+        breakdown: Dict[str, Dict[str, float]] = {}
+        for h in holdings:
+            at = h.get("asset_type") or "other"
+            b = breakdown.setdefault(at, {"count": 0, "value_rs": 0.0})
+            b["count"] += 1
+            b["value_rs"] += (h.get("quantity") or 0) * (h.get("current_price") or 0)
+        for b in breakdown.values():
+            b["value_rs"] = round(b["value_rs"], 2)
         logger.info(
-            "auto-import: parsed %s holdings from %s eCAS for %s",
-            len(holdings), email.get("source", "?"), user_id,
+            "auto-import: parsed %s holdings from %s eCAS for %s — breakdown=%s",
+            len(holdings), email.get("source", "?"), user_id, breakdown,
         )
         per_file.append({
             "message_id": msg_id, "filename": filename,
@@ -320,6 +329,7 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             "statement_period": statement_period,
             "portfolio_value_rs": cas_total_value,
             "statement_date": cas_statement_date,
+            "breakdown": breakdown,
             "monthly_values": vision.get("monthly_values") if vision else None,
         })
         break  # first source that parses wins — don't burn the others

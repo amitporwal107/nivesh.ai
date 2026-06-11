@@ -205,6 +205,84 @@ def convert_casparser_to_holdings(cas_data: dict) -> list:
     return holdings
 
 
+def _to_float(v) -> float:
+    try:
+        return float(str(v).replace(",", "").strip() or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _looks_sgb(name: str, isin: str) -> bool:
+    s = f"{name} {isin}".upper()
+    return ("SGB" in s or "SOVEREIGN GOLD" in s or "GOLDBOND" in s or "GOLD BOND" in s)
+
+
+def convert_nsdl_offline_to_holdings(cas_data: dict) -> list:
+    """Map the offline casparser NSDL/CDSL dict to our holdings format.
+
+    NSDL/CDSL consolidated statements hold positions on each demat account as
+    `equities` (demat stocks + SGB), `mutual_funds` (demat MF), and `folios`
+    (non-demat MF, the same schema CAMS/KFin use). NSDL CAS shows current
+    holdings without a cost basis, so buy_price defaults to current_price.
+    """
+    holdings: list = []
+    accounts = cas_data.get("accounts") or []
+    folio_blobs: list = []
+
+    for acc in accounts:
+        if not isinstance(acc, dict):
+            continue
+        folio_blobs.extend(acc.get("folios") or [])
+
+        # Demat equities (E) — SGB also appears in this list in NSDL CAS.
+        for eq in (acc.get("equities") or []):
+            if not isinstance(eq, dict):
+                continue
+            qty = _to_float(eq.get("num_shares"))
+            value = _to_float(eq.get("value"))
+            price = _to_float(eq.get("price")) or (value / qty if qty else 0)
+            if qty <= 0 and value <= 0:
+                continue
+            name = (eq.get("name") or "Unknown").strip()
+            isin = (eq.get("isin") or "").strip()
+            holdings.append({
+                "name": name,
+                "ticker": isin,
+                "asset_type": "sgb" if _looks_sgb(name, isin) else "equity",
+                "quantity": round(qty, 4),
+                "buy_price": round(price, 4),
+                "current_price": round(price, 4),
+                "sector": "",
+            })
+
+        # Demat mutual funds (M)
+        for mf in (acc.get("mutual_funds") or []):
+            if not isinstance(mf, dict):
+                continue
+            qty = _to_float(mf.get("balance"))
+            value = _to_float(mf.get("value"))
+            nav = _to_float(mf.get("nav")) or (value / qty if qty else 0)
+            if qty <= 0 and value <= 0:
+                continue
+            name = (mf.get("name") or "Unknown Fund").strip()
+            holdings.append({
+                "name": name,
+                "ticker": (mf.get("isin") or "").strip(),
+                "asset_type": "mutual_fund",
+                "quantity": round(qty, 4),
+                "buy_price": round(nav, 4),
+                "current_price": round(nav, 4),
+                "sector": classify_mf_sector(name),
+            })
+
+    # Non-demat MF folios (F) — the casparser folio schema CAMS/KFin use.
+    if folio_blobs:
+        holdings.extend(convert_casparser_to_holdings({"folios": folio_blobs}))
+
+    logger.info("nsdl-offline: %d accounts -> %d holdings", len(accounts), len(holdings))
+    return holdings
+
+
 def _normalize_casparser_folios(cas_data: dict) -> dict:
     """Convert casparser library folios→schemes to the `mutual_funds` format
     expected by `cas_transactions.extract_transactions()`.
