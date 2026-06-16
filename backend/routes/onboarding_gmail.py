@@ -274,14 +274,31 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             logger.warning("auto-import: NSDL extractor error for %s, using casparser: %s", filename, e)
 
         if not holdings:
-            # Fall back to the hosted casparser.in API (/v4/smart/parse).
+            # Fall back to the OFFLINE casparser library (pinned dependency, no
+            # hosted casparser.in SDK / API key required — that plugin is not
+            # provisioned here). Covers CAMS/KFin/CDSL folio layouts the custom
+            # NSDL extractor doesn't parse, plus any NSDL statement that fails to
+            # reconcile. The custom extractor stays primary for NSDL.
             try:
-                holdings, raw_data, _, parse_err = cas_api_client.parse_cas_via_sdk_flow_with_error(content, password=pan)
+                holdings, raw_data, parse_err = cas_api_client.parse_cas_offline(content, password=pan)
             except Exception as e:  # noqa: BLE001
-                logger.exception("parse_cas_via_sdk_flow crashed for %s: %s", filename, e)
+                logger.exception("offline casparser crashed for %s: %s", filename, e)
                 holdings, raw_data, parse_err = [], None, {
                     "kind": "service", "message": "The CAS parser hit an error — try again.", "detail": str(e)[:200],
                 }
+            # Best-effort MF transactions from the offline parse (CAMS/KFin folios
+            # carry a transaction list); normalise to the shape the shared
+            # persister expects. NSDL fallbacks have no folio txns and no-op.
+            if holdings and raw_data:
+                try:
+                    from helpers.parsing import _normalize_casparser_folios
+                    from services import cas_transactions as _ct
+                    _norm = _normalize_casparser_folios(raw_data) if raw_data.get("folios") else raw_data
+                    _fb = await _ct.persist_transactions_and_sips(db, user_id, _norm, source="OFFLINE_CAS")
+                    logger.info("auto-import: offline fallback persisted %s txns for %s",
+                                _fb.get("transactions"), user_id)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("auto-import: offline fallback txn persist failed for %s: %s", user_id, e)
 
         if not holdings:
             parse_errors += 1
@@ -512,11 +529,35 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
     if not pan:
         raise HTTPException(400, "PAN missing — submit /api/onboarding/pan first.")
 
+    # NSDL-first (custom reconciling extractor), offline casparser fallback —
+    # no hosted casparser.in SDK / API key. Mirrors the Gmail auto-import path.
+    holdings, raw_data = [], None
+    nsdl_grand_total: Optional[float] = None
+    nsdl_stmt_date: Optional[str] = None
+    nsdl_txn_docs: List[Dict[str, Any]] = []
     try:
-        holdings, raw_data, _ = cas_api_client.parse_cas_via_sdk_flow_with_data(content, password=pan)
+        from services import nsdl_cas_extractor as _nsdl
+        from services import nsdl_cas_transactions as _nsdltx
+        ext = _nsdl.extract_nsdl_cas(content, pan)
+        if ext.reconciled and ext.holdings:
+            holdings = [h.as_holding_dict() for h in ext.holdings]
+            nsdl_grand_total = ext.grand_total
+            nsdl_stmt_date = ext.statement_date or None
+            try:
+                nsdl_txn_docs = _nsdltx.to_cas_transaction_docs(
+                    _nsdltx.extract_mf_transactions(content, pan).txns
+                )
+            except Exception as te:  # noqa: BLE001
+                logger.warning("upload_cas_pdf: NSDL txn extract failed: %s", te)
     except Exception as e:  # noqa: BLE001
-        logger.exception("upload_cas_pdf parse crashed: %s", e)
-        holdings, raw_data = [], None
+        logger.warning("upload_cas_pdf: NSDL extractor error, using offline casparser: %s", e)
+
+    if not holdings:
+        try:
+            holdings, raw_data, _ = cas_api_client.parse_cas_offline(content, password=pan)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("upload_cas_pdf offline parse crashed: %s", e)
+            holdings, raw_data = [], None
 
     if not holdings:
         raise HTTPException(
@@ -524,6 +565,13 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
             "Couldn't parse this CAS PDF. Check that the PAN matches and the file "
             "is a recent CAMS / KFintech / NSDL / CDSL statement.",
         )
+
+    if nsdl_txn_docs:
+        try:
+            from services import cas_transactions as _ct
+            await _ct.persist_flat_transactions(db, user_id, nsdl_txn_docs, source="NSDL_CAS")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("upload_cas_pdf: txn persist failed: %s", e)
 
     statement_period    = cas_api_client.extract_statement_period(raw_data) if raw_data else None
     cas_portfolio_value = _extract_portfolio_value(raw_data)
@@ -534,6 +582,11 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
             cas_portfolio_value = float(vision["current_value_rs"])
         if vision.get("statement_date"):
             cas_statement_date = vision["statement_date"]
+    # Authoritative reconciled figures win over casparser summary / Vision LLM.
+    if nsdl_grand_total is not None:
+        cas_portfolio_value = nsdl_grand_total
+    if nsdl_stmt_date:
+        cas_statement_date = nsdl_stmt_date
     task_id = f"onboard_upload_{uuid.uuid4().hex[:10]}"
     await save_holdings(user_id, holdings, file_type="cas_pdf", task_id=task_id)
 
