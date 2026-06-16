@@ -206,6 +206,7 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
     )
 
     all_holdings: List[Dict[str, Any]] = []
+    all_txn_docs: List[Dict[str, Any]] = []
     per_file: List[Dict[str, Any]] = []
     parse_errors = 0
     used_email: Optional[Dict[str, Any]] = None
@@ -236,38 +237,50 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             })
             continue
 
-        # Parse: prefer the OFFLINE casparser library (no subscription gate,
-        # no OCR — the real CAS parser). Fall back to the hosted casparser.in
-        # API only if the offline parser can't read the statement (and it's
-        # not a wrong-PAN case, which neither parser can fix).
-        offline_used = False
+        # NSDL-first: the custom extractor (services/nsdl_cas_extractor) reads
+        # demat equities / SGB / demat-MF / non-demat folios straight from the
+        # PDF and reconciles every asset class against the statement's printed
+        # Portfolio Composition + grand total. We use it ONLY when it reconciles
+        # to the paisa; otherwise we fall back to the hosted casparser.in path,
+        # which also covers the CAMS / KFin / CDSL layouts the custom extractor
+        # doesn't parse. casparser never silently wins over a reconciled NSDL read.
+        holdings, raw_data, parse_err = [], None, None
+        nsdl_grand_total: Optional[float] = None
+        nsdl_stmt_date: Optional[str] = None
+        nsdl_txn_docs: List[Dict[str, Any]] = []
         try:
-            holdings, raw_data, parse_err = cas_api_client.parse_cas_offline(content, password=pan)
-            offline_used = bool(holdings)
+            from services import nsdl_cas_extractor as _nsdl
+            from services import nsdl_cas_transactions as _nsdltx
+            ext = _nsdl.extract_nsdl_cas(content, pan)
+            if ext.reconciled and ext.holdings:
+                holdings = [h.as_holding_dict() for h in ext.holdings]
+                nsdl_grand_total = ext.grand_total
+                nsdl_stmt_date = ext.statement_date or None
+                try:
+                    txr = _nsdltx.extract_mf_transactions(content, pan)
+                    nsdl_txn_docs = _nsdltx.to_cas_transaction_docs(txr.txns)
+                except Exception as te:  # noqa: BLE001
+                    logger.warning("auto-import: NSDL txn extract failed for %s: %s", filename, te)
+                logger.info(
+                    "auto-import: NSDL custom extractor reconciled %d holdings, %d txns for %s",
+                    len(holdings), len(nsdl_txn_docs), user_id,
+                )
+            else:
+                logger.info(
+                    "auto-import: NSDL extractor did not reconcile %s (diff=%s) — using casparser",
+                    filename, (ext.reconciliation or {}).get("grand_total_diff"),
+                )
         except Exception as e:  # noqa: BLE001
-            logger.exception("parse_cas_offline crashed for %s: %s", filename, e)
-            holdings, raw_data, parse_err = [], None, {
-                "kind": "service", "message": "The CAS parser hit an error — try again.", "detail": str(e)[:200],
-            }
+            logger.warning("auto-import: NSDL extractor error for %s, using casparser: %s", filename, e)
 
-        if not holdings and (parse_err or {}).get("kind") != "password":
+        if not holdings:
+            # Fall back to the hosted casparser.in API (/v4/smart/parse).
             try:
-                h2, raw2, _n2, err2 = cas_api_client.parse_cas_via_sdk_flow_with_error(content, password=pan)
+                holdings, raw_data, _, parse_err = cas_api_client.parse_cas_via_sdk_flow_with_error(content, password=pan)
             except Exception as e:  # noqa: BLE001
                 logger.exception("parse_cas_via_sdk_flow crashed for %s: %s", filename, e)
-                h2, raw2, err2 = [], None, {
+                holdings, raw_data, parse_err = [], None, {
                     "kind": "service", "message": "The CAS parser hit an error — try again.", "detail": str(e)[:200],
-                }
-            if h2:
-                holdings, raw_data, parse_err, offline_used = h2, raw2, None, False
-            elif err2:
-                # Keep BOTH reasons so we can see whether the offline parser
-                # failed because the lib is missing vs the format is unsupported.
-                offline_detail = (parse_err or {}).get("detail", "")
-                parse_err = {
-                    "kind": err2.get("kind", "parse"),
-                    "message": err2.get("message", "The CAS statement couldn't be read."),
-                    "detail": f"offline=[{offline_detail}] api=[{err2.get('detail', '')}]"[:1500],
                 }
 
         if not holdings:
@@ -281,33 +294,31 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
                 "status": "error", "error": "parse_failed",
                 "error_kind": (parse_err or {}).get("kind", "parse"),
                 "error_message": (parse_err or {}).get("message", "The CAS statement couldn't be read."),
-                "error_detail": str((parse_err or {}).get("detail", ""))[:1500],
+                "error_detail": str((parse_err or {}).get("detail", ""))[:300],
                 "holdings_count": 0,
             })
             continue
 
-        if offline_used:
-            # Offline parser: value comes straight from the parsed holdings
-            # (quantity × NAV) — accurate, no OCR. Period from the casparser dict.
-            statement_period   = cas_api_client.offline_statement_period(raw_data)
-            cas_total_value    = round(sum(
-                (h.get("quantity") or 0) * (h.get("current_price") or 0) for h in holdings
-            ), 2) or None
-            cas_statement_date = None
-            vision = None
-        else:
-            statement_period   = cas_api_client.extract_statement_period(raw_data) if raw_data else None
-            cas_total_value    = _extract_portfolio_value(raw_data)
-            cas_statement_date = _extract_statement_date(raw_data)
-            # Vision API: extract monthly portfolio values from the CAS Summary page
-            # Pass PAN as PDF password (NSDL/CAMS CAS PDFs are PAN-locked)
-            vision = _extract_vision_summary(content, password=pan)
-            if vision:
-                if vision.get("current_value_rs"):
-                    cas_total_value = float(vision["current_value_rs"])
-                if vision.get("statement_date"):
-                    cas_statement_date = vision["statement_date"]
+        statement_period   = cas_api_client.extract_statement_period(raw_data) if raw_data else None
+        cas_total_value    = _extract_portfolio_value(raw_data)
+        cas_statement_date = _extract_statement_date(raw_data)
+        # Vision API: extract monthly portfolio values from the CAS Summary page
+        # Pass PAN as PDF password (NSDL/CAMS CAS PDFs are PAN-locked)
+        vision = _extract_vision_summary(content, password=pan)
+        if vision:
+            if vision.get("current_value_rs"):
+                cas_total_value = float(vision["current_value_rs"])
+            if vision.get("statement_date"):
+                cas_statement_date = vision["statement_date"]
+        # The NSDL custom extractor's grand total / statement date are read
+        # straight from the statement and reconcile to the paisa — prefer them
+        # over the casparser summary and the Vision LLM estimate when present.
+        if nsdl_grand_total is not None:
+            cas_total_value = nsdl_grand_total
+        if nsdl_stmt_date:
+            cas_statement_date = nsdl_stmt_date
         all_holdings.extend(holdings)
+        all_txn_docs.extend(nsdl_txn_docs)
         used_email = email
         # Per-asset-class breakdown for reconciliation against the CAS summary.
         breakdown: Dict[str, Dict[str, float]] = {}
@@ -338,6 +349,25 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
     if all_holdings:
         task_id = f"onboard_gmail_{uuid.uuid4().hex[:10]}"
         await save_holdings(user_id, all_holdings, file_type="gmail_cas", task_id=task_id)
+
+    # Persist the MF transaction ledger (NSDL custom path) to db.cas_transactions
+    # via the shared idempotent upsert — feeds XIRR / behavioural signals / SIP
+    # detection. Best-effort: a failure here never fails the holdings import.
+    txn_persisted = 0
+    if all_txn_docs:
+        try:
+            from services import cas_transactions as _ct
+            tx_summary = await _ct.persist_flat_transactions(
+                db, user_id, all_txn_docs, source="NSDL_CAS",
+            )
+            txn_persisted = tx_summary.get("transactions", 0)
+            logger.info(
+                "auto-import: persisted %s transactions (%s new, %s sips) for %s",
+                tx_summary.get("transactions"), tx_summary.get("transactions_new"),
+                tx_summary.get("sips"), user_id,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("auto-import: transaction persist failed for %s: %s", user_id, e)
 
     # ── Step 5: log imports ──────────────────────────────────────────
     now = _now_iso()
@@ -448,6 +478,7 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         "sources_available": [e.get("source") for e in emails],
         "imported_files": imported_files,
         "imported_holdings": len(all_holdings),
+        "imported_transactions": txn_persisted,
         "parse_errors": parse_errors,
         "parse_error": parse_error,
         "files": per_file,

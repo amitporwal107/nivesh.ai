@@ -36,7 +36,7 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
   const [pan, setPan] = useState("");
   const [panError, setPanError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ source?: string; holdings?: number; period?: string } | null>(null);
+  const [result, setResult] = useState<{ source?: string; holdings?: number; transactions?: number; period?: string } | null>(null);
   const popupRef = useRef<Window | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -148,6 +148,7 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean; message?: string; detail?: string;
         source_used?: string; imported_holdings?: number; imported_files?: number;
+        imported_transactions?: number;
         scanned?: number; parse_errors?: number;
         parse_error?: { kind?: string; message?: string } | null;
         files?: Array<{ statement_period?: string; status?: string; error?: string }>;
@@ -174,6 +175,7 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
       setResult({
         source: data.source_used,
         holdings: data.imported_holdings,
+        transactions: data.imported_transactions,
         period: data.files?.find((f) => f.statement_period)?.statement_period,
       });
       setStep("done");
@@ -271,7 +273,8 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
             <div className="font-display text-[22px] tracking-tightish text-center">Holdings imported</div>
             <p className="text-[13px] text-ink-2 text-center max-w-[320px] leading-relaxed">
               {result?.source && <span className="uppercase font-mono text-[11px] text-accent">{result.source} eCAS · </span>}
-              {result?.holdings ?? 0} holdings imported from your latest CAS
+              {result?.holdings ?? 0} holdings
+              {result?.transactions ? ` · ${result.transactions} transactions` : ""} imported from your latest CAS
               {result?.period ? ` (${result.period})` : ""}.
             </p>
             <Button variant="accent" className="mt-1" onClick={onClose}>Done</Button>

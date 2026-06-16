@@ -263,7 +263,31 @@ async def persist_transactions_and_sips(
     txns = extract_transactions(parsed_data)
     if not txns:
         return {"transactions": 0, "sips": 0}
+    return await _upsert_txns_and_sips(db, user_id, txns, source)
 
+
+async def persist_flat_transactions(
+    db,
+    user_id: str,
+    txns: List[Dict[str, Any]],
+    *,
+    source: str = "NSDL_CAS",
+) -> Dict[str, int]:
+    """Persist already-extracted flat transaction dicts (e.g. from the custom
+    NSDL extractor via `nsdl_cas_transactions.to_cas_transaction_docs`) to
+    `db.cas_transactions`, reusing the SAME idempotent upsert key and SIP
+    detection as the casparser path so XIRR / behavioural signals / SIP
+    detection are fed identically regardless of which parser produced the rows."""
+    if not txns:
+        return {"transactions": 0, "sips": 0}
+    return await _upsert_txns_and_sips(db, user_id, txns, source)
+
+
+async def _upsert_txns_and_sips(
+    db, user_id: str, txns: List[Dict[str, Any]], source: str,
+) -> Dict[str, int]:
+    """Idempotent upsert of a flat txn list + SIP detection. Shared by both the
+    casparser (nested parsed_data) and NSDL-custom (pre-extracted) paths."""
     # Bulk upsert transactions
     txn_inserted = txn_modified = 0
     now_iso = datetime.now(timezone.utc).isoformat()

@@ -232,7 +232,11 @@ def convert_nsdl_offline_to_holdings(cas_data: dict) -> list:
     for acc in accounts:
         if not isinstance(acc, dict):
             continue
-        folio_blobs.extend(acc.get("folios") or [])
+        # `account.folios` can be an int count rather than a list of folios —
+        # only extend when it's actually a list of folio dicts.
+        f = acc.get("folios")
+        if isinstance(f, list):
+            folio_blobs.extend(x for x in f if isinstance(x, dict))
 
         # Demat equities (E) — SGB also appears in this list in NSDL CAS.
         for eq in (acc.get("equities") or []):
@@ -395,7 +399,11 @@ async def save_holdings(user_id: str, parsed: list, file_type: str, task_id: str
     holdings_added = []
     for h in parsed:
         asset_type = h.get("asset_type", "equity")
-        if asset_type not in ["equity", "mutual_fund", "etf", "bond", "gold", "fd", "other"]:
+        # Sovereign Gold Bonds are gold; without this they fell through to the
+        # equity fallback below and corrupted the asset-class mix.
+        if asset_type == "sgb":
+            asset_type = "gold"
+        if asset_type not in ["equity", "mutual_fund", "etf", "bond", "gold", "fd", "nps", "other"]:
             asset_type = "mutual_fund" if "fund" in h.get("name", "").lower() else "equity"
 
         buy_price_val = float(h.get("buy_price", 0))
