@@ -28,7 +28,18 @@ router = APIRouter(prefix="", tags=["vm-ops"], dependencies=[Depends(require_bea
 
 NIDP_HOME = Path(os.environ.get("NIDP_HOME", "/opt/nidp"))
 LOGS_DIR  = NIDP_HOME / "logs"
-RUN_SCRIPT = NIDP_HOME / "repo" / "backend" / "nidp" / "deploy" / "vm" / "run_service.sh"
+
+# run_service.sh location differs by environment layout:
+#   • prod VM:      $NIDP_HOME/repo/backend/nidp/deploy/vm/run_service.sh
+#   • staging VM:   $NIDP_HOME/run_service.sh   (flattened — runs from dev-repo)
+# Resolve to whichever exists so VM-only jobs (e.g. pra_engine) trigger on both.
+# Falls back to the prod path when neither exists (Docker/dev → existence check
+# below routes to the in-process Python fallback).
+_RUN_SCRIPT_CANDIDATES = (
+    NIDP_HOME / "repo" / "backend" / "nidp" / "deploy" / "vm" / "run_service.sh",
+    NIDP_HOME / "run_service.sh",
+)
+RUN_SCRIPT = next((p for p in _RUN_SCRIPT_CANDIDATES if p.exists()), _RUN_SCRIPT_CANDIDATES[0])
 
 
 # Lock down ingester names to alnum + underscore so we can never shell-
