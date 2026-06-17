@@ -56,7 +56,10 @@ jobs:
             DEV_REPO=/opt/nidp/dev-repo/nivesh.ai
 
             # Git ≥2.35.2 rejects repos owned by a different user when running as the SA.
-            git config --global --add safe.directory "$DEV_REPO"
+            # Write the system gitconfig via sudo (the SSH user's ~/.gitconfig may be
+            # root-owned / unwritable under OS Login, which broke `--global` here).
+            sudo git config --system --add safe.directory "$DEV_REPO" 2>/dev/null \
+              || git config --global --add safe.directory "$DEV_REPO" || true
 
             log "=== NIDP STAGING deploy triggered by GitHub Actions ==="
             log "    Branch : $BRANCH"
@@ -99,6 +102,14 @@ jobs:
             docker restart nidp-daas-api-staging \
               && ok "nidp-daas-api-staging restarted." \
               || { echo "::warning::nidp-daas-api-staging not running — start it first on the VM"; }
+
+            # The staging Query API is a host systemd service (not in the daas
+            # container); restart it too so code changes under nidp/services/
+            # query_api/ (e.g. vm_ops.py) actually reload.
+            log "Restarting nidp-staging-query-api..."
+            sudo systemctl restart nidp-staging-query-api \
+              && ok "nidp-staging-query-api restarted." \
+              || { echo "::warning::nidp-staging-query-api restart failed"; }
 
             ok "NIDP STAGING deploy complete."
 
