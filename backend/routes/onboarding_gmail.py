@@ -273,6 +273,26 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         except Exception as e:  # noqa: BLE001
             logger.warning("auto-import: NSDL extractor error for %s, using casparser: %s", filename, e)
 
+        # CDSL custom extractor — reconciles the CDSL demat + folio layout that
+        # casparser silently halves (it drops the entire demat equity section).
+        if not holdings:
+            try:
+                from services import cdsl_cas_extractor as _cdsl
+                cext = _cdsl.extract_cdsl_cas(content, pan)
+                if cext.reconciled and cext.holdings:
+                    holdings = [h.as_holding_dict() for h in cext.holdings]
+                    nsdl_grand_total = cext.grand_total
+                    logger.info(
+                        "auto-import: CDSL custom extractor reconciled %d holdings (₹%s) for %s",
+                        len(holdings), cext.grand_total, user_id,
+                    )
+                else:
+                    logger.info(
+                        "auto-import: CDSL extractor did not reconcile %s — using casparser", filename,
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("auto-import: CDSL extractor error for %s, using casparser: %s", filename, e)
+
         if not holdings:
             # Fall back to the OFFLINE casparser library (pinned dependency, no
             # hosted casparser.in SDK / API key required — that plugin is not
@@ -551,6 +571,19 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
                 logger.warning("upload_cas_pdf: NSDL txn extract failed: %s", te)
     except Exception as e:  # noqa: BLE001
         logger.warning("upload_cas_pdf: NSDL extractor error, using offline casparser: %s", e)
+
+    # CDSL custom extractor — recovers the demat equity section casparser drops.
+    if not holdings:
+        try:
+            from services import cdsl_cas_extractor as _cdsl
+            cext = _cdsl.extract_cdsl_cas(content, pan)
+            if cext.reconciled and cext.holdings:
+                holdings = [h.as_holding_dict() for h in cext.holdings]
+                nsdl_grand_total = cext.grand_total
+                logger.info("upload_cas_pdf: CDSL custom extractor reconciled %d holdings (₹%s)",
+                            len(holdings), cext.grand_total)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("upload_cas_pdf: CDSL extractor error, using offline casparser: %s", e)
 
     if not holdings:
         try:
