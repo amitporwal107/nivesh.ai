@@ -642,6 +642,14 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
         {"$set": profile_update, "$setOnInsert": {"user_id": user_id, "created_at": now}},
         upsert=True,
     )
+
+    # Kick off the NIDP sync + PRA pipeline so the Risk screen populates —
+    # the Gmail / broker paths already do this; the file-upload path did not,
+    # leaving uploaded portfolios without risk data ("PRA has not run").
+    import asyncio as _aio
+    from routes.upload import _trigger_nidp_pipeline_background
+    _aio.create_task(_trigger_nidp_pipeline_background(user_id))
+
     return {
         "ok": True,
         "imported_holdings": len(holdings),
