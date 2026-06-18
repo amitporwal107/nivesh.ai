@@ -387,6 +387,26 @@ async def save_holdings(user_id: str, parsed: list, file_type: str, task_id: str
     """Save parsed holdings to DB. For CAS uploads, replaces ALL existing holdings."""
     is_cas = "cas" in file_type.lower()
 
+    # ── Masterdata enrichment (single chokepoint for ALL import paths) ──
+    # Resolve ISIN → real names + sectors before persisting, so demat/eCAS
+    # rows that arrive as raw ISINs ("INE364U01010", "INF879O01019") or
+    # garbled fragments are replaced with the actual company / fund (incl.
+    # AMC) name, and equity/MF sectors are classified. Every caller funnels
+    # through here (Gmail eCAS, broker, manual upload, CAS Connect), so this
+    # is the one place that guarantees no import path ships unresolved names.
+    # validate_and_enrich_holdings only overwrites names it judges garbled
+    # (too short, no letters, a raw ISIN, or a '#' glue artifact), so good
+    # user-entered names are preserved.
+    # Sector classification keys off the name, so it must run AFTER names
+    # are resolved. Enrichment failure must never block the save.
+    try:
+        from services.masterdata import validate_and_enrich_holdings
+        from services.equity_sectors import enrich_holdings_with_sectors
+        parsed = validate_and_enrich_holdings(parsed)
+        parsed = enrich_holdings_with_sectors(parsed)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("save_holdings: masterdata enrichment skipped: %s", e, extra={"user_id": user_id})
+
     old_count = 0
     if is_cas:
         delete_query = {"user_id": user_id}

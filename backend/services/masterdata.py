@@ -424,8 +424,25 @@ def validate_and_enrich_holdings(holdings: list) -> list:
         # 1. Check if ISIN exists in masterdata
         master = lookup_isin(isin)
         if master:
-            # Enrich garbled names
-            if len(name) < 5 or not any(c.isalpha() for c in name):
+            # Enrich garbled names. A name is "garbled" — and should be replaced
+            # with the authoritative masterdata name — when it is:
+            #   - too short / has no letters (legacy heuristic), OR
+            #   - the raw ISIN itself (12-char "IN.." code, e.g. demat eCAS rows
+            #     that arrive as "INF879O01019" / "INE364U01010"), OR
+            #   - a column-glue parsing artifact (contains '#', e.g.
+            #     "LIMITED#NEW EQUITY SHARES").
+            # An ISIN string passes the old len/alpha checks (12 chars, has
+            # letters), so without these extra cases the bad name survives.
+            name_clean = (name or "").strip()
+            is_isin_like = bool(re.fullmatch(r"[A-Za-z]{2}[A-Za-z0-9]{10}", name_clean))
+            is_garbled = (
+                len(name_clean) < 5
+                or not any(c.isalpha() for c in name_clean)
+                or "#" in name_clean
+                or is_isin_like
+                or name_clean.upper() == (isin or "").upper()
+            )
+            if is_garbled:
                 h["name"] = master["name"]
 
             # Attach MF classification metadata (plan/option)
