@@ -442,7 +442,18 @@ def validate_and_enrich_holdings(holdings: list) -> list:
                 or is_isin_like
                 or name_clean.upper() == (isin or "").upper()
             )
-            if is_garbled:
+            # A non-garbled name can still be a CAS-extractor truncation
+            # ("ICICI Prudential", "Mirae Asset Large", "Kotak Midcap Fund").
+            # The masterdata name is resolved by ISIN (unambiguous), so when it
+            # is materially longer, prefer it — that's the full canonical
+            # scheme/company name the user asked to see. This runs in the single
+            # import chokepoint (save_holdings → validate_and_enrich_holdings),
+            # so every consumer (Performance, X-ray, Portfolio, Copilot) gets
+            # canonical names. Mirrors the snapshot-load resolver
+            # (_resolve_full_scheme_name in cas_snapshot_engine).
+            master_name = (master.get("name") or "").strip()
+            is_truncated = bool(master_name) and len(master_name) > len(name_clean) + 4
+            if is_garbled or is_truncated:
                 h["name"] = master["name"]
 
             # Attach MF classification metadata (plan/option)
