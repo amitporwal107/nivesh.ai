@@ -56,7 +56,11 @@ _P_MF = re.compile(
     r"index\s+fund|elss|debt\s+fund|liquid\s+fund|"
     r"direct\s+plan|regular\s+plan|switch\s+to\s+direct|"
     r"expense\s+ratio|ter\b|fund\s+manager|"
-    r"too\s+many\s+(?:mutual\s+)?funds?|sip\s+allocation)\b",
+    r"too\s+many\s+(?:mutual\s+)?funds?|sip\s+allocation|"
+    # Single-fund card prompts (summary + overview/returns/holdings/peers tabs).
+    r"(?:overview|returns?|holdings?|ratios?|peers?|full\s+analysis|allocation)\s+of\s+\w|"
+    r"compare\s+.+\bwith\s+its\s+peers|\bwith\s+its\s+peers\b|"
+    r"balanced\s+advantage|blue\s*chip|start\s+a?\s*sip\s+in)\b",
     re.IGNORECASE,
 )
 
@@ -99,6 +103,13 @@ _P_PORTFOLIO = re.compile(
     r"realized\s+(?:vs|or)\s+unrealized|realised\s+(?:vs|or)\s+unrealised|"
     r"p\s*&\s*l|pnl|p_and_l|profit\s+and\s+loss|"
     r"earmark(?:ed)?|currency\s+exposure|india(?:.|-)?focus|"
+    # AMC / sector / company / fund-wise allocation drill-down (the user's
+    # portfolio, not live market sectors — anchored on allocation nouns so
+    # "which sector is up today" still routes to market_analyst).
+    r"(?:sector|amc|fund[\s-]?house|company|companies|fund[\s-]?wise)\s+(?:allocation|concentration|exposure|breakdown|distribution|weight|split|mix)|"
+    r"(?:allocation|concentration|exposure|distribution)\s+(?:of|by|across|per|within)\s+(?:sector|amc|compan|fund)|"
+    r"highest\s+(?:sector|amc|company|fund)?\s*(?:allocation|concentration|exposure)|"
+    r"which\s+(?:sector|amc|fund\s*house)\s+(?:has|have|do\s+i|am\s+i|holds?|is\s+(?:my\s+)?(?:highest|biggest|largest))|"
     r"(?:how\s+much|what)\s+(?:would|will)\s+i\s+(?:lose|gain))\b",
     re.IGNORECASE,
 )

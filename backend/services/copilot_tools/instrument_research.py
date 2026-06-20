@@ -442,7 +442,11 @@ def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[
         "meta": meta,
         "source": _SOURCE,
         "disclaimer_note": "Not investment advice",
-        "actions": [{"label": "Explain the score"}, {"label": "Compare peers"}, {"label": "Who holds it"}],
+        "actions": [
+            {"label": "Explain the score", "prompt": f"Explain {sym}'s score — what's driving the fundamentals and technicals?"},
+            {"label": "Compare peers", "prompt": f"Compare {sym} with its sector peers"},
+            {"label": "Who holds it", "prompt": f"Who holds {sym}? Show the shareholding pattern — promoters, FII and DII."},
+        ],
     }
     if close is not None:
         widget["price"] = {
@@ -786,22 +790,68 @@ def _mf_summary(scheme_code: str, w: Dict[str, Any]) -> str:
 
 
 async def get_mf_research(scheme_code: str) -> InstrumentResearch:
-    """Fetch + assemble the full research card for an MF scheme."""
+    """Fetch + assemble the full research (summary) card for an MF scheme."""
+    import asyncio
+
     code = str(scheme_code or "").strip()
     if not code:
         return InstrumentResearch(ok=False, kind="mf", identifier="", summary="", error="no_scheme_code")
     try:
-        sc = await _daas.get_mf_scorecard(code)
+        sc, scheme, nav_series = await asyncio.gather(
+            _daas.get_mf_scorecard(code),
+            _daas.get_mf_scheme(code),
+            _daas.get_mf_nav_series(code, limit=2),
+        )
     except Exception as exc:  # noqa: BLE001
         return InstrumentResearch(ok=False, kind="mf", identifier=code, summary="", error=str(exc))
+    sc = sc or {}
+    scheme = scheme or {}
+    nav_series = nav_series or []
 
-    if not sc:
+    if not sc and not scheme:
         return InstrumentResearch(
             ok=False, kind="mf", identifier=code,
             summary=f"No research data available for scheme {code}", error="not_found",
         )
 
     widget = build_mf_widget(code, sc)
+
+    # Enrich into the rich summary-card shape (prose, real NAV change, tab actions).
+    # Lazy import avoids a module-load cycle (mf_cards imports this module).
+    from .mf_cards import _clean_name, _nav_block, quartile_insights, _tabs
+    name = _clean_name(scheme.get("scheme_name") or widget.get("name") or "") or widget.get("name")
+    widget["name"] = name
+    nb = _nav_block(scheme, nav_series)
+    if nb:
+        widget["price"] = {"label": "NAV", **nb}
+
+    prose, _consider, _watch = quartile_insights(sc)
+    if prose:
+        widget["summary"] = prose
+
+    # Column badges (derived from real quartile / beta values, never invented).
+    q3 = sc.get("qtile_ret3y")
+    if q3 is not None:
+        try:
+            q3 = int(q3)
+            if q3 <= 1:
+                widget["returns_badge"] = {"text": "Top quartile", "tone": "pos"}
+            elif q3 == 2:
+                widget["returns_badge"] = {"text": "Above category", "tone": "pos"}
+            else:
+                widget["returns_badge"] = {"text": "Below category", "tone": "neg"}
+        except (TypeError, ValueError):
+            pass
+    beta = _pick(sc, "beta_3y", "beta_1y", "beta")
+    if beta is not None and beta < 0.85:
+        widget.setdefault("ratios", {})["badge"] = {"text": "Low beta", "tone": "pos"}
+
+    widget["tabs"] = _tabs(name, "summary")
+    widget["actions"] = [
+        {"label": "Compare peers", "prompt": f"Compare {name} with its peers."},
+        {"label": "Full analysis", "prompt": f"Show the overview of {name}."},
+    ]
+
     ok = bool(widget.get("quality") or widget.get("returns") or widget.get("fundamental"))
     return InstrumentResearch(
         ok=ok, kind="mf", identifier=code,

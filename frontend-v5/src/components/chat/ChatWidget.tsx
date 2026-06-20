@@ -866,7 +866,7 @@ interface InstrumentDetailData {
   ratios?: { title?: string; items?: { label: string; value: string }[] };
   disclaimer?: string;
   source?: string;
-  actions?: { label: string }[];
+  actions?: { label: string; prompt?: string }[];
   // Rich stock card (deterministic, built by build_stock_widget)
   summary?: string;
   scores?: {
@@ -881,7 +881,7 @@ interface InstrumentDetailData {
   disclaimer_note?: string;
 }
 
-function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
+function InstrumentDetailWidget({ data, onAction }: { data: InstrumentDetailData; onAction?: (a: WidgetAction) => void }) {
   if (!data || !data.name) return null;
   const isMf = data.kind === "mf";
   const badge = data.badge ?? (isMf ? "MUTUAL FUND" : "STOCK");
@@ -1085,7 +1085,13 @@ function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
           {data.actions?.length ? (
             <div className="flex flex-wrap gap-2 pt-3 justify-end">
               {data.actions.map((a, i) => (
-                <span key={i} className="rounded-full border border-hairline px-3.5 py-1.5 text-[12.5px] text-ink-2 bg-surface-1">{a.label} ↗</span>
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => onAction?.({ query: a.prompt ?? a.label })}
+                  disabled={!onAction}
+                  className="rounded-full border border-hairline px-3.5 py-1.5 text-[12.5px] text-ink-2 bg-surface-1 hover:bg-surface-2 hover:text-ink transition-colors disabled:opacity-60 disabled:cursor-default"
+                >{a.label} ↗</button>
               ))}
             </div>
           ) : null}
@@ -1321,6 +1327,334 @@ function GoalSimulationWidget({ data, onAction }: { data: any; onAction?: (a: Wi
   );
 }
 
+// ── mutual-fund cards ───────────────────────────────────────────────────────
+// Shared header (name + plan + NAV), tab bar (each tab re-prompts the chat), and
+// action chips that drive follow-up prompts via onAction({ query }).
+
+const ALLOC_HEX: Record<string, string> = {
+  Equity: "#6366F1", Debt: "#10B981", Cash: "#94A3B8", Derivatives: "#F59E0B", REITs: "#0EA5E9",
+};
+
+function MfHeader({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
+  const sub = [data.subtitle, data.risk].filter(Boolean).join(" · ");
+  return (
+    <>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-display text-[19px] text-ink tracking-tightish leading-snug">{data.name}</span>
+            <span className="shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide" style={{ background: "#E7EEF9", color: "#3E6CA8" }}>{data.badge ?? "MUTUAL FUND"}</span>
+            {data.plan && <span className="text-[12px] text-ink-3">{data.plan}</span>}
+          </div>
+          {sub && <div className="text-[13px] text-ink-2 mt-1">{sub}</div>}
+        </div>
+        {data.nav?.value && (
+          <div className="text-right shrink-0">
+            {data.nav.asof && <div className="text-[12px] text-ink-3">NAV · {data.nav.asof}</div>}
+            <div className="font-display text-[22px] text-ink tracking-tightish leading-tight">{data.nav.value}</div>
+            {data.nav.change && (
+              <div className={`text-[13px] font-medium ${data.nav.change_positive === false ? "text-neg" : "text-pos"}`}>{data.nav.change}</div>
+            )}
+          </div>
+        )}
+      </div>
+      {data.tabs?.length ? (
+        <div className="flex gap-1 flex-wrap border-b border-hairline -mt-1">
+          {data.tabs.map((t: any) => (
+            t.active ? (
+              <span key={t.key} className="px-3 py-2 text-[13px] font-medium text-ink border-b-2 border-warm -mb-px">{t.label}</span>
+            ) : (
+              <button key={t.key} onClick={() => onAction?.({ query: t.prompt })} className="px-3 py-2 text-[13px] text-ink-3 hover:text-ink transition-colors">{t.label}</button>
+            )
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function MfFooter({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
+  if (!data.source && !data.disclaimer_note && !data.actions?.length) return null;
+  return (
+    <div className="flex items-center justify-between gap-3 pt-3 border-t border-hairline">
+      <span className="text-[11.5px] text-ink-3">
+        {[data.source ? `Source: ${data.source}` : "", data.disclaimer_note].filter(Boolean).join(" · ")}
+      </span>
+      {data.actions?.length ? (
+        <div className="flex flex-wrap gap-2 justify-end">
+          {data.actions.map((a: any, i: number) => (
+            <button key={i} onClick={() => onAction?.({ query: a.prompt ?? a.label })}
+              className="rounded-full border border-hairline px-3.5 py-1.5 text-[12.5px] text-ink-2 bg-surface-1 hover:bg-surface-2 transition-colors">
+              {a.label} →
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** instrument_detail for kind="mf": rich summary card (mockup #1). */
+function MfSummaryWidget({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
+  if (!data || !data.name) return null;
+  const q = data.quality;
+  const returns = data.returns as { label: string; value: string; muted?: boolean }[] | undefined;
+  const ratios = data.ratios?.items as { label: string; value: string }[] | undefined;
+  return (
+    <div className="mt-1 w-full rounded-xl bg-surface-1 border border-hairline shadow-card p-5 sm:p-6 flex flex-col gap-5">
+      <MfHeader data={data} onAction={onAction} />
+
+      {q?.score != null && (
+        <div className="rounded-lg bg-surface-2/60 border border-hairline p-4 sm:p-5 flex items-start gap-4">
+          <div className="text-center shrink-0 w-[64px]">
+            <div className="font-display text-[34px] text-ink leading-none tracking-tightish">{q.score}</div>
+            <div className="text-[11px] text-ink-3 mt-0.5">/ 100</div>
+            <div className={`text-[12px] font-medium ${toneText(q.tone)}`}>{q.label}</div>
+          </div>
+          <div className="min-w-0 border-l border-hairline pl-4">
+            <div className="text-[12px] text-ink-3">Nivesh quality score</div>
+            {data.summary && <p className="text-[13.5px] text-ink-2 leading-relaxed mt-1">{data.summary}</p>}
+            {q.rank != null && q.of != null && (
+              <div className="text-[12px] text-ink-3 mt-2">Category rank #{q.rank} of {q.of}</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {(returns?.length || ratios?.length) ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
+          {returns?.length ? (
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <Heading>Returns</Heading>
+                {data.returns_badge && <ToneBadge text={data.returns_badge.text} tone={data.returns_badge.tone} />}
+              </div>
+              {returns.map((r, i) => (
+                <DetailRow key={i} label={r.label} value={r.value}
+                  tone={r.muted ? undefined : (String(r.value).trim().startsWith("-") ? "neg" : "pos")} />
+              ))}
+            </div>
+          ) : null}
+          {ratios?.length ? (
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <Heading>{data.ratios?.title ?? "Risk & cost"}</Heading>
+                {data.ratios?.badge && <ToneBadge text={data.ratios.badge.text} tone={data.ratios.badge.tone} />}
+              </div>
+              {ratios.map((r, i) => <DetailRow key={i} label={r.label} value={r.value} />)}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {data.disclaimer && (
+        <div className="rounded-lg bg-surface-2/60 border border-hairline px-4 py-3 text-[12px] text-ink-3 leading-relaxed">{data.disclaimer}</div>
+      )}
+      <MfFooter data={data} onAction={onAction} />
+    </div>
+  );
+}
+
+/** Stacked horizontal segment bar (asset allocation / market-cap). */
+function SegmentBar({ items }: { items: { label: string; pct: number }[] }) {
+  const total = items.reduce((s, i) => s + (i.pct || 0), 0) || 100;
+  return (
+    <div className="flex h-3 rounded-full overflow-hidden">
+      {items.map((it, i) => (
+        <div key={i} style={{ width: `${(it.pct / total) * 100}%`, background: ALLOC_HEX[it.label] ?? `hsl(${210 + i * 35} 55% 60%)` }} />
+      ))}
+    </div>
+  );
+}
+
+/** mf_detail: overview / returns / holdings / peers (mockups #2–#5). */
+function MfDetailWidget({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
+  if (!data || !data.name) return null;
+  const view = data.view;
+  return (
+    <div className="mt-1 w-full rounded-xl bg-surface-1 border border-hairline shadow-card p-5 sm:p-6 flex flex-col gap-5">
+      <MfHeader data={data} onAction={onAction} />
+
+      {data.summary && (
+        <div className="rounded-lg bg-surface-2/60 border border-hairline px-4 py-3">
+          <p className="text-[13.5px] text-ink-2 leading-relaxed">{data.summary}</p>
+        </div>
+      )}
+
+      {view === "overview" && (
+        <>
+          {data.quality?.score != null && (
+            <div className="flex items-center gap-4">
+              <ScoreDonut score={data.quality.score} tone={data.quality.tone} size={72} />
+              <div>
+                <div className={`font-display text-[18px] ${toneText(data.quality.tone)}`}>{data.quality.label}</div>
+                {data.quality.rank != null && <div className="text-[12px] text-ink-3 mt-0.5">Category rank #{data.quality.rank} of {data.quality.of}</div>}
+              </div>
+            </div>
+          )}
+          {data.facts?.length ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8">
+              {data.facts.map((f: any, i: number) => <DetailRow key={i} label={f.label} value={f.value} />)}
+            </div>
+          ) : null}
+          {data.returns_snapshot?.length ? (
+            <div>
+              <Heading>Returns <span className="text-[12.5px] text-ink-3 font-normal">· CAGR</span></Heading>
+              <div className="flex flex-wrap gap-2.5 mt-3">
+                {data.returns_snapshot.map((r: any, i: number) => (
+                  <StatTile key={i} label={r.label} value={r.value} center
+                    valueCls={String(r.value).trim().startsWith("-") ? "text-neg" : "text-pos"} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {(data.consider?.length || data.watch?.length) ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+              {data.consider?.length ? (
+                <div>
+                  <div className="text-[13px] font-medium text-pos mb-2">Reasons to consider</div>
+                  {data.consider.map((c: string, i: number) => (
+                    <div key={i} className="flex items-start gap-2 mb-1.5"><Dot tone="pos" square /><span className="text-[13px] text-ink-2 leading-snug">{c}</span></div>
+                  ))}
+                </div>
+              ) : null}
+              {data.watch?.length ? (
+                <div>
+                  <div className="text-[13px] font-medium text-warm mb-2">Watch-outs</div>
+                  {data.watch.map((c: string, i: number) => (
+                    <div key={i} className="flex items-start gap-2 mb-1.5"><Dot tone="warm" square /><span className="text-[13px] text-ink-2 leading-snug">{c}</span></div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {data.managers && (
+            <div className="text-[12.5px] text-ink-3">Fund managers: <span className="text-ink-2">{data.managers}</span></div>
+          )}
+        </>
+      )}
+
+      {view === "returns" && data.cagr?.length ? (
+        <div className="flex flex-col gap-4">
+          {(() => {
+            const vals = data.cagr.flatMap((r: any) => [r.fund, r.category].filter((v: any) => v != null));
+            const max = Math.max(...vals.map((v: number) => Math.abs(v)), 1);
+            return data.cagr.map((r: any, i: number) => (
+              <div key={i}>
+                <div className="text-[12.5px] text-ink-2 mb-1.5">{r.label}</div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="w-[68px] text-[11px] text-ink-3">Fund</span>
+                  <div className="flex-1"><Bar pct={(Math.abs(r.fund) / max) * 100} color={r.fund < 0 ? BAR.red : BAR.blue} /></div>
+                  <span className={`w-[52px] text-right text-[12px] font-medium ${r.fund < 0 ? "text-neg" : "text-ink"}`}>{r.fund}%</span>
+                </div>
+                {r.category != null && (
+                  <div className="flex items-center gap-2">
+                    <span className="w-[68px] text-[11px] text-ink-3">Category</span>
+                    <div className="flex-1"><Bar pct={(Math.abs(r.category) / max) * 100} color="#94A3B8" /></div>
+                    <span className="w-[52px] text-right text-[12px] text-ink-3">{r.category}%</span>
+                  </div>
+                )}
+              </div>
+            ));
+          })()}
+          {data.note && <p className="text-[11.5px] text-ink-3">{data.note}</p>}
+        </div>
+      ) : null}
+
+      {view === "holdings" && (
+        <>
+          {data.asset_allocation?.length ? (
+            <div>
+              <div className="flex items-center justify-between mb-2"><Heading>Asset allocation</Heading>{data.asof && <span className="text-[11.5px] text-ink-3">as of {data.asof}</span>}</div>
+              <SegmentBar items={data.asset_allocation} />
+              <div className="flex flex-wrap gap-x-5 gap-y-1 mt-2.5">
+                {data.asset_allocation.map((a: any, i: number) => (
+                  <span key={i} className="text-[12px] text-ink-2 flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: ALLOC_HEX[a.label] ?? `hsl(${210 + i * 35} 55% 60%)` }} />{a.label} {a.pct}%
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {data.top_holdings?.length ? (
+            <div>
+              <Heading>Top holdings <span className="text-[12.5px] text-ink-3 font-normal">· % of portfolio</span></Heading>
+              <div className="mt-2">
+                {data.top_holdings.map((h: any, i: number) => (
+                  <div key={i} className="flex items-center gap-3 py-2 border-b border-hairline last:border-0 text-[13px]">
+                    <span className="flex-1 text-ink-2 truncate">{h.name}</span>
+                    {h.sector && <span className="text-[11px] text-ink-3 w-20 truncate hidden sm:block">{h.sector}</span>}
+                    <span className="font-medium text-ink w-12 text-right">{h.weight}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {data.sectors?.length ? (
+            <div>
+              <Heading>Equity sectors</Heading>
+              <div className="mt-2 flex flex-col gap-2">
+                {(() => { const m = Math.max(...data.sectors.map((s: any) => s.pct), 1);
+                  return data.sectors.map((s: any, i: number) => (
+                    <div key={i} className="flex items-center gap-3 text-[12px]">
+                      <span className="w-24 text-ink-2 truncate">{s.label}</span>
+                      <div className="flex-1"><Bar pct={(s.pct / m) * 100} color={BAR.amber} /></div>
+                      <span className="w-12 text-right text-ink font-medium">{s.pct}%</span>
+                    </div>
+                  )); })()}
+              </div>
+            </div>
+          ) : null}
+          {data.debt_quality?.length ? (
+            <div>
+              <Heading>Debt quality</Heading>
+              <div className="mt-2 flex flex-col gap-2">
+                {(() => { const m = Math.max(...data.debt_quality.map((s: any) => s.pct), 1);
+                  return data.debt_quality.map((s: any, i: number) => (
+                    <div key={i} className="flex items-center gap-3 text-[12px]">
+                      <span className="w-24 text-ink-2 truncate">{s.label}</span>
+                      <div className="flex-1"><Bar pct={(s.pct / m) * 100} color={BAR.green} /></div>
+                      <span className="w-12 text-right text-ink font-medium">{s.pct}%</span>
+                    </div>
+                  )); })()}
+              </div>
+            </div>
+          ) : null}
+          {data.stats?.length ? (
+            <div className="flex flex-wrap gap-2.5">
+              {data.stats.map((s: any, i: number) => <StatTile key={i} label={s.label} value={s.value} center />)}
+            </div>
+          ) : null}
+        </>
+      )}
+
+      {view === "peers" && data.rows?.length ? (
+        <div>
+          <div className="flex items-center gap-2 px-3 pb-2 text-[11px] text-ink-3 border-b border-hairline">
+            <span className="flex-1">Fund</span>
+            <span className="w-16 text-right">AUM Cr</span>
+            <span className="w-12 text-right">1Y</span>
+            <span className="w-14 text-right">3Y</span>
+            <span className="w-12 text-right">Exp</span>
+          </div>
+          {data.rows.map((r: any, i: number) => (
+            <div key={i} className={`flex items-center gap-2 px-3 py-2.5 text-[13px] rounded-md ${r.is_current ? "bg-[rgb(var(--warm)/0.08)]" : ""}`}>
+              <span className={`flex-1 truncate ${r.is_current ? "text-ink font-medium" : "text-ink-2"}`}>{r.name}</span>
+              <span className="w-16 text-right text-ink-2">{r.aum != null ? Math.round(r.aum).toLocaleString("en-IN") : "—"}</span>
+              <span className={`w-12 text-right ${r.ret1y == null ? "text-ink-3" : r.ret1y < 0 ? "text-neg" : "text-pos"}`}>{r.ret1y != null ? `${r.ret1y.toFixed(1)}` : "—"}</span>
+              <span className={`w-14 text-right ${r.ret3y == null ? "text-ink-3" : r.ret3y < 0 ? "text-neg" : "text-pos"}`}>{r.ret3y != null ? `${r.ret3y.toFixed(1)}` : "—"}</span>
+              <span className="w-12 text-right text-ink-3">{r.ter != null ? `${r.ter.toFixed(2)}` : "—"}</span>
+            </div>
+          ))}
+          {data.caption && <p className="text-[11.5px] text-ink-3 mt-3">{data.caption}</p>}
+        </div>
+      ) : null}
+
+      <MfFooter data={data} onAction={onAction} />
+    </div>
+  );
+}
+
 // ── dispatcher ─────────────────────────────────────────────────────────────
 // `onAction` lets a widget's action chips drive a follow-up — the host passes a
 // handler that submits a chat query (or prefills the composer).
@@ -1336,7 +1670,10 @@ export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: stri
       case "cap_education":      return <CapEducationWidget data={widget.data} />;
       case "concentration":      return <ConcentrationWidget data={widget.data} />;
       case "allocation_review":  return <AllocationReviewWidget data={widget.data} />;
-      case "instrument_detail":  return <InstrumentDetailWidget data={widget.data} />;
+      case "instrument_detail":  return widget.data?.kind === "mf"
+                                   ? <MfSummaryWidget data={widget.data} onAction={onAction} />
+                                   : <InstrumentDetailWidget data={widget.data} onAction={onAction} />;
+      case "mf_detail":          return <MfDetailWidget data={widget.data} onAction={onAction} />;
       case "risk_assessment":    return <RiskAssessmentWidget data={widget.data} />;
       case "goal_simulation":    return <GoalSimulationWidget data={widget.data} onAction={onAction} />;
     }

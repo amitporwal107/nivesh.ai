@@ -105,6 +105,36 @@ def _is_cap_question(text: str) -> bool:
     return bool(_CAP_Q.search(text or ""))
 
 
+# Detects a single-fund query (vs portfolio-level overlap/count questions) and,
+# when present, WHICH detail card the user wants. Drives name→scheme_code
+# resolution and the instrument_detail / mf_detail widget choice.
+_SINGLE_FUND_Q = re.compile(
+    r"tell me about|good fund|should i (?:invest in|continue|buy|hold|pick)|"
+    r"start\s+a?\s*sip\s+in|direct\s+(?:or|vs)\s+regular\s+plan|"
+    r"(?:overview|returns?|holdings?|ratios?|peers?|full\s+analysis|allocation)\s+of\s+\w|"
+    r"with\s+its\s+peers|full\s+analysis",
+    re.IGNORECASE,
+)
+_V_PEERS = re.compile(r"\bpeers?\b|compare\b.+\b(?:with|to|vs|versus)\b|\bversus\b", re.IGNORECASE)
+_V_HOLDINGS = re.compile(r"\bholdings?\b|what\s+does\s+it\s+(?:own|hold)|\ballocation\b|sector\s+breakdown", re.IGNORECASE)
+_V_RETURNS = re.compile(r"\breturns?\b|\bcagr\b|trailing|\bperformance\s+(?:across|over)", re.IGNORECASE)
+_V_OVERVIEW = re.compile(r"\boverview\b|full\s+analysis", re.IGNORECASE)
+
+
+def _detect_mf_view(text: str) -> str | None:
+    """Map a prompt to a detail view, or None for the default summary card."""
+    t = text or ""
+    if _V_PEERS.search(t):
+        return "peers"
+    if _V_HOLDINGS.search(t):
+        return "holdings"
+    if _V_RETURNS.search(t):
+        return "returns"
+    if _V_OVERVIEW.search(t):
+        return "overview"
+    return None
+
+
 # Plain-text answer format for "do I have too many funds?" and similar
 # count/portfolio-size questions. Replaces the default markdown style because
 # the V5 chat surface renders Markdown as literal characters.
@@ -345,9 +375,6 @@ def _build_intel_context(results: list[ToolResult]) -> str:
 
 
 async def mf_node(state: CopilotState) -> dict:
-    tool_results = await _fetch_mf_data(state)
-    tool_context = _build_intel_context(tool_results)
-
     user_msg = next(
         (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
         "Tell me about mutual funds",
@@ -361,6 +388,28 @@ async def mf_node(state: CopilotState) -> dict:
     is_severity = _is_severity_question(user_msg)
     is_fix = _is_fix_question(user_msg)
     style = _COUNT_FORMAT if is_count else (_FIX_FORMAT if (is_fix or is_severity) else _SYSTEM)
+
+    # Single-fund query? (distinct from portfolio overlap/count). If so, figure
+    # out the detail view and resolve a fund NAME → scheme_code so the card
+    # builders have a code to query (the intent node only catches 6-digit codes).
+    is_portfolio_q = is_count or is_fix or is_severity or is_cap
+    mf_view = _detect_mf_view(user_msg)
+    is_single_fund = (not is_portfolio_q) and bool(mf_view or _SINGLE_FUND_Q.search(user_msg))
+
+    scheme_code = state.intent.scheme_code if state.intent else None
+    if is_single_fund and not scheme_code:
+        try:
+            from services.copilot_tools.scheme_resolver import resolve_scheme
+            match = await resolve_scheme(user_msg)
+            if match:
+                scheme_code = match.scheme_code
+                if state.intent is not None:
+                    state.intent.scheme_code = scheme_code  # so _fetch_mf_data queries it
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("mf scheme resolution failed: %s", exc)
+
+    tool_results = await _fetch_mf_data(state)
+    tool_context = _build_intel_context(tool_results)
 
     widget_type = WidgetType.NONE
     widget_data: dict = {}
@@ -387,26 +436,33 @@ async def mf_node(state: CopilotState) -> dict:
         from services.copilot_tools.portfolio import build_overlap_widget
         widget_type = WidgetType.FUND_OVERLAP
         widget_data = build_overlap_widget(overlap_tr)
-    else:
+    elif not is_single_fund:
         for tr in tool_results:
             if tr.widget_type and tr.widget_type != WidgetType.NONE:
                 widget_type = tr.widget_type
                 widget_data = {"rows": tr.rows, **tr.data}
                 break
 
-    # Single-scheme research question ("tell me about / is this a good fund?")
-    # → render the instrument_detail card (quality score, category rank,
-    # trailing returns, fundamental + technical, risk ratios).
-    scheme_code = state.intent.scheme_code if state.intent else None
-    if widget_type == WidgetType.NONE and scheme_code and not (is_count or is_fix or is_severity or is_cap):
+    # Single-fund card. A specific view ("show the holdings of X") → the mf_detail
+    # widget; otherwise the instrument_detail summary card. Holdings is gated on
+    # real rows inside get_mf_card — when the AMC-holdings feed is empty we emit
+    # NO widget and let the narrative explain it.
+    if widget_type == WidgetType.NONE and scheme_code and is_single_fund:
         try:
-            from services.copilot_tools.instrument_research import get_mf_research
-            research = await get_mf_research(scheme_code)
-            if research.ok and research.widget:
-                widget_type = WidgetType.INSTRUMENT_DETAIL
-                widget_data = research.widget
+            if mf_view:
+                from services.copilot_tools.mf_cards import get_mf_card
+                card = await get_mf_card(scheme_code, mf_view)
+                if card.ok and card.widget:
+                    widget_type = WidgetType.MF_DETAIL
+                    widget_data = card.widget
+            else:
+                from services.copilot_tools.instrument_research import get_mf_research
+                research = await get_mf_research(scheme_code)
+                if research.ok and research.widget:
+                    widget_type = WidgetType.INSTRUMENT_DETAIL
+                    widget_data = research.widget
         except Exception as exc:  # noqa: BLE001
-            logger.warning("mf research fetch failed for %s: %s", scheme_code, exc)
+            logger.warning("mf card build failed for %s (%s): %s", scheme_code, mf_view, exc)
 
     # Widget data is ready (built from the tools, not the LLM) — push it now so
     # the client renders it first and streams the narrative underneath.

@@ -49,18 +49,9 @@ function relTime(iso?: string): string {
 
 export default function ChatPage() {
   const [composer, setComposer] = useState("");
-  // Prefill the composer from a `?q=` deep-link (e.g. Markets "Explore" chips).
-  // One-shot: consume the param so it doesn't re-apply on later renders.
+  // `?q=` deep-link (e.g. Markets "Explore" chips) → auto-send once on mount.
   const [searchParams, setSearchParams] = useSearchParams();
-  useEffect(() => {
-    const q = searchParams.get("q");
-    if (q) {
-      setComposer((cur) => cur || q);
-      searchParams.delete("q");
-      setSearchParams(searchParams, { replace: true });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const autoSentRef = useRef(false);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [historyOpen, setHistoryOpen] = useState(false); // mobile drawer
   // Icon-only collapse of the history rail (desktop), persisted across sessions.
@@ -145,6 +136,19 @@ export default function ChatPage() {
     setComposer("");
     await submitMessage(text);
   };
+
+  // Auto-send a `?q=` deep-link once, then strip it from the URL so a
+  // refresh doesn't re-fire. Defined after submitMessage so it can call it.
+  useEffect(() => {
+    if (autoSentRef.current) return;
+    const q = searchParams.get("q");
+    if (!q) return;
+    autoSentRef.current = true;
+    searchParams.delete("q");
+    setSearchParams(searchParams, { replace: true });
+    void submitMessage(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Widget action chips → drive a follow-up. Some send immediately; "recalc"
   // prefills the composer so the user can type their real SIP amount.

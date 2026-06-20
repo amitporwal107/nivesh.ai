@@ -255,6 +255,109 @@ async def get_mf_events(scheme_code: str, limit: int = 20) -> list[Dict[str, Any
     return rows if isinstance(rows, list) else []
 
 
+# ── MF card support (summary + overview/returns/holdings/peers detail views) ──
+
+async def search_mf_schemes(q: str, limit: int = 8) -> list[Dict[str, Any]]:
+    """Resolve a scheme NAME (substring, case-insensitive) to scheme master rows.
+
+    Calls GET /mf/schemes?q=<name>&status=active (nidp.mf_scheme_master). Each row
+    has scheme_code, scheme_name, amc_name, isin_growth, scheme_category, latest_nav.
+    Returns an empty list on 404 / connectivity failure so callers degrade rather
+    than raise. Results are AMFI-ordered by scheme_name.
+    """
+    q = (q or "").strip()
+    if not q:
+        return []
+    try:
+        data = await _get("/mf/schemes", params={"q": q, "status": "active", "limit": limit})
+    except DaasError as exc:
+        logger.debug("search_mf_schemes(%r): %s", q[:40], exc)
+        return []
+    if not data:
+        return []
+    rows = data.get("data") or data.get("rows") or []
+    return rows if isinstance(rows, list) else []
+
+
+async def get_mf_scheme(scheme_code: str) -> Optional[Dict[str, Any]]:
+    """Single scheme detail + latest disclosure (benchmark, managers, TER, risk, AUM).
+
+    Calls GET /mf/schemes/{scheme_code}. Many disclosure fields can be null when the
+    AMC-disclosure feed has not populated them — callers must omit, never default.
+    Returns None on 404 / connectivity failure.
+    """
+    data = await _get(f"/mf/schemes/{scheme_code}")
+    if data is None:
+        return None
+    return data.get("data") or data
+
+
+async def get_mf_nav_series(scheme_code: str, limit: int = 2) -> list[Dict[str, Any]]:
+    """Recent NAV rows (newest first) — used to derive the daily NAV change %.
+
+    Calls GET /mf/nav/{scheme_code}?limit=<n>. Returns [] on failure.
+    """
+    data = await _get(f"/mf/nav/{scheme_code}", params={"limit": limit})
+    if data is None:
+        return []
+    rows = data.get("data") or data.get("rows") or []
+    return rows if isinstance(rows, list) else []
+
+
+async def get_mf_holdings(
+    scheme_code: str,
+    instrument_type: Optional[str] = None,
+    limit: int = 400,
+) -> list[Dict[str, Any]]:
+    """Per-security monthly holdings (weight DESC).
+
+    Calls GET /mf/holdings/{scheme_code}. Each row: security_name, security_isin,
+    instrument_type, sector, rating, quantity, market_value_inr, weight_pct.
+    Returns [] on 404 (no holdings) OR HTTP 500 (the AMC-holdings feed is currently
+    unreliable) so the caller can gate the holdings view on a non-empty list.
+    """
+    params: Dict[str, Any] = {"limit": limit}
+    if instrument_type:
+        params["instrument_type"] = instrument_type
+    try:
+        data = await _get(f"/mf/holdings/{scheme_code}", params=params)
+    except DaasError as exc:
+        logger.debug("get_mf_holdings(%s): %s", scheme_code, exc)
+        return []
+    if not data:
+        return []
+    rows = data.get("data") or data.get("rows") or []
+    return rows if isinstance(rows, list) else []
+
+
+async def get_mf_category_scorecard(
+    sub_category: str,
+    sort_by: str = "aum",
+    limit: int = 12,
+) -> list[Dict[str, Any]]:
+    """Composite-scored category leaderboard (peers).
+
+    Calls GET /mf/performance/scorecard/category/{sub_category} (ILIKE match on
+    nidp.v_mf_category_scorecard). Each row has scheme_code, scheme_name, aum_cr,
+    return_1y, return_3y, ter, composite_score, quality_label. Returns [] on 404.
+    """
+    sub = (sub_category or "").strip()
+    if not sub:
+        return []
+    try:
+        data = await _get(
+            f"/mf/performance/scorecard/category/{sub}",
+            params={"sort_by": sort_by, "limit": limit},
+        )
+    except DaasError as exc:
+        logger.debug("get_mf_category_scorecard(%r): %s", sub[:40], exc)
+        return []
+    if not data:
+        return []
+    rows = data.get("data") or data.get("rows") or []
+    return rows if isinstance(rows, list) else []
+
+
 async def get_price_latest(symbol: str) -> Optional[float]:
     """Fetch the latest EOD close price for a single NSE symbol from NIDP.
 
