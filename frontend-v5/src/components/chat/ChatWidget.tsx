@@ -7,7 +7,7 @@
  * build_consolidation_widget / build_overlap_widget). Unknown types render
  * nothing (the text bubble still shows).
  */
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { cn } from "@/lib/utils";
 import { TypedText } from "@/components/chat/TypedHeadline";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
@@ -851,6 +851,91 @@ function PricePositionBar({ pp }: { pp: PricePosition }) {
   );
 }
 
+/** mini bar coloured by score band — used by the score-breakdown pillars. */
+function scoreColor(s: number): string {
+  return s >= 60 ? BAR.green : s >= 40 ? BAR.amber : BAR.red;
+}
+
+function PillarBars({ pillars }: { pillars?: { label: string; score: number }[] }) {
+  if (!pillars?.length) return null;
+  return (
+    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2">
+      {pillars.map((p, i) => (
+        <div key={i}>
+          <div className="flex justify-between text-[12px] text-ink-3"><span>{p.label}</span><span className="text-ink-2">{p.score}</span></div>
+          <div className="mt-0.5"><Bar pct={p.score} color={scoreColor(p.score)} /></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ScoreBreakdownPanel({ b }: { b: NonNullable<InstrumentDetailData["score_breakdown"]> }) {
+  const w = b.weights ?? {};
+  const seg = (label: string, key: string, node?: { score?: number; pillars?: { label: string; score: number }[] }) =>
+    node?.score == null ? null : (
+      <div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[13.5px] text-ink">{label}{w[key] != null ? <span className="text-[12px] text-ink-3"> · {w[key]}% of quality</span> : null}</span>
+          <span className="text-[13px] font-medium text-ink-2">{node.score}/100</span>
+        </div>
+        <PillarBars pillars={node.pillars} />
+      </div>
+    );
+  return (
+    <div className="flex flex-col gap-4">
+      {seg("Fundamentals", "fundamental", b.fundamental)}
+      {seg("Technicals", "technical", b.technical)}
+      {seg("Business cycle", "cycle", b.cycle)}
+    </div>
+  );
+}
+
+function PeersPanel({ p }: { p: NonNullable<InstrumentDetailData["peers"]> }) {
+  const rows = p.rows ?? [];
+  return (
+    <div>
+      {p.current_rank != null && p.total != null && (
+        <div className="text-[12.5px] text-ink-3 mb-2.5">Ranked #{p.current_rank} of {p.total}{p.sector ? ` in ${p.sector}` : ""} by quality score</div>
+      )}
+      <div className="flex flex-col gap-1.5">
+        {rows.map((r, i) => (
+          <div key={i} className={`flex items-center gap-3 rounded-md px-2.5 py-1.5 ${r.is_current ? "bg-surface-2 border border-hairline" : ""}`}>
+            <span className={`text-[13px] w-28 shrink-0 truncate ${r.is_current ? "font-semibold text-ink" : "text-ink-2"}`}>{r.symbol}</span>
+            <div className="flex-1 min-w-0"><Bar pct={r.quality} color={scoreColor(r.quality)} /></div>
+            <span className="text-[13px] font-medium text-ink w-7 text-right">{r.quality}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ShareholdingPanel({ s }: { s: NonNullable<InstrumentDetailData["shareholding"]> }) {
+  const rows = s.rows ?? [];
+  return (
+    <div>
+      <div className="flex flex-col gap-2.5">
+        {rows.map((r, i) => (
+          <div key={i}>
+            <div className="flex justify-between text-[13px]">
+              <span className="text-ink-2">{r.label}</span>
+              <span className="text-ink">{r.value}{r.change ? <span className={`ml-2 text-[12px] ${r.change_positive === false ? "text-neg" : "text-pos"}`}>{r.change}</span> : null}</span>
+            </div>
+            <div className="mt-1"><Bar pct={r.pct} color={BAR.blue} /></div>
+          </div>
+        ))}
+      </div>
+      {(s.pledge || s.as_of) && (
+        <div className="flex justify-between text-[12px] text-ink-3 mt-3">
+          {s.pledge ? <span>Promoter pledge: <span className={toneText(s.pledge.tone)}>{s.pledge.value}</span></span> : <span />}
+          {s.as_of ? <span>As of {s.as_of}</span> : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface InstrumentDetailData {
   kind?: "stock" | "mf";
   name?: string;
@@ -866,7 +951,7 @@ interface InstrumentDetailData {
   ratios?: { title?: string; items?: { label: string; value: string }[] };
   disclaimer?: string;
   source?: string;
-  actions?: { label: string; prompt?: string }[];
+  actions?: { label: string; expands?: string }[];
   // Rich stock card (deterministic, built by build_stock_widget)
   summary?: string;
   scores?: {
@@ -879,9 +964,28 @@ interface InstrumentDetailData {
   price_position?: PricePosition;
   technicals_cards?: { label: string; value: string; note?: string; tone?: string }[];
   disclaimer_note?: string;
+  // Inline expansions (toggled by the action buttons)
+  score_breakdown?: {
+    weights?: Record<string, number>;
+    fundamental?: { score?: number; pillars?: { label: string; score: number }[] };
+    technical?: { score?: number; pillars?: { label: string; score: number }[] };
+    cycle?: { score?: number; pillars?: { label: string; score: number }[] };
+  };
+  peers?: {
+    sector?: string;
+    total?: number;
+    current_rank?: number;
+    rows?: { symbol: string; quality: number; industry?: string; market_cap?: string; is_current?: boolean }[];
+  };
+  shareholding?: {
+    rows?: { label: string; pct: number; value: string; change?: string; change_positive?: boolean }[];
+    pledge?: { value: string; tone?: string };
+    as_of?: string;
+  };
 }
 
-function InstrumentDetailWidget({ data, onAction }: { data: InstrumentDetailData; onAction?: (a: WidgetAction) => void }) {
+function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
+  const [open, setOpen] = useState<string | null>(null);
   if (!data || !data.name) return null;
   const isMf = data.kind === "mf";
   const badge = data.badge ?? (isMf ? "MUTUAL FUND" : "STOCK");
@@ -1076,25 +1180,38 @@ function InstrumentDetailWidget({ data, onAction }: { data: InstrumentDetailData
         <div className="rounded-lg bg-surface-2/60 border border-hairline px-4 py-3 text-[12px] text-ink-3 leading-relaxed">{data.disclaimer}</div>
       )}
 
-      {/* Footer */}
-      {(data.source || data.disclaimer_note || data.actions?.length) && (
-        <div className="flex items-center justify-between gap-3 pt-1 border-t border-hairline -mb-0.5">
-          <span className="text-[11.5px] text-ink-3 pt-3">
-            {[data.source ? `Source: ${data.source}` : "", data.disclaimer_note].filter(Boolean).join(" · ")}
-          </span>
-          {data.actions?.length ? (
-            <div className="flex flex-wrap gap-2 pt-3 justify-end">
-              {data.actions.map((a, i) => (
+      {/* Action buttons — toggle an inline detail section */}
+      {data.actions?.length ? (
+        <div>
+          <div className="flex flex-wrap gap-2">
+            {data.actions.map((a, i) => {
+              const isOpen = !!a.expands && open === a.expands;
+              return (
                 <button
                   key={i}
                   type="button"
-                  onClick={() => onAction?.({ query: a.prompt ?? a.label })}
-                  disabled={!onAction}
-                  className="rounded-full border border-hairline px-3.5 py-1.5 text-[12.5px] text-ink-2 bg-surface-1 hover:bg-surface-2 hover:text-ink transition-colors disabled:opacity-60 disabled:cursor-default"
-                >{a.label} ↗</button>
-              ))}
+                  onClick={() => a.expands && setOpen(isOpen ? null : a.expands!)}
+                  aria-expanded={isOpen}
+                  className={`rounded-full border px-3.5 py-1.5 text-[12.5px] transition-colors ${isOpen ? "border-ink-3 bg-surface-2 text-ink" : "border-hairline bg-surface-1 text-ink-2 hover:bg-surface-2 hover:text-ink"}`}
+                >{a.label} {isOpen ? "▲" : "▾"}</button>
+              );
+            })}
+          </div>
+          {open && (data.score_breakdown || data.peers || data.shareholding) ? (
+            <div className="mt-3 rounded-lg bg-surface-2/40 border border-hairline p-4">
+              {open === "score_breakdown" && data.score_breakdown ? <ScoreBreakdownPanel b={data.score_breakdown} />
+                : open === "peers" && data.peers ? <PeersPanel p={data.peers} />
+                : open === "shareholding" && data.shareholding ? <ShareholdingPanel s={data.shareholding} />
+                : null}
             </div>
           ) : null}
+        </div>
+      ) : null}
+
+      {/* Footer */}
+      {(data.source || data.disclaimer_note) && (
+        <div className="text-[11.5px] text-ink-3 pt-3 border-t border-hairline -mb-0.5">
+          {[data.source ? `Source: ${data.source}` : "", data.disclaimer_note].filter(Boolean).join(" · ")}
         </div>
       )}
     </div>
@@ -1672,7 +1789,7 @@ export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: stri
       case "allocation_review":  return <AllocationReviewWidget data={widget.data} />;
       case "instrument_detail":  return widget.data?.kind === "mf"
                                    ? <MfSummaryWidget data={widget.data} onAction={onAction} />
-                                   : <InstrumentDetailWidget data={widget.data} onAction={onAction} />;
+                                   : <InstrumentDetailWidget data={widget.data} />;
       case "mf_detail":          return <MfDetailWidget data={widget.data} onAction={onAction} />;
       case "risk_assessment":    return <RiskAssessmentWidget data={widget.data} />;
       case "goal_simulation":    return <GoalSimulationWidget data={widget.data} onAction={onAction} />;

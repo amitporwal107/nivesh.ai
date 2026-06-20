@@ -174,6 +174,33 @@ async def get_stock_scores(symbol: str) -> Optional[Dict[str, Any]]:
     return data.get("data") or None
 
 
+async def get_sector_peers(sector: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """Latest V3 scores for every stock in a sector, ranked by quality_score.
+
+    Calls GET /v1/stocks/scores/ (the screener) filtered by sector. Used to build
+    the in-card peer comparison. min_quality_coverage=0 so the full peer set is
+    returned (ranking is by quality_score among whoever has one). Returns [] on
+    any failure so the caller omits the peers section rather than fabricate it.
+    """
+    if not sector:
+        return []
+    try:
+        data = await _get("/stocks/scores/", params={
+            "sector": sector,
+            "sort_by": "quality_score",
+            "sort_desc": "true",
+            "min_quality_coverage": 0,
+            "limit": limit,
+        })
+    except DaasError as exc:
+        logger.debug("get_sector_peers(%s): %s", sector, exc)
+        return []
+    if not isinstance(data, dict):
+        return []
+    rows = data.get("data")
+    return rows if isinstance(rows, list) else []
+
+
 async def get_quarterly_financials(
     symbol: str,
     limit: int = 8,

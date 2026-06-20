@@ -403,7 +403,124 @@ def _prose_summary(feat: Dict[str, Any], close: Optional[float],
     return out or None
 
 
-def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _humanize(key: str) -> str:
+    return key.replace("_", " ").strip().capitalize()
+
+
+def _build_shareholding(feat: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """'Who holds it' — promoter/FII/DII/MF holdings + QoQ deltas + pledge.
+    Read straight from the latest stock features (shareholding feed)."""
+    defs = [
+        ("Promoters", "promoter_pct", "promoter_pct_change_qoq"),
+        ("FII", "fii_pct", "fii_pct_change_qoq"),
+        ("DII", "dii_pct", "dii_pct_change_qoq"),
+        ("Mutual funds", "mf_pct", None),
+    ]
+    rows: List[Dict[str, Any]] = []
+    for label, pk, ck in defs:
+        v = _num(feat.get(pk))
+        if v is None:
+            continue
+        row: Dict[str, Any] = {"label": label, "pct": round(v, 2), "value": _pct(v, decimals=2)}
+        if ck:
+            c = _num(feat.get(ck))
+            if c is not None and abs(c) >= 0.01:
+                row["change"] = _pct(c, signed=True, decimals=2)
+                row["change_positive"] = c >= 0
+        rows.append(row)
+    if not rows:
+        return None
+    out: Dict[str, Any] = {"rows": rows}
+    pledge = _num(feat.get("promoter_pledged_pct"))
+    if pledge is not None:
+        out["pledge"] = {"value": _pct(pledge, decimals=2), "tone": "neg" if pledge > 0 else "pos"}
+    asof = _fmt_asof(feat.get("shareholding_period_end"))
+    if asof:
+        out["as_of"] = asof
+    return out
+
+
+def _build_score_breakdown(scores: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """'Explain the score' — the real V3 pillar breakdown from quality_components
+    (a JSONB blob, sometimes a JSON string). Drops the `_`-prefixed debug keys."""
+    qc = scores.get("quality_components")
+    if isinstance(qc, str):
+        try:
+            qc = json.loads(qc)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(qc, dict):
+        return None
+
+    def pillars(node: Any) -> List[Dict[str, Any]]:
+        p = (node or {}).get("pillars") if isinstance(node, dict) else None
+        if not isinstance(p, dict):
+            return []
+        return [
+            {"label": _humanize(k), "score": int(round(v))}
+            for k, v in p.items()
+            if not k.startswith("_") and isinstance(v, (int, float))
+        ]
+
+    fund = qc.get("fundamental") if isinstance(qc.get("fundamental"), dict) else {}
+    tech = qc.get("technical") if isinstance(qc.get("technical"), dict) else {}
+    cyc = qc.get("cycle_position") if isinstance(qc.get("cycle_position"), dict) else {}
+    weights = qc.get("weights") if isinstance(qc.get("weights"), dict) else {}
+
+    out: Dict[str, Any] = {}
+    if weights:
+        out["weights"] = {k: round(v * 100) for k, v in weights.items() if isinstance(v, (int, float))}
+    fs, ts = _num(fund.get("score")), _num(tech.get("score"))
+    if fs is not None:
+        out["fundamental"] = {"score": int(round(fs)), "pillars": pillars(fund)}
+    if ts is not None:
+        out["technical"] = {"score": int(round(ts)), "pillars": pillars(tech)}
+    cs = _num(cyc.get("score"))
+    if cs is not None:
+        out["cycle"] = {"score": int(round(cs)), "pillars": pillars(cyc)}
+    if not (out.get("fundamental") or out.get("technical")):
+        return None
+    return out
+
+
+def _build_peers(sym: str, sector: Optional[str], rows: Optional[List[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
+    """'Compare peers' — same-sector stocks ranked by quality_score, with the
+    current stock flagged. Peer rows come from the DaaS screener (already sorted
+    desc by quality). Shows the top peers but always includes the current stock."""
+    if not rows:
+        return None
+    peers: List[Dict[str, Any]] = []
+    for r in rows:
+        q = _num(r.get("quality_score"))
+        psym = r.get("symbol")
+        if q is None or not psym:
+            continue
+        peers.append({
+            "symbol": psym,
+            "quality": int(round(q)),
+            "industry": r.get("industry"),
+            "market_cap": _cap_label(r),
+            "is_current": psym.upper() == sym.upper(),
+        })
+    if not peers:
+        return None
+    peers.sort(key=lambda p: p["quality"], reverse=True)
+    current_rank = next((i + 1 for i, p in enumerate(peers) if p["is_current"]), None)
+    top = peers[:8]
+    if not any(p["is_current"] for p in top):
+        cur = next((p for p in peers if p["is_current"]), None)
+        if cur:
+            top = top[:7] + [cur]
+    out: Dict[str, Any] = {"rows": top, "total": len(peers)}
+    if sector:
+        out["sector"] = sector
+    if current_rank is not None:
+        out["current_rank"] = current_rank
+    return out
+
+
+def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[str, Any]],
+                       peers: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Assemble the rich instrument_detail widget for a stock. Pure function.
 
     `feat`  : /v1/features/stocks/{symbol}/latest .data  (technical + fundamental)
@@ -442,11 +559,6 @@ def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[
         "meta": meta,
         "source": _SOURCE,
         "disclaimer_note": "Not investment advice",
-        "actions": [
-            {"label": "Explain the score", "prompt": f"Explain {sym}'s score — what's driving the fundamentals and technicals?"},
-            {"label": "Compare peers", "prompt": f"Compare {sym} with its sector peers"},
-            {"label": "Who holds it", "prompt": f"Who holds {sym}? Show the shareholding pattern — promoters, FII and DII."},
-        ],
     }
     if close is not None:
         widget["price"] = {
@@ -572,6 +684,29 @@ def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[
     if cards:
         widget["technicals_cards"] = cards
 
+    # Expandable detail sections (shown inline when the matching action is
+    # clicked). Each is omitted when its data is unavailable.
+    breakdown = _build_score_breakdown(scores)
+    if breakdown:
+        widget["score_breakdown"] = breakdown
+    peers_block = _build_peers(sym, sector, peers)
+    if peers_block:
+        widget["peers"] = peers_block
+    shareholding = _build_shareholding(feat)
+    if shareholding:
+        widget["shareholding"] = shareholding
+
+    # Action buttons expand the sections above — only offer ones we have data for.
+    actions: List[Dict[str, Any]] = []
+    if breakdown:
+        actions.append({"label": "Explain the score", "expands": "score_breakdown"})
+    if peers_block:
+        actions.append({"label": "Compare peers", "expands": "peers"})
+    if shareholding:
+        actions.append({"label": "Who holds it", "expands": "shareholding"})
+    if actions:
+        widget["actions"] = actions
+
     return widget
 
 
@@ -649,7 +784,18 @@ async def get_stock_research(symbol: str) -> InstrumentResearch:
         if prev_close is not None and gap_ok:
             feat["prev_close"] = prev_close
 
-    widget = build_stock_widget(sym, feat or {}, scores)
+    # Peers (for the 'Compare peers' expansion) — needs the sector, which only
+    # comes back with feat/scores, so this is a second hop. Best-effort: [] on
+    # any failure just omits the section.
+    sector = (feat or {}).get("sector") or (scores or {}).get("sector")
+    peers: list = []
+    if sector:
+        try:
+            peers = await _daas.get_sector_peers(sector)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("get_sector_peers(%s) failed: %s", sector, exc)
+
+    widget = build_stock_widget(sym, feat or {}, scores, peers=peers)
     ok = bool(
         widget.get("quality") or widget.get("scores")
         or widget.get("fundamentals_grid") or widget.get("technicals_cards")

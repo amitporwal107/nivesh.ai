@@ -37,6 +37,16 @@ _FEAT = {
     "return_20d_pct": 2.1,
     "return_60d_pct": -1.0,
     "piotroski_score": 6,
+    # shareholding feed (for the 'Who holds it' expansion)
+    "promoter_pct": 50.3,
+    "promoter_pct_change_qoq": 0.0,
+    "fii_pct": 18.7,
+    "fii_pct_change_qoq": -0.4,
+    "dii_pct": 20.5,
+    "dii_pct_change_qoq": 0.36,
+    "mf_pct": 12.1,
+    "promoter_pledged_pct": 0.0,
+    "shareholding_period_end": "2026-03-31",
 }
 _SCORES = {
     "quality_score": 49,
@@ -44,7 +54,20 @@ _SCORES = {
     "fundamental_score": 68,
     "sector_rank": 8,
     "sector_size": 20,
+    # nested V3 composites (for the 'Explain the score' expansion)
+    "quality_components": {
+        "weights": {"cycle": 0.2, "technical": 0.3, "fundamental": 0.5},
+        "fundamental": {"score": 66.9, "pillars": {"valuation": 33.0, "governance": 72.9, "balance_sheet": 77.2, "_ev_ebitda": 9.03}},
+        "technical": {"score": 18.5, "pillars": {"trend": 7.9, "momentum": 16.1, "_rsi": 30.0}},
+        "cycle_position": {"score": 49.9, "pillars": {"margin_position": 50.0}},
+    },
 }
+# DaaS screener rows for the 'Compare peers' expansion (same sector).
+_PEERS = [
+    {"symbol": "ONGC", "quality_score": 71.0, "industry": "Oil", "market_cap_bucket": "LARGE_CAP"},
+    {"symbol": "RELIANCE", "quality_score": 55.7, "industry": "Oil", "market_cap_bucket": "LARGE_CAP"},
+    {"symbol": "IOC", "quality_score": 48.0, "industry": "Oil", "market_cap_bucket": "LARGE_CAP"},
+]
 
 
 def test_header_meta_and_price():
@@ -64,9 +87,9 @@ def test_composite_score_bars():
     f = w["scores"]["fundamental"]
     assert f["score"] == 68 and f["label"] == "Above average" and f["tone"] == "pos"
     t = w["scores"]["technical"]
-    # close below both SMAs + MACD<0 + RSI~46 + momentum 46 → bearish
+    # real nested technical composite (18) is preferred over the derived blend
     assert t["tone"] == "neg" and t["label"] == "Bearish"
-    assert 20 <= t["score"] <= 40
+    assert t["score"] == 18
     assert "dragged down by weak short-term technicals" in w["scores"]["explainer"]
 
 
@@ -108,9 +131,45 @@ def test_price_position_and_indicator_cards():
 
 def test_actions_and_footer():
     w = build_stock_widget("RELIANCE", _FEAT, _SCORES)
-    assert [a["label"] for a in w["actions"]] == ["Explain the score", "Compare peers", "Who holds it"]
-    # each action carries a follow-up prompt naming the symbol (drives the chip)
-    assert all("RELIANCE" in a["prompt"] for a in w["actions"])
+    # actions expand inline sections; only offered when the section has data
+    w_full = build_stock_widget("RELIANCE", _FEAT, _SCORES, peers=_PEERS)
+    by_expand = {a["expands"]: a["label"] for a in w_full["actions"]}
+    assert by_expand == {
+        "score_breakdown": "Explain the score",
+        "peers": "Compare peers",
+        "shareholding": "Who holds it",
+    }
+
+
+def test_shareholding_expansion():
+    w = build_stock_widget("RELIANCE", _FEAT, _SCORES)
+    sh = w["shareholding"]
+    rows = {r["label"]: r for r in sh["rows"]}
+    assert rows["Promoters"]["value"] == "50.30%"
+    assert rows["FII"]["change"] == "-0.40%" and rows["FII"]["change_positive"] is False
+    assert rows["DII"]["change_positive"] is True
+    assert sh["as_of"] == "31 Mar 2026"
+    assert sh["pledge"]["tone"] == "pos"  # 0% pledged
+
+
+def test_score_breakdown_expansion():
+    w = build_stock_widget("RELIANCE", _FEAT, _SCORES)
+    b = w["score_breakdown"]
+    assert b["fundamental"]["score"] == 67 and b["technical"]["score"] == 18
+    assert b["weights"]["fundamental"] == 50
+    flabels = [p["label"] for p in b["fundamental"]["pillars"]]
+    assert "Balance sheet" in flabels and "Valuation" in flabels
+    assert not any(p["label"].startswith("_") or p["label"] == "Ev ebitda" for p in b["technical"]["pillars"])  # debug keys dropped
+
+
+def test_peers_expansion():
+    w = build_stock_widget("RELIANCE", _FEAT, _SCORES, peers=_PEERS)
+    p = w["peers"]
+    assert p["sector"] == "Oil, gas & consumable fuels"
+    assert p["current_rank"] == 2  # ONGC 71 > RELIANCE 55.7 > IOC 48
+    cur = [r for r in p["rows"] if r["is_current"]]
+    assert len(cur) == 1 and cur[0]["symbol"] == "RELIANCE" and cur[0]["quality"] == 56
+    assert p["rows"][0]["symbol"] == "ONGC"  # ranked by quality desc
     assert w["source"] == "NIDP DaaS"
     assert w["disclaimer_note"] == "Not investment advice"
 
