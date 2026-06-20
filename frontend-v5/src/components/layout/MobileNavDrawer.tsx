@@ -3,7 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, PieChart, Sparkles, MessageSquare, Shield,
   Settings, Layers, TrendingUp, Target, Receipt, ClipboardList, Wrench,
-  ShieldCheck, Server, BarChart2, X,
+  ShieldCheck, Server, BarChart2, LineChart, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMe } from "@/hooks/use-auth";
@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 const NAV = [
   { to: "/dashboard",       label: "Overview",          icon: LayoutDashboard, group: "Dashboards" },
+  { to: "/markets",         label: "Markets",           icon: LineChart,       group: "Dashboards" },
   { to: "/ai-insights",     label: "AI Insights",       icon: Layers,          group: "Dashboards" },
   { to: "/risk",            label: "Risk",              icon: Shield,          group: "Dashboards" },
   { to: "/performance",     label: "Performance",       icon: TrendingUp,      group: "Dashboards" },

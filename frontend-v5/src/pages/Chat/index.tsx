@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen } from "lucide-react";
@@ -48,6 +49,18 @@ function relTime(iso?: string): string {
 
 export default function ChatPage() {
   const [composer, setComposer] = useState("");
+  // Prefill the composer from a `?q=` deep-link (e.g. Markets "Explore" chips).
+  // One-shot: consume the param so it doesn't re-apply on later renders.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q) {
+      setComposer((cur) => cur || q);
+      searchParams.delete("q");
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [historyOpen, setHistoryOpen] = useState(false); // mobile drawer
   // Icon-only collapse of the history rail (desktop), persisted across sessions.

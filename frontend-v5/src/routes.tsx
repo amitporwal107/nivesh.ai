@@ -27,6 +27,7 @@ import WorkPage from "./pages/Work";
 import TestDiagnosticToolPage from "./pages/TestDiagnosticTool";
 import NidpConsolePage from "./pages/NidpConsole";
 import ProTraderPage from "./pages/ProTrader";
+import MarketsPage from "./pages/Markets";
 
 export function AppRoutes() {
   return (
@@ -52,6 +53,7 @@ export function AppRoutes() {
       {/* Authenticated app — sidebar layout */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
         <Route path="/dashboard"        element={<RouteErrorBoundary pageName="Dashboard"><DashboardPage /></RouteErrorBoundary>} />
+        <Route path="/markets"          element={<RouteErrorBoundary pageName="Markets"><MarketsPage /></RouteErrorBoundary>} />
         <Route path="/portfolio"        element={<RouteErrorBoundary pageName="Portfolio"><PortfolioPage /></RouteErrorBoundary>} />
         <Route path="/funds/:id"        element={<RouteErrorBoundary pageName="Fund Details"><FundDetailsPage /></RouteErrorBoundary>} />
         <Route path="/ai-insights"      element={<RouteErrorBoundary pageName="AI Insights"><ConcentrationPage /></RouteErrorBoundary>} />

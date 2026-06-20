@@ -51,9 +51,10 @@ SECTOR_TICKERS: List[tuple] = [
     ("^CNXFINANCE",  "Financial Services"),
 ]
 NIFTY_TICKER = "^NSEI"
+SENSEX_TICKER = "^BSESN"   # BSE Sensex (the one non-NSE index we surface)
 VIX_TICKER = "^INDIAVIX"
 
-ALL_TICKERS = [NIFTY_TICKER, VIX_TICKER] + [t for t, _ in SECTOR_TICKERS]
+ALL_TICKERS = [NIFTY_TICKER, SENSEX_TICKER, VIX_TICKER] + [t for t, _ in SECTOR_TICKERS]
 
 _CACHE: Dict[str, Any] = {"ts": 0.0, "data": None}
 
@@ -143,6 +144,7 @@ def _fetch_yf_batch() -> Dict[str, Dict[str, float]]:
 def _parse_to_snapshot(yf_out: Dict[str, Dict[str, float]]) -> Dict[str, Any]:
     out: Dict[str, Any] = {
         "nifty50":         None,
+        "sensex":          None,
         "vix":             None,
         "advances":        None,
         "declines":        None,
@@ -154,6 +156,12 @@ def _parse_to_snapshot(yf_out: Dict[str, Dict[str, float]]) -> Dict[str, Any]:
         out["nifty50"] = {
             "close":      nifty.get("close"),
             "change_pct": nifty.get("change_pct"),
+        }
+    sensex = yf_out.get(SENSEX_TICKER)
+    if sensex:
+        out["sensex"] = {
+            "close":      sensex.get("close"),
+            "change_pct": sensex.get("change_pct"),
         }
     vix = yf_out.get(VIX_TICKER)
     if vix:
