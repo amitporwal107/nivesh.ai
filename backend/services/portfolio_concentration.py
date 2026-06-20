@@ -150,6 +150,35 @@ _AMC_DISPLAY = {
     ("OLD", "BRIDGE"): "Old Bridge",
 }
 
+# Tokens that stay UPPERCASE inside an otherwise Title-Cased scheme name.
+# Source feeds give scheme names in mixed case (ALL CAPS from CAMS/Karvy,
+# Title-case from others) — chip display needs them consistent.
+_SCHEME_KEEP_UPPER = {
+    "ETF", "MF", "FOF", "FMP", "ELSS", "PSU", "NIFTY", "BSE", "NSE", "US", "UK",
+    "SBI", "LIC", "ICICI", "HDFC", "UTI", "DSP", "PGIM", "ITI", "NJ", "JM", "BNP",
+    "PPFAS", "IDFC", "ESG", "REIT", "IT", "AAA", "IDCW", "PPF",
+}
+
+
+def _pretty_scheme_name(name: str) -> str:
+    """Title-case an MF/ETF scheme name for the 'Most-Owned Stock' fund chips,
+    keeping common acronyms (ETF, NIFTY, SBI, …) uppercase. Preserves '-'/'/'
+    separators inside a token (e.g. 'FUND-REGULAR' → 'Fund-Regular')."""
+    if not name:
+        return ""
+    words = []
+    for raw in str(name).split():
+        rebuilt = []
+        for part in re.split(r"([-/])", raw):
+            if part in ("-", "/"):
+                rebuilt.append(part)
+            elif part.upper() in _SCHEME_KEEP_UPPER:
+                rebuilt.append(part.upper())
+            else:
+                rebuilt.append(part.capitalize())
+        words.append("".join(rebuilt))
+    return " ".join(words)
+
 
 # MF category labels that leak into MF `sector` metadata but are NOT
 # real economic sectors (Balanced, Mid Cap, etc. are fund categories).
@@ -498,7 +527,8 @@ def compute_concentration(
 
     # 4. Company buckets — direct equity 1:1, MFs dissolved via lookthrough
     company_buckets: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"value_inr": 0.0, "via_direct": 0.0, "via_funds": 0, "sector": None}
+        lambda: {"value_inr": 0.0, "via_direct": 0.0, "via_funds": 0, "sector": None,
+                 "funds": []}
     )
     for h in holdings:
         v = _hv(h)
@@ -514,6 +544,7 @@ def compute_concentration(
             lookup = fund_lookthrough.get(h.get("ticker") or "")
             if not lookup or not (lookup.get("holdings") or []):
                 continue
+            fund_name = _pretty_scheme_name((h.get("name") or "").strip())
             for sh in lookup["holdings"]:
                 name = (sh.get("name") or "").strip()
                 if not name:
@@ -526,6 +557,8 @@ def compute_concentration(
                 company_buckets[disp]["value_inr"] += v * (pct / 100.0)
                 company_buckets[disp]["via_funds"] += 1
                 company_buckets[disp]["sector"] = sh.get("sector") or company_buckets[disp]["sector"]
+                if fund_name and fund_name not in company_buckets[disp]["funds"]:
+                    company_buckets[disp]["funds"].append(fund_name)
     company_items = []
     for name, vobj in company_buckets.items():
         via_direct = vobj["via_direct"]
@@ -540,6 +573,7 @@ def compute_concentration(
             "value_inr": vobj["value_inr"],
             "via_direct_inr": via_direct,
             "via_funds_count": via_funds,
+            "fund_names": vobj["funds"],
             "sector": vobj["sector"],
             "group": _group_for(name),
             "cross_held": cross_routes >= 2,

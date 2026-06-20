@@ -106,7 +106,7 @@ function XrayContent({ x }: { x: XraySnapshot }) {
                 ? <>You never picked this stock directly — yet it sits inside <b>{x.topStock.funds} funds</b>, quietly stacking up.</>
                 : <>Your single largest underlying company exposure.</>}
             >
-              {x.topStock.funds > 0 && <FundChips count={x.topStock.funds} p={p} />}
+              {x.topStock.funds > 0 && <FundChips count={x.topStock.funds} names={x.topStock.fundNames} p={p} />}
             </XrayCard>
           )}
         </div>
@@ -174,14 +174,17 @@ function MiniBars({ items, p, highlight }: { items: XrayLeader[]; p: number; hig
 }
 
 // One chip per fund the top stock hides inside — staggered in.
-function FundChips({ count, p }: { count: number; p: number }) {
+// Falls back to a numbered label only if a fund name is missing.
+function FundChips({ count, names, p }: { count: number; names: string[]; p: number }) {
+  const labels = Array.from({ length: count }, (_, i) => names[i] ?? `Fund ${i + 1}`);
   const shown = Math.round(count * p);
   return (
     <div className="flex flex-wrap gap-1.5 mt-4">
-      {Array.from({ length: count }).map((_, i) => (
+      {labels.map((label, i) => (
         <span
-          key={i}
-          className="font-mono text-[9px] px-2 py-0.5 rounded-md border transition-opacity duration-300"
+          key={`${label}-${i}`}
+          title={label}
+          className="font-mono text-[9px] px-2 py-0.5 rounded-md border transition-opacity duration-300 max-w-[180px] truncate"
           style={{
             opacity: i < shown ? 1 : 0,
             color: "rgb(var(--neg))",
@@ -189,7 +192,7 @@ function FundChips({ count, p }: { count: number; p: number }) {
             background: "rgb(var(--neg)/0.08)",
           }}
         >
-          Fund {i + 1}
+          {label}
         </span>
       ))}
     </div>
