@@ -561,17 +561,38 @@ def compute_concentration(
                     continue
                 # Title-case but preserve a couple of acronyms
                 disp = name.replace(" Ltd.", " Ltd").replace(" Limited", " Ltd")
-                company_buckets[disp]["value_inr"] += v * (pct / 100.0)
+                exposure = v * (pct / 100.0)
+                company_buckets[disp]["value_inr"] += exposure
                 company_buckets[disp]["sector"] = sh.get("sector") or company_buckets[disp]["sector"]
                 if fund_key:
-                    company_buckets[disp]["funds"].setdefault(fund_key, fund_name)
+                    f = company_buckets[disp]["funds"].setdefault(
+                        fund_key, {"name": fund_name, "value_inr": 0.0})
+                    f["value_inr"] += exposure
     company_items = []
     for name, vobj in company_buckets.items():
         via_direct = vobj["via_direct"]
         # Distinct funds (by ticker) holding this company; names drop blanks so
-        # the frontend fills any gap with a numbered chip rather than a blank.
-        fund_names = [n for n in vobj["funds"].values() if n]
-        via_funds  = len(vobj["funds"])
+        # the frontend can label the slice "Unknown fund" rather than blank.
+        funds = vobj["funds"]
+        fund_names = [f["name"] for f in funds.values() if f["name"]]
+        via_funds  = len(funds)
+        # Donut breakdown: top-10 funds by ₹ exposure into this stock + Others.
+        # pct is share of the look-through exposure (slices sum to 100%).
+        ranked = sorted(funds.values(), key=lambda f: -f["value_inr"])
+        funds_total = sum(f["value_inr"] for f in funds.values()) or 1.0
+        fund_breakdown = [
+            {"name": f["name"] or "Unknown fund",
+             "value_inr": round(f["value_inr"], 2),
+             "pct": round(f["value_inr"] / funds_total * 100, 1)}
+            for f in ranked[:10]
+        ]
+        if len(ranked) > 10:
+            rest = ranked[10:]
+            rest_val = sum(f["value_inr"] for f in rest)
+            fund_breakdown.append(
+                {"name": f"Others ({len(rest)} funds)",
+                 "value_inr": round(rest_val, 2),
+                 "pct": round(rest_val / funds_total * 100, 1)})
         # Cross-held = held in BOTH direct equity AND ≥1 mutual fund,
         # OR held across ≥2 mutual funds. Either way, this single name
         # is exposed through multiple routes — what the PRD calls
@@ -583,6 +604,7 @@ def compute_concentration(
             "via_direct_inr": via_direct,
             "via_funds_count": via_funds,
             "fund_names": fund_names,
+            "fund_breakdown": fund_breakdown,
             "sector": vobj["sector"],
             "group": _group_for(name),
             "cross_held": cross_routes >= 2,

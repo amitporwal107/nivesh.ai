@@ -124,3 +124,46 @@ def test_direct_only_stock_has_empty_fund_names():
     assert "Tata Motors" in top["name"]
     assert top["via_funds_count"] == 0
     assert top["fund_names"] == []
+    assert top["fund_breakdown"] == []
+
+
+def test_fund_breakdown_is_ranked_and_pct_sums_to_100():
+    """The donut data: one slice per fund, sorted by ₹ exposure desc, pct as a
+    share of the look-through total (slices sum to ~100%)."""
+    # Fund A contributes more HDFC exposure than fund B (higher weight).
+    holdings = [
+        _mf("Big HDFC Holder Fund Direct", "INFA", qty=1000, price=100),   # ₹100k
+        _mf("Small HDFC Holder Fund Direct", "INFB", qty=1000, price=100),  # ₹100k
+    ]
+    look = {
+        "INFA": _look(("HDFC Bank Ltd", "Financials", 10.0)),  # ₹10k exposure
+        "INFB": _look(("HDFC Bank Ltd", "Financials", 4.0)),   # ₹4k exposure
+    }
+    env = compute_concentration(holdings, fund_lookthrough=look)
+    top = env["company"]["items"][0]
+    bd = top["fund_breakdown"]
+
+    assert [s["name"] for s in bd] == ["Big HDFC Holder Fund Direct",
+                                       "Small HDFC Holder Fund Direct"]
+    assert bd[0]["value_inr"] == 10000.0 and bd[1]["value_inr"] == 4000.0
+    assert round(sum(s["pct"] for s in bd)) == 100
+
+
+def test_fund_breakdown_caps_at_top_10_plus_others():
+    """With >10 funds holding the stock, the donut shows the top 10 by exposure
+    and rolls the remainder into a single 'Others (N funds)' slice."""
+    holdings, look = [], {}
+    for i in range(13):
+        tk = f"INF{i:03d}"
+        # Descending weights so fund i ranks at position i.
+        holdings.append(_mf(f"Fund Number {i} Direct Growth", tk, qty=1000, price=100))
+        look[tk] = _look(("HDFC Bank Ltd", "Financials", 13.0 - i))
+    env = compute_concentration(holdings, fund_lookthrough=look)
+    top = env["company"]["items"][0]
+    bd = top["fund_breakdown"]
+
+    assert top["via_funds_count"] == 13
+    assert len(bd) == 11                       # 10 funds + 1 Others
+    assert bd[-1]["name"] == "Others (3 funds)"
+    assert bd[0]["name"] == "Fund Number 0 Direct Growth"   # highest weight
+    assert round(sum(s["pct"] for s in bd)) == 100

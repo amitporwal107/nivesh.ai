@@ -57,19 +57,28 @@ export interface XrayLeader {
   valueInr: number;   // ₹ value of the bucket
 }
 
+export interface FundSlice {
+  name: string;       // fund scheme name (or "Others (N funds)")
+  valueInr: number;   // ₹ of this stock's exposure that comes via this fund
+  pct: number;        // share of the look-through total (slices sum to ~100%)
+}
+
 export interface XraySnapshot {
   holdingsCount: number;   // number of holdings looked through
   companyCount: number;    // distinct underlying companies (look-through)
   effectiveBets: number;   // effective_n of underlying companies — the "real" bets
   topAmc: XrayLeader | null;
   topSector: XrayLeader | null;
-  topStock: (XrayLeader & { funds: number; fundNames: string[] }) | null; // funds = how many funds hold it
+  // funds = how many distinct funds hold it; fundBreakdown = top-10 funds by
+  // ₹ exposure (+ an "Others" slice) for the donut.
+  topStock: (XrayLeader & { funds: number; fundBreakdown: FundSlice[] }) | null;
   amcBars: XrayLeader[];     // top AMCs for the mini stacked bar
   sectorBars: XrayLeader[];  // top sectors for the mini bars
 }
 
 interface RawSectionItem {
-  name?: string; pct?: number; value_inr?: number; via_funds_count?: number; fund_names?: string[];
+  name?: string; pct?: number; value_inr?: number; via_funds_count?: number;
+  fund_breakdown?: { name?: string; value_inr?: number; pct?: number }[];
 }
 interface RawSection { items?: RawSectionItem[]; effective_n?: number; all_items_count?: number }
 interface RawConcentration {
@@ -103,7 +112,13 @@ function mapXray(raw: RawConcentration): XraySnapshot {
     ? {
         ...topStockBase,
         funds: Number(company.items?.[0]?.via_funds_count ?? 0),
-        fundNames: (company.items?.[0]?.fund_names ?? []).filter(Boolean),
+        fundBreakdown: (company.items?.[0]?.fund_breakdown ?? [])
+          .filter((s) => s.name)
+          .map((s) => ({
+            name: s.name!,
+            valueInr: Number(s.value_inr ?? 0),
+            pct: Number(s.pct ?? 0),
+          })),
       }
     : null;
   const sectorItems = (raw.sector?.items ?? []).filter(meaningfulSector);

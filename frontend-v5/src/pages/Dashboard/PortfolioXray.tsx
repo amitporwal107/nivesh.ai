@@ -1,6 +1,7 @@
 import { Layers, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { usePortfolioXray, type XraySnapshot, type XrayLeader } from "@/hooks/use-analytics";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { usePortfolioXray, type XraySnapshot, type XrayLeader, type FundSlice } from "@/hooks/use-analytics";
 import { useMountProgress } from "@/hooks/use-animate";
 import { formatINRCompact } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
@@ -106,7 +107,7 @@ function XrayContent({ x }: { x: XraySnapshot }) {
                 ? <>You never picked this stock directly — yet it sits inside <b>{x.topStock.funds} funds</b>, quietly stacking up.</>
                 : <>Your single largest underlying company exposure.</>}
             >
-              {x.topStock.funds > 0 && <FundChips count={x.topStock.funds} names={x.topStock.fundNames} p={p} />}
+              {x.topStock.funds > 0 && <FundDonut slices={x.topStock.fundBreakdown} />}
             </XrayCard>
           )}
         </div>
@@ -173,28 +174,61 @@ function MiniBars({ items, p, highlight }: { items: XrayLeader[]; p: number; hig
   );
 }
 
-// One chip per fund the top stock hides inside — staggered in.
-// Falls back to a numbered label only if a fund name is missing.
-function FundChips({ count, names, p }: { count: number; names: string[]; p: number }) {
-  const labels = Array.from({ length: count }, (_, i) => names[i] ?? `Fund ${i + 1}`);
-  const shown = Math.round(count * p);
+// Donut of the funds the top stock hides inside — one slice per fund (top 10
+// by ₹ exposure + an "Others" roll-up). Fund names live in the hover tooltip,
+// not as an always-on wall of chips. The leading slice is the warm accent and
+// the rest fade through neutrals so the dominant fund reads at a glance.
+const FUND_SLICE_SHADES = [
+  "rgb(var(--neg))",
+  "rgb(var(--neg)/0.78)",
+  "rgb(var(--neg)/0.60)",
+  "rgb(var(--warm))",
+  "rgb(var(--warm)/0.68)",
+  "rgb(var(--warm)/0.48)",
+  "rgb(var(--ink-3)/0.55)",
+  "rgb(var(--ink-3)/0.42)",
+  "rgb(var(--ink-3)/0.32)",
+  "rgb(var(--ink-3)/0.24)",
+  "rgb(var(--ink-3)/0.16)",
+];
+
+function FundDonut({ slices }: { slices: FundSlice[] }) {
+  if (!slices.length) return null;
   return (
-    <div className="flex flex-wrap gap-1.5 mt-4">
-      {labels.map((label, i) => (
-        <span
-          key={`${label}-${i}`}
-          title={label}
-          className="font-mono text-[9px] px-2 py-0.5 rounded-md border transition-opacity duration-300 max-w-[180px] truncate"
-          style={{
-            opacity: i < shown ? 1 : 0,
-            color: "rgb(var(--neg))",
-            borderColor: "rgb(var(--neg)/0.28)",
-            background: "rgb(var(--neg)/0.08)",
-          }}
-        >
-          {label}
-        </span>
-      ))}
+    <div className="mt-4 h-[180px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={slices}
+            dataKey="pct"
+            nameKey="name"
+            innerRadius={52}
+            outerRadius={78}
+            paddingAngle={1}
+            startAngle={90}
+            endAngle={-270}
+            stroke="rgb(var(--surface-1))"
+            strokeWidth={2}
+          >
+            {slices.map((s, i) => (
+              <Cell key={`${s.name}-${i}`} fill={FUND_SLICE_SHADES[i] ?? FUND_SLICE_SHADES[FUND_SLICE_SHADES.length - 1]} />
+            ))}
+          </Pie>
+          <Tooltip
+            contentStyle={{
+              background: "rgb(var(--surface-1))",
+              border: "1px solid rgb(var(--line) / 0.16)",
+              borderRadius: 10,
+              color: "rgb(var(--ink))",
+              fontSize: 12,
+            }}
+            formatter={(_v, _n, item) => {
+              const s = item?.payload as FundSlice;
+              return [`${formatINRCompact(s.valueInr)} · ${s.pct}%`, s.name];
+            }}
+          />
+        </PieChart>
+      </ResponsiveContainer>
     </div>
   );
 }
