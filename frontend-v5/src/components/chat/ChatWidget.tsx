@@ -730,6 +730,7 @@ const TONE_HEX: Record<string, string> = {
   pos: "#0E8A55",   // --accent / --pos  (green)
   warm: "#B86A12",  // --warm            (amber)
   neg: "#C5303E",   // --neg             (red)
+  info: "#3E6CA8",  // blue (neutral attention)
   grey: "#9CA3AF",
 };
 
@@ -777,13 +778,86 @@ function StatTile({ label, value, valueCls = "text-ink", center }: { label: stri
   );
 }
 
+/** Composite score bar (Fundamentals / Technicals) — label, qualitative+number, filled bar. */
+function ScoreBar({ title, s }: { title: string; s?: { score?: number; label?: string; tone?: string } }) {
+  if (!s || s.score == null) return null;
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[14px] text-ink-2">{title}</span>
+        <span className={`text-[13px] font-medium ${toneText(s.tone)}`}>{s.label ? `${s.label} · ` : ""}{s.score}</span>
+      </div>
+      <div className="mt-1.5"><Bar pct={s.score} color={TONE_HEX[s.tone ?? "pos"] ?? TONE_HEX.pos} /></div>
+    </div>
+  );
+}
+
+/** Small colour square (highlights) / dot (metric cards). */
+function Dot({ tone, square }: { tone?: string; square?: boolean }) {
+  return (
+    <span
+      className={`shrink-0 ${square ? "h-2.5 w-2.5 rounded-[3px] mt-[5px]" : "h-2 w-2 rounded-full mt-1"}`}
+      style={{ background: TONE_HEX[tone ?? "grey"] ?? TONE_HEX.grey }}
+    />
+  );
+}
+
+/** Benchmarked metric card: value (coloured only when signed) + note + tone dot. */
+function MetricCard({ label, value, note, tone }: { label: string; value: string; note?: string; tone?: string }) {
+  const coloured = /^[+-]/.test(value.trim());
+  return (
+    <div className="rounded-lg bg-surface-2/60 border border-hairline px-3.5 py-3">
+      <div className="flex items-start justify-between gap-1">
+        <span className="text-[12px] text-ink-3 leading-tight">{label}</span>
+        {tone && <Dot tone={tone} />}
+      </div>
+      <div className={`font-display text-[22px] tracking-tightish mt-1 leading-none ${coloured ? toneText(tone) : "text-ink"}`}>{value}</div>
+      {note && <div className="text-[11.5px] text-ink-3 mt-1 leading-snug">{note}</div>}
+    </div>
+  );
+}
+
+interface PricePosition {
+  current?: number; current_label?: string;
+  support?: number; support_label?: string;
+  sma50?: number; sma50_label?: string;
+  resistance?: number; resistance_label?: string;
+  trend?: { label?: string; tone?: string };
+}
+
+/** 'Where price sits' — current price marker + 50-DMA tick between support & resistance. */
+function PricePositionBar({ pp }: { pp: PricePosition }) {
+  const lo = pp.support ?? pp.current ?? 0;
+  const hi = pp.resistance ?? pp.current ?? lo + 1;
+  const span = hi - lo || 1;
+  const pos = (v?: number) => (v == null ? 0 : Math.min(100, Math.max(0, ((v - lo) / span) * 100)));
+  return (
+    <div className="mt-3">
+      <div className="relative h-5">
+        {pp.current_label != null && (
+          <span className="absolute -translate-x-1/2 text-[12px] font-medium text-ink whitespace-nowrap" style={{ left: `${pos(pp.current)}%` }}>{pp.current_label}</span>
+        )}
+      </div>
+      <div className="relative h-2 rounded-full bg-surface-2">
+        {pp.sma50 != null && <span className="absolute top-1/2 -translate-y-1/2 h-3 w-[2px] bg-ink-3" style={{ left: `${pos(pp.sma50)}%` }} aria-hidden />}
+        {pp.current != null && <span className="absolute top-1/2 left-0 -translate-y-1/2 -translate-x-1/2 h-3.5 w-1 rounded bg-ink" style={{ left: `${pos(pp.current)}%` }} aria-hidden />}
+      </div>
+      <div className="flex justify-between text-[11.5px] text-ink-3 mt-2">
+        <span>{pp.support_label ? `Support ${pp.support_label}` : ""}</span>
+        {pp.sma50_label && <span>50-day MA {pp.sma50_label}</span>}
+        <span>{pp.resistance_label ? `Resistance ${pp.resistance_label}` : ""}</span>
+      </div>
+    </div>
+  );
+}
+
 interface InstrumentDetailData {
   kind?: "stock" | "mf";
   name?: string;
   badge?: string;
   subtitle?: string;
   meta?: string;
-  price?: { label?: string; value?: string; change?: string; change_positive?: boolean };
+  price?: { label?: string; value?: string; change?: string; change_positive?: boolean; asof?: string };
   quality?: { score?: number; label?: string; tone?: string };
   rank?: { value?: number; of?: number; caption?: string; label?: string };
   returns?: { label: string; value: string; muted?: boolean }[];
@@ -793,6 +867,18 @@ interface InstrumentDetailData {
   disclaimer?: string;
   source?: string;
   actions?: { label: string }[];
+  // Rich stock card (deterministic, built by build_stock_widget)
+  summary?: string;
+  scores?: {
+    fundamental?: { score?: number; label?: string; tone?: string };
+    technical?: { score?: number; label?: string; tone?: string };
+    explainer?: string;
+  };
+  highlights?: { tone?: string; text: string }[];
+  fundamentals_grid?: { label: string; value: string; note?: string; tone?: string }[];
+  price_position?: PricePosition;
+  technicals_cards?: { label: string; value: string; note?: string; tone?: string }[];
+  disclaimer_note?: string;
 }
 
 function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
@@ -803,6 +889,12 @@ function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
   const rank = data.rank;
   const fund = data.fundamental;
   const tech = data.technical;
+  const scores = data.scores;
+  const grid = data.fundamentals_grid;
+  const pp = data.price_position;
+  const cards = data.technicals_cards;
+  const richStock = !isMf && (!!data.summary || !!scores || !!grid?.length);
+  const headLine = [data.subtitle, data.meta].filter(Boolean).join(" · ");
 
   return (
     <div className="mt-1 w-full rounded-xl bg-surface-1 border border-hairline shadow-card p-5 sm:p-6 flex flex-col gap-5">
@@ -813,8 +905,12 @@ function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
             <span className="font-display text-[19px] text-ink tracking-tightish leading-snug">{data.name}</span>
             <span className="shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide" style={{ background: "#E7EEF9", color: "#3E6CA8" }}>{badge}</span>
           </div>
-          {data.subtitle && <div className="text-[13.5px] text-ink-2 mt-1">{data.subtitle}</div>}
-          {data.meta && <div className="text-[12.5px] text-ink-3 mt-0.5">{data.meta}</div>}
+          {richStock
+            ? (headLine && <div className="text-[13px] text-ink-2 mt-1">{headLine}</div>)
+            : (<>
+                {data.subtitle && <div className="text-[13.5px] text-ink-2 mt-1">{data.subtitle}</div>}
+                {data.meta && <div className="text-[12.5px] text-ink-3 mt-0.5">{data.meta}</div>}
+              </>)}
         </div>
         {data.price?.value && (
           <div className="text-right shrink-0">
@@ -823,12 +919,29 @@ function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
             {data.price.change && (
               <div className={`text-[13px] font-medium ${data.price.change_positive === false ? "text-neg" : "text-pos"}`}>{data.price.change}</div>
             )}
+            {data.price.asof && <div className="text-[11.5px] text-ink-3 mt-0.5">{data.price.asof}</div>}
           </div>
         )}
       </div>
 
-      {/* Quality score + rank */}
-      {(q?.score != null || rank?.value != null) && (
+      {/* Quality + prose summary (rich stock) */}
+      {richStock && q?.score != null ? (
+        <div className="rounded-lg bg-surface-2/60 border border-hairline p-4 sm:p-5 flex items-start gap-4">
+          <div className="text-center shrink-0 w-[60px]">
+            <div className="font-display text-[34px] text-ink leading-none tracking-tightish">{q.score}</div>
+            <div className="text-[11px] text-ink-3 mt-0.5">/ 100</div>
+            <div className={`text-[12px] font-medium ${toneText(q.tone)}`}>{q.label}</div>
+          </div>
+          {(data.summary || (rank?.value != null && rank?.of != null)) && (
+            <div className="min-w-0 border-l border-hairline pl-4">
+              {data.summary && <p className="text-[13.5px] text-ink-2 leading-relaxed">{data.summary}</p>}
+              {rank?.value != null && rank?.of != null && (
+                <div className="text-[12px] text-ink-3 mt-2">Sector rank #{rank.value} of {rank.of}{rank.caption ? ` · ${rank.caption}` : ""}</div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (q?.score != null || rank?.value != null) ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {q?.score != null && (
             <div className="rounded-lg bg-surface-2/60 border border-hairline p-4 flex items-center gap-4">
@@ -849,7 +962,59 @@ function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
             </div>
           )}
         </div>
-      )}
+      ) : null}
+
+      {/* Composite score bars (stock) */}
+      {scores && (scores.fundamental?.score != null || scores.technical?.score != null) ? (
+        <div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+            <ScoreBar title="Fundamentals" s={scores.fundamental} />
+            <ScoreBar title="Technicals" s={scores.technical} />
+          </div>
+          {scores.explainer && <p className="text-[12px] text-ink-3 mt-2.5 leading-snug">{scores.explainer}</p>}
+        </div>
+      ) : null}
+
+      {/* What stands out (stock) */}
+      {data.highlights?.length ? (
+        <div>
+          <Heading>What stands out</Heading>
+          <div className="mt-2.5 flex flex-col gap-2">
+            {data.highlights.map((h, i) => (
+              <div key={i} className="flex items-start gap-2.5">
+                <Dot tone={h.tone} square />
+                <span className="text-[13.5px] text-ink-2 leading-snug">{h.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Benchmarked fundamentals grid (stock) */}
+      {grid?.length ? (
+        <div>
+          <Heading>Fundamentals <span className="text-[12.5px] text-ink-3 font-normal">· each compared to its benchmark</span></Heading>
+          <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {grid.map((c, i) => <MetricCard key={i} label={c.label} value={c.value} note={c.note} tone={c.tone} />)}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Where price sits (stock) */}
+      {pp ? (
+        <div>
+          <div className="flex items-center justify-between gap-2">
+            <Heading>Where price sits</Heading>
+            {pp.trend?.label && <span className={`text-[13px] font-medium ${toneText(pp.trend.tone)}`}>{pp.trend.label}</span>}
+          </div>
+          <PricePositionBar pp={pp} />
+          {cards?.length ? (
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              {cards.map((c, i) => <MetricCard key={i} label={c.label} value={c.value} note={c.note} tone={c.tone} />)}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Trailing returns (MF) */}
       {data.returns?.length ? (
@@ -912,9 +1077,11 @@ function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
       )}
 
       {/* Footer */}
-      {(data.source || data.actions?.length) && (
+      {(data.source || data.disclaimer_note || data.actions?.length) && (
         <div className="flex items-center justify-between gap-3 pt-1 border-t border-hairline -mb-0.5">
-          <span className="text-[11.5px] text-ink-3 pt-3">{data.source ? `Source: ${data.source}` : ""}</span>
+          <span className="text-[11.5px] text-ink-3 pt-3">
+            {[data.source ? `Source: ${data.source}` : "", data.disclaimer_note].filter(Boolean).join(" · ")}
+          </span>
           {data.actions?.length ? (
             <div className="flex flex-wrap gap-2 pt-3 justify-end">
               {data.actions.map((a, i) => (

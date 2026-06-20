@@ -18,9 +18,11 @@ Public API:
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from . import daas_client as _daas
@@ -63,6 +65,23 @@ def _pick(d: Dict[str, Any], *keys: str) -> Optional[float]:
         if v is not None:
             return v
     return None
+
+
+def _nested(d: Any, *path: str) -> Any:
+    """Safely walk a nested dict path; None if any hop is absent/non-dict.
+    JSONB columns (e.g. quality_components) can arrive as JSON strings — parse
+    those transparently so the walk still works."""
+    cur = d
+    for p in path:
+        if isinstance(cur, str):
+            try:
+                cur = json.loads(cur)
+            except (ValueError, TypeError):
+                return None
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(p)
+    return cur
 
 
 def _ratio(v: Any) -> Optional[float]:
@@ -113,19 +132,297 @@ def _compact(rows: List[Optional[Dict[str, Any]]]) -> List[Dict[str, Any]]:
 
 # ── STOCK ───────────────────────────────────────────────────────────────────
 
+_CAP_LABELS = {
+    "LARGE_CAP": "Large cap", "MID_CAP": "Mid cap", "SMALL_CAP": "Small cap", "MICRO_CAP": "Micro cap",
+    "LARGE": "Large cap", "MID": "Mid cap", "SMALL": "Small cap", "MICRO": "Micro cap",
+}
+
+
+def _cap_label(feat: Dict[str, Any]) -> Optional[str]:
+    raw = (feat.get("market_cap_bucket") or feat.get("cap_bucket") or "").strip().upper()
+    return _CAP_LABELS.get(raw)
+
+
+def _fmt_asof(raw: Any) -> Optional[str]:
+    """Render the DaaS as_of_date as '19 Jun 2026'. EOD snapshot — no intraday time."""
+    if not raw:
+        return None
+    s = str(raw)
+    for cut in (19, 10):
+        try:
+            d = datetime.fromisoformat(s[:cut])
+            return f"{d.day} {d.strftime('%b %Y')}"
+        except ValueError:
+            continue
+    return None
+
+
+def _join_clauses(items: List[Optional[str]]) -> str:
+    xs = [i for i in items if i]
+    if not xs:
+        return ""
+    if len(xs) == 1:
+        return xs[0]
+    if len(xs) == 2:
+        return f"{xs[0]} and {xs[1]}"
+    return ", ".join(xs[:-1]) + f" and {xs[-1]}"
+
+
+def _fundamental_band(f_score: Optional[float], piotroski: Optional[float]) -> Optional[tuple[int, str, str]]:
+    """Map the persisted fundamental score (0-100) to (score, label, tone). Falls
+    back to scaling the Piotroski F-score (0-9) when no composite is present."""
+    s = f_score
+    if s is None and piotroski is not None:
+        s = piotroski / 9 * 100
+    if s is None:
+        return None
+    s = max(0.0, min(100.0, s))
+    if s >= 75:
+        lbl, tone = "Strong", "pos"
+    elif s >= 58:
+        lbl, tone = "Above average", "pos"
+    elif s >= 45:
+        lbl, tone = "Average", "warm"
+    else:
+        lbl, tone = "Below average", "neg"
+    return int(round(s)), lbl, tone
+
+
+def _technical_band(score: Optional[float]) -> Optional[tuple[int, str, str]]:
+    """Map a real NIDP technical/health composite (0-100) to (score, label, tone)."""
+    if score is None:
+        return None
+    s = int(round(max(0.0, min(100.0, score))))
+    if s >= 60:
+        lbl, tone = "Bullish", "pos"
+    elif s >= 45:
+        lbl, tone = "Neutral", "warm"
+    else:
+        lbl, tone = "Bearish", "neg"
+    return s, lbl, tone
+
+
+def _technical_score(feat: Dict[str, Any], close: Optional[float]) -> Optional[tuple[int, str, str]]:
+    """Deterministic 0-100 technical composite derived from DaaS primitives.
+
+    NIDP does not store a technical composite, so we blend the signals it DOES
+    return — trend (price vs SMA50/200), RSI, MACD sign, and the persisted
+    momentum_score — into a weighted score. Methodology is fixed and documented
+    here so the number is reproducible (no invented inputs)."""
+    rsi = _pick(feat, "rsi14", "rsi_14")
+    sma50 = _pick(feat, "sma50", "sma_50")
+    sma200 = _pick(feat, "sma200", "sma_200")
+    macd = _pick(feat, "macd")
+    macd_hist = _pick(feat, "macd_hist")
+    momentum = _pick(feat, "momentum_score")
+
+    comps: List[tuple[float, float]] = []  # (value 0-100, weight)
+    if close is not None and (sma50 is not None or sma200 is not None):
+        trend = 50.0
+        if sma50 is not None:
+            trend += 25 if close > sma50 else -25
+        if sma200 is not None:
+            trend += 25 if close > sma200 else -25
+        comps.append((max(0.0, min(100.0, trend)), 0.30))
+    if rsi is not None:
+        comps.append((max(0.0, min(100.0, rsi)), 0.20))
+    if macd is not None:
+        if macd > 0:
+            m = 72.0 if (macd_hist is not None and macd_hist > 0) else 64.0
+        elif macd < 0:
+            m = 28.0
+        else:
+            m = 50.0
+        comps.append((m, 0.20))
+    if momentum is not None:
+        comps.append((max(0.0, min(100.0, momentum)), 0.30))
+    if not comps:
+        return None
+    tw = sum(w for _, w in comps)
+    score = int(round(sum(v * w for v, w in comps) / tw))
+    if score >= 60:
+        lbl, tone = "Bullish", "pos"
+    elif score >= 45:
+        lbl, tone = "Neutral", "warm"
+    else:
+        lbl, tone = "Bearish", "neg"
+    return score, lbl, tone
+
+
+def _fundamentals_grid(feat: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Benchmarked fundamental cards: value + a one-line note + a colour tone.
+    Each card is omitted when its underlying DaaS field is missing."""
+    cards: List[Dict[str, Any]] = []
+
+    pe = _ratio(feat.get("pe_ttm"))
+    sector_pe = _pick(feat, "sector_median_pe")
+    pe_vs = _pick(feat, "pe_vs_sector_pct")
+    if pe is not None:
+        if pe_vs is None and sector_pe:
+            pe_vs = (pe / sector_pe - 1) * 100
+        if pe_vs is not None and pe_vs > 20:
+            note, tone = "pricey", "neg"
+        elif pe_vs is not None and pe_vs < -20:
+            note, tone = "cheap", "pos"
+        else:
+            note, tone = "fair", "warm"
+        if sector_pe:
+            note = f"sector median {sector_pe:.1f} · {note}"
+        cards.append({"label": "P / E", "value": f"{pe:.1f}", "note": note, "tone": tone})
+
+    eps_g = _pick(feat, "eps_growth_yoy_pct")
+    if pe is not None and eps_g and eps_g > 0:
+        peg = pe / eps_g
+        if peg < 1:
+            note, tone = "under 1 · attractive", "pos"
+        elif peg <= 2:
+            note, tone = "fair", "warm"
+        else:
+            note, tone = "> 2 is rich · caution", "neg"
+        cards.append({"label": "PEG ratio", "value": f"{peg:.2f}", "note": note, "tone": tone})
+
+    roe = _num(feat.get("roe_pct"))
+    if roe is not None:
+        note, tone = ("healthy · above 15", "pos") if roe >= 15 else (("moderate", "warm") if roe >= 10 else ("low", "neg"))
+        cards.append({"label": "ROE", "value": _pct(roe), "note": note, "tone": tone})
+
+    de = _ratio(feat.get("debt_to_equity"))
+    if de is not None:
+        note, tone = ("conservative leverage", "pos") if de < 0.5 else (("moderate leverage", "warm") if de < 1 else ("high leverage", "neg"))
+        cards.append({"label": "Debt / equity", "value": f"{de:.2f}", "note": note, "tone": tone})
+
+    rev = _pick(feat, "revenue_growth_yoy_pct")
+    if rev is not None:
+        note, tone = ("top line expanding", "pos") if rev > 0 else ("top line shrinking", "neg")
+        cards.append({"label": "Sales growth (YoY)", "value": _pct(rev, signed=True), "note": note, "tone": tone})
+
+    pat = _pick(feat, "pat_growth_yoy_pct")
+    if pat is not None:
+        note, tone = ("earnings growing", "pos") if pat > 0 else ("margins squeezed", "neg")
+        cards.append({"label": "Profit growth (YoY)", "value": _pct(pat, signed=True), "note": note, "tone": tone})
+
+    return cards
+
+
+def _highlights(feat: Dict[str, Any], close: Optional[float]) -> List[Dict[str, Any]]:
+    """'What stands out' — up to three salient facts, each tagged with a tone."""
+    pe = _ratio(feat.get("pe_ttm"))
+    sector_pe = _pick(feat, "sector_median_pe")
+    pe_vs = _pick(feat, "pe_vs_sector_pct")
+    if pe_vs is None and pe is not None and sector_pe:
+        pe_vs = (pe / sector_pe - 1) * 100
+    rev = _pick(feat, "revenue_growth_yoy_pct")
+    pat = _pick(feat, "pat_growth_yoy_pct")
+    roe = _num(feat.get("roe_pct"))
+    de = _ratio(feat.get("debt_to_equity"))
+    support = _pick(feat, "swing_low_20", "support")
+    resistance = _pick(feat, "swing_high_20", "resistance")
+
+    cand: List[Dict[str, Any]] = []
+    if pe is not None and sector_pe and pe_vs is not None and abs(pe_vs) >= 25:
+        side = "premium to" if pe_vs > 0 else "discount to"
+        cand.append({"tone": "warm" if pe_vs > 0 else "pos",
+                     "text": f"Trades at P/E {pe:.1f} vs sector {sector_pe:.1f} — a ~{abs(pe_vs):.0f}% {side} peers."})
+    if pat is not None and pat < 0:
+        tail = f" even as sales rose {rev:.1f}%" if (rev is not None and rev > 0) else ""
+        cand.append({"tone": "neg", "text": f"Net profit fell {abs(pat):.1f}% YoY last quarter{tail}."})
+    if close is not None and support and (close - support) / support <= 0.05:
+        cand.append({"tone": "info", "text": f"Sitting near support ({_money(support, 0)}) — a key level to watch."})
+    if close is not None and resistance and (resistance - close) / resistance <= 0.05:
+        cand.append({"tone": "info", "text": f"Pressing against resistance ({_money(resistance, 0)})."})
+    if pat is not None and pat > 0 and rev is not None and rev > 0:
+        cand.append({"tone": "pos", "text": f"Profit grew {pat:.1f}% YoY on {rev:.1f}% higher sales."})
+    if roe is not None and roe >= 18:
+        cand.append({"tone": "pos", "text": f"High return on equity at {roe:.1f}%."})
+    if de is not None and de < 0.4:
+        cand.append({"tone": "pos", "text": f"Lightly geared — debt/equity just {de:.2f}."})
+    return cand[:3]
+
+
+def _prose_summary(feat: Dict[str, Any], close: Optional[float],
+                   band: Optional[tuple[int, str, str]], tech: Optional[tuple[int, str, str]]) -> Optional[str]:
+    """Deterministic narrative assembled from the real numbers (no LLM)."""
+    pe_vs = _pick(feat, "pe_vs_sector_pct")
+    pe = _ratio(feat.get("pe_ttm"))
+    sector_pe = _pick(feat, "sector_median_pe")
+    if pe_vs is None and pe is not None and sector_pe:
+        pe_vs = (pe / sector_pe - 1) * 100
+    rev = _pick(feat, "revenue_growth_yoy_pct")
+    pat = _pick(feat, "pat_growth_yoy_pct")
+    de = _ratio(feat.get("debt_to_equity"))
+
+    qy = band[0] if band else None
+    if qy is None:
+        lead = "This business"
+    elif qy >= 60:
+        lead = "A quality business"
+    elif qy >= 45:
+        lead = "A mixed business"
+    else:
+        lead = "A lower-quality business"
+
+    if pe_vs is None:
+        val = None
+    elif pe_vs > 40:
+        val = "a full valuation"
+    elif pe_vs > 15:
+        val = "a premium valuation"
+    elif pe_vs < -15:
+        val = "a discount to its sector"
+    else:
+        val = "a fair valuation"
+    s1 = f"{lead} at {val}." if val else f"{lead}."
+
+    pos: List[str] = []
+    if rev is not None and rev > 0:
+        pos.append("revenue is growing")
+    if de is not None and de < 0.5:
+        pos.append("the balance sheet is sound")
+    neg: List[str] = []
+    if pat is not None and pat < 0:
+        neg.append("profit slipped year-on-year")
+    if pe_vs is not None and pe_vs > 15:
+        neg.append("the stock trades above its sector on earnings")
+
+    mid = ""
+    if pos and neg:
+        clause = _join_clauses(pos)
+        mid = f" {clause[0].upper()}{clause[1:]}, but {_join_clauses(neg)}."
+    elif pos:
+        clause = _join_clauses(pos)
+        mid = f" {clause[0].upper()}{clause[1:]}."
+    elif neg:
+        mid = f" However, {_join_clauses(neg)}."
+
+    tail = ""
+    if tech:
+        ts = tech[0]
+        tail = " Momentum is firm." if ts >= 60 else (" Momentum is mixed." if ts >= 45 else " Momentum is weak near-term.")
+
+    out = (s1 + mid + tail).strip()
+    return out or None
+
+
 def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Assemble the instrument_detail widget for a stock. Pure function.
+    """Assemble the rich instrument_detail widget for a stock. Pure function.
 
     `feat`  : /v1/features/stocks/{symbol}/latest .data  (technical + fundamental)
     `scores`: /v1/stocks/scores/{symbol} .data           (quality + sector rank)
+
+    Every value is read straight from DaaS or derived deterministically from DaaS
+    fields (technical composite, PEG, prose, highlights). A section is omitted
+    when its inputs are missing — never invented or defaulted to a fake number.
     """
     feat = feat or {}
     scores = scores or {}
     sym = symbol.upper()
 
     sector = feat.get("sector") or scores.get("sector")
+    # The readable classification ("Oil Gas & Consumable Fuels") is `industry`;
+    # `sector` is the terse bucket ("Oil Gas"). Prefer industry for display.
     industry = feat.get("industry") or scores.get("industry")
-    meta = " · ".join([x for x in (sector, industry) if x]) or None
+    cap = _cap_label(feat)
+    meta = " · ".join([x for x in (industry or sector, cap) if x]) or None
 
     # Price + 1-day change (omit change if no prior close to compute it).
     close = _pick(feat, "close", "close_price", "last_price")
@@ -144,7 +441,8 @@ def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[
         "subtitle": f"{sym} · NSE",
         "meta": meta,
         "source": _SOURCE,
-        "actions": [{"label": "Compare peers"}, {"label": "1-year chart"}],
+        "disclaimer_note": "Not investment advice",
+        "actions": [{"label": "Explain the score"}, {"label": "Compare peers"}, {"label": "Who holds it"}],
     }
     if close is not None:
         widget["price"] = {
@@ -152,6 +450,7 @@ def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[
             "value": _money(close),
             "change": _pct(change_pct, signed=True, decimals=2) if change_pct is not None else None,
             "change_positive": change_positive,
+            "asof": _fmt_asof(feat.get("as_of_date") or feat.get("date")),
         }
 
     # Quality score (persisted V3) + sector rank (migration 086).
@@ -166,91 +465,144 @@ def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[
         caption = f"Top {math.ceil(rank / size * 100)}% in {sector}" if sector else f"Top {math.ceil(rank / size * 100)}%"
         widget["rank"] = {"value": int(rank), "of": int(size), "label": "Sector rank", "caption": caption}
 
-    # Fundamental analysis. P/E, P/B, D/E omit when not > 0 (NIDP returns 0.0
-    # for a missing input — rendering "0.00" would be a false reading).
-    pe, pb, de = _ratio(feat.get("pe_ttm")), _ratio(feat.get("pb")), _ratio(feat.get("debt_to_equity"))
-    f_rows = _compact([
-        _row("P / E", f"{pe:.1f}" if pe is not None else None),
-        _row("P / B", f"{pb:.2f}" if pb is not None else None),
-        _row("ROE", _pct(_num(feat.get("roe_pct")))),
-        _row("Debt / equity", f"{de:.2f}" if de is not None else None),
-        _row("Revenue growth (YoY)", _pct(_pick(feat, "revenue_growth_yoy_pct"), signed=True)),
-        _row("Net margin", _pct(_pick(feat, "profit_margin_pct", "net_margin_pct"))),
-    ])
-    if f_rows:
-        f_score = _pick(scores, "fundamental_score")
-        piotroski = _num(feat.get("piotroski_score"))
-        f_badge = None
-        if f_score is not None:
-            lbl, tone = ("Fundamentally strong", "pos") if f_score >= 65 else (("Above average", "warm") if f_score >= 50 else ("Below average", "neg"))
-            f_badge = {"text": lbl, "tone": tone}
-        elif piotroski is not None:
-            lbl, tone = ("Fundamentally strong", "pos") if piotroski >= 6 else (("Above average", "warm") if piotroski >= 4 else ("Below average", "neg"))
-            f_badge = {"text": lbl, "tone": tone}
-        widget["fundamental"] = {"rows": f_rows}
-        if f_badge:
-            widget["fundamental"]["badge"] = f_badge
+    # Fundamentals + technicals composite bars. The real V3 composites live
+    # NESTED under quality_components (the top-level scores row only carries the
+    # blended quality_score). Prefer those; fall back to Piotroski / a derived
+    # technical blend only when the composite is absent.
+    f_score = _pick(scores, "fundamental_score")
+    if f_score is None:
+        f_score = _num(_nested(scores, "quality_components", "fundamental", "score"))
+    band = _fundamental_band(f_score, _num(feat.get("piotroski_score")))
 
-    # Technical analysis.
-    rsi = _pick(feat, "rsi14", "rsi_14")
+    t_score = _num(_nested(scores, "quality_components", "technical", "score"))
+    if t_score is None:
+        t_score = _pick(scores, "health_score")
+    tech = _technical_band(t_score) if t_score is not None else _technical_score(feat, close)
+    score_bars: Dict[str, Any] = {}
+    if band:
+        score_bars["fundamental"] = {"score": band[0], "label": band[1], "tone": band[2]}
+    if tech:
+        score_bars["technical"] = {"score": tech[0], "label": tech[1], "tone": tech[2]}
+    if band and tech:
+        if band[2] == "pos" and tech[2] == "neg":
+            score_bars["explainer"] = "Quality score blends both sides — strong fundamentals are dragged down by weak short-term technicals."
+        elif band[2] == "neg" and tech[2] == "pos":
+            score_bars["explainer"] = "Quality score blends both sides — firmer technicals can't fully offset soft fundamentals."
+        else:
+            score_bars["explainer"] = "Quality score blends fundamentals with short-term technicals into one read."
+    if score_bars:
+        widget["scores"] = score_bars
+
+    # Prose summary (deterministic) + 'What stands out'.
+    summary = _prose_summary(feat, close, band, tech)
+    if summary:
+        widget["summary"] = summary
+    highlights = _highlights(feat, close)
+    if highlights:
+        widget["highlights"] = highlights
+
+    # Benchmarked fundamentals grid.
+    grid = _fundamentals_grid(feat)
+    if grid:
+        widget["fundamentals_grid"] = grid
+
+    # 'Where price sits' — position bar + trend.
     sma50 = _pick(feat, "sma50", "sma_50")
-    sma200 = _pick(feat, "sma200", "sma_200")
-    macd = _pick(feat, "macd")
-    macd_hist = _pick(feat, "macd_hist")
     support = _pick(feat, "swing_low_20", "support")
     resistance = _pick(feat, "swing_high_20", "resistance")
+    if close is not None and (support is not None or resistance is not None):
+        if tech:
+            trend = {"label": f"{tech[1]} trend", "tone": tech[2]}
+        else:
+            trend = None
+        pp: Dict[str, Any] = {
+            "current": close, "current_label": _money(close, 0),
+        }
+        if support is not None:
+            pp["support"], pp["support_label"] = support, _money(support, 0)
+        if sma50 is not None:
+            pp["sma50"], pp["sma50_label"] = sma50, _money(sma50, 0)
+        if resistance is not None:
+            pp["resistance"], pp["resistance_label"] = resistance, _money(resistance, 0)
+        if trend:
+            pp["trend"] = trend
+        widget["price_position"] = pp
 
-    macd_val = macd_tone = None
+    # Technical indicator cards (RSI / MACD / Momentum).
+    rsi = _pick(feat, "rsi14", "rsi_14")
+    macd = _pick(feat, "macd")
+    macd_hist = _pick(feat, "macd_hist")
+    cards: List[Dict[str, Any]] = []
+    if rsi is not None:
+        rnote, rtone = ("overbought", "neg") if rsi >= 70 else (("oversold", "pos") if rsi <= 30 else ("neutral", "warm"))
+        cards.append({"label": "RSI (14)", "value": f"{rsi:.1f}", "note": rnote, "tone": rtone})
     if macd is not None:
         if macd > 0:
-            macd_val = "Bullish crossover" if (macd_hist is not None and macd_hist > 0) else "Bullish"
-            macd_tone = "pos"
+            mval, mtone = ("Bullish crossover" if (macd_hist is not None and macd_hist > 0) else "Bullish"), "pos"
         elif macd < 0:
-            macd_val, macd_tone = "Bearish", "neg"
+            mval, mtone = "Bearish", "neg"
         else:
-            macd_val = "Neutral"
-
-    t_rows = _compact([
-        _row("RSI (14)", f"{rsi:.1f}" if rsi is not None else None),
-        _row("50-day MA", _money(sma50, 0)),
-        _row("200-day MA", _money(sma200, 0)),
-        _row("MACD", macd_val, macd_tone),
-        _row("Support", _money(support, 0)),
-        _row("Resistance", _money(resistance, 0)),
-    ])
-    if t_rows:
-        # Simple bullish/bearish bias from price-vs-MA, RSI and MACD.
-        bull = bear = 0
-        if close is not None and sma50 is not None:
-            bull += close > sma50
-            bear += close < sma50
-        if close is not None and sma200 is not None:
-            bull += close > sma200
-            bear += close < sma200
-        if macd is not None:
-            bull += macd > 0
-            bear += macd < 0
-        if rsi is not None and rsi >= 70:
-            bear += 1
-        t_label, t_tone = ("Bullish", "pos") if bull > bear else (("Bearish", "neg") if bear > bull else ("Neutral", "warm"))
-        widget["technical"] = {"badge": {"text": t_label, "tone": t_tone}, "rows": t_rows}
+            mval, mtone = "Neutral", "warm"
+        cards.append({"label": "MACD", "value": mval, "tone": mtone})
+    momentum = _pick(feat, "momentum_score")
+    r1 = _pick(feat, "return_20d_pct")
+    r3 = _pick(feat, "return_60d_pct")
+    # 6-month return is not in DaaS, so it is honestly omitted (not faked).
+    if momentum is not None:
+        ret_notes = _compact([
+            {"x": f"1M {r1:+.1f}%"} if r1 is not None else None,
+            {"x": f"3M {r3:+.1f}%"} if r3 is not None else None,
+        ])
+        band_lbl = "strong" if momentum >= 60 else ("recovering" if momentum >= 45 else "weak")
+        note = " · ".join([n["x"] for n in ret_notes] + [band_lbl])
+        mtone = "pos" if momentum >= 60 else ("warm" if momentum >= 45 else "neg")
+        cards.append({"label": "Momentum", "value": str(int(round(momentum))), "note": note, "tone": mtone})
+    elif r1 is not None or r3 is not None:
+        parts = _compact([
+            {"x": f"{r1:+.1f}%"} if r1 is not None else None,
+            {"x": f"{r3:+.1f}%"} if r3 is not None else None,
+        ])
+        ref = r3 if r3 is not None else r1
+        cards.append({"label": "Momentum (1M / 3M)", "value": " / ".join(p["x"] for p in parts),
+                      "tone": "pos" if (ref or 0) >= 0 else "neg"})
+    if cards:
+        widget["technicals_cards"] = cards
 
     return widget
 
 
 def _stock_summary(symbol: str, w: Dict[str, Any]) -> str:
+    """Compact LLM-context line. The LLM only ever sees this string (not the
+    widget data), so pack the key numbers in so it can answer in prose."""
     parts = [symbol.upper()]
     q = w.get("quality")
     if q:
         parts.append(f"quality={q['score']}/100 ({q['label']})")
+    sc = w.get("scores", {})
+    if sc.get("fundamental"):
+        parts.append(f"fundamentals={sc['fundamental']['score']}/100 ({sc['fundamental']['label']})")
+    if sc.get("technical"):
+        parts.append(f"technicals={sc['technical']['score']}/100 ({sc['technical']['label']})")
+    for c in w.get("fundamentals_grid", []):
+        parts.append(f"{c['label']}={c['value']}")
     r = w.get("rank")
     if r:
         parts.append(f"sector_rank=#{r['value']}/{r['of']}")
-    if w.get("fundamental", {}).get("badge"):
-        parts.append(f"fundamentals={w['fundamental']['badge']['text']}")
-    if w.get("technical", {}).get("badge"):
-        parts.append(f"technicals={w['technical']['badge']['text']}")
-    return " | ".join(parts)
+    pp = w.get("price_position")
+    if pp:
+        bits = [f"price={pp.get('current_label')}"]
+        if pp.get("support_label"):
+            bits.append(f"support={pp['support_label']}")
+        if pp.get("sma50_label"):
+            bits.append(f"50dma={pp['sma50_label']}")
+        if pp.get("resistance_label"):
+            bits.append(f"resistance={pp['resistance_label']}")
+        if pp.get("trend"):
+            bits.append(f"trend={pp['trend']['label']}")
+        parts.append(" ".join(bits))
+    if w.get("summary"):
+        parts.append(w["summary"])
+    return " | ".join(p for p in parts if p)
 
 
 async def get_stock_research(symbol: str) -> InstrumentResearch:
@@ -260,9 +612,10 @@ async def get_stock_research(symbol: str) -> InstrumentResearch:
         return InstrumentResearch(ok=False, kind="stock", identifier="", summary="", error="no_symbol")
     import asyncio
     try:
-        feat, scores = await asyncio.gather(
+        feat, scores, hist = await asyncio.gather(
             _daas.get_stock_features_latest(sym),
             _daas.get_stock_scores(sym),
+            _daas.get_stock_features_history(sym, limit=2),
             return_exceptions=True,
         )
     except Exception as exc:  # noqa: BLE001
@@ -276,8 +629,27 @@ async def get_stock_research(symbol: str) -> InstrumentResearch:
             summary=f"No research data available for {sym}", error="not_found",
         )
 
+    # features/latest carries no prev_close, so inject the prior trading day's
+    # close to enable a 1-day change — but ONLY when the prior row really is the
+    # preceding session (≤4 calendar days). This avoids mislabelling a stale
+    # weekly gap as a daily move (staging snapshots can be weekly).
+    if isinstance(feat, dict) and isinstance(hist, list) and len(hist) >= 2 and feat.get("prev_close") is None:
+        prev_close = _num(hist[1].get("close"))
+        gap_ok = True
+        d_cur, d_prev = hist[0].get("as_of_date"), hist[1].get("as_of_date")
+        if d_cur and d_prev:
+            try:
+                gap_ok = abs((datetime.fromisoformat(str(d_cur)[:10]) - datetime.fromisoformat(str(d_prev)[:10])).days) <= 4
+            except ValueError:
+                gap_ok = False
+        if prev_close is not None and gap_ok:
+            feat["prev_close"] = prev_close
+
     widget = build_stock_widget(sym, feat or {}, scores)
-    ok = bool(widget.get("quality") or widget.get("fundamental") or widget.get("technical"))
+    ok = bool(
+        widget.get("quality") or widget.get("scores")
+        or widget.get("fundamentals_grid") or widget.get("technicals_cards")
+    )
     return InstrumentResearch(
         ok=ok, kind="stock", identifier=sym,
         summary=_stock_summary(sym, widget), widget=widget,
