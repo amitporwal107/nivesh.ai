@@ -853,8 +853,17 @@ def parse_cas_offline(content: bytes, password: str = "") -> tuple:
         msg = str(e)
         kind = "password" if _is_password_error(msg) else "parse"
         logger.warning("offline casparser parse failed: %s", msg)
-        return [], None, {"kind": kind, "message": "The CAS statement couldn't be read (offline parser).",
-                          "detail": msg[:300]}
+        # A password/decrypt failure means the PAN didn't unlock the PDF — surface
+        # an actionable message (matching the hosted-API path) rather than the
+        # internal "offline parser" wording, which reads like a system bug. The
+        # caller routes kind=="password" back to the PAN re-prompt.
+        message = (
+            "That PAN didn't unlock the statement — double-check the PAN printed on "
+            "your CAS (it must match exactly) and try again."
+            if kind == "password"
+            else "The CAS statement couldn't be read (offline parser)."
+        )
+        return [], None, {"kind": kind, "message": message, "detail": msg[:300]}
 
     # casparser may hand back a pydantic/dataclass model (NSDLCASData, CASData,
     # …) rather than a plain dict — coerce so the dict-based mapper works.

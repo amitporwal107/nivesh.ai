@@ -126,6 +126,62 @@ async def save_pan(payload: PanInput, request: Request) -> Dict[str, Any]:
     return {"ok": True}
 
 
+class CasPasswordInput(BaseModel):
+    # Free-form, case-sensitive. CAMS/KFintech mailback statements can be locked
+    # with a user-chosen password rather than the PAN, so this is NOT PAN-shaped.
+    password: str = Field(..., min_length=1, max_length=64)
+
+
+@router.post("/cas-password")
+async def save_cas_password(payload: CasPasswordInput, request: Request) -> Dict[str, Any]:
+    """Store a CAS PDF password that differs from the PAN.
+
+    NSDL / CDSL eCAS are always locked with the (upper-cased) PAN, but a
+    CAMS / KFintech consolidated statement delivered by email can be locked
+    with a password the user chose when requesting it. When the PAN fails to
+    unlock the statement, the UI lets the user enter that password here; it is
+    stored verbatim (case-sensitive) and takes precedence over the PAN at
+    unlock time (see ``_resolve_cas_password``)."""
+    pw = (payload.password or "").strip()
+    if not pw:
+        raise HTTPException(400, "Statement password cannot be empty.")
+    user = await get_current_user(request)
+    now = _now_iso()
+    await db.user_profiles.update_one(
+        {"user_id": user["user_id"]},
+        {
+            "$set": {"cas_pdf_password": pw, "updated_at": now},
+            "$setOnInsert": {"user_id": user["user_id"], "created_at": now},
+        },
+        upsert=True,
+    )
+    # Mirror onto gmail_tokens so the daily auto-import scheduler finds it too.
+    await db.gmail_tokens.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"cas_pdf_password": pw, "cas_password_saved_at": now}},
+        upsert=False,
+    )
+    return {"ok": True}
+
+
+def _resolve_cas_password(profile: Dict[str, Any], token_doc: Optional[Dict[str, Any]] = None) -> str:
+    """Resolve the password used to unlock a user's CAS PDFs.
+
+    A user-entered statement password (``cas_pdf_password`` — for CAMS/KFin
+    mailback statements locked with a non-PAN password) is used verbatim and
+    takes precedence. Otherwise fall back to the PAN, upper-cased (NSDL/CDSL
+    eCAS are locked with the upper-case PAN). Note: ``cas_password`` is a PAN
+    mirror written by ``save_pan``, so it stays on the PAN branch, never the
+    custom one."""
+    token_doc = token_doc or {}
+    custom = (profile.get("cas_pdf_password") or token_doc.get("cas_pdf_password") or "").strip()
+    if custom:
+        return custom
+    return (
+        profile.get("pan") or profile.get("cas_password") or token_doc.get("cas_password") or ""
+    ).upper()
+
+
 @router.post("/gmail/auto-import")
 async def gmail_auto_import(request: Request) -> Dict[str, Any]:
     """Single-call orchestrator. Assumes:
@@ -152,7 +208,9 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         raise HTTPException(400, "Gmail not connected — complete the OAuth step first.")
 
     profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
-    pan = (profile.get("pan") or profile.get("cas_password") or token_doc.get("cas_password") or "").upper()
+    # Unlock password: a user-entered statement password (non-PAN CAMS/KFin
+    # statements) wins; otherwise the upper-cased PAN. See _resolve_cas_password.
+    pan = _resolve_cas_password(profile, token_doc)
     # PAN is the standard password for CAMS/KFin CAS PDFs. We let the
     # request proceed without one — the parser will simply fail per-file
     # and we'll surface a friendly "PAN needed" response.
@@ -545,7 +603,7 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
         raise HTTPException(413, "PDF too large — max 25 MB.")
 
     profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
-    pan = (profile.get("pan") or profile.get("cas_password") or "").upper()
+    pan = _resolve_cas_password(profile)
     if not pan:
         raise HTTPException(400, "PAN missing — submit /api/onboarding/pan first.")
 

@@ -51,12 +51,13 @@ async def auto_import_for_user(db, user_id: str) -> Dict[str, Any]:
     if token_doc.get("auto_import_enabled") is False:
         return {"status": "skipped", "reason": "disabled"}
 
-    # PAN unlocks the PAN-locked CAS PDF. Prefer the saved gmail_tokens value,
-    # then fall back to the profile PAN (the onboarding /pan path writes there).
-    pwd = token_doc.get("cas_password", "")
-    if not pwd:
-        profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
-        pwd = profile.get("cas_password") or profile.get("pan") or ""
+    # Unlock the CAS PDF. A user-entered statement password (cas_pdf_password —
+    # CAMS/KFin statements locked with a non-PAN password) wins and is used
+    # verbatim; otherwise fall back to the PAN. Check gmail_tokens first (the
+    # onboarding paths mirror both fields there), then the profile.
+    profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    custom = (token_doc.get("cas_pdf_password") or profile.get("cas_pdf_password") or "").strip()
+    pwd = custom or (token_doc.get("cas_password") or profile.get("cas_password") or profile.get("pan") or "")
     if not pwd:
         return {"status": "skipped", "reason": "no_saved_password"}
 

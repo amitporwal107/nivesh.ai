@@ -35,6 +35,10 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
   const [step, setStep] = useState<Step>(gmailConnected ? "pan" : "connect");
   const [pan, setPan] = useState("");
   const [panError, setPanError] = useState<string | null>(null);
+  // Optional statement password — only revealed after the PAN fails to unlock
+  // the PDF (CAMS/KFin mailback statements can use a non-PAN password).
+  const [statementPw, setStatementPw] = useState("");
+  const [showStatementPw, setShowStatementPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ source?: string; holdings?: number; transactions?: number; period?: string } | null>(null);
   const popupRef = useRef<Window | null>(null);
@@ -46,6 +50,8 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
       setStep(gmailConnected ? "pan" : "connect");
       setError(null);
       setPanError(null);
+      setStatementPw("");
+      setShowStatementPw(false);
       setResult(null);
     }
   }, [open, gmailConnected]);
@@ -141,6 +147,22 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
         throw new Error(d.detail ?? `Couldn't save PAN (${panRes.status})`);
       }
 
+      // If the user supplied a non-PAN statement password, persist it first so
+      // the import uses it to unlock the PDF (takes precedence over the PAN).
+      const stmtPw = statementPw.trim();
+      if (stmtPw) {
+        const pwRes = await fetch("/api/onboarding/cas-password", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: stmtPw }),
+        });
+        if (!pwRes.ok) {
+          const d = await pwRes.json().catch(() => ({}));
+          throw new Error(d.detail ?? `Couldn't save statement password (${pwRes.status})`);
+        }
+      }
+
       const res = await fetch("/api/onboarding/gmail/auto-import", {
         method: "POST",
         credentials: "include",
@@ -164,8 +186,11 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
         const kind = data.parse_error?.kind;
         const why = data.parse_error?.message;
         if (kind === "password") {
-          // Wrong PAN — go back to the PAN step and let the user re-enter it.
-          setPanError(why ?? "That PAN didn't unlock the statement — re-enter it.");
+          // PAN didn't unlock the PDF — re-prompt and reveal the optional
+          // statement-password field (CAMS/KFin statements may use a non-PAN
+          // password). Keep any statement password the user already typed.
+          setPanError(why ?? "That PAN didn't unlock the statement — re-enter it, or add the statement password below.");
+          setShowStatementPw(true);
           setStep("pan");
           return;
         }
@@ -249,6 +274,27 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
               className="w-full rounded-lg bg-bg border border-hairline px-3.5 py-2.5 text-[15px] font-mono tracking-wide uppercase outline-none focus:border-accent"
             />
             {panError && <p className="text-[12px] text-neg mt-2">{panError}</p>}
+
+            {showStatementPw && (
+              <div className="mt-4">
+                <label className="block text-[11px] font-mono uppercase tracking-[.14em] text-ink-3 mb-1.5">
+                  Statement password <span className="text-ink-4 normal-case tracking-normal">· if different from PAN</span>
+                </label>
+                <input
+                  type="password"
+                  value={statementPw}
+                  onChange={(e) => setStatementPw(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleImport(); }}
+                  placeholder="Password printed in the CAS email"
+                  className="w-full rounded-lg bg-bg border border-hairline px-3.5 py-2.5 text-[15px] font-mono tracking-wide outline-none focus:border-accent"
+                />
+                <p className="text-[11px] text-ink-4 mt-1.5 leading-relaxed">
+                  CAMS / KFintech statements are sometimes locked with a password you chose,
+                  not your PAN. Leave blank if your PAN should work.
+                </p>
+              </div>
+            )}
+
             <Button variant="accent" className="w-full mt-5" onClick={handleImport}>
               Import latest CAS →
             </Button>
