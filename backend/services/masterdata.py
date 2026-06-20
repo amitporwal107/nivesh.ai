@@ -453,7 +453,13 @@ def validate_and_enrich_holdings(holdings: list) -> list:
             # (_resolve_full_scheme_name in cas_snapshot_engine).
             master_name = (master.get("name") or "").strip()
             is_truncated = bool(master_name) and len(master_name) > len(name_clean) + 4
-            if is_garbled or is_truncated:
+            # CAS column-glue artifact: the extractor inserts stray commas when a
+            # scheme name wraps across PDF columns ("ICICI Prudential, Large Cap
+            # Fund, (erstwhile...)"). Authoritative AMFI/NSE names never contain
+            # commas, so a comma in the stored name (absent from the master name)
+            # is a reliable glue signal — prefer the canonical name.
+            is_glued = bool(master_name) and "," in name_clean and "," not in master_name
+            if is_garbled or is_truncated or is_glued:
                 h["name"] = master["name"]
 
             # Attach MF classification metadata (plan/option)

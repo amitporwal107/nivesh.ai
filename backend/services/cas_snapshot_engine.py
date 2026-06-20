@@ -158,8 +158,12 @@ async def _resolve_full_scheme_name(name: str, ticker: str, asset_type: str) -> 
     canonical = (entry.get("scheme_name") or "").strip()
     if not canonical:
         return name
-    # Use AMFI's name if our stored one is materially shorter or generic.
+    # Prefer AMFI's canonical name when ours is materially shorter (truncation)
+    # OR a CAS column-glue artifact (stray commas from a name that wrapped across
+    # PDF columns — AMFI scheme names never contain commas).
     if len(canonical) > len(name) + 4:
+        return canonical
+    if "," in name and "," not in canonical:
         return canonical
     return name
 

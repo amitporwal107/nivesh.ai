@@ -52,6 +52,21 @@ def test_unknown_isin_preserves_user_name():
     assert out[0]["name"] == "My Private Note"
 
 
+def test_comma_glue_name_resolves_to_canonical():
+    """The CAS extractor inserts stray commas when a name wraps across PDF
+    columns ("ICICI Prudential, Large Cap Fund, (erstwhile...)"). These are
+    ~the same length as canonical so the truncation rule misses them — the
+    comma signal must trigger replacement with the comma-free AMFI name."""
+    isin = "INF109K016L0"
+    canonical = lookup_isin(isin)["name"]
+    glued = "ICICI Prudential, Large Cap Fund, (erstwhile Bluechip)"
+
+    out = validate_and_enrich_holdings([_mf(glued, isin)])
+
+    assert out[0]["name"] == canonical
+    assert "," not in out[0]["name"]
+
+
 def test_real_isins_resolve_to_full_scheme_names():
     """The specific holdings from the reported Top-Holdings screenshot all
     expand from their truncated stub to the full canonical name."""
