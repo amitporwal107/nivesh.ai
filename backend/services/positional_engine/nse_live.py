@@ -54,7 +54,37 @@ NIFTY_TICKER = "^NSEI"
 SENSEX_TICKER = "^BSESN"   # BSE Sensex (the one non-NSE index we surface)
 VIX_TICKER = "^INDIAVIX"
 
-ALL_TICKERS = [NIFTY_TICKER, SENSEX_TICKER, VIX_TICKER] + [t for t, _ in SECTOR_TICKERS]
+# Nifty 50 constituents (yfinance ".NS" tickers) → display name. Used to
+# derive live gainers/losers + breadth when the NIDP data lake (richer,
+# Nifty-500) isn't populated. Maintained here like SECTOR_TICKERS; yfinance
+# silently skips any ticker it can't resolve, so a stale name just drops out.
+NIFTY50_CONSTITUENTS: List[tuple] = [
+    ("RELIANCE.NS", "Reliance Industries"), ("HDFCBANK.NS", "HDFC Bank"),
+    ("ICICIBANK.NS", "ICICI Bank"), ("INFY.NS", "Infosys"), ("TCS.NS", "TCS"),
+    ("ITC.NS", "ITC"), ("LT.NS", "Larsen & Toubro"), ("BHARTIARTL.NS", "Bharti Airtel"),
+    ("SBIN.NS", "State Bank of India"), ("AXISBANK.NS", "Axis Bank"),
+    ("KOTAKBANK.NS", "Kotak Mahindra Bank"), ("HINDUNILVR.NS", "Hindustan Unilever"),
+    ("BAJFINANCE.NS", "Bajaj Finance"), ("M&M.NS", "Mahindra & Mahindra"),
+    ("MARUTI.NS", "Maruti Suzuki"), ("SUNPHARMA.NS", "Sun Pharma"), ("NTPC.NS", "NTPC"),
+    ("TATAMOTORS.NS", "Tata Motors"), ("HCLTECH.NS", "HCL Technologies"), ("TITAN.NS", "Titan"),
+    ("ULTRACEMCO.NS", "UltraTech Cement"), ("POWERGRID.NS", "Power Grid"),
+    ("ASIANPAINT.NS", "Asian Paints"), ("WIPRO.NS", "Wipro"), ("NESTLEIND.NS", "Nestlé India"),
+    ("ADANIENT.NS", "Adani Enterprises"), ("ADANIPORTS.NS", "Adani Ports"), ("ONGC.NS", "ONGC"),
+    ("COALINDIA.NS", "Coal India"), ("TATASTEEL.NS", "Tata Steel"), ("JSWSTEEL.NS", "JSW Steel"),
+    ("BAJAJFINSV.NS", "Bajaj Finserv"), ("GRASIM.NS", "Grasim"), ("HINDALCO.NS", "Hindalco"),
+    ("TECHM.NS", "Tech Mahindra"), ("DRREDDY.NS", "Dr. Reddy's"), ("CIPLA.NS", "Cipla"),
+    ("BRITANNIA.NS", "Britannia"), ("EICHERMOT.NS", "Eicher Motors"), ("APOLLOHOSP.NS", "Apollo Hospitals"),
+    ("BPCL.NS", "BPCL"), ("HEROMOTOCO.NS", "Hero MotoCorp"), ("INDUSINDBK.NS", "IndusInd Bank"),
+    ("TATACONSUM.NS", "Tata Consumer"), ("BAJAJ-AUTO.NS", "Bajaj Auto"), ("SBILIFE.NS", "SBI Life"),
+    ("HDFCLIFE.NS", "HDFC Life"), ("LTIM.NS", "LTIMindtree"), ("SHRIRAMFIN.NS", "Shriram Finance"),
+    ("TRENT.NS", "Trent"), ("BEL.NS", "Bharat Electronics"),
+]
+
+ALL_TICKERS = (
+    [NIFTY_TICKER, SENSEX_TICKER, VIX_TICKER]
+    + [t for t, _ in SECTOR_TICKERS]
+    + [t for t, _ in NIFTY50_CONSTITUENTS]
+)
 
 _CACHE: Dict[str, Any] = {"ts": 0.0, "data": None}
 
@@ -185,6 +215,39 @@ def _parse_to_snapshot(yf_out: Dict[str, Dict[str, float]]) -> Dict[str, Any]:
             "tone":             _sector_tone(rs),
         })
     out["sectors"].sort(key=lambda r: (r.get("change_pct") or -999), reverse=True)
+
+    # ── Live gainers / losers + breadth from the Nifty-50 universe ──────
+    movers: List[Dict[str, Any]] = []
+    advances = declines = unchanged = 0
+    for ticker, name in NIFTY50_CONSTITUENTS:
+        s = yf_out.get(ticker)
+        if not s:
+            continue
+        change = s.get("change_pct")
+        if change is None:
+            continue
+        movers.append({
+            "symbol":     ticker.replace(".NS", ""),
+            "name":       name,
+            "close":      s.get("close"),
+            "change_pct": change,
+        })
+        if change > 0.05:
+            advances += 1
+        elif change < -0.05:
+            declines += 1
+        else:
+            unchanged += 1
+    if movers:
+        ranked = sorted(movers, key=lambda m: m["change_pct"], reverse=True)
+        out["gainers"] = ranked[:4]
+        out["losers"] = sorted(movers, key=lambda m: m["change_pct"])[:4]
+        out["breadth"] = {
+            "advances":  advances,
+            "declines":  declines,
+            "unchanged": unchanged,
+            "universe":  len(movers),
+        }
     return out
 
 

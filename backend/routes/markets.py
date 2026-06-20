@@ -240,13 +240,21 @@ async def markets_home(request: Request):
     ]
     indices = [i for i in indices if i is not None]
 
+    # ── Breadth: prefer NIDP's full-universe count; else live Nifty-50 ──
     b = dash.get("breadth") or {}
     advances = b.get("advances")
     declines = b.get("declines")
     universe = b.get("universe_size")
-    unchanged = None
-    if universe is not None and advances is not None and declines is not None:
-        unchanged = max(universe - advances - declines, 0)
+    if advances is None:
+        lb = live.get("breadth") or {}
+        advances = lb.get("advances")
+        declines = lb.get("declines")
+        universe = lb.get("universe")
+        unchanged = lb.get("unchanged")
+    else:
+        unchanged = None
+        if universe is not None and declines is not None:
+            unchanged = max(universe - advances - declines, 0)
     breadth = {
         "advances":  advances,
         "declines":  declines,
@@ -255,13 +263,38 @@ async def markets_home(request: Request):
         "tone":      _breadth_tone(advances, declines),
     }
 
+    # ── Sectors: prefer NIDP heatmap; else the live sector indices ──────
     sectors = [
         {"name": s.get("sector"), "change_pct": s.get("ret_5d_pct")}
         for s in (dash.get("sector_heatmap") or [])
         if s.get("ret_5d_pct") is not None
     ]
+    if not sectors:
+        sectors = [
+            {"name": s.get("sector"), "change_pct": s.get("change_pct")}
+            for s in (live.get("sectors") or [])
+            if s.get("change_pct") is not None
+        ]
 
+    # ── Movers: prefer NIDP Nifty-500; else live Nifty-50 ───────────────
     movers = await _top_movers(pool)
+    if not movers["gainers"] and not movers["losers"]:
+        def _live_row(m: Dict[str, Any]) -> Dict[str, Any]:
+            return {
+                "symbol":     m.get("symbol"),
+                "name":       m.get("name") or m.get("symbol"),
+                "price":      round(float(m["close"]), 2) if m.get("close") is not None else None,
+                "change_pct": round(float(m["change_pct"]), 2) if m.get("change_pct") is not None else None,
+            }
+        live_gainers = [_live_row(m) for m in (live.get("gainers") or [])]
+        live_losers = [_live_row(m) for m in (live.get("losers") or [])]
+        if live_gainers or live_losers:
+            movers = {
+                "as_of":   (live.get("fetched_at") or "")[:10] or None,
+                "gainers": live_gainers,
+                "losers":  live_losers,
+            }
+
     fii_dii = await _fii_dii(pool)
     news = await _news(pool)
 
