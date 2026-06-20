@@ -59,7 +59,7 @@ async def _main(args: argparse.Namespace) -> int:
         if args.backfill_days:
             to_date = args.date or _yesterday()
             from_date = to_date - timedelta(days=args.backfill_days)
-            logger.info("ti_engine_backfill_range", from_date=str(from_date), to_date=str(to_date))
+            logger.info("ti_engine_backfill_range from=%s to=%s", from_date, to_date)
             reports = await compute_date_range(pool, from_date, to_date, only_symbols=only)
             summary = {
                 "dates_processed": len(reports),
