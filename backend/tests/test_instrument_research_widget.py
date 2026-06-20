@@ -109,6 +109,8 @@ def test_price_position_and_indicator_cards():
 def test_actions_and_footer():
     w = build_stock_widget("RELIANCE", _FEAT, _SCORES)
     assert [a["label"] for a in w["actions"]] == ["Explain the score", "Compare peers", "Who holds it"]
+    # each action carries a follow-up prompt naming the symbol (drives the chip)
+    assert all("RELIANCE" in a["prompt"] for a in w["actions"])
     assert w["source"] == "NIDP DaaS"
     assert w["disclaimer_note"] == "Not investment advice"
 
