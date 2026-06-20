@@ -1,12 +1,13 @@
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
 import {
   TrendingUp, TrendingDown, ArrowUp, ArrowDown,
-  ArrowUpRight, ArrowDownRight, Activity, ArrowLeftRight, Rocket, Filter,
+  ArrowUpRight, ArrowDownRight, Activity, X,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/formatters";
-import type { MarketsHome, MarketMover } from "@/services/contracts/markets.contract";
+import { useMarketsExplore } from "@/hooks/use-markets";
+import type { MarketsHome, MarketMover, ExploreRow } from "@/services/contracts/markets.contract";
 
 /** 2-decimal Indian-grouped number, e.g. 25,184.30. */
 const numFmt = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -37,17 +38,30 @@ const TONE_TEXT: Record<string, string> = {
   pos: "text-pos", neg: "text-neg", flat: "text-ink-3",
 };
 
-const EXPLORE = [
-  { label: "52-week high", icon: ArrowUpRight,   q: "Show NSE stocks at a 52-week high today." },
-  { label: "52-week low",  icon: ArrowDownRight, q: "Show NSE stocks at a 52-week low today." },
-  { label: "Most active",  icon: Activity,       q: "Show the most active stocks by volume today." },
-  { label: "Deals",        icon: ArrowLeftRight, q: "Show today’s bulk and block deals." },
-  { label: "IPOs",         icon: Rocket,         q: "Show upcoming and ongoing IPOs." },
-  { label: "Scans",        icon: Filter,         q: "What are the most useful stock scans on Nivesh right now?" },
+type ScanKey = "high_52w" | "low_52w" | "most_active";
+
+const EXPLORE: { key: ScanKey; label: string; icon: typeof Activity }[] = [
+  { key: "high_52w",    label: "52-week high", icon: ArrowUpRight },
+  { key: "low_52w",     label: "52-week low",  icon: ArrowDownRight },
+  { key: "most_active", label: "Most active",  icon: Activity },
 ];
 
+const SCAN_TITLE: Record<ScanKey, string> = {
+  high_52w:    "Near 52-week high",
+  low_52w:     "Near 52-week low",
+  most_active: "Most active",
+};
+
+/** Compact share count, e.g. 1.24 Cr / 3.50 L. */
+function fmtVolume(n: number | null | undefined): string {
+  if (n == null) return "—";
+  if (n >= 1e7) return `${(n / 1e7).toFixed(2)} Cr`;
+  if (n >= 1e5) return `${(n / 1e5).toFixed(2)} L`;
+  return intFmt.format(n);
+}
+
 export function Markets({ data }: { data: MarketsHome }) {
-  const navigate = useNavigate();
+  const [openScan, setOpenScan] = useState<ScanKey | null>(null);
   const { breadth } = data;
 
   const broadDown = breadth.tone === "NEGATIVE";
@@ -165,10 +179,10 @@ export function Markets({ data }: { data: MarketsHome }) {
       <div className="mt-4">
         <p className="mb-2.5 text-[13px] font-medium text-ink-2">Explore</p>
         <div className="flex flex-wrap gap-2">
-          {EXPLORE.map(({ label, icon: Icon, q }) => (
+          {EXPLORE.map(({ key, label, icon: Icon }) => (
             <button
-              key={label}
-              onClick={() => navigate(`/chat?q=${encodeURIComponent(q)}`)}
+              key={key}
+              onClick={() => setOpenScan(key)}
               className="inline-flex items-center gap-1.5 rounded-full border-hairline border bg-surface-1 px-3 py-1.5 text-xs text-ink-2 hover:bg-surface-2 transition-colors"
             >
               <Icon size={13} /> {label}
@@ -176,6 +190,8 @@ export function Markets({ data }: { data: MarketsHome }) {
           ))}
         </div>
       </div>
+
+      <ExploreDrawer scan={openScan} onClose={() => setOpenScan(null)} />
 
       {/* ── Market news ────────────────────────────────────────── */}
       {data.news.length > 0 && (
@@ -255,5 +271,73 @@ function MoversCard({ title, tone, movers, asOf }: { title: string; tone: "pos" 
         ))}
       </div>
     </Card>
+  );
+}
+
+/** Slide-in drawer showing one Explore list (52w high/low, most active). */
+function ExploreDrawer({ scan, onClose }: { scan: ScanKey | null; onClose: () => void }) {
+  const q = useMarketsExplore(scan !== null);
+
+  useEffect(() => {
+    if (!scan) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [scan, onClose]);
+
+  if (!scan) return null;
+  const rows: ExploreRow[] = q.data?.[scan] ?? [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={SCAN_TITLE[scan]}>
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative h-full w-full max-w-md overflow-y-auto border-l border-hairline bg-surface-1 shadow-xl">
+        <div className="sticky top-0 flex items-center justify-between border-b border-hairline bg-surface-1 px-5 py-4">
+          <div>
+            <h2 className="font-display text-xl text-ink">{SCAN_TITLE[scan]}</h2>
+            <p className="text-[11px] text-ink-3">{q.data?.universe ?? "Nifty 50"} · live · Yahoo Finance</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="rounded-md p-1.5 text-ink-2 hover:bg-surface-2">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="px-3 py-2">
+          {q.isPending && <p className="px-2 py-6 text-sm text-ink-3">Loading…</p>}
+          {q.isError && (
+            <p className="px-2 py-6 text-sm text-neg">
+              Couldn't load. <button onClick={() => q.refetch()} className="underline">Retry</button>
+            </p>
+          )}
+          {!q.isPending && !q.isError && rows.length === 0 && (
+            <p className="px-2 py-6 text-sm text-ink-3">No data available.</p>
+          )}
+          {rows.map((r, i) => (
+            <div key={r.symbol} className="flex items-center gap-3 border-t border-hairline px-2 py-2.5 first:border-t-0">
+              <span className="w-5 text-right text-[11px] text-ink-4">{i + 1}</span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] text-ink">{r.name}</div>
+                <div className="text-[11px] text-ink-3">{r.symbol}</div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="num text-[13px] text-ink">{r.price == null ? "—" : numFmt.format(r.price)}</div>
+                <div className="text-[11px]">
+                  {scan === "most_active" ? (
+                    <span className="text-ink-3">{fmtVolume(r.volume)} sh</span>
+                  ) : scan === "high_52w" ? (
+                    <span className="text-ink-3">{r.from_high_pct == null ? "" : `${r.from_high_pct.toFixed(1)}% from high`}</span>
+                  ) : (
+                    <span className="text-ink-3">{r.from_low_pct == null ? "" : `+${r.from_low_pct.toFixed(1)}% above low`}</span>
+                  )}
+                </div>
+              </div>
+              <span className={cn("w-14 shrink-0 text-right text-[12px] font-medium", toneFor(r.change_pct) === "pos" ? "text-pos" : toneFor(r.change_pct) === "neg" ? "text-neg" : "text-ink-3")}>
+                {fmtSignedPct(r.change_pct)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

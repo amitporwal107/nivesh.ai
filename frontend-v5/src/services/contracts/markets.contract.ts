@@ -67,6 +67,29 @@ export const MarketsHomeC = z.object({
   news:         z.array(MarketNewsC).default([]),
 });
 
+// ── Explore drawer (52w high/low, most active) ──────────────────────────
+export const ExploreRowC = z.object({
+  symbol:        z.string(),
+  name:          z.string(),
+  price:         z.number().nullable(),
+  change_pct:    z.number().nullable(),
+  from_high_pct: z.number().nullable().optional(),
+  from_low_pct:  z.number().nullable().optional(),
+  volume:        z.number().nullable().optional(),
+});
+
+export const MarketsExploreC = z.object({
+  ok:          z.boolean().optional(),
+  universe:    z.string().default("Nifty 50"),
+  fetched_at:  z.string().nullable().optional(),
+  high_52w:    z.array(ExploreRowC).default([]),
+  low_52w:     z.array(ExploreRowC).default([]),
+  most_active: z.array(ExploreRowC).default([]),
+});
+
+export type ExploreRow     = z.infer<typeof ExploreRowC>;
+export type MarketsExplore = z.infer<typeof MarketsExploreC>;
+
 export type MarketIndex   = z.infer<typeof MarketIndexC>;
 export type MarketBreadth = z.infer<typeof MarketBreadthC>;
 export type MarketMover   = z.infer<typeof MarketMoverC>;

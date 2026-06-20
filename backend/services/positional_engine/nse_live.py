@@ -269,3 +269,96 @@ async def get_live_snapshot() -> Optional[Dict[str, Any]]:
     _CACHE["data"] = parsed
     _CACHE["ts"] = now
     return parsed
+
+
+# ── "Explore" lists: 52-week high / low + most active ───────────────────
+# One 1-year daily batch over the Nifty-50 universe gives us 52-week
+# high/low distance and the latest day's volume. Cached 5 min (52w levels
+# move slowly; this backs an on-demand drawer, not a ticker).
+_EXPLORE_CACHE: Dict[str, Any] = {"ts": 0.0, "data": None}
+
+
+def _fetch_explore_batch() -> Dict[str, Dict[str, Any]]:
+    """Synchronous yfinance 1y history for the Nifty-50 universe.
+
+    Returns {ticker: {close, change_pct, high_52w, low_52w, volume, turnover}}.
+    """
+    import yfinance as yf
+    tickers = [t for t, _ in NIFTY50_CONSTITUENTS]
+    out: Dict[str, Dict[str, Any]] = {}
+    try:
+        data = yf.download(
+            " ".join(tickers), period="1y", interval="1d",
+            progress=False, threads=True,
+        )
+        if data.empty or "Close" not in data.columns:
+            return out
+        for t in tickers:
+            try:
+                close = data["Close"][t].dropna()
+                high = data["High"][t].dropna()
+                low = data["Low"][t].dropna()
+                vol = data["Volume"][t].dropna()
+                if len(close) < 2:
+                    continue
+                cur = float(close.iloc[-1])
+                prev = float(close.iloc[-2])
+                latest_vol = int(vol.iloc[-1]) if len(vol) else None
+                out[t] = {
+                    "close":      round(cur, 2),
+                    "change_pct": round((cur - prev) / prev * 100, 2) if prev else None,
+                    "high_52w":   round(float(high.max()), 2) if len(high) else None,
+                    "low_52w":    round(float(low.min()), 2) if len(low) else None,
+                    "volume":     latest_vol,
+                    "turnover":   (latest_vol * cur) if latest_vol else None,
+                }
+            except (KeyError, IndexError, ValueError):
+                continue
+    except Exception as e:  # noqa: BLE001
+        logger.warning("yfinance explore batch failed: %s", e)
+    return out
+
+
+async def get_explore_lists() -> Optional[Dict[str, Any]]:
+    """52-week-high / 52-week-low / most-active lists over the Nifty-50
+    universe, derived live from yfinance. Returns None only if we have no
+    data at all (no cache + fetch failed)."""
+    now = time.time()
+    if _EXPLORE_CACHE["data"] and (now - _EXPLORE_CACHE["ts"]) < 300.0:
+        return _EXPLORE_CACHE["data"]
+
+    raw = await asyncio.to_thread(_fetch_explore_batch)
+    if not raw:
+        return _EXPLORE_CACHE["data"]
+
+    name_by_ticker = dict(NIFTY50_CONSTITUENTS)
+    rows: List[Dict[str, Any]] = []
+    for t, d in raw.items():
+        rows.append({"symbol": t.replace(".NS", ""), "name": name_by_ticker.get(t, t), **d})
+
+    def _from_high(r: Dict[str, Any]) -> Optional[float]:
+        h, c = r.get("high_52w"), r.get("close")
+        return (c - h) / h * 100 if h and c else None   # ≤ 0; nearer 0 = nearer high
+
+    def _from_low(r: Dict[str, Any]) -> Optional[float]:
+        lo, c = r.get("low_52w"), r.get("close")
+        return (c - lo) / lo * 100 if lo and c else None  # ≥ 0; nearer 0 = nearer low
+
+    def _base(r: Dict[str, Any]) -> Dict[str, Any]:
+        return {"symbol": r["symbol"], "name": r["name"], "price": r.get("close"),
+                "change_pct": r.get("change_pct")}
+
+    highs = sorted((r for r in rows if _from_high(r) is not None), key=_from_high, reverse=True)[:10]
+    lows = sorted((r for r in rows if _from_low(r) is not None), key=_from_low)[:10]
+    actives = sorted((r for r in rows if r.get("turnover")), key=lambda r: r["turnover"], reverse=True)[:10]
+
+    result = {
+        "high_52w":    [{**_base(r), "from_high_pct": round(_from_high(r), 2)} for r in highs],
+        "low_52w":     [{**_base(r), "from_low_pct": round(_from_low(r), 2)} for r in lows],
+        "most_active": [{**_base(r), "volume": r.get("volume")} for r in actives],
+        "universe":    "Nifty 50",
+        "fetched_at":  datetime.now(IST).isoformat(),
+    }
+    _EXPLORE_CACHE["data"] = result
+    _EXPLORE_CACHE["ts"] = now
+    return result

@@ -318,3 +318,20 @@ async def markets_home(request: Request):
     _CACHE["ts"] = now
     _CACHE["data"] = result
     return result
+
+
+@router.get("/explore")
+async def markets_explore(request: Request):
+    """52-week-high / 52-week-low / most-active lists for the Markets page
+    Explore drawer. Live from Yahoo over the Nifty-50 universe.
+    """
+    await get_current_user(request)
+    from services.positional_engine import nse_live
+    try:
+        lists = await nse_live.get_explore_lists()
+    except Exception as e:  # noqa: BLE001
+        logger.error("markets.explore failed: %s", e, exc_info=True)
+        lists = None
+    if not lists:
+        return {"ok": False, "high_52w": [], "low_52w": [], "most_active": [], "universe": "Nifty 50"}
+    return {"ok": True, **lists}

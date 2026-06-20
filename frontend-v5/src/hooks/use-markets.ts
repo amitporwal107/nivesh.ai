@@ -15,3 +15,13 @@ export function useMarketsHome() {
     staleTime: 30_000,
   });
 }
+
+/** Explore lists (52w high/low, most active). Fetched only when opened. */
+export function useMarketsExplore(enabled: boolean) {
+  return useQuery({
+    queryKey: ["markets", "explore"],
+    queryFn: () => marketsService.getExplore(),
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+}
