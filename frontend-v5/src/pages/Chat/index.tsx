@@ -22,7 +22,7 @@ import { useTypewriterReveal, remainingRevealMs } from "@/components/chat/useTyp
 // typed-out slice the user sees (see useTypewriterReveal).
 type StreamState = { buffer: string; content: string; thinking?: string; widget?: { widget_type: string; data: unknown }; error?: string };
 
-const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "instrument_detail", "risk_assessment", "goal_simulation"]);
+const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "instrument_detail", "mf_detail", "risk_assessment", "goal_simulation"]);
 
 const FALLBACK_PROMPTS = [
   "Why is my score 74?",
