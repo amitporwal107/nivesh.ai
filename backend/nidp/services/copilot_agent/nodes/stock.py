@@ -110,16 +110,38 @@ async def _fetch_stock_data(symbol: str) -> list:
 
 
 async def stock_node(state: CopilotState) -> dict:
+    user_msg = next(
+        (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
+        "",
+    )
+    # The intent classifier already resolves a symbol when it can; if it didn't
+    # (e.g. an ambiguous message), resolve from the raw text here too. Both paths
+    # use the same resolver so lowercase tickers and company names work.
     symbol = state.intent.symbol if state.intent else None
     if not symbol:
-        # try to extract from last user message
-        import re
-        user_msg = next(
-            (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
-            "",
+        from services.copilot_tools.symbol_resolver import resolve_symbol
+        symbol = resolve_symbol(user_msg).symbol
+
+    if not symbol:
+        # No identifiable stock — ask rather than silently analysing an index
+        # (the old NIFTY50 default produced a misleading "couldn't retrieve data"
+        # error because index symbols have no per-stock fundamentals/technicals).
+        clarify = (
+            "Which stock would you like me to look at? You can use the company "
+            "name or its NSE symbol — for example: Reliance, TCS, HDFC Bank, "
+            "Infosys, or RELIANCE."
         )
-        m = re.search(r"\b([A-Z]{2,10})\b", user_msg)
-        symbol = m.group(1) if m else "NIFTY50"
+        return {
+            "tool_results": [],
+            "response": AgentResponse(
+                agent=AgentName.STOCK,
+                text=clarify,
+                widget_type=WidgetType.NONE,
+                widget_data={},
+                tool_results=[],
+            ),
+            "messages": [AIMessage(content=clarify)],
+        }
 
     # Fetch the per-section tool data AND the composed research card (quality
     # score + sector rank + fundamental/technical) concurrently. The research
@@ -141,10 +163,7 @@ async def stock_node(state: CopilotState) -> dict:
         ctx_lines.insert(0, f"  [instrument_research] {research.as_llm_context()}")
     tool_context = "TOOL_DATA:\n" + "\n".join(ctx_lines)
 
-    user_msg = next(
-        (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
-        f"Analyse {symbol}",
-    )
+    llm_user_msg = user_msg or f"Analyse {symbol}"
 
     llm = ChatOpenAI(
         model=COPILOT_LLM_MODEL,
@@ -153,7 +172,7 @@ async def stock_node(state: CopilotState) -> dict:
     )
     resp = await llm.ainvoke([
         {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
-        {"role": "user", "content": user_msg},
+        {"role": "user", "content": llm_user_msg},
     ])
     answer_text = resp.content
 

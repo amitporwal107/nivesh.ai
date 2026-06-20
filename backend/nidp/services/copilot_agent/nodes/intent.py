@@ -179,9 +179,20 @@ _N_RESULTS_RE = re.compile(r"\b(?:top|best|worst)\s+(\d+)\b", re.IGNORECASE)
 def _extract_slots(text: str, agent: AgentName) -> Dict[str, Any]:
     slots: Dict[str, Any] = {}
     if agent == AgentName.STOCK:
-        m = _SYMBOL_RE.search(text)
-        if m:
-            slots["symbol"] = m.group(1)
+        # Resolve via the shared resolver (lazy import — keeps this module free of
+        # a hard dependency on the app-level copilot_tools package at import time).
+        # Handles lowercase tickers ("hdfc"), company names ("reliance"), and
+        # uppercase pass-through; the old case-sensitive `[A-Z]{2,10}` regex
+        # silently dropped anything not typed in capitals.
+        try:
+            from services.copilot_tools.symbol_resolver import resolve_symbol
+            res = resolve_symbol(text)
+            if res.symbol:
+                slots["symbol"] = res.symbol
+        except Exception:  # noqa: BLE001 — never let resolution break routing
+            m = _SYMBOL_RE.search(text)
+            if m:
+                slots["symbol"] = m.group(1)
     if agent == AgentName.MF:
         m = _SCHEME_RE.search(text)
         if m:
