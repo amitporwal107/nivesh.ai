@@ -178,18 +178,24 @@ function MiniBars({ items, p, highlight }: { items: XrayLeader[]; p: number; hig
 // by ₹ exposure + an "Others" roll-up). Fund names live in the hover tooltip,
 // not as an always-on wall of chips. The leading slice is the warm accent and
 // the rest fade through neutrals so the dominant fund reads at a glance.
+// Categorical palette — distinct hues so adjacent fund slices are
+// tel-apart-able. The old palette was 3 brand hues (neg/warm/ink-3) with
+// opacity fades, so neighbouring slices (e.g. neg/0.78 vs neg/0.60) looked
+// identical. Muted mid-saturation tones tuned for the dark surface, in the
+// same hand-picked-hex style as AllocationDonut. Cells cycle through these.
 const FUND_SLICE_SHADES = [
-  "rgb(var(--neg))",
-  "rgb(var(--neg)/0.78)",
-  "rgb(var(--neg)/0.60)",
-  "rgb(var(--warm))",
-  "rgb(var(--warm)/0.68)",
-  "rgb(var(--warm)/0.48)",
-  "rgb(var(--ink-3)/0.55)",
-  "rgb(var(--ink-3)/0.42)",
-  "rgb(var(--ink-3)/0.32)",
-  "rgb(var(--ink-3)/0.24)",
-  "rgb(var(--ink-3)/0.16)",
+  "#FF6B7A", // rose
+  "#FFB547", // amber
+  "#6AF0A8", // mint
+  "#5BA8D4", // sky
+  "#B68CD8", // lavender
+  "#E8845B", // coral
+  "#8FAE9D", // sage
+  "#D4B45B", // gold
+  "#7FBFD4", // cyan
+  "#C77FA6", // mauve
+  "#9AA0B5", // slate
+  "#A6A38E", // taupe
 ];
 
 function FundDonut({ slices }: { slices: FundSlice[] }) {
@@ -211,7 +217,7 @@ function FundDonut({ slices }: { slices: FundSlice[] }) {
             strokeWidth={2}
           >
             {slices.map((s, i) => (
-              <Cell key={`${s.name}-${i}`} fill={FUND_SLICE_SHADES[i] ?? FUND_SLICE_SHADES[FUND_SLICE_SHADES.length - 1]} />
+              <Cell key={`${s.name}-${i}`} fill={FUND_SLICE_SHADES[i % FUND_SLICE_SHADES.length]} />
             ))}
           </Pie>
           <Tooltip
@@ -222,6 +228,11 @@ function FundDonut({ slices }: { slices: FundSlice[] }) {
               color: "rgb(var(--ink))",
               fontSize: 12,
             }}
+            // Recharts styles item/label text separately from contentStyle —
+            // without these the fund name rendered in the default (black) and
+            // was invisible on the dark surface.
+            itemStyle={{ color: "rgb(var(--ink))" }}
+            labelStyle={{ color: "rgb(var(--ink-2))" }}
             formatter={(_v, _n, item) => {
               const s = item?.payload as FundSlice;
               return [`${formatINRCompact(s.valueInr)} · ${s.pct}%`, s.name];
