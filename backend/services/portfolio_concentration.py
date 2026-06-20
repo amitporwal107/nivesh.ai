@@ -526,9 +526,15 @@ def compute_concentration(
     }
 
     # 4. Company buckets — direct equity 1:1, MFs dissolved via lookthrough
+    # `funds` maps a distinct fund identity (ticker/ISIN, falling back to its
+    # display name) → that fund's prettified scheme name. Keying by ticker is
+    # what makes "held across N funds" count *distinct funds*, not folios: the
+    # same scheme held in several folios — or a fund that lists the stock twice
+    # in its look-through — collapses to one. (Real portfolios hold the same
+    # fund across multiple folios; counting folios overstated the fund count
+    # and orphaned the surplus chips.)
     company_buckets: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"value_inr": 0.0, "via_direct": 0.0, "via_funds": 0, "sector": None,
-                 "funds": []}
+        lambda: {"value_inr": 0.0, "via_direct": 0.0, "sector": None, "funds": {}}
     )
     for h in holdings:
         v = _hv(h)
@@ -544,6 +550,7 @@ def compute_concentration(
             lookup = fund_lookthrough.get(h.get("ticker") or "")
             if not lookup or not (lookup.get("holdings") or []):
                 continue
+            fund_key = (h.get("ticker") or "").strip() or (h.get("name") or "").strip()
             fund_name = _pretty_scheme_name((h.get("name") or "").strip())
             for sh in lookup["holdings"]:
                 name = (sh.get("name") or "").strip()
@@ -555,14 +562,16 @@ def compute_concentration(
                 # Title-case but preserve a couple of acronyms
                 disp = name.replace(" Ltd.", " Ltd").replace(" Limited", " Ltd")
                 company_buckets[disp]["value_inr"] += v * (pct / 100.0)
-                company_buckets[disp]["via_funds"] += 1
                 company_buckets[disp]["sector"] = sh.get("sector") or company_buckets[disp]["sector"]
-                if fund_name and fund_name not in company_buckets[disp]["funds"]:
-                    company_buckets[disp]["funds"].append(fund_name)
+                if fund_key:
+                    company_buckets[disp]["funds"].setdefault(fund_key, fund_name)
     company_items = []
     for name, vobj in company_buckets.items():
         via_direct = vobj["via_direct"]
-        via_funds  = vobj["via_funds"]
+        # Distinct funds (by ticker) holding this company; names drop blanks so
+        # the frontend fills any gap with a numbered chip rather than a blank.
+        fund_names = [n for n in vobj["funds"].values() if n]
+        via_funds  = len(vobj["funds"])
         # Cross-held = held in BOTH direct equity AND ≥1 mutual fund,
         # OR held across ≥2 mutual funds. Either way, this single name
         # is exposed through multiple routes — what the PRD calls
@@ -573,7 +582,7 @@ def compute_concentration(
             "value_inr": vobj["value_inr"],
             "via_direct_inr": via_direct,
             "via_funds_count": via_funds,
-            "fund_names": vobj["funds"],
+            "fund_names": fund_names,
             "sector": vobj["sector"],
             "group": _group_for(name),
             "cross_held": cross_routes >= 2,

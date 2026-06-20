@@ -18,6 +18,10 @@ def _mf(name, ticker, qty=1000, price=100):
             "quantity": qty, "current_price": price}
 
 
+def _hdfc_look():
+    return _look(("HDFC Bank Ltd", "Financials", 7.0))
+
+
 def _look(*companies):
     """companies: list of (name, sector, pct)."""
     return {"holdings": [{"name": n, "sector": s, "pct": p} for n, s, p in companies]}
@@ -69,9 +73,10 @@ def test_blank_holding_name_falls_back_without_breaking_count():
     assert len(top["fund_names"]) <= top["via_funds_count"]
 
 
-def test_same_fund_not_double_counted():
-    """If the same scheme appears twice (e.g. two folios of one fund), the name
-    is deduped so chips never repeat the identical scheme."""
+def test_same_fund_multiple_folios_counts_once():
+    """Same fund (same ticker) across two folios is ONE fund, not two — both
+    the count and the chip collapse. This is the real bug: counting folios
+    overstated "held across N funds" and orphaned the surplus chips."""
     dup = "Mirae Asset Large Cap Fund Direct Growth"
     holdings = [_mf(dup, "INF020", qty=500), _mf(dup, "INF020", qty=700)]
     look = {"INF020": _look(("ICICI Bank Ltd", "Financials", 6.0))}
@@ -79,7 +84,31 @@ def test_same_fund_not_double_counted():
     top = env["company"]["items"][0]
 
     assert "ICICI Bank" in top["name"]
-    assert top["fund_names"] == [dup]             # deduped to one
+    assert top["via_funds_count"] == 1
+    assert top["fund_names"] == [dup]
+
+
+def test_count_matches_named_chips_with_folios_and_collisions():
+    """Mirrors the real portfolio: folios of one fund + two genuinely different
+    funds that truncate to the same display name. via_funds_count must equal
+    the number of name chips (no orphan 'Fund N'), counting distinct funds by
+    ticker — so the two same-named-but-different-ticker funds both show."""
+    holdings = [
+        _mf("Parag Parikh Flexi Cap Fund Direct Growth", "INF100", qty=300),
+        _mf("Parag Parikh Flexi Cap Fund Direct Growth", "INF100", qty=400),  # 2nd folio
+        _mf("Nippon India", "INF200"),   # truncated name, distinct fund
+        _mf("Nippon India", "INF201"),   # truncated name, DIFFERENT fund
+    ]
+    look = {k: _hdfc_look() for k in ("INF100", "INF200", "INF201")}
+    env = compute_concentration(holdings, fund_lookthrough=look)
+    top = env["company"]["items"][0]
+
+    assert "HDFC Bank" in top["name"]
+    # 3 distinct funds (1 Parag folio-collapsed + 2 distinct Nippon tickers)
+    assert top["via_funds_count"] == 3
+    # Every fund yields a real name → chips == count, zero numbered fallbacks.
+    assert len(top["fund_names"]) == top["via_funds_count"]
+    assert top["fund_names"].count("Nippon India") == 2  # distinct funds, same label
 
 
 def test_direct_only_stock_has_empty_fund_names():
