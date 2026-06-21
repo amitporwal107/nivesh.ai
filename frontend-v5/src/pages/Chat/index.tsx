@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal } from "lucide-react";
+import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -16,6 +16,8 @@ import { chatService } from "@/services";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatWidget } from "@/components/chat/ChatWidget";
 import { ResearchLauncher } from "@/components/chat/ResearchLauncher";
+import { ScreenerQueryBuilder } from "@/components/chat/ScreenerQueryBuilder";
+import { SCREEN_PRIMITIVES, screenInsert, type ScreenPrimitive } from "@/components/chat/screenerPrimitives";
 import { Markdown, prefetchStreamdown } from "@/components/chat/Markdown";
 import { useTypewriterReveal, remainingRevealMs } from "@/components/chat/useTypewriter";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -67,59 +69,9 @@ function entityQuery(text: string): { term: string; mode: "funds" | "all"; activ
 // Screener-primitive autocomplete. When the composer is in "screen stocks
 // where …" mode, picking a primitive INSERTS its clause (e.g. "ROE over ") so
 // the user only types the threshold — building the query metric by metric.
-// Keys + phrasing match the backend NL parser (_parse_screen_filters) and the
-// widget's filter_defs, so every suggestion screens cleanly.
+// The primitive catalog is shared with the visual Query Builder (and matches
+// the backend NL parser) — see components/chat/screenerPrimitives.ts.
 const SCREEN_STARTERS = ["screen stocks where ", "screen stocks ", "screen for ", "screen "];
-
-type ScreenPrimitive = { key: string; label: string; insert: string; hint: string; tag: string; cat: string };
-// Full NIDP-backed primitive catalog, grouped screener.in-style. Every `insert`
-// phrase parses cleanly in the backend _parse_screen_filters; every `key` maps
-// to a real column on nidp.stock_features_daily.
-const SCREEN_PRIMITIVES: ScreenPrimitive[] = [
-  // Valuation
-  { key: "pe",         label: "P/E ratio",        insert: "P/E under ",             hint: "price ÷ earnings",     tag: "×",   cat: "Valuation" },
-  { key: "pb",         label: "P/B ratio",        insert: "P/B under ",             hint: "price ÷ book",         tag: "×",   cat: "Valuation" },
-  { key: "evEbitda",   label: "EV / EBITDA",      insert: "EV/EBITDA under ",       hint: "enterprise value",     tag: "×",   cat: "Valuation" },
-  { key: "peVsSector", label: "P/E vs sector",    insert: "P/E vs sector under ",   hint: "rel. cheapness",       tag: "%",   cat: "Valuation" },
-  { key: "divYield",   label: "Dividend Yield",   insert: "dividend yield over ",   hint: "trailing payout",      tag: "%",   cat: "Valuation" },
-  // Profitability
-  { key: "roe",        label: "ROE",              insert: "ROE over ",              hint: "return on equity",     tag: "%",   cat: "Profitability" },
-  { key: "roce",       label: "ROCE",             insert: "ROCE over ",             hint: "return on capital",    tag: "%",   cat: "Profitability" },
-  { key: "profitMargin", label: "Net margin",     insert: "net margin over ",       hint: "PAT ÷ sales",          tag: "%",   cat: "Profitability" },
-  { key: "interestCoverage", label: "Interest cover", insert: "interest cover over ", hint: "EBIT ÷ interest",    tag: "×",   cat: "Profitability" },
-  { key: "earningsConsistency", label: "Earnings consistency", insert: "earnings consistency over ", hint: "stability score", tag: "0–100", cat: "Profitability" },
-  // Growth
-  { key: "salesG",     label: "Sales growth 3Y",  insert: "sales growth over ",     hint: "revenue 3Y CAGR",      tag: "%",   cat: "Growth" },
-  { key: "profitG",    label: "Profit growth 3Y", insert: "profit growth over ",    hint: "earnings 3Y CAGR",     tag: "%",   cat: "Growth" },
-  { key: "salesGyoy",  label: "Sales growth YoY", insert: "sales growth YoY over ", hint: "latest year",          tag: "%",   cat: "Growth" },
-  { key: "profitGyoy", label: "Profit growth YoY",insert: "profit growth YoY over ",hint: "latest year",          tag: "%",   cat: "Growth" },
-  { key: "epsGyoy",    label: "EPS growth YoY",   insert: "EPS growth YoY over ",   hint: "latest year",          tag: "%",   cat: "Growth" },
-  { key: "marginTrend",label: "Margin trend",     insert: "margin trend over ",     hint: "Δ profit margin",      tag: "pp",  cat: "Growth" },
-  // Financial health
-  { key: "de",         label: "Debt to Equity",   insert: "debt to equity under ",  hint: "leverage",             tag: "×",   cat: "Financial health" },
-  { key: "debtTrend",  label: "Debt trend",       insert: "debt trend under ",      hint: "Δ debt",               tag: "%",   cat: "Financial health" },
-  { key: "liquidity",  label: "Liquidity score",  insert: "liquidity over ",        hint: "tradeability",         tag: "0–100", cat: "Financial health" },
-  // Size
-  { key: "mcap",       label: "Market Cap",       insert: "market cap over ",       hint: "₹ crore",              tag: "₹Cr", cat: "Size" },
-  { key: "large",      label: "Large cap",        insert: "large cap ",             hint: "cap bucket",           tag: "size", cat: "Size" },
-  { key: "mid",        label: "Mid cap",          insert: "mid cap ",               hint: "cap bucket",           tag: "size", cat: "Size" },
-  { key: "small",      label: "Small cap",        insert: "small cap ",             hint: "cap bucket",           tag: "size", cat: "Size" },
-  // Price / technical
-  { key: "return1y",   label: "1Y return",        insert: "1 year return over ",    hint: "252-day price",        tag: "%",   cat: "Price / technical" },
-  { key: "volatility", label: "Volatility 1Y",    insert: "volatility under ",      hint: "annualised σ",         tag: "%",   cat: "Price / technical" },
-  { key: "beta",       label: "Beta",             insert: "beta under ",            hint: "vs Nifty",             tag: "β",   cat: "Price / technical" },
-  { key: "maxDrawdown",label: "Max drawdown 1Y",  insert: "max drawdown over ",     hint: "peak-to-trough",       tag: "%",   cat: "Price / technical" },
-  { key: "rsi",        label: "RSI (14)",         insert: "RSI under ",             hint: "momentum gauge",       tag: "0–100", cat: "Price / technical" },
-  { key: "momentum",   label: "Momentum score",   insert: "momentum over ",         hint: "trend strength",       tag: "0–100", cat: "Price / technical" },
-  { key: "accumulation", label: "Accumulation",   insert: "accumulation over ",     hint: "buying pressure",      tag: "0–100", cat: "Price / technical" },
-  // Ownership / smart money
-  { key: "promoter",      label: "Promoter holding", insert: "promoter holding over ", hint: "skin in the game",  tag: "%",   cat: "Ownership" },
-  { key: "promoterPledge",label: "Promoter pledge",  insert: "promoter pledge under ", hint: "lower is safer",    tag: "%",   cat: "Ownership" },
-  { key: "fii",           label: "FII holding",      insert: "FII holding over ",      hint: "foreign inst.",     tag: "%",   cat: "Ownership" },
-  { key: "dii",           label: "DII holding",      insert: "DII holding over ",      hint: "domestic inst.",    tag: "%",   cat: "Ownership" },
-  { key: "fiiChange",     label: "FII change QoQ",   insert: "FII change over ",       hint: "Δ vs last qtr",     tag: "pp",  cat: "Ownership" },
-  { key: "promoterChange",label: "Promoter change",  insert: "promoter change over ",  hint: "Δ vs last qtr",     tag: "pp",  cat: "Ownership" },
-];
 
 /** Screener mode + the clause currently being typed (text after the last comma).
  *  `base` is everything to keep when a primitive is inserted in place of `fragment`. */
@@ -155,6 +107,8 @@ export default function ChatPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   // Instrument-autocomplete dropdown state.
   const [suggestOpen, setSuggestOpen] = useState(false);
+  // Visual screener query-builder panel.
+  const [builderOpen, setBuilderOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
   // `?q=` deep-link (e.g. Markets "Explore" chips) → auto-send once on mount.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -296,7 +250,7 @@ export default function ChatPage() {
     const f = sq.fragment.toLowerCase();
     if (!f) return SCREEN_PRIMITIVES;
     return SCREEN_PRIMITIVES.filter(
-      (p) => p.label.toLowerCase().includes(f) || p.insert.toLowerCase().includes(f) || p.key.includes(f),
+      (p) => p.label.toLowerCase().includes(f) || p.qlabel.toLowerCase().includes(f) || p.key.includes(f),
     );
   }, [sq.active, sq.fragment]);
   const showScreenSuggest = suggestOpen && sq.active && !isBusy && screenSuggestions.length > 0;
@@ -304,7 +258,7 @@ export default function ChatPage() {
   // Insert the primitive's clause in place of the current fragment, keep focus
   // so the user types the threshold next. Does NOT submit.
   const pickPrimitive = (p: ScreenPrimitive) => {
-    const next = sq.base.replace(/\s*$/, " ") + p.insert;
+    const next = sq.base.replace(/\s*$/, " ") + screenInsert(p);
     setComposer(next);
     setSuggestOpen(false);
     setActiveIdx(-1);
@@ -525,6 +479,19 @@ export default function ChatPage() {
           >
             <SlidersHorizontal className="h-3.5 w-3.5 text-accent" /> Screen stocks
           </button>
+          <button
+            onClick={() => setBuilderOpen((v) => !v)}
+            disabled={isBusy}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-[12.5px] transition-colors disabled:opacity-50",
+              builderOpen
+                ? "border-accent bg-[rgb(var(--accent)/0.10)] text-accent"
+                : "bg-surface-1 border-hairline-2 text-ink hover:bg-surface-2",
+            )}
+            title="Build a screen visually — pick metrics, operators and thresholds"
+          >
+            <ListFilter className="h-3.5 w-3.5 text-accent" /> Query builder
+          </button>
           {prompts.isPending && Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-9 w-40 rounded-full" />
           ))}
@@ -615,6 +582,16 @@ export default function ChatPage() {
             </div>
           )}
         </div>
+
+        {/* visual query builder — sits above the composer when open */}
+        {builderOpen && (
+          <div className="mt-4">
+            <ScreenerQueryBuilder
+              onClose={() => setBuilderOpen(false)}
+              onRun={(q) => { setBuilderOpen(false); setComposer(""); void submitMessage(q); }}
+            />
+          </div>
+        )}
 
         {/* composer */}
         <div className="mt-7 sticky bottom-0 bg-bg/95 backdrop-blur relative">
