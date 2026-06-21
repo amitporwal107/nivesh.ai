@@ -15,6 +15,7 @@ import {
 import { chatService } from "@/services";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatWidget } from "@/components/chat/ChatWidget";
+import { ResearchLauncher } from "@/components/chat/ResearchLauncher";
 import { Markdown, prefetchStreamdown } from "@/components/chat/Markdown";
 import { useTypewriterReveal, remainingRevealMs } from "@/components/chat/useTypewriter";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -439,11 +440,17 @@ export default function ChatPage() {
 
         <div className="mt-7 flex-1 flex flex-col gap-5">
           {messages.length === 0 && !isBusy && !pendingUser && (
-            <div className="flex flex-col items-center text-center mt-6">
-              <Badge tone="accent" className="mb-3">Ready</Badge>
-              <p className="text-ink-2 text-[14px] max-w-md leading-relaxed">
-                Pick a question above or type your own. I'll read your portfolio first, then answer in plain English.
-              </p>
+            <div className="flex flex-col items-center text-center mt-6 gap-5">
+              <div>
+                <Badge tone="accent" className="mb-3">Ready</Badge>
+                <p className="text-ink-2 text-[14px] max-w-md leading-relaxed">
+                  Pick a question above or type your own. I'll read your portfolio first, then answer in plain English.
+                </p>
+              </div>
+              {/* Two-step research: pick an instrument, then a question tile. */}
+              <div className="w-full max-w-xl text-left">
+                <ResearchLauncher kind="all" onAsk={(p) => { setComposer(""); void submitMessage(p); }} />
+              </div>
             </div>
           )}
 
