@@ -1889,6 +1889,50 @@ function MfViewBody({ v }: { v: any }) {
           {v.caption && <p className="text-[11.5px] text-ink-3 mt-3">{v.caption}</p>}
         </div>
       ) : null}
+
+      {/* Research-hub lens views (derived from the same card data, no refetch). */}
+      {view === "mf_valuation" && (
+        <>
+          {v.quality?.score != null && (
+            <div className="flex items-center gap-4">
+              <ScoreDonut score={v.quality.score} tone={v.quality.tone} size={72} />
+              <div>
+                <div className={`font-display text-[18px] ${toneText(v.quality.tone)}`}>{v.quality.label}</div>
+                {v.quality.rank != null && <div className="text-[12px] text-ink-3 mt-0.5">Category rank #{v.quality.rank} of {v.quality.of}</div>}
+              </div>
+              {v.returns_badge && <ToneBadge text={v.returns_badge.text} tone={v.returns_badge.tone} />}
+            </div>
+          )}
+          {v.note && <p className="text-[12.5px] text-ink-3 leading-relaxed">{v.note}</p>}
+        </>
+      )}
+
+      {view === "mf_risk" && v.ratios?.items?.length ? (
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <Heading>{v.ratios.title ?? "Risk & ratios"}</Heading>
+            {v.ratios.badge && <ToneBadge text={v.ratios.badge.text} tone={v.ratios.badge.tone} />}
+          </div>
+          {v.ratios.items.map((r: any, i: number) => <DetailRow key={i} label={r.label} value={r.value} />)}
+        </div>
+      ) : null}
+
+      {view === "mf_costs" && v.facts?.length ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8">
+          {v.facts.map((f: any, i: number) => <DetailRow key={i} label={f.label} value={f.value} />)}
+        </div>
+      ) : null}
+
+      {view === "mf_people" && (
+        <>
+          {v.managers && <div className="text-[13px] text-ink-2">Fund managers: <span className="text-ink">{v.managers}</span></div>}
+          {v.facts?.length ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 mt-1">
+              {v.facts.map((f: any, i: number) => <DetailRow key={i} label={f.label} value={f.value} />)}
+            </div>
+          ) : null}
+        </>
+      )}
     </>
   );
 }
@@ -1951,6 +1995,201 @@ function MfCard({ data, onAction }: { data: any; onAction?: (a: WidgetAction) =>
   );
 }
 
+// ── research hub (question-first lens rail) ─────────────────────────────────
+// One card for stock AND mf when the backend attaches `research_rail` + `lens_views`
+// (build_research_hub). A fixed chip rail maps the 10 user questions ("Worth buying
+// now?", "How risky?") onto preloaded lens views — tapping a chip switches the body
+// locally, no refetch. Lenses with no data are simply absent from the rail.
+
+/** Renders one stock lens view (view = "stock_*"). Reuses the same leaf components
+ *  as the classic InstrumentDetailWidget so the look is identical. */
+function StockLensBody({ v }: { v: any }) {
+  const view = v?.view;
+  if (view === "stock_verdict") {
+    return (
+      <>
+        {v.quality?.score != null && (
+          <div className="rounded-lg bg-surface-2/60 border border-hairline p-4 sm:p-5 flex items-start gap-4">
+            <div className="text-center shrink-0 w-[60px]">
+              <div className="font-display text-[34px] text-ink leading-none tracking-tightish">{v.quality.score}</div>
+              <div className="text-[11px] text-ink-3 mt-0.5">/ 100</div>
+              <div className={`text-[12px] font-medium ${toneText(v.quality.tone)}`}>{v.quality.label}</div>
+            </div>
+            {(v.summary || v.rank?.value != null) && (
+              <div className="min-w-0 border-l border-hairline pl-4">
+                {v.summary && <p className="text-[13.5px] text-ink-2 leading-relaxed">{v.summary}</p>}
+                {v.rank?.value != null && v.rank?.of != null && (
+                  <div className="text-[12px] text-ink-3 mt-2">Sector rank #{v.rank.value} of {v.rank.of}{v.rank.caption ? ` · ${v.rank.caption}` : ""}</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        {v.scores && (v.scores.fundamental?.score != null || v.scores.technical?.score != null) ? (
+          <div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+              <ScoreBar title="Fundamentals" s={v.scores.fundamental} />
+              <ScoreBar title="Technicals" s={v.scores.technical} />
+            </div>
+            {v.scores.explainer && <p className="text-[12px] text-ink-3 mt-2.5 leading-snug">{v.scores.explainer}</p>}
+          </div>
+        ) : null}
+        {(v.recommendation?.long_term?.stance || v.recommendation?.short_term?.stance) ? <RecommendationBlock rec={v.recommendation} /> : null}
+        {v.highlights?.length ? (
+          <div>
+            <Heading>What stands out</Heading>
+            <div className="mt-2.5 flex flex-col gap-2">
+              {v.highlights.map((h: any, i: number) => (
+                <div key={i} className="flex items-start gap-2.5"><Dot tone={h.tone} square /><span className="text-[13.5px] text-ink-2 leading-snug">{h.text}</span></div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
+  }
+  if (view === "stock_performance") {
+    return (
+      <>
+        {v.price_position ? (
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <Heading>Where price sits</Heading>
+              {v.price_position.trend?.label && <span className={`text-[13px] font-medium ${toneText(v.price_position.trend.tone)}`}>{v.price_position.trend.label}</span>}
+            </div>
+            <PricePositionBar pp={v.price_position} />
+          </div>
+        ) : null}
+        {v.technicals_cards?.length ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            {v.technicals_cards.map((c: any, i: number) => <MetricCard key={i} label={c.label} value={c.value} note={c.note} tone={c.tone} />)}
+          </div>
+        ) : null}
+      </>
+    );
+  }
+  if (view === "stock_valuation") {
+    return (
+      <>
+        {v.fundamentals_grid?.length ? (
+          <div>
+            <Heading>Fundamentals <span className="text-[12.5px] text-ink-3 font-normal">· each compared to its benchmark</span></Heading>
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {v.fundamentals_grid.map((c: any, i: number) => <MetricCard key={i} label={c.label} value={c.value} note={c.note} tone={c.tone} />)}
+            </div>
+          </div>
+        ) : null}
+        {v.rank?.value != null && v.rank?.of != null && (
+          <div className="text-[12px] text-ink-3">Sector rank #{v.rank.value} of {v.rank.of}{v.rank.caption ? ` · ${v.rank.caption}` : ""}</div>
+        )}
+      </>
+    );
+  }
+  if (view === "stock_risk") {
+    return v.items?.length ? (
+      <div>
+        <Heading>{v.title ?? "Risk profile"}</Heading>
+        <div className="mt-2">
+          {v.items.map((r: any, i: number) => <DetailRow key={i} label={r.label} value={r.value} tone={r.tone} />)}
+        </div>
+      </div>
+    ) : null;
+  }
+  if (view === "stock_peers") {
+    return v.peers ? <PeersPanel p={v.peers} /> : null;
+  }
+  if (view === "stock_red_flags") {
+    return v.items?.length ? (
+      <div className="flex flex-col gap-2">
+        {v.items.map((it: any, i: number) => (
+          <div key={i} className="flex items-start gap-2.5"><Dot tone={it.tone ?? "neg"} square /><span className="text-[13.5px] text-ink-2 leading-snug">{it.text}</span></div>
+        ))}
+      </div>
+    ) : null;
+  }
+  if (view === "stock_people") {
+    return v.shareholding ? <ShareholdingPanel s={v.shareholding} /> : null;
+  }
+  if (view === "stock_whats_new") {
+    return (
+      <>
+        {v.quarterly?.rows?.length ? (<div><Heading>Quarterly results</Heading><div className="mt-2.5"><QuarterlyPanel q={v.quarterly} /></div></div>) : null}
+        {v.corporate_events?.rows?.length ? (<div><Heading>Corporate events</Heading><div className="mt-2.5"><CorporateEventsPanel e={v.corporate_events} /></div></div>) : null}
+      </>
+    );
+  }
+  return null;
+}
+
+/** Research Hub card: header + fixed lens-chip rail + active lens body. Used for
+ *  both stock (instrument_detail) and mf (mf_detail) when research_rail is present. */
+function ResearchHubCard({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
+  const rail: { id: string; primary: string; alt?: string }[] = data?.research_rail || [];
+  const views: Record<string, any> = data?.lens_views || {};
+  const [active, setActive] = useState<string>(
+    data?.active_lens && views[data.active_lens] ? data.active_lens : (rail[0]?.id || ""),
+  );
+  if (!data?.name || !rail.length) return null;
+  const v = views[active] || {};
+  const isMf = data.kind === "mf";
+  const head = isMf ? data.nav : data.price;
+  const sub = [data.subtitle, data.meta, data.risk].filter(Boolean).join(" · ");
+  return (
+    <div className="mt-1 w-full rounded-xl bg-surface-1 border border-hairline shadow-card p-5 sm:p-6 flex flex-col gap-5">
+      {/* header */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-display text-[19px] text-ink tracking-tightish leading-snug">{data.name}</span>
+            <span className="shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide" style={{ background: "#E7EEF9", color: "#3E6CA8" }}>{data.badge ?? (isMf ? "MUTUAL FUND" : "STOCK")}</span>
+            {data.plan && <span className="text-[12px] text-ink-3">{data.plan}</span>}
+          </div>
+          {sub && <div className="text-[13px] text-ink-2 mt-1">{sub}</div>}
+        </div>
+        {head?.value && (
+          <div className="text-right shrink-0">
+            <div className="text-[12px] text-ink-3">{isMf ? (head.asof ? `NAV · ${head.asof}` : "NAV") : (head.label ?? "Last price")}</div>
+            <div className="font-display text-[22px] text-ink tracking-tightish leading-tight">{head.value}</div>
+            {head.change && <div className={`text-[13px] font-medium ${head.change_positive === false ? "text-neg" : "text-pos"}`}>{head.change}</div>}
+            {!isMf && head.asof && <div className="text-[11.5px] text-ink-3 mt-0.5">{head.asof}</div>}
+          </div>
+        )}
+      </div>
+
+      {/* lens rail — fixed row of question chips; tapping switches the body locally */}
+      <div className="flex gap-2 overflow-x-auto px-0.5 pb-1" role="tablist" aria-label="Research lenses">
+        {rail.map((c) => (
+          <button
+            key={c.id}
+            role="tab"
+            aria-selected={c.id === active}
+            aria-label={c.alt ? `${c.primary} — ${c.alt}` : c.primary}
+            title={c.alt}
+            onClick={() => setActive(c.id)}
+            className={c.id === active
+              ? "shrink-0 rounded-full border border-ink-3 bg-surface-2 text-ink px-3.5 py-1.5 text-[12.5px] font-medium"
+              : "shrink-0 rounded-full border border-hairline bg-surface-1 text-ink-2 hover:bg-surface-2 hover:text-ink px-3.5 py-1.5 text-[12.5px] transition-colors"}
+          >
+            {c.primary}
+          </button>
+        ))}
+      </div>
+
+      {/* active lens body */}
+      <div className="flex flex-col gap-5">
+        {isMf ? <MfViewBody v={v} /> : <StockLensBody v={v} />}
+      </div>
+
+      {/* footer */}
+      {(data.source || data.disclaimer_note || data.disclaimer) && (
+        <div className="text-[11.5px] text-ink-3 pt-3 border-t border-hairline">
+          {[data.source ? `Source: ${data.source}` : "", data.disclaimer_note].filter(Boolean).join(" · ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── dispatcher ─────────────────────────────────────────────────────────────
 // `onAction` lets a widget's action chips drive a follow-up — the host passes a
 // handler that submits a chat query (or prefills the composer).
@@ -1958,6 +2197,11 @@ export type WidgetAction = { intent?: string; label?: string; query?: string };
 export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: string; data?: any }; onAction?: (a: WidgetAction) => void }) {
   if (!widget?.widget_type) return null;
   try {
+    // Research Hub: stock/mf instrument cards the backend enriched with a lens rail.
+    if (widget.data?.research_rail?.length && widget.data?.lens_views &&
+        (widget.widget_type === "instrument_detail" || widget.widget_type === "mf_detail")) {
+      return <ResearchHubCard data={widget.data} onAction={onAction} />;
+    }
     switch (widget.widget_type) {
       case "fund_consolidation": return <FundConsolidationWidget data={widget.data} />;
       case "fund_overlap":       return <FundOverlapWidget data={widget.data} />;

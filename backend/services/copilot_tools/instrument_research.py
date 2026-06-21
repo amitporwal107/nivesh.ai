@@ -785,6 +785,28 @@ def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[
     if cards:
         widget["technicals_cards"] = cards
 
+    # Risk profile — volatility / beta / Sharpe / max-drawdown, read straight from
+    # the latest stock features (the V3 intel feed). Distinct from the technical
+    # cards above (which are momentum/trend): this is the 'how risky' read. Each
+    # row omitted when its DaaS field is missing.
+    vol = _pick(feat, "volatility_20d", "volatility_1y", "volatility")
+    beta = _pick(feat, "beta_nifty", "beta_1y", "beta")
+    sharpe = _pick(feat, "sharpe_1y", "sharpe")
+    maxdd = _pick(feat, "max_drawdown_1y", "maxdd_1y", "max_drawdown")
+    atr = _pick(feat, "atr_pct")
+    risk_items = _compact([
+        _row("Volatility (20d)", _pct(vol),
+             "neg" if (vol is not None and vol >= 35) else ("warm" if (vol is not None and vol >= 20) else "pos")) if vol is not None else None,
+        _row("Beta (Nifty)", f"{beta:.2f}",
+             "neg" if (beta is not None and beta >= 1.2) else ("warm" if (beta is not None and beta >= 1.0) else "pos")) if beta is not None else None,
+        _row("Sharpe (1Y)", f"{sharpe:.2f}",
+             "pos" if (sharpe is not None and sharpe >= 1.0) else ("warm" if (sharpe is not None and sharpe >= 0) else "neg")) if sharpe is not None else None,
+        _row("Max drawdown (1Y)", _pct(maxdd), "neg") if maxdd is not None else None,
+        _row("ATR", _pct(atr)) if atr is not None else None,
+    ])
+    if risk_items:
+        widget["risk"] = {"title": "Risk profile", "items": risk_items}
+
     # Expandable detail sections (shown inline when the matching action is
     # clicked). Each is omitted when its data is unavailable.
     breakdown = _build_score_breakdown(scores)

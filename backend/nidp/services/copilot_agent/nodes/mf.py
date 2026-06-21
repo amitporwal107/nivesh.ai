@@ -458,6 +458,12 @@ async def mf_node(state: CopilotState) -> dict:
         except Exception as exc:  # noqa: BLE001
             logger.warning("mf card build failed for %s (%s): %s", scheme_code, mf_view, exc)
 
+    # Attach the question-first research rail (chips + lens views) to the single-fund
+    # card so it renders as a Research Hub. No-op for portfolio/overlap widgets.
+    if widget_type == WidgetType.MF_DETAIL and widget_data:
+        from services.copilot_tools.research_lenses import build_research_hub
+        build_research_hub("mf", widget_data)
+
     # Widget data is ready (built from the tools, not the LLM) — push it now so
     # the client renders it first and streams the narrative underneath.
     from .._stream import emit_widget

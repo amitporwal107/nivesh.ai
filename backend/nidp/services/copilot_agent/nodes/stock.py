@@ -181,6 +181,10 @@ async def stock_node(state: CopilotState) -> dict:
     if research is not None and research.ok and research.widget:
         widget_type = WidgetType.INSTRUMENT_DETAIL
         widget_data = research.widget
+        # Attach the question-first research rail (chips + lens views) so the card
+        # renders as a Research Hub. No-op if the widget has no lens data.
+        from services.copilot_tools.research_lenses import build_research_hub
+        build_research_hub("stock", widget_data)
 
     response = AgentResponse(
         agent=AgentName.STOCK,
