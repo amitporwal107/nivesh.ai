@@ -1,3 +1,5 @@
+import { useNavigate } from "react-router-dom";
+import { LineChart, PieChart, SlidersHorizontal } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +15,28 @@ interface Props {
   holdings: Holding[];
 }
 
+// Research-tool tiles prefill the chat composer (the user still types the
+// instrument), so they deep-link with `?seed=`. Each starter matches the
+// router's RESEARCH_STARTERS in Chat so autocomplete + routing fire correctly.
+const RESEARCH_TILES: { label: string; seed: string; icon: typeof LineChart }[] = [
+  { label: "Research a stock", seed: "Tell me about ", icon: LineChart },
+  { label: "Research a fund", seed: "Tell me about the mutual fund ", icon: PieChart },
+  { label: "Screen stocks", seed: "Screen stocks where ", icon: SlidersHorizontal },
+];
+
+// Portfolio-question tiles are complete prompts, so they auto-send via `?q=`.
+const INSIGHT_QUESTIONS = [
+  "Is my wealth allocation optimal?",
+  "Fix overlap in my funds",
+  "Rebalance my risk",
+  "Where is concentration risk highest?",
+  "Simulate my plan",
+  "Portfolio downside in a market crash?",
+  "Best tax-saving strategies?",
+];
+
 export function Portfolio({ summary, holdings }: Props) {
+  const navigate = useNavigate();
   const totalCost = holdings.reduce((s, h) => s + h.costBasis, 0);
   const totalPnl = summary.totalValue - totalCost;
   const totalPnlPct = totalCost ? totalPnl / totalCost : 0;
@@ -39,6 +62,31 @@ export function Portfolio({ summary, holdings }: Props) {
         <MetricCard label="Monthly SIP" value={formatINR(monthlySip, { compact: true })} subtext="across funds" tone="accent" />
       </div>
 
+      {/* My Portfolio Insights — ask the copilot about this portfolio */}
+      <section className="mt-9">
+        <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">My Portfolio Insights</div>
+        <div className="flex flex-wrap gap-2 mt-3">
+          {RESEARCH_TILES.map((t) => (
+            <button
+              key={t.label}
+              onClick={() => navigate(`/chat?seed=${encodeURIComponent(t.seed)}`)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 transition-colors"
+            >
+              <t.icon className="h-3.5 w-3.5 text-accent" /> {t.label}
+            </button>
+          ))}
+          {INSIGHT_QUESTIONS.map((q) => (
+            <button
+              key={q}
+              onClick={() => navigate(`/chat?q=${encodeURIComponent(q)}`)}
+              className="px-3.5 py-2 rounded-full bg-surface-2 border border-hairline text-[12.5px] text-ink-2 hover:bg-surface-3 transition-colors"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      </section>
+
       {/* tabs */}
       <Tabs defaultValue="holdings" className="mt-9">
         <TabsList>
@@ -60,8 +108,12 @@ export function Portfolio({ summary, holdings }: Props) {
               <div>
                 <CardLabel>Split across types</CardLabel>
                 <p className="font-display text-2xl tracking-tightish mt-2 max-w-md leading-snug">
-                  {summary.allocation[0].pct}% in {summary.allocation[0].label.toLowerCase()},
-                  {" "}{summary.allocation[1].pct}% in {summary.allocation[1].label.toLowerCase()}.
+                  {summary.allocation.length === 0
+                    ? "Allocation breakdown isn't available yet."
+                    : summary.allocation
+                        .slice(0, 2)
+                        .map((s) => `${s.pct}% in ${s.label.toLowerCase()}`)
+                        .join(", ") + "."}
                 </p>
                 <ul className="mt-5 flex flex-col gap-3">
                   {summary.allocation.map((s) => (
