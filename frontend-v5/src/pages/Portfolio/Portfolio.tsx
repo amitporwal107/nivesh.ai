@@ -75,6 +75,11 @@ export function Portfolio({ summary, holdings }: Props) {
               <t.icon className="h-3.5 w-3.5 text-accent" /> {t.label}
             </button>
           ))}
+        </div>
+
+        {/* Analyse my portfolio — ready-made questions, auto-sent to the copilot */}
+        <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3 mt-6">Analyse my portfolio</div>
+        <div className="flex flex-wrap gap-2 mt-3">
           {INSIGHT_QUESTIONS.map((q) => (
             <button
               key={q}
