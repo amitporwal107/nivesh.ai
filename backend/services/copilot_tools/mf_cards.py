@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -50,9 +51,32 @@ class MfCardResult:
 
 # ── shared helpers ───────────────────────────────────────────────────────────
 
+_PLAN_TOKENS = re.compile(
+    r"\b(direct|regular|growth|idcw|dividend|payout|reinvest\w*|bonus|plan|option|"
+    r"daily|weekly|monthly|quarterly|annual|fortnightly|half[\s-]?yearly)\b",
+    re.IGNORECASE,
+)
+
+
 def _clean_name(scheme_name: str) -> str:
-    """'HDFC Balanced Advantage Fund - Growth Plan' -> 'HDFC Balanced Advantage Fund'."""
-    return (scheme_name or "").split(" - ")[0].strip()
+    """'HDFC Balanced Advantage Fund - Growth Plan' -> 'HDFC Balanced Advantage Fund'.
+    Cuts at the first plan/option token (separator-independent), falling back to the
+    pre-dash segment, then the raw name."""
+    s = (scheme_name or "")
+    m = _PLAN_TOKENS.search(s)
+    if m:
+        cut = s[: m.start()].strip(" -–")
+        if cut:
+            return cut
+    return s.split(" - ")[0].strip() or s
+
+
+def _fund_key(scheme_name: str) -> str:
+    """Plan/option-agnostic identity key for grouping variants of the same fund.
+    Strips every plan/option token regardless of separator so 'X Regular Plan' and
+    'X Direct Plan' (no dash) collapse together."""
+    k = _PLAN_TOKENS.sub(" ", (scheme_name or "").lower())
+    return re.sub(r"[^a-z0-9]+", " ", k).strip()
 
 
 def _plan_of(scheme_name: str) -> Optional[str]:
@@ -381,33 +405,43 @@ def build_mf_holdings(sc: Dict[str, Any], scheme: Dict[str, Any],
 
 # ── PEERS ────────────────────────────────────────────────────────────────────
 
+def _peer_pref(p: Dict[str, Any]) -> tuple:
+    """Sort key for choosing a fund's representative plan — lower is better.
+    Prefer Growth over IDCW (IDCW returns are payout-reduced), then Regular over
+    Direct (matches the card), then larger AUM, then higher score."""
+    nm = (p.get("scheme_name") or "").lower()
+    is_idcw = any(w in nm for w in ("idcw", "dividend", "payout", "reinvest"))
+    is_direct = "direct" in nm
+    return (
+        0 if not is_idcw else 1,
+        0 if not is_direct else 1,
+        -(_num(p.get("aum_cr")) or -1.0),
+        -(_num(p.get("composite_score")) or -1.0),
+    )
+
+
 def build_mf_peers(sc: Dict[str, Any], scheme: Dict[str, Any],
                    nav_series: List[Dict[str, Any]], peers: List[Dict[str, Any]]) -> Dict[str, Any]:
     w = _envelope("peers", sc, scheme, nav_series)
     peers = peers or []
     current = str((sc or {}).get("scheme_code") or "")
 
-    # Collapse plan variants (Reg/Direct/IDCW) to one row per fund family, keeping the
-    # highest-AUM (then highest-composite) representative. Always keep the current fund.
+    # Collapse plan variants (Reg/Direct/IDCW) to one row per fund family. CRITICAL:
+    # prefer the Growth plan — IDCW/dividend NAVs are payout-reduced, so their
+    # trailing returns are wrong (often negative). Within Growth, prefer the
+    # Regular plan to match the card's looked-up scheme. Always keep the subject fund.
     by_family: Dict[str, Dict[str, Any]] = {}
     for p in peers:
-        fam = _clean_name(p.get("scheme_name") or "")
+        fam = _fund_key(p.get("scheme_name") or "")
         if not fam:
             continue
-        is_cur = str(p.get("scheme_code")) == current
         prev = by_family.get(fam)
         if prev is None:
             by_family[fam] = p
             continue
         if str(prev.get("scheme_code")) == current:
-            continue  # never displace the current fund's own row
-        if is_cur:
-            by_family[fam] = p
-            continue
-        better = (_num(p.get("aum_cr")) or -1) > (_num(prev.get("aum_cr")) or -1) or \
-                 ((_num(p.get("aum_cr")) or -1) == (_num(prev.get("aum_cr")) or -1)
-                  and (_num(p.get("composite_score")) or -1) > (_num(prev.get("composite_score")) or -1))
-        if better:
+            continue  # never displace the subject fund's own row
+        if str(p.get("scheme_code")) == current or _peer_pref(p) < _peer_pref(prev):
             by_family[fam] = p
 
     fams = list(by_family.values())
@@ -423,11 +457,12 @@ def build_mf_peers(sc: Dict[str, Any], scheme: Dict[str, Any],
             "composite_score": _pick(sc or {}, "composite_score"),
         })
 
-    # Pin the subject fund first, then the rest by AUM (then composite) descending —
+    # Pin the subject fund first, then the rest by Nivesh score (AUM is largely
+    # unavailable from the disclosure feed, so it's not a reliable sort key) —
     # so the comparison always includes the fund the user asked about.
     cur_fam = next((p for p in fams if str(p.get("scheme_code")) == current), None)
     others = [p for p in fams if p is not cur_fam]
-    others.sort(key=lambda p: (_num(p.get("aum_cr")) or -1, _num(p.get("composite_score")) or -1), reverse=True)
+    others.sort(key=lambda p: (_num(p.get("composite_score")) or -1, _num(p.get("aum_cr")) or -1), reverse=True)
     ordered = ([cur_fam] if cur_fam else []) + others
     rows = []
     for p in ordered[:6]:
@@ -444,8 +479,8 @@ def build_mf_peers(sc: Dict[str, Any], scheme: Dict[str, Any],
         w["highlight_code"] = current
 
     sub = (sc or {}).get("sub_category")
-    w["caption"] = (f"Largest funds in the {sub} category." if sub else "Peers by AUM.") + \
-                   " 3Y blank where the fund is under three years old."
+    w["caption"] = (f"Top funds in the {sub} category by Nivesh score" if sub else "Category peers") + \
+                   ", Growth plan. 3Y blank where the fund is under three years old."
     w["actions"] = [{"label": "Back to overview", "prompt": f"Show the overview of {w['name']}."}]
     return w
 
