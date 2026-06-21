@@ -58,6 +58,13 @@ _PLAN_SUFFIX = re.compile(
 )
 _OF = re.compile(r"\bof\b", re.IGNORECASE)
 _STOP_TAIL = re.compile(r"[.?!,:;].*$")
+# Generic filler that can sit in front of the fund name once the command verb
+# is gone ("the mutual fund HDFC …", "the fund HDFC …", "scheme HDFC …").
+# Leading-anchored so the trailing "Fund" in the real name is never stripped.
+_FILLER_LEAD = re.compile(
+    r"^\s*(?:the\s+|a\s+|an\s+)?(?:mutual\s+funds?|funds?|schemes?|mf)\b\s*",
+    re.IGNORECASE,
+)
 
 # Common short forms → a searchable substring of the canonical scheme name.
 _ALIASES = {
@@ -96,6 +103,15 @@ def extract_scheme_query(text: str) -> str:
     s = _STOP_TAIL.sub("", s)          # drop trailing punctuation clause
     s = _TAIL.sub("", s)               # drop "with its peers", "across periods", …
     s = _LEAD.sub("", s).strip()       # drop the leading command verb
+
+    # Drop generic "(the) mutual fund / fund / scheme" filler left in front of
+    # the real name ("tell me about the mutual fund HDFC Balanced Advantage
+    # Fund" -> "HDFC Balanced Advantage Fund"). Leading-anchored and looped so
+    # the trailing "Fund" in the actual name is never touched.
+    prev = None
+    while prev != s:
+        prev = s
+        s = _FILLER_LEAD.sub("", s).strip()
 
     # If a view noun remains (e.g. "the returns of HDFC …"), keep what follows
     # the last "of"; else strip a leading view noun.
