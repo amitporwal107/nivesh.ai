@@ -519,8 +519,104 @@ def _build_peers(sym: str, sector: Optional[str], rows: Optional[List[Dict[str, 
     return out
 
 
+def _build_quarterly(rows: Optional[List[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
+    """'Quarterly results' — last few quarters of revenue / PAT / margin / YoY.
+    Rows come pre-parsed from copilot_tools.company_financials (no re-parsing)."""
+    if not rows:
+        return None
+    out: List[Dict[str, Any]] = []
+    for r in rows[:4]:
+        q = r.get("quarter")
+        if not q:
+            continue
+        rev = _num(r.get("revenue_cr"))
+        pat = _num(r.get("pat_cr"))
+        pat_yoy = _num(r.get("pat_yoy_pct"))
+        rev_yoy = _num(r.get("revenue_yoy_pct"))
+        margin = _num(r.get("ebitda_margin_pct"))
+        row: Dict[str, Any] = {"quarter": q}
+        if rev is not None:
+            row["revenue"] = f"₹{rev:,.0f} cr"
+        if rev_yoy is not None:
+            row["revenue_yoy"] = _pct(rev_yoy, signed=True)
+        if pat is not None:
+            row["pat"] = f"₹{pat:,.0f} cr"
+        if pat_yoy is not None:
+            row["pat_yoy"] = _pct(pat_yoy, signed=True)
+            row["pat_yoy_positive"] = pat_yoy >= 0
+        if margin is not None:
+            row["margin"] = _pct(margin)
+        out.append(row)
+    return {"rows": out} if out else None
+
+
+_CA_LABELS = {
+    "DIVIDEND": "Dividend", "INTERIM DIVIDEND": "Interim dividend", "FINAL DIVIDEND": "Final dividend",
+    "SPLIT": "Stock split", "FACE VALUE SPLIT": "Stock split", "STOCK SPLIT": "Stock split",
+    "BONUS": "Bonus issue", "RIGHTS": "Rights issue", "BUYBACK": "Buyback",
+}
+
+
+def _build_corporate_events(rows: Optional[List[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
+    """'Corporate events' — recent dividends / splits / bonuses from
+    nidp.corporate_actions (newest ex_date first)."""
+    if not rows:
+        return None
+    out: List[Dict[str, Any]] = []
+    for r in rows[:6]:
+        atype = (r.get("action_type") or "").strip().upper()
+        label = _CA_LABELS.get(atype, atype.title() if atype else "Action")
+        when = _fmt_asof(r.get("ex_date") or r.get("record_date") or r.get("announcement_date"))
+        detail: Optional[str] = None
+        if "DIVIDEND" in atype:
+            amt = _num(r.get("dividend_amount"))
+            detail = f"₹{amt:.2f} / share" if amt is not None else (r.get("purpose") or None)
+        elif "SPLIT" in atype:
+            pre, post = _num(r.get("face_value_pre")), _num(r.get("face_value_post"))
+            detail = f"FV ₹{pre:.0f} → ₹{post:.0f}" if (pre and post) else (r.get("ratio") or None)
+        elif atype in ("BONUS", "RIGHTS"):
+            detail = (f"{r.get('ratio')} ratio" if r.get("ratio") else None) or (r.get("purpose") or None)
+        else:
+            detail = r.get("purpose") or r.get("ratio") or None
+        row: Dict[str, Any] = {"type": label}
+        if detail:
+            row["detail"] = detail
+        if when:
+            row["date"] = when
+        out.append(row)
+    return {"rows": out} if out else None
+
+
+def _build_recommendation(band: Optional[tuple], tech: Optional[tuple]) -> Optional[Dict[str, Any]]:
+    """Deterministic buy/hold/sell view. Long-term tracks the fundamental
+    composite; short-term tracks the technical composite. NOT advice — the card
+    footer carries the disclaimer; this is a rules-based reading of the scores."""
+    out: Dict[str, Any] = {}
+    if band:
+        fs = band[0]
+        if fs >= 65:
+            st, tone, why = "Buy", "pos", f"Strong fundamentals ({fs}/100) — suitable to accumulate."
+        elif fs >= 48:
+            st, tone, why = "Hold", "warm", f"Fair fundamentals ({fs}/100) — hold; wait for better value."
+        else:
+            st, tone, why = "Sell", "neg", f"Weak fundamentals ({fs}/100) — poor long-term outlook."
+        out["long_term"] = {"stance": st, "tone": tone, "rationale": why}
+    if tech:
+        ts = tech[0]
+        if ts >= 58:
+            st, tone, why = "Buy", "pos", f"Bullish technicals ({ts}/100) — momentum favours entry."
+        elif ts >= 42:
+            st, tone, why = "Hold", "warm", f"Neutral technicals ({ts}/100) — no clear near-term edge."
+        else:
+            st, tone, why = "Sell", "neg", f"Bearish technicals ({ts}/100) — weak momentum near-term."
+        out["short_term"] = {"stance": st, "tone": tone, "rationale": why}
+    return out or None
+
+
 def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[str, Any]],
-                       peers: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+                       peers: Optional[List[Dict[str, Any]]] = None,
+                       quarterly: Optional[List[Dict[str, Any]]] = None,
+                       corporate_events: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Assemble the rich instrument_detail widget for a stock. Pure function.
 
     `feat`  : /v1/features/stocks/{symbol}/latest .data  (technical + fundamental)
@@ -609,6 +705,11 @@ def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[
     if score_bars:
         widget["scores"] = score_bars
 
+    # Buy/Hold/Sell view (long-term = fundamentals, short-term = technicals).
+    rec = _build_recommendation(band, tech)
+    if rec:
+        widget["recommendation"] = rec
+
     # Prose summary (deterministic) + 'What stands out'.
     summary = _prose_summary(feat, close, band, tech)
     if summary:
@@ -689,21 +790,31 @@ def build_stock_widget(symbol: str, feat: Dict[str, Any], scores: Optional[Dict[
     breakdown = _build_score_breakdown(scores)
     if breakdown:
         widget["score_breakdown"] = breakdown
+    quarterly_block = _build_quarterly(quarterly)
+    if quarterly_block:
+        widget["quarterly"] = quarterly_block
     peers_block = _build_peers(sym, sector, peers)
     if peers_block:
         widget["peers"] = peers_block
     shareholding = _build_shareholding(feat)
     if shareholding:
         widget["shareholding"] = shareholding
+    events_block = _build_corporate_events(corporate_events)
+    if events_block:
+        widget["corporate_events"] = events_block
 
     # Action buttons expand the sections above — only offer ones we have data for.
     actions: List[Dict[str, Any]] = []
     if breakdown:
         actions.append({"label": "Explain the score", "expands": "score_breakdown"})
+    if quarterly_block:
+        actions.append({"label": "Quarterly results", "expands": "quarterly"})
     if peers_block:
         actions.append({"label": "Compare peers", "expands": "peers"})
     if shareholding:
         actions.append({"label": "Who holds it", "expands": "shareholding"})
+    if events_block:
+        actions.append({"label": "Corporate events", "expands": "corporate_events"})
     if actions:
         widget["actions"] = actions
 
@@ -739,6 +850,11 @@ def _stock_summary(symbol: str, w: Dict[str, Any]) -> str:
         if pp.get("trend"):
             bits.append(f"trend={pp['trend']['label']}")
         parts.append(" ".join(bits))
+    rec = w.get("recommendation") or {}
+    if rec.get("long_term") or rec.get("short_term"):
+        lt = (rec.get("long_term") or {}).get("stance")
+        ste = (rec.get("short_term") or {}).get("stance")
+        parts.append(f"view: long-term={lt or '—'} short-term={ste or '—'}")
     if w.get("summary"):
         parts.append(w["summary"])
     return " | ".join(p for p in parts if p)
@@ -750,11 +866,14 @@ async def get_stock_research(symbol: str) -> InstrumentResearch:
     if not sym:
         return InstrumentResearch(ok=False, kind="stock", identifier="", summary="", error="no_symbol")
     import asyncio
+    from .company_financials import get_company_financials  # processed quarterly rows
     try:
-        feat, scores, hist = await asyncio.gather(
+        feat, scores, hist, fin, corp = await asyncio.gather(
             _daas.get_stock_features_latest(sym),
             _daas.get_stock_scores(sym),
             _daas.get_stock_features_history(sym, limit=2),
+            get_company_financials(sym, limit=8),
+            _daas.get_corporate_actions(sym, limit=8),
             return_exceptions=True,
         )
     except Exception as exc:  # noqa: BLE001
@@ -762,6 +881,8 @@ async def get_stock_research(symbol: str) -> InstrumentResearch:
 
     feat = feat if isinstance(feat, dict) else None
     scores = scores if isinstance(scores, dict) else None
+    quarterly = fin.rows if (not isinstance(fin, Exception) and getattr(fin, "ok", False)) else None
+    corporate_events = corp if isinstance(corp, list) else None
     if not feat and not scores:
         return InstrumentResearch(
             ok=False, kind="stock", identifier=sym,
@@ -795,7 +916,8 @@ async def get_stock_research(symbol: str) -> InstrumentResearch:
         except Exception as exc:  # noqa: BLE001
             logger.debug("get_sector_peers(%s) failed: %s", sector, exc)
 
-    widget = build_stock_widget(sym, feat or {}, scores, peers=peers)
+    widget = build_stock_widget(sym, feat or {}, scores, peers=peers,
+                                quarterly=quarterly, corporate_events=corporate_events)
     ok = bool(
         widget.get("quality") or widget.get("scores")
         or widget.get("fundamentals_grid") or widget.get("technicals_cards")

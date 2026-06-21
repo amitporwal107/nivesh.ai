@@ -982,6 +982,72 @@ interface InstrumentDetailData {
     pledge?: { value: string; tone?: string };
     as_of?: string;
   };
+  quarterly?: {
+    rows?: { quarter: string; revenue?: string; revenue_yoy?: string; pat?: string; pat_yoy?: string; pat_yoy_positive?: boolean; margin?: string }[];
+  };
+  corporate_events?: {
+    rows?: { type: string; detail?: string; date?: string }[];
+  };
+  // Always-visible buy/hold/sell view (deterministic, from the composites)
+  recommendation?: {
+    long_term?: { stance?: string; tone?: string; rationale?: string };
+    short_term?: { stance?: string; tone?: string; rationale?: string };
+  };
+}
+
+/** Quarterly results — last few quarters: revenue / PAT(+YoY) / margin. */
+function QuarterlyPanel({ q }: { q: NonNullable<InstrumentDetailData["quarterly"]> }) {
+  const rows = q.rows ?? [];
+  return (
+    <div className="flex flex-col gap-2">
+      {rows.map((r, i) => (
+        <div key={i} className="flex items-center justify-between gap-3 border-b border-hairline last:border-0 pb-2 last:pb-0">
+          <span className="text-[13px] font-medium text-ink w-20 shrink-0">{r.quarter}</span>
+          <div className="flex-1 flex flex-wrap gap-x-4 gap-y-0.5 justify-end text-[12.5px]">
+            {r.revenue && <span className="text-ink-2">Rev {r.revenue}</span>}
+            {r.pat && <span className="text-ink-2">PAT {r.pat}{r.pat_yoy ? <span className={`ml-1 ${r.pat_yoy_positive === false ? "text-neg" : "text-pos"}`}>{r.pat_yoy}</span> : null}</span>}
+            {r.margin && <span className="text-ink-3">Margin {r.margin}</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Corporate events — recent dividends / splits / bonuses. */
+function CorporateEventsPanel({ e }: { e: NonNullable<InstrumentDetailData["corporate_events"]> }) {
+  const rows = e.rows ?? [];
+  return (
+    <div className="flex flex-col gap-2">
+      {rows.map((r, i) => (
+        <div key={i} className="flex items-baseline justify-between gap-3">
+          <span className="text-[13px] text-ink">{r.type}{r.detail ? <span className="text-ink-3 text-[12.5px]"> · {r.detail}</span> : null}</span>
+          {r.date && <span className="text-[12px] text-ink-3 shrink-0">{r.date}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Buy/Hold/Sell view — one row each for long- and short-term, colour by tone. */
+function RecommendationBlock({ rec }: { rec: NonNullable<InstrumentDetailData["recommendation"]> }) {
+  const row = (horizon: string, v?: { stance?: string; tone?: string; rationale?: string }) =>
+    !v?.stance ? null : (
+      <div className="flex items-start gap-3">
+        <span className="text-[12.5px] text-ink-3 w-20 shrink-0 pt-0.5">{horizon}</span>
+        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide ${v.tone === "pos" ? "bg-[rgb(var(--pos)/0.12)] text-pos" : v.tone === "neg" ? "bg-[rgb(var(--neg)/0.12)] text-neg" : "bg-[rgb(var(--warm)/0.12)] text-warm"}`}>{v.stance.toUpperCase()}</span>
+        {v.rationale && <span className="text-[12.5px] text-ink-2 leading-snug">{v.rationale}</span>}
+      </div>
+    );
+  return (
+    <div>
+      <Heading>Recommendation</Heading>
+      <div className="mt-2.5 flex flex-col gap-2.5">
+        {row("Long-term", rec.long_term)}
+        {row("Short-term", rec.short_term)}
+      </div>
+    </div>
+  );
 }
 
 function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
@@ -1077,6 +1143,11 @@ function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
           </div>
           {scores.explainer && <p className="text-[12px] text-ink-3 mt-2.5 leading-snug">{scores.explainer}</p>}
         </div>
+      ) : null}
+
+      {/* Recommendation — buy/hold/sell, long & short term (stock) */}
+      {(data.recommendation?.long_term?.stance || data.recommendation?.short_term?.stance) ? (
+        <RecommendationBlock rec={data.recommendation} />
       ) : null}
 
       {/* What stands out (stock) */}
@@ -1197,11 +1268,13 @@ function InstrumentDetailWidget({ data }: { data: InstrumentDetailData }) {
               );
             })}
           </div>
-          {open && (data.score_breakdown || data.peers || data.shareholding) ? (
+          {open ? (
             <div className="mt-3 rounded-lg bg-surface-2/40 border border-hairline p-4">
               {open === "score_breakdown" && data.score_breakdown ? <ScoreBreakdownPanel b={data.score_breakdown} />
+                : open === "quarterly" && data.quarterly ? <QuarterlyPanel q={data.quarterly} />
                 : open === "peers" && data.peers ? <PeersPanel p={data.peers} />
                 : open === "shareholding" && data.shareholding ? <ShareholdingPanel s={data.shareholding} />
+                : open === "corporate_events" && data.corporate_events ? <CorporateEventsPanel e={data.corporate_events} />
                 : null}
             </div>
           ) : null}

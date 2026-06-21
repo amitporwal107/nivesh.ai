@@ -68,6 +68,19 @@ _PEERS = [
     {"symbol": "RELIANCE", "quality_score": 55.7, "industry": "Oil", "market_cap_bucket": "LARGE_CAP"},
     {"symbol": "IOC", "quality_score": 48.0, "industry": "Oil", "market_cap_bucket": "LARGE_CAP"},
 ]
+# Pre-parsed quarterly rows (company_financials shape) for 'Quarterly results'.
+_QUARTERLY = [
+    {"quarter": "Q4 FY26", "revenue_cr": 240000.0, "pat_cr": 18500.0, "eps_basic": 27.3,
+     "ebitda_margin_pct": 17.2, "revenue_yoy_pct": 8.5, "pat_yoy_pct": 12.1},
+    {"quarter": "Q3 FY26", "revenue_cr": 232000.0, "pat_cr": 17900.0, "eps_basic": 26.4,
+     "ebitda_margin_pct": 16.8, "revenue_yoy_pct": 7.1, "pat_yoy_pct": -3.2},
+]
+# corporate_actions screener rows for 'Corporate events'.
+_CORP = [
+    {"action_type": "DIVIDEND", "dividend_amount": 10.0, "ex_date": "2026-05-12"},
+    {"action_type": "SPLIT", "face_value_pre": 10, "face_value_post": 5, "ex_date": "2025-07-20"},
+    {"action_type": "BONUS", "ratio": "1:1", "ex_date": "2024-10-28"},
+]
 
 
 def test_header_meta_and_price():
@@ -132,13 +145,44 @@ def test_price_position_and_indicator_cards():
 def test_actions_and_footer():
     w = build_stock_widget("RELIANCE", _FEAT, _SCORES)
     # actions expand inline sections; only offered when the section has data
-    w_full = build_stock_widget("RELIANCE", _FEAT, _SCORES, peers=_PEERS)
+    w_full = build_stock_widget("RELIANCE", _FEAT, _SCORES, peers=_PEERS,
+                                quarterly=_QUARTERLY, corporate_events=_CORP)
     by_expand = {a["expands"]: a["label"] for a in w_full["actions"]}
     assert by_expand == {
         "score_breakdown": "Explain the score",
+        "quarterly": "Quarterly results",
         "peers": "Compare peers",
         "shareholding": "Who holds it",
+        "corporate_events": "Corporate events",
     }
+
+
+def test_quarterly_expansion():
+    w = build_stock_widget("RELIANCE", _FEAT, _SCORES, quarterly=_QUARTERLY)
+    rows = w["quarterly"]["rows"]
+    assert rows[0]["quarter"] == "Q4 FY26"
+    assert rows[0]["revenue"] == "₹240,000 cr" and rows[0]["pat"] == "₹18,500 cr"
+    assert rows[0]["pat_yoy"] == "+12.1%" and rows[0]["pat_yoy_positive"] is True
+    assert rows[1]["pat_yoy_positive"] is False  # Q3 PAT fell YoY
+    assert rows[0]["margin"] == "17.2%"
+
+
+def test_corporate_events_expansion():
+    w = build_stock_widget("RELIANCE", _FEAT, _SCORES, corporate_events=_CORP)
+    rows = {r["type"]: r for r in w["corporate_events"]["rows"]}
+    assert rows["Dividend"]["detail"] == "₹10.00 / share" and rows["Dividend"]["date"] == "12 May 2026"
+    assert rows["Stock split"]["detail"] == "FV ₹10 → ₹5"
+    assert rows["Bonus issue"]["detail"] == "1:1 ratio"
+
+
+def test_recommendation_long_and_short_term():
+    w = build_stock_widget("RELIANCE", _FEAT, _SCORES)
+    rec = w["recommendation"]
+    # fundamental 68 -> long-term Buy; technical 18 (nested) -> short-term Sell
+    assert rec["long_term"]["stance"] == "Buy" and rec["long_term"]["tone"] == "pos"
+    assert rec["short_term"]["stance"] == "Sell" and rec["short_term"]["tone"] == "neg"
+    assert "fundamentals" in rec["long_term"]["rationale"].lower()
+    assert "technicals" in rec["short_term"]["rationale"].lower()
 
 
 def test_shareholding_expansion():

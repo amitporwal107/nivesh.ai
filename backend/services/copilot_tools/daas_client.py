@@ -201,6 +201,23 @@ async def get_sector_peers(sector: str, limit: int = 50) -> List[Dict[str, Any]]
     return rows if isinstance(rows, list) else []
 
 
+async def get_corporate_actions(symbol: str, limit: int = 8) -> List[Dict[str, Any]]:
+    """Recent corporate actions (dividends, splits, bonuses) for one symbol.
+
+    Calls GET /v1/corporate-actions/{symbol} (newest ex_date first). Returns []
+    on any failure so the caller omits the section rather than fabricate it.
+    """
+    try:
+        data = await _get(f"/corporate-actions/{symbol}", params={"limit": limit})
+    except DaasError as exc:
+        logger.debug("get_corporate_actions(%s): %s", symbol, exc)
+        return []
+    if not isinstance(data, dict):
+        return []
+    rows = data.get("data")
+    return rows if isinstance(rows, list) else []
+
+
 async def get_quarterly_financials(
     symbol: str,
     limit: int = 8,
