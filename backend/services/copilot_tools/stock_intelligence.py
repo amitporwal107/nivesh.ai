@@ -69,7 +69,7 @@ class StockIntelResult:
         return " | ".join(lines)
 
 
-async def _daas_get(path: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+async def _daas_get(path: str, params: Optional[Dict] = None, timeout: float = 8.0) -> Dict[str, Any]:
     """Thin async GET against DAAS; mirrors daas_bridge.call_daas() without circular import."""
     import os, httpx
     base = os.environ.get("NIDP_DAAS_BASE_URL", "https://data.niveshcopilot.com/daas").rstrip("/")
@@ -78,13 +78,19 @@ async def _daas_get(path: str, params: Optional[Dict] = None) -> Dict[str, Any]:
     key  = os.environ.get("NIDP_DAAS_API_KEY", "") or os.environ.get("NIDP_DAAS_INTERNAL_TOKEN", "")
     headers = {"X-API-Key": key, "Accept": "application/json"} if key else {"Accept": "application/json"}
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.get(f"{base}{path}", params=params or {}, headers=headers)
         if resp.status_code == 200:
             return resp.json()
+        # Observable failure: surface status + whether an auth key was present
+        # (without leaking it) so 401 (token missing) vs 500 vs 4xx is diagnosable.
+        logger.warning(
+            "DAAS GET %s → HTTP %s (api_key=%s) body=%s",
+            path, resp.status_code, "present" if key else "MISSING", resp.text[:160],
+        )
         return {}
     except Exception as exc:
-        logger.debug("DAAS %s failed: %s", path, exc)
+        logger.warning("DAAS GET %s failed (api_key=%s): %r", path, "present" if key else "MISSING", exc)
         return {}
 
 
@@ -367,7 +373,7 @@ async def nidp_stock_screener(
     if min_rsi is not None:            params["min_rsi"] = min_rsi
     if max_pe_vs_sector is not None:   params["max_pe_vs_sector"] = max_pe_vs_sector
 
-    resp = await _daas_get("/v1/stocks/screener", params)
+    resp = await _daas_get("/v1/stocks/screener", params, timeout=20.0)
     # _daas_get returns {} on any non-200/error; a successful call is an
     # envelope dict carrying "data" (possibly empty). Distinguish "source
     # unreachable" (ok=False) from "0 matches" (ok=True, rows=[]).
