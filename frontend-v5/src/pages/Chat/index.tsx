@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -49,6 +49,7 @@ function relTime(iso?: string): string {
 
 export default function ChatPage() {
   const [composer, setComposer] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   // `?q=` deep-link (e.g. Markets "Explore" chips) → auto-send once on mount.
   const [searchParams, setSearchParams] = useSearchParams();
   const autoSentRef = useRef(false);
@@ -135,6 +136,18 @@ export default function ChatPage() {
     if (!text || isBusy) return;
     setComposer("");
     await submitMessage(text);
+  };
+
+  // Research tool chips — prefill the composer with a routing-safe starter and
+  // focus the input so the user just types the stock/fund name. "mutual fund" in
+  // the fund starter guarantees the MF analyst (intent _P_MF is matched first).
+  const startResearch = (prefill: string) => {
+    if (isBusy) return;
+    setComposer(prefill);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (el) { el.focus(); el.setSelectionRange(prefill.length, prefill.length); }
+    });
   };
 
   // Auto-send a `?q=` deep-link once, then strip it from the URL so a
@@ -307,6 +320,23 @@ export default function ChatPage() {
         </div>
 
         <div className="flex flex-wrap gap-2 mt-6">
+          {/* Research tools — explicit, icon-led entry points for stock / fund research */}
+          <button
+            onClick={() => startResearch("Tell me about ")}
+            disabled={isBusy}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 disabled:opacity-50 transition-colors"
+            title="Research a stock — type a company name or NSE symbol"
+          >
+            <LineChart className="h-3.5 w-3.5 text-accent" /> Research a stock
+          </button>
+          <button
+            onClick={() => startResearch("Tell me about the mutual fund ")}
+            disabled={isBusy}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 disabled:opacity-50 transition-colors"
+            title="Research a mutual fund — type the fund name"
+          >
+            <PieChart className="h-3.5 w-3.5 text-accent" /> Research a fund
+          </button>
           {prompts.isPending && Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-9 w-40 rounded-full" />
           ))}
@@ -402,6 +432,7 @@ export default function ChatPage() {
           >
             <Plus className="h-4 w-4 text-ink-3" />
             <input
+              ref={inputRef}
               type="text"
               placeholder="Ask anything…"
               value={composer}
