@@ -443,24 +443,18 @@ async def mf_node(state: CopilotState) -> dict:
                 widget_data = {"rows": tr.rows, **tr.data}
                 break
 
-    # Single-fund card. A specific view ("show the holdings of X") → the mf_detail
-    # widget; otherwise the instrument_detail summary card. Holdings is gated on
-    # real rows inside get_mf_card — when the AMC-holdings feed is empty we emit
-    # NO widget and let the narrative explain it.
+    # Single-fund card. ONE mf_detail widget holds every tab (summary + overview/
+    # returns/holdings/peers); the client switches tabs locally with no re-fetch.
+    # `active` is the tab the user asked for ("show the holdings of X" → holdings),
+    # defaulting to summary. Holdings/peers tabs are present only when they have
+    # real data (gated inside get_mf_full_card).
     if widget_type == WidgetType.NONE and scheme_code and is_single_fund:
         try:
-            if mf_view:
-                from services.copilot_tools.mf_cards import get_mf_card
-                card = await get_mf_card(scheme_code, mf_view)
-                if card.ok and card.widget:
-                    widget_type = WidgetType.MF_DETAIL
-                    widget_data = card.widget
-            else:
-                from services.copilot_tools.instrument_research import get_mf_research
-                research = await get_mf_research(scheme_code)
-                if research.ok and research.widget:
-                    widget_type = WidgetType.INSTRUMENT_DETAIL
-                    widget_data = research.widget
+            from services.copilot_tools.mf_cards import get_mf_full_card
+            card = await get_mf_full_card(scheme_code, active=mf_view or "summary")
+            if card.ok and card.widget:
+                widget_type = WidgetType.MF_DETAIL
+                widget_data = card.widget
         except Exception as exc:  # noqa: BLE001
             logger.warning("mf card build failed for %s (%s): %s", scheme_code, mf_view, exc)
 

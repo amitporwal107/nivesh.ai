@@ -30,6 +30,7 @@ from .instrument_research import (
     _pick,
     _quality_label_tone,
     _row,
+    build_mf_widget,
 )
 
 logger = logging.getLogger(__name__)
@@ -509,3 +510,136 @@ async def get_mf_card(scheme_code: str, view: str) -> MfCardResult:
 
     return MfCardResult(ok=ok, view=view, widget=widget, summary=summary,
                         error=None if ok else "insufficient_data")
+
+
+# ── combined single-card (all tabs in one widget) ───────────────────────────
+
+# Envelope keys are shared by the card header — they're stripped from each view
+# payload so the view dict carries only its own body fields.
+_ENV_KEYS = {
+    "view", "kind", "scheme_code", "name", "badge", "subtitle", "tabs",
+    "source", "disclaimer_note", "plan", "risk", "nav", "actions",
+}
+
+
+def _view_only(w: Dict[str, Any], view: str) -> Dict[str, Any]:
+    d = {k: v for k, v in (w or {}).items() if k not in _ENV_KEYS}
+    d["view"] = view
+    return d
+
+
+def build_mf_summary_view(scheme_code: str, sc: Dict[str, Any],
+                          scheme: Dict[str, Any], nav_series: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """The Summary tab body: quality donut + prose, Returns and Risk & cost columns."""
+    sc = sc or {}
+    w = build_mf_widget(str(scheme_code), sc)
+    view: Dict[str, Any] = {"view": "summary"}
+
+    if w.get("quality"):
+        q = dict(w["quality"])
+        rank = _pick(sc, "composite_rank", "category_rank")
+        size = _pick(sc, "total_in_category", "category_size")
+        if rank is not None and size:
+            q["rank"], q["of"] = int(rank), int(size)
+        view["quality"] = q
+
+    prose, _consider, _watch = quartile_insights(sc)
+    if prose:
+        view["summary"] = prose
+
+    if w.get("returns"):
+        view["returns"] = w["returns"]
+    q3 = sc.get("qtile_ret3y")
+    if q3 is not None:
+        try:
+            q3 = int(q3)
+            view["returns_badge"] = (
+                {"text": "Top quartile", "tone": "pos"} if q3 <= 1 else
+                {"text": "Above category", "tone": "pos"} if q3 == 2 else
+                {"text": "Below category", "tone": "neg"}
+            )
+        except (TypeError, ValueError):
+            pass
+
+    if w.get("ratios"):
+        ratios = dict(w["ratios"])
+        ratios["title"] = "Risk & cost"
+        beta = _pick(sc, "beta_3y", "beta_1y", "beta")
+        if beta is not None and beta < 0.85:
+            ratios["badge"] = {"text": "Low beta", "tone": "pos"}
+        view["ratios"] = ratios
+
+    if w.get("disclaimer"):
+        view["disclaimer"] = w["disclaimer"]
+    return view
+
+
+_TAB_SPEC = [
+    ("summary", "Summary"), ("overview", "Overview"), ("returns", "Returns"),
+    ("holdings", "Holdings"), ("peers", "Peers"),
+]
+
+
+async def get_mf_full_card(scheme_code: str, active: str = "summary") -> MfCardResult:
+    """Assemble ONE mf_detail widget holding every tab's data (client switches
+    tabs locally — no re-fetch). Holdings/peers tabs appear only when they have
+    real data; `active` is the initially-selected tab (falls back to summary)."""
+    code = str(scheme_code or "").strip()
+    if not code:
+        return MfCardResult(ok=False, view="summary", error="no_scheme_code")
+
+    try:
+        sc, scheme, nav_series = await asyncio.gather(
+            _daas.get_mf_scorecard(code),
+            _daas.get_mf_scheme(code),
+            _daas.get_mf_nav_series(code, limit=2),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return MfCardResult(ok=False, view="summary", error=str(exc))
+    sc, scheme, nav_series = sc or {}, scheme or {}, nav_series or []
+    if not sc and not scheme:
+        return MfCardResult(ok=False, view="summary", error="not_found")
+
+    isin = scheme.get("isin_growth") or sc.get("isin")
+    sub = sc.get("sub_category") or ""
+    prim_map, holdings, peers = await asyncio.gather(
+        _daas.get_v3_mf_primitives_bulk([isin]) if isin else _noop_dict(),
+        _daas.get_mf_holdings(code, limit=400),
+        _daas.get_mf_category_scorecard(sub, sort_by="aum", limit=20) if sub else _noop_list(),
+    )
+    prim = (prim_map.get(isin) if isinstance(prim_map, dict) else None) or {}
+
+    views: Dict[str, Any] = {"summary": build_mf_summary_view(code, sc, scheme, nav_series)}
+    views["overview"] = _view_only(build_mf_overview(sc, scheme, nav_series, prim), "overview")
+    rt = build_mf_returns(sc, scheme, nav_series, prim)
+    if rt.get("cagr"):
+        views["returns"] = _view_only(rt, "returns")
+    if holdings:
+        hd = build_mf_holdings(sc, scheme, nav_series, holdings)
+        if hd.get("top_holdings") or hd.get("asset_allocation"):
+            views["holdings"] = _view_only(hd, "holdings")
+    pr = build_mf_peers(sc, scheme, nav_series, peers)
+    if pr.get("rows"):
+        views["peers"] = _view_only(pr, "peers")
+
+    env = _envelope("summary", sc, scheme, nav_series)
+    widget: Dict[str, Any] = {"kind": "mf"}
+    for k in ("scheme_code", "name", "badge", "subtitle", "plan", "risk", "nav", "source", "disclaimer_note"):
+        if k in env:
+            widget[k] = env[k]
+    widget["active"] = active if active in views else "summary"
+    widget["tabs"] = [{"key": k, "label": lbl} for k, lbl in _TAB_SPEC if k in views]
+    widget["views"] = views
+
+    ok = bool(views.get("summary"))
+    summary = f"{widget.get('name')}: MF card ({', '.join(views)})"
+    return MfCardResult(ok=ok, view=widget["active"], widget=widget, summary=summary,
+                        error=None if ok else "insufficient_data")
+
+
+async def _noop_dict() -> Dict[str, Any]:
+    return {}
+
+
+async def _noop_list() -> List[Any]:
+    return []
