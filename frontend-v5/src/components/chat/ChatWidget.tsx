@@ -2190,6 +2190,324 @@ function ResearchHubCard({ data, onAction }: { data: any; onAction?: (a: WidgetA
   );
 }
 
+// ── stock_screener ──────────────────────────────────────────────────────────
+// Chat-native redesign of the standalone StockScreener. The backend ships the
+// matched universe (real rows from nidp.v_stock_features_full) + column/filter
+// defs; the card filters & sorts THOSE rows locally (it never recomputes a
+// metric NIDP owns) and recompiles the signature query string as the user
+// refines. Per-row "Ask" and preset chips route back into Copilot via onAction.
+type ScreenerCol = {
+  key: string; label: string; unit?: string; align?: "left" | "right";
+  kind?: "text" | "num"; signed?: boolean; goodHigh?: boolean; goodLow?: boolean;
+  goodHighAt?: number; goodLowAt?: number; decimals?: number;
+};
+type ScreenerFilterDef = { key: string; label: string; qlabel?: string; unit?: string; min?: boolean; max?: boolean };
+
+function fmtScreener(v: any, col: ScreenerCol): string {
+  if (v === null || v === undefined || v === "") return "—";
+  if (col.kind === "text") return String(v);
+  const n = Number(v);
+  if (Number.isNaN(n)) return "—";
+  if (col.key === "mcap" || col.key === "market_cap_cr") return n >= 1000 ? (n / 1000).toFixed(1) + "k" : n.toFixed(0);
+  if (col.key === "cmp" || col.key === "close") return n.toLocaleString("en-IN");
+  if ((col.key === "roe" || col.key === "roce" || col.key === "roe_pct" || col.key === "roce_pct") && n === 0) return "—";
+  const dec = col.decimals ?? (col.signed ? 1 : n % 1 === 0 ? 0 : 1);
+  return n.toFixed(dec);
+}
+
+function screenerValueTone(v: any, col: ScreenerCol): string {
+  const n = Number(v);
+  if (Number.isNaN(n)) return "text-ink-3";
+  if (col.signed) return n > 0 ? "text-pos" : n < 0 ? "text-neg" : "text-ink-3";
+  if (col.goodHigh && n >= (col.goodHighAt ?? 20)) return "text-pos";
+  if (col.goodLow && n > (col.goodLowAt ?? 1)) return "text-neg";
+  return "text-ink";
+}
+
+function ScreenerSortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
+  return (
+    <span className={active ? "text-accent" : "text-ink-3/50"} aria-hidden>
+      {!active ? "↕" : dir === "asc" ? "↑" : "↓"}
+    </span>
+  );
+}
+
+function StockScreenerWidget({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
+  const cols: ScreenerCol[] = data?.columns || [];
+  const universe: any[] = data?.universe || data?.rows || [];
+  const filterDefs: ScreenerFilterDef[] = data?.filter_defs || [];
+  const filterLabels: Record<string, string> = data?.filter_labels || {};
+  const presets: { name: string; query: string }[] = data?.presets || [];
+  const sectorKey: string = data?.sector_key || "sector";
+  const sectors: string[] =
+    data?.sectors || [...new Set(universe.map((s) => s?.[sectorKey]).filter(Boolean))].sort();
+
+  const [filters, setFilters] = useState<Record<string, number>>(data?.filters || {});
+  const [sector, setSector] = useState<string[]>(data?.sector_filter || []);
+  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" }>(
+    data?.sort || { key: cols.find((c) => c.kind !== "text")?.key || cols[0]?.key || "", dir: "desc" },
+  );
+  const [showFilters, setShowFilters] = useState(false);
+
+  if (!cols.length || !universe.length) {
+    return data?.note ? <p className="text-[13.5px] text-ink-2 leading-relaxed mt-1 px-1">{data.note}</p> : null;
+  }
+
+  const setF = (k: string, raw: string) =>
+    setFilters((p) => {
+      const next = { ...p };
+      if (raw === "" || raw === null) delete next[k];
+      else next[k] = Number(raw);
+      return next;
+    });
+  const toggleSector = (s: string) =>
+    setSector((p) => (p.includes(s) ? p.filter((x) => x !== s) : [...p, s]));
+  const reset = () => { setFilters({}); setSector([]); };
+
+  // Resolve a display label for any metric key — panel def first, then the
+  // backend's full primitive label map, else a prettified key. Lets filters set
+  // by natural language (outside the curated panel) still read cleanly.
+  const labelFor = (key: string): string => {
+    const d = filterDefs.find((x) => x.key === key);
+    return d?.qlabel || d?.label || filterLabels[key] || key;
+  };
+
+  // Signature element: the ACTIVE filters compiled into a screener-style query
+  // string — driven by `filters` (not just the panel) so every NL primitive shows.
+  const query = (() => {
+    const parts: string[] = [];
+    for (const fk of Object.keys(filters)) {
+      const v = filters[fk];
+      if (v === undefined) continue;
+      if (fk.endsWith("_min")) parts.push(`${labelFor(fk.slice(0, -4))} > ${v}`);
+      else if (fk.endsWith("_max")) parts.push(`${labelFor(fk.slice(0, -4))} < ${v}`);
+    }
+    if (sector.length) parts.push(`Sector IN (${sector.join(", ")})`);
+    return parts.join("  AND  ");
+  })();
+
+  let rows = universe.filter((s) => {
+    for (const fk of Object.keys(filters)) {
+      const v = filters[fk];
+      if (v === undefined) continue;
+      const base = fk.endsWith("_min") || fk.endsWith("_max") ? fk.slice(0, -4) : fk;
+      const val = Number(s[base]);
+      if (fk.endsWith("_min") && (Number.isNaN(val) || val < v)) return false;
+      if (fk.endsWith("_max") && (Number.isNaN(val) || val > v)) return false;
+    }
+    if (sector.length && !sector.includes(s[sectorKey])) return false;
+    return true;
+  });
+  rows = [...rows].sort((a, b) => {
+    const av = a[sort.key], bv = b[sort.key];
+    if (typeof av === "string" || typeof bv === "string")
+      return sort.dir === "asc" ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+    return sort.dir === "asc" ? Number(av) - Number(bv) : Number(bv) - Number(av);
+  });
+
+  const toggleSort = (key: string) =>
+    setSort((p) => (p.key === key ? { key, dir: p.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
+  const activeCount = Object.keys(filters).length + sector.length;
+
+  const nameKey = data?.name_key || "name";
+  const tickerKey = data?.ticker_key || "ticker";
+  const askPrompt = (s: any) =>
+    data?.ask_template
+      ? String(data.ask_template).replace("{name}", s[nameKey] ?? "").replace("{ticker}", s[tickerKey] ?? "")
+      : `Tell me about ${s[nameKey] ?? s[tickerKey]}${s[tickerKey] ? ` (${s[tickerKey]})` : ""} — is it worth a deeper look?`;
+
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      {/* hero — compiled query is the signature element */}
+      <div className="rounded-lg bg-surface-2 border border-hairline p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            {data.title && <Heading>{data.title}</Heading>}
+            <div className="mt-1.5 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[.16em] text-ink-3">
+              ✦ Query
+            </div>
+            <code className="mt-0.5 block font-mono text-[13px] text-ink-2 leading-relaxed break-words">
+              {query || <span className="text-ink-3">All matches — refine to narrow down</span>}
+            </code>
+          </div>
+          <div className="text-right shrink-0">
+            <div className="font-display text-[26px] text-ink tracking-tightish leading-none">{rows.length}</div>
+            <div className="text-[11px] text-ink-3 mt-0.5">match{rows.length === 1 ? "" : "es"}</div>
+          </div>
+        </div>
+        {(filterDefs.length > 0 || sectors.length > 0) && (
+          <div className="mt-3.5 flex items-center gap-3">
+            <button
+              onClick={() => setShowFilters((v) => !v)}
+              className="text-[12.5px] font-medium text-ink-2 hover:text-ink transition-colors"
+            >
+              {showFilters ? "Hide filters" : "Refine"}{activeCount > 0 ? ` · ${activeCount}` : ""}
+            </button>
+            {activeCount > 0 && (
+              <button onClick={reset} className="text-[12.5px] text-ink-3 hover:text-ink transition-colors">
+                Reset
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* refine rail (collapsible) */}
+      {showFilters && (filterDefs.length > 0 || sectors.length > 0) && (
+        <Card tone="cream">
+          {filterDefs.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3">
+              {filterDefs.map((d) => (
+                <div key={d.key}>
+                  <label className="mb-1 flex items-center justify-between text-[11.5px] font-medium text-ink-2">
+                    <span>{d.label}</span>
+                    {d.unit && <span className="text-ink-3">{d.unit}</span>}
+                  </label>
+                  <div className="flex gap-1.5">
+                    {d.min && (
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        value={filters[`${d.key}_min`] ?? ""}
+                        onChange={(e) => setF(`${d.key}_min`, e.target.value)}
+                        placeholder="Min"
+                        className="w-full rounded-md border border-hairline-2 bg-surface-1 px-2 py-1.5 text-[13px] tabular-nums outline-none focus:border-accent"
+                      />
+                    )}
+                    {d.max && (
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        value={filters[`${d.key}_max`] ?? ""}
+                        onChange={(e) => setF(`${d.key}_max`, e.target.value)}
+                        placeholder="Max"
+                        className="w-full rounded-md border border-hairline-2 bg-surface-1 px-2 py-1.5 text-[13px] tabular-nums outline-none focus:border-accent"
+                      />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {sectors.length > 0 && (
+            <div className="mt-4">
+              <div className="mb-1.5 text-[11.5px] font-medium text-ink-2">Sector</div>
+              <div className="flex flex-wrap gap-1.5">
+                {sectors.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => toggleSector(s)}
+                    className={
+                      "rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition-colors " +
+                      (sector.includes(s)
+                        ? "border-accent bg-[rgb(var(--accent)/0.10)] text-accent"
+                        : "border-hairline bg-surface-1 text-ink-2 hover:bg-surface-2")
+                    }
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* results table */}
+      <div className="overflow-x-auto rounded-lg border border-hairline bg-surface-1 shadow-card">
+        <table className="w-full border-collapse text-[13px]">
+          <thead>
+            <tr className="border-b border-hairline bg-surface-2">
+              {cols.map((c) => (
+                <th
+                  key={c.key}
+                  onClick={() => toggleSort(c.key)}
+                  className={
+                    "cursor-pointer select-none whitespace-nowrap px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-ink-3 hover:text-ink transition-colors " +
+                    (c.align === "right" ? "text-right" : "text-left")
+                  }
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {c.align === "right" && <ScreenerSortIcon active={sort.key === c.key} dir={sort.dir} />}
+                    {c.label}{c.unit && <span className="font-normal text-ink-3/70">{c.unit}</span>}
+                    {c.align !== "right" && <ScreenerSortIcon active={sort.key === c.key} dir={sort.dir} />}
+                  </span>
+                </th>
+              ))}
+              <th className="px-3 py-2.5" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((s, ri) => (
+              <tr key={s[tickerKey] ?? s[nameKey] ?? ri} className="group border-b border-hairline last:border-0 hover:bg-surface-2/50">
+                {cols.map((c) => (
+                  <td
+                    key={c.key}
+                    className={
+                      "whitespace-nowrap px-3 py-2.5 " +
+                      (c.align === "right" ? "text-right tabular-nums " : "text-left ") +
+                      (c.kind === "num" ? "font-mono " : "") +
+                      (c.kind === "num" ? screenerValueTone(s[c.key], c) : "text-ink")
+                    }
+                  >
+                    {c.key === nameKey ? (
+                      <div className="flex flex-col">
+                        <span className="font-medium text-ink">{s[nameKey]}</span>
+                        {s[tickerKey] && <span className="font-mono text-[10.5px] text-ink-3">{s[tickerKey]}</span>}
+                      </div>
+                    ) : c.key === sectorKey ? (
+                      <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-2">{s[c.key]}</span>
+                    ) : (
+                      <>{c.signed && Number(s[c.key]) > 0 ? "+" : ""}{fmtScreener(s[c.key], c)}</>
+                    )}
+                  </td>
+                ))}
+                <td className="px-3 py-2.5 text-right">
+                  <button
+                    onClick={() => onAction?.({ query: askPrompt(s) })}
+                    className="invisible inline-flex items-center gap-1 rounded-md border border-hairline-2 bg-surface-1 px-2 py-1 text-[11px] font-medium text-accent group-hover:visible hover:bg-surface-2 transition-colors"
+                  >
+                    ✦ Ask
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={cols.length + 1} className="px-3 py-10 text-center">
+                  <div className="text-[13.5px] font-medium text-ink-2">No stocks match these filters</div>
+                  <div className="mt-1 text-[12px] text-ink-3">Loosen a range or reset to see the full set.</div>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* preset re-screens — deterministic follow-ups routed to Copilot */}
+      {presets.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {presets.map((p) => (
+            <button
+              key={p.name}
+              onClick={() => onAction?.({ query: p.query })}
+              className="rounded-full border border-hairline bg-surface-1 px-3 py-1.5 text-[12px] font-medium text-ink-2 hover:bg-surface-2 hover:text-ink transition-colors"
+            >
+              {p.name} <span className="text-ink-3">↗</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {(data.note || data.source) && (
+        <p className="text-[11.5px] text-ink-3 leading-relaxed px-1">
+          {[data.note, data.source ? `Source: ${data.source}` : ""].filter(Boolean).join(" · ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── dispatcher ─────────────────────────────────────────────────────────────
 // `onAction` lets a widget's action chips drive a follow-up — the host passes a
 // handler that submits a chat query (or prefills the composer).
@@ -2216,6 +2534,7 @@ export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: stri
       case "mf_detail":          return <MfCard data={widget.data} onAction={onAction} />;
       case "risk_assessment":    return <RiskAssessmentWidget data={widget.data} />;
       case "goal_simulation":    return <GoalSimulationWidget data={widget.data} onAction={onAction} />;
+      case "stock_screener":     return <StockScreenerWidget data={widget.data} onAction={onAction} />;
     }
   } catch {
     return null;

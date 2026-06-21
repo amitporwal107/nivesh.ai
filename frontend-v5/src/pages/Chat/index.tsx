@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +62,76 @@ function entityQuery(text: string): { term: string; mode: "funds" | "all"; activ
     }
   }
   return { term: "", mode: "all", active: false };
+}
+
+// Screener-primitive autocomplete. When the composer is in "screen stocks
+// where …" mode, picking a primitive INSERTS its clause (e.g. "ROE over ") so
+// the user only types the threshold — building the query metric by metric.
+// Keys + phrasing match the backend NL parser (_parse_screen_filters) and the
+// widget's filter_defs, so every suggestion screens cleanly.
+const SCREEN_STARTERS = ["screen stocks where ", "screen stocks ", "screen for ", "screen "];
+
+type ScreenPrimitive = { key: string; label: string; insert: string; hint: string; tag: string; cat: string };
+// Full NIDP-backed primitive catalog, grouped screener.in-style. Every `insert`
+// phrase parses cleanly in the backend _parse_screen_filters; every `key` maps
+// to a real column on nidp.stock_features_daily.
+const SCREEN_PRIMITIVES: ScreenPrimitive[] = [
+  // Valuation
+  { key: "pe",         label: "P/E ratio",        insert: "P/E under ",             hint: "price ÷ earnings",     tag: "×",   cat: "Valuation" },
+  { key: "pb",         label: "P/B ratio",        insert: "P/B under ",             hint: "price ÷ book",         tag: "×",   cat: "Valuation" },
+  { key: "evEbitda",   label: "EV / EBITDA",      insert: "EV/EBITDA under ",       hint: "enterprise value",     tag: "×",   cat: "Valuation" },
+  { key: "peVsSector", label: "P/E vs sector",    insert: "P/E vs sector under ",   hint: "rel. cheapness",       tag: "%",   cat: "Valuation" },
+  { key: "divYield",   label: "Dividend Yield",   insert: "dividend yield over ",   hint: "trailing payout",      tag: "%",   cat: "Valuation" },
+  // Profitability
+  { key: "roe",        label: "ROE",              insert: "ROE over ",              hint: "return on equity",     tag: "%",   cat: "Profitability" },
+  { key: "roce",       label: "ROCE",             insert: "ROCE over ",             hint: "return on capital",    tag: "%",   cat: "Profitability" },
+  { key: "profitMargin", label: "Net margin",     insert: "net margin over ",       hint: "PAT ÷ sales",          tag: "%",   cat: "Profitability" },
+  { key: "interestCoverage", label: "Interest cover", insert: "interest cover over ", hint: "EBIT ÷ interest",    tag: "×",   cat: "Profitability" },
+  { key: "earningsConsistency", label: "Earnings consistency", insert: "earnings consistency over ", hint: "stability score", tag: "0–100", cat: "Profitability" },
+  // Growth
+  { key: "salesG",     label: "Sales growth 3Y",  insert: "sales growth over ",     hint: "revenue 3Y CAGR",      tag: "%",   cat: "Growth" },
+  { key: "profitG",    label: "Profit growth 3Y", insert: "profit growth over ",    hint: "earnings 3Y CAGR",     tag: "%",   cat: "Growth" },
+  { key: "salesGyoy",  label: "Sales growth YoY", insert: "sales growth YoY over ", hint: "latest year",          tag: "%",   cat: "Growth" },
+  { key: "profitGyoy", label: "Profit growth YoY",insert: "profit growth YoY over ",hint: "latest year",          tag: "%",   cat: "Growth" },
+  { key: "epsGyoy",    label: "EPS growth YoY",   insert: "EPS growth YoY over ",   hint: "latest year",          tag: "%",   cat: "Growth" },
+  { key: "marginTrend",label: "Margin trend",     insert: "margin trend over ",     hint: "Δ profit margin",      tag: "pp",  cat: "Growth" },
+  // Financial health
+  { key: "de",         label: "Debt to Equity",   insert: "debt to equity under ",  hint: "leverage",             tag: "×",   cat: "Financial health" },
+  { key: "debtTrend",  label: "Debt trend",       insert: "debt trend under ",      hint: "Δ debt",               tag: "%",   cat: "Financial health" },
+  { key: "liquidity",  label: "Liquidity score",  insert: "liquidity over ",        hint: "tradeability",         tag: "0–100", cat: "Financial health" },
+  // Size
+  { key: "mcap",       label: "Market Cap",       insert: "market cap over ",       hint: "₹ crore",              tag: "₹Cr", cat: "Size" },
+  { key: "large",      label: "Large cap",        insert: "large cap ",             hint: "cap bucket",           tag: "size", cat: "Size" },
+  { key: "mid",        label: "Mid cap",          insert: "mid cap ",               hint: "cap bucket",           tag: "size", cat: "Size" },
+  { key: "small",      label: "Small cap",        insert: "small cap ",             hint: "cap bucket",           tag: "size", cat: "Size" },
+  // Price / technical
+  { key: "return1y",   label: "1Y return",        insert: "1 year return over ",    hint: "252-day price",        tag: "%",   cat: "Price / technical" },
+  { key: "volatility", label: "Volatility 1Y",    insert: "volatility under ",      hint: "annualised σ",         tag: "%",   cat: "Price / technical" },
+  { key: "beta",       label: "Beta",             insert: "beta under ",            hint: "vs Nifty",             tag: "β",   cat: "Price / technical" },
+  { key: "maxDrawdown",label: "Max drawdown 1Y",  insert: "max drawdown over ",     hint: "peak-to-trough",       tag: "%",   cat: "Price / technical" },
+  { key: "rsi",        label: "RSI (14)",         insert: "RSI under ",             hint: "momentum gauge",       tag: "0–100", cat: "Price / technical" },
+  { key: "momentum",   label: "Momentum score",   insert: "momentum over ",         hint: "trend strength",       tag: "0–100", cat: "Price / technical" },
+  { key: "accumulation", label: "Accumulation",   insert: "accumulation over ",     hint: "buying pressure",      tag: "0–100", cat: "Price / technical" },
+  // Ownership / smart money
+  { key: "promoter",      label: "Promoter holding", insert: "promoter holding over ", hint: "skin in the game",  tag: "%",   cat: "Ownership" },
+  { key: "promoterPledge",label: "Promoter pledge",  insert: "promoter pledge under ", hint: "lower is safer",    tag: "%",   cat: "Ownership" },
+  { key: "fii",           label: "FII holding",      insert: "FII holding over ",      hint: "foreign inst.",     tag: "%",   cat: "Ownership" },
+  { key: "dii",           label: "DII holding",      insert: "DII holding over ",      hint: "domestic inst.",    tag: "%",   cat: "Ownership" },
+  { key: "fiiChange",     label: "FII change QoQ",   insert: "FII change over ",       hint: "Δ vs last qtr",     tag: "pp",  cat: "Ownership" },
+  { key: "promoterChange",label: "Promoter change",  insert: "promoter change over ",  hint: "Δ vs last qtr",     tag: "pp",  cat: "Ownership" },
+];
+
+/** Screener mode + the clause currently being typed (text after the last comma).
+ *  `base` is everything to keep when a primitive is inserted in place of `fragment`. */
+function screenQuery(text: string): { active: boolean; fragment: string; base: string } {
+  const lower = text.toLowerCase();
+  const starter = SCREEN_STARTERS.find((s) => lower.startsWith(s));
+  if (!starter) return { active: false, fragment: "", base: "" };
+  const lastComma = text.lastIndexOf(",");
+  if (lastComma >= starter.length - 1) {
+    return { active: true, base: text.slice(0, lastComma + 1) + " ", fragment: text.slice(lastComma + 1).trim() };
+  }
+  return { active: true, base: text.slice(0, starter.length), fragment: text.slice(starter.length).trim() };
 }
 
 /** Compact relative time for the history list ("2m ago", "3d ago"). */
@@ -219,11 +289,42 @@ export default function ChatPage() {
     void submitMessage(prompt);
   };
 
+  // ── Screener-primitive autocomplete (ROE, P/E, D/E, …) ──
+  const sq = screenQuery(composer);
+  const screenSuggestions = useMemo<ScreenPrimitive[]>(() => {
+    if (!sq.active) return [];
+    const f = sq.fragment.toLowerCase();
+    if (!f) return SCREEN_PRIMITIVES;
+    return SCREEN_PRIMITIVES.filter(
+      (p) => p.label.toLowerCase().includes(f) || p.insert.toLowerCase().includes(f) || p.key.includes(f),
+    );
+  }, [sq.active, sq.fragment]);
+  const showScreenSuggest = suggestOpen && sq.active && !isBusy && screenSuggestions.length > 0;
+
+  // Insert the primitive's clause in place of the current fragment, keep focus
+  // so the user types the threshold next. Does NOT submit.
+  const pickPrimitive = (p: ScreenPrimitive) => {
+    const next = sq.base.replace(/\s*$/, " ") + p.insert;
+    setComposer(next);
+    setSuggestOpen(false);
+    setActiveIdx(-1);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (el) { el.focus(); el.setSelectionRange(next.length, next.length); }
+    });
+  };
+
   const onComposerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (showSuggest) {
       if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(suggestions.length - 1, i + 1)); return; }
       if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); return; }
       if (e.key === "Enter" && activeIdx >= 0 && suggestions[activeIdx]) { e.preventDefault(); pickSuggestion(suggestions[activeIdx]); return; }
+      if (e.key === "Escape")    { e.preventDefault(); setSuggestOpen(false); return; }
+    }
+    if (showScreenSuggest) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(screenSuggestions.length - 1, i + 1)); return; }
+      if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); return; }
+      if (e.key === "Enter" && activeIdx >= 0 && screenSuggestions[activeIdx]) { e.preventDefault(); pickPrimitive(screenSuggestions[activeIdx]); return; }
       if (e.key === "Escape")    { e.preventDefault(); setSuggestOpen(false); return; }
     }
     if (e.key === "Enter") handleSend();
@@ -517,6 +618,41 @@ export default function ChatPage() {
 
         {/* composer */}
         <div className="mt-7 sticky bottom-0 bg-bg/95 backdrop-blur relative">
+          {/* screener-primitive autocomplete — opens upward above the input */}
+          {showScreenSuggest && (
+            <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg bg-surface-1 border border-hairline-2 shadow-card overflow-hidden z-20">
+              <div className="px-3.5 pt-2.5 pb-1 font-mono text-[10px] uppercase tracking-[.18em] text-ink-3">Add a filter</div>
+              <ul className="max-h-72 overflow-y-auto py-1">
+                {screenSuggestions.map((p, i) => (
+                  <Fragment key={p.key}>
+                    {(i === 0 || screenSuggestions[i - 1].cat !== p.cat) && (
+                      <li className="px-3.5 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-3/70">{p.cat}</li>
+                    )}
+                  <li>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); pickPrimitive(p); }}
+                      onMouseEnter={() => setActiveIdx(i)}
+                      className={cn(
+                        "w-full flex items-center gap-2.5 px-3.5 py-2 text-left transition-colors",
+                        i === activeIdx ? "bg-surface-2" : "hover:bg-surface-2/60",
+                      )}
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5 text-accent shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13.5px] text-ink truncate">{p.label}</span>
+                        <span className="block text-[11.5px] text-ink-3 truncate">{p.hint}</span>
+                      </span>
+                      <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-ink-3">
+                        {p.tag}
+                      </span>
+                    </button>
+                  </li>
+                  </Fragment>
+                ))}
+              </ul>
+            </div>
+          )}
           {/* instrument autocomplete — opens upward above the input */}
           {showSuggest && (
             <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg bg-surface-1 border border-hairline-2 shadow-card overflow-hidden z-20">

@@ -30,7 +30,7 @@ type DockStream = { buffer: string; content: string; thinking?: string; widget?:
 const WIDGET_TYPES = new Set([
   "fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview",
   "cap_education", "concentration", "allocation_review", "instrument_detail",
-  "mf_detail",
+  "mf_detail", "stock_screener",
 ]);
 
 const FALLBACK_PROMPTS = [

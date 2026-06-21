@@ -1061,7 +1061,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                     agent_block = {"id": agent_id or "risk_analyst", "confidence": 85}
                     # Structured V5-native widgets pass through verbatim — no
                     # insight_card transform.
-                    if wt_str in ("fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "risk_assessment", "instrument_detail", "goal_simulation"):
+                    if wt_str in ("fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "risk_assessment", "instrument_detail", "goal_simulation", "stock_screener"):
                         widget_envelope = {
                             "widget_type": wt_str, "data": wd,
                             "freshness": freshness, "agent": agent_block,
@@ -1171,7 +1171,8 @@ def _widget_envelope(wt: Optional[str], wd: Optional[Dict[str, Any]],
                  "source": ["NIDP", "portfolio_holdings"]}
     agent = {"id": agent_id or "portfolio_analyst", "confidence": 90}
     unified = None
-    if wt != "instrument_detail":
+    # V5-native widgets render with their own component — never insight_card-ify.
+    if wt not in ("instrument_detail", "stock_screener"):
         try:
             from services.copilot_tools.insight_card_transformers import nidp_widget_to_insight_card
             unified = nidp_widget_to_insight_card(wt, wd)
