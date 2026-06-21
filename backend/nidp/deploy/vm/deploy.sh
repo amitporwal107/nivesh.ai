@@ -31,15 +31,21 @@ fi
 
 cd "$NIDP_HOME/repo"
 
-OLD_SHA=$(git rev-parse --short HEAD)
+# Pass safe.directory INLINE (-c) so git never writes ~/.gitconfig — a global
+# config write fails when HOME is non-writable/root-owned ("could not lock
+# config file /home/<user>/.gitconfig: Permission denied"). Also avoids the
+# dubious-ownership refusal when the repo is owned by a different user.
+GIT=(git -c "safe.directory=$NIDP_HOME/repo")
+
+OLD_SHA=$("${GIT[@]}" rev-parse --short HEAD)
 log "current HEAD: $OLD_SHA"
 
 log "git fetch + checkout $BRANCH"
-git fetch --quiet origin "$BRANCH"
-git checkout --quiet "$BRANCH"
-git reset --hard --quiet "origin/$BRANCH"
+"${GIT[@]}" fetch --quiet origin "$BRANCH"
+"${GIT[@]}" checkout --quiet "$BRANCH"
+"${GIT[@]}" reset --hard --quiet "origin/$BRANCH"
 
-NEW_SHA=$(git rev-parse --short HEAD)
+NEW_SHA=$("${GIT[@]}" rev-parse --short HEAD)
 
 if [[ "$OLD_SHA" == "$NEW_SHA" ]]; then
     ok "already up to date at $NEW_SHA — nothing to do"
@@ -49,7 +55,7 @@ fi
 log "updated $OLD_SHA → $NEW_SHA"
 
 # Re-install deps only if requirements.txt changed.
-if git diff --name-only "$OLD_SHA" "$NEW_SHA" | \
+if "${GIT[@]}" diff --name-only "$OLD_SHA" "$NEW_SHA" | \
         grep -q 'backend/nidp/deploy/requirements.txt'; then
     log "requirements changed — reinstalling"
     "$NIDP_HOME/venv/bin/pip" install --quiet --upgrade \
@@ -59,7 +65,7 @@ else
 fi
 
 # Cron file is dropped via /etc/cron.d/nidp (root). If it changed, warn.
-if git diff --name-only "$OLD_SHA" "$NEW_SHA" | \
+if "${GIT[@]}" diff --name-only "$OLD_SHA" "$NEW_SHA" | \
         grep -q 'backend/nidp/deploy/vm/nidp.cron'; then
     echo "⚠  nidp.cron changed in this commit — root must run:" >&2
     echo "   sudo install -m 644 /opt/nidp/repo/backend/nidp/deploy/vm/nidp.cron /etc/cron.d/nidp" >&2
@@ -68,7 +74,7 @@ fi
 # Refresh Cloud Logging Ops Agent config if it changed. Needs root, so this
 # is a no-op unless the operator re-runs deploy.sh with sudo (or wires it as
 # a post-deploy root hook). Failure here is non-fatal.
-if git diff --name-only "$OLD_SHA" "$NEW_SHA" | \
+if "${GIT[@]}" diff --name-only "$OLD_SHA" "$NEW_SHA" | \
         grep -q 'backend/nidp/deploy/vm/ops-agent-config.yaml'; then
     echo "⚠  ops-agent-config.yaml changed in this commit — root must run:" >&2
     echo "   sudo bash $NIDP_HOME/repo/backend/nidp/deploy/vm/install-ops-agent.sh" >&2
