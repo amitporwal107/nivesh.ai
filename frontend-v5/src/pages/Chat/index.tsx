@@ -469,49 +469,57 @@ export default function ChatPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 mt-6">
-          {/* Research tools — explicit, icon-led entry points for stock / fund research */}
-          <button
-            onClick={() => startResearch("Tell me about ")}
-            disabled={isBusy}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 disabled:opacity-50 transition-colors"
-            title="Research a stock — type a company name or NSE symbol"
-          >
-            <LineChart className="h-3.5 w-3.5 text-accent" /> Research a stock
-          </button>
-          <button
-            onClick={() => startResearch("Tell me about the mutual fund ")}
-            disabled={isBusy}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 disabled:opacity-50 transition-colors"
-            title="Research a mutual fund — type the fund name"
-          >
-            <PieChart className="h-3.5 w-3.5 text-accent" /> Research a fund
-          </button>
-          <button
-            onClick={() => setBuilderOpen((v) => !v)}
-            disabled={isBusy}
-            className={cn(
-              "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-[12.5px] transition-colors disabled:opacity-50",
-              builderOpen
-                ? "border-accent bg-[rgb(var(--accent)/0.10)] text-accent"
-                : "bg-surface-1 border-hairline-2 text-ink hover:bg-surface-2",
-            )}
-            title="Build a screen visually — pick metrics, operators and thresholds"
-          >
-            <ListFilter className="h-3.5 w-3.5 text-accent" /> Query builder
-          </button>
-          {prompts.isPending && Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-9 w-40 rounded-full" />
-          ))}
-          {!prompts.isPending && promptList.map((q) => (
+        <div className="mt-6">
+          {/* My Portfolio Insights — explicit, icon-led research entry points */}
+          <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">My Portfolio Insights</div>
+          <div className="flex flex-wrap gap-2 mt-3">
             <button
-              key={q}
-              onClick={() => setComposer(q)}
-              className="px-3.5 py-2 rounded-full bg-surface-2 border border-hairline text-[12.5px] text-ink-2 hover:bg-surface-3 transition-colors"
+              onClick={() => startResearch("Tell me about ")}
+              disabled={isBusy}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 disabled:opacity-50 transition-colors"
+              title="Research a stock — type a company name or NSE symbol"
             >
-              {q}
+              <LineChart className="h-3.5 w-3.5 text-accent" /> Research a stock
             </button>
-          ))}
+            <button
+              onClick={() => startResearch("Tell me about the mutual fund ")}
+              disabled={isBusy}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 disabled:opacity-50 transition-colors"
+              title="Research a mutual fund — type the fund name"
+            >
+              <PieChart className="h-3.5 w-3.5 text-accent" /> Research a fund
+            </button>
+            <button
+              onClick={() => setBuilderOpen((v) => !v)}
+              disabled={isBusy}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-[12.5px] transition-colors disabled:opacity-50",
+                builderOpen
+                  ? "border-accent bg-[rgb(var(--accent)/0.10)] text-accent"
+                  : "bg-surface-1 border-hairline-2 text-ink hover:bg-surface-2",
+              )}
+              title="Build a screen visually — pick metrics, operators and thresholds"
+            >
+              <ListFilter className="h-3.5 w-3.5 text-accent" /> Query builder
+            </button>
+          </div>
+
+          {/* Analyse my portfolio — ready-made questions, prefilled into the composer */}
+          <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3 mt-6">Analyse my portfolio</div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            {prompts.isPending && Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-9 w-40 rounded-full" />
+            ))}
+            {!prompts.isPending && promptList.map((q) => (
+              <button
+                key={q}
+                onClick={() => setComposer(q)}
+                className="px-3.5 py-2 rounded-full bg-surface-2 border border-hairline text-[12.5px] text-ink-2 hover:bg-surface-3 transition-colors"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="mt-7 flex-1 flex flex-col gap-5">
