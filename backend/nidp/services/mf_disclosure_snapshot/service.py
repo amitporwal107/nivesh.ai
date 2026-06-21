@@ -61,6 +61,7 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
         adapters_missing = 0
         adapters_failed = 0
         ter_central = 0
+        aaum_central = 0
 
         with time_ingester(SERVICE_NAME):
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
@@ -116,6 +117,27 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
                     logger.warning("mf_disclosure_snapshot: central TER pass failed: %s: %s",
                                    type(e).__name__, e)
 
+                # Central AMFI AAUM pass — scheme-wise Average AUM (₹ crore) keyed
+                # by AMFI code (no name resolution needed). Per-plan AAUM; the
+                # scorecard view sums it to fund level for display. Authoritative,
+                # so it overrides any per-AMC AUM (only UTI had one).
+                try:
+                    from .amfi_api import fetch_aaum_all_amfi_api
+                    aaum_map = await fetch_aaum_all_amfi_api(session)
+                    for code, aum_cr in aaum_map.items():
+                        row = merged.setdefault(str(code), {
+                            "scheme_code": str(code),
+                            "source_url": "https://www.amfiindia.com/api/average-aum-schemewise",
+                        })
+                        row["aum_inr_crore"] = aum_cr
+                        if not row.get("source_url"):
+                            row["source_url"] = "https://www.amfiindia.com/api/average-aum-schemewise"
+                    aaum_central = len(aaum_map)
+                    logger.info("mf_disclosure_snapshot: central AAUM pass merged %d schemes", aaum_central)
+                except Exception as e:                                  # noqa: BLE001
+                    logger.warning("mf_disclosure_snapshot: central AAUM pass failed: %s: %s",
+                                   type(e).__name__, e)
+
             all_rows = list(merged.values())
             n_rows = await upsert_snapshot(all_rows, snapshot_date, run.run_id)
             n_events = await emit_events_from_snapshot(snapshot_date, run.run_id)
@@ -126,6 +148,7 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
             run.metadata["adapters_missing"] = adapters_missing
             run.metadata["adapters_failed"] = adapters_failed
             run.metadata["ter_central"] = ter_central
+            run.metadata["aaum_central"] = aaum_central
 
             INGESTER_ROWS.labels(service=SERVICE_NAME, kind="fetched").inc(len(all_rows))
             INGESTER_ROWS.labels(service=SERVICE_NAME, kind="inserted").inc(n_rows)
