@@ -59,7 +59,16 @@ jobs:
             echo "    Branch : ${{ steps.config.outputs.branch }}"
             echo "    Commit : ${{ github.sha }}"
 
-            sudo git config --global --add safe.directory /opt/nivesh-staging/repo
+            # Pull the on-VM repo with safe.directory passed INLINE so git never
+            # writes ~/.gitconfig (unwritable/root-owned under OS Login →
+            # "could not lock config file /home/<user>/.gitconfig"). This also
+            # lands the current redeploy-staging.sh before we run it.
+            REPO=/opt/nivesh-staging/repo
+            BR="${{ steps.config.outputs.branch }}"
+            sudo chown -R "$(id -un):$(id -un)" "$REPO" 2>/dev/null || true
+            git -c "safe.directory=$REPO" -C "$REPO" fetch  --quiet origin "$BR"
+            git -c "safe.directory=$REPO" -C "$REPO" checkout --quiet "$BR"
+            git -c "safe.directory=$REPO" -C "$REPO" reset --hard --quiet "origin/$BR"
 
             sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/redeploy-staging.sh \
               "${{ steps.config.outputs.branch }}" --backend-only
