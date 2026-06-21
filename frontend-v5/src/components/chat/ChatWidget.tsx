@@ -2291,7 +2291,11 @@ function StockScreenerWidget({ data, onAction }: { data: any; onAction?: (a: Wid
       const v = filters[fk];
       if (v === undefined) continue;
       const base = fk.endsWith("_min") || fk.endsWith("_max") ? fk.slice(0, -4) : fk;
-      const val = Number(s[base]);
+      // Treat null/undefined/empty as "unknown" (NaN), NOT 0 — otherwise a stock
+      // with no P/E would pass "P/E < 12" and broaden the screen. Unknown values
+      // fail any active constraint on that metric (matches screener.in semantics).
+      const raw = s[base];
+      const val = raw === null || raw === undefined || raw === "" ? NaN : Number(raw);
       if (fk.endsWith("_min") && (Number.isNaN(val) || val < v)) return false;
       if (fk.endsWith("_max") && (Number.isNaN(val) || val > v)) return false;
     }
