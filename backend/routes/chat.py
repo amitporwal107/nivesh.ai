@@ -692,6 +692,29 @@ async def _bust_chat_cache(user_id: str, session_id: Optional[str] = None) -> No
         pass
 
 
+# Cached full equity universe for autocomplete — refreshed hourly so we don't hit
+# the NIDP screener on every keystroke. Shared across requests in this process.
+_STOCK_UNIVERSE: Dict[str, Any] = {"ts": 0.0, "rows": []}
+_STOCK_UNIVERSE_TTL = 3600.0
+
+
+async def _stock_universe() -> List[Dict[str, Any]]:
+    import time
+    now = time.time()
+    if _STOCK_UNIVERSE["rows"] and (now - _STOCK_UNIVERSE["ts"]) < _STOCK_UNIVERSE_TTL:
+        return _STOCK_UNIVERSE["rows"]
+    try:
+        from services.copilot_tools import daas_client
+        rows = await daas_client.list_stock_universe(limit=800)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("_stock_universe load failed: %s", exc)
+        rows = []
+    if rows:
+        _STOCK_UNIVERSE["rows"] = rows
+        _STOCK_UNIVERSE["ts"] = now
+    return _STOCK_UNIVERSE["rows"]
+
+
 @router.get("/chat/instrument-search")
 async def chat_instrument_search(q: str = "", limit: int = 6):
     """Typeahead for the chat composer — matching stocks (curated equity universe)
@@ -704,26 +727,48 @@ async def chat_instrument_search(q: str = "", limit: int = 6):
     ql = term.lower()
     limit = max(1, min(int(limit or 6), 10))
 
-    # Stocks — substring match on the curated equity universe (name or ticker).
-    from instruments_data import INDIAN_INSTRUMENTS
+    # Stocks — substring match on the full V3 equity universe (cached), ranked by
+    # quality. Falls back to the curated list if NIDP is unavailable.
     stocks: List[Dict[str, Any]] = []
-    for inst in INDIAN_INSTRUMENTS:
-        if inst.get("type") != "equity":
+    universe = await _stock_universe()
+    for r in universe:
+        sym = (r.get("symbol") or "").strip()
+        if not sym:
             continue
-        if ql in inst["name"].lower() or ql in inst["ticker"].lower():
-            stocks.append({"symbol": inst["ticker"], "name": inst["name"], "sector": inst.get("sector")})
+        name = (r.get("company_name") or r.get("name") or "").strip()
+        if ql in sym.lower() or (name and ql in name.lower()):
+            stocks.append({"symbol": sym, "name": name or sym, "sector": r.get("sector") or r.get("industry")})
         if len(stocks) >= limit:
             break
+    if not stocks:
+        from instruments_data import INDIAN_INSTRUMENTS
+        for inst in INDIAN_INSTRUMENTS:
+            if inst.get("type") != "equity":
+                continue
+            if ql in inst["name"].lower() or ql in inst["ticker"].lower():
+                stocks.append({"symbol": inst["ticker"], "name": inst["name"], "sector": inst.get("sector")})
+            if len(stocks) >= limit:
+                break
 
     # Funds — live scheme search, collapsed to one row per fund family.
     funds: List[Dict[str, Any]] = []
     try:
+        import re as _re
         from services.copilot_tools import daas_client
         from services.copilot_tools.mf_cards import _clean_name, _fund_key, _peer_pref
-        raw = await daas_client.search_mf_schemes(term, limit=max(limit * 4, 20))
+        # _fund_key collapses plan/option variants (Direct/Regular/Growth/IDCW);
+        # also strip share-class words so "X", "X - Retail", "X - Wholesale" collapse.
+        _share = _re.compile(r"\b(retail|wholesale|institutional|inst|super)\b")
+        def _fam(nm: str) -> str:
+            return _re.sub(r"\s+", " ", _share.sub(" ", _fund_key(nm))).strip()
+        def _disp(nm: str) -> str:
+            d = _clean_name(nm)
+            d = _re.sub(r"\s*[-–]\s*(?:retail|wholesale|institutional|super\s+institutional)\b.*$", "", d, flags=_re.I)
+            return d.strip()
+        raw = await daas_client.search_mf_schemes(term, limit=max(limit * 5, 30))
         best: Dict[str, Dict[str, Any]] = {}
         for r in raw:
-            fam = _fund_key(r.get("scheme_name") or "")
+            fam = _fam(r.get("scheme_name") or "")
             if not fam:
                 continue
             prev = best.get(fam)
@@ -731,7 +776,7 @@ async def chat_instrument_search(q: str = "", limit: int = 6):
                 best[fam] = r
         for r in list(best.values())[:limit]:
             funds.append({
-                "name": _clean_name(r.get("scheme_name") or ""),
+                "name": _disp(r.get("scheme_name") or ""),
                 "amc": r.get("amc_name"),
                 "category": r.get("scheme_category"),
             })

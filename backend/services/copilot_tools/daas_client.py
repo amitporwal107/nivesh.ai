@@ -201,6 +201,25 @@ async def get_sector_peers(sector: str, limit: int = 50) -> List[Dict[str, Any]]
     return rows if isinstance(rows, list) else []
 
 
+async def list_stock_universe(limit: int = 800) -> List[Dict[str, Any]]:
+    """All scored stocks (symbol + company_name + sector) — the full V3 equity
+    universe — for chat autocomplete. Calls GET /v1/stocks/scores/ with no sector
+    filter, ranked by quality so substring matches surface the better names first.
+    Returns [] on any failure so the caller falls back to the curated list."""
+    try:
+        data = await _get("/stocks/scores/", params={
+            "sort_by": "quality_score",
+            "sort_desc": "true",
+            "min_quality_coverage": 0,
+            "limit": limit,
+        })
+    except DaasError as exc:
+        logger.debug("list_stock_universe: %s", exc)
+        return []
+    rows = data.get("data") if isinstance(data, dict) else None
+    return rows if isinstance(rows, list) else []
+
+
 async def get_corporate_actions(symbol: str, limit: int = 8) -> List[Dict[str, Any]]:
     """Recent corporate actions (dividends, splits, bonuses) for one symbol.
 
