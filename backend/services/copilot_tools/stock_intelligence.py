@@ -368,12 +368,15 @@ async def nidp_stock_screener(
     if max_pe_vs_sector is not None:   params["max_pe_vs_sector"] = max_pe_vs_sector
 
     resp = await _daas_get("/v1/stocks/screener", params)
-    if not isinstance(resp, dict):
-        return {"rows": [], "as_of_date": None}
-    rows = resp.get("data") or resp.get("rows") or []
+    # _daas_get returns {} on any non-200/error; a successful call is an
+    # envelope dict carrying "data" (possibly empty). Distinguish "source
+    # unreachable" (ok=False) from "0 matches" (ok=True, rows=[]).
+    if not isinstance(resp, dict) or "data" not in resp:
+        return {"rows": [], "as_of_date": None, "ok": False}
+    rows = resp.get("data") or []
     # envelope() carries the date at the top level via `extra`; older shapes used meta.
     as_of = resp.get("as_of_date") or (resp.get("meta") or {}).get("as_of_date")
-    return {"rows": rows, "as_of_date": as_of}
+    return {"rows": rows, "as_of_date": as_of, "ok": True}
 
 
 def build_stock_screener_widget(

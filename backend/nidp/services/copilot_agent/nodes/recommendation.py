@@ -283,6 +283,7 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
             fetched = await intel_mod.nidp_stock_screener(
                 limit=60, **{k: v for k, v in parsed["server"].items() if v is not None},
             )
+            fetch_ok = fetched.get("ok", True)   # False only when the source is unreachable
             raw_rows = fetched.get("rows", [])
 
             widget_data = intel_mod.build_stock_screener_widget(
@@ -291,6 +292,8 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
                 initial_filters=parsed["client_filters"],
                 as_of_date=fetched.get("as_of_date"),
             )
+            if fetch_ok and not raw_rows:
+                widget_data["note"] = "No stocks matched these filters — loosen a threshold and try again."
 
             # Ground the LLM narrative in the actual top names (the widget itself
             # is deterministic; the LLM only writes the explanation). Without real
@@ -309,14 +312,24 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
             picks_str = "; ".join(pick_lines)
             count = widget_data.get("count", 0)
 
-            results.append(ToolResult(
-                ok=count > 0,
-                tool_name="stock_screener",
-                summary=(
+            if not fetch_ok:
+                # Source unreachable → no widget; LLM emits the "couldn't retrieve" line.
+                summary = f"Stock screen ({parsed['title']}): screener data source unavailable"
+            elif count == 0:
+                # Valid empty result — a real answer, not a failure. Emit the widget
+                # (empty-state note) and let the LLM say "no stocks matched".
+                summary = f"Stock screen ({parsed['title']}): 0 stocks matched the filters"
+            else:
+                summary = (
                     f"Stock screen ({parsed['title']}): {count} matches"
                     + (f" — {picks_str}" if picks_str else "")
                     + (f" [as of {fetched.get('as_of_date')}]" if fetched.get("as_of_date") else "")
-                ) if count > 0 else f"Stock screen ({parsed['title']}): no NIDP feature-store data available",
+                )
+
+            results.append(ToolResult(
+                ok=fetch_ok,                       # True even for 0 matches → widget still renders
+                tool_name="stock_screener",
+                summary=summary,
                 data=widget_data,
                 rows=widget_data.get("universe", []),
                 widget_type=WidgetType.STOCK_SCREENER,
