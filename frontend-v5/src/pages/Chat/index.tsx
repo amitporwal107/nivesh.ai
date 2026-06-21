@@ -113,6 +113,7 @@ export default function ChatPage() {
   // `?q=` deep-link (e.g. Markets "Explore" chips) → auto-send once on mount.
   const [searchParams, setSearchParams] = useSearchParams();
   const autoSentRef = useRef(false);
+  const autoSeededRef = useRef(false);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [historyOpen, setHistoryOpen] = useState(false); // mobile drawer
   // Icon-only collapse of the history rail (desktop), persisted across sessions.
@@ -297,6 +298,21 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Prefill (don't auto-send) the composer from a `?seed=` deep-link, then strip
+  // it. Mirrors `?q=` but routes through startResearch so the research-tool tiles
+  // on other pages (e.g. Portfolio insights) land the user in the composer with
+  // autocomplete open, ready to type the instrument name.
+  useEffect(() => {
+    if (autoSeededRef.current) return;
+    const seed = searchParams.get("seed");
+    if (!seed) return;
+    autoSeededRef.current = true;
+    searchParams.delete("seed");
+    setSearchParams(searchParams, { replace: true });
+    startResearch(seed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Widget action chips → drive a follow-up. Some send immediately; "recalc"
   // prefills the composer so the user can type their real SIP amount.
   const handleWidgetAction = (a: { intent?: string; query?: string; label?: string }) => {
@@ -470,14 +486,6 @@ export default function ChatPage() {
             title="Research a mutual fund — type the fund name"
           >
             <PieChart className="h-3.5 w-3.5 text-accent" /> Research a fund
-          </button>
-          <button
-            onClick={() => startResearch("Screen stocks where ")}
-            disabled={isBusy}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 disabled:opacity-50 transition-colors"
-            title="Screen stocks — e.g. ROE over 18, P/E under 20, low debt"
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5 text-accent" /> Screen stocks
           </button>
           <button
             onClick={() => setBuilderOpen((v) => !v)}

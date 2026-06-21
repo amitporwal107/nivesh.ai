@@ -152,9 +152,10 @@ async def stock_screener(
         )
 
     return envelope(
-        rows=[row_to_dict(r) for r in rows],
-        meta={"as_of_date": str(target_date), "sort_by": sort_by, "sort_desc": sort_desc},
-        page=page,
+        [row_to_dict(r) for r in rows],
+        limit=page["limit"],
+        offset=page["offset"],
+        extra={"as_of_date": str(target_date), "sort_by": sort_by, "sort_desc": sort_desc},
     )
 
 

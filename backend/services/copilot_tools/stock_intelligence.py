@@ -73,7 +73,9 @@ async def _daas_get(path: str, params: Optional[Dict] = None) -> Dict[str, Any]:
     """Thin async GET against DAAS; mirrors daas_bridge.call_daas() without circular import."""
     import os, httpx
     base = os.environ.get("NIDP_DAAS_BASE_URL", "https://data.niveshcopilot.com/daas").rstrip("/")
-    key  = os.environ.get("NIDP_DAAS_API_KEY", "")
+    # Admin UI registers the key as NIDP_DAAS_INTERNAL_TOKEN; Cloud Run may use
+    # NIDP_DAAS_API_KEY — accept either so the call authenticates on both paths.
+    key  = os.environ.get("NIDP_DAAS_API_KEY", "") or os.environ.get("NIDP_DAAS_INTERNAL_TOKEN", "")
     headers = {"X-API-Key": key, "Accept": "application/json"} if key else {"Accept": "application/json"}
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
@@ -366,9 +368,12 @@ async def nidp_stock_screener(
     if max_pe_vs_sector is not None:   params["max_pe_vs_sector"] = max_pe_vs_sector
 
     resp = await _daas_get("/v1/stocks/screener", params)
-    rows = resp.get("data") or resp.get("rows") or [] if isinstance(resp, dict) else []
-    meta = resp.get("meta") or {} if isinstance(resp, dict) else {}
-    return {"rows": rows, "as_of_date": meta.get("as_of_date")}
+    if not isinstance(resp, dict):
+        return {"rows": [], "as_of_date": None}
+    rows = resp.get("data") or resp.get("rows") or []
+    # envelope() carries the date at the top level via `extra`; older shapes used meta.
+    as_of = resp.get("as_of_date") or (resp.get("meta") or {}).get("as_of_date")
+    return {"rows": rows, "as_of_date": as_of}
 
 
 def build_stock_screener_widget(
