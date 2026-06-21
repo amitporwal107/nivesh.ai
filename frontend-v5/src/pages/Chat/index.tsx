@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
@@ -15,7 +14,6 @@ import {
 import { chatService } from "@/services";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatWidget } from "@/components/chat/ChatWidget";
-import { ResearchLauncher } from "@/components/chat/ResearchLauncher";
 import { ScreenerQueryBuilder } from "@/components/chat/ScreenerQueryBuilder";
 import { SCREEN_PRIMITIVES, screenInsert, type ScreenPrimitive } from "@/components/chat/screenerPrimitives";
 import { Markdown, prefetchStreamdown } from "@/components/chat/Markdown";
@@ -523,21 +521,6 @@ export default function ChatPage() {
         </div>
 
         <div className="mt-7 flex-1 flex flex-col gap-5">
-          {messages.length === 0 && !isBusy && !pendingUser && (
-            <div className="flex flex-col items-center text-center mt-6 gap-5">
-              <div>
-                <Badge tone="accent" className="mb-3">Ready</Badge>
-                <p className="text-ink-2 text-[14px] max-w-md leading-relaxed">
-                  Pick a question above or type your own. I'll read your portfolio first, then answer in plain English.
-                </p>
-              </div>
-              {/* Two-step research: pick an instrument, then a question tile. */}
-              <div className="w-full max-w-xl text-left">
-                <ResearchLauncher kind="all" onAsk={(p) => { setComposer(""); void submitMessage(p); }} />
-              </div>
-            </div>
-          )}
-
           {messages.map((m, i) => {
             const isUser = m.role === "user";
             const widget = !isUser ? (m as { widget?: { widget_type?: string; data?: unknown } }).widget : undefined;
