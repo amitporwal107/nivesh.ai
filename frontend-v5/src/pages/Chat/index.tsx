@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart } from "lucide-react";
+import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -17,12 +17,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ChatWidget } from "@/components/chat/ChatWidget";
 import { Markdown, prefetchStreamdown } from "@/components/chat/Markdown";
 import { useTypewriterReveal, remainingRevealMs } from "@/components/chat/useTypewriter";
+import { useDebounce } from "@/hooks/use-debounce";
+import { useInstrumentSearch, type StockHit, type FundHit } from "@/hooks/use-instrument-search";
 
 // `buffer` is everything received from the stream; `content` is the paced,
 // typed-out slice the user sees (see useTypewriterReveal).
 type StreamState = { buffer: string; content: string; thinking?: string; widget?: { widget_type: string; data: unknown }; error?: string };
 
-const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "instrument_detail", "mf_detail", "risk_assessment", "goal_simulation"]);
+const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "instrument_detail", "mf_detail", "risk_assessment", "goal_simulation", "stock_screener"]);
 
 const FALLBACK_PROMPTS = [
   "Why is my score 74?",
@@ -30,6 +32,36 @@ const FALLBACK_PROMPTS = [
   "How risky is my portfolio?",
   "What should I reduce first?",
 ];
+
+// Research starters that turn on instrument autocomplete. When the composer begins
+// with one of these, the trailing text is treated as a stock/fund name query. The
+// list includes the two research-chip prefills plus common manual phrasings.
+const RESEARCH_STARTERS = [
+  "tell me about the mutual fund ",
+  "tell me about ",
+  "should i invest in the mutual fund ",
+  "should i invest in ",
+  "should i buy ",
+  "how is ",
+  "research ",
+];
+
+type Suggestion =
+  | { kind: "stock"; symbol: string; name: string; sub?: string }
+  | { kind: "fund"; name: string; sub?: string };
+
+/** Extract the entity-name query from the composer, or inactive if no starter matched.
+ *  `mode: "funds"` when the user explicitly said "mutual fund" (else both kinds shown). */
+function entityQuery(text: string): { term: string; mode: "funds" | "all"; active: boolean } {
+  const lower = text.toLowerCase();
+  for (const s of RESEARCH_STARTERS) {
+    if (lower.startsWith(s)) {
+      const term = text.slice(s.length).trim();
+      return { term, mode: lower.includes("mutual fund") ? "funds" : "all", active: term.length >= 2 };
+    }
+  }
+  return { term: "", mode: "all", active: false };
+}
 
 /** Compact relative time for the history list ("2m ago", "3d ago"). */
 function relTime(iso?: string): string {
@@ -50,6 +82,9 @@ function relTime(iso?: string): string {
 export default function ChatPage() {
   const [composer, setComposer] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  // Instrument-autocomplete dropdown state.
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
   // `?q=` deep-link (e.g. Markets "Explore" chips) → auto-send once on mount.
   const [searchParams, setSearchParams] = useSearchParams();
   const autoSentRef = useRef(false);
@@ -144,10 +179,53 @@ export default function ChatPage() {
   const startResearch = (prefill: string) => {
     if (isBusy) return;
     setComposer(prefill);
+    setSuggestOpen(true);
+    setActiveIdx(-1);
     requestAnimationFrame(() => {
       const el = inputRef.current;
       if (el) { el.focus(); el.setSelectionRange(prefill.length, prefill.length); }
     });
+  };
+
+  // ── Instrument autocomplete (stock / fund names) ──
+  const eq = entityQuery(composer);
+  const debouncedTerm = useDebounce(eq.active ? eq.term : "", 220);
+  const instrSearch = useInstrumentSearch(debouncedTerm);
+  const suggestions = useMemo<Suggestion[]>(() => {
+    const data = instrSearch.data;
+    if (!data) return [];
+    const out: Suggestion[] = [];
+    if (eq.mode !== "funds") {
+      for (const s of data.stocks as StockHit[]) {
+        out.push({ kind: "stock", symbol: s.symbol, name: s.name, sub: s.sector ?? undefined });
+      }
+    }
+    for (const f of data.funds as FundHit[]) {
+      out.push({ kind: "fund", name: f.name, sub: [f.amc, f.category].filter(Boolean).join(" · ") || undefined });
+    }
+    return out.slice(0, 8);
+  }, [instrSearch.data, eq.mode]);
+  const showSuggest = suggestOpen && eq.active && !isBusy && (suggestions.length > 0 || instrSearch.isFetching);
+
+  // Pick a suggestion → send a routing-safe research prompt for that instrument.
+  const pickSuggestion = (s: Suggestion) => {
+    const prompt = s.kind === "fund"
+      ? `Tell me about the mutual fund ${s.name}`
+      : `Tell me about ${s.name}`;
+    setSuggestOpen(false);
+    setActiveIdx(-1);
+    setComposer("");
+    void submitMessage(prompt);
+  };
+
+  const onComposerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (showSuggest) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(suggestions.length - 1, i + 1)); return; }
+      if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); return; }
+      if (e.key === "Enter" && activeIdx >= 0 && suggestions[activeIdx]) { e.preventDefault(); pickSuggestion(suggestions[activeIdx]); return; }
+      if (e.key === "Escape")    { e.preventDefault(); setSuggestOpen(false); return; }
+    }
+    if (e.key === "Enter") handleSend();
   };
 
   // Auto-send a `?q=` deep-link once, then strip it from the URL so a
@@ -337,6 +415,14 @@ export default function ChatPage() {
           >
             <PieChart className="h-3.5 w-3.5 text-accent" /> Research a fund
           </button>
+          <button
+            onClick={() => startResearch("Screen stocks where ")}
+            disabled={isBusy}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 disabled:opacity-50 transition-colors"
+            title="Screen stocks — e.g. ROE over 18, P/E under 20, low debt"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5 text-accent" /> Screen stocks
+          </button>
           {prompts.isPending && Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-9 w-40 rounded-full" />
           ))}
@@ -423,7 +509,42 @@ export default function ChatPage() {
         </div>
 
         {/* composer */}
-        <div className="mt-7 sticky bottom-0 bg-bg/95 backdrop-blur">
+        <div className="mt-7 sticky bottom-0 bg-bg/95 backdrop-blur relative">
+          {/* instrument autocomplete — opens upward above the input */}
+          {showSuggest && (
+            <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg bg-surface-1 border border-hairline-2 shadow-card overflow-hidden z-20">
+              {instrSearch.isFetching && suggestions.length === 0 ? (
+                <div className="px-4 py-3 text-[13px] text-ink-3">Searching…</div>
+              ) : (
+                <ul className="max-h-72 overflow-y-auto py-1">
+                  {suggestions.map((s, i) => (
+                    <li key={(s.kind === "stock" ? s.symbol : s.name) + i}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); pickSuggestion(s); }}
+                        onMouseEnter={() => setActiveIdx(i)}
+                        className={cn(
+                          "w-full flex items-center gap-2.5 px-3.5 py-2 text-left transition-colors",
+                          i === activeIdx ? "bg-surface-2" : "hover:bg-surface-2/60",
+                        )}
+                      >
+                        {s.kind === "stock"
+                          ? <LineChart className="h-3.5 w-3.5 text-accent shrink-0" />
+                          : <PieChart className="h-3.5 w-3.5 text-accent shrink-0" />}
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13.5px] text-ink truncate">{s.name}</span>
+                          {s.sub && <span className="block text-[11.5px] text-ink-3 truncate">{s.sub}</span>}
+                        </span>
+                        <span className="shrink-0 rounded-full px-2 py-0.5 text-[9.5px] font-semibold tracking-wide" style={{ background: "#E7EEF9", color: "#3E6CA8" }}>
+                          {s.kind === "stock" ? "STOCK" : "FUND"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <div
             className={cn(
               "flex items-center gap-3 px-4 py-3 rounded-md bg-surface-1 border border-hairline-2",
@@ -436,8 +557,11 @@ export default function ChatPage() {
               type="text"
               placeholder="Ask anything…"
               value={composer}
-              onChange={(e) => setComposer(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleSend(); }}
+              onChange={(e) => { setComposer(e.target.value); setSuggestOpen(true); setActiveIdx(-1); }}
+              onKeyDown={onComposerKeyDown}
+              onFocus={() => setSuggestOpen(true)}
+              onBlur={() => setTimeout(() => setSuggestOpen(false), 120)}
+              autoComplete="off"
               className="flex-1 bg-transparent outline-none text-[14.5px]"
               disabled={isBusy}
             />

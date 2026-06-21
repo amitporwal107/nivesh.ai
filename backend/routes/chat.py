@@ -692,6 +692,55 @@ async def _bust_chat_cache(user_id: str, session_id: Optional[str] = None) -> No
         pass
 
 
+@router.get("/chat/instrument-search")
+async def chat_instrument_search(q: str = "", limit: int = 6):
+    """Typeahead for the chat composer — matching stocks (curated equity universe)
+    and mutual funds (live NIDP scheme master). Read-only; degrades to empty lists
+    if DaaS is unavailable. Fund rows are deduped to one per fund family (plan
+    variants collapsed, Growth/Regular preferred)."""
+    term = (q or "").strip()
+    if len(term) < 2:
+        return {"stocks": [], "funds": []}
+    ql = term.lower()
+    limit = max(1, min(int(limit or 6), 10))
+
+    # Stocks — substring match on the curated equity universe (name or ticker).
+    from instruments_data import INDIAN_INSTRUMENTS
+    stocks: List[Dict[str, Any]] = []
+    for inst in INDIAN_INSTRUMENTS:
+        if inst.get("type") != "equity":
+            continue
+        if ql in inst["name"].lower() or ql in inst["ticker"].lower():
+            stocks.append({"symbol": inst["ticker"], "name": inst["name"], "sector": inst.get("sector")})
+        if len(stocks) >= limit:
+            break
+
+    # Funds — live scheme search, collapsed to one row per fund family.
+    funds: List[Dict[str, Any]] = []
+    try:
+        from services.copilot_tools import daas_client
+        from services.copilot_tools.mf_cards import _clean_name, _fund_key, _peer_pref
+        raw = await daas_client.search_mf_schemes(term, limit=max(limit * 4, 20))
+        best: Dict[str, Dict[str, Any]] = {}
+        for r in raw:
+            fam = _fund_key(r.get("scheme_name") or "")
+            if not fam:
+                continue
+            prev = best.get(fam)
+            if prev is None or _peer_pref(r) < _peer_pref(prev):
+                best[fam] = r
+        for r in list(best.values())[:limit]:
+            funds.append({
+                "name": _clean_name(r.get("scheme_name") or ""),
+                "amc": r.get("amc_name"),
+                "category": r.get("scheme_category"),
+            })
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("chat_instrument_search funds(%r): %s", term[:40], exc)
+
+    return {"stocks": stocks, "funds": funds}
+
+
 @router.get("/chat/sessions")
 async def list_chat_sessions(request: Request):
     user = await get_current_user(request)
