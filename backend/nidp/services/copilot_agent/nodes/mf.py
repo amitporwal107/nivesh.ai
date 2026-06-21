@@ -135,6 +135,58 @@ def _detect_mf_view(text: str) -> str | None:
     return None
 
 
+# Leaderboard / category-ranking queries ("best large-cap funds", "top funds",
+# "which category") — these want get_top_funds, NOT a single-fund card, so we
+# must never try to resolve them to one scheme.
+_LEADERBOARD_Q = re.compile(
+    r"\b(?:best|top|worst|recommend|suggest)\b.*\bfunds?\b|"
+    r"\bfunds?\b.*\b(?:best|top|worst)\b|"
+    r"\b(?:large|mid|small|flexi|multi)[\s-]?cap\s+(?:mutual\s+)?funds?\b|"
+    r"which\s+(?:fund|category)",
+    re.IGNORECASE,
+)
+
+# Generic / educational MF questions ("what is NAV", "how do mutual funds work",
+# "explain SIP") — no specific fund named; resolution would only mis-match.
+_GENERIC_MF_Q = re.compile(
+    r"what\s+(?:is|are)\s+(?:a\s+|an\s+)?(?:mutual\s+funds?|nav|sip|elss|"
+    r"expense\s+ratio|ter|aum|exit\s+load|lump\s*sum)\b|"
+    r"how\s+(?:do|does)\s+(?:mutual\s+funds?|sips?|nav)\b|"
+    r"explain\s+(?:mutual\s+funds?|sips?|nav|elss)\b|"
+    r"difference\s+between\s+(?:sip|lump)",
+    re.IGNORECASE,
+)
+
+
+def _should_resolve_scheme(
+    text: str,
+    *,
+    is_single_fund: bool,
+    is_portfolio_q: bool,
+    has_scheme_code: bool,
+) -> bool:
+    """Decide whether to attempt fund NAME → scheme_code resolution.
+
+    The intent node only extracts 6-digit AMFI codes, so a fund named in prose
+    ("HDFC Balanced Advantage Fund", "How is <fund>?") arrives with no code.
+    Those queries match neither `_SINGLE_FUND_Q` nor a portfolio question and
+    used to fall through to the portfolio-overlap catch-all → a "data
+    unavailable" answer with no MF card. We let a SUCCESSFUL resolution promote
+    such a query to a single-fund card, while still skipping portfolio,
+    leaderboard, and generic/educational questions so those keep their paths.
+    """
+    if has_scheme_code:
+        return False
+    if is_single_fund:          # explicit single-fund phrasing — always resolve
+        return True
+    if is_portfolio_q:          # count / fix / severity / cap → not a single fund
+        return False
+    t = text or ""
+    if _LEADERBOARD_Q.search(t) or _GENERIC_MF_Q.search(t):
+        return False
+    return True
+
+
 # Plain-text answer format for "do I have too many funds?" and similar
 # count/portfolio-size questions. Replaces the default markdown style because
 # the V5 chat surface renders Markdown as literal characters.
@@ -397,12 +449,24 @@ async def mf_node(state: CopilotState) -> dict:
     is_single_fund = (not is_portfolio_q) and bool(mf_view or _SINGLE_FUND_Q.search(user_msg))
 
     scheme_code = state.intent.scheme_code if state.intent else None
-    if is_single_fund and not scheme_code:
+    if _should_resolve_scheme(
+        user_msg,
+        is_single_fund=is_single_fund,
+        is_portfolio_q=is_portfolio_q,
+        has_scheme_code=bool(scheme_code),
+    ):
         try:
             from services.copilot_tools.scheme_resolver import resolve_scheme
             match = await resolve_scheme(user_msg)
             if match:
                 scheme_code = match.scheme_code
+                # A bare fund name ("HDFC Balanced Advantage Fund") that only
+                # resolved here is still a single-fund card; promote it so the
+                # MF_DETAIL tile gets built and the data fetch queries the code
+                # instead of falling through to portfolio overlap.
+                is_single_fund = True
+                if mf_view is None:
+                    mf_view = "summary"
                 if state.intent is not None:
                     state.intent.scheme_code = scheme_code  # so _fetch_mf_data queries it
         except Exception as exc:  # noqa: BLE001
