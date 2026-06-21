@@ -144,6 +144,19 @@ _P_GOAL = re.compile(
     re.IGNORECASE,
 )
 
+# Stock screener — the Query Builder / composer emit "Screen [bucket] stocks
+# where …". Must win over _P_STOCK (which matches the keyword "roe"/"pe" and
+# would mis-resolve "ROE" as a ticker) and over _P_CAP ("large cap"). Checked
+# FIRST. "screen stocks?" alone (the old _P_RECOMMENDATION clause) missed
+# "Screen large cap stocks" because of the words in between.
+_P_SCREENER = re.compile(
+    r"\bstock\s+screener\b|"
+    r"\bscreener\b|"
+    r"\bscreen(?:\s+\w+){0,4}\s+stocks?\b|"          # screen [≤4 words] stocks
+    r"\bscreen\s+(?:large|mid|small|micro)[\s-]?cap\b",
+    re.IGNORECASE,
+)
+
 _P_RECOMMENDATION = re.compile(
     r"\b(recommend|recommendation|suggest|what\s+(?:should|can)\s+i\s+(?:buy|invest)|"
     r"what\s+stocks?\s+should\s+(?:i|we)\s+(?:buy|invest)|"
@@ -163,6 +176,7 @@ _P_RECOMMENDATION = re.compile(
 # RISK before PORTFOLIO so "portfolio risk" → risk_analyst
 # MARKET before STOCK so "What is Nifty?" → market_analyst (not stock_analyst)
 _PATTERNS = [
+    (_P_SCREENER,        AgentName.RECOMMENDATION),  # "Screen [bucket] stocks where …" → screener (before STOCK grabs "roe")
     (_P_CAP,             AgentName.MF),       # cap-category education → mf (cap_education widget) before others
     (_P_FUND_OVERLAP,    AgentName.MF),       # fund overlap/consolidation → mf (widgets) before PORTFOLIO grabs "overlap"
     (_P_RISK,            AgentName.RISK),
