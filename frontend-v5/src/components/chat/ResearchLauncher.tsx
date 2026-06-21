@@ -14,10 +14,10 @@ import { cn } from "@/lib/utils";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useInstrumentSearch, type StockHit, type FundHit } from "@/hooks/use-instrument-search";
 
-type Picked = { kind: "stock" | "fund"; name: string };
+type Picked = { kind: "stock" | "fund"; name: string; code?: string };
 type Suggestion =
   | { kind: "stock"; symbol: string; name: string; sub?: string }
-  | { kind: "fund"; name: string; sub?: string };
+  | { kind: "fund"; name: string; sub?: string; code?: string };
 
 // Step-2 question tiles. Each sends "Tell me about <name> — <aspect>": the lead
 // guarantees the stock/MF route, the aspect steers the answer. Mirrors the card lenses.
@@ -46,22 +46,24 @@ const TILES: Record<"stock" | "fund", { id: string; label: string; icon: string 
   ],
 };
 
-function tilePrompt(kind: "stock" | "fund", name: string, lensId: string): string {
-  const lead = kind === "fund" ? `Tell me about the mutual fund ${name}` : `Tell me about ${name}`;
-  const aspect: Record<string, string> = {
-    buy_verdict: "is it worth buying now?",
-    performance: "how has it performed versus its benchmark?",
-    valuation: "is it cheap or pricey right now?",
-    risk: "how risky is it?",
-    peers: "how does it compare to its peers?",
-    drivers: kind === "fund" ? "what does it hold?" : "what drives the business?",
-    red_flags: "are there any red flags?",
-    costs: "what does it cost — expense ratio and exit load?",
-    people: kind === "fund" ? "who manages it?" : "who runs it?",
-    whats_new: "what's the latest news?",
-  };
-  const a = aspect[lensId];
-  return a ? `${lead} — ${a}` : lead;
+// Build a routing-safe prompt for the chosen instrument + lens. We deliberately use
+// only phrasings verified to (a) route to the stock/MF analyst and (b) resolve the
+// instrument — NOT free aspect text, which mis-routes ("how risky" → portfolio risk
+// analyst) and pollutes name resolution. For funds we append the 6-digit AMFI code
+// so the intent classifier resolves it deterministically (no flaky name search).
+function tilePrompt(picked: Picked, lensId: string): string {
+  const { kind, name, code } = picked;
+  if (kind === "stock") {
+    if (lensId === "buy_verdict") return `Should I buy ${name}?`;
+    if (lensId === "performance") return `How has ${name} performed?`;
+    return `Tell me about ${name}`; // card carries the full lens rail
+  }
+  // fund — embed the scheme code (deterministic resolution) where we have it
+  const tag = code ? ` (${code})` : "";
+  if (lensId === "performance") return `Show the returns of ${name}${tag}`;
+  if (lensId === "drivers") return `Show the holdings of ${name}${tag}`;
+  if (lensId === "peers") return `Compare ${name}${tag} with its peers`;
+  return `Tell me about the mutual fund ${name}${tag}`;
 }
 
 export function ResearchLauncher({
@@ -86,14 +88,14 @@ export function ResearchLauncher({
       for (const s of data.stocks as StockHit[]) out.push({ kind: "stock", symbol: s.symbol, name: s.name, sub: s.sector ?? undefined });
     }
     if (kind !== "stock") {
-      for (const f of data.funds as FundHit[]) out.push({ kind: "fund", name: f.name, sub: [f.amc, f.category].filter(Boolean).join(" · ") || undefined });
+      for (const f of data.funds as FundHit[]) out.push({ kind: "fund", name: f.name, code: f.scheme_code ?? undefined, sub: [f.amc, f.category].filter(Boolean).join(" · ") || undefined });
     }
     return out.slice(0, 8);
   }, [search.data, kind]);
 
   const ask = (lensId: string) => {
     if (!picked) return;
-    onAsk(tilePrompt(picked.kind, picked.name, lensId));
+    onAsk(tilePrompt(picked, lensId));
     setPicked(null);
     setQuery("");
   };
@@ -158,7 +160,7 @@ export function ResearchLauncher({
                 <li key={(s.kind === "stock" ? s.symbol : s.name) + i}>
                   <button
                     type="button"
-                    onClick={() => setPicked({ kind: s.kind, name: s.name })}
+                    onClick={() => setPicked({ kind: s.kind, name: s.name, code: s.kind === "fund" ? s.code : undefined })}
                     className={cn("w-full flex items-center gap-2.5 px-3.5 py-2 text-left hover:bg-surface-2/60 transition-colors")}
                   >
                     {s.kind === "stock"

@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 
 export interface StockHit { symbol: string; name: string; sector?: string | null }
-export interface FundHit { name: string; amc?: string | null; category?: string | null }
+export interface FundHit { name: string; scheme_code?: string | null; amc?: string | null; category?: string | null }
 export interface InstrumentSearchResult { stocks: StockHit[]; funds: FundHit[] }
 
 /** Typeahead search for the chat composer — matching stocks + mutual funds.

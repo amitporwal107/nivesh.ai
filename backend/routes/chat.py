@@ -777,6 +777,7 @@ async def chat_instrument_search(q: str = "", limit: int = 6):
         for r in list(best.values())[:limit]:
             funds.append({
                 "name": _disp(r.get("scheme_name") or ""),
+                "scheme_code": r.get("scheme_code"),
                 "amc": r.get("amc_name"),
                 "category": r.get("scheme_category"),
             })
