@@ -63,7 +63,10 @@ function tilePrompt(picked: Picked, lensId: string): string {
   if (lensId === "performance") return `Show the returns of ${name}${tag}`;
   if (lensId === "drivers") return `Show the holdings of ${name}${tag}`;
   if (lensId === "peers") return `Compare ${name}${tag} with its peers`;
-  return `Tell me about the mutual fund ${name}${tag}`;
+  // overview/buy/valuation/risk/costs/people → the overview tab (deep-link form is
+  // reliable; the bare "tell me about the mutual fund …" form intermittently
+  // returns no card). The card's lens rail covers the specific question.
+  return `Show the overview of ${name}${tag}`;
 }
 
 export function ResearchLauncher({
