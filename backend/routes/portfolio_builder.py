@@ -222,7 +222,7 @@ async def risk_profile_start(request: Request):
     """Begin a new risk-profile chat session. Returns first question."""
     user = await get_current_user(request)
     from services import risk_profile_chat as _rpc
-    return _rpc.start_session(user["user_id"])
+    return await _rpc.start_session(user["user_id"])
 
 
 class RiskProfileAnswer(BaseModel):
@@ -236,7 +236,7 @@ async def risk_profile_answer(session_id: str, payload: RiskProfileAnswer, reque
     the profile to user_profiles when complete."""
     user = await get_current_user(request)
     from services import risk_profile_chat as _rpc
-    out = _rpc.submit_answer(session_id, payload.question_id, payload.value)
+    out = await _rpc.submit_answer(session_id, payload.question_id, payload.value)
     if out.get("error"):
         raise HTTPException(400, detail=out)
     if out.get("complete"):
