@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -705,3 +706,53 @@ async def get_portfolio_snapshot(
     if not payload:
         return None
     return payload.get("data") or payload
+
+
+# ── Sleeve builder support — rank funds within a sub-category ─────────────────
+
+# Plans that should never be recommended even if they rank high: segregated side-
+# pockets, unclaimed/closed/matured plans, and IDCW (income) variants.
+_JUNK_PLAN = re.compile(r"segregated|unclaimed|closed[\s-]?end|matured|idcw|dividend", re.I)
+
+
+async def get_top_funds_by_subcategory(
+    fund_category: Optional[str],
+    sub_category: str,
+    n: int = 3,
+    timeout: float = 8.0,
+) -> List[Dict[str, Any]]:
+    """Return the top-`n` V3-scored funds in a sub-category, ranked by quality.
+
+    Powers the sleeve-based Portfolio Builder. Calls GET /v1/mf/scores/ filtered
+    by fund_category (optional) + sub_category (ILIKE), sorted by quality_score
+    DESC. Coverage gate is 0 here because sub-category universes are small and
+    average coverage is modest; ranking is relative WITHIN the sleeve. Junk plans
+    (segregated/unclaimed/IDCW) are dropped and Direct plans preferred.
+
+    Returns [] on connectivity failure so a sleeve degrades to "no picks yet"
+    rather than fabricating one.
+    """
+    if not sub_category:
+        return []
+    params: Dict[str, Any] = {
+        "sub_category": sub_category,
+        "sort_by": "quality_score",
+        "sort_desc": "true",
+        "min_quality_coverage": 0,
+        "limit": 40,
+    }
+    if fund_category:
+        params["fund_category"] = fund_category
+    try:
+        data = await _get("/mf/scores/", params=params, timeout=timeout)
+    except DaasError as exc:
+        logger.debug("get_top_funds_by_subcategory(%r): %s", sub_category, exc)
+        return []
+    rows = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return []
+
+    clean = [r for r in rows if not _JUNK_PLAN.search(str(r.get("scheme_name") or ""))]
+    direct = [r for r in clean if "direct" in str(r.get("scheme_name") or "").lower()]
+    pool = direct if len(direct) >= n else clean
+    return pool[:n]
