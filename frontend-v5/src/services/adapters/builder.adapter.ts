@@ -106,6 +106,44 @@ export const SimulationC = z.object({
 }).passthrough();
 export type Simulation = z.infer<typeof SimulationC>;
 
+/* ── Governed sleeve model (allocation-policy.yaml) ──────────────────────── */
+export const SleeveFundC = z.object({
+  scheme_name: z.string().nullish(),
+  isin: z.string().nullish(),
+  sub_category: z.string().nullish(),
+  quality_score: z.number().nullish(),
+}).passthrough();
+export const GovSleeveC = z.object({
+  key: z.string(),
+  asset_class: z.string(),
+  label: z.string(),
+  detail: z.string().nullish(),
+  category_members: z.array(z.string()).default([]),
+  target_pct: z.number(),
+  monthly_sip_rs: z.number().nullish(),
+  lumpsum_rs: z.number().nullish(),
+  funds: z.array(SleeveFundC).default([]),
+}).passthrough();
+export type GovSleeve = z.infer<typeof GovSleeveC>;
+export const SleeveProposalC = z.object({
+  risk_profile: z.string().nullish(),
+  requested_profile: z.string().nullish(),
+  horizon_years: z.number().nullish(),
+  horizon_bucket: z.string().nullish(),
+  allocation: z.record(z.number()).default({}),
+  sleeves: z.array(GovSleeveC).default([]),
+  compliance: z.object({
+    mode: z.string().nullish(),
+    names_allowed: z.boolean().nullish(),
+    stocks_allowed: z.boolean().nullish(),
+    registration: z.string().nullish(),
+    disclaimer: z.string().nullish(),
+  }).passthrough().optional(),
+  policy_version: z.string().nullish(),
+  methodology: z.string().nullish(),
+}).passthrough();
+export type SleeveProposal = z.infer<typeof SleeveProposalC>;
+
 /** Validate for documentation, but never let a minor schema drift break the
  *  wizard — these payloads are for display. On mismatch we log the issues and
  *  fall back to the raw server data (HTTP errors still throw, upstream). */
@@ -138,6 +176,14 @@ export const builderAdapter = {
   ) {
     const res = await http({ method: "POST", path: "/api/portfolio-builder/generate", body: input, signal });
     return lenient(ProposalC, res.data, "generate");
+  },
+
+  async generateSleeves(
+    input: { monthly_sip_rs?: number; lumpsum_rs?: number; risk_bucket?: string; horizon_years?: number; n_per_sleeve?: number },
+    signal?: AbortSignal,
+  ) {
+    const res = await http({ method: "POST", path: "/api/portfolio-builder/generate-sleeves", body: input, signal });
+    return lenient(SleeveProposalC, res.data, "generateSleeves");
   },
 
   async simulate(

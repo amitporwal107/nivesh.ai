@@ -23,9 +23,8 @@ import { Stepper } from "@/components/shared/Stepper";
 import {
   builderAdapter,
   type RiskQuestion,
-  type Proposal,
-  type ProposalBucket,
-  type ProposalFund,
+  type SleeveProposal,
+  type GovSleeve,
   type Simulation,
 } from "@/services/adapters/builder.adapter";
 
@@ -88,8 +87,8 @@ export function PortfolioBuilderWidget({ data }: { data?: SeedData; onAction?: u
     { category: string; persona?: string; score?: number; horizon_years?: number | null } | null
   >(data?.existing_profile ? { category: data.existing_profile.category ?? "moderate", ...data.existing_profile } : null);
 
-  // generated proposal + selection + projection
-  const [proposal, setProposal] = useState<Proposal | null>(null);
+  // governed sleeve proposal + (named-mode) selection + projection
+  const [sleeve, setSleeve] = useState<SleeveProposal | null>(null);
   const [picks, setPicks] = useState<Set<string>>(new Set());
   const [sim, setSim] = useState<Simulation | null>(null);
 
@@ -133,14 +132,14 @@ export function PortfolioBuilderWidget({ data }: { data?: SeedData; onAction?: u
     setErr(null); setBusy(true);
     abortRef.current = new AbortController();
     try {
-      const p = await builderAdapter.generate(
+      const p = await builderAdapter.generateSleeves(
         { monthly_sip_rs: M || undefined, lumpsum_rs: L || undefined, horizon_years: horizon, risk_bucket: profile?.category },
         abortRef.current.signal,
       );
-      setProposal(p);
-      // pre-select every picked fund
+      setSleeve(p);
+      // pre-select any named funds (only present when Compliance enables named-scheme mode)
       const all = new Set<string>();
-      (p.buckets || []).forEach((b) => (b.funds || []).forEach((f) => f.isin && all.add(f.isin)));
+      (p.sleeves || []).forEach((s) => (s.funds || []).forEach((f) => f.isin && all.add(f.isin)));
       setPicks(all);
       setStep(3);
     } catch (e) { setErr("Couldn't generate the portfolio." + reason(e)); }
@@ -148,12 +147,12 @@ export function PortfolioBuilderWidget({ data }: { data?: SeedData; onAction?: u
   }
 
   async function project() {
-    if (!proposal) return;
+    if (!sleeve) return;
     setErr(null); setBusy(true);
     abortRef.current = new AbortController();
     try {
       const s = await builderAdapter.simulate(
-        { starting_corpus_rs: L, monthly_sip_rs: M, years: horizon, allocation: proposal.allocation || {} },
+        { starting_corpus_rs: L, monthly_sip_rs: M, years: horizon, allocation: sleeve.allocation || {} },
         abortRef.current.signal,
       );
       setSim(s); setStep(5);
@@ -184,7 +183,7 @@ export function PortfolioBuilderWidget({ data }: { data?: SeedData; onAction?: u
         <span className="grid h-7 w-7 place-items-center rounded-md bg-accent text-on-accent font-display text-[15px]">न</span>
         <div className="leading-tight">
           <div className="font-display text-[17px] text-ink tracking-tightish">Portfolio Builder</div>
-          <div className="text-[12px] text-ink-3">Goal → mix → ranked picks, on your real risk profile</div>
+          <div className="text-[12px] text-ink-3">Goal → risk → governed allocation model</div>
         </div>
       </div>
       <div className="overflow-x-auto pb-1 mb-4">
@@ -203,9 +202,9 @@ export function PortfolioBuilderWidget({ data }: { data?: SeedData; onAction?: u
           onBegin={beginRisk} onAnswer={answer}
         />
       )}
-      {step === 3 && proposal && <MixStep proposal={proposal} />}
-      {step === 4 && proposal && <PickStep proposal={proposal} picks={picks} onToggle={togglePick} />}
-      {step === 5 && proposal && <DoneStep proposal={proposal} picks={picks} sim={sim} years={horizon} L={L} M={M} />}
+      {step === 3 && sleeve && <MixStep sleeve={sleeve} />}
+      {step === 4 && sleeve && <PickStep sleeve={sleeve} picks={picks} onToggle={togglePick} />}
+      {step === 5 && sleeve && <DoneStep sleeve={sleeve} picks={picks} sim={sim} years={horizon} L={L} M={M} />}
 
       {/* nav */}
       <div className="mt-5 flex items-center gap-2.5">
@@ -219,14 +218,14 @@ export function PortfolioBuilderWidget({ data }: { data?: SeedData; onAction?: u
             onClick={next}
           >
             {busy ? "Working…"
-              : step === 2 ? "See my mix"
-              : step === 3 ? "Pick instruments"
-              : step === 4 ? "Review portfolio"
+              : step === 2 ? "See my allocation"
+              : step === 3 ? "Review the plan"
+              : step === 4 ? "Project outcome"
               : "Continue"} →
           </Button>
         )}
         {step === 5 && (
-          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => { setStep(0); setProposal(null); setSim(null); setProfile(data?.existing_profile ? profile : null); setRiskSession(null); setQuestion(null); }}>
+          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => { setStep(0); setSleeve(null); setSim(null); setProfile(data?.existing_profile ? profile : null); setRiskSession(null); setQuestion(null); }}>
             ↺ Start over
           </Button>
         )}
@@ -343,13 +342,25 @@ function RiskStep({
   );
 }
 
-/* ── Step 3: mix (allocation donut) ───────────────────────────────────────── */
-function MixStep({ proposal }: { proposal: Proposal }) {
-  const slices = Object.entries(proposal.allocation || {})
+const ASSET_GROUP_ORDER = ["equity", "debt", "gold", "cash"];
+const capWord = (s?: string | null) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "");
+const horizonLabel = (b?: string | null) => (b === "short" ? "short-term" : b === "long" ? "long-term" : "medium-term");
+function groupByAsset(sleeves: GovSleeve[]): [string, GovSleeve[]][] {
+  const m = new Map<string, GovSleeve[]>();
+  for (const s of sleeves) (m.get(s.asset_class) ?? m.set(s.asset_class, []).get(s.asset_class)!).push(s);
+  return [...m.entries()].sort((a, b) => ASSET_GROUP_ORDER.indexOf(a[0]) - ASSET_GROUP_ORDER.indexOf(b[0]));
+}
+
+/* ── Step 3: strategic allocation donut (asset-class rollup) ───────────────── */
+function MixStep({ sleeve }: { sleeve: SleeveProposal }) {
+  const slices = Object.entries(sleeve.allocation || {})
     .filter(([, pct]) => pct > 0)
     .map(([assetClass, pct]) => ({ assetClass, pct, label: ASSET_LABEL[assetClass] ?? assetClass }));
   return (
-    <Section title="Recommended mix" sub={`Derived from your ${proposal.risk_profile ?? ""} risk profile.`}>
+    <Section
+      title="Your strategic allocation"
+      sub={`${capWord(sleeve.risk_profile)} · ${horizonLabel(sleeve.horizon_bucket)} horizon — set by the governed allocation policy.`}
+    >
       <div className="flex flex-wrap items-center gap-5">
         <div className="h-[168px] w-[168px] shrink-0">
           <ResponsiveContainer width="100%" height="100%">
@@ -370,88 +381,94 @@ function MixStep({ proposal }: { proposal: Proposal }) {
           ))}
         </div>
       </div>
-      {(proposal.rationale || []).length > 0 && (
-        <ul className="mt-3 border-t border-hairline pt-3 text-[13px] text-ink-3 leading-relaxed">
-          {(proposal.rationale || []).map((r, i) => <li key={i}>· {r}</li>)}
-        </ul>
-      )}
-    </Section>
-  );
-}
-
-/* ── Step 4: pick (ranked real instruments per bucket) ────────────────────── */
-function PickStep({
-  proposal, picks, onToggle,
-}: { proposal: Proposal; picks: Set<string>; onToggle: (isin?: string | null) => void }) {
-  return (
-    <Section title="Fill your mix" sub="Each sleeve is filled with the highest-scoring funds for your profile. Toggle any off.">
-      {(proposal.buckets || []).map((b) => (
-        <BucketBlock key={b.bucket} bucket={b} picks={picks} onToggle={onToggle} />
-      ))}
-    </Section>
-  );
-}
-
-function BucketBlock({ bucket, picks, onToggle }: { bucket: ProposalBucket; picks: Set<string>; onToggle: (isin?: string | null) => void }) {
-  const color = ASSET_COLOR[bucket.bucket] ?? "#A6A38E";
-  return (
-    <div className="mb-5">
-      <div className="mb-2.5 flex items-center gap-2">
-        <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: color }} />
-        <span className="text-[14px] font-medium text-ink">{ASSET_LABEL[bucket.bucket] ?? bucket.bucket}</span>
-        <span className="num text-[12px] text-ink-3">
-          {Math.round(bucket.target_pct)}%
-          {bucket.monthly_sip_rs ? ` · ${inr(bucket.monthly_sip_rs)}/mo` : ""}
-          {bucket.target_rs ? ` · ${inr(bucket.target_rs)} once` : ""}
-        </span>
-      </div>
-      {bucket.funds.length === 0 ? (
-        // Honest gap: some sleeves (e.g. gold/cash) may have no ranked picks yet.
-        <p className="rounded-md border border-dashed border-hairline-2 px-3.5 py-2.5 text-[12.5px] text-ink-3">
-          Ranked fund picks for this sleeve aren't available yet — allocate it via a Gold ETF / liquid fund of your choice.
+      {sleeve.policy_version && (
+        <p className="mt-3 border-t border-hairline pt-3 text-[12px] text-ink-4">
+          Allocation policy v{sleeve.policy_version} · strategic weights by risk × horizon, respecting the risk budget.
         </p>
-      ) : (
-        <div className="grid gap-2">
-          {bucket.funds.map((f, i) => <FundRow key={f.isin ?? i} fund={f} rank={i + 1} selected={!!f.isin && picks.has(f.isin)} onToggle={() => onToggle(f.isin)} />)}
+      )}
+    </Section>
+  );
+}
+
+/* ── Step 4: governed sub-sleeve model (category level; funds only if allowed) ── */
+function PickStep({
+  sleeve, picks, onToggle,
+}: { sleeve: SleeveProposal; picks: Set<string>; onToggle: (isin?: string | null) => void }) {
+  const namesOn = !!sleeve.compliance?.names_allowed;
+  return (
+    <Section
+      title="Your allocation model"
+      sub={namesOn
+        ? "Governed sleeves, filled with the top-ranked funds for your profile."
+        : "Category and model level. Specific scheme names appear once advisory registration is enabled."}
+    >
+      {groupByAsset(sleeve.sleeves || []).map(([ac, items]) => (
+        <div key={ac} className="mb-4">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: ASSET_COLOR[ac] ?? "#A6A38E" }} />
+            <span className="text-[13px] font-medium text-ink">{ASSET_LABEL[ac] ?? ac}</span>
+            <span className="num text-[12px] text-ink-3">{Math.round(items.reduce((a, s) => a + s.target_pct, 0))}%</span>
+          </div>
+          <div className="grid gap-2">
+            {items.map((s) => <SleeveBlock key={s.key} s={s} picks={picks} onToggle={onToggle} />)}
+          </div>
+        </div>
+      ))}
+      {sleeve.compliance?.disclaimer && (
+        <p className="mt-1 rounded-md border border-dashed border-hairline-2 px-3.5 py-2.5 text-[12px] text-ink-3 leading-relaxed">
+          {sleeve.compliance.disclaimer}
+        </p>
+      )}
+    </Section>
+  );
+}
+
+function SleeveBlock({ s, picks, onToggle }: { s: GovSleeve; picks: Set<string>; onToggle: (isin?: string | null) => void }) {
+  return (
+    <div className="rounded-md border border-hairline bg-surface-1 px-3.5 py-3">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[14px] font-medium text-ink">{s.label}</div>
+          {(s.category_members || []).length > 0 && (
+            <div className="truncate text-[12px] text-ink-3">{s.category_members.join(" · ")}</div>
+          )}
+        </div>
+        <div className="text-right">
+          <div className="num font-display text-[18px] text-ink leading-none">{s.target_pct}%</div>
+          {s.monthly_sip_rs ? <div className="num text-[11px] text-ink-3">{inr(s.monthly_sip_rs)}/mo</div>
+            : s.lumpsum_rs ? <div className="num text-[11px] text-ink-3">{inr(s.lumpsum_rs)} once</div> : null}
+        </div>
+      </div>
+      {(s.funds || []).length > 0 && (
+        <div className="mt-2 grid gap-1.5 border-t border-hairline pt-2">
+          {s.funds.map((f, i) => {
+            const sel = !!f.isin && picks.has(f.isin);
+            return (
+              <button
+                key={f.isin ?? i} type="button" onClick={() => onToggle(f.isin)}
+                className={cn("flex items-center gap-2.5 rounded-md border px-2.5 py-1.5 text-left transition-colors",
+                  sel ? "border-accent bg-[rgb(var(--accent)/0.08)]" : "border-hairline hover:bg-surface-2")}
+              >
+                {f.quality_score != null && <span className="num w-6 text-[12px] font-semibold text-ink">{Math.round(f.quality_score)}</span>}
+                <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink-2">{f.scheme_name}</span>
+                <span className="text-[13px] text-ink-3">{sel ? "✓" : "+"}</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-function FundRow({ fund, rank, selected, onToggle }: { fund: ProposalFund; rank: number; selected: boolean; onToggle: () => void }) {
-  const q = fund.quality_score ?? null;
-  const band = q != null ? bandOf(q) : null;
-  return (
-    <div className={cn("rounded-md border bg-surface-1 px-3.5 py-3", selected ? "border-accent" : "border-hairline")}>
-      <div className="flex items-center gap-3">
-        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] bg-surface-2 num text-[12px] font-medium text-ink-3">{rank}</span>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px] font-medium text-ink">{fund.scheme_name ?? "Fund"}</div>
-          <div className="truncate text-[12px] text-ink-3">{fund.sub_category ?? fund.category ?? ""}{fund.rationale ? ` · ${fund.rationale}` : ""}</div>
-        </div>
-        {q != null && (
-          <div className="text-center">
-            <div className={cn("num font-display text-[20px] leading-none", band?.tone === "good" ? "text-pos" : band?.tone === "warm" ? "text-warm" : "text-ink")}>{Math.round(q)}</div>
-            <div className="text-[10px] text-ink-4">quality</div>
-          </div>
-        )}
-        <button
-          type="button" onClick={onToggle}
-          aria-pressed={selected}
-          className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-md border text-[15px] font-medium transition-colors",
-            selected ? "border-accent bg-accent text-on-accent" : "border-hairline-2 text-ink-3 hover:border-accent")}
-        >{selected ? "✓" : "+"}</button>
-      </div>
-    </div>
-  );
-}
-
-/* ── Step 5: done (projection + holdings) ─────────────────────────────────── */
+/* ── Step 5: done (projection + model summary + disclaimer) ───────────────── */
 function DoneStep({
-  proposal, picks, sim, years, L, M,
-}: { proposal: Proposal; picks: Set<string>; sim: Simulation | null; years: number; L: number; M: number }) {
-  const chosen = (proposal.buckets || []).flatMap((b) => (b.funds || []).filter((f) => f.isin && picks.has(f.isin)).map((f) => ({ ...f, bucket: b.bucket })));
+  sleeve, picks, sim, years, L, M,
+}: { sleeve: SleeveProposal; picks: Set<string>; sim: Simulation | null; years: number; L: number; M: number }) {
+  const namesOn = !!sleeve.compliance?.names_allowed;
+  const chosen = namesOn
+    ? (sleeve.sleeves || []).flatMap((s) => (s.funds || []).filter((f) => f.isin && picks.has(f.isin)))
+    : [];
   const invested = L + M * years * 12;
   const base = sim?.scenarios?.base;
   const mc = sim?.monte_carlo;
@@ -460,7 +477,7 @@ function DoneStep({
   const hi = mc?.p95_corpus_rs ?? sim?.scenarios?.bull?.corpus_rs ?? null;
 
   return (
-    <Section title="Your portfolio" sub={`${proposal.risk_profile ?? ""} · ${chosen.length} holdings · ${years}-year plan`}>
+    <Section title="Your plan" sub={`${capWord(sleeve.risk_profile)} · ${(sleeve.sleeves || []).length} sleeves · ${years}-year horizon`}>
       {mid != null && (
         <div className="mb-3.5 rounded-md border border-hairline bg-surface-2/60 p-4">
           <div className="flex items-baseline justify-between gap-3">
@@ -474,35 +491,40 @@ function DoneStep({
             <div className="mt-2"><Badge tone={mc.prob_success_pct >= 70 ? "good" : "warm"}>{Math.round(mc.prob_success_pct)}% success probability</Badge></div>
           )}
           {sim?.blended_return_pct != null && (
-            <p className="mt-2 text-[12px] text-ink-4">Assumes ~{sim.blended_return_pct.toFixed(1)}% p.a. blended return at your allocation.</p>
+            <p className="mt-2 text-[12px] text-ink-4">Assumes ~{sim.blended_return_pct.toFixed(1)}% p.a. blended return on house capital-market assumptions.</p>
           )}
         </div>
       )}
 
       <div className="rounded-md border border-hairline bg-surface-1 p-4">
-        <div className="mb-2 font-display text-[15px] text-ink">Holdings</div>
-        {chosen.length === 0 ? (
-          <p className="text-[13px] text-ink-3">No funds selected.</p>
-        ) : (
-          <div className="grid gap-1.5">
-            {chosen.map((f, i) => (
-              <div key={f.isin ?? i} className="flex items-center gap-2.5 rounded-md border border-hairline px-3 py-2">
-                <span className="h-2 w-2 rounded-[2px]" style={{ background: ASSET_COLOR[f.bucket] ?? "#A6A38E" }} />
-                {f.quality_score != null && <span className="num text-[13px] font-semibold text-ink w-7">{Math.round(f.quality_score)}</span>}
-                <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">{f.scheme_name}</span>
-                {f.lumpsum_rs != null && <span className="num text-[11.5px] text-ink-3">{inr(f.lumpsum_rs)} once</span>}
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="mb-2 font-display text-[15px] text-ink">{namesOn ? "Holdings" : "Allocation model"}</div>
+        <div className="grid gap-1.5">
+          {namesOn && chosen.length > 0
+            ? chosen.map((f, i) => (
+                <div key={f.isin ?? i} className="flex items-center gap-2.5 rounded-md border border-hairline px-3 py-2">
+                  {f.quality_score != null && <span className="num w-7 text-[13px] font-semibold text-ink">{Math.round(f.quality_score)}</span>}
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">{f.scheme_name}</span>
+                  <span className="text-[11.5px] text-ink-4">{f.sub_category}</span>
+                </div>
+              ))
+            : (sleeve.sleeves || []).map((s) => (
+                <div key={s.key} className="flex items-center gap-2.5 rounded-md border border-hairline px-3 py-2">
+                  <span className="h-2 w-2 rounded-[2px]" style={{ background: ASSET_COLOR[s.asset_class] ?? "#A6A38E" }} />
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">
+                    {s.label}{(s.category_members || []).length > 0 && <span className="text-ink-4"> · {s.category_members.join(", ")}</span>}
+                  </span>
+                  <span className="num text-[13px] font-semibold text-ink">{s.target_pct}%</span>
+                </div>
+              ))}
+        </div>
       </div>
 
       <div className="mt-3.5">
-        <Button variant="accent" size="md" className="w-full">Confirm &amp; set up SIP →</Button>
+        <Button variant="accent" size="md" className="w-full">{namesOn ? "Confirm & set up SIP →" : "Save this plan →"}</Button>
       </div>
       <p className="mt-3 text-[11.5px] text-ink-4 leading-relaxed">
-        Projections assume steady returns and ignore inflation, taxes, and market risk. Mutual funds are subject to market
-        risk. Personalised securities advice in India is SEBI-regulated — confirm your RIA / distributor structure before acting.
+        {sleeve.compliance?.disclaimer
+          ?? "Model and category-level guidance, not a recommendation of specific schemes or stocks. Projections use house capital-market assumptions and ignore taxes; mutual funds are subject to market risk."}
       </p>
     </Section>
   );
