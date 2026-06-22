@@ -205,5 +205,8 @@ validation:
 compliance:
   registration: "TBD"                 # one of: RIA | research_analyst | mf_distributor
   direct_stock_recommendations_enabled: false
-  mf_recommendations_mode: "category_and_model"  # vs "named_scheme" (needs RIA)
+  # TEMPORARY DEV OVERRIDE (2026-06-23, product-owner request): named-scheme MF
+  # output enabled so the builder surfaces ranked funds per sleeve. Registration
+  # is still TBD — Compliance must confirm RIA before this ships to real users.
+  mf_recommendations_mode: "named_scheme"        # vs "category_and_model"
   disclaimer_required: true
