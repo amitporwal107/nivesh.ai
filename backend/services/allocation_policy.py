@@ -109,6 +109,44 @@ def equity_members() -> Dict[str, List[str]]:
     }
 
 
+def apply_glide_path(allocation: Dict[str, float], horizon_years: float) -> Dict[str, float]:
+    """De-risk as the goal approaches (methodology Sec. 10).
+
+    Outside the taper window the strategic weights are returned unchanged. Inside
+    it, shift equity -> debt by per_year_equity_to_debt_shift for each year into
+    the window; in the final two years hold equity <= max_equity and liquid >=
+    min_liquid. Always returns a normalised {equity,debt,gold,cash} summing to 100.
+    """
+    gp = glide_path()
+    taper = float(gp.get("taper_start_years", 5))
+    y = float(horizon_years or 0)
+    a = {k: float(allocation.get(k, 0) or 0) for k in ("equity", "debt", "gold", "cash")}
+    if y >= taper or sum(a.values()) <= 0:
+        return {k: round(v, 1) for k, v in a.items()}
+
+    years_in = max(0.0, taper - y)
+    shift = float(gp.get("per_year_equity_to_debt_shift", 0.07)) * 100.0 * years_in
+    moved = min(a["equity"], shift)
+    a["equity"] -= moved
+    a["debt"] += moved
+
+    final = gp.get("final_2_years", {}) or {}
+    if y <= 2:
+        max_eq = float(final.get("max_equity", 0.20)) * 100.0
+        min_liq = float(final.get("min_liquid", 0.10)) * 100.0
+        if a["equity"] > max_eq:
+            a["debt"] += a["equity"] - max_eq
+            a["equity"] = max_eq
+        if a["cash"] < min_liq:
+            need = min_liq - a["cash"]
+            take = min(need, a["debt"])      # pull the liquid buffer from debt
+            a["debt"] -= take
+            a["cash"] += take
+
+    tot = sum(a.values()) or 1.0
+    return {k: round(v / tot * 100.0, 1) for k, v in a.items()}
+
+
 def debt_split(horizon_bucket_key: str) -> Dict[str, float]:
     """{sub_sleeve: % of debt sleeve} for the horizon bucket."""
     by_h = _policy().get("sub_sleeves", {}).get("debt", {}).get("by_horizon", {})

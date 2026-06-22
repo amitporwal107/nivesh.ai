@@ -65,8 +65,10 @@ async def build_sleeve_portfolio(
     profile = _p.apply_capacity_caps(risk_profile, horizon_years)
     hb = _p.horizon_bucket(horizon_years)
 
-    # L1 — strategic allocation (% of total).
+    # L1 — strategic allocation (% of total), de-risked by the glide path as the
+    # goal approaches.
     strat = _p.strategic_allocation(profile, hb)  # {equity,debt,gold,cash}
+    strat = _p.apply_glide_path(strat, horizon_years)
 
     sleeves: List[Dict[str, Any]] = []
 
