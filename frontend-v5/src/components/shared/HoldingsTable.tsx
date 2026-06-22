@@ -48,6 +48,28 @@ function pctCell(n: number | null | undefined) {
   );
 }
 
+// Recommendation pill — colour by the action keyword (matches the V2 mapping).
+function ActionBadge({ badge }: { badge: EnrichedHolding["action_badge"] }) {
+  if (!badge) return <span className="opacity-30">—</span>;
+  const action = (typeof badge === "string" ? badge : badge.action ?? "").trim();
+  if (!action) return <span className="opacity-30">—</span>;
+  const reason = typeof badge === "string" ? undefined : badge.reason;
+  const a = action.toUpperCase();
+  const color =
+    /EXIT|SELL/.test(a)            ? "var(--neg)"   :
+    /REDUCE|SWITCH|TRIM/.test(a)   ? "var(--warm)"  :
+    /REVIEW|WATCH/.test(a)         ? "var(--accent)":
+    /BUY|ADD|INCREASE/.test(a)     ? "var(--pos)"   :
+    "var(--ink-3)"; // HOLD / unknown
+  return (
+    <span title={reason}
+      className="inline-block text-[10px] px-2 py-0.5 rounded font-medium uppercase tracking-wide"
+      style={{ background: `rgb(${color} / 0.14)`, color: `rgb(${color})` }}>
+      {a}
+    </span>
+  );
+}
+
 // ── Column definitions ─────────────────────────────────────────────────────
 
 const COLS: Array<{ key: string; label: string; sortKey?: SortKey; align?: "right" }> = [
@@ -59,6 +81,7 @@ const COLS: Array<{ key: string; label: string; sortKey?: SortKey; align?: "righ
   { key: "weight_pct",      label: "Weight",         sortKey: "weight_pct",     align: "right" },
   { key: "xirr_pct",        label: "XIRR",           sortKey: "xirr_pct",       align: "right" },
   { key: "benchmark_delta", label: "vs Benchmark",   sortKey: "benchmark_delta",align: "right" },
+  { key: "action",          label: "Action" },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────────
@@ -169,7 +192,7 @@ export function HoldingsTable({ holdings, className }: Props) {
 
         {/* Desktop table */}
         <div className="hidden sm:block overflow-x-auto">
-          <table className="w-full text-sm" style={{ minWidth: 760 }}>
+          <table className="w-full text-sm" style={{ minWidth: 880 }}>
             <thead>
               <tr style={{ borderBottom: "1px solid rgba(var(--line),0.08)" }}>
                 {COLS.map((col) => (
@@ -206,7 +229,7 @@ export function HoldingsTable({ holdings, className }: Props) {
                     <table key={h.holding_id}
                       className="w-full text-sm"
                       style={{
-                        minWidth: 760,
+                        minWidth: 880,
                         position: "absolute",
                         top: virtualRow.start,
                         left: 0,
@@ -242,7 +265,7 @@ export function HoldingsTable({ holdings, className }: Props) {
 
                           {/* Asset class */}
                           <td className="px-4 py-3 text-[11px] opacity-60" style={{ fontFamily: "var(--font-mono)" }}>
-                            {any.asset_class ?? "—"}
+                            {any.asset_class ?? h.asset_type ?? "—"}
                           </td>
 
                           {/* Category */}
@@ -280,6 +303,11 @@ export function HoldingsTable({ holdings, className }: Props) {
                             {unmatched
                               ? <span className="opacity-30" aria-label="benchmark data unavailable — fund not AMFI-matched">—</span>
                               : pctCell(any.benchmark_delta)}
+                          </td>
+
+                          {/* Action */}
+                          <td className="px-4 py-3">
+                            <ActionBadge badge={h.action_badge} />
                           </td>
 
                           {/* Chevron */}
@@ -323,6 +351,9 @@ export function HoldingsTable({ holdings, className }: Props) {
                     </span>
                   )}
                 </div>
+                {h.action_badge && (
+                  <div className="mt-1.5"><ActionBadge badge={h.action_badge} /></div>
+                )}
               </li>
             );
           })}

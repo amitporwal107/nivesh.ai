@@ -26,3 +26,20 @@ export function useHoldings(portfolioId?: string, assetType?: string) {
     queryFn: () => portfolioService.listHoldings(portfolioId, assetType),
   });
 }
+
+/** Enriched holdings (V3 scores, badges, weight/XIRR/benchmark) + totals + allocation.
+ *  This is the shape HoldingsTable and the Portfolio page actually render. */
+export function useHoldingsEnriched() {
+  return useQuery({
+    queryKey: ["portfolio", "enriched"],
+    queryFn: () => portfolioService.listHoldingsEnriched(),
+  });
+}
+
+/** Detected SIPs from the CAS statement (authoritative source for the SIPs tab). */
+export function usePortfolioSips() {
+  return useQuery({
+    queryKey: ["portfolio", "sips"],
+    queryFn: () => portfolioService.listSips(),
+  });
+}

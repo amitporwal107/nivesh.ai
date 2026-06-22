@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useRef, useState, useEffect } from "react";
 import {
   LayoutDashboard, Sparkles, MessageSquare, Shield,
-  Settings, Layers, TrendingUp, Target, Receipt, ClipboardList, Wrench,
+  Settings, Layers, TrendingUp, Target, Receipt, ClipboardList, Briefcase,
   ShieldCheck, Server, BarChart2, Bug, LogOut, ChevronUp,
   PanelLeftClose, PanelLeftOpen, LineChart,
 } from "lucide-react";
@@ -27,7 +27,7 @@ const NAV: NavItem[] = [
   { to: "/goals",           label: "Goals",            icon: Target,          group: "Dashboards" },
   { to: "/tax",             label: "Tax",              icon: Receipt,         group: "Dashboards" },
   { to: "/plan",            label: "Plan board",       icon: ClipboardList,   group: "Workspace" },
-  { to: "/portfolio",       label: "Portfolio builder", icon: Wrench,         group: "Workspace" },
+  { to: "/portfolio",       label: "Portfolio Page",   icon: Briefcase,       group: "Workspace" },
   { to: "/chat",            label: "Chat copilot",     icon: MessageSquare,   group: "Workspace" },
   { to: "/recommendations", label: "Recommendations",  icon: Sparkles,        group: "Workspace" },
   { to: "/pro-trader",      label: "Pro Trader",       icon: BarChart2,       group: "Workspace" },

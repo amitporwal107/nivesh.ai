@@ -1,18 +1,18 @@
 import { useNavigate } from "react-router-dom";
-import { LineChart, PieChart, SlidersHorizontal } from "lucide-react";
+import { LineChart, PieChart, SlidersHorizontal, TrendingUp, TrendingDown } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AllocationDonut, ALLOCATION_COLORS } from "@/components/charts/AllocationDonut";
 import { HoldingsTable } from "@/components/shared/HoldingsTable";
-import { MetricCard } from "@/components/shared/MetricCard";
 import { formatINR, formatINRCompact, formatPct } from "@/lib/formatters";
 import type { PortfolioSummary } from "@/types/portfolio";
-import type { Holding } from "@/types/fund";
+import type { EnrichedHoldingsRes, SipsListRes } from "@/services/contracts/portfolio.contract";
 
 interface Props {
   summary: PortfolioSummary;
-  holdings: Holding[];
+  enriched: EnrichedHoldingsRes;
+  sips: SipsListRes | null;
 }
 
 // Research-tool tiles prefill the chat composer (the user still types the
@@ -35,32 +35,78 @@ const INSIGHT_QUESTIONS = [
   "Best tax-saving strategies?",
 ];
 
-export function Portfolio({ summary, holdings }: Props) {
+const SIP_DATE_FMT: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", year: "numeric" };
+
+export function Portfolio({ summary, enriched, sips }: Props) {
   const navigate = useNavigate();
-  const totalCost = holdings.reduce((s, h) => s + h.costBasis, 0);
-  const totalPnl = summary.totalValue - totalCost;
-  const totalPnlPct = totalCost ? totalPnl / totalCost : 0;
-  const monthlySip = holdings.reduce((s, h) => s + (h.sipMonthly ?? 0), 0);
+  const holdings = enriched.holdings;
+  const totals = enriched.totals;
+
+  // Hero figures — value + invested come from the SAME source (enriched totals,
+  // the holdings-level truth) so P&L is consistent. Fall back to summary.totalValue
+  // (paise, incl. CAS value) only when enrichment hasn't fetched live NAVs yet.
+  const valueRs = totals?.value_rs && totals.value_rs > 0 ? totals.value_rs : summary.totalValue / 100;
+  const valuePaise = Math.round(valueRs * 100);
+  const investedRs = totals?.invested_rs ?? 0;
+  const pnlRs = valueRs - investedRs;
+  const pnlPct = investedRs ? pnlRs / investedRs : 0;
+  const xirrPct = totals?.xirr_pct ?? null;
+  const monthlySipRs = sips?.total_monthly_sip_rs ?? 0;
+
+  // Best / worst performers by P&L %. Gainers ≥ 0, losers < 0, top 5 each.
+  const withPnl = holdings.filter((h) => h.pnl_pct != null);
+  const gainers = [...withPnl].filter((h) => (h.pnl_pct ?? 0) >= 0).sort((a, b) => (b.pnl_pct ?? 0) - (a.pnl_pct ?? 0)).slice(0, 5);
+  const losers = [...withPnl].filter((h) => (h.pnl_pct ?? 0) < 0).sort((a, b) => (a.pnl_pct ?? 0) - (b.pnl_pct ?? 0)).slice(0, 5);
+
+  const signedPnl = `${pnlRs >= 0 ? "+" : "−"}${formatINRCompact(Math.abs(pnlRs))}`;
 
   return (
     <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full">
       <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">Portfolio</div>
       <h1 className="font-display text-3xl sm:text-4xl tracking-tightish leading-[1.05] mt-1.5">
-        {holdings.length} holdings, {formatINR(summary.totalValue, { compact: true })}
+        {holdings.length} holdings, {formatINR(valuePaise, { compact: true })}
       </h1>
 
-      {/* KPI strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-7">
-        <MetricCard label="Market value" value={formatINR(summary.totalValue, { compact: true })} subtext={`As of ${summary.asOf.slice(0, 10)}`} />
-        <MetricCard label="Invested" value={formatINR(totalCost, { compact: true })} subtext={`${holdings.length} funds`} />
-        <MetricCard
-          label="P&L"
-          value={`+${formatINRCompact(totalPnl / 100)}`}
-          subtext={formatPct(totalPnlPct, { signed: true })}
-          tone="pos"
-        />
-        <MetricCard label="Monthly SIP" value={formatINR(monthlySip, { compact: true })} subtext="across funds" tone="accent" />
-      </div>
+      {/* Snapshot hero — headline figures + allocation mini-bar */}
+      <Card className="mt-7 p-6 lg:p-7">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-6">
+          <HeroStat label="Market value" value={formatINR(valuePaise, { compact: true })}
+            sub={`As of ${summary.asOf.slice(0, 10)}`} />
+          <HeroStat label="Invested" value={formatINRCompact(investedRs)} sub={`${holdings.length} holdings`} />
+          <HeroStat label="P&L" value={signedPnl} sub={formatPct(pnlPct, { signed: true })}
+            tone={pnlRs >= 0 ? "pos" : "neg"} />
+          <HeroStat label="XIRR" value={xirrPct != null ? `${xirrPct.toFixed(1)}%` : "—"}
+            sub="annualised" tone={xirrPct != null && xirrPct >= 0 ? "pos" : xirrPct != null ? "neg" : "default"} />
+        </div>
+
+        {summary.allocation.length > 0 && (
+          <div className="mt-6 pt-6 border-t border-hairline">
+            <div className="flex items-center justify-between mb-2.5">
+              <CardLabel>Allocation</CardLabel>
+              {monthlySipRs > 0 && (
+                <span className="font-mono text-[10.5px] text-ink-3 tracking-[.04em]">
+                  SIP {formatINRCompact(monthlySipRs)} / mo
+                </span>
+              )}
+            </div>
+            <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-surface-2">
+              {summary.allocation.map((s) => (
+                <div key={s.assetClass} title={`${s.label} · ${s.pct.toFixed(1)}%`}
+                  style={{ width: `${s.pct}%`, background: ALLOCATION_COLORS[s.assetClass] ?? "#A6A38E" }} />
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5">
+              {summary.allocation.map((s) => (
+                <span key={s.assetClass} className="inline-flex items-center gap-1.5 text-[12px] text-ink-2">
+                  <span className="h-2.5 w-2.5 rounded-sm" style={{ background: ALLOCATION_COLORS[s.assetClass] ?? "#A6A38E" }} />
+                  {s.label}
+                  <span className="font-mono num text-ink-3">{s.pct.toFixed(0)}%</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
 
       {/* My Portfolio Insights — ask the copilot about this portfolio */}
       <section className="mt-9">
@@ -92,6 +138,14 @@ export function Portfolio({ summary, holdings }: Props) {
         </div>
       </section>
 
+      {/* Top gainers & losers */}
+      {withPnl.length > 0 && (
+        <section className="mt-9 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <MoversCard title="Top gainers" icon={TrendingUp} tone="pos" rows={gainers} />
+          <MoversCard title="Top losers" icon={TrendingDown} tone="neg" rows={losers} />
+        </section>
+      )}
+
       {/* tabs */}
       <Tabs defaultValue="holdings" className="mt-9">
         <TabsList>
@@ -101,7 +155,7 @@ export function Portfolio({ summary, holdings }: Props) {
         </TabsList>
 
         <TabsContent value="holdings">
-          <HoldingsTable holdings={holdings as any} />
+          <HoldingsTable holdings={holdings} />
         </TabsContent>
 
         <TabsContent value="allocation">
@@ -139,22 +193,74 @@ export function Portfolio({ summary, holdings }: Props) {
           <Card className="p-6">
             <div className="flex items-center mb-3">
               <CardLabel>Active SIPs</CardLabel>
-              <Badge tone="accent" className="ml-auto">{formatINR(monthlySip, { compact: true })} / month</Badge>
+              <Badge tone="good" className="ml-auto">{formatINRCompact(monthlySipRs)} / month</Badge>
             </div>
-            <ul className="divide-y divide-[rgb(var(--line)/0.10)]">
-              {holdings.filter((h) => h.sipMonthly).map((h) => (
-                <li key={h.id} className="flex items-baseline gap-3 py-3">
-                  <span className="font-medium">{h.fund.name}</span>
-                  <span className="font-mono text-[10.5px] text-ink-3 uppercase tracking-[.06em]">
-                    since {new Date(h.startedOn).toLocaleDateString("en-IN", { month: "short", year: "numeric" })}
-                  </span>
-                  <span className="ml-auto font-mono num text-[14px]">{formatINR(h.sipMonthly!, { compact: true })} / mo</span>
-                </li>
-              ))}
-            </ul>
+            {!sips || sips.sips.length === 0 ? (
+              <p className="py-6 text-center text-[13px] text-ink-3 font-mono">
+                No recurring SIPs detected in your statement.
+              </p>
+            ) : (
+              <ul className="divide-y divide-[rgb(var(--line)/0.10)]">
+                {sips.sips.map((s) => (
+                  <li key={`${s.isin}-${s.folio}`} className="flex items-baseline gap-3 py-3">
+                    <span className="font-medium truncate">{s.fund}</span>
+                    <span className="font-mono text-[10.5px] text-ink-3 uppercase tracking-[.06em] shrink-0">
+                      next {new Date(s.next_expected).toLocaleDateString("en-IN", SIP_DATE_FMT)}
+                    </span>
+                    <span className="ml-auto font-mono num text-[14px] shrink-0">{formatINRCompact(s.monthly_amount_rs)} / mo</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Card>
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// ── Sub-components ──────────────────────────────────────────────────────────
+
+function HeroStat({ label, value, sub, tone = "default" }: {
+  label: string; value: string; sub?: string; tone?: "default" | "pos" | "neg";
+}) {
+  const toneCls = tone === "pos" ? "text-pos" : tone === "neg" ? "text-neg" : "text-ink";
+  return (
+    <div>
+      <CardLabel>{label}</CardLabel>
+      <div className={`font-display num text-2xl lg:text-3xl tracking-tightish mt-1.5 ${toneCls}`}>{value}</div>
+      {sub && <div className="font-mono text-[10px] text-ink-3 mt-1 tracking-[.04em]">{sub}</div>}
+    </div>
+  );
+}
+
+function MoversCard({ title, icon: Icon, tone, rows }: {
+  title: string;
+  icon: typeof TrendingUp;
+  tone: "pos" | "neg";
+  rows: EnrichedHoldingsRes["holdings"];
+}) {
+  const color = tone === "pos" ? "rgb(var(--pos))" : "rgb(var(--neg))";
+  return (
+    <Card className="p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <Icon className="h-3.5 w-3.5" style={{ color }} />
+        <CardLabel>{title}</CardLabel>
+      </div>
+      {rows.length === 0 ? (
+        <p className="py-3 text-[12.5px] text-ink-3 font-mono">None</p>
+      ) : (
+        <ul className="flex flex-col gap-2.5">
+          {rows.map((h) => (
+            <li key={h.holding_id} className="flex items-baseline gap-3">
+              <span className="text-[13px] text-ink truncate" title={h.name}>{h.name}</span>
+              <span className="ml-auto font-mono num text-[13px] shrink-0" style={{ color }}>
+                {(h.pnl_pct ?? 0) >= 0 ? "+" : ""}{(h.pnl_pct ?? 0).toFixed(1)}%
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
