@@ -5,7 +5,6 @@ import { RequireAdmin } from "./components/layout/RequireAdmin";
 import { RouteErrorBoundary } from "./components/shared/RouteErrorBoundary";
 import HomepagePage from "./pages/Homepage";
 import DashboardPage from "./pages/Dashboard";
-import PortfolioPage from "./pages/Portfolio";
 import ConcentrationPage from "./pages/Concentration";
 import RecommendationsPage from "./pages/Recommendations";
 import RiskPage from "./pages/Risk";
@@ -54,7 +53,8 @@ export function AppRoutes() {
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
         <Route path="/dashboard"        element={<RouteErrorBoundary pageName="Dashboard"><DashboardPage /></RouteErrorBoundary>} />
         <Route path="/markets"          element={<RouteErrorBoundary pageName="Markets"><MarketsPage /></RouteErrorBoundary>} />
-        <Route path="/portfolio"        element={<RouteErrorBoundary pageName="Portfolio"><PortfolioPage /></RouteErrorBoundary>} />
+        {/* Portfolio view now lives on the Dashboard; keep the path as a redirect for old links. */}
+        <Route path="/portfolio"        element={<Navigate to="/dashboard" replace />} />
         <Route path="/funds/:id"        element={<RouteErrorBoundary pageName="Fund Details"><FundDetailsPage /></RouteErrorBoundary>} />
         <Route path="/ai-insights"      element={<RouteErrorBoundary pageName="AI Insights"><ConcentrationPage /></RouteErrorBoundary>} />
         <Route path="/concentration"    element={<Navigate to="/ai-insights" replace />} />

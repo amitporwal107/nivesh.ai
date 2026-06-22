@@ -21,6 +21,7 @@ import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Dashboard } from "./Dashboard";
+import PortfolioSection from "../Portfolio";
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -133,15 +134,20 @@ export default function DashboardPage() {
   }
 
   return (
-    <Dashboard
-      summary={dashSummary}
-      navHistory={nav}
-      healthBreakdown={breakdown}
-      insights={mergedInsights}
-      riskProfile={riskProfileQ.data ?? null}
-      holdingsCount={holdings.data?.length ?? 0}
-      hasGoal={hasGoal}
-      onRiskProfileSaved={invalidateAll}
-    />
+    <>
+      <Dashboard
+        summary={dashSummary}
+        navHistory={nav}
+        healthBreakdown={breakdown}
+        insights={mergedInsights}
+        riskProfile={riskProfileQ.data ?? null}
+        holdingsCount={holdings.data?.length ?? 0}
+        hasGoal={hasGoal}
+        onRiskProfileSaved={invalidateAll}
+      />
+      {/* Relocated Portfolio view — the holdings deep-dive now lives on the Dashboard.
+          Self-fetching (enriched holdings + SIPs) with its own loading/empty gates. */}
+      {hasHoldings && <PortfolioSection />}
+    </>
   );
 }
