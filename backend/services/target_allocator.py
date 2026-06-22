@@ -286,6 +286,13 @@ async def compute_target_allocation(user_id: str) -> TargetAllocation:
     # ── Phase 4: four-tier confidence ladder ─────────────────────
     # Tier is determined by which inputs are available, not by adding up bonuses.
     # Each tier is a real (degraded) target — same object shape, different inputs.
+    #
+    # Default `final` = risk base + behaviour + (averaged) goal overlay. The
+    # risk_only / goals_and_risk tiers use this as-is; the age-rule and generic
+    # tiers override it below. Defining it here guarantees `final` is always
+    # bound — previously the two risk tiers left it unset, raising NameError
+    # (HTTP 500) for every user who had a risk profile.
+    final = _normalise(_add(after_behaviour, goal_overlay_avg))
     has_risk_profile = bool(risk_profile.get("category"))
     has_goals = bool(goals)
 
