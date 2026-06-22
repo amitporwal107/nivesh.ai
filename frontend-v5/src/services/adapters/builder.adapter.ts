@@ -106,10 +106,20 @@ export const SimulationC = z.object({
 }).passthrough();
 export type Simulation = z.infer<typeof SimulationC>;
 
+/** Validate for documentation, but never let a minor schema drift break the
+ *  wizard — these payloads are for display. On mismatch we log the issues and
+ *  fall back to the raw server data (HTTP errors still throw, upstream). */
+function lenient<S extends z.ZodTypeAny>(schema: S, data: unknown, where: string): z.output<S> {
+  const r = schema.safeParse(data);
+  if (r.success) return r.data;
+  if (typeof console !== "undefined") console.warn(`builder.${where}: schema mismatch`, r.error.issues, data);
+  return data as z.output<S>;
+}
+
 export const builderAdapter = {
   async startRisk(signal?: AbortSignal) {
     const res = await http({ method: "POST", path: "/api/risk-profile/start", body: {}, signal });
-    return RiskStartC.parse(res.data);
+    return lenient(RiskStartC, res.data, "startRisk");
   },
 
   async answerRisk(sessionId: string, questionId: string, value: string, signal?: AbortSignal) {
@@ -119,7 +129,7 @@ export const builderAdapter = {
       body: { question_id: questionId, value },
       signal,
     });
-    return RiskAnswerResC.parse(res.data);
+    return lenient(RiskAnswerResC, res.data, "answerRisk");
   },
 
   async generate(
@@ -127,7 +137,7 @@ export const builderAdapter = {
     signal?: AbortSignal,
   ) {
     const res = await http({ method: "POST", path: "/api/portfolio-builder/generate", body: input, signal });
-    return ProposalC.parse(res.data);
+    return lenient(ProposalC, res.data, "generate");
   },
 
   async simulate(
@@ -140,7 +150,7 @@ export const builderAdapter = {
       body: { future_target_rs: 0, ...input },
       signal,
     });
-    return SimulationC.parse(res.data);
+    return lenient(SimulationC, res.data, "simulate");
   },
 };
 export type BuilderAdapter = typeof builderAdapter;

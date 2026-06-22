@@ -55,6 +55,14 @@ const GOALS = [
 const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
 const compact = (n: number) =>
   n >= 1e7 ? "₹" + (n / 1e7).toFixed(2) + " Cr" : n >= 1e5 ? "₹" + (n / 1e5).toFixed(2) + " L" : inr(n);
+/** Pull a readable reason out of an ApiError / Error so failures aren't hidden
+ *  behind a generic line (CONTEXT.md: errors are surfaced, not swallowed). */
+function reason(e: unknown): string {
+  const a = e as { status?: number; detail?: string; message?: string };
+  const detail = a?.detail || a?.message;
+  if (a?.status) return ` (HTTP ${a.status}${detail ? `: ${detail}` : ""})`;
+  return detail ? ` (${detail})` : "";
+}
 const bandOf = (s: number) =>
   s >= 80 ? { label: "Excellent", tone: "good" as const }
   : s >= 65 ? { label: "Strong", tone: "good" as const }
@@ -101,7 +109,7 @@ export function PortfolioBuilderWidget({ data }: { data?: SeedData; onAction?: u
     try {
       const r = await builderAdapter.startRisk(abortRef.current.signal);
       setRiskSession(r.session_id); setQuestion(r.question);
-    } catch { setErr("Couldn't start the risk profiler. Try again."); }
+    } catch (e) { setErr("Couldn't start the risk profiler." + reason(e)); }
     finally { setBusy(false); }
   }
 
@@ -117,7 +125,7 @@ export function PortfolioBuilderWidget({ data }: { data?: SeedData; onAction?: u
       } else if (r.question) {
         setQuestion(r.question);
       }
-    } catch { setErr("Couldn't record that answer. Try again."); }
+    } catch (e) { setErr("Couldn't record that answer." + reason(e)); }
     finally { setBusy(false); }
   }
 
@@ -132,10 +140,10 @@ export function PortfolioBuilderWidget({ data }: { data?: SeedData; onAction?: u
       setProposal(p);
       // pre-select every picked fund
       const all = new Set<string>();
-      p.buckets.forEach((b) => b.funds.forEach((f) => f.isin && all.add(f.isin)));
+      (p.buckets || []).forEach((b) => (b.funds || []).forEach((f) => f.isin && all.add(f.isin)));
       setPicks(all);
       setStep(3);
-    } catch { setErr("Couldn't generate the portfolio. The data service may be unavailable."); }
+    } catch (e) { setErr("Couldn't generate the portfolio." + reason(e)); }
     finally { setBusy(false); }
   }
 
@@ -145,11 +153,11 @@ export function PortfolioBuilderWidget({ data }: { data?: SeedData; onAction?: u
     abortRef.current = new AbortController();
     try {
       const s = await builderAdapter.simulate(
-        { starting_corpus_rs: L, monthly_sip_rs: M, years: horizon, allocation: proposal.allocation },
+        { starting_corpus_rs: L, monthly_sip_rs: M, years: horizon, allocation: proposal.allocation || {} },
         abortRef.current.signal,
       );
       setSim(s); setStep(5);
-    } catch { setErr("Couldn't run the projection. Showing your holdings without it."); setStep(5); }
+    } catch (e) { setErr("Couldn't run the projection." + reason(e)); setStep(5); }
     finally { setBusy(false); }
   }
 
@@ -239,7 +247,7 @@ function GoalStep({ goal, onPick }: { goal: typeof GOALS[number] | null; onPick:
               key={g.id} type="button" onClick={() => onPick(g)}
               className={cn(
                 "flex items-center gap-3.5 rounded-md border px-4 py-3 text-left transition-colors",
-                active ? "border-accent bg-accent-soft" : "border-hairline bg-surface-1 hover:bg-surface-2",
+                active ? "border-accent bg-[rgb(var(--accent)/0.10)]" : "border-hairline bg-surface-1 hover:bg-surface-2",
               )}
             >
               <span className="text-[22px] leading-none">{g.emoji}</span>
@@ -322,7 +330,7 @@ function RiskStep({
         {question.choices.map((c) => (
           <button
             key={c.value} type="button" disabled={busy} onClick={() => onAnswer(c.value)}
-            className="rounded-md border border-hairline bg-surface-1 px-4 py-3 text-left text-[14px] text-ink hover:border-accent hover:bg-accent-soft transition-colors disabled:opacity-60"
+            className="rounded-md border border-hairline bg-surface-1 px-4 py-3 text-left text-[14px] text-ink hover:border-accent hover:bg-[rgb(var(--accent)/0.10)] transition-colors disabled:opacity-60"
           >
             {c.label}
           </button>
@@ -337,7 +345,7 @@ function RiskStep({
 
 /* ── Step 3: mix (allocation donut) ───────────────────────────────────────── */
 function MixStep({ proposal }: { proposal: Proposal }) {
-  const slices = Object.entries(proposal.allocation)
+  const slices = Object.entries(proposal.allocation || {})
     .filter(([, pct]) => pct > 0)
     .map(([assetClass, pct]) => ({ assetClass, pct, label: ASSET_LABEL[assetClass] ?? assetClass }));
   return (
@@ -362,9 +370,9 @@ function MixStep({ proposal }: { proposal: Proposal }) {
           ))}
         </div>
       </div>
-      {proposal.rationale.length > 0 && (
+      {(proposal.rationale || []).length > 0 && (
         <ul className="mt-3 border-t border-hairline pt-3 text-[13px] text-ink-3 leading-relaxed">
-          {proposal.rationale.map((r, i) => <li key={i}>· {r}</li>)}
+          {(proposal.rationale || []).map((r, i) => <li key={i}>· {r}</li>)}
         </ul>
       )}
     </Section>
@@ -377,7 +385,7 @@ function PickStep({
 }: { proposal: Proposal; picks: Set<string>; onToggle: (isin?: string | null) => void }) {
   return (
     <Section title="Fill your mix" sub="Each sleeve is filled with the highest-scoring funds for your profile. Toggle any off.">
-      {proposal.buckets.map((b) => (
+      {(proposal.buckets || []).map((b) => (
         <BucketBlock key={b.bucket} bucket={b} picks={picks} onToggle={onToggle} />
       ))}
     </Section>
@@ -443,7 +451,7 @@ function FundRow({ fund, rank, selected, onToggle }: { fund: ProposalFund; rank:
 function DoneStep({
   proposal, picks, sim, years, L, M,
 }: { proposal: Proposal; picks: Set<string>; sim: Simulation | null; years: number; L: number; M: number }) {
-  const chosen = proposal.buckets.flatMap((b) => b.funds.filter((f) => f.isin && picks.has(f.isin)).map((f) => ({ ...f, bucket: b.bucket })));
+  const chosen = (proposal.buckets || []).flatMap((b) => (b.funds || []).filter((f) => f.isin && picks.has(f.isin)).map((f) => ({ ...f, bucket: b.bucket })));
   const invested = L + M * years * 12;
   const base = sim?.scenarios?.base;
   const mc = sim?.monte_carlo;
