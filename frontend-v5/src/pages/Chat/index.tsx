@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter } from "lucide-react";
+import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -107,6 +107,7 @@ export default function ChatPage() {
   const [suggestOpen, setSuggestOpen] = useState(false);
   // Visual screener query-builder panel.
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [analyseOpen, setAnalyseOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
   // `?q=` deep-link (e.g. Markets "Explore" chips) → auto-send once on mount.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -500,24 +501,42 @@ export default function ChatPage() {
             >
               <ListFilter className="h-3.5 w-3.5 text-accent" /> Query builder
             </button>
+            <button
+              onClick={() => setAnalyseOpen((v) => !v)}
+              disabled={isBusy}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-[12.5px] transition-colors disabled:opacity-50",
+                analyseOpen
+                  ? "border-accent bg-[rgb(var(--accent)/0.10)] text-accent"
+                  : "bg-surface-1 border-hairline-2 text-ink hover:bg-surface-2",
+              )}
+              title="Analyse my portfolio — pick a ready-made question"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-accent" /> Analyse my portfolio
+            </button>
           </div>
 
-          {/* Analyse my portfolio — ready-made questions, prefilled into the composer */}
-          <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3 mt-6">Analyse my portfolio</div>
-          <div className="flex flex-wrap gap-2 mt-3">
-            {prompts.isPending && Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-9 w-40 rounded-full" />
-            ))}
-            {!prompts.isPending && promptList.map((q) => (
-              <button
-                key={q}
-                onClick={() => setComposer(q)}
-                className="px-3.5 py-2 rounded-full bg-surface-2 border border-hairline text-[12.5px] text-ink-2 hover:bg-surface-3 transition-colors"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
+          {/* Analyse my portfolio — ready-made questions, revealed by the
+              launcher chip above (mirrors the Query builder reveal). */}
+          {analyseOpen && (
+            <div className="mt-6">
+              <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">Analyse my portfolio</div>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {prompts.isPending && Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-9 w-40 rounded-full" />
+                ))}
+                {!prompts.isPending && promptList.map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => setComposer(q)}
+                    className="px-3.5 py-2 rounded-full bg-surface-2 border border-hairline text-[12.5px] text-ink-2 hover:bg-surface-3 transition-colors"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="mt-7 flex-1 flex flex-col gap-5">
