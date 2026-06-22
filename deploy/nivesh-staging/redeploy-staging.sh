@@ -67,7 +67,11 @@ elif [[ "${BUILD_BACKEND}" == "true" ]]; then
 elif [[ "${BUILD_FRONTEND}" == "true" ]]; then
     log "Building frontend images only (v2 + v5)..."
     docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull app-frontend app-frontend-v5
-    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d app-frontend app-frontend-v5
+    # --force-recreate --remove-orphans: services pin a fixed container_name, so a
+    # stale container left by an interrupted recreate (Docker auto-renames it with a
+    # hex prefix) otherwise blocks plain `up -d` with a name-conflict error. The full
+    # and backend-only branches already pass these flags; the frontend path must too.
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --force-recreate --remove-orphans app-frontend app-frontend-v5
 fi
 
 # ── Backend health check (skip for frontend-only deploys) ────────────────────
