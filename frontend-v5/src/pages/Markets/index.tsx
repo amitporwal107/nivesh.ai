@@ -9,7 +9,7 @@ export default function MarketsPage() {
 
   if (home.isPending) {
     return (
-      <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full">
+      <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1180px] mx-auto w-full">
         <LoadingSkeleton variant="dashboard" />
       </div>
     );

@@ -51,6 +51,27 @@ export const MarketNewsC = z.object({
   sentiment: z.string().nullable(),
 });
 
+/**
+ * A single global quote — world index, commodity future, FX or macro cue.
+ * `unit` carries the display suffix ($/bbl, $/oz, "yield %"), `sub` the small
+ * caption (region code, "spot", "pre-market"), `featured` flags the lead card.
+ */
+export const GlobalQuoteC = z.object({
+  name:       z.string(),
+  sub:        z.string().nullable().optional(),
+  value:      z.number().nullable(),
+  change_pct: z.number().nullable(),
+  region:     z.string().nullable().optional(),
+  unit:       z.string().nullable().optional(),
+  featured:   z.boolean().default(false),
+});
+
+export const GlobalIndicesC = z.object({
+  us:     z.array(GlobalQuoteC).default([]),
+  europe: z.array(GlobalQuoteC).default([]),
+  asia:   z.array(GlobalQuoteC).default([]),
+});
+
 export const MarketsHomeC = z.object({
   ok:           z.boolean().optional(),
   as_of:        z.string().nullable().optional(),
@@ -65,6 +86,9 @@ export const MarketsHomeC = z.object({
   sectors:      z.array(MarketSectorC).default([]),
   fii_dii:      FiiDiiC.nullable().optional(),
   news:         z.array(MarketNewsC).default([]),
+  global_cues:    z.array(GlobalQuoteC).default([]),
+  global_indices: GlobalIndicesC.default({ us: [], europe: [], asia: [] }),
+  commodities:    z.array(GlobalQuoteC).default([]),
 });
 
 // ── Explore drawer (52w high/low, most active) ──────────────────────────
@@ -96,4 +120,6 @@ export type MarketMover   = z.infer<typeof MarketMoverC>;
 export type MarketSector  = z.infer<typeof MarketSectorC>;
 export type FiiDii        = z.infer<typeof FiiDiiC>;
 export type MarketNews    = z.infer<typeof MarketNewsC>;
+export type GlobalQuote   = z.infer<typeof GlobalQuoteC>;
+export type GlobalIndices = z.infer<typeof GlobalIndicesC>;
 export type MarketsHome   = z.infer<typeof MarketsHomeC>;

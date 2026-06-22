@@ -1,13 +1,17 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   TrendingUp, TrendingDown, ArrowUp, ArrowDown,
   ArrowUpRight, ArrowDownRight, Activity, X,
+  Globe, Fuel, Clock, Wallet,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/formatters";
 import { useMarketsExplore } from "@/hooks/use-markets";
-import type { MarketsHome, MarketMover, ExploreRow } from "@/services/contracts/markets.contract";
+import type {
+  MarketsHome, MarketMover, ExploreRow, GlobalQuote,
+} from "@/services/contracts/markets.contract";
 
 /** 2-decimal Indian-grouped number, e.g. 25,184.30. */
 const numFmt = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -27,6 +31,12 @@ function fmtSignedPts(n: number | null): string {
 function fmtCr(n: number | null): string {
   if (n == null) return "—";
   return `${n >= 0 ? "+" : "−"}${intFmt.format(Math.round(Math.abs(n)))}`;
+}
+/** Quote value honouring its unit — yields render as "4.28%", everything else grouped. */
+function fmtQuote(q: GlobalQuote): string {
+  if (q.value == null) return "—";
+  if (q.unit && q.unit.includes("%")) return `${q.value.toFixed(2)}%`;
+  return numFmt.format(q.value);
 }
 
 /** A signed colour token: positive → pos, negative → neg, flat → ink-3. */
@@ -62,153 +72,313 @@ function fmtVolume(n: number | null | undefined): string {
 
 export function Markets({ data }: { data: MarketsHome }) {
   const [openScan, setOpenScan] = useState<ScanKey | null>(null);
-  const { breadth } = data;
+  const { breadth, global_indices } = data;
 
   const broadDown = breadth.tone === "NEGATIVE";
   const broadUp = breadth.tone === "POSITIVE";
 
+  const hasGlobalIdx =
+    global_indices.us.length > 0 || global_indices.europe.length > 0 || global_indices.asia.length > 0;
+
   return (
-    <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full">
-      {/* ── Header ─────────────────────────────────────────────── */}
-      <div className="flex items-end justify-between flex-wrap gap-2">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-display text-2xl text-ink">Nivesh</span>
-            <span className="text-[13px] text-ink-3">/ Markets</span>
+    <div className="mx-auto w-full max-w-[1180px]">
+      {/* ── Live ticker tape (full-bleed, sticky) ──────────────────── */}
+      <TickerTape data={data} />
+
+      <div className="px-6 pb-10 lg:px-10">
+        {/* ── Header ─────────────────────────────────────────────── */}
+        <div className="flex items-end justify-between flex-wrap gap-2 pt-6">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-display text-2xl text-ink">Nivesh</span>
+              <span className="text-[13px] text-ink-3">/ Markets</span>
+            </div>
+            <p className="mt-0.5 text-xs text-ink-3">
+              {data.fetched_at ? formatDate(data.fetched_at) : data.as_of ? formatDate(data.as_of) : "—"}
+              {" · NSE & BSE · "}
+              {data.market_state === "open" ? "market open" : "market closed"}
+            </p>
           </div>
-          <p className="mt-0.5 text-xs text-ink-3">
-            {data.fetched_at ? formatDate(data.fetched_at) : data.as_of ? formatDate(data.as_of) : "—"}
-            {" · NSE & BSE · "}
-            {data.market_state === "open" ? "market open" : "market closed"}
-          </p>
+          {(broadDown || broadUp) && (
+            <span className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium",
+              broadDown ? "bg-[rgb(var(--neg)/0.10)] text-neg" : "bg-[rgb(var(--pos)/0.10)] text-pos",
+            )}>
+              {broadDown ? <TrendingDown size={13} /> : <TrendingUp size={13} />}
+              {broadDown ? "Broad market down" : "Broad market up"}
+            </span>
+          )}
         </div>
-        {(broadDown || broadUp) && (
-          <span className={cn(
-            "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium",
-            broadDown ? "bg-[rgb(var(--neg)/0.10)] text-neg" : "bg-[rgb(var(--pos)/0.10)] text-pos",
-          )}>
-            {broadDown ? <TrendingDown size={13} /> : <TrendingUp size={13} />}
-            {broadDown ? "Broad market down" : "Broad market up"}
-          </span>
-        )}
-      </div>
 
-      {/* ── Index tiles ────────────────────────────────────────── */}
-      {data.indices.length > 0 && (
-        <div className="mt-4 grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
-          {data.indices.map((ix) => {
-            // For VIX, a rising value = fear rising (neg sentiment), but we
-            // colour the number by its own direction and annotate the trend.
-            const tone = toneFor(ix.change_pct);
-            return (
-              <div key={ix.name} className="rounded-md bg-surface-2 px-3.5 py-3">
-                <div className="text-xs text-ink-2">{ix.name}</div>
-                <div className="num text-lg font-medium text-ink mt-0.5">{fmtVal(ix.value)}</div>
-                <div className={cn("text-xs font-medium mt-0.5 flex items-center gap-1", TONE_TEXT[tone])}>
-                  {tone === "pos" ? <ArrowUp size={12} /> : tone === "neg" ? <ArrowDown size={12} /> : null}
-                  {ix.is_vix
-                    ? <span>{fmtSignedPct(ix.change_pct)}{ix.trend === "RISING" ? " · fear rising" : ix.trend === "FALLING" ? " · fear easing" : ""}</span>
-                    : <span>{ix.change != null ? `${fmtSignedPts(ix.change)} ` : ""}({fmtSignedPct(ix.change_pct)})</span>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── Market breadth ─────────────────────────────────────── */}
-      <Card className="mt-4 p-4">
-        <div className="flex items-baseline justify-between">
-          <span className="text-[13px] font-medium text-ink-2">Market breadth</span>
-          <span className={cn("text-xs font-medium", broadDown ? "text-neg" : broadUp ? "text-pos" : "text-ink-3")}>
-            {broadDown ? "Negative · sellers in control" : broadUp ? "Positive · buyers in control" : "Mixed"}
-          </span>
-        </div>
-        <BreadthBar advances={breadth.advances} declines={breadth.declines} unchanged={breadth.unchanged} />
-        <div className="mt-2 flex justify-between text-xs">
-          <span className="font-medium text-pos">{breadth.advances == null ? "—" : intFmt.format(breadth.advances)} advancing</span>
-          <span className="text-ink-3">{breadth.unchanged == null ? "—" : intFmt.format(breadth.unchanged)} unchanged</span>
-          <span className="font-medium text-neg">{breadth.declines == null ? "—" : intFmt.format(breadth.declines)} declining</span>
-        </div>
-      </Card>
-
-      {/* ── Gainers / Losers ───────────────────────────────────── */}
-      <div className="mt-4 grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
-        <MoversCard title="Top gainers" tone="pos" movers={data.gainers} asOf={data.movers_as_of} />
-        <MoversCard title="Top losers" tone="neg" movers={data.losers} asOf={data.movers_as_of} />
-      </div>
-
-      {/* ── Sector performance ─────────────────────────────────── */}
-      {data.sectors.length > 0 && (
-        <div className="mt-4">
-          <p className="mb-2.5 text-[13px] font-medium text-ink-2">Sector performance</p>
-          <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(108px,1fr))]">
-            {data.sectors.map((s) => {
-              const up = (s.change_pct ?? 0) >= 0;
+        {/* ── Indian benchmarks ──────────────────────────────────── */}
+        {data.indices.length > 0 && (
+          <div className="mt-4 grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+            {data.indices.map((ix) => {
+              const tone = toneFor(ix.change_pct);
               return (
-                <div key={s.name} className={cn(
-                  "rounded-md px-2.5 py-2",
-                  up ? "bg-[rgb(var(--pos)/0.10)]" : "bg-[rgb(var(--neg)/0.10)]",
-                )}>
-                  <div className="text-xs text-ink-2">{s.name}</div>
-                  <div className={cn("text-[15px] font-medium", up ? "text-pos" : "text-neg")}>
-                    {fmtSignedPct(s.change_pct)}
+                <div key={ix.name} className="rounded-md border border-hairline bg-surface-1 px-4 py-3.5 transition-colors hover:bg-surface-2">
+                  <div className="text-[13px] text-ink-2">{ix.name}</div>
+                  <div className="num mt-1.5 text-[26px] font-medium leading-none tracking-tightish text-ink">{fmtVal(ix.value)}</div>
+                  <div className={cn("mt-2 flex items-center gap-1 text-[13px] font-medium", TONE_TEXT[tone])}>
+                    {tone === "pos" ? <ArrowUp size={13} /> : tone === "neg" ? <ArrowDown size={13} /> : null}
+                    {ix.is_vix
+                      ? <span>{fmtSignedPct(ix.change_pct)}{ix.trend === "RISING" ? " · fear rising" : ix.trend === "FALLING" ? " · fear easing" : ""}</span>
+                      : <span>{ix.change != null ? `${fmtSignedPts(ix.change)} ` : ""}({fmtSignedPct(ix.change_pct)})</span>}
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ── FII / DII ──────────────────────────────────────────── */}
-      {data.fii_dii && (
-        <Card className="mt-4 p-4">
-          <div className="mb-3 flex items-baseline justify-between">
-            <span className="text-[13px] font-medium text-ink-2">
-              FII / DII activity <span className="font-normal text-ink-3">· cash, ₹ crore</span>
-            </span>
-            <span className="text-xs text-ink-3">{formatDate(data.fii_dii.as_of)}</span>
+        {/* ── Global cues & pre-market ───────────────────────────── */}
+        {data.global_cues.length > 0 && (
+          <div className="mt-6">
+            <SectionHead icon={Clock} title="Global cues & pre-market" meta="what's setting the tone" />
+            <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+              {data.global_cues.map((q) => <QuoteCard key={q.name} q={q} featured={q.featured} />)}
+            </div>
           </div>
-          <FlowRow label="FII" value={data.fii_dii.fii_net_cr} />
-          <FlowRow label="DII" value={data.fii_dii.dii_net_cr} />
+        )}
+
+        {/* ── Market breadth ─────────────────────────────────────── */}
+        <Card className="mt-6 p-4">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[13px] font-medium text-ink-2">Market breadth</span>
+            <span className={cn("text-xs font-medium", broadDown ? "text-neg" : broadUp ? "text-pos" : "text-ink-3")}>
+              {broadDown ? "Negative · sellers in control" : broadUp ? "Positive · buyers in control" : "Mixed"}
+            </span>
+          </div>
+          <BreadthBar advances={breadth.advances} declines={breadth.declines} unchanged={breadth.unchanged} />
+          <div className="mt-2 flex justify-between text-xs">
+            <span className="font-medium text-pos">{breadth.advances == null ? "—" : intFmt.format(breadth.advances)} advancing</span>
+            <span className="text-ink-3">{breadth.unchanged == null ? "—" : intFmt.format(breadth.unchanged)} unchanged</span>
+            <span className="font-medium text-neg">{breadth.declines == null ? "—" : intFmt.format(breadth.declines)} declining</span>
+          </div>
         </Card>
-      )}
 
-      {/* ── Explore ────────────────────────────────────────────── */}
-      <div className="mt-4">
-        <p className="mb-2.5 text-[13px] font-medium text-ink-2">Explore</p>
-        <div className="flex flex-wrap gap-2">
-          {EXPLORE.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setOpenScan(key)}
-              className="inline-flex items-center gap-1.5 rounded-full border-hairline border bg-surface-1 px-3 py-1.5 text-xs text-ink-2 hover:bg-surface-2 transition-colors"
-            >
-              <Icon size={13} /> {label}
-            </button>
-          ))}
+        {/* ── Global indices ─────────────────────────────────────── */}
+        {hasGlobalIdx && (
+          <div className="mt-6">
+            <SectionHead icon={Globe} title="Global indices" meta="Asia live · US & Europe prev. close" />
+            <GlobalRegion label="United States" quotes={global_indices.us} />
+            <GlobalRegion label="Europe" quotes={global_indices.europe} />
+            <GlobalRegion label="Asia–Pacific" quotes={global_indices.asia} />
+          </div>
+        )}
+
+        {/* ── Commodities & energy ───────────────────────────────── */}
+        {data.commodities.length > 0 && (
+          <div className="mt-6">
+            <SectionHead icon={Fuel} title="Commodities & energy" meta="spot · international benchmarks" />
+            <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
+              {data.commodities.map((q) => <QuoteCard key={q.name} q={q} />)}
+            </div>
+          </div>
+        )}
+
+        {/* ── FII / DII ──────────────────────────────────────────── */}
+        {data.fii_dii && (
+          <Card className="mt-6 p-4">
+            <div className="mb-3 flex items-baseline justify-between">
+              <span className="text-[13px] font-medium text-ink-2">
+                FII / DII activity <span className="font-normal text-ink-3">· cash, ₹ crore</span>
+              </span>
+              <span className="text-xs text-ink-3">{formatDate(data.fii_dii.as_of)}</span>
+            </div>
+            <FlowRow label="FII" value={data.fii_dii.fii_net_cr} />
+            <FlowRow label="DII" value={data.fii_dii.dii_net_cr} />
+          </Card>
+        )}
+
+        {/* ── Gainers / Losers ───────────────────────────────────── */}
+        <div className="mt-6 grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
+          <MoversCard title="Top gainers" tone="pos" movers={data.gainers} asOf={data.movers_as_of} />
+          <MoversCard title="Top losers" tone="neg" movers={data.losers} asOf={data.movers_as_of} />
         </div>
-      </div>
 
-      <ExploreDrawer scan={openScan} onClose={() => setOpenScan(null)} />
+        {/* ── Sector performance ─────────────────────────────────── */}
+        {data.sectors.length > 0 && (
+          <div className="mt-6">
+            <p className="mb-2.5 text-[13px] font-medium text-ink-2">Sector performance</p>
+            <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(108px,1fr))]">
+              {data.sectors.map((s) => {
+                const up = (s.change_pct ?? 0) >= 0;
+                return (
+                  <div key={s.name} className={cn(
+                    "rounded-md px-2.5 py-2",
+                    up ? "bg-[rgb(var(--pos)/0.10)]" : "bg-[rgb(var(--neg)/0.10)]",
+                  )}>
+                    <div className="text-xs text-ink-2">{s.name}</div>
+                    <div className={cn("text-[15px] font-medium", up ? "text-pos" : "text-neg")}>
+                      {fmtSignedPct(s.change_pct)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
-      {/* ── Market news ────────────────────────────────────────── */}
-      {data.news.length > 0 && (
-        <Card className="mt-4 p-4">
-          <p className="mb-2.5 text-[13px] font-medium text-ink-2">Market news</p>
-          <div className="flex flex-col">
-            {data.news.map((n, i) => (
-              <div key={`${n.symbol ?? "x"}-${i}`} className="border-t border-hairline py-2 first:border-t-0 first:pt-0">
-                <span className="text-[13px] text-ink">{n.title}</span>
-                <div className="mt-0.5 text-[11px] text-ink-3">
-                  {n.when ? formatDate(n.when) : ""}{n.when ? " · " : ""}{n.category}
-                </div>
-              </div>
+        {/* ── Explore ────────────────────────────────────────────── */}
+        <div className="mt-6">
+          <p className="mb-2.5 text-[13px] font-medium text-ink-2">Explore</p>
+          <div className="flex flex-wrap gap-2">
+            {EXPLORE.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => setOpenScan(key)}
+                className="inline-flex items-center gap-1.5 rounded-full border-hairline border bg-surface-1 px-3 py-1.5 text-xs text-ink-2 hover:bg-surface-2 transition-colors"
+              >
+                <Icon size={13} /> {label}
+              </button>
             ))}
           </div>
-        </Card>
-      )}
+        </div>
+
+        <ExploreDrawer scan={openScan} onClose={() => setOpenScan(null)} />
+
+        {/* ── Market news ────────────────────────────────────────── */}
+        {data.news.length > 0 && (
+          <Card className="mt-6 p-4">
+            <p className="mb-2.5 text-[13px] font-medium text-ink-2">Market news</p>
+            <div className="flex flex-col">
+              {data.news.map((n, i) => (
+                <div key={`${n.symbol ?? "x"}-${i}`} className="border-t border-hairline py-2 first:border-t-0 first:pt-0">
+                  <span className="text-[13px] text-ink">{n.title}</span>
+                  <div className="mt-0.5 text-[11px] text-ink-3">
+                    {n.when ? formatDate(n.when) : ""}{n.when ? " · " : ""}{n.category}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        <p className="mt-8 border-t border-hairline pt-4 text-[11px] text-ink-4">
+          Indices &amp; breadth from the NIDP data lake; global indices, commodities and FX live from Yahoo Finance.
+          Each section refreshes automatically and falls back to its last value when a feed is briefly unavailable.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Small section heading with a leading icon + right-aligned caption. */
+function SectionHead({ icon: Icon, title, meta }: { icon: typeof Globe; title: string; meta?: string }) {
+  return (
+    <div className="mb-2.5 flex items-baseline justify-between gap-3">
+      <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink-2">
+        <Icon size={14} className="text-ink-3" /> {title}
+      </span>
+      {meta && <span className="text-[11px] text-ink-4">{meta}</span>}
+    </div>
+  );
+}
+
+/** One region row inside Global indices (renders nothing when empty). */
+function GlobalRegion({ label, quotes }: { label: string; quotes: GlobalQuote[] }) {
+  if (quotes.length === 0) return null;
+  return (
+    <div className="mt-2 first:mt-0">
+      <p className="mb-1.5 mt-3 text-[10.5px] font-semibold uppercase tracking-[0.13em] text-ink-4 first:mt-0">{label}</p>
+      <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
+        {quotes.map((q) => <QuoteCard key={q.name} q={q} />)}
+      </div>
+    </div>
+  );
+}
+
+/** Compact quote tile — global cues, world indices, commodities. */
+function QuoteCard({ q, featured }: { q: GlobalQuote; featured?: boolean }) {
+  const tone = toneFor(q.change_pct);
+  return (
+    <div className={cn(
+      "rounded-md border px-3.5 py-3 transition-colors",
+      featured
+        ? "border-[rgb(var(--pos)/0.25)] bg-[rgb(var(--pos)/0.06)] hover:bg-[rgb(var(--pos)/0.10)]"
+        : "border-hairline bg-surface-1 hover:bg-surface-2",
+    )}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-xs text-ink-2">{q.name}</span>
+        {q.sub && <span className="shrink-0 text-[10px] uppercase tracking-wide text-ink-4">{q.sub}</span>}
+      </div>
+      <div className="num mt-1.5 text-[19px] font-medium leading-none text-ink">{fmtQuote(q)}</div>
+      <div className={cn("mt-1.5 flex items-center gap-1 text-xs font-medium", TONE_TEXT[tone])}>
+        {tone === "pos" ? <ArrowUp size={12} /> : tone === "neg" ? <ArrowDown size={12} /> : null}
+        {fmtSignedPct(q.change_pct)}
+      </div>
+    </div>
+  );
+}
+
+// ── Live ticker tape ──────────────────────────────────────────────────────
+
+type TickItem = { label: string; value: string | null; pct: number | null };
+
+/** Flatten every real quote on the page into one scrolling tape. */
+function buildTickerItems(data: MarketsHome): TickItem[] {
+  const items: TickItem[] = [];
+  for (const ix of data.indices) {
+    items.push({ label: ix.name, value: ix.value == null ? null : numFmt.format(ix.value), pct: ix.change_pct });
+  }
+  for (const q of data.global_cues) {
+    items.push({ label: q.name, value: fmtQuote(q), pct: q.change_pct });
+  }
+  for (const region of [data.global_indices.us, data.global_indices.europe, data.global_indices.asia]) {
+    for (const q of region) items.push({ label: q.name, value: fmtQuote(q), pct: q.change_pct });
+  }
+  for (const q of data.commodities) {
+    items.push({ label: q.name, value: fmtQuote(q), pct: q.change_pct });
+  }
+  return items.filter((it) => it.pct != null || it.value != null);
+}
+
+function TickerTape({ data }: { data: MarketsHome }) {
+  const items = buildTickerItems(data);
+  if (items.length === 0) return null;
+  const live = data.market_state === "open";
+
+  // Two identical copies → the -50% marquee keyframe loops seamlessly.
+  const Tape = () => (
+    <div className="flex shrink-0 items-center" aria-hidden="false">
+      {items.map((it, i) => {
+        const tone = toneFor(it.pct);
+        return (
+          <span key={`${it.label}-${i}`} className="inline-flex items-center gap-2 whitespace-nowrap border-r border-hairline px-5 text-[13px] font-medium">
+            <span className="text-ink-3">{it.label}</span>
+            {it.value && <span className="num text-ink">{it.value}</span>}
+            <span className={cn("num inline-flex items-center gap-0.5 font-semibold", TONE_TEXT[tone])}>
+              {tone === "pos" ? <ArrowUp size={11} /> : tone === "neg" ? <ArrowDown size={11} /> : null}
+              {fmtSignedPct(it.pct)}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <div className="sticky top-0 z-30 flex h-12 items-stretch overflow-hidden border-b border-hairline-2 bg-[rgb(var(--bg)/0.86)] backdrop-blur">
+      <div className="flex shrink-0 items-center gap-2 border-r border-hairline bg-[rgb(var(--surface-2)/0.5)] px-5 text-[11px] font-bold uppercase tracking-[0.13em] text-ink-2">
+        <span className={cn("inline-block h-1.5 w-1.5 rounded-full", live ? "bg-pos" : "bg-ink-4")} />
+        <span className="hidden sm:inline">{live ? "Markets Live" : "Markets"}</span>
+      </div>
+
+      <div className="mkt-ticker-view relative flex flex-1 items-center overflow-hidden">
+        <div className="mkt-marquee flex w-max items-center">
+          <Tape />
+          <Tape />
+        </div>
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-gradient-to-r from-transparent to-bg" />
+      </div>
+
+      <Link
+        to="/portfolio"
+        className="flex shrink-0 items-center gap-1.5 border-l border-hairline bg-[rgb(var(--surface-2)/0.5)] px-5 text-[13px] font-medium text-ink-2 transition-colors hover:text-pos"
+      >
+        <Wallet size={14} /> <span className="hidden sm:inline">Portfolio</span>
+      </Link>
     </div>
   );
 }

@@ -197,6 +197,23 @@
   .bg-pos-soft { background-color: rgb(var(--pos) / 0.12); }
 }
 
+/* ─── Markets ticker tape ───
+   Seamless marquee: the inner track holds two identical copies of the tape,
+   so translating it by -50% lands exactly on the start of the second copy and
+   loops with no visible jump. Pauses on hover; respects reduced-motion. */
+@keyframes mkt-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@layer utilities {
+  .mkt-marquee { animation: mkt-marquee 90s linear infinite; will-change: transform; }
+  .mkt-ticker-view:hover .mkt-marquee { animation-play-state: paused; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mkt-marquee { animation: none; transform: none; }
+  .mkt-ticker-view { overflow-x: auto; }
+}
+
 /* Staggered widget reveal — while an answer streams, the card BUILDS in steps:
    each section (direct child of the widget's flex-col root) starts at height 0
    and grows to its natural height, in sequence, so the card gets taller as it

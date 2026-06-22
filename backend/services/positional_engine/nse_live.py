@@ -271,6 +271,148 @@ async def get_live_snapshot() -> Optional[Dict[str, Any]]:
     return parsed
 
 
+# ── Global cues, world indices & commodities ────────────────────────────
+# yfinance covers world indices, commodity futures and FX out of the box, so
+# the Markets page's "global cues", "global indices" and "commodities" rows
+# run off the same proxy as the NSE snapshot. US/Europe print their previous
+# close while Asia and futures tick live; period='2d' yields change vs the
+# prior session in every case. Nothing here is recomputed — it's a passthrough
+# of real Yahoo quotes, and any ticker Yahoo can't resolve simply drops out.
+
+GLOBAL_INDEX_TICKERS: List[tuple] = [
+    # (ticker, name, region, sub)
+    ("^DJI",      "Dow Jones",     "us",     "US"),
+    ("^GSPC",     "S&P 500",       "us",     "US"),
+    ("^IXIC",     "Nasdaq",        "us",     "US"),
+    ("^FTSE",     "FTSE 100",      "europe", "UK"),
+    ("^GDAXI",    "DAX",           "europe", "DE"),
+    ("^FCHI",     "CAC 40",        "europe", "FR"),
+    ("^STOXX50E", "Euro Stoxx 50", "europe", "EU"),
+    ("^N225",     "Nikkei 225",    "asia",   "JP"),
+    ("^HSI",      "Hang Seng",     "asia",   "HK"),
+    ("000001.SS", "Shanghai",      "asia",   "CN"),
+    ("^KS11",     "Kospi",         "asia",   "KR"),
+    ("^AXJO",     "ASX 200",       "asia",   "AU"),
+    ("^STI",      "Straits Times", "asia",   "SG"),
+]
+
+COMMODITY_TICKERS: List[tuple] = [
+    # (ticker, name, unit)
+    ("BZ=F", "Brent Crude", "$/bbl"),
+    ("CL=F", "WTI Crude",   "$/bbl"),
+    ("NG=F", "Natural Gas", "$/MMBtu"),
+    ("GC=F", "Gold",        "$/oz"),
+    ("SI=F", "Silver",      "$/oz"),
+]
+
+# "Global cues / pre-market" — the handful of prints that set the tone for the
+# Indian open. featured=True renders as the highlighted lead card. (GIFT Nifty
+# and the India 10Y G-Sec have no reliable free Yahoo feed, so we surface the
+# fetchable global tone-setters instead of faking those two.)
+CUE_TICKERS: List[tuple] = [
+    # (ticker, name, sub, featured)
+    ("ES=F",  "S&P 500 Futures", "pre-market", True),
+    ("INR=X", "USD / INR",       "spot",       False),
+    ("BZ=F",  "Brent Crude",     "$/bbl",      False),
+    ("^TNX",  "US 10Y Treasury", "yield %",    False),
+]
+
+_GLOBAL_TICKERS = sorted(
+    {t for t, *_ in GLOBAL_INDEX_TICKERS}
+    | {t for t, *_ in COMMODITY_TICKERS}
+    | {t for t, *_ in CUE_TICKERS}
+)
+
+_GLOBAL_CACHE: Dict[str, Any] = {"ts": 0.0, "data": None}
+
+
+def _fetch_global_batch() -> Dict[str, Dict[str, Any]]:
+    """Synchronous yfinance batch for world indices, commodity futures and FX.
+
+    Returns {ticker: {close, change_pct}} using the same 2-day window logic as
+    the NSE batch so change_pct is always vs the prior session.
+    """
+    import yfinance as yf
+    out: Dict[str, Dict[str, Any]] = {}
+    try:
+        data = yf.download(
+            " ".join(_GLOBAL_TICKERS),
+            period="2d",
+            interval="1d",
+            progress=False,
+            threads=True,
+        )
+        if data.empty or "Close" not in data.columns:
+            return out
+        for t in _GLOBAL_TICKERS:
+            try:
+                col = data["Close"][t] if len(_GLOBAL_TICKERS) > 1 else data["Close"]
+                series = col.dropna()
+                if len(series) >= 2:
+                    cur = float(series.iloc[-1])
+                    prev = float(series.iloc[-2])
+                    pct = (cur - prev) / prev * 100 if prev else None
+                    out[t] = {
+                        "close":      round(cur, 2),
+                        "change_pct": round(pct, 2) if pct is not None else None,
+                    }
+                elif len(series) == 1:
+                    out[t] = {"close": round(float(series.iloc[-1]), 2), "change_pct": None}
+            except (KeyError, IndexError, ValueError):
+                continue
+    except Exception as e:  # noqa: BLE001
+        logger.warning("yfinance global batch failed: %s", e)
+    return out
+
+
+async def get_global_snapshot() -> Optional[Dict[str, Any]]:
+    """Global cues, world indices (US / Europe / Asia) and commodities for the
+    Markets page. Cached 60s. Returns None only when we have no data at all
+    (no cache and the fetch failed)."""
+    now = time.time()
+    if _GLOBAL_CACHE["data"] and (now - _GLOBAL_CACHE["ts"]) < 60.0:
+        return _GLOBAL_CACHE["data"]
+
+    raw = await asyncio.to_thread(_fetch_global_batch)
+    if not raw:
+        return _GLOBAL_CACHE["data"]   # may be stale
+
+    def _quote(ticker, name, *, sub=None, region=None, unit=None, featured=False):
+        q = raw.get(ticker)
+        if not q or q.get("close") is None:
+            return None
+        return {
+            "name":       name,
+            "sub":        sub,
+            "value":      q.get("close"),
+            "change_pct": q.get("change_pct"),
+            "region":     region,
+            "unit":       unit,
+            "featured":   featured,
+        }
+
+    global_indices: Dict[str, List[Dict[str, Any]]] = {"us": [], "europe": [], "asia": []}
+    for t, name, region, sub in GLOBAL_INDEX_TICKERS:
+        q = _quote(t, name, sub=sub, region=region)
+        if q:
+            global_indices[region].append(q)
+
+    commodities = [q for t, name, unit in COMMODITY_TICKERS
+                   if (q := _quote(t, name, unit=unit))]
+    cues = [q for t, name, sub, featured in CUE_TICKERS
+            if (q := _quote(t, name, sub=sub, featured=featured))]
+
+    result = {
+        "global_cues":    cues,
+        "global_indices": global_indices,
+        "commodities":    commodities,
+        "fetched_at":     datetime.now(IST).isoformat(),
+    }
+    _GLOBAL_CACHE["data"] = result
+    _GLOBAL_CACHE["ts"] = now
+    return result
+
+
 # ── "Explore" lists: 52-week high / low + most active ───────────────────
 # One 1-year daily batch over the Nifty-50 universe gives us 52-week
 # high/low distance and the latest day's volume. Cached 5 min (52w levels

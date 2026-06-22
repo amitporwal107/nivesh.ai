@@ -8,6 +8,7 @@ duplicate anything:
   • top gainers / losers                  ← analytics.mv_top_momentum  (Nifty 500, latest EOD)
   • FII / DII cash flows                  ← nidp.fii_dii_flows         (EQUITY_CASH segment)
   • market news headlines                 ← nidp.corporate_event_signals (post-event AI signals)
+  • global cues / world indices / commodities ← positional_engine.nse_live global snapshot (Yahoo)
 
 One round of cheap SQL behind a market-hours-adaptive cache (30s open /
 300s closed) — this backs a dashboard, not a ticker.
@@ -217,6 +218,13 @@ async def markets_home(request: Request):
     except Exception as e:  # noqa: BLE001
         logger.debug("markets.home live snapshot failed: %s", e)
 
+    glob = None
+    try:
+        glob = await nse_live.get_global_snapshot()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("markets.home global snapshot failed: %s", e)
+    glob = glob or {}
+
     live = live or {}
     live_nifty = live.get("nifty50") or {}
     live_sensex = live.get("sensex") or {}
@@ -313,6 +321,9 @@ async def markets_home(request: Request):
         "sectors":      sectors,
         "fii_dii":      fii_dii,
         "news":         news,
+        "global_cues":    glob.get("global_cues", []),
+        "global_indices": glob.get("global_indices", {"us": [], "europe": [], "asia": []}),
+        "commodities":    glob.get("commodities", []),
     }
 
     _CACHE["ts"] = now
