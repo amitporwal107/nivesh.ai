@@ -23,11 +23,42 @@ import {
   EnrichedHoldingsRes,
   InstrumentSearchRes,
   SipsListRes,
+  ConcentrationBreakdownC,
 } from "@/services/contracts/portfolio.contract";
 import { mapHoldings } from "@/services/mappers/portfolio.mapper";
 import { realInsightsAdapter } from "./insights.adapter";
 import type { Holding } from "@/types/fund";
-import type { PortfolioSummary, NavPoint } from "@/types/portfolio";
+import type { PortfolioSummary, NavPoint, AllocationSlice, AssetClass } from "@/types/portfolio";
+
+/** Asset classes the UI knows how to colour/label. */
+const ALLOCATION_LABELS: Record<AssetClass, string> = {
+  equity: "Equity", debt: "Debt", hybrid: "Hybrid",
+  gold: "Gold", international: "International", cash: "Cash",
+};
+
+/**
+ * Map the backend `allocation_actual` object ({ equity: 66.9, hybrid: 33.1 })
+ * into the AllocationSlice[] the donut + Portfolio page expect. Backend gives
+ * only percentages, so per-class value is derived from the portfolio total.
+ * Returns [] for missing/garbage input — callers must tolerate an empty array.
+ */
+function mapAllocation(actual: unknown, totalValuePaise: number): AllocationSlice[] {
+  if (!actual || typeof actual !== "object") return [];
+  return Object.entries(actual as Record<string, unknown>)
+    .map(([key, raw]) => {
+      const pct = typeof raw === "number" ? raw : Number(raw);
+      if (!Number.isFinite(pct) || pct <= 0) return null;
+      const assetClass = key.toLowerCase() as AssetClass;
+      return {
+        assetClass,
+        label: ALLOCATION_LABELS[assetClass] ?? (key.charAt(0).toUpperCase() + key.slice(1)),
+        pct,
+        value: Math.round((pct / 100) * totalValuePaise),
+      } satisfies AllocationSlice;
+    })
+    .filter((s): s is AllocationSlice => s !== null)
+    .sort((a, b) => b.pct - a.pct);
+}
 
 export interface PortfolioAdapter {
   listHoldings(portfolioId?: string, assetType?: string): Promise<Holding[]>;
@@ -36,6 +67,7 @@ export interface PortfolioAdapter {
   getNavHistory(range: "1m" | "3m" | "6m" | "1y" | "all"): Promise<NavPoint[]>;
   searchInstruments(q: string): Promise<import("@/services/contracts/portfolio.contract").InstrumentSearchRes>;
   listSips(): Promise<import("@/services/contracts/portfolio.contract").SipsListRes>;
+  getConcentration(): Promise<import("@/services/contracts/portfolio.contract").ConcentrationBreakdownC>;
 }
 
 const DAYS_BY_RANGE: Record<string, number> = {
@@ -89,7 +121,7 @@ export const realPortfolioAdapter: PortfolioAdapter = {
       healthScore: health?.health.health_score ?? health?.health.score ?? 0,
       riskBucket: "moderate" as const,
       riskBucketIndex: 3,
-      allocation: [],
+      allocation: mapAllocation(enriched?.allocation_actual, totalValue),
       topInsights: [],
     };
   },
@@ -162,6 +194,14 @@ export const realPortfolioAdapter: PortfolioAdapter = {
     const res = await http({ path: "/api/portfolio/sips" });
     const parsed = SipsListRes.safeParse(res.data);
     if (!parsed.success) throw ApiError.contractDrift(`portfolio.listSips: ${parsed.error.message}`);
+    return parsed.data;
+  },
+
+  async getConcentration() {
+    // AMC / sector / company / group look-through (the Insights engine).
+    const res = await http({ path: "/api/portfolio/exposure/concentration" });
+    const parsed = ConcentrationBreakdownC.safeParse(res.data);
+    if (!parsed.success) throw ApiError.contractDrift(`portfolio.concentration: ${parsed.error.message}`);
     return parsed.data;
   },
 };

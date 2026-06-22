@@ -141,7 +141,7 @@ export function HoldingsTable({ holdings, className }: Props) {
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => tableBodyRef.current,
-    estimateSize: () => 48,
+    estimateSize: () => 64,
     overscan: 5,
   });
 
@@ -218,7 +218,7 @@ export function HoldingsTable({ holdings, className }: Props) {
               {holdings.length === 0 ? "No holdings here yet." : "No holdings match your filter."}
             </div>
           ) : (
-            <div ref={tableBodyRef} style={{ height: Math.min(rows.length * 48, 480), overflowY: "auto" }}>
+            <div ref={tableBodyRef} style={{ height: Math.min(rows.length * 64, 520), overflowY: "auto" }}>
               <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                   const h = rows[virtualRow.index];
@@ -244,9 +244,12 @@ export function HoldingsTable({ holdings, className }: Props) {
                           onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(var(--surface-3),0.5)")}
                           onMouseLeave={(e) => (e.currentTarget.style.background = "")}>
 
-                          {/* Name */}
-                          <td className="px-4 py-3 max-w-[220px]">
-                            <div className="font-medium text-[13px] truncate" title={h.name}>{h.name}</div>
+                          {/* Name — full canonical scheme/stock name (wraps to 2 lines) */}
+                          <td className="px-4 py-2.5 w-[40%] max-w-[360px]">
+                            <div className="font-medium text-[13px] leading-snug" title={h.name}
+                              style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                              {h.name}
+                            </div>
                             <div className="flex items-center gap-1.5 mt-0.5">
                               {h.isin && (
                                 <span className="text-[10px] opacity-35" style={{ fontFamily: "var(--font-mono)" }}>
@@ -298,11 +301,20 @@ export function HoldingsTable({ holdings, className }: Props) {
                             {pctCell(h.xirr_pct)}
                           </td>
 
-                          {/* vs Benchmark */}
+                          {/* vs Benchmark — relative delta + the index it's measured against */}
                           <td className="px-4 py-3 text-right text-[12px]">
-                            {unmatched
-                              ? <span className="opacity-30" aria-label="benchmark data unavailable — fund not AMFI-matched">—</span>
-                              : pctCell(any.benchmark_delta)}
+                            {unmatched ? (
+                              <span className="opacity-30" aria-label="benchmark data unavailable — fund not AMFI-matched">—</span>
+                            ) : (
+                              <div className="flex flex-col items-end leading-tight">
+                                {pctCell(h.benchmark_delta)}
+                                {h.benchmark_label && (
+                                  <span className="text-[9.5px] opacity-40 mt-0.5" style={{ fontFamily: "var(--font-mono)" }}>
+                                    vs {h.benchmark_label}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </td>
 
                           {/* Action */}

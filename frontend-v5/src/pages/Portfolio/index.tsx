@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { usePortfolioSummary, useHoldingsEnriched, usePortfolioSips } from "@/hooks/use-portfolio";
+import { usePortfolioSummary, useHoldingsEnriched, usePortfolioSips, usePortfolioConcentration } from "@/hooks/use-portfolio";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -10,6 +10,7 @@ export default function PortfolioPage() {
   const summary = usePortfolioSummary();
   const enriched = useHoldingsEnriched();
   const sips = usePortfolioSips();
+  const concentration = usePortfolioConcentration();
 
   if (summary.isPending || enriched.isPending) {
     return (
@@ -39,5 +40,12 @@ export default function PortfolioPage() {
     );
   }
 
-  return <Portfolio summary={summary.data!} enriched={enriched.data} sips={sips.data ?? null} />;
+  return (
+    <Portfolio
+      summary={summary.data!}
+      enriched={enriched.data}
+      sips={sips.data ?? null}
+      concentration={concentration.data ?? null}
+    />
+  );
 }

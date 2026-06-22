@@ -43,3 +43,11 @@ export function usePortfolioSips() {
     queryFn: () => portfolioService.listSips(),
   });
 }
+
+/** AMC / sector / company look-through for the Allocation tab. */
+export function usePortfolioConcentration() {
+  return useQuery({
+    queryKey: ["portfolio", "concentration"],
+    queryFn: () => portfolioService.getConcentration(),
+  });
+}

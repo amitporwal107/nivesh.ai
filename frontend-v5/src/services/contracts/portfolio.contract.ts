@@ -84,6 +84,14 @@ export const EnrichedHoldingC = z.object({
   cost_basis_source: z.string().nullable().optional(),
   action_badge:     z.union([z.string(), ActionBadgeObjectC]).nullable().optional(),
   amfi_matched:     z.boolean().optional(),
+  // Benchmark — backend (portfolio_enrichment) sends these per holding; typed so
+  // the Holdings table can show the index name alongside the relative delta.
+  benchmark_name:        z.string().nullable().optional(),  // e.g. "nifty_50"
+  benchmark_label:       z.string().nullable().optional(),  // e.g. "Nifty 50"
+  benchmark_delta:       z.number().nullable().optional(),  // fund − benchmark return (pp)
+  cagr_1y_pct:           z.number().nullable().optional(),
+  benchmark_cagr_1y_pct: z.number().nullable().optional(),
+  benchmark_cagr_3y_pct: z.number().nullable().optional(),
 }).passthrough();
 
 export const EnrichedHoldingsRes = z.object({
@@ -130,15 +138,43 @@ export const TrendRes = z.object({
 }).passthrough();
 export type TrendRes = z.infer<typeof TrendRes>;
 
-/** /api/portfolio/exposure/concentration — shape is documented in the index
- *  comment but the path body isn't declared in portfolio.yaml. Keeping the
- *  loose passthrough until backend ships the schema. */
+/** /api/portfolio/exposure/concentration — AMC / sector / company / group
+ *  look-through, served by routes/portfolio_exposure.py (compute_concentration).
+ *  Each axis is `{ items: [...], hhi, effective_n, largest_pct, warning, ... }`.
+ *  Fields beyond the ones declared here flow through via .passthrough(). */
+export const ConcentrationItemC = z.object({
+  name:         z.string(),
+  value_inr:    z.number().nullable().optional(),
+  pct:          z.number().nullable().optional(),   // axis-relative % (AMC=of MF corpus, etc.)
+  count:        z.number().int().nullable().optional(),
+  funds:        z.array(z.string()).nullable().optional(),     // AMC axis: member fund names
+  sector:       z.string().nullable().optional(),              // company axis
+  group:        z.string().nullable().optional(),              // company axis
+  cross_held:   z.boolean().nullable().optional(),
+  routes_count: z.number().int().nullable().optional(),
+}).passthrough();
+export type ConcentrationItemC = z.infer<typeof ConcentrationItemC>;
+
+export const ConcentrationAxisC = z.object({
+  items:           z.array(ConcentrationItemC).nullable().optional(),
+  all_items_count: z.number().int().nullable().optional(),
+  hhi:             z.number().nullable().optional(),
+  effective_n:     z.number().nullable().optional(),
+  largest_pct:     z.number().nullable().optional(),
+  top5_pct:        z.number().nullable().optional(),
+  warning:         z.string().nullable().optional(),
+}).passthrough();
+export type ConcentrationAxisC = z.infer<typeof ConcentrationAxisC>;
+
 export const ConcentrationBreakdownC = z.object({
-  total_value:     z.number().optional(),
-  holdings_count:  z.number().int().optional(),
-  amc:             z.unknown().optional(),
-  sector:          z.unknown().optional(),
-  company:         z.unknown().optional(),
+  total_value:          z.number().nullable().optional(),
+  holdings_count:       z.number().int().nullable().optional(),
+  lookthrough_coverage: z.number().nullable().optional(),
+  empty:                z.boolean().optional(),
+  amc:                  ConcentrationAxisC.optional(),
+  sector:               ConcentrationAxisC.optional(),
+  company:              ConcentrationAxisC.optional(),
+  group:                ConcentrationAxisC.optional(),
 }).passthrough();
 
 /** Instrument search result row. */

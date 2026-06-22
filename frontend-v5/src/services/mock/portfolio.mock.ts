@@ -65,6 +65,32 @@ export const mockPortfolioAdapter: PortfolioAdapter = {
     await delay(180);
     return [];
   },
+  async getConcentration() {
+    await delay(260);
+    const total = mockHoldings.reduce((s, h) => s + h.marketValue, 0) / 100;
+    const sectorItems = [
+      { name: "Financial Services", value_inr: total * 0.31, pct: 31 },
+      { name: "Information Technology", value_inr: total * 0.18, pct: 18 },
+      { name: "Energy", value_inr: total * 0.11, pct: 11 },
+    ];
+    const companyItems = [
+      { name: "HDFC Bank", value_inr: total * 0.085, pct: 8.5, sector: "Financial Services" },
+      { name: "Reliance Industries", value_inr: total * 0.072, pct: 7.2, sector: "Energy" },
+      { name: "ICICI Bank", value_inr: total * 0.061, pct: 6.1, sector: "Financial Services" },
+    ];
+    const amcItems = [
+      { name: "ICICI Prudential", value_inr: total * 0.34, pct: 34, count: 4, funds: ["ICICI Pru Bluechip", "ICICI Pru Value Discovery"] },
+      { name: "Mirae Asset", value_inr: total * 0.22, pct: 22, count: 2, funds: ["Mirae Asset Large Cap"] },
+    ];
+    return {
+      total_value: total,
+      holdings_count: mockHoldings.length,
+      empty: false,
+      sector:  { items: sectorItems },
+      company: { items: companyItems },
+      amc:     { items: amcItems },
+    };
+  },
   async listSips() {
     await delay(220);
     return {
