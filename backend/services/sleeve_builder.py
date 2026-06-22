@@ -1,13 +1,20 @@
-"""Sleeve-based portfolio builder — risk sets the asset-class budget; quality+
-returns set the sub-category split.
+"""Sleeve-based portfolio builder — executes the governed allocation policy.
 
-For a risk profile we take the asset-class budget (equity/intl/hybrid/gold/debt/
-cash) and, WITHIN each asset class, split that budget across the eligible
-sub-category sleeves in proportion to the avg V3 quality_score of each sleeve's
-top funds. V3 quality is ~45% returns + risk-adjusted performance, so the split
-is driven by quality ranking and returns — gated by the risk budget + per-profile
-eligibility. Funds are real, ranked NIDP V3 picks (services.copilot_tools.
-daas_client). Glue + sourcing; no new modelling.
+Reads services.allocation_policy (config/allocation_policy.yaml) and builds the
+portfolio per the Investment-Committee methodology:
+
+  L1  strategic allocation by risk profile x horizon  -> equity/debt/gold/cash %
+  L2  core-satellite split (equity) + debt-by-horizon -> governed sub-sleeves
+  L3  instrument selection by quality_score           -> ONLY when Compliance has
+      enabled named-scheme output (compliance.mf_recommendations_mode ==
+      named_scheme). Default is category_and_model: we surface the allocation
+      MODEL + category-level guidance + disclaimer, with NO named schemes.
+
+We do not invent weights the policy does not declare. The YAML governs the
+core/satellite split but not the split among core members (index vs large) or
+satellite members (flexi vs mid/small); those are therefore presented at the
+governed core/satellite granularity, listing the member categories. Debt IS
+split by the governed by-horizon table, so it carries a real category breakdown.
 """
 from __future__ import annotations
 
@@ -17,102 +24,146 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# Instrument-kind -> display label + the NIDP V3 sub_category used to rank funds
+# in named-scheme mode (Layer 3). Labels are what category_and_model output shows.
+_KIND = {
+    "equity_index_fund": {"label": "Index Funds",       "sub_category": "Index Funds",        "fund_category": "equity"},
+    "large_cap_fund":    {"label": "Large Cap",         "sub_category": "Large Cap Fund",      "fund_category": "equity"},
+    "flexi_cap_fund":    {"label": "Flexi Cap",         "sub_category": "Flexi Cap Fund",      "fund_category": "equity"},
+    "mid_small_fund":    {"label": "Mid / Small Cap",   "sub_category": "Mid Cap Fund",        "fund_category": "equity"},
+    "thematic_basket":   {"label": "Thematic",          "sub_category": "Sectoral/ Thematic",  "fund_category": "equity"},
+    "direct_stock":      {"label": "Direct Stocks",     "sub_category": None,                  "fund_category": None},
+    "corporate_bond_fund": {"label": "Corporate Bond",  "sub_category": "Corporate Bond Fund", "fund_category": "debt"},
+    "short_duration_fund": {"label": "Short Duration",  "sub_category": "Short Duration Fund", "fund_category": "debt"},
+    "gilt_fund":         {"label": "Gilt",              "sub_category": "Gilt Fund",           "fund_category": "debt"},
+    "banking_psu_fund":  {"label": "Banking & PSU",     "sub_category": "Banking and PSU Fund","fund_category": "debt"},
+    "gold_etf":          {"label": "Gold",              "sub_category": "Gold",                "fund_category": None},
+    "liquid_fund":       {"label": "Liquid / Cash",     "sub_category": "Liquid Fund",         "fund_category": "liquid"},
+}
 
-def _fund_view(r: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "scheme_name": r.get("scheme_name"),
-        "scheme_code": r.get("scheme_code"),
-        "isin": r.get("isin"),
-        "sub_category": r.get("sub_category"),
-        "quality_score": r.get("quality_score"),
-        "health_score": r.get("health_score"),
-        "quality_coverage_pct": r.get("quality_coverage_pct"),
-    }
 
-
-def _avg_quality(funds: List[Dict[str, Any]]) -> float:
-    qs = [float(f["quality_score"]) for f in funds if f.get("quality_score") is not None]
-    return round(sum(qs) / len(qs), 1) if qs else 0.0
+def _kinds_labels(kinds: List[str]) -> List[str]:
+    return [_KIND[k]["label"] for k in kinds if k in _KIND]
 
 
 async def build_sleeve_portfolio(
     risk_profile: str,
     *,
+    horizon_years: float = 10.0,
     monthly_sip_rs: Optional[float] = None,
     lumpsum_rs: Optional[float] = None,
     n_per_sleeve: int = 2,
 ) -> Dict[str, Any]:
-    """Build the guided sleeve portfolio for a risk profile.
+    """Build the governed portfolio for a risk profile + horizon.
 
-    Returns {risk_profile, allocation{asset_class:pct}, sleeves[...], totals}.
-    Each sleeve: {key,label,asset_class,sub_category,target_pct,avg_quality,
-    weight_basis,monthly_sip_rs,lumpsum_rs,funds[...]}.
+    Returns the asset-class allocation, the governed sub-sleeve model (category
+    level), compliance metadata and (only in named_scheme mode) ranked funds.
     """
-    from services import sleeve_templates as _st
-    from services.copilot_tools import daas_client as _dc
+    from services import allocation_policy as _p
 
-    budget = _st.asset_budget(risk_profile)          # risk-driven asset-class %
-    elig = _st.eligible_sleeves(risk_profile)        # {asset_class: [sleeve dicts]}
+    # Capacity override + horizon bucket (policy rules).
+    profile = _p.apply_capacity_caps(risk_profile, horizon_years)
+    hb = _p.horizon_bucket(horizon_years)
 
-    # Flatten eligible sleeves and fetch every sleeve's funds concurrently.
-    flat: List[Dict[str, Any]] = [s for ac in _st.ASSET_ORDER for s in elig.get(ac, [])]
+    # L1 — strategic allocation (% of total).
+    strat = _p.strategic_allocation(profile, hb)  # {equity,debt,gold,cash}
 
-    async def _fill(sleeve: Dict[str, Any]) -> List[Dict[str, Any]]:
-        try:
-            rows = await _dc.get_top_funds_by_subcategory(
-                sleeve.get("fund_category"), sleeve["sub_category"], n=n_per_sleeve,
-            )
-        except Exception as e:  # noqa: BLE001 — one dead sleeve must not sink the build
-            logger.warning("sleeve fill failed for %s: %s", sleeve.get("key"), e)
-            return []
-        return [_fund_view(r) for r in rows]
+    sleeves: List[Dict[str, Any]] = []
 
-    fund_lists = await asyncio.gather(*(_fill(s) for s in flat))
-    funds_by_key = {s["key"]: fl for s, fl in zip(flat, fund_lists)}
+    def _add(key, asset_class, label, detail, members, pct):
+        if pct <= 0:
+            return
+        sleeves.append({
+            "key": key, "asset_class": asset_class, "label": label, "detail": detail,
+            "category_members": _kinds_labels(members),
+            "_member_kinds": members,
+            "target_pct": round(pct, 1),
+            "funds": [],  # filled only in named-scheme mode
+        })
 
+    # L2 equity — core / satellite (governed split; present at that granularity).
+    eq = float(strat.get("equity", 0) or 0)
+    if eq > 0:
+        cs = _p.core_satellite_split(profile)            # % of equity sleeve
+        members = _p.equity_members()
+        sat_cap = float(_p.caps().get("max_satellite_total_of_equity", 0.45)) * 100.0
+        sat_pct_of_sleeve = min(float(cs.get("satellite", 0)), sat_cap)
+        core_pct_of_sleeve = 100.0 - sat_pct_of_sleeve
+        # Drop direct_stock from satellite members unless Compliance enabled stocks.
+        sat_members = [m for m in members["satellite"] if m != "direct_stock" or _p.stocks_allowed()]
+        _add("equity_core", "equity", "Equity - Core", "Index & Large-cap",
+             members["core"], eq * core_pct_of_sleeve / 100.0)
+        _add("equity_satellite", "equity", "Equity - Satellite", "Flexi & Mid/Small-cap",
+             sat_members, eq * sat_pct_of_sleeve / 100.0)
+
+    # L2 debt — governed by-horizon split (real category breakdown).
+    dt = float(strat.get("debt", 0) or 0)
+    if dt > 0:
+        for kind, pct_of_sleeve in _p.debt_split(hb).items():
+            info = _KIND.get(kind, {"label": kind})
+            _add(f"debt_{kind}", "debt", info["label"], "Debt", [kind], dt * float(pct_of_sleeve) / 100.0)
+
+    # Gold + Cash — single sleeves.
+    _add("gold", "gold", "Gold", "Inflation hedge", ["gold_etf"], float(strat.get("gold", 0) or 0))
+    _add("cash", "cash", "Liquid / Cash", "Liquidity", ["liquid_fund"], float(strat.get("cash", 0) or 0))
+
+    # SIP / lumpsum split pro-rata to each sub-sleeve's % of total.
     sip = float(monthly_sip_rs or 0)
     lump = float(lumpsum_rs or 0)
-    out_sleeves: List[Dict[str, Any]] = []
-    alloc: Dict[str, float] = {}
-    n_funds = 0
+    for s in sleeves:
+        share = s["target_pct"] / 100.0
+        s["monthly_sip_rs"] = round(sip * share) if sip else None
+        s["lumpsum_rs"] = round(lump * share) if lump else None
 
-    for ac in _st.ASSET_ORDER:
-        ac_budget = float(budget.get(ac, 0) or 0)
-        sleeves = elig.get(ac, [])
-        if ac_budget <= 0 or not sleeves:
-            continue
-        scored = [(s, funds_by_key.get(s["key"], []), _avg_quality(funds_by_key.get(s["key"], []))) for s in sleeves]
-        # weight by avg quality; only sleeves that actually have funds get budget.
-        funded = [x for x in scored if x[2] > 0 and x[1]]
-        pool = funded if funded else scored
-        tot_q = sum(x[2] for x in pool)
-        for s, funds, avgq in pool:
-            # quality-weighted within the asset class; equal split only if no
-            # quality signal at all (keeps the asset-class budget intact).
-            w = (avgq / tot_q) if tot_q > 0 else (1.0 / len(pool))
-            pct = round(ac_budget * w, 1)
-            share = pct / 100.0
-            out_sleeves.append({
-                "key": s["key"],
-                "label": s["label"],
-                "asset_class": ac,
-                "sub_category": s["sub_category"],
-                "target_pct": pct,
-                "avg_quality": avgq,
-                "weight_basis": "quality" if tot_q > 0 else "equal",
-                "monthly_sip_rs": round(sip * share) if sip else None,
-                "lumpsum_rs": round(lump * share) if lump else None,
-                "funds": funds,
-            })
-            alloc[ac] = round(alloc.get(ac, 0.0) + pct, 1)
-            n_funds += len(funds)
+    # L3 — named-scheme selection ONLY if Compliance enabled it.
+    names_on = _p.names_allowed()
+    if names_on:
+        from services.copilot_tools import daas_client as _dc
 
+        async def _fill(s: Dict[str, Any]) -> None:
+            kinds = [k for k in s["_member_kinds"] if _KIND.get(k, {}).get("sub_category")]
+            picks: List[Dict[str, Any]] = []
+            for k in kinds:
+                info = _KIND[k]
+                try:
+                    rows = await _dc.get_top_funds_by_subcategory(info["fund_category"], info["sub_category"], n=n_per_sleeve)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("L3 fill %s/%s: %s", s["key"], k, e)
+                    rows = []
+                picks.extend({"scheme_name": r.get("scheme_name"), "isin": r.get("isin"),
+                              "sub_category": r.get("sub_category"), "quality_score": r.get("quality_score")}
+                             for r in rows)
+            # cap: max holdings per sub-sleeve
+            cap = int(_p.caps().get("max_holdings_per_sub_sleeve", 3))
+            s["funds"] = picks[:cap]
+        await asyncio.gather(*(_fill(s) for s in sleeves))
+
+    for s in sleeves:
+        s.pop("_member_kinds", None)
+
+    alloc = {ac: round(sum(s["target_pct"] for s in sleeves if s["asset_class"] == ac), 1)
+             for ac in ("equity", "debt", "gold", "cash")}
+
+    comp = _p.compliance()
     return {
-        "risk_profile": (risk_profile or "moderate").lower(),
-        "allocation": alloc,
-        "sleeves": out_sleeves,
-        "totals": {"monthly_sip_rs": monthly_sip_rs, "lumpsum_rs": lumpsum_rs, "n_funds": n_funds},
-        "methodology": "Risk sets the asset-class budget; each sleeve's share of that "
-                       "budget is proportional to the average V3 quality (which embeds "
-                       "returns + risk-adjusted performance) of its top-ranked funds.",
+        "risk_profile": profile,
+        "requested_profile": (risk_profile or "moderate"),
+        "horizon_years": horizon_years,
+        "horizon_bucket": hb,
+        "allocation": alloc,                 # asset-class rollup (= L1 strategic)
+        "sleeves": sleeves,                  # governed sub-sleeve model (category level)
+        "compliance": {
+            "mode": comp.get("mf_recommendations_mode"),
+            "names_allowed": names_on,
+            "stocks_allowed": _p.stocks_allowed(),
+            "registration": comp.get("registration"),
+            "disclaimer": ("This is model and category-level guidance, not a recommendation "
+                           "of specific schemes or stocks. Mutual funds are subject to market risk."
+                           if _p.disclaimer_required() else None),
+        },
+        "policy_version": _p.version(),
+        "methodology": ("Strategic allocation by risk profile x horizon; equity split core/"
+                        "satellite and debt split by horizon per the governed allocation policy. "
+                        "Named schemes are shown only when Compliance enables named-scheme output."),
+        "totals": {"monthly_sip_rs": monthly_sip_rs, "lumpsum_rs": lumpsum_rs},
     }

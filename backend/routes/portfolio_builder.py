@@ -92,6 +92,7 @@ class SleeveBuilderRequest(BaseModel):
     monthly_sip_rs: Optional[float] = Field(None, ge=0)
     lumpsum_rs: Optional[float] = Field(None, ge=0)
     risk_bucket: Optional[str] = None  # override; else read the user's saved profile
+    horizon_years: float = Field(10.0, gt=0, le=100)
     n_per_sleeve: int = Field(2, ge=1, le=5)
 
 
@@ -116,6 +117,7 @@ async def generate_sleeves(payload: SleeveBuilderRequest, request: Request):
     from services import sleeve_builder as _sb
     return await _sb.build_sleeve_portfolio(
         profile,
+        horizon_years=payload.horizon_years,
         monthly_sip_rs=payload.monthly_sip_rs,
         lumpsum_rs=payload.lumpsum_rs,
         n_per_sleeve=payload.n_per_sleeve,

@@ -1,0 +1,209 @@
+# =============================================================================
+# Nivesh Copilot - Allocation Policy
+# Source of truth for sleeve definitions, strategic weights, caps and rules.
+# The portfolio builder, selection wizard and simulation engine all read this.
+#
+# Editing this file changes the product's house view. Treat it as governed
+# config: every change is reviewed and signed off by the Investment Committee
+# (see methodology document) before it ships.
+# =============================================================================
+
+meta:
+  version: "1.0.0"
+  last_reviewed: "2026-06-22"
+  owner: "Investment Committee"
+  review_cadence_months: 6
+  currency: INR
+
+# -----------------------------------------------------------------------------
+# Capital-market assumptions (annual, nominal). The same numbers drive the
+# simulation engine. These are house assumptions, NOT trailing returns - do not
+# set expected_return from a fund's past performance.
+# -----------------------------------------------------------------------------
+risk_free_rate: 0.06
+
+capital_market_assumptions:
+  equity: { expected_return: 0.11, volatility: 0.18 }
+  debt:   { expected_return: 0.07, volatility: 0.04 }
+  gold:   { expected_return: 0.08, volatility: 0.14 }
+  cash:   { expected_return: 0.06, volatility: 0.012 }
+
+# Correlation matrix between asset sleeves (order: equity, debt, gold, cash).
+# Used for risk-budgeting and as the factor backbone of the simulation.
+asset_correlations:
+  order: [equity, debt, gold, cash]
+  matrix:
+    - [ 1.00, -0.15,  0.10,  0.00 ]
+    - [-0.15,  1.00,  0.10,  0.15 ]
+    - [ 0.10,  0.10,  1.00,  0.00 ]
+    - [ 0.00,  0.15,  0.00,  1.00 ]
+
+# -----------------------------------------------------------------------------
+# Layer 1 - Sleeves. A sleeve is allocatable only if it passes the qualification
+# gate (see methodology). Each carries a single job, a factor, a benchmark and
+# hard min/max bands (% of TOTAL portfolio).
+# -----------------------------------------------------------------------------
+sleeves:
+  equity:
+    name: "Equity"
+    job: "growth"
+    factor: "equity_beta"
+    role: "strategic"
+    benchmark: "NIFTY 500 TRI"
+    band: { min: 0.00, max: 0.85 }
+    eligible_instruments: [equity_index_fund, flexi_cap_fund, large_cap_fund, mid_small_fund, direct_stock, thematic_basket]
+  debt:
+    name: "Debt"
+    job: "stability"
+    factor: "duration_credit"
+    role: "strategic"
+    benchmark: "CRISIL Composite Bond"
+    band: { min: 0.05, max: 0.80 }
+    eligible_instruments: [corporate_bond_fund, short_duration_fund, gilt_fund, banking_psu_fund]
+  gold:
+    name: "Gold"
+    job: "inflation_hedge"
+    factor: "gold"
+    role: "strategic"
+    benchmark: "Domestic gold price"
+    band: { min: 0.00, max: 0.15 }
+    eligible_instruments: [gold_etf, sovereign_gold_bond]
+  cash:
+    name: "Liquid"
+    job: "liquidity"
+    factor: "cash"
+    role: "strategic"
+    benchmark: "CRISIL Liquid"
+    band: { min: 0.00, max: 0.30 }
+    eligible_instruments: [liquid_fund, overnight_fund]
+
+# -----------------------------------------------------------------------------
+# Layer 1 - Strategic asset allocation (policy weights, % of total).
+# Indexed by risk profile then horizon bucket. These weights are set to respect
+# the risk budget below, not by capital intuition.
+#   horizon buckets: short < 3y, medium 3-7y, long > 7y
+# -----------------------------------------------------------------------------
+strategic_allocation:
+  Conservative:
+    short:  { equity: 10, debt: 60, gold: 5,  cash: 25 }
+    medium: { equity: 25, debt: 60, gold: 10, cash: 5 }
+    long:   { equity: 40, debt: 45, gold: 10, cash: 5 }
+  Moderate:
+    short:  { equity: 25, debt: 55, gold: 5,  cash: 15 }
+    medium: { equity: 50, debt: 35, gold: 10, cash: 5 }
+    long:   { equity: 65, debt: 25, gold: 10, cash: 0 }
+  Aggressive:
+    short:  { equity: 40, debt: 40, gold: 5,  cash: 15 }
+    medium: { equity: 70, debt: 20, gold: 10, cash: 0 }
+    long:   { equity: 80, debt: 12, gold: 8,  cash: 0 }
+
+# Risk budget: no single sleeve may contribute more than this share of total
+# portfolio variance. Checked at allocation time; if breached, trim the sleeve.
+risk_budget:
+  max_risk_contribution_per_sleeve: 0.80   # equity will dominate; cap its share
+  method: "equal_risk_contribution_target" # target ERC, allow drift to caps
+
+# Risk-profile scoring (maps the questionnaire to a profile).
+# raw score = sum of answer values (each 1-4) across 5 questions, range 5-20.
+risk_profiling:
+  thresholds: { Conservative: [5, 9], Moderate: [10, 15], Aggressive: [16, 20] }
+  capacity_caps:
+    - { when: "horizon_years < 3", cap_profile_at: "Moderate" }
+    - { when: "horizon_years < 2", cap_profile_at: "Conservative" }
+
+# -----------------------------------------------------------------------------
+# Layer 2 - Sub-sleeves via core-satellite. Splits are % of the PARENT sleeve.
+# Core = cheap, broad, reliable. Satellite = conviction, capped.
+# -----------------------------------------------------------------------------
+sub_sleeves:
+  equity:
+    core_satellite_split:           # % of the equity sleeve
+      Conservative: { core: 85, satellite: 15 }
+      Moderate:     { core: 70, satellite: 30 }
+      Aggressive:   { core: 55, satellite: 45 }
+    core:
+      members: [equity_index_fund, large_cap_fund]
+    satellite:
+      members: [flexi_cap_fund, mid_small_fund, thematic_basket, direct_stock]
+      max_total_pct_of_sleeve: 45   # never exceed even for Aggressive
+  debt:
+    by_horizon:                     # debt mix shifts with horizon
+      short:  { short_duration_fund: 70, corporate_bond_fund: 30 }
+      medium: { corporate_bond_fund: 70, banking_psu_fund: 30 }
+      long:   { corporate_bond_fund: 60, gilt_fund: 40 }
+
+# -----------------------------------------------------------------------------
+# Caps & guardrails. Percentages are of TOTAL portfolio unless noted.
+# -----------------------------------------------------------------------------
+caps:
+  max_single_instrument: 0.25         # any one fund
+  max_single_stock: 0.05              # any one direct stock
+  max_direct_stock_total: 0.20        # all direct stocks combined
+  max_thematic_total: 0.10            # all thematic baskets combined
+  max_satellite_total_of_equity: 0.45 # satellites as share of equity sleeve
+  max_holdings_per_sub_sleeve: 3
+  min_holding_weight: 0.02            # below this, don't bother (complexity)
+
+# -----------------------------------------------------------------------------
+# Layer 3 - Instrument selection. The quality score ranks the eligible universe;
+# top names fill each sub-sleeve subject to the caps above.
+# -----------------------------------------------------------------------------
+selection:
+  rank_by: "quality_score"
+  min_quality_score: 55
+  # MF score weights retune to the investor's profile (the house tilt).
+  mf_score_weights:
+    Conservative: { risk_adjusted: 22, return_vs_category: 15, consistency: 25, cost: 18, size: 12, manager_tenure: 8 }
+    Moderate:     { risk_adjusted: 25, return_vs_category: 22, consistency: 20, cost: 13, size: 10, manager_tenure: 10 }
+    Aggressive:   { risk_adjusted: 25, return_vs_category: 30, consistency: 15, cost: 8,  size: 12, manager_tenure: 10 }
+  stock_score_weights:
+    profitability: 25
+    growth: 20
+    balance_sheet: 20
+    valuation: 15
+    cash_flow: 10
+    governance: 10
+  overlap_guard:
+    max_holdings_overlap: 0.40        # reject a 2nd fund if >40% holdings overlap
+
+# -----------------------------------------------------------------------------
+# Glide path - de-risk as the goal approaches. Applied on top of the strategic
+# weights once the remaining horizon enters the taper window.
+# -----------------------------------------------------------------------------
+glide_path:
+  taper_start_years: 5
+  per_year_equity_to_debt_shift: 0.07 # move 7pts equity -> debt each year in window
+  final_2_years:
+    max_equity: 0.20
+    min_liquid: 0.10
+
+# -----------------------------------------------------------------------------
+# Rebalancing - calendar + threshold bands, cost/tax aware.
+# -----------------------------------------------------------------------------
+rebalancing:
+  calendar: "semi_annual"
+  drift_threshold_pct: 5              # rebalance a sleeve if it drifts > 5 pts
+  use_fresh_flows_first: true         # steer new SIP to underweight sleeves
+  tax_aware: true                     # prefer flows over redemptions; mind LTCG/STCG
+
+# -----------------------------------------------------------------------------
+# Validation - proposed weights must clear these simulation gates before a
+# portfolio is shown to the user. Run the Monte Carlo, then check.
+# -----------------------------------------------------------------------------
+validation:
+  simulation_paths: 2000
+  gates:
+    min_probability_of_target: 0.60   # advisory; warn user if below, don't block
+    max_median_drawdown: 0.45         # block if a "moderate" mix can dip this hard
+    enforce_risk_budget: true
+  on_fail: "surface_warning_and_suggest_adjustment"
+
+# -----------------------------------------------------------------------------
+# Regulatory flags - these change what the product may OUTPUT, not the maths.
+# Confirm the active registration with Compliance before enabling stock output.
+# -----------------------------------------------------------------------------
+compliance:
+  registration: "TBD"                 # one of: RIA | research_analyst | mf_distributor
+  direct_stock_recommendations_enabled: false
+  mf_recommendations_mode: "category_and_model"  # vs "named_scheme" (needs RIA)
+  disclaimer_required: true
