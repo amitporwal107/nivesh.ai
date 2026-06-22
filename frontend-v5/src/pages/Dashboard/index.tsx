@@ -146,8 +146,9 @@ export default function DashboardPage() {
         onRiskProfileSaved={invalidateAll}
       />
       {/* Relocated Portfolio view — the holdings deep-dive now lives on the Dashboard.
-          Self-fetching (enriched holdings + SIPs) with its own loading/empty gates. */}
-      {hasHoldings && <PortfolioSection />}
+          Self-fetching (enriched holdings + SIPs) with its own loading/empty/error gates,
+          so it renders off its OWN data (not the basic-holdings flag above). */}
+      <PortfolioSection />
     </>
   );
 }
