@@ -901,6 +901,15 @@ async def get_stock_research(symbol: str) -> InstrumentResearch:
     except Exception as exc:  # noqa: BLE001
         return InstrumentResearch(ok=False, kind="stock", identifier=sym, summary="", error=str(exc))
 
+    # Distinguish a genuine "no data for this symbol" (DaaS 404 → None) from a
+    # transient source OUTAGE (DaaS 5xx / timeout / DB in recovery). On an outage
+    # the uncaught helpers (get_stock_features_latest / _history do NOT swallow
+    # DaasError) surface here as Exception instances; coercing them to None below
+    # would mislabel the outage as "not_found", which the chat then renders as the
+    # misleading generic "couldn't retrieve the data" — reading as if the stock is
+    # unsupported when the feed is merely down. Detect it before coercion.
+    source_down = isinstance(feat, Exception) or isinstance(hist, Exception)
+
     feat = feat if isinstance(feat, dict) else None
     scores = scores if isinstance(scores, dict) else None
     quarterly = fin.rows if (not isinstance(fin, Exception) and getattr(fin, "ok", False)) else None
@@ -908,7 +917,9 @@ async def get_stock_research(symbol: str) -> InstrumentResearch:
     if not feat and not scores:
         return InstrumentResearch(
             ok=False, kind="stock", identifier=sym,
-            summary=f"No research data available for {sym}", error="not_found",
+            summary=(f"Market-data service temporarily unavailable for {sym}"
+                     if source_down else f"No research data available for {sym}"),
+            error=("source_unavailable" if source_down else "not_found"),
         )
 
     # features/latest carries no prev_close, so inject the prior trading day's

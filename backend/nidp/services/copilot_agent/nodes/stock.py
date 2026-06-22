@@ -158,6 +158,30 @@ async def stock_node(state: CopilotState) -> dict:
         logger.warning("stock research fetch failed for %s: %s", symbol, exc)
         tool_results = await _fetch_stock_data(symbol)
 
+    # A transient data-source outage (DaaS 5xx / DB in recovery) must NOT fall
+    # through to the LLM, where empty TOOL_DATA triggers the generic anti-
+    # hallucination "couldn't retrieve the data" line — that reads as "this stock
+    # is unsupported" when the feed is simply down. Surface it honestly and as
+    # retryable instead. (Coverage itself is ~100% for features+scores; this path
+    # only fires when the source is unreachable, not when a stock lacks data.)
+    if research is not None and getattr(research, "error", None) == "source_unavailable":
+        outage = (
+            f"I couldn't reach our market-data service just now, so I can't pull "
+            f"{symbol}'s numbers this moment. This is a temporary issue on our end, "
+            f"not a gap in coverage — please try again in a few moments."
+        )
+        return {
+            "tool_results": tool_results,
+            "response": AgentResponse(
+                agent=AgentName.STOCK,
+                text=outage,
+                widget_type=WidgetType.NONE,
+                widget_data={},
+                tool_results=tool_results,
+            ),
+            "messages": [AIMessage(content=outage)],
+        }
+
     ctx_lines = [f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results]
     if research is not None and research.ok:
         ctx_lines.insert(0, f"  [instrument_research] {research.as_llm_context()}")
