@@ -473,6 +473,19 @@ export default function ChatPage() {
           <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">My Portfolio Insights</div>
           <div className="flex flex-wrap gap-2 mt-3">
             <button
+              onClick={() => setAnalyseOpen((v) => !v)}
+              disabled={isBusy}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-[12.5px] transition-colors disabled:opacity-50",
+                analyseOpen
+                  ? "border-accent bg-[rgb(var(--accent)/0.10)] text-accent"
+                  : "bg-surface-1 border-hairline-2 text-ink hover:bg-surface-2",
+              )}
+              title="Analyse my portfolio — pick a ready-made question"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-accent" /> Analyse my portfolio
+            </button>
+            <button
               onClick={() => startResearch("Tell me about ")}
               disabled={isBusy}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 disabled:opacity-50 transition-colors"
@@ -500,19 +513,6 @@ export default function ChatPage() {
               title="Build a screen visually — pick metrics, operators and thresholds"
             >
               <ListFilter className="h-3.5 w-3.5 text-accent" /> Stocks Screener
-            </button>
-            <button
-              onClick={() => setAnalyseOpen((v) => !v)}
-              disabled={isBusy}
-              className={cn(
-                "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-[12.5px] transition-colors disabled:opacity-50",
-                analyseOpen
-                  ? "border-accent bg-[rgb(var(--accent)/0.10)] text-accent"
-                  : "bg-surface-1 border-hairline-2 text-ink hover:bg-surface-2",
-              )}
-              title="Analyse my portfolio — pick a ready-made question"
-            >
-              <Sparkles className="h-3.5 w-3.5 text-accent" /> Analyse my portfolio
             </button>
           </div>
 
