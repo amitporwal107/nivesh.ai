@@ -62,6 +62,7 @@ class WidgetType(str, Enum):
     INSTRUMENT_DETAIL = "instrument_detail"
     MF_DETAIL = "mf_detail"
     GOAL_SIMULATION = "goal_simulation"
+    PORTFOLIO_BUILDER = "portfolio_builder"   # in-chat multi-step builder wizard
     NONE = "none"
 
 

@@ -1173,7 +1173,7 @@ def _widget_envelope(wt: Optional[str], wd: Optional[Dict[str, Any]],
     agent = {"id": agent_id or "portfolio_analyst", "confidence": 90}
     unified = None
     # V5-native widgets render with their own component — never insight_card-ify.
-    if wt not in ("instrument_detail", "stock_screener"):
+    if wt not in ("instrument_detail", "stock_screener", "portfolio_builder"):
         try:
             from services.copilot_tools.insight_card_transformers import nidp_widget_to_insight_card
             unified = nidp_widget_to_insight_card(wt, wd)

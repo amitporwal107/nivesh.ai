@@ -172,10 +172,26 @@ _P_RECOMMENDATION = re.compile(
 )
 
 
+# "Build me a portfolio" / "create my portfolio" → the in-chat builder wizard
+# (routes to the recommendation node, which short-circuits to a portfolio_builder
+# seed widget). Anchored on a build-verb + "portfolio"/"investing" so a plain
+# "my portfolio" still routes to portfolio_analyst.
+_P_BUILDER = re.compile(
+    r"\b(?:build|create|design|set\s*up|make|start|begin)\s+(?:me\s+)?(?:a\s+|my\s+|my\s+first\s+|an?\s+)?"
+    r"(?:portfolio|investment\s+plan|investing)\b"
+    r"|\bportfolio\s+builder\b"
+    r"|\bhelp\s+me\s+(?:build|create|start)\s+(?:a\s+)?(?:portfolio|investing|investment\s+plan)\b"
+    r"|\binvest\s+from\s+scratch\b",
+    re.IGNORECASE,
+)
+
+
 # Pattern → agent mapping (priority order)
+# BUILDER before PORTFOLIO so "build me a portfolio" → builder (not portfolio_analyst)
 # RISK before PORTFOLIO so "portfolio risk" → risk_analyst
 # MARKET before STOCK so "What is Nifty?" → market_analyst (not stock_analyst)
 _PATTERNS = [
+    (_P_BUILDER,         AgentName.RECOMMENDATION),  # "build me a portfolio" → builder wizard (before PORTFOLIO grabs "portfolio")
     (_P_SCREENER,        AgentName.RECOMMENDATION),  # "Screen [bucket] stocks where …" → screener (before STOCK grabs "roe")
     (_P_CAP,             AgentName.MF),       # cap-category education → mf (cap_education widget) before others
     (_P_FUND_OVERLAP,    AgentName.MF),       # fund overlap/consolidation → mf (widgets) before PORTFOLIO grabs "overlap"

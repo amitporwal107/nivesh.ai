@@ -13,11 +13,17 @@ from services import pg_client, v3_weights
 
 
 # Plain-English labels that map to v3_weights.classify_fund_category()
+# (which returns equity | hybrid | debt | liquid — no "gold" category).
+# target_allocator emits buckets equity/debt/gold/cash; "cash" is the liquid
+# sleeve, so map it here — otherwise the cash bucket gets zero fund picks.
+# "gold" is handled separately (see _pick_gold_funds) since the classifier has
+# no gold category and Gold ETFs never reach the quality-ranked main pool.
 _BUCKET_MAP = {
     "equity": "equity",
     "debt":   "debt",
     "hybrid": "hybrid",
     "liquid": "liquid",
+    "cash":   "liquid",
 }
 
 
@@ -38,6 +44,12 @@ async def pick_funds_for_bucket(
       - aum_cr ≥ min_aum_cr (liquidity floor)
       - prefers direct plan where available
     """
+    # Gold has no classify_fund_category() category and Gold ETFs are low-AUM,
+    # so they never surface in the quality-ranked main pool. Route to a dedicated
+    # gold query that matches on name/sub_category with a relaxed AUM floor.
+    if bucket.lower() == "gold":
+        return await _pick_gold_funds(n=n, min_quality=min_quality, max_expense_ratio=max_expense_ratio)
+
     bucket = _BUCKET_MAP.get(bucket.lower())
     if not bucket:
         return []
@@ -101,6 +113,75 @@ async def pick_funds_for_bucket(
             break
 
     # Prefer Direct plans when tied on quality
+    direct = [c for c in candidates if c.get("plan_type") == "direct"]
+    if len(direct) >= n:
+        candidates = direct
+    return candidates[:n]
+
+
+async def _pick_gold_funds(
+    *,
+    n: int = 1,
+    min_quality: float = 55.0,
+    max_expense_ratio: float = 1.5,
+    min_aum_cr: float = 50.0,   # gold ETFs/FoFs are small — relax the liquidity floor
+) -> List[Dict[str, Any]]:
+    """Pick top gold funds (ETF / FoF), ranked by quality_score DESC.
+
+    classify_fund_category() has no 'gold' category, so we match directly on
+    sub_category / scheme name. Still gates on a populated quality_score so the
+    ranking promise holds — if no gold fund is scored, returns [] (the builder
+    surfaces that sleeve honestly rather than faking a pick).
+    """
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return []
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT im.instrument_id,
+                   im.instrument_name AS scheme_name,
+                   im.isin,
+                   mfm.category, mfm.sub_category,
+                   mfm.expense_ratio::float AS expense_ratio,
+                   mfm.aum_cr::float AS aum_cr,
+                   mfm.quality_score::float AS quality_score,
+                   mfm.health_score::float AS health_score,
+                   mfm.add_score_baseline::float AS add_score
+            FROM mutual_fund_metadata mfm
+            JOIN instrument_master im ON im.instrument_id = mfm.instrument_id
+            WHERE mfm.quality_score IS NOT NULL
+              AND mfm.quality_score >= $1
+              AND COALESCE(mfm.expense_ratio, 99) <= $2
+              AND COALESCE(mfm.aum_cr, 0) >= $3
+              AND im.is_active = TRUE
+              AND (mfm.sub_category ILIKE '%gold%' OR im.instrument_name ILIKE '%gold%')
+            ORDER BY mfm.quality_score DESC NULLS LAST,
+                     mfm.health_score DESC NULLS LAST
+            LIMIT 50
+            """,
+            float(min_quality), float(max_expense_ratio), float(min_aum_cr),
+        )
+
+    candidates: List[Dict[str, Any]] = []
+    for r in rows:
+        fd = dict(r)
+        scheme = fd.get("scheme_name") or ""
+        candidates.append({
+            "instrument_id": str(fd["instrument_id"]),
+            "scheme_name": fd["scheme_name"],
+            "isin": fd.get("isin"),
+            "category": fd.get("category"),
+            "sub_category": fd.get("sub_category"),
+            "expense_ratio": fd.get("expense_ratio"),
+            "aum_cr": fd.get("aum_cr"),
+            "quality_score": fd.get("quality_score"),
+            "health_score": fd.get("health_score"),
+            "add_score": fd.get("add_score"),
+            "plan_type": "direct" if "direct" in scheme.lower() else "regular",
+        })
+
     direct = [c for c in candidates if c.get("plan_type") == "direct"]
     if len(direct) >= n:
         candidates = direct

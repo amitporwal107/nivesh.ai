@@ -160,6 +160,24 @@ def _parse_screen_filters(text: str) -> dict:
     return {"client_filters": client, "server": server, "title": title}
 
 
+# "Build me a portfolio" launches the in-chat builder wizard instead of the
+# screener. Kept independent of intent._P_BUILDER to avoid a cross-node import;
+# the wizard self-drives the risk chat + /portfolio-builder endpoints client-side.
+_P_BUILD_PORTFOLIO = re.compile(
+    r"\b(?:build|create|design|set\s*up|make|start|begin)\s+(?:me\s+)?(?:a\s+|my\s+|my\s+first\s+|an?\s+)?"
+    r"(?:portfolio|investment\s+plan|investing)\b"
+    r"|\bportfolio\s+builder\b"
+    r"|\bhelp\s+me\s+(?:build|create|start)\s+(?:a\s+)?(?:portfolio|investing|investment\s+plan)\b"
+    r"|\binvest\s+from\s+scratch\b",
+    re.IGNORECASE,
+)
+
+_BUILDER_INTRO = (
+    "Let's build your portfolio. Pick a goal and I'll shape a real, ranked mix "
+    "to your risk profile — every fund scored on live V3 quality, not samples."
+)
+
+
 def _infer_risk_band(user_msg: str) -> str:
     msg = user_msg.lower()
     if any(w in msg for w in ("conservative", "safe", "low risk", "capital protection")):
@@ -346,6 +364,31 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
 
 
 async def recommendation_node(state: CopilotState) -> dict:
+    # ── Builder short-circuit ───────────────────────────────────────────────
+    # "Build me a portfolio" → emit the interactive builder seed widget (the
+    # wizard self-drives the risk chat + /portfolio-builder endpoints). Static
+    # intro, no LLM call — deterministic, nothing to hallucinate.
+    _builder_msg = next(
+        (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
+        "",
+    )
+    if _P_BUILD_PORTFOLIO.search(_builder_msg or ""):
+        from .._stream import emit_widget
+        seed = {"has_risk_profile": False}
+        await emit_widget(WidgetType.PORTFOLIO_BUILDER, seed)
+        response = AgentResponse(
+            agent=AgentName.RECOMMENDATION,
+            text=_BUILDER_INTRO,
+            widget_type=WidgetType.PORTFOLIO_BUILDER,
+            widget_data=seed,
+            tool_results=[],
+        )
+        return {
+            "tool_results": [],
+            "response":     response,
+            "messages":     [AIMessage(content=_BUILDER_INTRO)],
+        }
+
     tool_results = await _fetch_recommendation_data(state)
     tool_context  = "TOOL_DATA:\n" + "\n".join(
         f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results
