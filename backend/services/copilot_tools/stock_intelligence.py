@@ -332,12 +332,32 @@ _SCREENER_FILTER_DEFS = [
     {"key": "promoterPledge", "label": "Promoter Pledge", "qlabel": "Promoter Pledge", "unit": "%", "min": False, "max": True},
 ]
 
+# Classic equity screens, expressed in the NL DSL the parser understands
+# (_parse_screen_filters in nodes/recommendation.py — forward "<metric> over|under
+# <num>" phrasing only; unrecognised metric phrases are silently dropped, so every
+# clause below maps to a real _SCREENER_PRIMITIVES key). Where a textbook screen
+# references a metric NIDP's feature store does not carry, the clause is adapted to
+# the nearest available primitive (noted inline) so the preset never quietly
+# returns a broader-than-intended set:
+#   • 5Y growth/avg ROE  → 3Y CAGR / latest ROE (only 3Y CAGR + spot ROE exist)
+#   • OPM (operating mgn) → net margin (only net/profit margin exists)
+#   • "P/E < Industry PE" → P/E vs sector under 0 (pe_vs_sector_pct)
+#   • earnings yield > 10 → P/E under 10 (exact algebraic equivalent)
+#   • promoter-holding 3Y change → promoter change (QoQ is the only change column)
+#   • "pledged = 0"       → promoter pledge under 1 (parser has no "=" operator)
+# Screens whose defining metric is absent (current ratio, PEG, dividend payout,
+# free cash flow, cash from operations) are NOT added — they could not be screened
+# faithfully and would mislead.
 _SCREENER_PRESETS = [
-    {"name": "Quality compounders", "query": "Screen stocks where ROE over 18, ROCE over 18, debt to equity under 0.5"},
-    {"name": "Low-debt growth",     "query": "Screen stocks where debt to equity under 0.3, sales growth over 12, profit growth over 12"},
-    {"name": "Dividend payers",     "query": "Screen stocks where dividend yield over 2"},
-    {"name": "Value picks",         "query": "Screen stocks where P/E under 18, ROE over 12"},
-    {"name": "Large caps",          "query": "Screen large cap stocks"},
+    {"name": "Quality compounders", "query": "Screen stocks where ROCE over 20, ROE over 18, sales growth over 12, profit growth over 12, debt to equity under 0.5"},
+    {"name": "Low-debt, high-margin", "query": "Screen stocks where debt to equity under 0.3, net margin over 18, ROE over 18, interest coverage over 5"},
+    {"name": "Value (Graham-style)", "query": "Screen stocks where P/E under 15, P/B under 1.5, debt to equity under 1, market cap over 500"},
+    {"name": "GARP",                "query": "Screen stocks where profit growth over 15, ROE over 15, P/E vs sector under 0"},
+    {"name": "High dividend yield", "query": "Screen stocks where dividend yield over 3, profit growth over 0, debt to equity under 0.6"},
+    {"name": "Promoter conviction", "query": "Screen stocks where promoter holding over 50, promoter pledge under 1, promoter change over 0"},
+    {"name": "Turnaround / momentum", "query": "Screen stocks where profit growth yoy over 50, sales growth yoy over 25, margin trend over 0, market cap over 300"},
+    {"name": "Smallcap multibagger", "query": "Screen stocks where market cap over 100, market cap under 2000, sales growth over 20, profit growth over 20, ROE over 18, promoter pledge under 1"},
+    {"name": "Magic Formula",       "query": "Screen stocks where ROCE over 25, P/E under 10, market cap over 500"},
 ]
 
 
