@@ -86,6 +86,43 @@ async def generate_portfolio(payload: BuilderRequest, request: Request):
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Sleeve builder — category/sub-category allocation on real V3-scored funds
+# ─────────────────────────────────────────────────────────────────────────
+class SleeveBuilderRequest(BaseModel):
+    monthly_sip_rs: Optional[float] = Field(None, ge=0)
+    lumpsum_rs: Optional[float] = Field(None, ge=0)
+    risk_bucket: Optional[str] = None  # override; else read the user's saved profile
+    n_per_sleeve: int = Field(2, ge=1, le=5)
+
+
+@router.post("/portfolio-builder/generate-sleeves")
+async def generate_sleeves(payload: SleeveBuilderRequest, request: Request):
+    """Guided sleeve portfolio: asset class → sub-category sleeves (Large Cap,
+    Flexi Cap, Balanced Advantage, Corporate Bond, International, Gold, …), each
+    filled with real V3-scored funds ranked within the sleeve.
+
+    Risk profile comes from `risk_bucket` if given, else the user's saved
+    `user_profiles.risk_profile.category` (default moderate).
+    """
+    user = await get_current_user(request)
+    profile = payload.risk_bucket
+    if not profile:
+        from deps import db
+        doc = await db.user_profiles.find_one(
+            {"user_id": user["user_id"]}, {"_id": 0, "risk_profile": 1},
+        )
+        profile = ((doc or {}).get("risk_profile") or {}).get("category") or "moderate"
+
+    from services import sleeve_builder as _sb
+    return await _sb.build_sleeve_portfolio(
+        profile,
+        monthly_sip_rs=payload.monthly_sip_rs,
+        lumpsum_rs=payload.lumpsum_rs,
+        n_per_sleeve=payload.n_per_sleeve,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Simulation overlay — what-if return / drawdown scenarios
 # ─────────────────────────────────────────────────────────────────────────
 class SimulateBuilderRequest(BaseModel):
