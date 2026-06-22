@@ -144,6 +144,16 @@ async def build_sleeve_portfolio(
     alloc = {ac: round(sum(s["target_pct"] for s in sleeves if s["asset_class"] == ac), 1)
              for ac in ("equity", "debt", "gold", "cash")}
 
+    # Validation gates — Monte Carlo on house CMAs (allocation_policy.yaml).
+    validation: Optional[Dict[str, Any]] = None
+    try:
+        from services import policy_simulation as _sim
+        validation = _sim.simulate_and_validate(
+            alloc, horizon_years=horizon_years, monthly_sip_rs=sip, lumpsum_rs=lump,
+        )
+    except Exception as e:  # noqa: BLE001 — never let the sim sink the build
+        logger.warning("policy simulation failed: %s", e)
+
     comp = _p.compliance()
     return {
         "risk_profile": profile,
@@ -152,6 +162,7 @@ async def build_sleeve_portfolio(
         "horizon_bucket": hb,
         "allocation": alloc,                 # asset-class rollup (= L1 strategic)
         "sleeves": sleeves,                  # governed sub-sleeve model (category level)
+        "validation": validation,            # MC gates on house CMAs (may be null)
         "compliance": {
             "mode": comp.get("mf_recommendations_mode"),
             "names_allowed": names_on,
