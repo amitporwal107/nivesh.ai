@@ -8,8 +8,8 @@ import { useState } from "react";
 import { Plus, X, Trash2, Sparkles, Save, Play, Pencil, Bookmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  PRIMITIVE_GROUPS, PRIMITIVE_BY_KEY, compileScreenQuery,
-  type BuilderCondition,
+  PRIMITIVE_GROUPS, PRIMITIVE_BY_KEY, compileScreenQuery, SCREEN_TEMPLATES,
+  type BuilderCondition, type ScreenTemplate,
 } from "@/components/chat/screenerPrimitives";
 import {
   useScreeners, useCreateScreener, useUpdateScreener, useDeleteScreener,
@@ -56,6 +56,15 @@ export function ScreenerQueryBuilder({
   const canRun = query.length > 0;
   const busy = createS.isPending || updateS.isPending;
 
+  // Load a classic template into the builder as a fresh (unsaved) screen the
+  // user can tweak, run, or save under their own name.
+  const loadTemplate = (t: ScreenTemplate) => {
+    setConds(t.conds.map((c) => ({ id: ++_uid, key: c.key, op: c.op, value: c.value })));
+    setBucket(t.bucket || "");
+    setName(t.name);
+    setEditingId(null);
+  };
+
   // Load a saved screen back into the builder for view / edit.
   const loadScreen = (s: SavedScreener) => {
     const mapped = (s.conditions ?? [])
@@ -93,6 +102,28 @@ export function ScreenerQueryBuilder({
       </div>
 
       <div className="p-4 flex flex-col gap-3.5 max-h-[62vh] overflow-y-auto">
+        {/* classic templates — one-click starting points (mirror backend presets) */}
+        {SCREEN_TEMPLATES.length > 0 && (
+          <div>
+            <div className="mb-1.5 flex items-center gap-1.5 text-[11.5px] font-medium text-ink-2">
+              <Sparkles className="h-3.5 w-3.5 text-ink-3" /> Start from a template
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {SCREEN_TEMPLATES.map((t) => (
+                <button
+                  key={t.name}
+                  onClick={() => loadTemplate(t)}
+                  title={t.hint}
+                  className="rounded-full border border-hairline bg-surface-1 px-2.5 py-1 text-[12px] text-ink-2 hover:bg-surface-2 hover:text-ink hover:border-accent/40 transition-colors"
+                >
+                  {t.name}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 border-t border-hairline" />
+          </div>
+        )}
+
         {/* saved screens */}
         {savedList.length > 0 && (
           <div>

@@ -63,6 +63,78 @@ export const SCREEN_PRIMITIVES: ScreenPrimitive[] = [
 export const PRIMITIVE_BY_KEY: Record<string, ScreenPrimitive> =
   Object.fromEntries(SCREEN_PRIMITIVES.map((p) => [p.key, p]));
 
+// Classic screen templates surfaced as one-click starting points in the Query
+// Builder. These MIRROR the backend `_SCREENER_PRESETS` (stock_intelligence.py)
+// in structured form — keep the two in sync. Every `key` here is a real
+// primitive above, so a loaded template compiles to a query the parser accepts.
+// Where a textbook screen references a metric NIDP does not carry, the clause is
+// adapted to the nearest available primitive (OPM→net margin, "P/E<Industry PE"→
+// P/E vs sector < 0, earnings-yield>10→P/E<10, "pledged=0"→pledge<1, 5Y→3Y growth,
+// promoter 3Y change→QoQ change). Screens whose defining metric is absent
+// (current ratio, PEG, dividend payout, FCF, CFO) are intentionally omitted.
+export type ScreenTemplate = {
+  name: string;
+  hint: string;
+  bucket?: string;
+  conds: { key: string; op: "over" | "under"; value: string }[];
+};
+
+export const SCREEN_TEMPLATES: ScreenTemplate[] = [
+  { name: "Quality compounders", hint: "High ROCE + durable growth, low leverage", conds: [
+    { key: "roce", op: "over", value: "20" },
+    { key: "roe", op: "over", value: "18" },
+    { key: "salesG", op: "over", value: "12" },
+    { key: "profitG", op: "over", value: "12" },
+    { key: "de", op: "under", value: "0.5" },
+  ] },
+  { name: "Low-debt, high-margin", hint: "Strong margins with little debt and high interest cover", conds: [
+    { key: "de", op: "under", value: "0.3" },
+    { key: "profitMargin", op: "over", value: "18" },
+    { key: "roe", op: "over", value: "18" },
+    { key: "interestCoverage", op: "over", value: "5" },
+  ] },
+  { name: "Value (Graham-style)", hint: "Cheap on earnings & book, modest leverage", conds: [
+    { key: "pe", op: "under", value: "15" },
+    { key: "pb", op: "under", value: "1.5" },
+    { key: "de", op: "under", value: "1" },
+    { key: "mcap", op: "over", value: "500" },
+  ] },
+  { name: "GARP", hint: "Growth at a reasonable price — cheaper than sector", conds: [
+    { key: "profitG", op: "over", value: "15" },
+    { key: "roe", op: "over", value: "15" },
+    { key: "peVsSector", op: "under", value: "0" },
+  ] },
+  { name: "High dividend yield", hint: "Income with positive earnings and low debt", conds: [
+    { key: "divYield", op: "over", value: "3" },
+    { key: "profitG", op: "over", value: "0" },
+    { key: "de", op: "under", value: "0.6" },
+  ] },
+  { name: "Promoter conviction", hint: "High promoter holding, unpledged, rising stake", conds: [
+    { key: "promoter", op: "over", value: "50" },
+    { key: "promoterPledge", op: "under", value: "1" },
+    { key: "promoterChange", op: "over", value: "0" },
+  ] },
+  { name: "Turnaround / momentum", hint: "Accelerating sales & profit with improving margins", conds: [
+    { key: "profitGyoy", op: "over", value: "50" },
+    { key: "salesGyoy", op: "over", value: "25" },
+    { key: "marginTrend", op: "over", value: "0" },
+    { key: "mcap", op: "over", value: "300" },
+  ] },
+  { name: "Smallcap multibagger", hint: "Small but fast-growing, profitable, unpledged", conds: [
+    { key: "mcap", op: "over", value: "100" },
+    { key: "mcap", op: "under", value: "2000" },
+    { key: "salesG", op: "over", value: "20" },
+    { key: "profitG", op: "over", value: "20" },
+    { key: "roe", op: "over", value: "18" },
+    { key: "promoterPledge", op: "under", value: "1" },
+  ] },
+  { name: "Magic Formula", hint: "Greenblatt-style: high ROCE + high earnings yield", conds: [
+    { key: "roce", op: "over", value: "25" },
+    { key: "pe", op: "under", value: "10" },
+    { key: "mcap", op: "over", value: "500" },
+  ] },
+];
+
 /** Catalog grouped by category, preserving declaration order. */
 export const PRIMITIVE_GROUPS: { cat: string; items: ScreenPrimitive[] }[] = (() => {
   const out: { cat: string; items: ScreenPrimitive[] }[] = [];
