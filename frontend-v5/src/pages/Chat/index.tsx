@@ -499,7 +499,7 @@ export default function ChatPage() {
               )}
               title="Build a screen visually — pick metrics, operators and thresholds"
             >
-              <ListFilter className="h-3.5 w-3.5 text-accent" /> Query builder
+              <ListFilter className="h-3.5 w-3.5 text-accent" /> Stocks Screener
             </button>
             <button
               onClick={() => setAnalyseOpen((v) => !v)}
