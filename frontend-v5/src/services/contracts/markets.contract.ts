@@ -15,6 +15,8 @@ export const MarketIndexC = z.object({
   change_pct: z.number().nullable(),
   is_vix:     z.boolean().default(false),
   trend:      z.string().nullable().optional(),
+  /** Daily-close sparkline (~24 sessions); empty when history is unavailable. */
+  spark:      z.array(z.number()).default([]),
 });
 
 export const MarketBreadthC = z.object({
@@ -23,6 +25,11 @@ export const MarketBreadthC = z.object({
   unchanged: z.number().nullable(),
   universe:  z.number().nullable(),
   tone:      z.string(),
+  /** Structural breadth from the NIDP EOD builder (full equity universe). */
+  pct_above_20ema: z.number().nullable().optional(),
+  pct_above_50ema: z.number().nullable().optional(),
+  new_52w_highs:   z.number().nullable().optional(),
+  new_52w_lows:    z.number().nullable().optional(),
 });
 
 export const MarketMoverC = z.object({
@@ -78,6 +85,9 @@ export const MarketsHomeC = z.object({
   is_live:      z.boolean().default(false),
   market_state: z.enum(["open", "closed"]).default("closed"),
   fetched_at:   z.string().nullable().optional(),
+  /** Rules-based deploy verdict (AGGRESSIVE/NORMAL/CAUTIOUS/DEFENSIVE) + reason. */
+  verdict:        z.string().nullable().optional(),
+  verdict_reason: z.string().nullable().optional(),
   indices:      z.array(MarketIndexC).default([]),
   breadth:      MarketBreadthC,
   gainers:      z.array(MarketMoverC).default([]),

@@ -271,6 +271,89 @@ async def get_live_snapshot() -> Optional[Dict[str, Any]]:
     return parsed
 
 
+# ── Index tape sparklines ───────────────────────────────────────────────
+# The six benchmarks the Markets "tape" shows, each with a daily-close
+# sparkline. (display name, yfinance ticker, is_vix). Smallcap has no
+# reliable yfinance daily-history ticker, so the broad Nifty 500 takes the
+# sixth slot — a real index rather than an empty tile.
+TAPE_INDICES: List[tuple] = [
+    ("Nifty 50",        "^NSEI",      False),
+    ("Sensex",          "^BSESN",     False),
+    ("Nifty Bank",      "^NSEBANK",   False),
+    ("Nifty Midcap 50", "^NSEMDCP50", False),
+    ("Nifty 500",       "^CRSLDX",    False),
+    ("India VIX",       "^INDIAVIX",  True),
+]
+
+_SPARK_CACHE: Dict[str, Any] = {"ts": 0.0, "data": None}
+
+
+def _fetch_index_history() -> Dict[str, List[float]]:
+    """Daily closes (~1 month) per tape ticker, for sparklines.
+
+    Synchronous yfinance call. Any ticker Yahoo can't resolve simply drops
+    out — the caller renders that tile without a sparkline.
+    """
+    import yfinance as yf
+    tickers = [t for _, t, _ in TAPE_INDICES]
+    out: Dict[str, List[float]] = {}
+    try:
+        data = yf.download(
+            " ".join(tickers), period="1mo", interval="1d",
+            progress=False, threads=True,
+        )
+        if data.empty or "Close" not in data.columns:
+            return out
+        for t in tickers:
+            try:
+                col = data["Close"][t] if len(tickers) > 1 else data["Close"]
+                series = [round(float(x), 2) for x in col.dropna().tolist()]
+                if series:
+                    out[t] = series[-24:]   # last ~24 sessions is enough to read
+            except (KeyError, IndexError, ValueError):
+                continue
+    except Exception as e:  # noqa: BLE001
+        logger.warning("yfinance index history failed: %s", e)
+    return out
+
+
+async def get_index_tape() -> List[Dict[str, Any]]:
+    """Six benchmark tiles with value, change_pct and a daily-close sparkline.
+
+    Daily bars move slowly, so this is cached for 10 min regardless of
+    session state. value/change_pct are derived from the EOD series tail;
+    callers may overlay fresher intraday values from get_live_snapshot().
+    A tile whose history is unavailable still returns with value=None and an
+    empty spark so the caller can decide whether to drop it.
+    """
+    now = time.time()
+    if _SPARK_CACHE["data"] and (now - _SPARK_CACHE["ts"]) < 600.0:
+        return _SPARK_CACHE["data"]
+
+    hist = await asyncio.to_thread(_fetch_index_history)
+    if not hist:
+        return _SPARK_CACHE["data"] or []   # keep last good tape if Yahoo blips
+
+    tape: List[Dict[str, Any]] = []
+    for name, ticker, is_vix in TAPE_INDICES:
+        series = hist.get(ticker) or []
+        value = series[-1] if series else None
+        prev = series[-2] if len(series) >= 2 else None
+        change_pct = round((value - prev) / prev * 100, 2) if value is not None and prev else None
+        tape.append({
+            "name":       name,
+            "value":      value,
+            "change_pct": change_pct,
+            "is_vix":     is_vix,
+            "trend":      _vix_trend(change_pct) if is_vix else None,
+            "spark":      series,
+        })
+
+    _SPARK_CACHE["data"] = tape
+    _SPARK_CACHE["ts"] = now
+    return tape
+
+
 # ── Global cues, world indices & commodities ────────────────────────────
 # yfinance covers world indices, commodity futures and FX out of the box, so
 # the Markets page's "global cues", "global indices" and "commodities" rows

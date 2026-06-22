@@ -55,6 +55,7 @@ def _index_tile(name: str, close: Optional[float], change_pct: Optional[float],
         "change_pct": change_pct,
         "is_vix":     is_vix,
         "trend":      trend,
+        "spark":      [],
     }
 
 
@@ -234,19 +235,55 @@ async def markets_home(request: Request):
     dash_nifty = dash.get("nifty") or {}
     dash_vix = dash.get("vix") or {}
 
-    indices = [
-        _index_tile("Nifty 50",
-                    live_nifty.get("close") if live_nifty.get("close") is not None else dash_nifty.get("close"),
-                    live_nifty.get("change_pct") if live_nifty.get("close") is not None else dash_nifty.get("change_pct")),
-        _index_tile("Sensex", live_sensex.get("close"), live_sensex.get("change_pct")),
-        _index_tile("Nifty Bank", bank.get("close"), bank.get("change_pct")),
-        _index_tile("India VIX",
-                    live_vix.get("value") if live_vix.get("value") is not None else dash_vix.get("value"),
-                    live_vix.get("change_pct") if live_vix.get("value") is not None else dash_vix.get("change_pct"),
-                    is_vix=True,
-                    trend=(live_vix.get("trend") or dash_vix.get("trend"))),
-    ]
-    indices = [i for i in indices if i is not None]
+    # ── Index tape: six benchmarks, each with a daily-close sparkline ────
+    # The tape carries EOD values + sparklines for all six; we overlay the
+    # four that the intraday live snapshot covers so they tick during hours.
+    try:
+        tape = await nse_live.get_index_tape()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("markets.home index tape failed: %s", e)
+        tape = []
+
+    live_overlay = {
+        "Nifty 50":   (live_nifty.get("close"), live_nifty.get("change_pct")),
+        "Sensex":     (live_sensex.get("close"), live_sensex.get("change_pct")),
+        "Nifty Bank": (bank.get("close"), bank.get("change_pct")),
+        "India VIX":  (live_vix.get("value"), live_vix.get("change_pct")),
+    }
+    indices = []
+    for t in tape:
+        value, change_pct = t["value"], t["change_pct"]
+        ov = live_overlay.get(t["name"])
+        if ov and ov[0] is not None:
+            value, change_pct = ov[0], ov[1]
+        if value is None:
+            continue
+        indices.append({
+            "name":       t["name"],
+            "value":      value,
+            "change":     _abs_change(value, change_pct),
+            "change_pct": change_pct,
+            "is_vix":     t["is_vix"],
+            "trend":      t["trend"],
+            "spark":      t.get("spark") or [],
+        })
+
+    # Fallback: if the history fetch was unavailable, fall back to the
+    # four NIDP/live tiles (no sparkline) so the tape never goes blank.
+    if not indices:
+        indices = [
+            _index_tile("Nifty 50",
+                        live_nifty.get("close") if live_nifty.get("close") is not None else dash_nifty.get("close"),
+                        live_nifty.get("change_pct") if live_nifty.get("close") is not None else dash_nifty.get("change_pct")),
+            _index_tile("Sensex", live_sensex.get("close"), live_sensex.get("change_pct")),
+            _index_tile("Nifty Bank", bank.get("close"), bank.get("change_pct")),
+            _index_tile("India VIX",
+                        live_vix.get("value") if live_vix.get("value") is not None else dash_vix.get("value"),
+                        live_vix.get("change_pct") if live_vix.get("value") is not None else dash_vix.get("change_pct"),
+                        is_vix=True,
+                        trend=(live_vix.get("trend") or dash_vix.get("trend"))),
+        ]
+        indices = [i for i in indices if i is not None]
 
     # ── Breadth: prefer NIDP's full-universe count; else live Nifty-50 ──
     b = dash.get("breadth") or {}
@@ -269,6 +306,12 @@ async def markets_home(request: Request):
         "unchanged": unchanged,
         "universe":  universe,
         "tone":      _breadth_tone(advances, declines),
+        # Structural breadth from the NIDP EOD builder (full equity universe).
+        # These stay EOD even intraday — they're computed off daily bars.
+        "pct_above_20ema": b.get("pct_above_20ema"),
+        "pct_above_50ema": b.get("pct_above_50ema"),
+        "new_52w_highs":   b.get("new_52w_highs"),
+        "new_52w_lows":    b.get("new_52w_lows"),
     }
 
     # ── Sectors: prefer NIDP heatmap; else the live sector indices ──────
@@ -313,6 +356,10 @@ async def markets_home(request: Request):
         "is_live":      is_live,
         "market_state": "open" if nse_live._is_market_open_ist() else "closed",
         "fetched_at":   dash.get("fetched_at") or live.get("fetched_at"),
+        # Rules-based deploy verdict (macro → breadth → trend) — drives the
+        # Markets hero line and the deterministic "Copilot read".
+        "verdict":        dash.get("deploy_verdict"),
+        "verdict_reason": dash.get("verdict_reason"),
         "indices":      indices,
         "breadth":      breadth,
         "gainers":      movers["gainers"],
