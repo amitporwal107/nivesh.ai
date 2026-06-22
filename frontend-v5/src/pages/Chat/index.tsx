@@ -563,8 +563,14 @@ export default function ChatPage() {
             );
           })}
 
-          {/* optimistic user bubble (its persisted copy replaces it on refetch) */}
-          {pendingUser && (
+          {/* Optimistic user bubble. On a new session the session query refetches
+              mid-stream and already contains the persisted copy, so suppress this
+              bubble once the latest persisted message is that same user turn —
+              otherwise the message renders twice for the duration of the answer. */}
+          {pendingUser &&
+            !(messages.length > 0 &&
+              messages[messages.length - 1].role === "user" &&
+              messages[messages.length - 1].content === pendingUser) && (
             <div className="self-end max-w-[520px] px-4 py-3 rounded-2xl rounded-br-md bg-surface-2 border border-hairline">
               <p className="text-[14px]">{pendingUser}</p>
             </div>

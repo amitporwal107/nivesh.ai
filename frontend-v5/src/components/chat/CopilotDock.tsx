@@ -47,7 +47,7 @@ function pageLabelFor(pathname: string): string | null {
   if (pathname.startsWith("/funds/")) return "Fund details";
   const map: Record<string, string> = {
     "/dashboard": "Overview",
-    "/portfolio": "Portfolio builder",
+    "/portfolio": "Portfolio Page",
     "/ai-insights": "AI Insights",
     "/risk": "Risk",
     "/performance": "Performance",
@@ -265,7 +265,13 @@ export function CopilotDock() {
             );
           })}
 
-          {pendingUser && (
+          {/* Optimistic user bubble. Suppress once the persisted copy lands in
+              the refetched session (new sessions fetch mid-stream) — else the
+              message renders twice for the duration of the answer. */}
+          {pendingUser &&
+            !(messages.length > 0 &&
+              messages[messages.length - 1].role === "user" &&
+              messages[messages.length - 1].content === pendingUser) && (
             <div className="self-end max-w-[85%] px-3.5 py-2.5 rounded-2xl rounded-br-md bg-surface-2 border border-hairline">
               <p className="text-[13.5px]">{pendingUser}</p>
             </div>
