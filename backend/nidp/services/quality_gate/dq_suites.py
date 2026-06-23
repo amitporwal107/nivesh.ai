@@ -94,9 +94,14 @@ def nse_financials_suite(cal: TradingCalendar) -> Suite:
             # CORRECTION (real-data): same-sign is WARN, NULLs excluded, ~1% legit
             # exceptions (22/2384 minority-interest cases). Do NOT hard-fail.
             E.same_sign("eps_basic", "pat_cr", severity="warn"),
-            E.pair_a_lte_b("pat_cr", "revenue_from_ops_cr"),     # PAT <= revenue
+            # PAT <= revenue is violated legitimately by banks/NBFCs/holdcos (revenue_from_ops
+            # excludes interest/investment income) -> warn, not fail.
+            E.pair_a_lte_b("pat_cr", "revenue_from_ops_cr", severity="warn"),
             E.not_in_future("period_end"),
-            E.freshness("period_end", cal, max_lag_trading_days=2, severity="warn"),
+            # QUARTERLY feed: latest filed quarter is normally 1-4 months old (next quarter-end
+            # + ~45-day filing window). A daily-feed lag false-positives; allow a quarter +
+            # filing slack (~110 trading days) before flagging genuinely stale.
+            E.freshness("period_end", cal, max_lag_trading_days=110, severity="warn"),
             # doubled-PAT guard -> BLOCK action (must not propagate to scoring)
             E.q4_annual_contamination(
                 ["pat_cr", "revenue_from_ops_cr"],
@@ -224,11 +229,13 @@ def v3_stock_scores_suite(cal: TradingCalendar) -> Suite:
             E.between("health_score", min=0, max=100),
             E.between("quality_coverage_pct", min=0, max=100),
             E.between("health_coverage_pct", min=0, max=100),
-            # DEFECT GUARD: quality_score is identically distributed to final_score,
-            # and health_score to technical_score. If they ARE distinct metrics this
-            # stays quiet; if duplicated it fires. (Verify-don't-bound.)
-            G.columns_not_identical("final_score", "quality_score", severity="warn"),
-            G.columns_not_identical("health_score", "technical_score", severity="warn"),
+            # NOTE: for STOCKS, quality_score and health_score are INTENTIONAL
+            # backward-compat mirrors of final_score / technical_score (the v3 table is
+            # shared with MF; the engine sets them deliberately —
+            # v3_scores_engine/service.py:439-441,498-502). They are SUPPOSED to be
+            # identical, so no columns_not_identical guard here — it was a false positive
+            # flagging the documented alias as a defect. The real distinct stock metrics
+            # are fundamental_score / technical_score / final_score.
             # band: blank is NULL (not ''). not_null is NOT asserted; in_set allows NULL.
             E.in_set("band", {"HOLD", "REDUCE", "BUY", "AVOID", "STRONG_BUY"}, allow_blank=True),
             E.in_set("status", {"gate_failed", "ranked", "low_confidence",
@@ -405,9 +412,10 @@ def rbi_yields_suite(cal: TradingCalendar) -> Suite:
             E.compound_unique("as_of_date", "tenor", "source", note="real key"),
             E.in_set("tenor", {"OVERNIGHT", "91D", "364D", "1Y", "10Y"}),
             E.between("yield_pct", min=0, max=20),
-            E.freshness("as_of_date", cal, max_lag_trading_days=5, severity="warn"),
+            # RBI yields publish ~weekly (not daily) -> allow ~2 weeks before flagging stale.
+            E.freshness("as_of_date", cal, max_lag_trading_days=10, severity="warn"),
         ],
-        description="RBI yields baseline (sparse, 33 rows)",
+        description="RBI yields baseline (sparse, ~weekly)",
     )
 
 
