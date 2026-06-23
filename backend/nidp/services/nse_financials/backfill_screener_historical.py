@@ -34,9 +34,8 @@ from .llm_extractor import (
     parse_all_screener_quarters,
     parse_screener_balance_sheet,
     parse_screener_profit_loss,
-    parse_screener_shareholding,
 )
-from .writer import upsert_financials, upsert_shareholding
+from .writer import upsert_financials
 
 # Global flag — set when Screener.in rate-limits us; stops new fetches
 _rate_limited = False
@@ -300,9 +299,6 @@ async def _process_one(
                 since_year=lookback_year - 3,
             )
 
-            # ── Parse shareholding (quarterly) ───────────────────────────
-            shp_entries = parse_screener_shareholding(symbol, html)
-
             # ── Write income statement + balance sheet per quarter ───────
             written = 0
             for parsed, raw_data in quarters:
@@ -339,12 +335,13 @@ async def _process_one(
                 if fid:
                     pl_written += 1
 
-            # ── Write shareholding ───────────────────────────────────────
+            # ── Shareholding: NOT written here ───────────────────────────
+            # Shareholding has a single golden source — the NSE regulatory filing
+            # (nse_shareholding → shareholding_pattern.source='NSE_SHP'). Screener is a
+            # re-publisher and disagreed with NSE on most overlaps, so mixing them created
+            # duplicate, inconsistent rows. Coverage/QoQ depth must come from backfilling
+            # NSE history, not from Screener.
             shp_written = 0
-            for shp in shp_entries:
-                ok = await upsert_shareholding(symbol, shp, source="screener_in")
-                if ok:
-                    shp_written += 1
 
             await _write_job_log(conn, run_id, symbol, tier, "OK", rows_inserted=written)
             logger.info(
