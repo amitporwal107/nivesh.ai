@@ -42,7 +42,7 @@ export default function PrivacyPage() {
         {
           h: "Contact",
           body: (
-            <>Reach our team at <a href="mailto:support@nivesh.ai" style={{ color: "var(--mint)" }}>support@nivesh.ai</a> for any privacy request.</>
+            <>Reach our team at <a href="mailto:support@niveshcopilot.com" style={{ color: "var(--mint)" }}>support@niveshcopilot.com</a> for any privacy request.</>
           ),
         },
       ]}

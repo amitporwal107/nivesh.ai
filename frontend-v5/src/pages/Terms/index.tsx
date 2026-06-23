@@ -38,7 +38,7 @@ export default function TermsPage() {
         {
           h: "Contact",
           body: (
-            <>Questions about these terms? Write to <a href="mailto:support@nivesh.ai" style={{ color: "var(--mint)" }}>support@nivesh.ai</a>.</>
+            <>Questions about these terms? Write to <a href="mailto:support@niveshcopilot.com" style={{ color: "var(--mint)" }}>support@niveshcopilot.com</a>.</>
           ),
         },
       ]}

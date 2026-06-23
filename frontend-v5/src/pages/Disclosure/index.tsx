@@ -35,7 +35,7 @@ export default function DisclosurePage() {
         {
           h: "Consult a professional",
           body: (
-            <>For advice specific to your circumstances, consult a qualified, SEBI-registered adviser. Questions: <a href="mailto:support@nivesh.ai" style={{ color: "var(--mint)" }}>support@nivesh.ai</a>.</>
+            <>For advice specific to your circumstances, consult a qualified, SEBI-registered adviser. Questions: <a href="mailto:support@niveshcopilot.com" style={{ color: "var(--mint)" }}>support@niveshcopilot.com</a>.</>
           ),
         },
       ]}

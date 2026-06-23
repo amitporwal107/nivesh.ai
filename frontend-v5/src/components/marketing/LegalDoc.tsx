@@ -54,7 +54,7 @@ export default function LegalDoc({
         </div>
 
         <div className="nv-mono" style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 44, letterSpacing: ".04em" }}>
-          Questions? <a href="mailto:support@nivesh.ai" style={{ color: "var(--mint)" }}>support@nivesh.ai</a>
+          Questions? <a href="mailto:support@niveshcopilot.com" style={{ color: "var(--mint)" }}>support@niveshcopilot.com</a>
         </div>
       </div>
     </MarketingShell>

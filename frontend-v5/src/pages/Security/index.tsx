@@ -56,7 +56,7 @@ export default function SecurityPage() {
               please disclose it responsibly and we'll respond quickly.
             </p>
           </div>
-          <a href="mailto:support@nivesh.ai?subject=Security%20report" className="nv-btn nv-btn-primary" style={{ padding: "12px 18px", fontSize: 14, textDecoration: "none" }}>
+          <a href="mailto:support@niveshcopilot.com?subject=Security%20report" className="nv-btn nv-btn-primary" style={{ padding: "12px 18px", fontSize: 14, textDecoration: "none" }}>
             Report a vulnerability
           </a>
         </div>
