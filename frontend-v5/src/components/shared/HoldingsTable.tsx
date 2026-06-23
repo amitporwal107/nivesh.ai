@@ -70,6 +70,26 @@ function ActionBadge({ badge }: { badge: EnrichedHolding["action_badge"] }) {
   );
 }
 
+// ── Asset-type tabs ─────────────────────────────────────────────────────────
+// Group holdings by the kind of instrument. SGBs arrive as gold/bond with a
+// "Government of India" / "Sovereign Gold" name, so name wins over asset_type.
+type AssetTab = "all" | "equity" | "mutual_fund" | "etf" | "gold_sgb";
+
+const ASSET_TAB_LABEL: Record<AssetTab, string> = {
+  all: "All", equity: "Equity", mutual_fund: "Mutual funds", etf: "ETFs", gold_sgb: "Gold / SGB",
+};
+
+function holdingTab(h: EnrichedHolding): Exclude<AssetTab, "all"> | "other" {
+  const at = (h.asset_type ?? "").toLowerCase();
+  const name = (h.name ?? "").toLowerCase();
+  if (/sovereign gold|\bsgb\b|government of india/.test(name)) return "gold_sgb";
+  if (at === "gold") return "gold_sgb";
+  if (at === "etf") return "etf";
+  if (at === "mutual_fund") return "mutual_fund";
+  if (at === "equity") return "equity";
+  return "other"; // bonds/fd/other: only ever shown under "All", never miscounted
+}
+
 // ── Column definitions ─────────────────────────────────────────────────────
 
 const COLS: Array<{ key: string; label: string; sortKey?: SortKey; align?: "right" }> = [
@@ -90,8 +110,20 @@ export function HoldingsTable({ holdings, className }: Props) {
   const [sortKey, setSortKey]   = useState<SortKey>("value_rs");
   const [sortDir, setSortDir]   = useState<SortDir>("desc");
   const [search, setSearch]     = useState("");
+  const [assetTab, setAssetTab] = useState<AssetTab>("all");
   const [drawer, setDrawer]     = useState<EnrichedHolding | null>(null);
   const { filter, clearFilter } = useHoldingsFilter();
+
+  // Counts per asset-type tab — only tabs that actually have holdings are shown.
+  const tabCounts = useMemo(() => {
+    const c: Record<Exclude<AssetTab, "all"> | "other", number> = {
+      equity: 0, mutual_fund: 0, etf: 0, gold_sgb: 0, other: 0,
+    };
+    for (const h of holdings) c[holdingTab(h)]++;
+    return c;
+  }, [holdings]);
+  const assetTabs: AssetTab[] = ["all", "equity", "mutual_fund", "etf", "gold_sgb"]
+    .filter((t) => t === "all" || tabCounts[t as Exclude<AssetTab, "all">] > 0) as AssetTab[];
 
   // Sort toggle
   function handleSort(key: SortKey) {
@@ -102,6 +134,11 @@ export function HoldingsTable({ holdings, className }: Props) {
   // Filter + search + sort
   const rows = useMemo(() => {
     let list = holdings;
+
+    // Asset-type tab (Equity / Mutual funds / ETFs / Gold-SGB)
+    if (assetTab !== "all") {
+      list = list.filter((h) => holdingTab(h) === assetTab);
+    }
 
     // Dimension filter from Composition Explorer / Benchmark donut
     if (filter) {
@@ -135,7 +172,7 @@ export function HoldingsTable({ holdings, className }: Props) {
     });
 
     return list;
-  }, [holdings, filter, search, sortKey, sortDir]);
+  }, [holdings, assetTab, filter, search, sortKey, sortDir]);
 
   const tableBodyRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
@@ -156,6 +193,29 @@ export function HoldingsTable({ holdings, className }: Props) {
     <>
       <div className={cn("rounded-lg overflow-hidden", className)}
         style={{ border: "1px solid rgba(var(--line),0.08)", background: "rgb(var(--surface-2))" }}>
+
+        {/* Asset-type tabs */}
+        {assetTabs.length > 2 && (
+          <div className="flex items-center gap-1.5 px-4 pt-3 flex-wrap">
+            {assetTabs.map((t) => {
+              const active = assetTab === t;
+              const count = t === "all" ? holdings.length : tabCounts[t as Exclude<AssetTab, "all">];
+              return (
+                <button
+                  key={t}
+                  onClick={() => setAssetTab(t)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] transition-colors"
+                  style={active
+                    ? { background: "rgb(var(--accent) / 0.14)", color: "rgb(var(--accent))" }
+                    : { background: "rgba(var(--surface-3),0.5)", color: "rgb(var(--ink-2))" }}
+                >
+                  {ASSET_TAB_LABEL[t]}
+                  <span className="font-mono text-[10px] opacity-60">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Toolbar */}
         <div className="flex items-center gap-3 px-4 py-3"

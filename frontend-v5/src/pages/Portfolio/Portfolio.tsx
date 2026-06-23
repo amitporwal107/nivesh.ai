@@ -3,7 +3,7 @@ import { LineChart, PieChart, SlidersHorizontal, TrendingUp, TrendingDown } from
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BreakdownDonut, type DonutSlice } from "@/components/charts/BreakdownDonut";
+import { PieBreakdown, HeatmapTreemap, type BreakdownDatum } from "@/components/charts/AllocationCharts";
 import { HoldingsTable } from "@/components/shared/HoldingsTable";
 import { formatINR, formatINRCompact, formatPct } from "@/lib/formatters";
 import type { PortfolioSummary } from "@/types/portfolio";
@@ -69,17 +69,16 @@ function buildTypeSplit(holdings: EnrichedHoldingsRes["holdings"]): TypeSlice[] 
 }
 
 // ── Concentration axis → display rows ───────────────────────────────────────
-interface BreakdownRow { name: string; pct: number; value: number; sub?: string; }
-
 /** Restate an axis as % of total portfolio (sector/company use mixed
  *  denominators in the engine; "raw" keeps the axis-native % e.g. AMC=of MF
- *  corpus). Returns the top `limit` rows. */
+ *  corpus). Each row carries its drill-down members (funds in an AMC, companies
+ *  in a sector, funds holding a company). Returns the top `limit` rows. */
 function axisRows(
   axis: ConcentrationAxisC | undefined,
   total: number,
   mode: "of_total" | "raw",
-  limit = 8,
-): BreakdownRow[] {
+  limit = 10,
+): BreakdownDatum[] {
   const items = axis?.items ?? [];
   return items
     .map((it) => {
@@ -87,11 +86,13 @@ function axisRows(
       const pct = mode === "of_total"
         ? (total > 0 ? (value / total) * 100 : 0)
         : (it.pct ?? 0);
-      const funds = it.funds ?? [];
+      const any = it as Record<string, unknown>;
+      // funds (AMC) · fund_names (company) · holdings (sector) — whichever the engine attached.
+      const members = (it.funds ?? (any.fund_names as string[]) ?? (any.holdings as string[]) ?? []) as string[];
       const sub = it.count != null
-        ? `${it.count} fund${it.count === 1 ? "" : "s"}${funds.length ? ` · ${funds.slice(0, 2).join(", ")}` : ""}`
+        ? `${it.count} fund${it.count === 1 ? "" : "s"}`
         : (it.sector ?? undefined);
-      return { name: it.name, pct, value, sub };
+      return { name: it.name, pct, value, members, sub };
     })
     .filter((r) => r.pct > 0)
     .sort((a, b) => b.pct - a.pct)
@@ -128,7 +129,15 @@ export function Portfolio({ summary, enriched, sips, concentration }: Props) {
   // Instrument-type split — always available from holdings, so the Allocation
   // tab and hero bar never dead-end on "isn't available yet."
   const typeSplit = buildTypeSplit(holdings);
-  const typeDonut: DonutSlice[] = typeSplit.map((s) => ({ label: s.label, pct: s.pct, color: s.color }));
+  const typeMembers = new Map<TypeKey, string[]>();
+  for (const h of holdings) {
+    if (!((h.value_rs ?? 0) > 0)) continue;
+    const k = classifyType(h);
+    (typeMembers.get(k) ?? typeMembers.set(k, []).get(k)!).push(h.name);
+  }
+  const typeData: BreakdownDatum[] = typeSplit.map((s) => ({
+    name: s.label, pct: s.pct, value: s.value, members: typeMembers.get(s.key) ?? [],
+  }));
 
   // Look-through breakdowns (AMC / sector / company). Total comes from the
   // concentration envelope so % share reconciles with the engine.
@@ -255,62 +264,36 @@ export function Portfolio({ summary, enriched, sips, concentration }: Props) {
         </TabsContent>
 
         <TabsContent value="allocation" className="flex flex-col gap-4">
-          {/* Split across types — equity / mutual funds / gold & SGB / … */}
-          <Card className="p-7">
-            <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-9 items-center">
-              <div className="justify-self-center md:justify-self-start">
-                {typeDonut.length > 0
-                  ? <BreakdownDonut slices={typeDonut} size={240} />
-                  : <div className="h-[240px] w-[240px] flex items-center justify-center text-[12px] text-ink-3 font-mono">No priced holdings yet</div>}
-              </div>
-              <div>
-                <CardLabel>Split across types</CardLabel>
-                <p className="font-display text-2xl tracking-tightish mt-2 max-w-md leading-snug">
-                  {typeSplit.length === 0
-                    ? "Allocation breakdown isn't available yet."
-                    : typeSplit
-                        .slice(0, 2)
-                        .map((s) => `${s.pct.toFixed(0)}% in ${s.label.toLowerCase()}`)
-                        .join(", ") + "."}
-                </p>
-                <ul className="mt-5 flex flex-col gap-3">
-                  {typeSplit.map((s) => (
-                    <li key={s.key} className="flex items-center gap-3">
-                      <span className="h-3.5 w-3.5 rounded-sm" style={{ background: s.color }} />
-                      <span className="text-[14px]">{s.label}</span>
-                      <span className="ml-auto font-mono num text-[14px] font-medium">{s.pct.toFixed(1)}%</span>
-                      <span className="font-mono text-[11px] text-ink-3 w-24 text-right num">{formatINRCompact(s.value)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </Card>
+          {/* Split across types — equity / mutual funds / ETFs / gold & SGB.
+              Donut + clickable legend; click a slice to see what's inside it. */}
+          {typeData.length > 0 ? (
+            <PieBreakdown
+              title="Split across types"
+              note="% of portfolio · click to drill in"
+              rows={typeData}
+            />
+          ) : (
+            <Card className="p-7">
+              <CardLabel>Split across types</CardLabel>
+              <p className="mt-2 text-[13px] text-ink-3 font-mono">Allocation breakdown isn't available yet.</p>
+            </Card>
+          )}
 
           {/* Look-through: where the money actually sits (dissolving funds into
-              their underlying companies + sectors, plus fund-house exposure). */}
+              their underlying companies + sectors, plus fund-house exposure).
+              Sector + AMC as pies, companies as a heatmap; all drillable. */}
           {hasLookthrough ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <BreakdownSection
-                title="By sector"
-                note="Look-through · % of portfolio"
-                rows={sectorRows}
-                accent="rgb(var(--accent))"
-              />
-              <BreakdownSection
+            <>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <PieBreakdown title="By sector" note="Look-through · % of portfolio" rows={sectorRows} />
+                <PieBreakdown title="By fund house (AMC)" note="% of mutual-fund corpus" rows={amcRows} />
+              </div>
+              <HeatmapTreemap
                 title="Top companies"
-                note="Look-through · % of portfolio"
+                note="Look-through · % of portfolio · click a box"
                 rows={companyRows}
-                accent="#8FAE9D"
               />
-              <BreakdownSection
-                title="By fund house (AMC)"
-                note="% of mutual-fund corpus"
-                rows={amcRows}
-                accent="#7A8298"
-                className="lg:col-span-2"
-              />
-            </div>
+            </>
           ) : (
             <Card className="p-6">
               <CardLabel>Look-through breakdown</CardLabel>
@@ -366,40 +349,6 @@ function HeroStat({ label, value, sub, tone = "default" }: {
   );
 }
 
-function BreakdownSection({ title, note, rows, accent, className }: {
-  title: string;
-  note: string;
-  rows: BreakdownRow[];
-  accent: string;
-  className?: string;
-}) {
-  const max = rows.reduce((m, r) => Math.max(m, r.pct), 0) || 1;
-  return (
-    <Card className={`p-6 ${className ?? ""}`}>
-      <div className="flex items-baseline justify-between mb-4">
-        <CardLabel>{title}</CardLabel>
-        <span className="font-mono text-[10px] uppercase tracking-[.08em] text-ink-3">{note}</span>
-      </div>
-      <ul className="flex flex-col gap-3.5">
-        {rows.map((r) => (
-          <li key={r.name}>
-            <div className="flex items-baseline gap-3">
-              <span className="text-[13px] truncate" title={r.name}>{r.name}</span>
-              <span className="ml-auto font-mono num text-[13px] font-medium shrink-0">{r.pct.toFixed(1)}%</span>
-              <span className="font-mono text-[11px] text-ink-3 w-20 text-right num shrink-0">{formatINRCompact(r.value)}</span>
-            </div>
-            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
-              <div className="h-full rounded-full" style={{ width: `${(r.pct / max) * 100}%`, background: accent }} />
-            </div>
-            {r.sub && (
-              <div className="mt-1 text-[10.5px] text-ink-3 font-mono truncate" title={r.sub}>{r.sub}</div>
-            )}
-          </li>
-        ))}
-      </ul>
-    </Card>
-  );
-}
 
 function MoversCard({ title, icon: Icon, tone, rows }: {
   title: string;
