@@ -253,3 +253,25 @@ TER history exists yet. Same shape as SD-09 — fills only as snapshots accumula
 pipeline** (scrape URLs + parser correctness + time accrual). That is a focused data-engineering
 project (live AMC sites + brittle XLSX parsers), not a set of clean derived-analytics adds.
 Building the computes now would mean shipping false signals on corrupt/absent data.
+
+---
+
+## 8. Equity coverage + correctness outcome (2026-06-23)
+
+**Coverage**: live v3 stock `coverage_pct` 55.7% (session start) → **76.6%** after the
+historical backfill (roe/roce/CAGR for beyond-N500: roe ~492 → 1,927) + rescore.
+
+**Correctness — found & fixed via data-testing (not assumed):**
+- Spot-checks of large caps (RELIANCE/TCS/INFY/ITC/MARUTI) verified correct.
+- **Q4-annual-contamination** caught on HDFCBANK (TTM PAT 137,364 = ~2x): March quarterly
+  row held the annual figure. Migration 107 (PAT-signature, covers banks that 101's
+  revenue-gate missed) corrected 1,271 rows. Verified: HDFCBANK PAT 137,364 → 79,219,
+  ROE 23.6% → 13.6% (matches independent lowercase source 19,221).
+- Residual tail to address via the harness below: 19 PAT>revenue, 17 absurd ROE, 9 absurd PE.
+
+**Durable guarantee — automate the checks (recommended next):** wire a validation harness
+(`quality_gate`/great-expectations) to run every ingest and flag/block in `v_feed_status`:
+(1) sanity ranges (PE/ROE/D-E), (2) Q4-contamination (Q4 PAT > 9-month sum), (3) MF holdings
+weight-sum ~100% (catches the NIPPON corruption), (4) golden spot-checks (known large-cap
+values drift-test). Also reconcile the two Screener ingest paths (inconsistent period_type
+case + values; 106/107 are read-side guards, the writer should normalize at source).
