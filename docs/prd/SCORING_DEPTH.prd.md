@@ -88,11 +88,17 @@ re-ingest to backfill historical rows (gated on SD-01).
 
 ### P2 — Structural feeds (biggest levers)
 
-**SD-05 · Expand equity fundamentals universe** — *P2 · Full-stack · L*
-Only 611/2,275 scored stocks have fundamentals; backfill is Nifty-500-only
-(`backfill_screener.py:40` → `v_nifty500_members`). Add Nifty Midcap 100 (then Smallcap 100)
-backfill views; ingest an NSE symbol master for discovery.
-**Depends on:** SD-01. **Blocks:** SD-08. **DoD:** fundamentals 611 → ~1,200–1,500 symbols.
+**SD-05 · Expand equity fundamentals universe** — *P2 · Full-stack · L · ENABLER DONE 2026-06-23*
+Only ~580/2,275 scored stocks had fundamentals; all 499 scored Nifty-500 names did, but
+1,696 scored stocks beyond Nifty 500 did not. **Correction:** Nifty Midcap/Smallcap 100 are
+SUBSETS of Nifty 500 — adding index views adds nothing; the gap is the broader market.
+Done: migration 105 `v_screener_backfill_universe` (full scored universe, missing-first) +
+`backfill_screener` repointed off `v_nifty500_members` + skip-before-throttle fix. Committed
+& pushed to `dev` (6502e241). **Verified:** view returns 2,339 symbols (1,758 missing);
+20-symbol real validation batch → **19/20 (95%) yield**, fundamentals landed and now visible
+in `v_stock_fundamentals_latest`. **Remaining:** run the full ~1,758-symbol backfill (≈1h
+throttled) on the VM → projected fundamentals coverage ~580 → ~2,100 of 2,339.
+**Depends on:** SD-01. **Blocks:** SD-08. **DoD:** fundamentals 611 → ~2,000+ symbols.
 
 **SD-06 · Repair broken AMC holdings scrapers** — *P2 · Full-stack · L*
 Holdings on only 1,515/14,403 schemes (10.5%), 2 mo stale. Fix icici_pru, kotak, axis, mirae
