@@ -310,7 +310,7 @@ export function HoldingsTable({ holdings, className }: Props) {
                                 {pctCell(h.benchmark_delta)}
                                 {h.benchmark_label && (
                                   <span className="text-[9.5px] opacity-40 mt-0.5" style={{ fontFamily: "var(--font-mono)" }}>
-                                    vs {h.benchmark_label}
+                                    vs {h.benchmark_label}{any.benchmark_delta_horizon ? ` · ${any.benchmark_delta_horizon}` : ""}
                                   </span>
                                 )}
                               </div>

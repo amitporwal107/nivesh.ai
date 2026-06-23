@@ -89,6 +89,23 @@ export const realPortfolioAdapter: PortfolioAdapter = {
     const res = await http({ path: "/api/portfolio/holdings-enriched", query: { fresh } });
     const parsed = EnrichedHoldingsRes.safeParse(res.data);
     if (!parsed.success) throw ApiError.contractDrift(`portfolio.enriched: ${parsed.error.message}`);
+    // The backend sends per-row fund CAGR + the matched index CAGR, but not the
+    // relative delta the Holdings table / drawer render. Derive it here (once)
+    // so every consumer agrees: fund − benchmark, preferring the 1y horizon and
+    // falling back to 3y, with the horizon recorded so the label stays honest.
+    for (const h of parsed.data.holdings) {
+      const any = h as Record<string, number | null | undefined>;
+      if (any.benchmark_delta != null) continue;
+      const f1 = any.cagr_1y_pct, b1 = any.benchmark_cagr_1y_pct;
+      const f3 = any.cagr_3y_pct, b3 = any.benchmark_cagr_3y_pct;
+      let delta: number | null = null, horizon: "1y" | "3y" | null = null;
+      if (f1 != null && b1 != null) { delta = f1 - b1; horizon = "1y"; }
+      else if (f3 != null && b3 != null) { delta = f3 - b3; horizon = "3y"; }
+      if (delta != null) {
+        any.benchmark_delta = Math.round(delta * 10) / 10;
+        (h as Record<string, unknown>).benchmark_delta_horizon = horizon;
+      }
+    }
     return parsed.data;
   },
 
