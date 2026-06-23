@@ -53,6 +53,12 @@ _TIER_INDICES = {
     3: "Nifty 500",   # minus T0+T1+T2
 }
 
+# Tier 4 (SD-07/SD-08): everything the engine scores beyond Nifty 500 — small/micro
+# caps. This historical backfill is what populates multi-year annual P&L (→ 3Y CAGR)
+# and shareholding history (→ promoter/FII/DII QoQ), neither of which exists for these
+# names today. Symbols come from the full scored universe, not an index.
+_FULL_UNIVERSE_TIER = 4
+
 
 # ── DB helpers ──────────────────────────────────────────────────────────────
 
@@ -69,21 +75,28 @@ async def _load_tiered_symbols(
     result: list[tuple[int, str]] = []
     for tier in range(max_tier + 1):
         index_name = _TIER_INDICES.get(tier)
-        if not index_name:
+        if index_name:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT symbol
+                  FROM nidp.index_constituents
+                 WHERE index_name = $1
+                   AND as_of_date = (
+                         SELECT MAX(as_of_date) FROM nidp.index_constituents
+                          WHERE index_name = $1
+                       )
+                 ORDER BY symbol
+                """,
+                index_name,
+            )
+        elif tier == _FULL_UNIVERSE_TIER:
+            # Beyond the index tiers: every scored stock, missing-fundamentals first.
+            rows = await conn.fetch(
+                "SELECT symbol FROM nidp.v_screener_backfill_universe "
+                "ORDER BY has_fundamentals, symbol"
+            )
+        else:
             continue
-        rows = await conn.fetch(
-            """
-            SELECT DISTINCT symbol
-              FROM nidp.index_constituents
-             WHERE index_name = $1
-               AND as_of_date = (
-                     SELECT MAX(as_of_date) FROM nidp.index_constituents
-                      WHERE index_name = $1
-                   )
-             ORDER BY symbol
-            """,
-            index_name,
-        )
         for r in rows:
             sym = r["symbol"]
             if sym not in seen:
@@ -352,7 +365,7 @@ async def _process_one(
 
 async def run(
     days: int = 365,
-    max_tier: int = 3,
+    max_tier: int = 4,
     symbols_override: Optional[list[str]] = None,
     concurrency: int = 1,
     delay_ms: int = 3000,
@@ -406,12 +419,12 @@ async def run(
 
 def main() -> None:
     p = argparse.ArgumentParser(
-        description="Historical Screener.in backfill for Nifty 500 (tier-ordered)"
+        description="Historical Screener.in backfill (tier-ordered, full scored universe)"
     )
     p.add_argument("--days", type=int, default=365,
                    help="Lookback window in days (default: 365)")
-    p.add_argument("--tier", type=int, default=3,
-                   help="Max tier to process: 0=N50, 1=N100, 2=N200, 3=N500 (default: 3)")
+    p.add_argument("--tier", type=int, default=4,
+                   help="Max tier: 0=N50, 1=N100, 2=N200, 3=N500, 4=full scored universe (default: 4)")
     p.add_argument("--symbols", default=None,
                    help="Comma-separated symbol override (skips tier loading)")
     p.add_argument("--concurrency", type=int, default=1,
