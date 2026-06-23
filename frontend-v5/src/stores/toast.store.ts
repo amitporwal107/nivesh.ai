@@ -43,6 +43,7 @@ export function toastFromError(err: unknown): Omit<Toast, "id"> {
       case "forbidden":      return { kind: "warn",    title: "Not allowed",                 description: err.detail ?? "You don't have access to that." };
       case "not_found":      return { kind: "info",    title: "Not found",                   description: err.detail };
       case "validation":     return { kind: "warn",    title: "Check your input",            description: err.detail };
+      case "conflict":       return { kind: "warn",    title: "Already exists",              description: err.detail ?? "A record with one of these identifiers already exists." };
       case "rate_limit":     return { kind: "warn",    title: "Slow down a moment",          description: "Too many requests. Try again shortly." };
       case "timeout":        return { kind: "warn",    title: "That took too long",          description: "Please try again.", correlationId: err.correlationId };
       case "network":        return { kind: "error",   title: "Network error",               description: "Check your connection.", correlationId: err.correlationId };

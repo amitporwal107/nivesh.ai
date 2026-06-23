@@ -10,6 +10,7 @@ import { useState } from "react";
 import { UserPlus, X } from "lucide-react";
 import { useCreateClient } from "@/hooks/use-advisor";
 import { useToastStore } from "@/stores/toast.store";
+import { ApiError } from "@/services/api/errors";
 import { fmtRs } from "./derive";
 
 const SUGGESTED_TAGS = ["Retail", "HNI", "Ultra-HNI", "Conservative", "Moderate", "Aggressive"];
@@ -71,7 +72,14 @@ export function AddClientModal({ open, onClose, onCreated }: { open: boolean; on
           onCreated?.();
           onClose();
         },
-        onError: (e) => push({ kind: "error", title: "Could not add client", description: e instanceof Error ? e.message : undefined }),
+        onError: (e) => {
+          const conflict = e instanceof ApiError && e.kind === "conflict";
+          push({
+            kind: conflict ? "warn" : "error",
+            title: conflict ? "Client already exists" : "Could not add client",
+            description: e instanceof Error ? e.message : undefined,
+          });
+        },
       },
     );
   };

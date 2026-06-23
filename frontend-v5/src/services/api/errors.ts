@@ -12,6 +12,7 @@ export type ApiErrorKind =
   | "forbidden"        // 403
   | "not_found"        // 404
   | "validation"       // 422 / 400 with field-level detail
+  | "conflict"         // 409 — duplicate / identity already exists
   | "rate_limit"       // 429
   | "server"           // 5xx
   | "contract_drift"   // Zod schema mismatch
@@ -52,6 +53,7 @@ export class ApiError extends Error {
       status === 403 ? "forbidden" :
       status === 404 ? "not_found" :
       status === 422 || status === 400 ? "validation" :
+      status === 409 ? "conflict" :
       status === 429 ? "rate_limit" :
       status >= 500 ? "server" :
       "unknown";
@@ -85,6 +87,13 @@ function extractDetail(body: unknown): string | undefined {
     // FastAPI validation errors are arrays of { msg, loc, type }
     const first = obj.detail[0] as { msg?: string } | undefined;
     return first?.msg;
+  }
+  // Structured detail object — e.g. the 409 identity-conflict envelope
+  // { error, message, conflicts }. Surface its human-readable message.
+  if (obj.detail && typeof obj.detail === "object") {
+    const d = obj.detail as Record<string, unknown>;
+    if (typeof d.message === "string") return d.message;
+    if (typeof d.error === "string") return d.error;
   }
   if (typeof obj.message === "string") return obj.message;
   return undefined;
