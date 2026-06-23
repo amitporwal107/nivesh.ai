@@ -108,15 +108,25 @@ Holdings on only 1,515/14,403 schemes (10.5%), 2 mo stale. Fix icici_pru, kotak,
 
 ### P3 — Derived / compute
 
-**SD-07 · Shareholding QoQ backfill + YoY fallback** — *P3 · Full-stack · M*
-QoQ change missing 92%; `v_shareholding_latest` (`migrations/025:65-111`) NULLs deltas when
-prior quarter absent. Backfill prior quarters; add YoY fallback.
-**Depends on:** SD-01. **DoD:** governance primitives 8% → ~70–80%.
+**SD-07 · Shareholding QoQ backfill** — *P3 · Full-stack · M · ENABLER DONE 2026-06-23*
+QoQ NULL for 1,482 names — root cause is data depth, not the view: 1,137 symbols have a
+single shareholding filing (no prior quarter). The view already deltas vs the most-recent
+prior filing, so a YoY fallback adds nothing for single-filing names — the fix is historical
+backfill. **Done:** widened `backfill_screener_historical` to tier 4 (full universe) — it
+writes shareholding history. Committed `dev` (50b6bd33). **Verified:** 20MICRONS 1→12 filings,
+QoQ now computes (promoter 0.0, fii +0.15, dii +0.04). **Caveat:** historical scraper yield is
+low (1/3 in validation) → modest gain on full run. **Remaining:** full historical run + look
+into the not_found rate. **Depends on:** SD-01. **DoD:** governance primitives 8% → higher.
 
-**SD-08 · 3Y CAGR quarterly fallback** — *P3 · Full-stack · M*
-revenue/eps 3Y CAGR missing 80–96%; `populate_stock_features_v3` (`migrations/089`) is
-annual-only. Add quarterly-derived fallback.
-**Depends on:** SD-03, SD-05. **DoD:** growth primitives ~4% → 50–70%.
+**SD-08 · 3Y CAGR — widen annual source** — *P3 · Full-stack · M · ENABLER DONE 2026-06-23*
+3Y CAGR (`migrations/089`) is annual-only and needs a 3-year annual span; only ~497 symbols
+had annual data. **Done:** same tier-4 widening of `backfill_screener_historical`, which
+writes multi-year ANNUAL P&L (`screener_in_annual`). Committed `dev` (50b6bd33). **Verified:**
+20MICRONS 0→4 annual rows (rev 613→913, eps 9.80→17.68, 2022-2025) — 3Y CAGR now computable on
+the next `populate_stock_features_v3` run. **Found (not yet fixed):** that function's quarterly
+CTE filters `period_type='QUARTERLY'` (uppercase) and misses 743 lowercase-`quarterly` symbols
+→ a follow-up migration for margin/debt-trend coverage + an optional quarterly-3Y-CAGR fallback.
+**Depends on:** SD-05. **DoD:** growth primitives ~4% → higher (bounded by historical yield).
 
 **SD-09 · AUM monthly series + aum_stability OLS** — *P3 · Full-stack · M*
 aum_stability 100% missing (20% of MF health weight); only point-in-time AUM exists. New
