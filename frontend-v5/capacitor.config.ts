@@ -20,6 +20,14 @@ const config: CapacitorConfig = {
     androidScheme: "https",
   },
   plugins: {
+    // Native Google sign-in via Firebase. signInWithGoogle() returns the Google
+    // ID token (audience = the Firebase web client from google-services.json),
+    // which we POST to /api/auth/google (the backend accepts that audience).
+    FirebaseAuthentication: {
+      skipNativeAuth: false,
+      providers: ["google.com"],
+    },
+    // Legacy codetrix Google plugin — kept installed but no longer used by Login.
     GoogleAuth: {
       scopes: ["profile", "email"],
       serverClientId: WEB_CLIENT_ID,

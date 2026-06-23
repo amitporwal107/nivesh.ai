@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
-import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
+import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
 import { dlog } from "@/lib/device-log";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,17 @@ import { useHealthAnalysis } from "@/hooks/use-insights";
 import { authService } from "@/services";
 import { useToastStore } from "@/stores/toast.store";
 import { ALLOWED_DOMAINS } from "@/types/user";
+
+/** Decode a JWT's `aud` claim (for diagnostics only — no verification). */
+function jwtAud(token?: string): string {
+  if (!token) return "(none)";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
+    return String(payload.aud ?? "(no aud)");
+  } catch {
+    return "(unparseable)";
+  }
+}
 
 function formatRs(paise: number) {
   const rs = Math.abs(paise) / 100;
@@ -67,38 +78,34 @@ export default function LoginPage() {
   const gis = useGoogleIdentity(handleCredential);
 
   // Inside the native app the web Google Identity Services button can't run
-  // (Google blocks OAuth in WebViews, and the WebView origin isn't an authorized
-  // JS origin). Use the native Google sign-in plugin instead; it returns an ID
-  // token we hand to the same backend endpoint via handleCredential().
+  // (Google blocks OAuth in WebViews). Use Firebase Authentication's native
+  // Google sign-in; it returns the Google ID token, which we hand to the same
+  // backend endpoint via handleCredential().
   const isNative = Capacitor.isNativePlatform();
-
-  useEffect(() => {
-    if (!isNative) return;
-    // serverClientId/scopes come from capacitor.config + Android strings.xml;
-    // initialize() is a safe no-op re-arm of the plugin on mount.
-    try {
-      GoogleAuth.initialize();
-    } catch {
-      /* native plugin initializes from config — ignore double-init */
-    }
-  }, [isNative]);
 
   const [nativePending, setNativePending] = useState(false);
   const handleNativeGoogle = useCallback(async () => {
     setNativePending(true);
-    dlog("native google sign-in: tapped");
+    dlog("firebase google sign-in: tapped");
     try {
-      const result = await GoogleAuth.signIn();
-      dlog("native google sign-in: signIn() returned", {
-        email: result?.email,
-        hasIdToken: Boolean(result?.authentication?.idToken),
+      const result = await FirebaseAuthentication.signInWithGoogle();
+      // The Google credential's idToken (audience = Firebase web client) is what
+      // the backend verifies. getIdToken() (a Firebase token) is the fallback.
+      let idToken = result.credential?.idToken;
+      if (!idToken) {
+        const t = await FirebaseAuthentication.getIdToken();
+        idToken = t?.token;
+      }
+      dlog("firebase google sign-in: returned", {
+        email: result.user?.email,
+        aud: jwtAud(idToken),
+        hasIdToken: Boolean(idToken),
       });
-      const idToken = result?.authentication?.idToken;
-      if (!idToken) throw new Error("Google did not return an ID token");
+      if (!idToken) throw new Error("Firebase did not return an ID token");
       // handleCredential logs the real backend outcome (ACCEPTED / REJECTED).
       await handleCredential(idToken);
     } catch (err) {
-      dlog("native google sign-in: FAILED", err);
+      dlog("firebase google sign-in: FAILED", err);
       pushToast({
         kind: "error",
         title: "Sign-in failed",

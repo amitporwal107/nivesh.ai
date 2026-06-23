@@ -13,3 +13,6 @@ playwright-report/
 
 # Built mobile binaries (reproducible from android/ via gradlew assembleDebug)
 *.apk
+
+# Firebase config (contains the Android API key — keep local, build uses it)
+android/app/google-services.json
