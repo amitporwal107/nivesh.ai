@@ -352,6 +352,29 @@ _HEADER_REPEAT_NAMES = {
 }
 
 
+_VALID_ISIN_RE = re.compile(r"^IN[EF][A-Z0-9]{9}$")
+# SEBI sub-section bullets: "(a) Listed/awaiting listing", "(b) Unlisted",
+# "(c) Privately placed", etc. — labels, not holdings.
+_SECTION_BULLET_RE = re.compile(r"^\s*\([a-e]\)", re.I)
+
+
+def _is_aggregation_row(name: str, has_valid_isin: bool) -> bool:
+    """True for subtotal / grand-total / section-label rows that must not be counted
+    as holdings. They carry a value+weight (so the no-data filter misses them), and
+    including them double-counts — e.g. NIPPON schemes summed to ~224% because every
+    section's Sub Total plus the Grand Total were ingested alongside the real holdings.
+    A row with a valid ISIN is always a real security and is never treated as a total.
+    """
+    if has_valid_isin:
+        return False
+    n = name.strip()
+    if "total" in n.lower():            # subtotal / sub total / grand total / total
+        return True
+    if _SECTION_BULLET_RE.match(n):     # "(a) Listed", "(b) Unlisted", ...
+        return True
+    return False
+
+
 def _parse_sheet(
     rows: list[tuple],
     as_of_month: str,
@@ -444,6 +467,10 @@ def _parse_sheet(
             return None
 
         isin    = _get("security_isin")
+        # Drop subtotal / grand-total / section-label rows (they carry a value so the
+        # no-data filter above lets them through, but counting them double-counts).
+        if _is_aggregation_row(sec_name, bool(isin and _VALID_ISIN_RE.match(isin))):
+            continue
         sector  = _get("sector")
         rating  = _get("rating")
         qty     = _to_float(_get("quantity"))
