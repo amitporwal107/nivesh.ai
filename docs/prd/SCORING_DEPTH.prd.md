@@ -208,3 +208,40 @@ SD-02 (URLdrift)┬─> SD-06 ──> SD-10
 - No task is "done" without real before/after coverage-view output in the same report.
 - SD-01 (prod disk deletion) and any re-ingest/migration require explicit go-ahead before
   execution.
+
+---
+
+## 7. Remaining-tasks blocker analysis (2026-06-23, evidence-backed)
+
+After SD-01/04/05/07/08/12 + migration 106 + scraper-retry shipped, the remaining tasks
+were investigated against live prod data. **None can be completed as a verified code win
+now** — each is blocked by data quality or data availability, not by missing logic:
+
+**SD-10 / SD-11 (debt credit_concentration, liquidity, yield-vs-category) — BLOCKED by corrupt holdings.**
+The scorer already consumes these (`v3_scoring.py:244-245`, weights 30%/20% in `v3_weights.py`),
+but `mf_holdings_monthly` is predominantly corrupt: of 1,515 schemes, only **138 (9%) have
+sane weight sums (95–105%)**; **599 (40%) sum to >120%**. `rating` is **0% populated**,
+`instrument_type` 6%. Corruption is parser-localized: **NIPPON 529 schemes 0% sane (all >120%)**,
+**SBI 486 schemes 0% sane** — together ~67% of holdings. Building credit_concentration on this
+would emit false signals for 91% of schemes (forbidden by the honesty rules). liquidity_score
+is doubly blocked (rating 0% populated). **Root fix = SD-06 (parser repair), starting with the
+NIPPON + SBI XLSX parsers.** Raw XLSX not in the local archive (only parsed JSON) → needs the
+live AMC file to debug+verify.
+
+**SD-06 (AMC holdings parsers) — the keystone blocker.** Pinpointed targets: NIPPON + SBI
+weight-column misalignment (weights >100%, dates landing in the ISIN field). Per-parser fix,
+each needing the live source file. SD-02 (URL drift: hdfc/icici_pru/absl/amfi-ter/amfi-risk)
+gates re-fetching those files.
+
+**SD-09 (aum_stability) — BLOCKED by data-history ceiling.** Needs a monthly AUM series; only
+**459 AUM snapshots exist, all from a single date (2026-05-27)** = 1 month. OLS slope is
+impossible until history accrues (the disclosure feed must run over months). Logic could be
+written but would populate nothing.
+
+**SD-13 (expense_trend) — BLOCKED by data-history ceiling.** Needs a 3-year TER lookback; no
+TER history exists yet. Same shape as SD-09 — fills only as snapshots accumulate.
+
+**Net:** the entire remaining MF-depth chain is gated on the **AMC holdings/disclosure
+pipeline** (scrape URLs + parser correctness + time accrual). That is a focused data-engineering
+project (live AMC sites + brittle XLSX parsers), not a set of clean derived-analytics adds.
+Building the computes now would mean shipping false signals on corrupt/absent data.
