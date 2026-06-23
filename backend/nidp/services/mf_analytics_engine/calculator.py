@@ -20,6 +20,14 @@ import numpy as np
 RISK_FREE_ANNUAL = 6.5
 RISK_FREE_DAILY = RISK_FREE_ANNUAL / 252 / 100
 
+# Minimum annualised volatility (%) below which risk-adjusted ratios are not
+# computable: a near-flat NAV series (stale/interpolated NAV) drives the
+# denominator toward zero, so tiny return differences explode Sharpe/Sortino
+# (observed up to -99999 sentinel clamps). 0.3% annualised ≈ 0.019% daily std —
+# below any real fund, including overnight/liquid (which sit ~0.3–1.0%). Floored
+# here -> None so the metric reads as "insufficient signal", not a wild outlier.
+_MIN_ANN_VOL_PCT = 0.3
+
 
 # ── Returns ───────────────────────────────────────────────────────────
 
@@ -116,8 +124,13 @@ def volatility_annualised(log_rets: np.ndarray) -> Optional[float]:
 
 
 def sharpe(ann_return_pct: Optional[float], ann_vol_pct: Optional[float]) -> Optional[float]:
-    """Sharpe ratio = (return - risk_free) / volatility."""
-    if ann_return_pct is None or ann_vol_pct is None or ann_vol_pct == 0:
+    """Sharpe ratio = (return - risk_free) / volatility.
+
+    Returns None when volatility is below _MIN_ANN_VOL_PCT: a near-flat NAV series
+    makes the ratio numerically unstable (explodes on tiny return noise) rather
+    than informative.
+    """
+    if ann_return_pct is None or ann_vol_pct is None or ann_vol_pct < _MIN_ANN_VOL_PCT:
         return None
     return float((ann_return_pct - RISK_FREE_ANNUAL) / ann_vol_pct)
 
@@ -131,7 +144,10 @@ def sortino(log_rets: np.ndarray, ann_return_pct: Optional[float]) -> Optional[f
     if len(neg_rets) == 0:
         return None
     downside_dev = float(np.std(neg_rets, ddof=1) * math.sqrt(252) * 100)
-    if downside_dev == 0:
+    # Same near-zero-denominator instability as Sharpe: floor the downside
+    # deviation so a near-flat NAV series reads as "insufficient signal", not a
+    # wild outlier.
+    if downside_dev < _MIN_ANN_VOL_PCT:
         return None
     return float((ann_return_pct - RISK_FREE_ANNUAL) / downside_dev)
 

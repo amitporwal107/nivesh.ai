@@ -170,8 +170,14 @@ def mf_holdings_suite(cal: TradingCalendar) -> Suite:
             # -20.91). The per-SCHEME sum is the real guard. >100 is WARN-only signal.
             E.between("weight_pct", min=-25, max=None, severity="warn"),
             E.match_regex("security_isin", E.ISIN_REGEX, allow_blank=True),
-            # instrument_type (mf_holdings) real domain = STO/IDO/STF/IDF, ~94% blank.
-            E.in_set("instrument_type", {"STO", "IDO", "STF", "IDF"}, allow_blank=True),
+            # instrument_type domain spans two writer vintages: the older AMFI codes
+            # {STO,IDO,STF,IDF} and the current per-source XLSX labels {DEBT,CASH,REIT,
+            # EQUITY} (verified live in staging: 4780 DEBT / 530 CASH / 495 REIT, ~95%
+            # blank). All are legitimate asset classes — the prior set flagged 5,805
+            # valid rows. Superset keeps both vintages so neither env false-positives.
+            E.in_set("instrument_type",
+                     {"STO", "IDO", "STF", "IDF", "DEBT", "CASH", "REIT", "EQUITY"},
+                     allow_blank=True),
             E.no_subtotal_rows("security_name"),                 # NIPPON/SBI subtotal rows
             # rating is 100% NULL (all 242,614 rows) — credit checks have nothing to
             # read. Surface as a coverage finding; max_rate=1.0 today, lower once built.
