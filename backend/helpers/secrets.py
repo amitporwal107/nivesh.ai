@@ -34,6 +34,12 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
         "test_fn": None,
         "category": "auth",
     },
+    "CLIENT_LOG_KEY": {
+        "display_name": "Client Log Ingest Key",
+        "description": "Shared secret the mobile app sends in the X-Client-Log-Key header to push logs to Cloud Logging (POST /api/client-logs). Unset = endpoint disabled.",
+        "test_fn": None,
+        "category": "auth",
+    },
     "GMAIL_OAUTH_CLIENT_ID": {
         "display_name": "Gmail OAuth Client ID",
         "description": "For Gmail inbox CAS import",

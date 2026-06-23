@@ -68,6 +68,7 @@ from routes.portfolio_snapshots import router as portfolio_snapshots_router  # T
 from routes.portfolio_export import router as portfolio_export_router  # CSV/XLSX export
 from routes.client_cas_invite import mfd_router as cas_invite_mfd_router, public_router as cas_invite_public_router
 from routes.data_health import router as data_health_router  # Global stale-data banner
+from routes.client_logs import router as client_logs_router  # Mobile app → Cloud Logging ingest
 from routes.cas_transactions import router as cas_transactions_router  # SIP detection + txn history
 from routes.cas_snapshots import router as cas_snapshots_router  # CAS Time-Machine endpoints
 from routes.benchmarks import router as benchmarks_router  # Benchmark Index Data Service
@@ -171,6 +172,7 @@ app.include_router(portfolio_snapshots_router)  # Portfolio Time-Machine
 app.include_router(cas_invite_mfd_router)       # Client CAS invite (MFD side)
 app.include_router(cas_invite_public_router)    # Client CAS invite (public, no auth)
 app.include_router(data_health_router)           # Global stale-data banner
+app.include_router(client_logs_router)           # Mobile app → Cloud Logging ingest
 app.include_router(cas_transactions_router)      # SIP detection + txn history
 app.include_router(cas_snapshots_router)          # CAS Time-Machine endpoints
 app.include_router(benchmarks_router)             # Benchmark Index Data Service
