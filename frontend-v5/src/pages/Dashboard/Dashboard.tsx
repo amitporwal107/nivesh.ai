@@ -484,11 +484,26 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
         <h1 className="font-display text-3xl sm:text-4xl tracking-tightish leading-[1.05] mt-1.5">
           Your portfolio is <span className={tone}>{phrase}</span>.
         </h1>
-        <p className="text-[15.5px] sm:text-base text-ink-2 mt-3 leading-relaxed max-w-[600px]">
-          {pending.length > 0
-            ? `${totalPending} action${totalPending !== 1 ? "s" : ""} identified — apply them to improve your score.`
-            : "Upload your latest CAS statement to see personalised actions."}
-        </p>
+        {pending.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => navigate("/plan")}
+            className="group mt-3 inline-flex items-center gap-1.5 text-[15.5px] sm:text-base text-ink-2 leading-relaxed text-left max-w-[600px] hover:text-ink-1 transition-colors"
+          >
+            <span>
+              {`${totalPending} action${totalPending !== 1 ? "s" : ""} identified — `}
+              <span className="text-accent underline decoration-accent/40 underline-offset-2 group-hover:decoration-accent">
+                apply them to improve your score
+              </span>
+              .
+            </span>
+            <ArrowRight className="w-4 h-4 text-accent shrink-0 transition-transform group-hover:translate-x-0.5" />
+          </button>
+        ) : (
+          <p className="text-[15.5px] sm:text-base text-ink-2 mt-3 leading-relaxed max-w-[600px]">
+            Upload your latest CAS statement to see personalised actions.
+          </p>
+        )}
       </Reveal>
 
       {/* Persona card */}
