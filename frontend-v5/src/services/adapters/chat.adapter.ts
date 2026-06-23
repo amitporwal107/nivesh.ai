@@ -13,6 +13,7 @@
  */
 import { http } from "@/services/api/http";
 import { apiConfig } from "@/services/api/config";
+import { getAuthToken } from "@/services/api/auth-token";
 import { z } from "zod";
 
 /** Server-Sent-Event frames emitted by POST /api/chat/stream. */
@@ -95,10 +96,16 @@ export const realChatAdapter: ChatAdapter = {
     return { reply: typeof res.data === "string" ? res.data : "" };
   },
   async streamSend(message, sessionId, onEvent, opts) {
-    // SSE via fetch (EventSource can't POST). Same-origin cookie auth.
+    // SSE via fetch (EventSource can't POST). Cookie auth on web; the native app
+    // adds Authorization: Bearer (the WebView drops the cross-site cookie, so
+    // this raw fetch must carry the token like the http() client does).
+    const token = getAuthToken();
     const res = await fetch(`${apiConfig.baseUrl}/api/chat/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       credentials: "include",
       body: JSON.stringify({ message, session_id: sessionId, page: opts?.page }),
       signal: opts?.signal,

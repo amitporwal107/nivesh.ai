@@ -11,6 +11,7 @@ import { PersonaCard } from "./PersonaCard";
 import { IntelligenceFeed, type AllocationDrift } from "./IntelligenceFeed";
 import { QuickActions } from "./QuickActions";
 import { plansService } from "@/services";
+import { apiFetch } from "@/services/api/authed-fetch";
 import type { PlanActionC, PlanC } from "@/services/contracts/plan.contract";
 import type { RiskProfile } from "@/hooks/use-risk-profile";
 import { targetAllocationFor } from "@/hooks/use-risk-profile";
@@ -63,7 +64,7 @@ function useCasState() {
   return useQuery({
     queryKey: ["onboarding", "state"],
     queryFn: async () => {
-      const res = await fetch("/api/onboarding/state", { credentials: "include" });
+      const res = await apiFetch("/api/onboarding/state");
       if (!res.ok) return null;
       return res.json() as Promise<OboardingState>;
     },

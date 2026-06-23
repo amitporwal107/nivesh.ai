@@ -16,6 +16,7 @@
  * Pairs with /api/insights/analysis for the health score.
  */
 import { http } from "@/services/api/http";
+import { apiFetch } from "@/services/api/authed-fetch";
 import { ApiError } from "@/services/api/errors";
 import {
   HoldingsListRes,
@@ -115,7 +116,7 @@ export const realPortfolioAdapter: PortfolioAdapter = {
     const [enriched, health, casState] = await Promise.all([
       this.listHoldingsEnriched().catch(() => null),
       realInsightsAdapter.analysis().catch(() => null),
-      fetch("/api/onboarding/state", { credentials: "include" })
+      apiFetch("/api/onboarding/state")
         .then((r) => r.ok ? r.json() as Promise<{ cas_portfolio_value_rs?: number | null; cas_statement_date?: string | null }> : null)
         .catch(() => null),
     ]);
@@ -147,7 +148,7 @@ export const realPortfolioAdapter: PortfolioAdapter = {
     const days = DAYS_BY_RANGE[range] ?? 365;
     const [trendRes, casState] = await Promise.all([
       http({ path: "/api/portfolio/trend", query: { days } }).catch(() => ({ data: null })),
-      fetch("/api/onboarding/state", { credentials: "include" })
+      apiFetch("/api/onboarding/state")
         .then((r) => r.ok ? r.json() as Promise<{
           cas_portfolio_value_rs?: number | null;
           cas_statement_date?: string | null;

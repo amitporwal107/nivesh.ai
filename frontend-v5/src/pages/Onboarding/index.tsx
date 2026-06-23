@@ -7,6 +7,7 @@ import { GoogleMark } from "@/components/shared/GoogleMark";
 import { Upload, Shield, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCasUpload } from "@/hooks/use-cas-upload";
+import { apiFetch } from "@/services/api/authed-fetch";
 
 type Method = "gmail" | "upload" | "otp";
 
@@ -19,7 +20,7 @@ export default function OnboardingPage() {
   // If already onboarded (CAS imported), redirect to dashboard — the risk
   // profile CTA lives there, not here. Only block here for brand-new users.
   useEffect(() => {
-    fetch("/api/onboarding/state", { credentials: "include" })
+    apiFetch("/api/onboarding/state")
       .then(r => r.ok ? r.json() : null)
       .then((d: { onboarding_completed?: boolean } | null) => {
         if (d?.onboarding_completed) navigate("/dashboard", { replace: true });
@@ -151,9 +152,8 @@ function GmailPanel() {
     setState("authorizing");
     setError(null);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/gmail/connect?return_to=${encodeURIComponent(window.location.pathname)}`,
-        { credentials: "include" },
       );
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json() as { auth_url?: string };
@@ -175,18 +175,16 @@ function GmailPanel() {
     setState("importing");
     try {
       // Save PAN first (needed to unlock CAS PDFs)
-      const panRes = await fetch("/api/onboarding/pan", {
+      const panRes = await apiFetch("/api/onboarding/pan", {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pan: panVal }),
       });
       if (!panRes.ok) throw new Error(`PAN save failed: ${panRes.status}`);
 
       // Run the auto-import (picks latest CAS by source priority NSDL > CDSL > CAMS > KFintech)
-      const importRes = await fetch("/api/onboarding/gmail/auto-import", {
+      const importRes = await apiFetch("/api/onboarding/gmail/auto-import", {
         method: "POST",
-        credentials: "include",
       });
       const data = await importRes.json() as {
         ok?: boolean; message?: string;

@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { useHoldingsFilter } from "@/hooks/use-holdings-filter";
+import { apiFetch } from "@/services/api/authed-fetch";
 
 interface Props {
   period?: string;
@@ -28,9 +29,7 @@ export function ExportButton({ period, label = "Export CSV", className }: Props)
         params.set("filter_value", filter.value);
       }
 
-      const res = await fetch(`/api/portfolio/holdings/export?${params}`, {
-        credentials: "include",
-      });
+      const res = await apiFetch(`/api/portfolio/holdings/export?${params}`);
 
       if (!res.ok) {
         throw new Error(res.status === 404 ? "No holdings to export." : `Export failed (${res.status})`);

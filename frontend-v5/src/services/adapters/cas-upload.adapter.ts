@@ -22,6 +22,7 @@
  */
 import { apiConfig } from "@/services/api/config";
 import { http } from "@/services/api/http";
+import { apiFetch } from "@/services/api/authed-fetch";
 import { ApiError } from "@/services/api/errors";
 import { correlationId, getObserver } from "@/lib/observability";
 
@@ -96,7 +97,7 @@ export const realCasUploadAdapter: CasUploadAdapter = {
 
     let res: Response;
     try {
-      res = await fetch(new URL("/api/portfolio/upload", apiConfig.baseUrl).toString(), {
+      res = await apiFetch("/api/portfolio/upload", {
         method: "POST",
         body: form,
         credentials: "include",
@@ -174,7 +175,7 @@ export const realCasUploadAdapter: CasUploadAdapter = {
 
     let res: Response;
     try {
-      res = await fetch(new URL("/api/portfolio/upload", apiConfig.baseUrl).toString(), {
+      res = await apiFetch("/api/portfolio/upload", {
         method: "POST",
         body: form,
         credentials: "include",

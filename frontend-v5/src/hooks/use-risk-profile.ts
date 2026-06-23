@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
+import { apiFetch } from "@/services/api/authed-fetch";
 
 export interface RiskAnswer {
   question_id: string;
@@ -67,7 +68,7 @@ export function useRiskProfile() {
   return useQuery<RiskProfile | null>({
     queryKey: ["user", "risk-profile"],
     queryFn: async () => {
-      const res = await fetch("/api/user/risk-profile", { credentials: "include" });
+      const res = await apiFetch("/api/user/risk-profile");
       if (!res.ok) return null;
       const d = await res.json() as { risk_profile?: RiskProfile | null };
       return d.risk_profile ?? null;

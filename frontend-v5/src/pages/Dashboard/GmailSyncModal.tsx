@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X, CheckCircle2, AlertTriangle, Mail, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { apiFetch } from "@/services/api/authed-fetch";
 
 type Step = "connect" | "connecting" | "pan" | "importing" | "done" | "error";
 
@@ -110,9 +111,8 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
       // or nginx's SPA fallback won't match and the popup 404s.
       const base = (((import.meta as any).env?.BASE_URL as string) || "/").replace(/\/$/, "");
       const returnTo = `${base}/gmail-callback`;
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/gmail/connect?return_to=${encodeURIComponent(returnTo)}`,
-        { credentials: "include" },
       );
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = (await res.json()) as { auth_url?: string };
@@ -136,9 +136,8 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
     setPanError(null);
     setStep("importing");
     try {
-      const panRes = await fetch("/api/onboarding/pan", {
+      const panRes = await apiFetch("/api/onboarding/pan", {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pan: panVal }),
       });
@@ -151,9 +150,8 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
       // the import uses it to unlock the PDF (takes precedence over the PAN).
       const stmtPw = statementPw.trim();
       if (stmtPw) {
-        const pwRes = await fetch("/api/onboarding/cas-password", {
+        const pwRes = await apiFetch("/api/onboarding/cas-password", {
           method: "POST",
-          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ password: stmtPw }),
         });
@@ -163,9 +161,8 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
         }
       }
 
-      const res = await fetch("/api/onboarding/gmail/auto-import", {
+      const res = await apiFetch("/api/onboarding/gmail/auto-import", {
         method: "POST",
-        credentials: "include",
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean; message?: string; detail?: string;
