@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { MetricCard } from "@/components/shared/MetricCard";
 import { CapBar } from "@/components/charts/CapBar";
 import { formatINR, formatPct } from "@/lib/formatters";
-import { TARGET_ALLOCATION, type RiskProfile } from "@/hooks/use-risk-profile";
+import { targetAllocationFor, type RiskProfile } from "@/hooks/use-risk-profile";
 import type { RiskSnapshot } from "@/types/risk";
 
 const ALLOC_COLOR: Record<string, string> = {
@@ -114,23 +114,28 @@ export function Risk({ data, isAdmin, onRunPra, isPraRunning, profile, profileLo
             <div className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 mb-3">
               Target allocation
             </div>
-            <div className="space-y-2.5">
-              {(["equity", "debt", "gold", "cash"] as const).map((k) => {
-                const alloc = TARGET_ALLOCATION[profile.category];
-                return (
-                  <div key={k} className="flex items-center gap-3">
-                    <span className="font-mono text-[11px] text-ink-3 w-10 uppercase">{k}</span>
-                    <div className="relative flex-1 h-1.5 rounded-full bg-surface-2">
-                      <div
-                        className={`absolute inset-y-0 left-0 rounded-full ${ALLOC_COLOR[k]}`}
-                        style={{ width: `${alloc[k]}%` }}
-                      />
+            {(() => {
+              const alloc = targetAllocationFor(profile.category);
+              if (!alloc) {
+                return <div className="font-mono text-[11px] text-ink-3">Target allocation unavailable for this profile.</div>;
+              }
+              return (
+                <div className="space-y-2.5">
+                  {(["equity", "debt", "gold", "cash"] as const).map((k) => (
+                    <div key={k} className="flex items-center gap-3">
+                      <span className="font-mono text-[11px] text-ink-3 w-10 uppercase">{k}</span>
+                      <div className="relative flex-1 h-1.5 rounded-full bg-surface-2">
+                        <div
+                          className={`absolute inset-y-0 left-0 rounded-full ${ALLOC_COLOR[k]}`}
+                          style={{ width: `${alloc[k]}%` }}
+                        />
+                      </div>
+                      <span className="font-mono text-[11px] text-ink-2 w-8 text-right">{alloc[k]}%</span>
                     </div>
-                    <span className="font-mono text-[11px] text-ink-2 w-8 text-right">{alloc[k]}%</span>
-                  </div>
-                );
-              })}
-            </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         ) : (
           <div className="mt-4 flex items-start gap-3">

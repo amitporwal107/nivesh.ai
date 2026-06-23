@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { X, ChevronRight, ChevronLeft, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useSaveRiskProfile, type RiskProfile, type RiskAnswer, TARGET_ALLOCATION } from "@/hooks/use-risk-profile";
+import { useSaveRiskProfile, type RiskProfile, type RiskAnswer, targetAllocationFor } from "@/hooks/use-risk-profile";
 
 // ── Questions (mirrors V2 / backend score_map) ────────────────────────────────
 
@@ -76,7 +76,7 @@ const QUESTIONS: Array<{
 // ── Result display ────────────────────────────────────────────────────────────
 
 function ResultScreen({ profile, onDone }: { profile: RiskProfile; onDone: () => void }) {
-  const alloc = TARGET_ALLOCATION[profile.category];
+  const alloc = targetAllocationFor(profile.category);
   const COLOR: Record<string, string> = {
     equity: "bg-[#3B82F6]", debt: "bg-[#10B981]", gold: "bg-[#F59E0B]", cash: "bg-ink-4",
   };
@@ -91,17 +91,21 @@ function ResultScreen({ profile, onDone }: { profile: RiskProfile; onDone: () =>
 
       <div className="mt-6 rounded-lg bg-surface-2 border border-hairline p-4 text-left">
         <div className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 mb-3">Recommended target allocation</div>
-        <div className="space-y-2">
-          {(["equity", "debt", "gold", "cash"] as const).map(k => (
-            <div key={k} className="flex items-center gap-3">
-              <span className="font-mono text-[11px] text-ink-3 w-10 uppercase">{k}</span>
-              <div className="relative flex-1 h-1.5 rounded-full bg-surface-1">
-                <div className={cn("absolute inset-y-0 left-0 rounded-full", COLOR[k])} style={{ width: `${alloc[k]}%` }} />
+        {alloc ? (
+          <div className="space-y-2">
+            {(["equity", "debt", "gold", "cash"] as const).map(k => (
+              <div key={k} className="flex items-center gap-3">
+                <span className="font-mono text-[11px] text-ink-3 w-10 uppercase">{k}</span>
+                <div className="relative flex-1 h-1.5 rounded-full bg-surface-1">
+                  <div className={cn("absolute inset-y-0 left-0 rounded-full", COLOR[k])} style={{ width: `${alloc[k]}%` }} />
+                </div>
+                <span className="font-mono text-[11px] text-ink-2 w-8 text-right">{alloc[k]}%</span>
               </div>
-              <span className="font-mono text-[11px] text-ink-2 w-8 text-right">{alloc[k]}%</span>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="font-mono text-[11px] text-ink-3">Target allocation unavailable for this profile.</div>
+        )}
       </div>
 
       <button

@@ -13,7 +13,7 @@ import { QuickActions } from "./QuickActions";
 import { plansService } from "@/services";
 import type { PlanActionC, PlanC } from "@/services/contracts/plan.contract";
 import type { RiskProfile } from "@/hooks/use-risk-profile";
-import { TARGET_ALLOCATION } from "@/hooks/use-risk-profile";
+import { targetAllocationFor } from "@/hooks/use-risk-profile";
 import { cn } from "@/lib/utils";
 import { SafeWidget } from "@/components/shared/SafeWidget";
 import { ProfileWizardModal, type WizardCompleteness } from "./ProfileWizardModal";
@@ -382,9 +382,9 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
   // Allocation drift: compare actual equity % vs risk-profile target
   const allocationDrift: AllocationDrift | null = riskProfile
     ? (() => {
-        const target = TARGET_ALLOCATION[riskProfile.category];
+        const target = targetAllocationFor(riskProfile.category);
         const equitySlice = summary.allocation?.find(a => a.assetClass === "equity");
-        if (!equitySlice) return null;
+        if (!equitySlice || !target) return null;
         return {
           actual_pct: equitySlice.pct,  // already 0-100
           target_pct: target.equity,
