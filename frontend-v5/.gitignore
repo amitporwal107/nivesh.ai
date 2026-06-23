@@ -10,3 +10,6 @@ e2e/screenshots/
 e2e/test-results/
 playwright-report/
 .env.test
+
+# Built mobile binaries (reproducible from android/ via gradlew assembleDebug)
+*.apk

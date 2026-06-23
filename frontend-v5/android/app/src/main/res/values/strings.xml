@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Nivesh (Staging)</string>
+    <string name="title_activity_main">Nivesh (Staging)</string>
+    <string name="package_name">ai.nivesh.staging</string>
+    <string name="custom_url_scheme">ai.nivesh.staging</string>
+</resources>
