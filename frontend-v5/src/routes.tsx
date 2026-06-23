@@ -27,6 +27,7 @@ import TestDiagnosticToolPage from "./pages/TestDiagnosticTool";
 import NidpConsolePage from "./pages/NidpConsole";
 import ProTraderPage from "./pages/ProTrader";
 import MarketsPage from "./pages/Markets";
+import DebugLogsPage from "./pages/DebugLogs";
 
 export function AppRoutes() {
   return (
@@ -48,6 +49,8 @@ export function AppRoutes() {
       <Route path="/diagnostics"          element={<DiagnosticsPage />} />
       {/* Self-diagnostic tool test report — no auth, accessible even when app auth is broken */}
       <Route path="/testSelfDiagnosticTool" element={<TestDiagnosticToolPage />} />
+      {/* On-device debug log viewer — no auth, for diagnosing native app errors */}
+      <Route path="/debug-logs" element={<DebugLogsPage />} />
 
       {/* Authenticated app — sidebar layout */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>

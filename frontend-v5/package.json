@@ -13,6 +13,8 @@
     "@capacitor/android": "^6.2.1",
     "@capacitor/cli": "^6.2.1",
     "@capacitor/core": "^6.2.1",
+    "@capacitor/filesystem": "^6.0.4",
+    "@capacitor/share": "^6.0.4",
     "@codetrix-studio/capacitor-google-auth": "^3.4.0-rc.4",
     "@radix-ui/react-avatar": "^1.1.0",
     "@radix-ui/react-separator": "^1.1.0",

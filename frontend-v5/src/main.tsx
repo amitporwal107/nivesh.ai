@@ -44,9 +44,12 @@ window.__DIAGNOSTICS__ = { build: () => buildDiagnosticPayload() };
 // ── Catch module-load failures and unhandled rejections ──────────────────────
 window.onerror = function(message, source, line, col, error) {
   console.error("window.onerror", { message, source, line, col, stack: error?.stack });
+  void import("./lib/device-log").then(({ dlog }) =>
+    dlog("window.onerror", String(message), `${source}:${line}:${col}`, error ?? ""));
 };
 window.onunhandledrejection = function(event) {
   console.error("Unhandled Promise rejection:", event.reason);
+  void import("./lib/device-log").then(({ dlog }) => dlog("unhandledrejection", event.reason));
 };
 
 const queryClient = new QueryClient({

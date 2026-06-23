@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
+import { dlog } from "@/lib/device-log";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useGoogleSignIn, useMagicLink, useMe } from "@/hooks/use-auth";
@@ -70,12 +71,19 @@ export default function LoginPage() {
   const [nativePending, setNativePending] = useState(false);
   const handleNativeGoogle = useCallback(async () => {
     setNativePending(true);
+    dlog("native google sign-in: tapped");
     try {
       const result = await GoogleAuth.signIn();
+      dlog("native google sign-in: signIn() returned", {
+        email: result?.email,
+        hasIdToken: Boolean(result?.authentication?.idToken),
+      });
       const idToken = result?.authentication?.idToken;
       if (!idToken) throw new Error("Google did not return an ID token");
       await handleCredential(idToken);
+      dlog("native google sign-in: backend exchange complete");
     } catch (err) {
+      dlog("native google sign-in: FAILED", err);
       pushToast({
         kind: "error",
         title: "Sign-in failed",
@@ -242,6 +250,18 @@ export default function LoginPage() {
             ENCRYPTED · NEVER STORED · ARN-128459<br />
             <span className="text-ink-4">By continuing you agree to the IPS and risk disclosure.</span>
           </div>
+
+          {isNative && (
+            <div className="text-center mt-4">
+              <button
+                type="button"
+                onClick={() => navigate("/debug-logs")}
+                className="font-mono text-[10px] text-ink-4 underline underline-offset-2"
+              >
+                Debug logs
+              </button>
+            </div>
+          )}
         </div>
       </section>
     </div>
