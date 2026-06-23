@@ -527,6 +527,84 @@ class expect:                                                 # noqa: N801 — m
         return fn
 
     @staticmethod
+    def column_grouped_sum_to_be_between(
+        value_col: str,
+        group_cols: Sequence[str],
+        min_value: float,
+        max_value: float,
+        mostly: float = 0.95,
+    ):
+        """Per-group sum of value_col must fall in [min_value, max_value].
+
+        Catches the MF-holdings corruption found 2026-06-23: a parser that ingests
+        subtotal / grand-total rows as holdings pushes a scheme's weight_pct sum well
+        past 100 (NIPPON summed to ~224%). Group by (scheme, month); expect ~100.
+        """
+        gcols = list(group_cols)
+
+        def fn(rows: List[dict]) -> ExpectationResult:
+            groups: Dict[tuple, float] = {}
+            for r in rows:
+                key = tuple(r.get(c) for c in gcols)
+                try:
+                    groups[key] = groups.get(key, 0.0) + float(r.get(value_col) or 0)
+                except (TypeError, ValueError):
+                    groups.setdefault(key, 0.0)
+            bad = [(k, v) for k, v in groups.items() if not (min_value <= v <= max_value)]
+            total = len(groups)
+            allowed = int((1.0 - mostly) * total) if total else 0
+            ok = len(bad) <= allowed
+            return ExpectationResult(
+                expectation_type="expect_column_grouped_sum_to_be_between",
+                column=value_col,
+                columns=gcols,
+                kwargs={"value_col": value_col, "group_cols": gcols,
+                        "min_value": min_value, "max_value": max_value, "mostly": mostly},
+                success=ok,
+                element_count=total,
+                unexpected_count=len(bad),
+                unexpected_percent=_pct(len(bad), total),
+                partial_unexpected_list=[{"group": list(k), "sum": round(v, 2)} for k, v in bad[:10]],
+                message=(
+                    f"PASS · {value_col} per {gcols} in [{min_value},{max_value}]"
+                    if ok else
+                    f"FAIL · {len(bad)}/{total} groups: sum({value_col}) outside "
+                    f"[{min_value},{max_value}] (e.g. {[round(v,1) for _, v in bad[:3]]})"
+                ),
+            )
+        return fn
+
+    @staticmethod
+    def column_pair_same_sign(col_a: str, col_b: str):
+        """col_a and col_b must share the same sign where both are non-null and non-zero.
+
+        Catches the EPS/PAT mismatch found 2026-06-23 (a Screener parse read the EPS
+        column wrong → PAT +67 with EPS −1.66, impossible).
+        """
+        def fn(rows: List[dict]) -> ExpectationResult:
+            failed_idx, failed_v = [], []
+            for i, r in enumerate(rows):
+                a, b = r.get(col_a), r.get(col_b)
+                if a is None or b is None:
+                    continue
+                try:
+                    fa, fb = float(a), float(b)
+                    if fa != 0 and fb != 0 and (fa > 0) != (fb > 0):
+                        failed_idx.append(i)
+                        failed_v.append({col_a: a, col_b: b})
+                except (TypeError, ValueError):
+                    failed_idx.append(i)
+                    failed_v.append({col_a: a, col_b: b})
+            return _result(
+                expectation_type="expect_column_pair_same_sign",
+                column=col_a, rows=rows,
+                failed_indexes=failed_idx, failed_values=failed_v,
+                kwargs={"col_a": col_a, "col_b": col_b}, columns=[col_a, col_b],
+                message=f"{col_a} and {col_b} have opposite signs",
+            )
+        return fn
+
+    @staticmethod
     def nav_change_within_category_band(
         nav_col: str,
         prev_nav_col: str,

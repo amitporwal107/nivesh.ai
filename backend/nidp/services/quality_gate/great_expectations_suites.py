@@ -274,27 +274,46 @@ def nse_equity_master_suite(expected_date: Optional[str] = None) -> Suite:
 
 
 def nse_shareholding_suite(expected_date: Optional[str] = None) -> Suite:
-    """Quarterly shareholding pattern. Promoter/public/dii/fii pct in 0–100,
-    PK on (symbol, quarter_end)."""
+    """Quarterly shareholding pattern (nidp.shareholding_pattern).
+
+    Fixes the column name (period_end, not quarter_end) and adds checks that would have
+    caught the 2026-06-23 issues: NSE is the single golden source, so a row must be
+    unique on (symbol, period_end) — a second Screener row for the same period breaks
+    this (it's how the 1,323 duplicates surfaced); pledge ≤ promoter; pcts in 0–100.
+    """
     s = Suite("nse_shareholding.quarterly", feed="nse_shareholding")
     s.add(expect.column_values_to_be_not_null("symbol"))
-    s.add(expect.column_values_to_be_not_null("quarter_end"))
-    for c in ("promoter_pct", "public_pct", "dii_pct", "fii_pct"):
+    s.add(expect.column_values_to_be_not_null("period_end"))
+    s.add(expect.column_values_to_be_not_in_future("period_end"))
+    for c in ("promoter_pct", "public_pct", "dii_pct", "fii_pct", "promoter_pledged_pct"):
         s.add(expect.column_values_to_be_between(c, min_value=0, max_value=100))
-    s.add(expect.compound_columns_to_be_unique(["symbol", "quarter_end"]))
+    s.add(expect.column_pair_a_lte_b("promoter_pledged_pct", "promoter_pct"))
+    s.add(expect.compound_columns_to_be_unique(["symbol", "period_end"]))  # single golden source
     return s
 
 
 def nse_financials_suite(expected_date: Optional[str] = None) -> Suite:
-    """Quarterly results. PK on (symbol, period_end, period_type)."""
+    """Quarterly results (nidp.nse_financials_quarterly).
+
+    Beyond PK/null: encodes the data-correctness checks added 2026-06-23 after the
+    Screener backfill introduced bad rows —
+      • period_type canonical-cased (lowercase 'quarterly' is the case-inconsistency
+        that hid contaminated rows from migration 089's QUARTERLY-only CTE);
+      • EPS and PAT must share sign (caught SADBHAV/RPSGVENT parse errors);
+      • PAT ≤ revenue for ≥95% of rows (PAT>revenue is legit only for banks/holdcos);
+      • (symbol, period_end, period_type, consolidated) unique.
+    """
     s = Suite("nse_financials.quarterly", feed="nse_financials")
     s.add(expect.column_values_to_be_not_null("symbol"))
     s.add(expect.column_values_to_be_not_null("period_end"))
+    s.add(expect.column_values_to_be_not_in_future("period_end"))
     s.add(expect.column_values_to_be_in_set("period_type", [
         "Q", "H", "9M", "Y", "QUARTERLY", "HALF_YEARLY", "ANNUAL",
-    ]))
+    ]))  # lowercase 'quarterly'/'annual' fail here by design — flags case-inconsistency
+    s.add(expect.column_pair_same_sign("eps_basic", "pat_cr"))
+    s.add(expect.column_pair_a_lte_b("pat_cr", "revenue_from_ops_cr"))  # mostly via runner
     s.add(expect.compound_columns_to_be_unique([
-        "symbol", "period_end", "period_type"]))
+        "symbol", "period_end", "period_type", "consolidated"]))
     return s
 
 
@@ -321,16 +340,25 @@ def amfi_circulars_suite(expected_date: Optional[str] = None) -> Suite:
 
 
 def mf_holdings_suite(expected_date: Optional[str] = None) -> Suite:
-    """Top-10 AMC monthly disclosed holdings. PK (amc_id, scheme_code,
-    isin, snapshot_date); weight_pct in 0..100."""
+    """AMC monthly disclosed holdings (nidp.mf_holdings_monthly).
+
+    Fixes the column names (the old suite checked amc_id/isin/snapshot_date, none of
+    which exist) and adds THE check that would have caught the 2026-06-23 corruption:
+    a scheme's weight_pct must sum to ~100 per month. The NIPPON/SBI parsers ingested
+    subtotal + grand-total rows as holdings, pushing the sum to ~224% (only 9% of
+    schemes were sane). Also: weight per row ≤ 100, valid ISIN where present.
+    """
     s = Suite("mf_holdings.monthly", feed="mf_holdings")
-    s.add(expect.column_values_to_be_not_null("amc_id"))
     s.add(expect.column_values_to_be_not_null("scheme_code"))
-    s.add(expect.column_values_to_be_not_null("isin"))
-    s.add(expect.column_values_to_be_between(
-        "weight_pct", min_value=0, max_value=100))
+    s.add(expect.column_values_to_be_not_null("security_name"))
+    s.add(expect.column_values_to_be_between("weight_pct", min_value=-5, max_value=100))
+    s.add(expect.column_values_to_match_regex(
+        "security_isin", r"^(|IN[EF][A-Z0-9]{9})$"))  # valid ISIN or blank (cash/TREPS)
+    s.add(expect.column_grouped_sum_to_be_between(
+        "weight_pct", ["scheme_code", "as_of_month"],
+        min_value=95, max_value=105, mostly=0.90))
     s.add(expect.compound_columns_to_be_unique([
-        "amc_id", "scheme_code", "isin", "snapshot_date"]))
+        "scheme_code", "as_of_month", "security_name", "source"]))
     return s
 
 
@@ -375,8 +403,76 @@ def corporate_announcements_suite(
     return s
 
 
+def prices_eod_suite(expected_date: Optional[str] = None) -> Suite:
+    """Daily EOD prices (nidp.prices_eod). OHLC internal consistency, positive
+    prices, non-negative volume, delivery 0–100, PK, freshness."""
+    s = Suite("prices_eod.daily", feed="prices_eod")
+    for c in ("open_price", "high_price", "low_price", "close_price"):
+        s.add(expect.column_values_to_be_between(c, min_value=0, strict=True))
+    s.add(expect.column_pair_a_lte_b("low_price", "high_price"))
+    s.add(expect.column_pair_a_lte_b("low_price", "close_price"))
+    s.add(expect.column_pair_a_lte_b("close_price", "high_price"))
+    s.add(expect.column_values_to_be_between("volume", min_value=0))
+    s.add(expect.column_values_to_be_between("deliv_pct", min_value=0, max_value=100))
+    s.add(expect.column_values_to_be_not_in_future("as_of_date"))
+    s.add(expect.compound_columns_to_be_unique(["symbol", "as_of_date", "series"]))
+    if expected_date:
+        s.add(expect.freshness_max_date_equals("as_of_date", expected_date))
+    return s
+
+
+def stock_features_suite(expected_date: Optional[str] = None) -> Suite:
+    """Technical features (nidp.stock_features_daily). Bounded indicators +
+    accumulation_score presence (it was silently 0/2274 before SD-12 went live)
+    + freshness (features lagged prices by 4 days on 2026-06-23)."""
+    s = Suite("stock_features.daily", feed="technical_indicator_engine")
+    s.add(expect.column_values_to_be_between("rsi14", min_value=0, max_value=100))
+    s.add(expect.column_values_to_be_between("accumulation_score", min_value=0, max_value=100))
+    s.add(expect.column_values_to_be_between("volatility_1y_pct", min_value=0))
+    s.add(expect.column_values_to_be_between("beta_1y", min_value=-5, max_value=10))
+    s.add(expect.column_values_to_be_between("close", min_value=0, strict=True))
+    s.add(expect.compound_columns_to_be_unique(["symbol", "as_of_date"]))
+    if expected_date:
+        s.add(expect.freshness_max_date_equals("as_of_date", expected_date))
+    return s
+
+
+def v3_stock_scores_suite(expected_date: Optional[str] = None) -> Suite:
+    """V3 composite scores (nidp.v3_stock_scores_daily). Scores 0–100, band enum,
+    coverage 0–100, PK, freshness."""
+    s = Suite("v3_stock_scores.daily", feed="v3_scores_engine")
+    for c in ("fundamental_score", "technical_score", "final_score"):
+        s.add(expect.column_values_to_be_between(c, min_value=0, max_value=100))
+    for c in ("quality_coverage_pct", "health_coverage_pct"):
+        s.add(expect.column_values_to_be_between(c, min_value=0, max_value=100))
+    s.add(expect.column_values_to_be_in_set(
+        "band", ["STRONG_BUY", "BUY", "HOLD", "REDUCE", "AVOID"]))
+    s.add(expect.compound_columns_to_be_unique(["symbol", "as_of_date"]))
+    if expected_date:
+        s.add(expect.freshness_max_date_equals("as_of_date", expected_date))
+    return s
+
+
+def stock_fundamentals_latest_suite(expected_date: Optional[str] = None) -> Suite:
+    """Derived fundamentals (nidp.v_stock_fundamentals_latest) — the layer feeding
+    scoring. Plausibility bounds + the correctness checks from 2026-06-23:
+    EPS/PAT same sign, PAT ≤ revenue (mostly; banks/holdcos exempt), one row/symbol."""
+    s = Suite("stock_fundamentals.latest", feed="fundamental_engine")
+    s.add(expect.column_values_to_be_between("roe_annualised_pct", min_value=-150, max_value=150))
+    s.add(expect.column_values_to_be_between("debt_to_equity", min_value=0, max_value=50))
+    s.add(expect.column_values_to_be_between("current_ratio", min_value=0, max_value=50))
+    s.add(expect.column_pair_same_sign("eps_ttm", "pat_ttm_cr"))
+    s.add(expect.column_pair_a_lte_b("pat_ttm_cr", "revenue_ttm_cr"))
+    s.add(expect.compound_columns_to_be_unique(["symbol"]))
+    return s
+
+
 # Register all of the additional suites
 SUITES.update({
+    "prices_eod":                prices_eod_suite,
+    "technical_indicator_engine": stock_features_suite,
+    "v3_scores_engine":          v3_stock_scores_suite,
+    "fundamental_engine":        stock_fundamentals_latest_suite,
     "delivery":                  delivery_suite,
     "fno_bhavcopy":              fno_bhavcopy_suite,
     "bulk_deals":                bulk_deals_suite,
