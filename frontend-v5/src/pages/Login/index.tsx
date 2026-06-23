@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
-import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
+import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
 import { dlog } from "@/lib/device-log";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -78,34 +78,37 @@ export default function LoginPage() {
   const gis = useGoogleIdentity(handleCredential);
 
   // Inside the native app the web Google Identity Services button can't run
-  // (Google blocks OAuth in WebViews). Use Firebase Authentication's native
-  // Google sign-in; it returns the Google ID token, which we hand to the same
-  // backend endpoint via handleCredential().
+  // (Google blocks OAuth in WebViews). Use the native Google sign-in plugin;
+  // it returns a Google ID token (audience = our web client) which we hand to
+  // the same backend endpoint via handleCredential().
   const isNative = Capacitor.isNativePlatform();
+
+  useEffect(() => {
+    if (!isNative) return;
+    try {
+      GoogleAuth.initialize();
+    } catch {
+      /* native plugin initializes from config — ignore double-init */
+    }
+  }, [isNative]);
 
   const [nativePending, setNativePending] = useState(false);
   const handleNativeGoogle = useCallback(async () => {
     setNativePending(true);
-    dlog("firebase google sign-in: tapped");
+    dlog("native google sign-in: tapped");
     try {
-      const result = await FirebaseAuthentication.signInWithGoogle();
-      // The Google credential's idToken (audience = Firebase web client) is what
-      // the backend verifies. getIdToken() (a Firebase token) is the fallback.
-      let idToken = result.credential?.idToken;
-      if (!idToken) {
-        const t = await FirebaseAuthentication.getIdToken();
-        idToken = t?.token;
-      }
-      dlog("firebase google sign-in: returned", {
-        email: result.user?.email,
+      const result = await GoogleAuth.signIn();
+      const idToken = result?.authentication?.idToken;
+      dlog("native google sign-in: returned", {
+        email: result?.email,
         aud: jwtAud(idToken),
         hasIdToken: Boolean(idToken),
       });
-      if (!idToken) throw new Error("Firebase did not return an ID token");
+      if (!idToken) throw new Error("Google did not return an ID token");
       // handleCredential logs the real backend outcome (ACCEPTED / REJECTED).
       await handleCredential(idToken);
     } catch (err) {
-      dlog("firebase google sign-in: FAILED", err);
+      dlog("native google sign-in: FAILED", err);
       pushToast({
         kind: "error",
         title: "Sign-in failed",

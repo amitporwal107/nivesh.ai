@@ -20,13 +20,6 @@ db = client[os.environ['DB_NAME']]
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
-# Firebase project's web OAuth client. The mobile app signs in via Firebase, so
-# its Google ID token carries THIS audience instead of GOOGLE_CLIENT_ID. Public
-# value (ships in the app's google-services.json); env-overridable.
-FIREBASE_WEB_CLIENT_ID = os.environ.get(
-    'FIREBASE_WEB_CLIENT_ID',
-    '973002566837-kfljs5473rrqll3d4vgqlqpsb0uftufm.apps.googleusercontent.com',
-)
 GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
 GMAIL_REDIRECT_URI = os.environ.get("GMAIL_REDIRECT_URI", "")
 # Cookie security: set COOKIE_SECURE=false on HTTP-only preview/dev deploys.

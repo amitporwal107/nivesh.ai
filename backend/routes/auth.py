@@ -7,7 +7,7 @@ import uuid
 import httpx
 import logging
 
-from deps import db, GOOGLE_CLIENT_ID, FIREBASE_WEB_CLIENT_ID, GOOGLE_CLIENT_SECRET, get_current_user, check_whitelist, COOKIE_SECURE, COOKIE_SAMESITE
+from deps import db, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, get_current_user, check_whitelist, COOKIE_SECURE, COOKIE_SAMESITE
 from core.logging_config import mask_email
 from core.exceptions import (
     AuthenticationException, AuthorizationException, ValidationException,
@@ -36,10 +36,7 @@ async def google_auth(request: Request, response: Response):
 
             token_data = resp.json()
 
-            # Accept tokens minted for our web client OR the Firebase project's
-            # web client (the mobile app signs in through Firebase).
-            allowed_auds = {a for a in (GOOGLE_CLIENT_ID, FIREBASE_WEB_CLIENT_ID) if a}
-            if allowed_auds and token_data.get("aud") not in allowed_auds:
+            if GOOGLE_CLIENT_ID and token_data.get("aud") != GOOGLE_CLIENT_ID:
                 raise AuthenticationException("Token audience mismatch", code="AUTH-003")
 
             email = token_data.get("email", "").strip().lower()
