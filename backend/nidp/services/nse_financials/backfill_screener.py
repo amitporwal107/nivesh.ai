@@ -1,7 +1,9 @@
-"""Backfill Screener.in quarterly financials for all Nifty 500 companies.
+"""Backfill Screener.in quarterly financials for the full scored stock universe.
 
-Reads symbols from nidp.v_nifty500_members, fetches the latest quarter from
-Screener.in for each, and upserts into nidp.nse_financials_quarterly.
+Reads symbols from nidp.v_screener_backfill_universe (every stock with recent
+features — ~2,300 names, not just Nifty 500), fetches the latest quarter from
+Screener.in for each, and upserts into nidp.nse_financials_quarterly. Symbols
+without fundamentals are processed first (SD-05).
 
 Skips symbols already ingested via screener_in within the last 6 months
 (override with --force).  Throttles to --concurrency parallel requests with
@@ -37,7 +39,13 @@ _FRESHNESS_WINDOW = timedelta(days=180)
 async def _load_symbols(conn, symbols_override: Optional[list[str]]) -> list[str]:
     if symbols_override:
         return [s.upper().strip() for s in symbols_override]
-    rows = await conn.fetch("SELECT symbol FROM nidp.v_nifty500_members ORDER BY symbol")
+    # Full scored universe (SD-05), missing-fundamentals symbols first so a throttled
+    # run delivers coverage fastest. The per-symbol 180-day freshness check still gates
+    # whether each one is actually re-fetched.
+    rows = await conn.fetch(
+        "SELECT symbol FROM nidp.v_screener_backfill_universe "
+        "ORDER BY has_fundamentals, symbol"
+    )
     return [r["symbol"] for r in rows]
 
 
@@ -65,8 +73,9 @@ async def _process_one(
 ) -> str:
     """Fetch + upsert one symbol. Returns outcome label for stats."""
     async with semaphore:
-        await asyncio.sleep(delay_ms / 1000)
-
+        # Skip / dry-run checks happen BEFORE the throttle sleep — the delay exists
+        # only to rate-limit real Screener.in requests, so already-ingested symbols
+        # (the bulk of a full-universe run) cost just a quick DB lookup, not delay_ms.
         if not force and not dry_run:
             pool = await get_pool()
             async with pool.acquire() as conn:
@@ -78,6 +87,7 @@ async def _process_one(
             logger.info("backfill [DRY-RUN]: would fetch %s", symbol)
             return "dry_run"
 
+        await asyncio.sleep(delay_ms / 1000)
         result = await fetch_screener_quarters(symbol)
         if not result:
             logger.warning("backfill: %s — not found on Screener.in", symbol)
@@ -142,9 +152,9 @@ async def run(
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Backfill Screener.in financials for Nifty 500")
+    p = argparse.ArgumentParser(description="Backfill Screener.in financials for the scored stock universe")
     p.add_argument("--symbols", default=None,
-                   help="Comma-separated symbol override (default: all Nifty 500)")
+                   help="Comma-separated symbol override (default: full scored universe, missing-first)")
     p.add_argument("--concurrency", type=int, default=1,
                    help="Max parallel Screener.in requests (default: 1)")
     p.add_argument("--delay-ms", type=int, default=3000,
