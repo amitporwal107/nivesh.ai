@@ -9,6 +9,8 @@ from __future__ import annotations
 from typing import Optional
 import numpy as np
 
+from .accumulation import compute_accumulation
+
 
 # ── Moving Averages ─────────────────────────────────────────────────
 
@@ -235,6 +237,17 @@ def compute_features(
     prev_swing_h, _ = swing_high_low(highs[:-1], lows[:-1]) if len(highs) > 20 else (None, None)
     breakout = pivot_breakout(c, float(closes[-2]) if len(closes) > 1 else c, prev_swing_h)
 
+    atr_pct_val = float(atr_val / c * 100) if atr_val and c else None
+
+    # Pre-breakout accumulation (SD-12): volume/delivery/volatility signals on flat price.
+    accumulation_score, accumulation_signals = compute_accumulation(
+        closes=closes,
+        vol_z=vol_z,
+        deliv_trend=deliv_trend,
+        bb_width=bb_w,
+        atr_pct=atr_pct_val,
+    )
+
     return {
         "close":             c,
         "sma20":             sma20_val,
@@ -253,7 +266,7 @@ def compute_features(
         "return_20d_pct":    pct_return(closes, 20),
         "return_60d_pct":    pct_return(closes, 60),
         "atr14":             atr_val,
-        "atr_pct":           float(atr_val / c * 100) if atr_val and c else None,
+        "atr_pct":           atr_pct_val,
         "bb_width":          bb_w,
         "bb_pos":            bb_p,
         "avg_volume_20":     int(avg_vol) if avg_vol is not None else None,
@@ -263,6 +276,6 @@ def compute_features(
         "swing_high_20":     swing_h,
         "swing_low_20":      swing_l,
         "pivot_breakout_flag": breakout,
-        "accumulation_score":  None,
-        "accumulation_signals": None,
+        "accumulation_score":  accumulation_score,
+        "accumulation_signals": accumulation_signals,
     }
