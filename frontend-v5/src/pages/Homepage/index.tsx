@@ -47,9 +47,9 @@ export default function HomepagePage() {
           <span className="nv-mono" style={{ fontSize: 10, letterSpacing: ".18em", color: "var(--ink-3)", textTransform: "uppercase" as const, marginLeft: 6 }}>COPILOT</span>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 36 }}>
-          <span style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Product</span>
-          <span style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>For advisors</span>
-          <span style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Pricing</span>
+          <span onClick={() => navigate("/product")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Product</span>
+          <span onClick={() => navigate("/for-advisors")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>For advisors</span>
+          <span onClick={() => navigate("/pricing")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Pricing</span>
           <span onClick={() => navigate("/login")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Sign in</span>
           <button className="nv-btn nv-btn-primary" style={{ padding: "9px 16px", fontSize: 13 }} onClick={() => navigate("/login")}>
             Check my portfolio →

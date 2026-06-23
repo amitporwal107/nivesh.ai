@@ -4,6 +4,9 @@ import { RequireAuth } from "./components/layout/RequireAuth";
 import { RequireAdmin } from "./components/layout/RequireAdmin";
 import { RouteErrorBoundary } from "./components/shared/RouteErrorBoundary";
 import HomepagePage from "./pages/Homepage";
+import ProductPage from "./pages/Product";
+import AdvisorsPage from "./pages/Advisors";
+import PricingPage from "./pages/Pricing";
 import DashboardPage from "./pages/Dashboard";
 import ConcentrationPage from "./pages/Concentration";
 import RecommendationsPage from "./pages/Recommendations";
@@ -34,6 +37,11 @@ export function AppRoutes() {
     <Routes>
       {/* Public landing — full-bleed, no sidebar */}
       <Route index element={<HomepagePage />} />
+
+      {/* Public marketing pages — full-bleed, no sidebar */}
+      <Route path="/product" element={<ProductPage />} />
+      <Route path="/for-advisors" element={<AdvisorsPage />} />
+      <Route path="/pricing" element={<PricingPage />} />
 
       {/* Auth screens — full-bleed */}
       <Route path="/login" element={<LoginPage />} />
