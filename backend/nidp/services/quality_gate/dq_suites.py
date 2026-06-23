@@ -247,8 +247,9 @@ def v3_stock_scores_suite(cal: TradingCalendar) -> Suite:
 
 def v3_mf_scores_suite(cal: TradingCalendar) -> Suite:
     # PK (as_of_date, isin); scheme_code is a NON-key attribute -> fan-out risk.
+    # real columns: quality_coverage_pct / health_coverage_pct (no single coverage_pct).
     cols = ["as_of_date", "isin", "scheme_code", "fund_category",
-            "quality_score", "health_score", "coverage_pct"]
+            "quality_score", "health_score", "quality_coverage_pct", "health_coverage_pct"]
     return Suite(
         asset="v3_mf_scores_daily", ingester="v3_scores_engine",
         fetch=FeedQuery("nidp.v3_mf_scores_daily", cols, date_col="as_of_date"),
@@ -262,7 +263,8 @@ def v3_mf_scores_suite(cal: TradingCalendar) -> Suite:
             E.in_set("fund_category", {"equity", "debt", "liquid", "hybrid"}, allow_blank=True),
             E.between("quality_score", min=0, max=100),
             E.between("health_score", min=0, max=100),
-            E.between("coverage_pct", min=0, max=100),
+            E.between("quality_coverage_pct", min=0, max=100),
+            E.between("health_coverage_pct", min=0, max=100),
             E.freshness("as_of_date", cal, max_lag_trading_days=4, severity="warn"),
         ],
         description="V3 MF scores; isin-keyed with scheme_code fan-out risk",
@@ -350,8 +352,9 @@ def bank_quality_scores_suite(cal: TradingCalendar) -> Suite:
 
 
 def mf_category_rank_suite(cal: TradingCalendar) -> Suite:
+    # real columns: category_pct (not percentile); composite metric also present.
     cols = ["scheme_code", "rank_date", "sebi_category", "category_rank",
-            "percentile", "status"]
+            "category_pct", "category_size", "status"]
     return Suite(
         asset="mf_category_rank_daily", ingester="mf_category_ranking",
         fetch=FeedQuery("nidp.mf_category_rank_daily", cols, date_col="rank_date"),
@@ -359,7 +362,7 @@ def mf_category_rank_suite(cal: TradingCalendar) -> Suite:
             E.not_null("scheme_code", "rank_date"),
             E.compound_unique("scheme_code", "rank_date", note="real key"),
             E.between("category_rank", min=1, max=None),
-            E.between("percentile", min=0, max=100),
+            E.between("category_pct", min=0, max=100),
             E.in_set("status", {"insufficient_history", "insufficient_coverage",
                                 "ranked", "low_confidence"}, allow_blank=True),
             # ranks contiguous per (category, date) — grouped contiguity is a deeper

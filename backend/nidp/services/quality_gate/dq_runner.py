@@ -39,9 +39,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13)
 
 _RUN_SQL = """
 INSERT INTO nidp.validation_runs
-  (validation_id, job_run_id, ingester, target_date, started_at, finished_at,
+  (validation_id, job_run_id, ingester, asset, target_date, started_at, finished_at,
    status, rules_run, rules_failed, findings_count, notes)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 """
 
 # NOTE: the gate maps the internal vocabulary -> the real plumbing enums via dq_sink
@@ -78,7 +78,13 @@ async def run(feeds: Optional[list[str]] = None, target_date: Optional[date] = N
             # doesn't have) must surface as an ERROR run, never abort the whole batch.
             async with pool.acquire() as conn:
                 recs = await conn.fetch(suite.fetch.to_sql())
-            df = pd.DataFrame([dict(r) for r in recs])
+            if recs:
+                df = pd.DataFrame([dict(r) for r in recs])
+            else:
+                # 0 rows: give the frame the suite's schema so the meta-guard sees the
+                # columns present and expect_non_empty reports the honest "empty batch"
+                # instead of a misleading "columns absent". (split handles "x AS y".)
+                df = pd.DataFrame(columns=[c.split()[-1] for c in suite.fetch.columns])
 
             srun = run_suite(suite, df)
             hdr = run_header(srun, ctx)
@@ -87,8 +93,8 @@ async def run(feeds: Optional[list[str]] = None, target_date: Optional[date] = N
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     await conn.execute(
-                        _RUN_SQL, ctx.validation_id, ctx.job_run_id, suite.ingester, td,
-                        started, datetime.now(timezone.utc), hdr["status"],
+                        _RUN_SQL, ctx.validation_id, ctx.job_run_id, suite.ingester,
+                        suite.asset, td, started, datetime.now(timezone.utc), hdr["status"],
                         hdr["rules_run"], hdr["rules_failed"], hdr["findings_count"],
                         (suite.description or "")[:200],
                     )
@@ -107,8 +113,8 @@ async def run(feeds: Optional[list[str]] = None, target_date: Optional[date] = N
             logger.error("dq_runner: %-22s ERROR  %r", name, exc)
             async with pool.acquire() as conn:
                 await conn.execute(
-                    _RUN_SQL, ctx.validation_id, ctx.job_run_id, suite.ingester, td,
-                    started, datetime.now(timezone.utc), "ERROR", 0, 1, 0,
+                    _RUN_SQL, ctx.validation_id, ctx.job_run_id, suite.ingester,
+                    suite.asset, td, started, datetime.now(timezone.utc), "ERROR", 0, 1, 0,
                     f"suite error: {exc}"[:200],
                 )
 

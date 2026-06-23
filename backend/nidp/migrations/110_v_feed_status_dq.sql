@@ -44,24 +44,17 @@ CREATE OR REPLACE VIEW nidp.v_feed_status_base AS
      LEFT JOIN last_run lr USING (ingester)
      LEFT JOIN last_snapshot ls USING (ingester);
 
+-- Uses the per-ingester rollup nidp.v_feed_dq (migration 111) so feeds whose ingester
+-- produces multiple assets (e.g. v3_scores_engine -> v3_stock + v3_mf) show the WORST
+-- asset's verdict, not whichever suite ran last.
 CREATE OR REPLACE VIEW nidp.v_feed_status AS
- WITH last_validation AS (
-         SELECT DISTINCT ON (ingester) ingester,
-            status         AS dq_status,        -- PASSED | FAILED | PARTIAL | ERROR
-            rules_failed,
-            findings_count,
-            target_date    AS dq_target_date,
-            started_at     AS dq_checked_at
-           FROM nidp.validation_runs
-          ORDER BY ingester, started_at DESC
-        )
  SELECT fs.*,
-    COALESCE(lv.dq_status, 'NONE') AS last_dq_status,
-    COALESCE(lv.rules_failed, 0)   AS last_dq_rules_failed,
-    COALESCE(lv.findings_count, 0) AS last_dq_findings,
-    lv.dq_checked_at               AS last_dq_checked_at
+    COALESCE(dq.dq_status, 'NONE')      AS last_dq_status,
+    COALESCE(dq.dq_rules_failed, 0)::int AS last_dq_rules_failed,
+    COALESCE(dq.dq_findings, 0)::int     AS last_dq_findings,
+    dq.dq_checked_at                    AS last_dq_checked_at
    FROM nidp.v_feed_status_base fs
-     LEFT JOIN last_validation lv ON lv.ingester = fs.ingester;
+     LEFT JOIN nidp.v_feed_dq dq ON dq.ingester = fs.ingester;
 
 INSERT INTO nidp.schema_migrations (filename)
 VALUES ('110_v_feed_status_dq.sql')
