@@ -131,11 +131,15 @@ aum_stability 100% missing (20% of MF health weight); only point-in-time AUM exi
 yield_vs_category missing for all 4,652 debt funds. Build `mf_category_ytm_rolling`.
 **Depends on:** SD-04, SD-10. **DoD:** debt yield_vs_category 0 → near-full.
 
-**SD-12 · Wire `accumulation_score` detector** — *P3 · Full-stack · M*
-100% missing — hard-coded `None` at `technical_indicator_engine/calculator.py:266`; real logic
-unwired in `positional_engine/accumulation_detector.py`. **Decision: wire it** (adds a real
-volume/delivery signal used by all sector profiles). Invoke detector after `compute_features()`
-in `technical_indicator_engine/service.py:~252`; add to upsert tuple.
+**SD-12 · Wire `accumulation_score` detector** — *P3 · Full-stack · M · DONE 2026-06-23*
+Was 100% missing — hard-coded `None` at `calculator.py:266`. **Done:** new NIDP-local
+`technical_indicator_engine/accumulation.py` (port of the positional_engine detector —
+TI engine can't import the Nivesh package at runtime; pure functions + `slope_20_pct`),
+wired into `compute_features`, and fixed the consumer `sector_scoring/technical.py` (the
+`accumulation_score or 50.0` inverted moderate signals below no-signal stocks). Committed
+& pushed to `dev` (43994763). **Verified** on real OHLCV (10 symbols): populated 10/10;
+AARTIDRUGS fires vol_divergence 37.53 → obv 68.77 (>neutral), large-caps 0.0 → obv 50.
+**Remaining:** live fill on `stock_features_daily` lands on the next TI-engine run.
 **Depends on:** SD-01 (delivery-volume data). **DoD:** accumulation_score populated ~100%.
 
 ### P4 — Ceiling-limited
