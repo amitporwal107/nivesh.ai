@@ -74,8 +74,8 @@ export default function MarketingShell({
           </div>
           {[
             { h: "Product", items: ["Overview", "For advisors", "Pricing", "Sign in"], to: ["/product", "/for-advisors", "/pricing", "/login"] },
-            { h: "Company", items: ["About", "Security", "Contact"], to: ["/", "/", "/"] },
-            { h: "Legal", items: ["Privacy", "Terms", "Disclosure"], to: ["/", "/", "/"] },
+            { h: "Company", items: ["About", "Security", "Contact"], to: ["/about", "/security", "/contact"] },
+            { h: "Legal", items: ["Privacy", "Terms", "Disclosure"], to: ["/privacy", "/terms", "/disclosure"] },
           ].map((col) => (
             <div key={col.h}>
               <div className="nv-mono" style={{ fontSize: 10, letterSpacing: ".16em", color: "var(--ink-4)", textTransform: "uppercase" as const }}>{col.h}</div>

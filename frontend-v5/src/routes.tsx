@@ -7,6 +7,12 @@ import HomepagePage from "./pages/Homepage";
 import ProductPage from "./pages/Product";
 import AdvisorsPage from "./pages/Advisors";
 import PricingPage from "./pages/Pricing";
+import AboutPage from "./pages/About";
+import SecurityPage from "./pages/Security";
+import ContactPage from "./pages/Contact";
+import PrivacyPage from "./pages/Privacy";
+import TermsPage from "./pages/Terms";
+import DisclosurePage from "./pages/Disclosure";
 import DashboardPage from "./pages/Dashboard";
 import ConcentrationPage from "./pages/Concentration";
 import RecommendationsPage from "./pages/Recommendations";
@@ -42,6 +48,12 @@ export function AppRoutes() {
       <Route path="/product" element={<ProductPage />} />
       <Route path="/for-advisors" element={<AdvisorsPage />} />
       <Route path="/pricing" element={<PricingPage />} />
+      <Route path="/about" element={<AboutPage />} />
+      <Route path="/security" element={<SecurityPage />} />
+      <Route path="/contact" element={<ContactPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/terms" element={<TermsPage />} />
+      <Route path="/disclosure" element={<DisclosurePage />} />
 
       {/* Auth screens — full-bleed */}
       <Route path="/login" element={<LoginPage />} />
