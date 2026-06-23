@@ -29,7 +29,14 @@ export function useGoogleSignIn() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (credential: string) => authService.googleSignIn(credential),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["auth", "me"] }); },
+    onSuccess: (user) => {
+      // Seed the `me` cache with the authoritative user from the login response.
+      // useMe() uses retry:false + refetchOnMount:false, and the pre-login
+      // /auth/me 401 stays in error state *during* any refetch — so a bare
+      // invalidate lets RequireAuth read the stale error and bounce to /login
+      // before the refetch lands. setQueryData clears the error synchronously.
+      qc.setQueryData(["auth", "me"], user);
+    },
   });
 }
 

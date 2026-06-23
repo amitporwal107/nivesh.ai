@@ -43,6 +43,14 @@ export default function LoginPage() {
         email: user.email,
         onboardingCompleted: user.onboardingCompleted,
       });
+      // Diagnostic: confirm the session cookie is actually re-sent on the NEXT
+      // request (this is what RequireAuth + every data call depends on).
+      try {
+        const meCheck = await authService.me();
+        dlog("auth/me probe OK (session cookie works)", { email: meCheck.email });
+      } catch (probeErr) {
+        dlog("auth/me probe FAILED (cookie not sent on next request)", probeErr);
+      }
       navigate(user.onboardingCompleted ? "/dashboard" : "/onboarding");
     } catch (err) {
       // Log the REAL backend rejection (status, code, message) — this is the
