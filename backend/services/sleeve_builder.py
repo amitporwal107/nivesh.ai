@@ -128,13 +128,24 @@ async def build_sleeve_portfolio(
             for k in kinds:
                 info = _KIND[k]
                 try:
-                    rows = await _dc.get_top_funds_by_subcategory(info["fund_category"], info["sub_category"], n=n_per_sleeve)
+                    if s["asset_class"] == "debt":
+                        # Debt ranks on the governed debt model (config/debt_scoring_model.yaml),
+                        # not the partial V3 quality score — score a candidate pool + their NAV
+                        # primitives, then rank within the SEBI sub-category.
+                        from services import debt_scoring as _ds
+                        cand = await _dc.get_debt_sleeve_funds(info["fund_category"], info["sub_category"])
+                        ranked = _ds.rank_peers(cand, info["sub_category"])[:n_per_sleeve]
+                        picks.extend({"scheme_name": x.get("scheme_name"), "isin": x.get("isin"),
+                                      "sub_category": info["sub_category"], "debt_score": x.get("composite_100"),
+                                      "grade": x.get("grade"), "coverage_pct": x.get("coverage_pct")}
+                                     for x in ranked)
+                    else:
+                        rows = await _dc.get_top_funds_by_subcategory(info["fund_category"], info["sub_category"], n=n_per_sleeve)
+                        picks.extend({"scheme_name": r.get("scheme_name"), "isin": r.get("isin"),
+                                      "sub_category": r.get("sub_category"), "quality_score": r.get("quality_score")}
+                                     for r in rows)
                 except Exception as e:  # noqa: BLE001
                     logger.warning("L3 fill %s/%s: %s", s["key"], k, e)
-                    rows = []
-                picks.extend({"scheme_name": r.get("scheme_name"), "isin": r.get("isin"),
-                              "sub_category": r.get("sub_category"), "quality_score": r.get("quality_score")}
-                             for r in rows)
             # cap: max holdings per sub-sleeve
             cap = int(_p.caps().get("max_holdings_per_sub_sleeve", 3))
             s["funds"] = picks[:cap]

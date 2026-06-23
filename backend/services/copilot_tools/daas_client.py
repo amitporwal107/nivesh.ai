@@ -756,3 +756,36 @@ async def get_top_funds_by_subcategory(
     direct = [r for r in clean if "direct" in str(r.get("scheme_name") or "").lower()]
     pool = direct if len(direct) >= n else clean
     return pool[:n]
+
+
+async def get_debt_sleeve_funds(
+    fund_category: Optional[str],
+    sub_category: str,
+    pool: int = 40,
+    timeout: float = 10.0,
+) -> List[Dict[str, Any]]:
+    """Candidate debt funds in a sub-category WITH the NAV-side primitives the
+    governed debt model needs (Sharpe, TER, AUM, FM tenure, max drawdown).
+
+    Two-step: (1) the scored screener for the candidate ISINs (junk-filtered,
+    Direct-preferred), (2) the v3-primitives bulk endpoint for their raw fields.
+    Returns fund dicts ready for services.debt_scoring.rank_peers(). [] on
+    failure so the sleeve degrades rather than fabricates.
+    """
+    rows = await get_top_funds_by_subcategory(fund_category, sub_category, n=pool, timeout=timeout)
+    isins = [r.get("isin") for r in rows if r.get("isin")]
+    prims = await get_v3_mf_primitives_bulk(isins) if isins else {}
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        p = prims.get(r.get("isin")) or {}
+        out.append({
+            "scheme_name": r.get("scheme_name"),
+            "isin": r.get("isin"),
+            "sub_category": sub_category,
+            "sharpe": p.get("sharpe"),
+            "expense_ratio": p.get("expense_ratio_direct") or p.get("expense_ratio"),
+            "aum_cr": p.get("aum_cr"),
+            "manager_tenure_years": p.get("manager_tenure_years"),
+            "max_drawdown_pct": p.get("max_drawdown_pct"),
+        })
+    return out
