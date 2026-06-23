@@ -195,6 +195,15 @@
   .text-on-accent { color: rgb(var(--accent-fg) / 1); }
   .bg-warm-soft { background-color: rgb(var(--warm) / 0.12); }
   .bg-pos-soft { background-color: rgb(var(--pos) / 0.12); }
+
+  /* Hide the scrollbar but keep the element scrollable — used by the mobile
+     horizontal section-tab strip so it scrolls cleanly without a visible bar. */
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+
+  /* Bottom safe-area padding — keeps the mobile bottom nav clear of the
+     Android gesture bar / iOS home indicator (requires viewport-fit=cover). */
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
 }
 
 /* ─── Markets ticker tape ───

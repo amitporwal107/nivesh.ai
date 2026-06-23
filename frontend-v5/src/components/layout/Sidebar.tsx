@@ -1,37 +1,14 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useRef, useState, useEffect } from "react";
 import {
-  LayoutDashboard, Sparkles, MessageSquare, Shield,
-  Settings, Layers, TrendingUp, Target, Receipt, ClipboardList,
-  ShieldCheck, Server, BarChart2, Bug, LogOut, ChevronUp,
-  PanelLeftClose, PanelLeftOpen, LineChart, Users,
+  Settings, ShieldCheck, Server, Bug, LogOut, ChevronUp,
+  PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useMe, useLogout } from "@/hooks/use-auth";
 import { usePortfolioSummary } from "@/hooks/use-portfolio";
-
-interface NavItem {
-  to: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  group?: string;
-}
-
-const NAV: NavItem[] = [
-  { to: "/dashboard",       label: "Overview",         icon: LayoutDashboard, group: "Dashboards" },
-  { to: "/markets",         label: "Markets",          icon: LineChart,       group: "Dashboards" },
-  { to: "/ai-insights",     label: "AI Insights",      icon: Layers,          group: "Dashboards" },
-  { to: "/risk",            label: "Risk",             icon: Shield,          group: "Dashboards" },
-  { to: "/performance",     label: "Performance",      icon: TrendingUp,      group: "Dashboards" },
-  { to: "/goals",           label: "Goals",            icon: Target,          group: "Dashboards" },
-  { to: "/tax",             label: "Tax",              icon: Receipt,         group: "Dashboards" },
-  { to: "/advisor",         label: "Advisor",          icon: Users,           group: "Workspace" },
-  { to: "/plan",            label: "Plan board",       icon: ClipboardList,   group: "Workspace" },
-  { to: "/chat",            label: "Chat copilot",     icon: MessageSquare,   group: "Workspace" },
-  { to: "/recommendations", label: "Recommendations",  icon: Sparkles,        group: "Workspace" },
-  { to: "/pro-trader",      label: "Pro Trader",       icon: BarChart2,       group: "Workspace" },
-];
+import { getSectionNav, groupNav } from "./nav-items";
 
 export function Sidebar({ className }: { className?: string }) {
   const { data: me } = useMe();
@@ -61,23 +38,7 @@ export function Sidebar({ className }: { className?: string }) {
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [menuOpen]);
 
-  const adminNav: NavItem[] = me?.is_admin
-    ? [
-        { to: "/work",  label: "Issues",         icon: Bug,         group: "Admin" },
-        { to: "/admin", label: "Admin Console",  icon: ShieldCheck, group: "Admin" },
-        { to: "/nidp",  label: "NIDP Console",   icon: Server,      group: "Admin" },
-      ]
-    : [];
-
-  const allNav = [...NAV, ...adminNav];
-
-  const groups: Array<{ name: string; items: NavItem[] }> = [];
-  allNav.forEach((item) => {
-    const g = item.group ?? "Other";
-    const existing = groups.find((x) => x.name === g);
-    if (existing) existing.items.push(item);
-    else groups.push({ name: g, items: [item] });
-  });
+  const groups = groupNav(getSectionNav(me?.workspaceType));
 
   const initials = me?.name
     ? me.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()

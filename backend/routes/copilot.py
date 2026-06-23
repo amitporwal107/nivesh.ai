@@ -246,12 +246,19 @@ async def _build_context(user_id: str) -> Dict[str, Any]:
     return ctx
 
 
-async def _is_advisor_caller(session_user_id: str, calling_user_id: str) -> bool:
-    """True if the caller is the owner of an ADVISORY workspace AND is
-    NOT currently impersonating a specific client. Mirrors the same
-    detection used by /copilot/suggested-prompts so prompt suggestions
-    and ask-context stay in sync."""
-    if session_user_id != calling_user_id:
+async def _is_advisor_caller(session_user_id: str, active_profile_id: Optional[str]) -> bool:
+    """True if the caller owns an ADVISORY workspace AND is viewing the
+    workspace root — i.e. is NOT currently impersonating any client profile.
+    Mirrors the detection in /copilot/suggested-prompts so prompt suggestions
+    and ask-context stay in sync.
+
+    Impersonation is detected via the session's ``active_profile_id``, NOT by
+    comparing user-ids: an advisor who is *their own client* opens a SELF
+    profile whose ``shadow_user_id`` equals their own ``user_id``, so an
+    id-comparison would wrongly read as "not impersonating" and keep the
+    cross-client copilot active. ``active_profile_id`` flips SELF and CLIENT
+    profiles alike to the personal/client copilot."""
+    if active_profile_id:
         return False
     try:
         ws = await db.workspaces.find_one(
@@ -445,7 +452,7 @@ async def ask(payload: AskRequest, request: Request):
     uid = user["user_id"] if isinstance(user, dict) else user.user_id
     session_uid = user.get("_session_user_id") if isinstance(user, dict) else None
     session_uid = session_uid or uid
-    advisor_mode = await _is_advisor_caller(session_uid, uid)
+    advisor_mode = await _is_advisor_caller(session_uid, user.get("_active_profile_id") if isinstance(user, dict) else None)
     ctx = await _build_context(uid)
     base_system = (
         "You are the advisor's cross-client AI copilot. You have access to "

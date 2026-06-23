@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { MobileSectionTabs } from "./MobileSectionTabs";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { CopilotDock } from "@/components/chat/CopilotDock";
 import { GlobalTickerTape } from "@/components/markets/GlobalTickerTape";
@@ -11,7 +12,7 @@ import { ImpersonationBanner } from "./ImpersonationBanner";
  *
  * Responsive contract:
  *   ≥ lg: persistent Sidebar (224px) + content
- *   < lg: Topbar + MobileBottomNav
+ *   < lg: Topbar + horizontal MobileSectionTabs strip + MobileBottomNav
  */
 export default function AppLayout() {
   return (
@@ -21,7 +22,8 @@ export default function AppLayout() {
         <GlobalTickerTape />
         <ImpersonationBanner />
         <Topbar className="lg:hidden" />
-        <main className="flex-1 min-w-0 pb-20 lg:pb-0">
+        <MobileSectionTabs className="lg:hidden" />
+        <main className="flex-1 min-w-0 pb-[calc(5rem_+_env(safe-area-inset-bottom))] lg:pb-0">
           <Outlet />
         </main>
         <MobileBottomNav className="lg:hidden" />

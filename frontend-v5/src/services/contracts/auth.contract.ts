@@ -9,6 +9,10 @@ export const UserProfileC = z.object({
   name: z.string(),
   is_admin: z.boolean(),
   journey_type: z.string().nullable().optional(),
+  // Drives advisor-vs-investor primary navigation. "ADVISORY" → advisor (reduced
+  // nav); anything else / absent → full personal nav. During impersonation the
+  // backend resolves the effective (client) user, who owns no workspace → null.
+  workspace_type: z.string().nullable().optional(),
   risk_profile: z.unknown().nullable().optional(),
   // Tolerant by design: a missing onboarding_completed must NOT fail the whole
   // parse. When absent (backend contract drift) it defaults to false, routing

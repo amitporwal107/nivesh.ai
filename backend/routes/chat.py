@@ -862,7 +862,7 @@ async def warmup_chat_context(request: Request):
     user = await get_current_user(request)
     user_id = user["user_id"]
     session_user_id = user.get("_session_user_id") or user_id
-    advisor_mode = await _is_advisor_caller(session_user_id, user_id)
+    advisor_mode = await _is_advisor_caller(session_user_id, user.get("_active_profile_id"))
     if advisor_mode:
         return {"ok": True, "warmed": False, "reason": "advisor_mode"}
     # Warm all five context pieces in parallel. Intelligence is the only
@@ -942,7 +942,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
     user = await get_current_user(request)
     user_id = user["user_id"]
     session_user_id = user.get("_session_user_id") or user_id
-    advisor_mode = await _is_advisor_caller(session_user_id, user_id)
+    advisor_mode = await _is_advisor_caller(session_user_id, user.get("_active_profile_id"))
 
     session_id = msg.session_id
     if not session_id:
@@ -1191,7 +1191,7 @@ async def stream_chat(request: Request):
     user = await get_current_user(request)
     user_id = user["user_id"]
     session_user_id = user.get("_session_user_id") or user_id
-    advisor_mode = await _is_advisor_caller(session_user_id, user_id)
+    advisor_mode = await _is_advisor_caller(session_user_id, user.get("_active_profile_id"))
     body = await request.json()
     message = body.get("message", "").strip()
     session_id = body.get("session_id")

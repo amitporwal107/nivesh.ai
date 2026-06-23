@@ -37,6 +37,7 @@ import NidpConsolePage from "./pages/NidpConsole";
 import ProTraderPage from "./pages/ProTrader";
 import MarketsPage from "./pages/Markets";
 import AdvisorDashboardPage from "./pages/AdvisorDashboard";
+import Client360Page from "./pages/Client360";
 import DebugLogsPage from "./pages/DebugLogs";
 
 export function AppRoutes() {
@@ -78,6 +79,7 @@ export function AppRoutes() {
         <Route path="/dashboard"        element={<RouteErrorBoundary pageName="Dashboard"><DashboardPage /></RouteErrorBoundary>} />
         <Route path="/markets"          element={<RouteErrorBoundary pageName="Markets"><MarketsPage /></RouteErrorBoundary>} />
         <Route path="/advisor"          element={<RouteErrorBoundary pageName="Advisor"><AdvisorDashboardPage /></RouteErrorBoundary>} />
+        <Route path="/client-360"       element={<RouteErrorBoundary pageName="Client 360"><Client360Page /></RouteErrorBoundary>} />
         {/* Portfolio view now lives on the Dashboard; keep the path as a redirect for old links. */}
         <Route path="/portfolio"        element={<Navigate to="/dashboard" replace />} />
         <Route path="/funds/:id"        element={<RouteErrorBoundary pageName="Fund Details"><FundDetailsPage /></RouteErrorBoundary>} />

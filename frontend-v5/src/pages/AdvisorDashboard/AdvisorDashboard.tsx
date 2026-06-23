@@ -14,7 +14,7 @@
 import { useMemo, useState } from "react";
 import {
   Users, Plus, Search, AlertTriangle, TrendingUp, Scale, CheckCircle2,
-  Bell, Zap, Calendar, Sparkles, Trash2,
+  Bell, Zap, Calendar, Sparkles, Trash2, ArrowRight,
 } from "lucide-react";
 import type { ClientProfileC } from "@/services/contracts/advisor.contract";
 import { AdvisorHome } from "./AdvisorHome";
@@ -106,6 +106,13 @@ export function AdvisorDashboard({ profiles, workspaceType, advisorName, activat
     () => profiles.filter((p) => p.type !== "SELF").map(decorateProfile),
     [profiles],
   );
+
+  // The advisor's own portfolio is a SELF profile (shadow_user_id == their
+  // own user_id). It is kept OUT of the client stats/feed/table above, but
+  // surfaced as its own clickable row so the advisor can "open" themselves as
+  // a client — which impersonates SELF and flips the copilot + dashboards to
+  // the personal (client) questionnaire instead of the cross-client view.
+  const selfProfile = useMemo(() => profiles.find((p) => p.type === "SELF") ?? null, [profiles]);
 
   const counts = useMemo(() => {
     const c = { total: decorated.length, actionNeeded: 0, overRisk: 0, underperforming: 0, rebalance: 0, stale: 0, healthy: 0, high: 0 };
@@ -269,6 +276,31 @@ export function AdvisorDashboard({ profiles, workspaceType, advisorName, activat
           <FilterChip label="Review stale" count={counts.stale} tone="warm" active={filter === "stale"} onClick={() => setFilter("stale")} testId="advisor-filter-stale" />
         </div>
       </div>
+
+      {/* 5b. Your own portfolio — advisor is their own client (SELF profile).
+          Opening it impersonates self, so the copilot switches from the
+          cross-client advisor tiles to the personal/client questionnaire. */}
+      {selfProfile && (
+        <button
+          type="button"
+          onClick={() => onOpenClient(selfProfile.profile_id, { name: selfProfile.name })}
+          disabled={activatingId === selfProfile.profile_id}
+          data-testid="advisor-open-self"
+          className="w-full flex items-center gap-3 rounded-lg border border-hairline bg-surface-1 shadow-card px-4 py-3 text-left hover:bg-surface-2/60 transition-colors disabled:opacity-60"
+        >
+          <div className="w-8 h-8 rounded-full bg-accent/15 text-accent flex items-center justify-center text-[11px] font-bold flex-shrink-0" aria-hidden>
+            {selfProfile.name?.slice(0, 1).toUpperCase() || "?"}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-ink truncate flex items-center gap-1.5">
+              {selfProfile.name}
+              <span className="text-[8px] rounded border border-hairline px-1 text-ink-3">YOU</span>
+            </div>
+            <div className="text-[11px] text-ink-3">Open your own portfolio — switches the copilot to your personal view.</div>
+          </div>
+          <ArrowRight className="w-4 h-4 text-ink-3 flex-shrink-0" />
+        </button>
+      )}
 
       {/* 6. Client table */}
       <div className="rounded-lg border border-hairline bg-surface-1 shadow-card overflow-hidden" data-testid="advisor-client-table">

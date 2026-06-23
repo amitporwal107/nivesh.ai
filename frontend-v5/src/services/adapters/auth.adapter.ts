@@ -81,6 +81,7 @@ function mapUser(c: import("@/services/contracts/auth.contract").UserProfileC): 
     isWhitelisted: true,             // backend won't return UserProfile to non-whitelisted users
     onboardingCompleted: c.onboarding_completed,
     is_admin: c.is_admin,
+    workspaceType: c.workspace_type ?? null,
   };
 }
 

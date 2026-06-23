@@ -140,6 +140,15 @@ async def get_me(request: Request):
     # wedges useMe() in a permanent error → RequireAuth remount loop.
     profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0}) or {}
     user["onboarding_completed"] = bool(profile.get("onboarding_completed", False))
+    # workspace_type drives the advisor-vs-investor primary navigation on the
+    # client. Resolved for the *effective* user: when an advisor impersonates a
+    # client, get_current_user returns the shadow user (who owns no workspace),
+    # so this is None → the client gets the full personal nav. At the workspace
+    # root it resolves to the real advisor → "ADVISORY" → the reduced advisor nav.
+    ws = await db.workspaces.find_one(
+        {"owner_user_id": user["user_id"]}, {"_id": 0, "type": 1},
+    )
+    user["workspace_type"] = (ws or {}).get("type")
     return user
 
 

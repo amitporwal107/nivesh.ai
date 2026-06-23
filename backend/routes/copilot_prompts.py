@@ -679,11 +679,19 @@ def _investor_prompts_curated() -> List[Dict[str, Any]]:
     ]
 
 
-async def _is_advisor_mode(session_user_id: str, calling_user_id: str) -> bool:
-    """True when the caller's session belongs to an ADVISORY workspace
-    AND they are NOT currently impersonating a specific client (i.e. the
-    caller's user_id matches their own session_user_id)."""
-    if session_user_id != calling_user_id:
+async def _is_advisor_mode(session_user_id: str, active_profile_id: Optional[str]) -> bool:
+    """True when the caller owns an ADVISORY workspace AND is viewing the
+    workspace root — i.e. is NOT currently impersonating any client profile.
+
+    Impersonation is detected via the session's ``active_profile_id`` (set when
+    an advisor opens a profile from the dashboard), NOT by comparing the
+    effective and session user-ids. An advisor who is *their own client* opens
+    a SELF profile whose ``shadow_user_id`` equals their own ``user_id`` (see
+    mfd_workspace._create_self_profile), so an id-comparison would wrongly read
+    as "not impersonating" and keep the cross-client advisor prompts up. Keying
+    off ``active_profile_id`` flips the copilot to the personal/client
+    questionnaire for SELF and CLIENT profiles alike."""
+    if active_profile_id:
         return False
     try:
         ws = await db.workspaces.find_one(
@@ -759,7 +767,7 @@ async def suggested_prompts(
     """
     user = await get_current_user(request)
     session_uid = user.get("_session_user_id") or user["user_id"]
-    if await _is_advisor_mode(session_uid, user["user_id"]):
+    if await _is_advisor_mode(session_uid, user.get("_active_profile_id")):
         return _advisor_prompts()
 
     # Validate category param early — silently ignore unknowns so the UI can

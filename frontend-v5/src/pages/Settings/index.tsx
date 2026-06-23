@@ -10,6 +10,8 @@ import { Mail, RefreshCw, CheckCircle2, AlertCircle, ShieldCheck, Target, Pencil
 import { ProfileWizardModal } from "@/pages/Dashboard/ProfileWizardModal";
 import { useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
+import { Link } from "react-router-dom";
+import { getAdminNav } from "@/components/layout/nav-items";
 
 export default function SettingsPage() {
   const { theme, setTheme } = useUIStore();
@@ -369,6 +371,29 @@ export default function SettingsPage() {
           </div>
         )}
       </Card>
+
+      {/* Admin tools — relocated here from the primary sidebar nav. Only
+          rendered for admins. */}
+      {me?.is_admin && (
+        <Card className="mt-4 p-6">
+          <CardLabel>Admin</CardLabel>
+          <p className="text-[13px] text-ink-3 mt-1 mb-4">
+            Platform tooling. Only visible to admins.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {getAdminNav(true).map(({ to, label, icon: Icon }) => (
+              <Link
+                key={to}
+                to={to}
+                className="flex items-center gap-2.5 rounded-md border border-hairline bg-surface-1 px-3.5 py-3 text-[13px] text-ink-2 hover:bg-surface-2 transition-colors"
+              >
+                <Icon className="h-4 w-4 text-accent shrink-0" />
+                <span>{label}</span>
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <Card className="mt-4 p-6">
         <CardLabel>Account</CardLabel>
