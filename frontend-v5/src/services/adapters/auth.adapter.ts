@@ -9,6 +9,7 @@
  */
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
+import { saveAuthToken, clearAuthToken } from "@/services/api/auth-token";
 import {
   UserProfileC,
   GoogleSignInReq,
@@ -41,11 +42,16 @@ export const realAuthAdapter: AuthAdapter = {
       body,
       noRetry: true,                  // never retry login
     });
+    // Persist the session token for the native app (WebView cookies don't hold
+    // the cross-site session). Sent back as Authorization: Bearer on requests.
+    const token = (res.data as { session_token?: string })?.session_token;
+    if (token) saveAuthToken(token);
     return mapUser(parse(UserProfileC, res.data, "auth.googleSignIn"));
   },
 
   async logout() {
     await http({ method: "POST", path: "/api/auth/logout", noRetry: true });
+    clearAuthToken();
   },
 
   async googleClientId() {

@@ -10,6 +10,7 @@
  */
 import { apiConfig } from "./config";
 import { ApiError } from "./errors";
+import { getAuthToken } from "./auth-token";
 import { correlationId, getObserver } from "@/lib/observability";
 
 export interface HttpRequest {
@@ -40,10 +41,13 @@ export async function http<T = unknown>(req: HttpRequest): Promise<HttpResponse<
   const id = correlationId();
   const url = buildUrl(req.path, req.query);
   const method = req.method ?? "GET";
+  const authToken = getAuthToken();
   const headers: Record<string, string> = {
     Accept: "application/json",
     "X-Correlation-Id": id,
     "X-Client-Version": apiConfig.appVersion,
+    // Bearer fallback for native (WebView drops the cross-site session cookie).
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     ...(req.body != null ? { "Content-Type": "application/json" } : {}),
     ...(req.ifNoneMatch ? { "If-None-Match": req.ifNoneMatch } : {}),
     ...(req.headers ?? {}),

@@ -120,6 +120,10 @@ async def google_auth(request: Request, response: Response):
     # so that admin resets (which write to user_profiles) are reflected at login.
     profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
     user_doc["onboarding_completed"] = bool(profile.get("onboarding_completed", False))
+    # Also return the session token in the body so the mobile app can send it as
+    # `Authorization: Bearer` — Android WebViews don't reliably keep the cross-site
+    # session cookie. get_current_user already accepts this header.
+    user_doc["session_token"] = session_token
     return user_doc
 
 
