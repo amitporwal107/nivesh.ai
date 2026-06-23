@@ -228,7 +228,15 @@ is doubly blocked (rating 0% populated). **Root fix = SD-06 (parser repair), sta
 NIPPON + SBI XLSX parsers.** Raw XLSX not in the local archive (only parsed JSON) → needs the
 live AMC file to debug+verify.
 
-**SD-06 (AMC holdings parsers) — the keystone blocker.** Pinpointed targets: NIPPON + SBI
+**SD-06 (AMC holdings parsers) — the keystone blocker.** **Progress 2026-06-23.**
+Two distinct bugs found in the generic `_parse_sheet` path (NIPPON + HDFC/TATA/etc.):
+(1) **subtotal/grand-total/section rows ingested as holdings** — FIXED (`sbi_parser._is_aggregation_row`,
+unit-tested, committed 5b829716): recovers NIPPON 0→316/529 schemes to sane weight sums.
+(2) **scheme misattribution** — multi-fund XLSX not split per fund, so several funds' holdings
+collapse onto one scheme_code (e.g. 130859: ~250 holdings summing 503% after totals removed).
+Bug (2) needs the raw XLSX to fix the fund-block boundary detection; ~40% of NIPPON still
+affected. SBI (486 schemes, 0% sane) uses a separate parser (`parse_sbi_multisheet_xlsx`) —
+under-parsing, not yet diagnosed. Realizing the fix needs a re-ingest (gated on SD-02 URLs). Pinpointed targets: NIPPON + SBI
 weight-column misalignment (weights >100%, dates landing in the ISIN field). Per-parser fix,
 each needing the live source file. SD-02 (URL drift: hdfc/icici_pru/absl/amfi-ter/amfi-risk)
 gates re-fetching those files.
