@@ -22,6 +22,8 @@ import math
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from services.sgb_prices import resolve_sgb_display_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -1019,7 +1021,11 @@ async def build_enriched_portfolio(
 
         enriched.append({
             "holding_id": h.get("holding_id"),
-            "name": h.get("name"), "isin": h.get("ticker"),
+            # Substitute the ISIN-derived SGB series for generic issuer-only
+            # names (e.g. "Government of India") on stored holdings ingested
+            # before the SGB ISIN was mapped. No-op for non-SGB names.
+            "name": resolve_sgb_display_name(h.get("name"), h.get("ticker")),
+            "isin": h.get("ticker"),
             "nse_symbol": h.get("nse_symbol"),
             "asset_type": at, "sector": h.get("sector"),
             "category": category,

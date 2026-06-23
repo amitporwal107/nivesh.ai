@@ -9,6 +9,7 @@ from models import PortfolioCreate, HoldingCreate, HoldingUpdate
 from core.exceptions import ResourceNotFoundException, ValidationException, SystemException
 from core.dto import clean, clean_list
 from services import dashboard_cache as _dc
+from services.sgb_prices import resolve_sgb_display_name
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -106,7 +107,7 @@ async def get_enriched_holdings(request: Request, fresh: bool = False):
                 cb_known = bp > 0
                 holdings.append({
                     "holding_id": h.get("holding_id"),
-                    "name": h.get("name"),
+                    "name": resolve_sgb_display_name(h.get("name"), h.get("ticker")),
                     "isin": h.get("ticker"),
                     "nse_symbol": h.get("nse_symbol"),
                     "asset_type": h.get("asset_type"),

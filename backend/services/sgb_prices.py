@@ -68,6 +68,11 @@ SGB_ISSUE_PRICES = {
     "IN0020210029": {"series": "SGB 2021-22 Series II", "issue_price": 4842, "issue_date": "2021-05-24"},
     "IN0020210037": {"series": "SGB 2021-22 Series III", "issue_price": 4889, "issue_date": "2021-05-31"},
     "IN0020210045": {"series": "SGB 2021-22 Series IV", "issue_price": 4807, "issue_date": "2021-08-09"},
+    # SGB 2021-22 Series V — authoritative ISIN per RBI/NSE is IN0020210129
+    # (NSE: SGBAUG29V, BSE: 800385, issued 2021-08-17; issue price ₹4,740/g per NSE).
+    # IN0020210052 was a previously-recorded key for the same tranche; its ISIN is
+    # unverified and superseded by IN0020210129 — kept only for back-compat.
+    "IN0020210129": {"series": "SGB 2021-22 Series V", "issue_price": 4740, "issue_date": "2021-08-17"},
     "IN0020210052": {"series": "SGB 2021-22 Series V", "issue_price": 4732, "issue_date": "2021-08-16"},
     "IN0020210060": {"series": "SGB 2021-22 Series VI", "issue_price": 4765, "issue_date": "2021-10-25"},
     "IN0020210078": {"series": "SGB 2021-22 Series VII", "issue_price": 4791, "issue_date": "2021-11-29"},
