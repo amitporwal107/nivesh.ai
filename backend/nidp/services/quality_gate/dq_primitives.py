@@ -38,7 +38,7 @@ Severity convention used throughout:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Iterable, Sequence, Optional, Any
 
 import pandas as pd
@@ -178,8 +178,15 @@ class TradingCalendar:
 
     @staticmethod
     def _as_date(d: Any) -> date:
-        if isinstance(d, date) and not isinstance(d, type(None)):
-            return d if not hasattr(d, "date") else d  # plain date
+        # NOTE: pandas.Timestamp and datetime.datetime BOTH pass isinstance(d, date),
+        # so we must convert them to a plain date rather than return as-is (a Timestamp
+        # cannot be compared with a date and breaks the >= check downstream).
+        if isinstance(d, pd.Timestamp):
+            return d.date()
+        if isinstance(d, datetime):
+            return d.date()
+        if isinstance(d, date):
+            return d
         return pd.Timestamp(d).date()
 
     def is_trading_day(self, d: date) -> bool:

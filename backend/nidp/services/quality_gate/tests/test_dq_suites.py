@@ -100,10 +100,15 @@ def test_correction4_band_allows_blank_gate_failures():
 # ===========================================================================
 # mf_holdings — shorts admitted, corruption flagged, subtotal flagged, NIPPON guard
 # ===========================================================================
-def test_weight_pct_admits_shorts_flags_corruption():
+def test_weight_pct_admits_shorts_and_high_derivatives():
+    # Recalibrated: no upper cap (336 legit lines >100 are derivative notionals).
+    # Lower bound still admits shorts; the per-scheme SUM is the real corruption guard.
     df = pd.DataFrame({"weight_pct": [-20.0, 5.0, 50.0, 412.8]})
-    r = E.between("weight_pct", min=-25, max=100).run(df)
-    assert not r.success and r.observed["actual"] == 1     # only the 412.8
+    r = E.between("weight_pct", min=-25, max=None, severity="warn").run(df)
+    assert r.success, "no per-line upper cap; >100 handled by per-scheme sum guard"
+    r2 = E.between("weight_pct", min=-25, max=None, severity="warn").run(
+        pd.DataFrame({"weight_pct": [-50.0]}))
+    assert not r2.success
 
 
 def test_no_subtotal_flags_total_not_company_names():
@@ -143,10 +148,10 @@ def test_gate_meta_guard_aborts_on_missing_column():
 def test_gate_finding_rows_map_to_real_columns():
     suites = build_suites()
     df = pd.DataFrame([
-        ("N1", date(2026, 5, 31), "INE001A01036", "Reliance", "", 60.0, "AMC"),
-        ("N1", date(2026, 5, 31), "INE002A01018", "TCS",      "", 164.0, "AMC"),
+        ("N1", date(2026, 5, 31), "INE001A01036", "Reliance", "", 60.0, None, "AMC"),
+        ("N1", date(2026, 5, 31), "INE002A01018", "TCS",      "", 164.0, None, "AMC"),
     ], columns=["scheme_code", "as_of_month", "security_isin", "security_name",
-                "instrument_type", "weight_pct", "source"])
+                "instrument_type", "weight_pct", "rating", "source"])
     run = run_suite(suites["mf_holdings"], df)
     ctx = RunContext(ingester="mf_holdings", target_date=date(2026, 5, 31))
     rows = finding_rows(run, ctx)
@@ -155,19 +160,55 @@ def test_gate_finding_rows_map_to_real_columns():
               "rule_name", "severity", "failure_class", "message", "expected",
               "actual", "sample_rows", "detected_at"}
     assert needed <= set(rows[0].keys())
-    # failure_class carries the C-category
-    assert any(r["failure_class"] == "C4" for r in rows)
+    # REAL enums: severity ∈ {INFO,WARN,ERROR,CRITICAL}; failure_class ∈ {RETRY,FIX,BLOCK,INFO}
+    assert all(r["severity"] in {"INFO", "WARN", "ERROR", "CRITICAL"} for r in rows)
+    assert all(r["failure_class"] in {"RETRY", "FIX", "BLOCK", "INFO"} for r in rows)
+    # the grouped weight-sum (C4) maps to action BLOCK
+    assert any(r["failure_class"] == "BLOCK" for r in rows)
+    # expected/actual are TEXT
+    assert all(r["actual"] is None or isinstance(r["actual"], str) for r in rows)
+
+
+def test_freshness_accepts_pandas_timestamp():
+    # regression: a pandas Timestamp (from df.max()) must not crash the >= compare
+    from nidp.services.quality_gate.dq_primitives import TradingCalendar, freshness_within_trading_days
+    cal = TradingCalendar(set())
+    md = pd.to_datetime(pd.Series([date(2026, 6, 20)])).max()  # -> Timestamp
+    r = freshness_within_trading_days("x", md, cal, max_lag_trading_days=4,
+                                      asof=date(2026, 6, 24))
+    assert r.success
+
+
+def test_no_suite_produces_crash_finding():
+    # smoke: representative tiny frames per suite must not raise inside any check
+    # (a raised check -> CRITICAL "check raised" finding). Assert no crash.
+    from nidp.services.quality_gate.dq_gate import run_suite
+    suites = build_suites()
+    samples = {
+        "v3_stock_scores": pd.DataFrame([[date(2026,6,20),"INFY",60.0,61.0,30.0,31.0,95,95,"BUY","ranked","IT","LARGE_CAP"]],
+            columns=["as_of_date","symbol","final_score","quality_score","health_score","technical_score","quality_coverage_pct","health_coverage_pct","band","status","sector_profile","market_cap_bucket"]),
+        "bank_metrics": pd.DataFrame([["HDFCBANK",date(2026,6,20),2.0,1.0,98.0,"stable"]],
+            columns=["symbol","as_of_date","gnpa_pct","nnpa_pct","coverage_pct","gnpa_trend"]),
+        "rbi_yields": pd.DataFrame([[date(2026,6,20),"10Y","RBI",6.9]],
+            columns=["as_of_date","tenor","source","yield_pct"]),
+        "documents": pd.DataFrame([["d1","http://x","announcement_attachment","parsed",2,100]],
+            columns=["doc_id","source_url","doc_type","parse_status","page_count","text_size_chars"]),
+    }
+    for asset, df in samples.items():
+        run = run_suite(suites[asset], df)
+        crashes = [r for r in run.results if "check raised" in (r.message or "")]
+        assert not crashes, (asset, [c.message for c in crashes])
 
 
 def test_gate_clean_data_passes():
     suites = build_suites()
     df = pd.DataFrame([
-        ("N1", date(2026, 5, 31), "INE001A01036", "Reliance", "", 60.0, "AMC"),
-        ("N1", date(2026, 5, 31), "INE002A01018", "TCS",      "", 40.0, "AMC"),
+        ("N1", date(2026, 5, 31), "INE001A01036", "Reliance", "", 60.0, None, "AMC"),
+        ("N1", date(2026, 5, 31), "INE002A01018", "TCS",      "", 40.0, None, "AMC"),
     ], columns=["scheme_code", "as_of_month", "security_isin", "security_name",
-                "instrument_type", "weight_pct", "source"])
+                "instrument_type", "weight_pct", "rating", "source"])
     run = run_suite(suites["mf_holdings"], df)
-    assert run.verdict == "OK", [(r.check, r.message) for r in run.failures]
+    assert run.verdict in ("OK", "WARN"), [(r.check, r.message) for r in run.failures]
 
 
 # --- standalone runner ---

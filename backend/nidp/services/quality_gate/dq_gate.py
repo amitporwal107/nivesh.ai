@@ -25,6 +25,7 @@ from datetime import date, datetime, timezone
 import pandas as pd
 
 from .dq_primitives import CheckResult, assert_columns_exist, expect_non_empty
+from .dq_sink import severity_for, status_for, action_for, as_text
 
 
 @dataclass
@@ -85,25 +86,31 @@ def run_suite(suite, df: pd.DataFrame) -> SuiteRun:
 
 
 # ---------------------------------------------------------------------------
-# Persistence mapping -> real columns
+# Persistence mapping -> REAL nidp.validation_findings / validation_runs columns
 # ---------------------------------------------------------------------------
+# severity      -> {INFO, WARN, ERROR, CRITICAL}   (how bad)
+# failure_class -> {RETRY, FIX, BLOCK, INFO}       (what action; NOT the C-taxonomy)
+# status        -> {PASSED, FAILED, PARTIAL, ERROR}
+# expected/actual are TEXT; partition key is job_run_id.
 def finding_rows(run: SuiteRun, ctx: RunContext) -> list[dict]:
     rows = []
     detected = datetime.now(timezone.utc).isoformat()
     for res in run.failures:
+        # keep the C-taxonomy visible in the message (it's not a column)
+        msg = f"[{res.category}] {res.message}"
         rows.append({
             "finding_id": str(uuid.uuid4()),
             "validation_id": ctx.validation_id,
-            "job_run_id": ctx.job_run_id,
+            "job_run_id": ctx.job_run_id,                       # partition/identity key
             "ingester": run.suite.ingester,
             "target_date": ctx.target_date.isoformat(),
             "rule_name": res.check,
-            "severity": res.severity,
-            "failure_class": res.category,                 # C1..C8 / meta
-            "message": res.message,
-            "expected": json.dumps(res.observed.get("expected", {}), default=str),
-            "actual": res.observed.get("actual"),          # unexpected count / groups / pct
-            "sample_rows": json.dumps(res.violations[:50], default=str),
+            "severity": severity_for(res.severity),             # INFO/WARN/ERROR/CRITICAL
+            "failure_class": action_for(res.check, res.category),  # RETRY/FIX/BLOCK/INFO
+            "message": msg,
+            "expected": as_text(res.observed.get("expected", {})),  # TEXT
+            "actual": as_text(res.observed.get("actual")),          # TEXT
+            "sample_rows": json.dumps(res.violations[:50], default=str),  # jsonb
             "detected_at": detected,
         })
     return rows
@@ -111,11 +118,15 @@ def finding_rows(run: SuiteRun, ctx: RunContext) -> list[dict]:
 
 def run_header(run: SuiteRun, ctx: RunContext) -> dict:
     failed = run.failures
+    # a meta-guard abort or a crashing check is a run-level ERROR, not just FAILED
+    has_meta_error = any(r.category == "meta" and not r.success for r in run.results)
+    status = "ERROR" if (run.aborted or has_meta_error) else status_for(run.verdict)
     return {
         "validation_id": ctx.validation_id,
+        "job_run_id": ctx.job_run_id,
         "ingester": run.suite.ingester,
         "target_date": ctx.target_date.isoformat(),
-        "status": run.verdict,
+        "status": status,                                       # PASSED/FAILED/PARTIAL/ERROR
         "rules_run": len(run.results),
         "rules_failed": len(failed),
         "findings_count": len(failed),
@@ -126,7 +137,7 @@ def run_header(run: SuiteRun, ctx: RunContext) -> dict:
 # Demo: run the trio against deliberately dirty data
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    from nidp_suites import build_suites
+    from .dq_suites import build_suites
 
     suites = build_suites()
 

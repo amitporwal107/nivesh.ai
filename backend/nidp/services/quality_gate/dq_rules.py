@@ -348,6 +348,10 @@ def freshness(date_col, calendar: TradingCalendar, *, max_lag_trading_days=1,
         if date_col not in df.columns:
             return _result(name, "meta", False, "error", f"column absent: {date_col}")
         max_date = pd.to_datetime(df[date_col], errors="coerce").max()
+        if pd.isna(max_date):
+            return _result(name, category, False, severity,
+                           f"{date_col} has no valid dates (all null/empty)",
+                           actual="no_dates", expected={"date_col": date_col})
         r = freshness_within_trading_days(
             asset="", max_date=max_date, calendar=calendar,
             max_lag_trading_days=max_lag_trading_days, settlement_lag=settlement_lag)

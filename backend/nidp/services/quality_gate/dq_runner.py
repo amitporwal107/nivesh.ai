@@ -44,14 +44,9 @@ INSERT INTO nidp.validation_runs
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 """
 
-# Adapter boundary — the gate's portable vocabulary -> the real plumbing-table enums.
-# nidp.validation_runs.status   ∈ {PASSED, FAILED, PARTIAL, ERROR}
-# nidp.validation_findings.severity ∈ {INFO, WARN, ERROR, CRITICAL}
-# nidp.validation_findings.failure_class ∈ {RETRY, FIX, BLOCK, INFO}  (action class, not C-cat;
-#   the C1–C8 taxonomy is preserved in rule_name, e.g. "C4.grouped_sum[...]").
-_STATUS = {"OK": "PASSED", "WARN": "PARTIAL", "FAIL": "FAILED"}
-_SEVERITY = {"warn": "WARN", "fail": "ERROR", "error": "CRITICAL"}
-_FAILURE_CLASS = {"warn": "INFO", "fail": "FIX", "error": "BLOCK"}
+# NOTE: the gate maps the internal vocabulary -> the real plumbing enums via dq_sink
+# (run_header.status, finding_rows.severity/failure_class, expected/actual as TEXT).
+# This runner persists those values verbatim — no re-mapping here.
 
 
 async def _load_calendar(conn) -> TradingCalendar:
@@ -76,41 +71,46 @@ async def run(feeds: Optional[list[str]] = None, target_date: Optional[date] = N
     for name, suite in suites.items():
         if feeds and name not in feeds:
             continue
-
-        started = datetime.now(timezone.utc)
-        async with pool.acquire() as conn:
-            recs = await conn.fetch(suite.fetch.to_sql())
-        df = pd.DataFrame([dict(r) for r in recs])
-
-        srun = run_suite(suite, df)
         ctx = RunContext(ingester=suite.ingester, target_date=td)
-        hdr = run_header(srun, ctx)
-        fr = finding_rows(srun, ctx)
+        started = datetime.now(timezone.utc)
+        try:
+            # Per-suite isolation: a fetch error (e.g. a suite naming a column the table
+            # doesn't have) must surface as an ERROR run, never abort the whole batch.
+            async with pool.acquire() as conn:
+                recs = await conn.fetch(suite.fetch.to_sql())
+            df = pd.DataFrame([dict(r) for r in recs])
 
-        status = "ERROR" if srun.aborted else _STATUS.get(srun.verdict, "ERROR")
-        async with pool.acquire() as conn:
-            async with conn.transaction():
+            srun = run_suite(suite, df)
+            hdr = run_header(srun, ctx)
+            fr = finding_rows(srun, ctx)
+
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute(
+                        _RUN_SQL, ctx.validation_id, ctx.job_run_id, suite.ingester, td,
+                        started, datetime.now(timezone.utc), hdr["status"],
+                        hdr["rules_run"], hdr["rules_failed"], hdr["findings_count"],
+                        (suite.description or "")[:200],
+                    )
+                    if fr:
+                        await conn.executemany(_FINDINGS_SQL, [
+                            (f["finding_id"], f["validation_id"], f["job_run_id"], f["ingester"],
+                             td, f["rule_name"], f["severity"], f["failure_class"],
+                             f["message"], f["expected"], f["actual"], f["sample_rows"], started)
+                            for f in fr
+                        ])
+            verdicts[name] = hdr["status"]
+            logger.info("dq_runner: %-22s verdict=%-7s rules=%d failed=%d rows=%d",
+                        name, hdr["status"], hdr["rules_run"], hdr["rules_failed"], len(df))
+        except Exception as exc:
+            verdicts[name] = "ERROR"
+            logger.error("dq_runner: %-22s ERROR  %r", name, exc)
+            async with pool.acquire() as conn:
                 await conn.execute(
                     _RUN_SQL, ctx.validation_id, ctx.job_run_id, suite.ingester, td,
-                    started, datetime.now(timezone.utc), status,
-                    hdr["rules_run"], hdr["rules_failed"], hdr["findings_count"],
-                    (suite.description or "")[:200],
+                    started, datetime.now(timezone.utc), "ERROR", 0, 1, 0,
+                    f"suite error: {exc}"[:200],
                 )
-                if fr:
-                    await conn.executemany(_FINDINGS_SQL, [
-                        (f["finding_id"], f["validation_id"], f["job_run_id"], f["ingester"],
-                         td, f["rule_name"],
-                         _SEVERITY.get(f["severity"], "ERROR"),
-                         _FAILURE_CLASS.get(f["severity"], "FIX"),
-                         f["message"], f["expected"],
-                         None if f["actual"] is None else str(f["actual"]),
-                         f["sample_rows"], started)
-                        for f in fr
-                    ])
-
-        verdicts[name] = srun.verdict
-        logger.info("dq_runner: %-16s verdict=%-4s rules=%d failed=%d rows=%d",
-                    name, srun.verdict, hdr["rules_run"], hdr["rules_failed"], len(df))
 
     await close_pool()
     return verdicts
