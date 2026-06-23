@@ -88,7 +88,8 @@ async def upsert_financials(
                 ingested_at             = NOW()
             RETURNING id
             """,
-            symbol, period_end, period_start, data.get("period_type", "quarterly"),
+            symbol, period_end, period_start,
+            (data.get("period_type") or "quarterly").lower(),   # normalize case (canonical=lower)
             bool(data.get("consolidated", False)), data.get("audited"),
             data.get("revenue_from_ops_cr"), data.get("other_income_cr"), data.get("total_income_cr"),
             data.get("total_expenses_cr"), data.get("ebitda_cr"), data.get("finance_costs_cr"),
