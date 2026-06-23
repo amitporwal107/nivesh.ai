@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { Capacitor } from "@capacitor/core";
+import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useGoogleSignIn, useMagicLink, useMe } from "@/hooks/use-auth";
@@ -48,17 +50,54 @@ export default function LoginPage() {
 
   const gis = useGoogleIdentity(handleCredential);
 
+  // Inside the native app the web Google Identity Services button can't run
+  // (Google blocks OAuth in WebViews, and the WebView origin isn't an authorized
+  // JS origin). Use the native Google sign-in plugin instead; it returns an ID
+  // token we hand to the same backend endpoint via handleCredential().
+  const isNative = Capacitor.isNativePlatform();
+
+  useEffect(() => {
+    if (!isNative) return;
+    // serverClientId/scopes come from capacitor.config + Android strings.xml;
+    // initialize() is a safe no-op re-arm of the plugin on mount.
+    try {
+      GoogleAuth.initialize();
+    } catch {
+      /* native plugin initializes from config — ignore double-init */
+    }
+  }, [isNative]);
+
+  const [nativePending, setNativePending] = useState(false);
+  const handleNativeGoogle = useCallback(async () => {
+    setNativePending(true);
+    try {
+      const result = await GoogleAuth.signIn();
+      const idToken = result?.authentication?.idToken;
+      if (!idToken) throw new Error("Google did not return an ID token");
+      await handleCredential(idToken);
+    } catch (err) {
+      pushToast({
+        kind: "error",
+        title: "Sign-in failed",
+        description: err instanceof Error ? err.message : "Try again",
+      });
+    } finally {
+      setNativePending(false);
+    }
+  }, [handleCredential, pushToast]);
+
   const isAllowed = email ? authService.isAllowedDomain(email) : true;
   const userName = me?.name?.split(" ")[0] ?? null;
   const healthScore = (health as any)?.health_score ?? (summary as any)?.healthScore ?? null;
   const aum = summary?.totalValue ? formatRs(summary.totalValue) : null;
 
-  // Render Google's native sign-in button
+  // Render Google's web sign-in button (browser only — not in the native app)
   useEffect(() => {
+    if (isNative) return;
     if (gis.ready && googleBtnRef.current) {
       gis.renderButton(googleBtnRef.current);
     }
-  }, [gis.ready, gis.renderButton]);
+  }, [isNative, gis.ready, gis.renderButton]);
 
   const handleMagic = async () => {
     try {
@@ -136,9 +175,19 @@ export default function LoginPage() {
             inbox. Read-only — we never send mail or read anything else.
           </p>
 
-          {/* Google Sign-In — native rendered button */}
+          {/* Google Sign-In — native plugin in the app, web GIS button in browsers */}
           <div className="mt-6">
-            {gis.ready ? (
+            {isNative ? (
+              <Button
+                variant="accent"
+                size="lg"
+                className="w-full"
+                disabled={nativePending || google.isPending}
+                onClick={handleNativeGoogle}
+              >
+                {nativePending ? "Opening Google…" : "Continue with Google"}
+              </Button>
+            ) : gis.ready ? (
               <div ref={googleBtnRef} className="flex justify-center" />
             ) : gis.loadError ? (
               <div className="font-mono text-[11px] text-neg mt-2">Google Sign-In failed to load. Check your browser's popup/cookie settings.</div>
