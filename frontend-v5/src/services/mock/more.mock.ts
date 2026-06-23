@@ -9,23 +9,20 @@ import type { CasUploadAdapter } from "../adapters/cas-upload.adapter";
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export const mockAdvisorAdapter: AdvisorAdapter = {
-  async today()           { await delay(220); return { generated_at: new Date().toISOString(), high_priority: [], medium_priority: [], low_priority: [], summary: { total_clients: 87, high: 4, medium: 12, low: 71 } }; },
-  async aum()             { await delay(220); return { total_aum_rs: 6_42_00_000, clients: [] }; },
-  async underperformers() { await delay(220); return { benchmark: "nifty_50", benchmark_xirr_pct: 14.2, gap_threshold_pct: 5, underperformers: [] }; },
-  async rebalance()       { await delay(220); return { threshold_pp: 10, clients_needing_rebalance: 0, clients: [] }; },
-  async workspaceGet()    { await delay(180); return { mode: "ADVISORY" }; },
-  async workspaceUpdate(body) { await delay(220); return { mode: "ADVISORY", ...body }; },
-  async listProfiles()    { await delay(280); return []; },
+  async today()           { await delay(220); return { rows: [], total_clients: 0, shown: 0, buckets: { high: 0, medium: 0, low: 0 }, headline: "0 high-priority" }; },
+  async aum()             { await delay(220); return { rows: [], total_aum_rs: 0, aggregate_mom_pct: null, headline: "₹0L across 0 clients" }; },
+  async underperformers() { await delay(220); return { rows: [], benchmark: "nifty_50", benchmark_return_pct: 14.2, gap_threshold_pct: 5, headline: "All clients within 5pp of NIFTY 50" }; },
+  async rebalance()       { await delay(220); return { rows: [], gap_threshold_pp: 10, headline: "All clients within 10pp of their target allocation" }; },
+  async workspaceGet()    { await delay(180); return { type: "ADVISORY", mode: "ADVISORY" }; },
+  async workspaceUpdate(body) { await delay(220); return { type: "ADVISORY", mode: "ADVISORY", ...body }; },
+  async listProfiles()    { await delay(280); return { workspace: { type: "ADVISORY" }, profiles: [], count: 0 }; },
   async createProfile(body) { await delay(320); return { profile_id: "p_mock", name: body.name, email: body.email ?? null }; },
   async getProfile()      { await delay(180); return {}; },
   async updateProfile(_id, body) { await delay(220); return { profile_id: _id, name: "Mock", ...body }; },
   async deleteProfile()   { await delay(140); return { ok: true }; },
   async activate(profileId) { await delay(140); return { ok: true, profile_id: profileId, name: "Mock" }; },
   async deactivate()      { await delay(120); return { ok: true }; },
-  async getNotes()        { await delay(180); return {}; },
-  async saveNotes()       { await delay(180); return {}; },
-  async taxSummary()      { await delay(220); return {}; },
-  async portfolioTrend()  { await delay(220); return {}; },
+  async refreshIndex()    { await delay(220); return { ok: true }; },
   async summary() {
     await delay(220);
     return { book_aum_rs: 6_42_00_000, avg_health_score: 79, needs_attention_count: 4, actions_open_count: 12, clients_total: 87 };

@@ -1,8 +1,52 @@
 /**
  * use-advisor — Advisor Home book/AUM/underperformers/rebalance + v4 summary & SIP board.
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { advisorService } from "@/services";
+
+/**
+ * useAdvisorBook — the client book + workspace from GET /api/mfd/profiles.
+ * One fetch powers the ADVISORY-mode gate, the header stats, and the table.
+ */
+export function useAdvisorBook(includeSelf = true) {
+  return useQuery({
+    queryKey: ["advisor", "book", includeSelf],
+    queryFn: () => advisorService.listProfiles(includeSelf),
+  });
+}
+
+export function useCreateClient() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Parameters<typeof advisorService.createProfile>[0]) =>
+      advisorService.createProfile(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["advisor"] });
+      qc.invalidateQueries({ queryKey: ["mfd"] });
+    },
+  });
+}
+
+export function useDeleteClient() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (profileId: string) => advisorService.deleteProfile(profileId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["advisor"] });
+      qc.invalidateQueries({ queryKey: ["mfd"] });
+    },
+  });
+}
+
+/** Flip the workspace INDIVIDUAL → ADVISORY (mirrors the v2 upgrade card). */
+export function useUpgradeToAdvisory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      advisorService.workspaceUpdate({ mode: "ADVISORY", mfd_onboarding_completed: false }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["advisor"] }); },
+  });
+}
 
 export function useAdvisorSummary() {
   return useQuery({

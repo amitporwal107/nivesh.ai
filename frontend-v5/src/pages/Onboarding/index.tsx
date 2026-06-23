@@ -4,18 +4,29 @@ import { Stepper } from "@/components/shared/Stepper";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { GoogleMark } from "@/components/shared/GoogleMark";
-import { Upload, Shield, CheckCircle2 } from "lucide-react";
+import { Upload, Shield, CheckCircle2, User, Briefcase } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCasUpload } from "@/hooks/use-cas-upload";
+import { useUpgradeToAdvisory } from "@/hooks/use-advisor";
+import { useUIStore } from "@/stores/ui.store";
+import { useToastStore } from "@/stores/toast.store";
 import { apiFetch } from "@/services/api/authed-fetch";
 
 type Method = "gmail" | "upload" | "otp";
+type Phase = "persona" | "connect";
 
-const STEPS = ["Sign in", "Connect investments", "Goals", "Review"];
+const STEPS = ["Who are you", "Connect investments", "Goals", "Review"];
+
+// Returning from a Gmail OAuth round-trip? Skip persona and resume the connect flow.
+const returningFromOauth = () => {
+  const q = new URLSearchParams(window.location.search);
+  return q.has("gmail_code") || q.has("gmail_error");
+};
 
 export default function OnboardingPage() {
   const navigate = useNavigate();
   const [method, setMethod] = useState<Method>("gmail");
+  const [phase, setPhase] = useState<Phase>(returningFromOauth() ? "connect" : "persona");
 
   // If already onboarded (CAS imported), redirect to dashboard — the risk
   // profile CTA lives there, not here. Only block here for brand-new users.
@@ -27,6 +38,10 @@ export default function OnboardingPage() {
       })
       .catch(() => {});
   }, [navigate]);
+
+  if (phase === "persona") {
+    return <PersonaSelect onIndividual={() => setPhase("connect")} />;
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-bg">
@@ -79,11 +94,102 @@ export default function OnboardingPage() {
       </main>
 
       <footer className="border-t border-hairline px-8 sm:px-14 py-4 flex items-center bg-bg">
-        <Button variant="outline" onClick={() => navigate(-1)}>‹ Back</Button>
+        <Button variant="outline" onClick={() => setPhase("persona")}>‹ Back</Button>
         <span className="ml-auto font-mono text-[10px] uppercase tracking-[.08em] text-ink-3 mr-4">Skip for now · add later</span>
         <Button variant="accent" onClick={() => navigate("/dashboard")}>Continue · Goals →</Button>
       </footer>
     </div>
+  );
+}
+
+// ── Step 1: Persona ───────────────────────────────────────────────────
+// Asks whether the user manages their own money (individual investor) or
+// manages clients (advisor / MFD). Advisors get their workspace flipped to
+// ADVISORY and are routed to the Advisor dashboard; individuals continue into
+// the connect-investments flow.
+function PersonaSelect({ onIndividual }: { onIndividual: () => void }) {
+  const navigate = useNavigate();
+  const setPersona = useUIStore((s) => s.setPersona);
+  const push = useToastStore((s) => s.push);
+  const upgrade = useUpgradeToAdvisory();
+
+  const chooseIndividual = () => {
+    setPersona("client");
+    onIndividual();
+  };
+
+  const chooseAdvisor = () => {
+    setPersona("advisor");
+    upgrade.mutate(undefined, {
+      onSuccess: () => navigate("/advisor"),
+      onError: (e) => push({ kind: "error", title: "Could not switch to Advisor mode", description: e instanceof Error ? e.message : undefined }),
+    });
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col bg-bg">
+      <header className="flex items-center px-8 sm:px-14 h-16 border-b border-hairline">
+        <span className="grid place-items-center h-8 w-8 rounded-md bg-ink text-on-accent font-display text-[19px] leading-none">न</span>
+        <span className="font-display text-[19px] tracking-tightish ml-3">Nivesh</span>
+        <Stepper steps={STEPS} active={0} className="ml-auto hidden md:flex" />
+        <span className="font-mono text-[10px] text-ink-3 tracking-[.06em] uppercase ml-4 md:ml-6">Step 1 of 4 · ~15s</span>
+      </header>
+
+      <main className="flex-1 max-w-[920px] w-full mx-auto px-8 sm:px-14 py-12">
+        <div className="font-mono text-[11px] uppercase tracking-[.18em] text-accent">● Who are you</div>
+        <h1 className="font-display text-4xl sm:text-[44px] tracking-tightish leading-[1.02] mt-3">
+          How will you use Nivesh?
+        </h1>
+        <p className="text-[14.5px] text-ink-2 mt-3.5 max-w-[520px] leading-relaxed">
+          This tailors your workspace. You can switch modes anytime from settings.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-8">
+          <PersonaCard
+            icon={<User className="h-5 w-5" />}
+            title="I'm an individual investor"
+            sub="Track and improve my own portfolio — holdings, risk, goals, and an AI copilot."
+            cta="Continue · connect investments"
+            onSelect={chooseIndividual}
+            disabled={upgrade.isPending}
+            testId="persona-individual"
+          />
+          <PersonaCard
+            icon={<Briefcase className="h-5 w-5" />}
+            title="I'm an advisor / MFD"
+            sub="Manage multiple client portfolios from one command center — priority queue, AUM, underperformers, and rebalance alerts."
+            cta={upgrade.isPending ? "Setting up…" : "Continue · open advisor dashboard"}
+            onSelect={chooseAdvisor}
+            disabled={upgrade.isPending}
+            testId="persona-advisor"
+          />
+        </div>
+
+        <div className="mt-6 flex items-center gap-2 rounded-md bg-surface-1 border border-hairline px-3.5 py-3">
+          <span className="text-pos">●</span>
+          <span className="text-[12px] text-ink-2">India-hosted (Bangalore) · TLS 1.3 · AES-256 · revocable anytime</span>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function PersonaCard({ icon, title, sub, cta, onSelect, disabled, testId }: {
+  icon: React.ReactNode; title: string; sub: string; cta: string; onSelect: () => void; disabled?: boolean; testId: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      disabled={disabled}
+      data-testid={testId}
+      className="group text-left rounded-lg border border-hairline bg-surface-1 hover:bg-surface-2 hover:border-accent/30 transition-colors p-6 flex flex-col gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
+    >
+      <div className="h-11 w-11 rounded-md bg-accent/[0.12] text-accent grid place-items-center">{icon}</div>
+      <div className="font-medium text-[16px] tracking-tightish">{title}</div>
+      <div className="text-[13px] text-ink-2 leading-relaxed flex-1">{sub}</div>
+      <div className="font-mono text-[11px] uppercase tracking-[.06em] text-accent mt-1">{cta} →</div>
+    </button>
   );
 }
 

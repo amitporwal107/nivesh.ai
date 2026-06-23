@@ -16,7 +16,7 @@
  */
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
-import { ClientProfileC, NeedsAttentionItemC } from "@/services/contracts/advisor.contract";
+import { NeedsAttentionItemC, ProfilesListRes } from "@/services/contracts/advisor.contract";
 import { z } from "zod";
 
 export type CallOutcome = "callback_requested" | "discussed_rebalance" | "no_answer" | "left_voicemail";
@@ -35,7 +35,6 @@ export interface MfdAdapter {
   reviewPackPoll(profileId: string, taskId: string): Promise<{ task_id: string; status: ReviewPackStatus; download_url?: string }>;
 }
 
-const ProfileList = z.array(ClientProfileC);
 const NeedsAttentionRes = z.union([
   z.array(NeedsAttentionItemC),
   z.object({ items: z.array(NeedsAttentionItemC) }).passthrough(),
@@ -56,9 +55,9 @@ const ReviewPackPollRes = z.object({
 export const realMfdAdapter: MfdAdapter = {
   async listProfiles() {
     const res = await http({ path: "/api/mfd/profiles" });
-    const parsed = ProfileList.safeParse(res.data);
+    const parsed = ProfilesListRes.safeParse(res.data);
     if (!parsed.success) throw ApiError.contractDrift(`mfd.listProfiles: ${parsed.error.message}`);
-    return parsed.data;
+    return parsed.data.profiles;
   },
   async activateProfile(profileId) {
     await http({ method: "POST", path: `/api/mfd/profiles/${encodeURIComponent(profileId)}/activate` });

@@ -4,6 +4,7 @@ import { Topbar } from "./Topbar";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { CopilotDock } from "@/components/chat/CopilotDock";
 import { GlobalTickerTape } from "@/components/markets/GlobalTickerTape";
+import { ImpersonationBanner } from "./ImpersonationBanner";
 
 /**
  * AppLayout — chrome around all authenticated pages.
@@ -18,6 +19,7 @@ export default function AppLayout() {
       <Sidebar className="hidden lg:flex" />
       <div className="flex-1 flex flex-col min-w-0">
         <GlobalTickerTape />
+        <ImpersonationBanner />
         <Topbar className="lg:hidden" />
         <main className="flex-1 min-w-0 pb-20 lg:pb-0">
           <Outlet />

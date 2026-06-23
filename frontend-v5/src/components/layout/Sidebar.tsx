@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Sparkles, MessageSquare, Shield,
   Settings, Layers, TrendingUp, Target, Receipt, ClipboardList,
   ShieldCheck, Server, BarChart2, Bug, LogOut, ChevronUp,
-  PanelLeftClose, PanelLeftOpen, LineChart,
+  PanelLeftClose, PanelLeftOpen, LineChart, Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -26,6 +26,7 @@ const NAV: NavItem[] = [
   { to: "/performance",     label: "Performance",      icon: TrendingUp,      group: "Dashboards" },
   { to: "/goals",           label: "Goals",            icon: Target,          group: "Dashboards" },
   { to: "/tax",             label: "Tax",              icon: Receipt,         group: "Dashboards" },
+  { to: "/advisor",         label: "Advisor",          icon: Users,           group: "Workspace" },
   { to: "/plan",            label: "Plan board",       icon: ClipboardList,   group: "Workspace" },
   { to: "/chat",            label: "Chat copilot",     icon: MessageSquare,   group: "Workspace" },
   { to: "/recommendations", label: "Recommendations",  icon: Sparkles,        group: "Workspace" },
