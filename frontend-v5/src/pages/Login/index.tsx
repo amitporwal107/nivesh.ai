@@ -39,8 +39,15 @@ export default function LoginPage() {
   const handleCredential = useCallback(async (credential: string) => {
     try {
       const user = await google.mutateAsync(credential);
+      dlog("backend exchange ACCEPTED", {
+        email: user.email,
+        onboardingCompleted: user.onboardingCompleted,
+      });
       navigate(user.onboardingCompleted ? "/dashboard" : "/onboarding");
     } catch (err) {
+      // Log the REAL backend rejection (status, code, message) — this is the
+      // line that tells us whitelist vs audience vs network, etc.
+      dlog("backend exchange REJECTED", err);
       pushToast({
         kind: "error",
         title: "Sign-in failed",
@@ -80,8 +87,8 @@ export default function LoginPage() {
       });
       const idToken = result?.authentication?.idToken;
       if (!idToken) throw new Error("Google did not return an ID token");
+      // handleCredential logs the real backend outcome (ACCEPTED / REJECTED).
       await handleCredential(idToken);
-      dlog("native google sign-in: backend exchange complete");
     } catch (err) {
       dlog("native google sign-in: FAILED", err);
       pushToast({

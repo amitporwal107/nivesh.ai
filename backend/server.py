@@ -242,6 +242,16 @@ if _cors_env == '' or _cors_env == '*':
 else:
     _cors_origins = [o.strip() for o in _cors_env.split(',') if o.strip()]
 
+# Native mobile (Capacitor) WebView origins are ALWAYS allowed so the Android/
+# iOS app can call the API cross-origin regardless of the per-env web allowlist.
+# A Capacitor app with androidScheme:"https" reports origin "https://localhost";
+# iOS / the legacy scheme reports "capacitor://localhost". Skipped when the
+# wildcard regex is already echoing every origin.
+if _cors_origin_regex is None:
+    for _native_origin in ("https://localhost", "capacitor://localhost"):
+        if _native_origin not in _cors_origins:
+            _cors_origins.append(_native_origin)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
