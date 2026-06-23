@@ -219,7 +219,11 @@ def v3_stock_scores_suite(cal: TradingCalendar) -> Suite:
             "band", "status", "sector_profile", "market_cap_bucket"]
     return Suite(
         asset="v3_stock_scores_daily", ingester="v3_scores_engine",
-        fetch=FeedQuery("nidp.v3_stock_scores_daily", cols, date_col="as_of_date"),
+        # scope to the latest as_of_date: validate TODAY's scores, not 90 days of history.
+        # (A 'recent' limit reached back into pre-band runs and reported a misleading 90%
+        #  null-band; current dates are ~0% null.)
+        fetch=FeedQuery("nidp.v3_stock_scores_daily", cols,
+                        scope="latest_period", period_col="as_of_date"),
         rules=[
             E.not_null("as_of_date", "symbol"),
             E.compound_unique("as_of_date", "symbol", note="PK; engine_version not in key"),
