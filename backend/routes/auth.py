@@ -129,6 +129,13 @@ async def exchange_session(request: Request, response: Response):
 @router.get("/auth/me")
 async def get_me(request: Request):
     user = await get_current_user(request)
+    # Mirror the login handlers (/auth/google, /auth/gmail-session): user_profiles
+    # is the authoritative source for onboarding_completed. Without this, the
+    # field is absent for users whose flag lives only in user_profiles (e.g.
+    # admin-invited accounts), which fails the frontend UserProfileC contract and
+    # wedges useMe() in a permanent error → RequireAuth remount loop.
+    profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0}) or {}
+    user["onboarding_completed"] = bool(profile.get("onboarding_completed", False))
     return user
 
 
