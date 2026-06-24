@@ -277,6 +277,11 @@ def parse_sbi_multisheet_xlsx(
                 return None
 
             isin    = _get("security_isin")
+            # Drop section subtotal / "Total" / "GRAND TOTAL (AUM)" rows — they carry a
+            # weight so the no-data filter lets them through, and counting them inflates
+            # the per-scheme sum (real SBI sheet: holdings + subtotals + grand total = 300%).
+            if _is_aggregation_row(sec_name, bool(isin and _VALID_ISIN_RE.match(isin))):
+                continue
             sector  = _get("sector")
             rating  = _get("rating")
             qty     = _to_float(_get("quantity"))
