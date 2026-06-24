@@ -2,6 +2,7 @@
  * Homepage — landing page, ported from screens-homepage.jsx
  * Wires the health preview card to real API data when available.
  */
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useHealthAnalysis } from "@/hooks/use-insights";
 import { usePortfolioSummary } from "@/hooks/use-portfolio";
@@ -24,6 +25,8 @@ function barColor(v: number) {
 export default function HomepagePage() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const [showDemo, setShowDemo] = useState(false);
+  const assetBase = import.meta.env.BASE_URL; // respects staging base path (e.g. "/v5/")
   const { data: health } = useHealthAnalysis();
   const { data: summary } = usePortfolioSummary();
 
@@ -64,7 +67,7 @@ export default function HomepagePage() {
             <button className="nv-btn nv-btn-primary" style={{ padding: "14px 22px", fontSize: 15 }} onClick={() => navigate("/login")}>
               Check my portfolio free
             </button>
-            <button className="nv-btn" style={{ padding: "14px 22px", fontSize: 15 }}>Watch 90-second tour</button>
+            <button className="nv-btn" style={{ padding: "14px 22px", fontSize: 15 }} onClick={() => setShowDemo(true)}>Watch 90-second tour</button>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap" as const, alignItems: "center", gap: isMobile ? 14 : 24, marginTop: isMobile ? 24 : 36 }}>
             {["SEBI-aligned", "Read-only access", "No card needed"].map((t) => (
@@ -175,6 +178,42 @@ export default function HomepagePage() {
           ))}
         </div>
       </div>
+
+      {/* 90-second demo video modal */}
+      {showDemo && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Nivesh 90-second demo"
+          onClick={() => setShowDemo(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(3,5,12,0.86)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 16 : 40 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ position: "relative", width: "100%", maxWidth: 1040, aspectRatio: "16 / 9", borderRadius: 16, overflow: "hidden", border: "1px solid var(--line-2)", boxShadow: "0 40px 120px rgba(0,0,0,0.6)", background: "#06080F" }}
+          >
+            <button
+              onClick={() => setShowDemo(false)}
+              aria-label="Close demo"
+              className="nv-btn"
+              style={{ position: "absolute", top: 12, right: 12, zIndex: 2, width: 38, height: 38, padding: 0, borderRadius: 999, fontSize: 20, lineHeight: 1 }}
+            >
+              ×
+            </button>
+            <video
+              poster={`${assetBase}nivesh-demo-poster.jpg`}
+              controls
+              autoPlay
+              muted
+              playsInline
+              style={{ width: "100%", height: "100%", display: "block", objectFit: "contain", background: "#06080F" }}
+            >
+              <source src={`${assetBase}nivesh-demo-90s.webm`} type="video/webm" />
+              <source src={`${assetBase}nivesh-demo-90s.mp4`} type="video/mp4" />
+            </video>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
