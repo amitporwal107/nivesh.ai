@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -7,8 +6,6 @@ import { MobileBottomNav } from "./MobileBottomNav";
 import { CopilotDock } from "@/components/chat/CopilotDock";
 import { GlobalTickerTape } from "@/components/markets/GlobalTickerTape";
 import { ImpersonationBanner } from "./ImpersonationBanner";
-import { useMe } from "@/hooks/use-auth";
-import { useImpersonationStore } from "@/stores/impersonation.store";
 
 /**
  * AppLayout — chrome around all authenticated pages.
@@ -16,33 +13,15 @@ import { useImpersonationStore } from "@/stores/impersonation.store";
  * Responsive contract:
  *   ≥ lg: persistent Sidebar (224px) + content
  *   < lg: Topbar + horizontal MobileSectionTabs strip + MobileBottomNav
+ *
+ * Impersonation: the impersonation store is the single source of truth and
+ * drives the X-Active-Profile request header (see services/api/http.ts); the
+ * backend follows it per request and access-checks ownership. No client-side
+ * reconciliation is needed — and a previous one raced the "open client" action
+ * (it cleared the just-set store before /auth/me refetched with the header),
+ * so it was removed.
  */
 export default function AppLayout() {
-  // Reconcile the persisted impersonation banner with the backend's actual
-  // session state. The store is localStorage-persisted, so it can outlive the
-  // server session (e.g. after re-login) and show a phantom "Viewing <client>"
-  // banner while the backend session is at the advisor root — which is exactly
-  // why the nav + copilot then render advisor-mode and look "stuck on advisor".
-  // Backend truth (me.activeProfileId) wins: set the banner when impersonating,
-  // clear it when not. The isFetching guard avoids clearing the optimistic
-  // banner during the /auth/me refetch triggered by "open client". No-op for
-  // non-advisor users (both ids are null).
-  const { data: me, isFetching } = useMe();
-  const profileId = useImpersonationStore((s) => s.profileId);
-  const clearImpersonation = useImpersonationStore((s) => s.clear);
-  useEffect(() => {
-    // The impersonation store is the single source of truth and drives the
-    // X-Active-Profile request header; the backend echoes back the GRANTED
-    // profile as me.activeProfileId. The only reconciliation needed is a safety
-    // guard: if the backend did NOT grant the stored profile (access denied,
-    // deleted, or no longer owned) it returns activeProfileId = null — drop the
-    // stale banner so the UI never claims a client view the server rejected.
-    // (Never push me's value back into the store: that would race a client
-    // switch while /auth/me is still refetching.)
-    if (!me || isFetching) return;
-    if (profileId && !me.activeProfileId) clearImpersonation();
-  }, [me, isFetching, profileId, clearImpersonation]);
-
   return (
     <div className="min-h-screen bg-bg text-ink flex">
       <Sidebar className="hidden lg:flex" />
