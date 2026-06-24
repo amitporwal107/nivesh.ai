@@ -269,6 +269,14 @@ def parse_sbi_multisheet_xlsx(
             sec_name = str_cells[name_col]
             if sec_name.lower() in _HEADER_REPEAT_NAMES:
                 continue
+            # The portfolio ends at GRAND TOTAL (AUM). Everything below it is
+            # supplementary disclosure — a DERIVATIVES / hedging-exposure detail table
+            # whose columns mean different things (the futures expiry DATE sits under
+            # ISIN, notional values under % to AUM) plus textual notes. Stop the sheet
+            # here so those rows never get ingested as holdings (they were the source of
+            # the date-in-ISIN + >1000% weight corruption in derivative-using schemes).
+            if "grand total" in sec_name.lower():
+                break
 
             def _get(field: str, _sc=str_cells, _hm=header_map) -> Optional[str]:
                 for ci, fn in _hm.items():
