@@ -48,12 +48,17 @@ export const ADVISOR_NAV: NavItem[] = [
   { to: "/chat",        label: "Chat copilot",     icon: MessageSquare, group: "Workspace"  },
 ];
 
-/** Pick the primary nav for the current user. An advisor viewing their own
- *  workspace (workspace_type === "ADVISORY" and not impersonating — the backend
- *  reports workspace_type as null while impersonating) gets the reduced advisor
- *  nav; everyone else (individual users, or an advisor inside a client) gets the
- *  full personal nav. */
-export function getSectionNav(workspaceType: string | null | undefined): NavItem[] {
+/** Pick the primary nav for the current user. An advisor at their workspace
+ *  root (workspace_type === "ADVISORY" and NOT impersonating) gets the reduced
+ *  advisor nav. The moment they open a client (activeProfileId set) — or for any
+ *  individual user — the full personal nav is shown. activeProfileId is the
+ *  authoritative "am I inside a client?" signal; workspace_type stays "ADVISORY"
+ *  for the advisor account either way, so it can't be used alone. */
+export function getSectionNav(
+  workspaceType: string | null | undefined,
+  activeProfileId?: string | null,
+): NavItem[] {
+  if (activeProfileId) return SECTION_NAV;            // advisor inside a client → personal view
   return (workspaceType || "").toUpperCase() === "ADVISORY" ? ADVISOR_NAV : SECTION_NAV;
 }
 

@@ -141,12 +141,15 @@ async def get_me(request: Request):
     profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0}) or {}
     user["onboarding_completed"] = bool(profile.get("onboarding_completed", False))
     # workspace_type drives the advisor-vs-investor primary navigation on the
-    # client. Resolved for the *effective* user: when an advisor impersonates a
-    # client, get_current_user returns the shadow user (who owns no workspace),
-    # so this is None → the client gets the full personal nav. At the workspace
-    # root it resolves to the real advisor → "ADVISORY" → the reduced advisor nav.
+    # client. Resolved for the *session owner* (the logged-in account), NOT the
+    # effective user — so it stays "ADVISORY" for an advisor whether or not they
+    # are currently impersonating a client. The client distinguishes "advisor at
+    # root" from "advisor inside a client" via active_profile_id (below). Keying
+    # this off the effective user used to make it go null during impersonation,
+    # which left the nav flipping on a stale /auth/me cache.
+    session_owner_id = user.get("_session_user_id") or user["user_id"]
     ws = await db.workspaces.find_one(
-        {"owner_user_id": user["user_id"]}, {"_id": 0, "type": 1},
+        {"owner_user_id": session_owner_id}, {"_id": 0, "type": 1},
     )
     user["workspace_type"] = (ws or {}).get("type")
     # Surface the session's active impersonation so the client can reconcile its

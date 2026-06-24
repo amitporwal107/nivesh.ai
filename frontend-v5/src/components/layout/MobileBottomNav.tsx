@@ -21,7 +21,7 @@ const ADVISOR_TABS = [
 
 export function MobileBottomNav({ className }: { className?: string }) {
   const { data: me } = useMe();
-  const TABS = (me?.workspaceType || "").toUpperCase() === "ADVISORY" ? ADVISOR_TABS : PERSONAL_TABS;
+  const TABS = (me?.workspaceType || "").toUpperCase() === "ADVISORY" && !me?.activeProfileId ? ADVISOR_TABS : PERSONAL_TABS;
   return (
     <nav
       aria-label="Primary"
