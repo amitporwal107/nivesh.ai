@@ -142,26 +142,44 @@ def _col_idx(headers: list[str], *fragments: str) -> Optional[int]:
     return None
 
 
+# Write-guard for security_isin. A misaligned column can land a date, quantity or
+# name in the ISIN slot (observed: SBI sheets wrote '2026-05-26 00:00:00' for 3,160
+# rows). Reject anything that isn't a well-formed ISIN so garbage never reaches the
+# column. Pattern matches the DQ regex, so the guard nulls exactly what the suite
+# would flag — no more, no less.
+_ISIN_WRITE_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
+
+
+def _clean_isin(v: Any) -> Optional[str]:
+    if not v:
+        return None
+    s = str(v).strip().upper()
+    return s if _ISIN_WRITE_RE.match(s) else None
+
+
 def _normalise_weights(rows: list[dict]) -> list[dict]:
-    """Normalise weight_pct to decimal fraction (0.0–1.0 range).
+    """Normalise weight_pct to PERCENT (0–100 range).
 
-    Some AMC files (e.g. HDFC) publish weight_pct as a percentage (6.47),
-    others (e.g. Nippon) as a decimal fraction (0.0421). We detect the
-    scale by the maximum value: if any single security exceeds 2.0, the
-    values are in percentage form and should be divided by 100.
+    The DB column `weight_pct`, the DQ grouped-sum check (per-scheme ≈100) and
+    the v3 primitives view (`top10_concentration_pct = SUM(weight_pct)`) all read
+    this as a percentage. Excel files disagree on scale: some publish 6.47 (already
+    %), others publish 0.0421 because the cell is percent-FORMATTED and openpyxl
+    returns the underlying fraction. We detect by the maximum value — if no single
+    holding exceeds 2.0, the values are a 0–1 fraction and are multiplied by 100.
 
-    The 2.0 threshold is safe because no single holding legitimately
-    represents >200% of a fund's NAV in decimal form (and in percentage
-    form, >2% is extremely common for top holdings).
+    The 2.0 threshold is safe because in percent form top holdings routinely exceed
+    2%, whereas in fraction form a single holding rarely exceeds 2.0 (=200% of NAV).
+    (Previously this normalised to a 0–1 fraction, which mismatched every consumer
+    and made 1,497 schemes fail the per-scheme weight-sum check — see commit history.)
     """
     weights = [r["weight_pct"] for r in rows if r.get("weight_pct") is not None]
     if not weights:
         return rows
-    if max(weights) > 2.0:
-        # Percentage form → convert to decimal
+    if max(weights) <= 2.0:
+        # Fraction form (e.g. 0.0421) → convert to percent
         for r in rows:
             if r.get("weight_pct") is not None:
-                r["weight_pct"] = r["weight_pct"] / 100.0
+                r["weight_pct"] = r["weight_pct"] * 100.0
     return rows
 
 
@@ -279,7 +297,7 @@ def parse_sbi_multisheet_xlsx(
             result.append({
                 "scheme_code":      scheme_name,
                 "as_of_month":      as_of_str,
-                "security_isin":    isin if (isin and isin not in {"-", "N.A.", "NA"}) else None,
+                "security_isin":    _clean_isin(isin),
                 "security_name":    sec_name,
                 "instrument_type":  _guess_itype(sec_name, sector),
                 "sector":           sector,
@@ -305,8 +323,7 @@ def parse_portfolio_xlsx(
     """Parse an AMC portfolio Excel → list of mf_holdings_monthly rows.
 
     Handles both .xlsx (openpyxl) and legacy .xls (xlrd) formats.
-    Normalises weight_pct to decimal fraction (0.0–1.0) regardless of
-    AMC-specific format.
+    Normalises weight_pct to percent (0–100) regardless of AMC-specific format.
     scheme_code is set to the scheme *name* from the Excel header row.
     The calling adapter resolves name → AMFI code via DB lookup.
     """
@@ -493,7 +510,7 @@ def _parse_sheet(
             # scheme_code will be resolved by the adapter (name → AMFI code).
             "scheme_code":      current_scheme or sheet_name,
             "as_of_month":      as_of_month,
-            "security_isin":    isin if (isin and isin not in {"-", "N.A.", "NA"}) else None,
+            "security_isin":    _clean_isin(isin),
             "security_name":    sec_name,
             "instrument_type":  _guess_itype(sec_name, sector),
             "sector":           sector,
