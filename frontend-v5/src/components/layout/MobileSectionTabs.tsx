@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useMe } from "@/hooks/use-auth";
+import { useImpersonationStore } from "@/stores/impersonation.store";
 import { getSectionNav } from "./nav-items";
 
 /**
@@ -18,7 +19,8 @@ export function MobileSectionTabs({ className }: { className?: string }) {
   const { pathname } = useLocation();
   const scrollerRef = useRef<HTMLDivElement>(null);
 
-  const items = getSectionNav(me?.workspaceType, me?.activeProfileId);
+  const activeProfileId = useImpersonationStore((s) => s.profileId);
+  const items = getSectionNav(me?.workspaceType, activeProfileId);
 
   // Keep the active tab visible: scroll it into the centre when the route changes.
   useEffect(() => {

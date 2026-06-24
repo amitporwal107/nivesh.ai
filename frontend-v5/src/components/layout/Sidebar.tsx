@@ -8,11 +8,16 @@ import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useMe, useLogout } from "@/hooks/use-auth";
 import { usePortfolioSummary } from "@/hooks/use-portfolio";
+import { useImpersonationStore } from "@/stores/impersonation.store";
 import { getSectionNav, groupNav } from "./nav-items";
 
 export function Sidebar({ className }: { className?: string }) {
   const { data: me } = useMe();
   const { data: summary } = usePortfolioSummary();
+  // Drive the impersonation gate off the store (source of truth that also drives
+  // the X-Active-Profile header + banner), NOT me.activeProfileId — /auth/me can
+  // race the persisted-store rehydration and come back without the header.
+  const activeProfileId = useImpersonationStore((s) => s.profileId);
   const logout = useLogout();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -38,7 +43,7 @@ export function Sidebar({ className }: { className?: string }) {
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [menuOpen]);
 
-  const groups = groupNav(getSectionNav(me?.workspaceType, me?.activeProfileId));
+  const groups = groupNav(getSectionNav(me?.workspaceType, activeProfileId));
 
   const initials = me?.name
     ? me.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()

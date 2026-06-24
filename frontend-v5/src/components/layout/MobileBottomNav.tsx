@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import { LayoutDashboard, PieChart, Sparkles, MessageSquare, Users, Contact } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMe } from "@/hooks/use-auth";
+import { useImpersonationStore } from "@/stores/impersonation.store";
 
 const PERSONAL_TABS = [
   { to: "/dashboard",       label: "Home",     icon: LayoutDashboard },
@@ -21,7 +22,8 @@ const ADVISOR_TABS = [
 
 export function MobileBottomNav({ className }: { className?: string }) {
   const { data: me } = useMe();
-  const TABS = (me?.workspaceType || "").toUpperCase() === "ADVISORY" && !me?.activeProfileId ? ADVISOR_TABS : PERSONAL_TABS;
+  const activeProfileId = useImpersonationStore((s) => s.profileId);
+  const TABS = (me?.workspaceType || "").toUpperCase() === "ADVISORY" && !activeProfileId ? ADVISOR_TABS : PERSONAL_TABS;
   return (
     <nav
       aria-label="Primary"

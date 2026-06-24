@@ -3,15 +3,16 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { chatService } from "@/services";
-import { useMe } from "@/hooks/use-auth";
+import { useImpersonationStore } from "@/stores/impersonation.store";
 
 export function useSuggestedPrompts() {
   // Scope the cache by the active impersonation context so an advisor's
   // cross-client tiles and a client's personal tiles never bleed across a
-  // context switch. Non-advisor users have no active profile → stable "self"
-  // suffix → unchanged behaviour.
-  const { data: me } = useMe();
-  const ctxKey = me?.activeProfileId ?? "self";
+  // context switch. Keyed off the store (which drives the X-Active-Profile
+  // header) rather than me.activeProfileId, which can race the persisted-store
+  // rehydration. Non-advisor users have no active profile → stable "self".
+  const activeProfileId = useImpersonationStore((s) => s.profileId);
+  const ctxKey = activeProfileId ?? "self";
   return useQuery({
     queryKey: ["chat", "suggestedPrompts", ctxKey],
     queryFn: () => chatService.suggestedPrompts(),
