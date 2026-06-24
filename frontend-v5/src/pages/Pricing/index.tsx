@@ -8,6 +8,7 @@
  */
 import { useNavigate } from "react-router-dom";
 import MarketingShell from "@/components/marketing/MarketingShell";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 const PLANS = [
   {
@@ -90,33 +91,37 @@ function Cell({ v }: { v: string | boolean }) {
 
 export default function PricingPage() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
+
+  const tableCols = "1.6fr 1fr 1fr 1fr";
+  const cellPad = isMobile ? "12px 14px" : undefined;
 
   return (
     <MarketingShell active="pricing">
       {/* hero */}
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "80px 56px 32px", textAlign: "center" as const }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "56px 18px 28px" : "80px 56px 32px", textAlign: "center" as const }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "6px 14px 6px 8px", borderRadius: 999, border: "1px solid var(--line-2)", background: "var(--bg-1)", marginBottom: 28 }}>
           <span style={{ background: "var(--mint-soft)", color: "var(--mint)", fontSize: 10, fontFamily: "var(--mono)", letterSpacing: ".1em", padding: "3px 8px", borderRadius: 999, textTransform: "uppercase" as const }}>PRICING</span>
           <span style={{ fontSize: 13, color: "var(--ink-2)" }}>Start free · upgrade when it pays off</span>
         </div>
-        <h1 className="nv-serif" style={{ fontSize: 64, lineHeight: 0.98, letterSpacing: "-0.035em", margin: 0 }}>
+        <h1 className="nv-serif" style={{ fontSize: isMobile ? 40 : 64, lineHeight: 0.98, letterSpacing: "-0.035em", margin: 0 }}>
           Simple pricing<span style={{ color: "var(--mint)" }}>.</span>
         </h1>
-        <p style={{ fontSize: 18, lineHeight: 1.55, color: "var(--ink-2)", margin: "22px auto 0", maxWidth: 520 }}>
+        <p style={{ fontSize: isMobile ? 16 : 18, lineHeight: 1.55, color: "var(--ink-2)", margin: "22px auto 0", maxWidth: 520 }}>
           See your portfolio health for free. Upgrade when you want the full plan of
           action — or run your whole client book on Advisor.
         </p>
       </div>
 
       {/* plan cards */}
-      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "16px 56px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, alignItems: "stretch" }}>
+      <div style={{ maxWidth: 1180, margin: "0 auto", padding: isMobile ? "16px 18px" : "16px 56px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: 16, alignItems: "stretch" }}>
           {PLANS.map((p) => (
             <div
               key={p.name}
               className="nv-card"
               style={{
-                padding: 32,
+                padding: isMobile ? 24 : 32,
                 display: "flex",
                 flexDirection: "column",
                 position: "relative" as const,
@@ -125,14 +130,14 @@ export default function PricingPage() {
               }}
             >
               {p.highlight && (
-                <span className="nv-pill nv-pill-mint" style={{ position: "absolute" as const, top: -12, left: 32 }}>MOST POPULAR</span>
+                <span className="nv-pill nv-pill-mint" style={{ position: "absolute" as const, top: -12, left: isMobile ? 24 : 32 }}>MOST POPULAR</span>
               )}
               <div className="nv-mono" style={{ fontSize: 11, letterSpacing: ".16em", color: "var(--ink-3)", textTransform: "uppercase" as const }}>{p.name}</div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 12 }}>
                 <span className="nv-serif" style={{ fontSize: 52, letterSpacing: "-0.04em", lineHeight: 1 }}>{p.price}</span>
                 <span className="nv-mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{p.cadence}</span>
               </div>
-              <p style={{ fontSize: 14, color: "var(--ink-2)", lineHeight: 1.55, marginTop: 14, minHeight: 44 }}>{p.blurb}</p>
+              <p style={{ fontSize: 14, color: "var(--ink-2)", lineHeight: 1.55, marginTop: 14, minHeight: isMobile ? undefined : 44 }}>{p.blurb}</p>
               <button
                 className={p.highlight ? "nv-btn nv-btn-primary" : "nv-btn"}
                 style={{ padding: "12px 18px", fontSize: 14, marginTop: 4, justifyContent: "center" }}
@@ -154,20 +159,20 @@ export default function PricingPage() {
       </div>
 
       {/* comparison table */}
-      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "48px 56px" }}>
+      <div style={{ maxWidth: 1180, margin: "0 auto", padding: isMobile ? "40px 16px" : "48px 56px" }}>
         <div style={{ textAlign: "center" as const, marginBottom: 28 }}>
-          <h2 className="nv-serif" style={{ fontSize: 36, letterSpacing: "-0.03em", margin: 0 }}>Compare plans</h2>
+          <h2 className="nv-serif" style={{ fontSize: isMobile ? 28 : 36, letterSpacing: "-0.03em", margin: 0 }}>Compare plans</h2>
         </div>
         <div className="nv-card" style={{ padding: 0, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr", padding: "16px 24px", borderBottom: "1px solid rgb(var(--line) / 0.06)", background: "var(--bg-2)" }}>
-            <span className="nv-mono" style={{ fontSize: 11, color: "var(--ink-3)", letterSpacing: ".1em", textTransform: "uppercase" as const }}>Feature</span>
+          <div style={{ display: "grid", gridTemplateColumns: tableCols, padding: cellPad ?? "16px 24px", borderBottom: "1px solid rgb(var(--line) / 0.06)", background: "var(--bg-2)" }}>
+            <span className="nv-mono" style={{ fontSize: isMobile ? 10 : 11, color: "var(--ink-3)", letterSpacing: ".1em", textTransform: "uppercase" as const }}>Feature</span>
             {["Free", "Pro", "Advisor"].map((h) => (
-              <span key={h} className="nv-mono" style={{ fontSize: 11, color: "var(--ink-3)", letterSpacing: ".1em", textTransform: "uppercase" as const, textAlign: "center" as const }}>{h}</span>
+              <span key={h} className="nv-mono" style={{ fontSize: isMobile ? 10 : 11, color: "var(--ink-3)", letterSpacing: ".1em", textTransform: "uppercase" as const, textAlign: "center" as const }}>{h}</span>
             ))}
           </div>
           {COMPARISON.map((row, i) => (
-            <div key={row.label} style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr", padding: "14px 24px", borderBottom: i < COMPARISON.length - 1 ? "1px solid rgb(var(--line) / 0.06)" : "none", alignItems: "center" }}>
-              <span style={{ fontSize: 14, color: "var(--ink)" }}>{row.label}</span>
+            <div key={row.label} style={{ display: "grid", gridTemplateColumns: tableCols, padding: cellPad ?? "14px 24px", borderBottom: i < COMPARISON.length - 1 ? "1px solid rgb(var(--line) / 0.06)" : "none", alignItems: "center" }}>
+              <span style={{ fontSize: isMobile ? 12 : 14, color: "var(--ink)" }}>{row.label}</span>
               <span style={{ textAlign: "center" as const }}><Cell v={row.free} /></span>
               <span style={{ textAlign: "center" as const }}><Cell v={row.pro} /></span>
               <span style={{ textAlign: "center" as const }}><Cell v={row.advisor} /></span>
@@ -180,9 +185,9 @@ export default function PricingPage() {
       </div>
 
       {/* FAQ */}
-      <div style={{ maxWidth: 860, margin: "0 auto", padding: "32px 56px" }}>
+      <div style={{ maxWidth: 860, margin: "0 auto", padding: isMobile ? "32px 18px" : "32px 56px" }}>
         <div style={{ textAlign: "center" as const, marginBottom: 28 }}>
-          <h2 className="nv-serif" style={{ fontSize: 36, letterSpacing: "-0.03em", margin: 0 }}>Questions</h2>
+          <h2 className="nv-serif" style={{ fontSize: isMobile ? 28 : 36, letterSpacing: "-0.03em", margin: 0 }}>Questions</h2>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {FAQ.map((f) => (
@@ -195,12 +200,12 @@ export default function PricingPage() {
       </div>
 
       {/* CTA */}
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px 56px 16px", textAlign: "center" as const }}>
-        <h2 className="nv-serif" style={{ fontSize: 44, letterSpacing: "-0.03em", margin: 0 }}>Start with the free grade.</h2>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "24px 18px 16px" : "24px 56px 16px", textAlign: "center" as const }}>
+        <h2 className="nv-serif" style={{ fontSize: isMobile ? 32 : 44, letterSpacing: "-0.03em", margin: 0 }}>Start with the free grade.</h2>
         <p style={{ fontSize: 16, color: "var(--ink-2)", margin: "14px auto 0", maxWidth: 440 }}>
           No card. Read-only. Two minutes to your first plan of action.
         </p>
-        <div style={{ display: "flex", gap: 12, marginTop: 32, justifyContent: "center" }}>
+        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 12, marginTop: 32, justifyContent: "center" }}>
           <button className="nv-btn nv-btn-primary" style={{ padding: "14px 22px", fontSize: 15 }} onClick={() => navigate("/login")}>
             Check my portfolio free
           </button>

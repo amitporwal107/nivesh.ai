@@ -5,6 +5,7 @@
  */
 import { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 type NavKey = "product" | "advisors" | "pricing";
 
@@ -22,18 +23,21 @@ export default function MarketingShell({
   children: ReactNode;
 }) {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   return (
     <div className="nv-frame" style={{ width: "100%", minHeight: "100vh" }}>
       {/* nav */}
-      <div style={{ display: "flex", alignItems: "center", padding: "20px 56px", borderBottom: "1px solid var(--line-2)" }}>
-        <div onClick={() => navigate("/")} style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
-          <span className="nv-mark" style={{ width: 32, height: 32, fontSize: 19 }}>न</span>
-          <span className="nv-serif" style={{ fontSize: 22 }}>Nivesh</span>
-          <span className="nv-mono" style={{ fontSize: 10, letterSpacing: ".18em", color: "var(--ink-3)", textTransform: "uppercase" as const, marginLeft: 6 }}>COPILOT</span>
+      <div style={{ display: "flex", alignItems: "center", padding: isMobile ? "14px 18px" : "20px 56px", borderBottom: "1px solid var(--line-2)" }}>
+        <div onClick={() => navigate("/")} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+          <span className="nv-mark" style={{ width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, fontSize: isMobile ? 17 : 19 }}>न</span>
+          <span className="nv-serif" style={{ fontSize: isMobile ? 19 : 22 }}>Nivesh</span>
+          {!isMobile && (
+            <span className="nv-mono" style={{ fontSize: 10, letterSpacing: ".18em", color: "var(--ink-3)", textTransform: "uppercase" as const, marginLeft: 6 }}>COPILOT</span>
+          )}
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 36 }}>
-          {NAV.map((n) => (
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: isMobile ? 0 : 36 }}>
+          {!isMobile && NAV.map((n) => (
             <span
               key={n.key}
               onClick={() => navigate(n.to)}
@@ -47,9 +51,9 @@ export default function MarketingShell({
               {n.label}
             </span>
           ))}
-          <span onClick={() => navigate("/login")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Sign in</span>
-          <button className="nv-btn nv-btn-primary" style={{ padding: "9px 16px", fontSize: 13 }} onClick={() => navigate("/login")}>
-            Check my portfolio →
+          {!isMobile && <span onClick={() => navigate("/login")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Sign in</span>}
+          <button className="nv-btn nv-btn-primary" style={{ padding: isMobile ? "8px 14px" : "9px 16px", fontSize: 13, whiteSpace: "nowrap" }} onClick={() => navigate("/login")}>
+            {isMobile ? "Check free →" : "Check my portfolio →"}
           </button>
         </div>
       </div>
@@ -58,7 +62,7 @@ export default function MarketingShell({
 
       {/* footer */}
       <div style={{ borderTop: "1px solid var(--line-2)", marginTop: 40 }}>
-        <div style={{ maxWidth: 1280, margin: "0 auto", padding: "44px 56px", display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr", gap: 48 }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "32px 20px" : "44px 56px", display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.4fr 1fr 1fr 1fr", gap: isMobile ? 28 : 48 }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <span className="nv-mark" style={{ width: 30, height: 30, fontSize: 18 }}>न</span>
@@ -88,7 +92,7 @@ export default function MarketingShell({
           ))}
         </div>
         <div style={{ borderTop: "1px solid var(--line-2)" }}>
-          <div style={{ maxWidth: 1280, margin: "0 auto", padding: "18px 56px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "16px 20px" : "18px 56px", display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", justifyContent: "space-between", gap: isMobile ? 8 : 0, textAlign: isMobile ? "center" as const : undefined }}>
             <span className="nv-mono" style={{ fontSize: 11, color: "var(--ink-4)", letterSpacing: ".06em" }}>© 2026 Nivesh. All rights reserved.</span>
             <span className="nv-mono" style={{ fontSize: 11, color: "var(--ink-4)", letterSpacing: ".06em" }}>Made in India · Investments are subject to market risk.</span>
           </div>

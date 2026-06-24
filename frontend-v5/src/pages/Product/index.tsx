@@ -6,6 +6,7 @@
  */
 import { useNavigate } from "react-router-dom";
 import MarketingShell from "@/components/marketing/MarketingShell";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 const PILLARS = [
   {
@@ -62,24 +63,25 @@ const FEATURES = [
 
 export default function ProductPage() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   return (
     <MarketingShell active="product">
       {/* hero */}
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "80px 56px 40px", textAlign: "center" as const }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "56px 18px 32px" : "80px 56px 40px", textAlign: "center" as const }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "6px 14px 6px 8px", borderRadius: 999, border: "1px solid var(--line-2)", background: "var(--bg-1)", marginBottom: 28 }}>
           <span style={{ background: "var(--mint-soft)", color: "var(--mint)", fontSize: 10, fontFamily: "var(--mono)", letterSpacing: ".1em", padding: "3px 8px", borderRadius: 999, textTransform: "uppercase" as const }}>PRODUCT</span>
           <span style={{ fontSize: 13, color: "var(--ink-2)" }}>Read-only · SEBI-aligned</span>
         </div>
-        <h1 className="nv-serif" style={{ fontSize: 72, lineHeight: 0.98, letterSpacing: "-0.035em", margin: 0 }}>
+        <h1 className="nv-serif" style={{ fontSize: isMobile ? 40 : 72, lineHeight: 0.98, letterSpacing: "-0.035em", margin: 0 }}>
           One copilot for your<br />
           <span style={{ fontStyle: "italic" }}>whole</span> portfolio<span style={{ color: "var(--mint)" }}>.</span>
         </h1>
-        <p style={{ fontSize: 19, lineHeight: 1.55, color: "var(--ink-2)", margin: "28px auto 0", maxWidth: 600 }}>
+        <p style={{ fontSize: isMobile ? 16 : 19, lineHeight: 1.55, color: "var(--ink-2)", margin: "28px auto 0", maxWidth: 600 }}>
           Nivesh reconciles every holding you own, scores its health across twenty checks,
           and rewrites the report in plain language — so you always know what to fix and why.
         </p>
-        <div style={{ display: "flex", gap: 12, marginTop: 40, justifyContent: "center" }}>
+        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 12, marginTop: 40, justifyContent: "center" }}>
           <button className="nv-btn nv-btn-primary" style={{ padding: "14px 22px", fontSize: 15 }} onClick={() => navigate("/login")}>
             Check my portfolio free
           </button>
@@ -90,10 +92,10 @@ export default function ProductPage() {
       </div>
 
       {/* three pillars */}
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "40px 56px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1, background: "rgb(var(--line) / 0.06)", border: "1px solid rgb(var(--line) / 0.06)", borderRadius: 18, overflow: "hidden" }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "32px 18px" : "40px 56px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: 1, background: "rgb(var(--line) / 0.06)", border: "1px solid rgb(var(--line) / 0.06)", borderRadius: 18, overflow: "hidden" }}>
           {PILLARS.map((f) => (
-            <div key={f.n} style={{ padding: 32, background: "var(--bg-1)" }}>
+            <div key={f.n} style={{ padding: isMobile ? 24 : 32, background: "var(--bg-1)" }}>
               <div className="nv-mono" style={{ fontSize: 11, color: "var(--mint)", letterSpacing: ".1em" }}>{f.n}</div>
               <div className="nv-serif" style={{ fontSize: 26, marginTop: 18, letterSpacing: "-0.02em" }}>{f.t}</div>
               <p style={{ fontSize: 14, color: "var(--ink-2)", lineHeight: 1.55, marginTop: 12 }}>{f.d}</p>
@@ -111,16 +113,16 @@ export default function ProductPage() {
       </div>
 
       {/* scoring dimensions */}
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "48px 56px" }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "40px 18px" : "48px 56px" }}>
         <div style={{ textAlign: "center" as const, marginBottom: 40 }}>
           <div className="nv-mono" style={{ fontSize: 11, letterSpacing: ".16em", color: "var(--ink-3)", textTransform: "uppercase" as const }}>The health score</div>
-          <h2 className="nv-serif" style={{ fontSize: 42, letterSpacing: "-0.03em", margin: "10px 0 0" }}>Six dimensions, one grade.</h2>
+          <h2 className="nv-serif" style={{ fontSize: isMobile ? 32 : 42, letterSpacing: "-0.03em", margin: "10px 0 0" }}>Six dimensions, one grade.</h2>
           <p style={{ fontSize: 16, color: "var(--ink-2)", margin: "14px auto 0", maxWidth: 540, lineHeight: 1.55 }}>
             Twenty individual checks roll into six composite dimensions, then into a single
             grade you can act on — every score traceable back to the holding that drove it.
           </p>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: 16 }}>
           {DIMENSIONS.map((d) => (
             <div key={d.k} className="nv-card" style={{ padding: 24 }}>
               <div className="nv-serif" style={{ fontSize: 22, letterSpacing: "-0.02em" }}>{d.k}</div>
@@ -131,10 +133,10 @@ export default function ProductPage() {
       </div>
 
       {/* feature rows */}
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "32px 56px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "24px 18px" : "32px 56px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2, 1fr)", gap: 16 }}>
           {FEATURES.map((f) => (
-            <div key={f.tag} className="nv-card" style={{ padding: 32 }}>
+            <div key={f.tag} className="nv-card" style={{ padding: isMobile ? 24 : 32 }}>
               <span className="nv-pill nv-pill-mint">{f.tag}</span>
               <div className="nv-serif" style={{ fontSize: 28, letterSpacing: "-0.02em", marginTop: 18 }}>{f.t}</div>
               <p style={{ fontSize: 15, color: "var(--ink-2)", lineHeight: 1.6, marginTop: 12, maxWidth: 440 }}>{f.d}</p>
@@ -144,8 +146,8 @@ export default function ProductPage() {
       </div>
 
       {/* trust band */}
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "48px 56px" }}>
-        <div className="nv-card-2" style={{ padding: "32px 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" as const, gap: 24 }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "40px 18px" : "48px 56px" }}>
+        <div className="nv-card-2" style={{ padding: isMobile ? "24px 20px" : "32px 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" as const, gap: 24 }}>
           {[
             { t: "Read-only access", d: "We never place trades or move money." },
             { t: "Encrypted · never stored", d: "Statements are parsed in memory, not warehoused." },
@@ -164,12 +166,12 @@ export default function ProductPage() {
       </div>
 
       {/* CTA */}
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px 56px 16px", textAlign: "center" as const }}>
-        <h2 className="nv-serif" style={{ fontSize: 44, letterSpacing: "-0.03em", margin: 0 }}>See your grade in two minutes.</h2>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "24px 18px 16px" : "24px 56px 16px", textAlign: "center" as const }}>
+        <h2 className="nv-serif" style={{ fontSize: isMobile ? 32 : 44, letterSpacing: "-0.03em", margin: 0 }}>See your grade in two minutes.</h2>
         <p style={{ fontSize: 16, color: "var(--ink-2)", margin: "14px auto 0", maxWidth: 460 }}>
           Connect once. Get a full, plain-language read on everything you hold.
         </p>
-        <div style={{ display: "flex", gap: 12, marginTop: 32, justifyContent: "center" }}>
+        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 12, marginTop: 32, justifyContent: "center" }}>
           <button className="nv-btn nv-btn-primary" style={{ padding: "14px 22px", fontSize: 15 }} onClick={() => navigate("/login")}>
             Check my portfolio free
           </button>

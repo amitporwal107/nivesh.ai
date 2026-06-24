@@ -5,6 +5,7 @@
 import { useNavigate } from "react-router-dom";
 import { useHealthAnalysis } from "@/hooks/use-insights";
 import { usePortfolioSummary } from "@/hooks/use-portfolio";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 function gradeLabel(score: number) {
   if (score >= 85) return "GRADE A";
@@ -21,6 +22,7 @@ function barColor(v: number) {
 
 export default function HomepagePage() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const { data: health } = useHealthAnalysis();
   const { data: summary } = usePortfolioSummary();
 
@@ -40,46 +42,52 @@ export default function HomepagePage() {
   return (
     <div className="nv-frame" style={{ width: "100%", minHeight: "100vh" }}>
       {/* nav */}
-      <div style={{ display: "flex", alignItems: "center", padding: "20px 56px", borderBottom: "1px solid var(--line-2)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span className="nv-mark" style={{ width: 32, height: 32, fontSize: 19 }}>न</span>
-          <span className="nv-serif" style={{ fontSize: 22 }}>Nivesh</span>
-          <span className="nv-mono" style={{ fontSize: 10, letterSpacing: ".18em", color: "var(--ink-3)", textTransform: "uppercase" as const, marginLeft: 6 }}>COPILOT</span>
+      <div style={{ display: "flex", alignItems: "center", padding: isMobile ? "14px 18px" : "20px 56px", borderBottom: "1px solid var(--line-2)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span className="nv-mark" style={{ width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, fontSize: isMobile ? 17 : 19 }}>न</span>
+          <span className="nv-serif" style={{ fontSize: isMobile ? 19 : 22 }}>Nivesh</span>
+          {!isMobile && (
+            <span className="nv-mono" style={{ fontSize: 10, letterSpacing: ".18em", color: "var(--ink-3)", textTransform: "uppercase" as const, marginLeft: 6 }}>COPILOT</span>
+          )}
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 36 }}>
-          <span onClick={() => navigate("/product")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Product</span>
-          <span onClick={() => navigate("/for-advisors")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>For advisors</span>
-          <span onClick={() => navigate("/pricing")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Pricing</span>
-          <span onClick={() => navigate("/login")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Sign in</span>
-          <button className="nv-btn nv-btn-primary" style={{ padding: "9px 16px", fontSize: 13 }} onClick={() => navigate("/login")}>
-            Check my portfolio →
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: isMobile ? 0 : 36 }}>
+          {!isMobile && (
+            <>
+              <span onClick={() => navigate("/product")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Product</span>
+              <span onClick={() => navigate("/for-advisors")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>For advisors</span>
+              <span onClick={() => navigate("/pricing")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Pricing</span>
+              <span onClick={() => navigate("/login")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Sign in</span>
+            </>
+          )}
+          <button className="nv-btn nv-btn-primary" style={{ padding: isMobile ? "8px 14px" : "9px 16px", fontSize: 13, whiteSpace: "nowrap" }} onClick={() => navigate("/login")}>
+            {isMobile ? "Check free →" : "Check my portfolio →"}
           </button>
         </div>
       </div>
 
       {/* hero */}
-      <div style={{ padding: "88px 56px 60px", maxWidth: 1280, margin: "0 auto", display: "grid", gridTemplateColumns: "1.05fr 1fr", gap: 80, alignItems: "center" }}>
+      <div style={{ padding: isMobile ? "44px 18px 40px" : "88px 56px 60px", maxWidth: 1280, margin: "0 auto", display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.05fr 1fr", gap: isMobile ? 40 : 80, alignItems: "center" }}>
         <div>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "6px 14px 6px 8px", borderRadius: 999, border: "1px solid var(--line-2)", background: "var(--bg-1)", marginBottom: 28 }}>
             <span style={{ background: "var(--mint-soft)", color: "var(--mint)", fontSize: 10, fontFamily: "var(--mono)", letterSpacing: ".1em", padding: "3px 8px", borderRadius: 999, textTransform: "uppercase" as const }}>NEW</span>
             <span style={{ fontSize: 13, color: "var(--ink-2)" }}>Goal-aware rebalancing, live</span>
             <span style={{ color: "var(--ink-3)" }}>›</span>
           </div>
-          <h1 className="nv-serif" style={{ fontSize: 84, lineHeight: 0.96, letterSpacing: "-0.035em", margin: 0 }}>
+          <h1 className="nv-serif" style={{ fontSize: isMobile ? 44 : 84, lineHeight: 0.96, letterSpacing: "-0.035em", margin: 0 }}>
             Your portfolio,<br />
             <span style={{ fontStyle: "italic" }}>finally</span> legible<span style={{ color: "var(--mint)" }}>.</span>
           </h1>
-          <p style={{ fontSize: 19, lineHeight: 1.55, color: "var(--ink-2)", marginTop: 28, maxWidth: 480, fontWeight: 400 }}>
+          <p style={{ fontSize: isMobile ? 16 : 19, lineHeight: 1.55, color: "var(--ink-2)", marginTop: isMobile ? 22 : 28, maxWidth: 480, fontWeight: 400 }}>
             Nivesh reads every holding, scores its health and rewrites the report in plain language —
             so you know exactly what to fix and why.
           </p>
-          <div style={{ display: "flex", gap: 12, marginTop: 40 }}>
+          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 12, marginTop: isMobile ? 28 : 40 }}>
             <button className="nv-btn nv-btn-primary" style={{ padding: "14px 22px", fontSize: 15 }} onClick={() => navigate("/login")}>
               Check my portfolio free
             </button>
             <button className="nv-btn" style={{ padding: "14px 22px", fontSize: 15 }}>Watch 90-second tour</button>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 24, marginTop: 36 }}>
+          <div style={{ display: "flex", flexWrap: "wrap" as const, alignItems: "center", gap: isMobile ? 14 : 24, marginTop: isMobile ? 24 : 36 }}>
             {["SEBI-aligned", "Read-only access", "No card needed"].map((t) => (
               <div key={t} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--ink-3)", fontFamily: "var(--mono)", letterSpacing: ".04em" }}>
                 <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--mint)" }} />
@@ -108,7 +116,7 @@ export default function HomepagePage() {
               <div>
                 <div className="nv-mono" style={{ fontSize: 10, letterSpacing: ".16em", color: "var(--ink-3)", textTransform: "uppercase" as const }}>Portfolio health</div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 6 }}>
-                  <span className="nv-serif" style={{ fontSize: 78, lineHeight: 0.9, letterSpacing: "-0.04em" }}>
+                  <span className="nv-serif" style={{ fontSize: isMobile ? 56 : 78, lineHeight: 0.9, letterSpacing: "-0.04em" }}>
                     {healthScore ?? "—"}
                   </span>
                   <span className="nv-mono" style={{ fontSize: 14, color: "var(--ink-3)" }}>/ 100</span>
@@ -173,14 +181,14 @@ export default function HomepagePage() {
       </div>
 
       {/* feature trio */}
-      <div style={{ padding: "20px 56px 80px", maxWidth: 1280, margin: "0 auto" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1, background: "rgb(var(--line) / 0.06)", border: "1px solid rgb(var(--line) / 0.06)", borderRadius: 18, overflow: "hidden" }}>
+      <div style={{ padding: isMobile ? "8px 18px 56px" : "20px 56px 80px", maxWidth: 1280, margin: "0 auto" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: 1, background: "rgb(var(--line) / 0.06)", border: "1px solid rgb(var(--line) / 0.06)", borderRadius: 18, overflow: "hidden" }}>
           {[
             { n: "01", t: "Read every holding", d: "Gmail CAS, statement PDF, or live broker. Equities, mutual funds, FDs, NPS — all reconciled in a single ledger." },
             { n: "02", t: "Score it across 20 checks", d: "Concentration, overlap, risk, cost, tax, goals. Each scored individually, then weighted into one A-to-D grade." },
             { n: "03", t: "Show you what to do", d: "Ranked actions with the exact fund or stock, the trade-off, and a one-tap simulation before you commit." },
           ].map((f) => (
-            <div key={f.n} style={{ padding: 32, background: "var(--bg-1)" }}>
+            <div key={f.n} style={{ padding: isMobile ? 24 : 32, background: "var(--bg-1)" }}>
               <div className="nv-mono" style={{ fontSize: 11, color: "var(--mint)", letterSpacing: ".1em" }}>{f.n}</div>
               <div className="nv-serif" style={{ fontSize: 26, marginTop: 18, letterSpacing: "-0.02em" }}>{f.t}</div>
               <p style={{ fontSize: 14, color: "var(--ink-2)", lineHeight: 1.55, marginTop: 12, maxWidth: 320 }}>{f.d}</p>
