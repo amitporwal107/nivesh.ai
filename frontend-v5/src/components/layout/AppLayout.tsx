@@ -29,17 +29,19 @@ export default function AppLayout() {
   // non-advisor users (both ids are null).
   const { data: me, isFetching } = useMe();
   const profileId = useImpersonationStore((s) => s.profileId);
-  const setImpersonating = useImpersonationStore((s) => s.setImpersonating);
   const clearImpersonation = useImpersonationStore((s) => s.clear);
   useEffect(() => {
+    // The impersonation store is the single source of truth and drives the
+    // X-Active-Profile request header; the backend echoes back the GRANTED
+    // profile as me.activeProfileId. The only reconciliation needed is a safety
+    // guard: if the backend did NOT grant the stored profile (access denied,
+    // deleted, or no longer owned) it returns activeProfileId = null — drop the
+    // stale banner so the UI never claims a client view the server rejected.
+    // (Never push me's value back into the store: that would race a client
+    // switch while /auth/me is still refetching.)
     if (!me || isFetching) return;
-    const backendProfileId = me.activeProfileId ?? null;
-    if (backendProfileId) {
-      if (profileId !== backendProfileId) setImpersonating(backendProfileId, me.name);
-    } else if (profileId) {
-      clearImpersonation();
-    }
-  }, [me, isFetching, profileId, setImpersonating, clearImpersonation]);
+    if (profileId && !me.activeProfileId) clearImpersonation();
+  }, [me, isFetching, profileId, clearImpersonation]);
 
   return (
     <div className="min-h-screen bg-bg text-ink flex">

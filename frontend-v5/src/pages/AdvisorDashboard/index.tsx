@@ -10,7 +10,6 @@ import { useNavigate } from "react-router-dom";
 import { Briefcase, ArrowRight } from "lucide-react";
 import { useAdvisorBook, useUpgradeToAdvisory, useDeleteClient } from "@/hooks/use-advisor";
 import { useActivateProfile } from "@/hooks/use-mfd";
-import { useImpersonationStore } from "@/stores/impersonation.store";
 import { useToastStore } from "@/stores/toast.store";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -21,7 +20,6 @@ import type { AdvisorProfile } from "./derive";
 export default function AdvisorDashboardPage() {
   const navigate = useNavigate();
   const push = useToastStore((s) => s.push);
-  const setImpersonating = useImpersonationStore((s) => s.setImpersonating);
 
   const book = useAdvisorBook();
   const activate = useActivateProfile();
@@ -75,9 +73,8 @@ export default function AdvisorDashboardPage() {
   const openClient = (profileId: string, opts?: { route?: string; name?: string }) => {
     const prof = profiles.find((p) => p.profile_id === profileId);
     const name = opts?.name ?? prof?.name ?? "client";
-    activate.mutate(profileId, {
+    activate.mutate({ profileId, name }, {
       onSuccess: () => {
-        setImpersonating(profileId, name);
         push({ kind: "success", title: `Opened ${name}'s portfolio` });
         navigate(opts?.route ?? "/dashboard");
       },
@@ -99,7 +96,7 @@ export default function AdvisorDashboardPage() {
         profiles={profiles}
         workspaceType={ws?.type}
         advisorName={ws?.advisor_name}
-        activatingId={activate.isPending ? (activate.variables as string) : null}
+        activatingId={activate.isPending ? (activate.variables?.profileId ?? null) : null}
         onOpenClient={openClient}
         onAddClient={() => setAddOpen(true)}
         onDeleteClient={deleteClient}

@@ -14,6 +14,7 @@
 import { http } from "@/services/api/http";
 import { apiConfig } from "@/services/api/config";
 import { getAuthToken } from "@/services/api/auth-token";
+import { useImpersonationStore } from "@/stores/impersonation.store";
 import { z } from "zod";
 
 /** Server-Sent-Event frames emitted by POST /api/chat/stream. */
@@ -100,11 +101,13 @@ export const realChatAdapter: ChatAdapter = {
     // adds Authorization: Bearer (the WebView drops the cross-site cookie, so
     // this raw fetch must carry the token like the http() client does).
     const token = getAuthToken();
+    const activeProfileId = useImpersonationStore.getState().profileId;
     const res = await fetch(`${apiConfig.baseUrl}/api/chat/stream`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(activeProfileId ? { "X-Active-Profile": activeProfileId } : {}),
       },
       credentials: "include",
       body: JSON.stringify({ message, session_id: sessionId, page: opts?.page }),

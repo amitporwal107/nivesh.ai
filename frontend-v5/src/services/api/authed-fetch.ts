@@ -1,5 +1,6 @@
 import { apiConfig } from "./config";
 import { getAuthToken } from "./auth-token";
+import { useImpersonationStore } from "@/stores/impersonation.store";
 
 /**
  * Raw fetch for endpoints that can't go through http() — streaming (SSE),
@@ -19,6 +20,11 @@ export function apiFetch(path: string, init: RequestInit = {}): Promise<Response
   const headers = new Headers(init.headers);
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
+  }
+  // Carry the advisor's active client profile (per-request impersonation).
+  const activeProfileId = useImpersonationStore.getState().profileId;
+  if (activeProfileId && !headers.has("X-Active-Profile")) {
+    headers.set("X-Active-Profile", activeProfileId);
   }
   return fetch(url, { credentials: "include", ...init, headers });
 }

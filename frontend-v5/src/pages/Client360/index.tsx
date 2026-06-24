@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { useAdvisorBook } from "@/hooks/use-advisor";
 import { useActivateProfile, useNeedsAttention } from "@/hooks/use-mfd";
-import { useImpersonationStore } from "@/stores/impersonation.store";
 import { useToastStore } from "@/stores/toast.store";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -178,7 +177,6 @@ function ClientDetail({ p, onOpen, activating }: {
 export default function Client360Page() {
   const navigate = useNavigate();
   const push = useToastStore((s) => s.push);
-  const setImpersonating = useImpersonationStore((s) => s.setImpersonating);
   const book = useAdvisorBook();
   const activate = useActivateProfile();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -226,9 +224,8 @@ export default function Client360Page() {
 
   const openClient = (route: string) => {
     if (!selected) return;
-    activate.mutate(selected.profile_id, {
+    activate.mutate({ profileId: selected.profile_id, name: selected.name }, {
       onSuccess: () => {
-        setImpersonating(selected.profile_id, selected.name);
         push({ kind: "success", title: `Opened ${selected.name}'s portfolio` });
         navigate(route);
       },

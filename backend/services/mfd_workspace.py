@@ -315,3 +315,34 @@ async def resolve_effective_user(session_doc: Dict[str, Any]) -> Optional[str]:
         # Session was tampered with or workspace changed — fall back safely.
         return raw_user_id
     return prof["shadow_user_id"]
+
+
+async def resolve_effective_for_profile(
+    raw_user_id: str, profile_id: str,
+) -> "tuple[str, Optional[str]]":
+    """Access-controlled, per-request impersonation resolver.
+
+    The active client is passed per request (X-Active-Profile header), NOT
+    stored on the session. An advisor may act as any client they OWN — this is
+    the access check. Returns ``(effective_user_id, granted_profile_id)``:
+
+      • ``granted_profile_id`` is ``profile_id`` when ``raw_user_id`` owns the
+        profile's workspace (access granted), else ``None``.
+      • ``effective_user_id`` is the profile's shadow user when granted (this
+        equals ``raw_user_id`` for a SELF profile, whose shadow IS the owner),
+        else ``raw_user_id``.
+
+    Unknown or un-owned profiles silently fall back to the caller's own context
+    — an advisor can never act as a client they don't own.
+    """
+    if not profile_id:
+        return raw_user_id, None
+    prof = await get_profile(profile_id)
+    if not prof:
+        return raw_user_id, None
+    ws = await db.workspaces.find_one(
+        {"workspace_id": prof.get("workspace_id")}, {"_id": 0, "owner_user_id": 1},
+    )
+    if not ws or ws.get("owner_user_id") != raw_user_id:
+        return raw_user_id, None
+    return (prof.get("shadow_user_id") or raw_user_id), profile_id
