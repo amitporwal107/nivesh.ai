@@ -3,10 +3,17 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { chatService } from "@/services";
+import { useMe } from "@/hooks/use-auth";
 
 export function useSuggestedPrompts() {
+  // Scope the cache by the active impersonation context so an advisor's
+  // cross-client tiles and a client's personal tiles never bleed across a
+  // context switch. Non-advisor users have no active profile → stable "self"
+  // suffix → unchanged behaviour.
+  const { data: me } = useMe();
+  const ctxKey = me?.activeProfileId ?? "self";
   return useQuery({
-    queryKey: ["chat", "suggestedPrompts"],
+    queryKey: ["chat", "suggestedPrompts", ctxKey],
     queryFn: () => chatService.suggestedPrompts(),
     staleTime: 5 * 60_000,                  // 5min — prompts change slowly
   });

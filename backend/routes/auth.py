@@ -149,6 +149,12 @@ async def get_me(request: Request):
         {"owner_user_id": user["user_id"]}, {"_id": 0, "type": 1},
     )
     user["workspace_type"] = (ws or {}).get("type")
+    # Surface the session's active impersonation so the client can reconcile its
+    # (localStorage-persisted) impersonation state with backend truth. Without
+    # this, a persisted "Viewing <client>" banner can outlive the server session
+    # (e.g. after re-login) and show a phantom client view while the backend is
+    # actually at the advisor root.
+    user["active_profile_id"] = user.get("_active_profile_id")
     return user
 
 

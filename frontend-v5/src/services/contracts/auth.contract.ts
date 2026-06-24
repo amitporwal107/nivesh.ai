@@ -13,6 +13,9 @@ export const UserProfileC = z.object({
   // nav); anything else / absent → full personal nav. During impersonation the
   // backend resolves the effective (client) user, who owns no workspace → null.
   workspace_type: z.string().nullable().optional(),
+  // The session's active impersonation profile (null when at the advisor root).
+  // Backend truth that the client reconciles its persisted banner against.
+  active_profile_id: z.string().nullable().optional(),
   risk_profile: z.unknown().nullable().optional(),
   // Tolerant by design: a missing onboarding_completed must NOT fail the whole
   // parse. When absent (backend contract drift) it defaults to false, routing
