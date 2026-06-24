@@ -6,14 +6,9 @@
 import { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import MarketingNav from "./MarketingNav";
 
 type NavKey = "product" | "advisors" | "pricing";
-
-const NAV: Array<{ key: NavKey; label: string; to: string }> = [
-  { key: "product", label: "Product", to: "/product" },
-  { key: "advisors", label: "For advisors", to: "/for-advisors" },
-  { key: "pricing", label: "Pricing", to: "/pricing" },
-];
 
 export default function MarketingShell({
   active,
@@ -27,36 +22,7 @@ export default function MarketingShell({
 
   return (
     <div className="nv-frame" style={{ width: "100%", minHeight: "100vh" }}>
-      {/* nav */}
-      <div style={{ display: "flex", alignItems: "center", padding: isMobile ? "14px 18px" : "20px 56px", borderBottom: "1px solid var(--line-2)" }}>
-        <div onClick={() => navigate("/")} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-          <span className="nv-mark" style={{ width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, fontSize: isMobile ? 17 : 19 }}>न</span>
-          <span className="nv-serif" style={{ fontSize: isMobile ? 19 : 22 }}>Nivesh</span>
-          {!isMobile && (
-            <span className="nv-mono" style={{ fontSize: 10, letterSpacing: ".18em", color: "var(--ink-3)", textTransform: "uppercase" as const, marginLeft: 6 }}>COPILOT</span>
-          )}
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: isMobile ? 0 : 36 }}>
-          {!isMobile && NAV.map((n) => (
-            <span
-              key={n.key}
-              onClick={() => navigate(n.to)}
-              style={{
-                fontSize: 14,
-                color: active === n.key ? "var(--ink)" : "var(--ink-2)",
-                fontWeight: active === n.key ? 500 : 400,
-                cursor: "pointer",
-              }}
-            >
-              {n.label}
-            </span>
-          ))}
-          {!isMobile && <span onClick={() => navigate("/login")} style={{ fontSize: 14, color: "var(--ink-2)", cursor: "pointer" }}>Sign in</span>}
-          <button className="nv-btn nv-btn-primary" style={{ padding: isMobile ? "8px 14px" : "9px 16px", fontSize: 13, whiteSpace: "nowrap" }} onClick={() => navigate("/login")}>
-            {isMobile ? "Check free →" : "Check my portfolio →"}
-          </button>
-        </div>
-      </div>
+      <MarketingNav active={active} />
 
       {children}
 
