@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import asyncio
 import calendar
-import io
 import logging
 import re
 from dataclasses import dataclass
@@ -102,6 +101,9 @@ class _AmcCfg:
     #   ("amc_id = $1", "<id>")            — top-10 AMCs (amc_id populated)
     #   ("scheme_name ILIKE $1", "DSP %")  — others (match by name prefix)
     master_filter: tuple[str, str]
+    # Multiply the captured number to get ₹ crore (e.g. Tata reports Net
+    # Assets in ₹ lakh → 0.01). Default 1.0 (value already in ₹ crore).
+    scale: float = 1.0
 
 
 # ───────────────────────── URL builders ─────────────────────────
@@ -124,6 +126,25 @@ def _hsbc_urls(y: int, m: int) -> list[str]:
     return [f"{base}/the-asset-{_MNAME[m].lower()}-{y}.pdf"]
 
 
+def _tata_urls(y: int, m: int) -> list[str]:
+    # Folder = the month AFTER the data month; filename wording varies.
+    ny, nm = _next_month(y, m)
+    folder = f"{ny}-{nm:02d}"
+    names = [
+        f"TataMF Factsheet - {_MNAME[m]} {y}.pdf",
+        f"Tata MF Factsheet - {_MNAME[m]} {y}.pdf",
+    ]
+    return [f"https://www.tatamutualfund.com/system/files/{folder}/{quote(n)}" for n in names]
+
+
+def _mirae_urls(y: int, m: int) -> list[str]:
+    base = "https://www.miraeassetmf.co.in/docs/default-source/fachsheet"
+    return [
+        f"{base}/active-factsheet---{_MNAME[m].lower()}-{y}.pdf",
+        f"{base}/active-factsheet---{_MABBR[m].lower()}-{y}.pdf",
+    ]
+
+
 # ───────────────────────── AAUM regexes ─────────────────────────
 # HDFC fund page:
 #   ASSETS UNDER MANAGEMENT €
@@ -144,6 +165,13 @@ _HSBC_AUM_RE = re.compile(
     r"AAUM\s*\(for the month[^)]*\)\s*₹?\s*([\d,]+\.?\d*)\s*Cr\.?",
     re.S | re.I,
 )
+# Tata fund page: no AAUM text label — the holdings table's total row carries
+# the fund's Net Assets in ₹ LAKH: "Net Assets 268169.70 100.00" (100.00 = the
+# weight-% total). Captured value × 0.01 = ₹ crore. This is month-end net
+# assets ≈ AUM (a close proxy for AAUM; only used to fill gaps).
+_TATA_AUM_RE = re.compile(r"Net Assets\s+([\d,]+\.\d+)\s+100\.00")
+# Mirae fund page:  "Monthly Average AUM (₹ Cr.)\n38,055.800"  (first value = AAUM)
+_MIRAE_AUM_RE = re.compile(r"Monthly Average AUM\s*\(₹\s*Cr\.?\)\s*([\d,]+\.?\d*)", re.I)
 
 
 FACTSHEET_SOURCES: dict[str, _AmcCfg] = {
@@ -168,6 +196,21 @@ FACTSHEET_SOURCES: dict[str, _AmcCfg] = {
         name_re=re.compile(r"^HSBC [A-Za-z0-9&',\.\- ]+?Fund\b", re.M),
         master_filter=("scheme_name ILIKE $1", "HSBC %"),
     ),
+    "tata": _AmcCfg(
+        amc_id="tata",
+        urls=_tata_urls,
+        aum_re=_TATA_AUM_RE,
+        name_re=re.compile(r"^Tata [A-Za-z0-9&',\.\- ]+?Fund\b", re.M),
+        master_filter=("amc_id = $1", "tata"),
+        scale=0.01,                      # Net Assets are in ₹ lakh
+    ),
+    "mirae": _AmcCfg(
+        amc_id="mirae",
+        urls=_mirae_urls,
+        aum_re=_MIRAE_AUM_RE,
+        name_re=re.compile(r"^Mirae Asset [A-Za-z0-9&',\.\- ]+?Fund\b", re.M),
+        master_filter=("amc_id = $1", "mirae"),
+    ),
 }
 
 
@@ -184,6 +227,7 @@ def _parse_page(text: str, cfg: _AmcCfg) -> Optional[dict]:
     aaum = _to_cr(m.group(1))
     if aaum is None:
         return None
+    aaum = round(aaum * cfg.scale, 2)
     head = text[: m.start()]
     for cand in reversed(cfg.name_re.findall(head)):
         c = re.sub(r"\s+", " ", cand).strip()
@@ -193,15 +237,19 @@ def _parse_page(text: str, cfg: _AmcCfg) -> Optional[dict]:
 
 
 def _parse_pdf(pdf_bytes: bytes, cfg: _AmcCfg) -> list[dict]:
-    """Extract [{scheme_name, aaum_cr}] from a factsheet PDF (one per fund)."""
-    from pypdf import PdfReader
+    """Extract [{scheme_name, aaum_cr}] from a factsheet PDF (one per fund).
 
-    reader = PdfReader(io.BytesIO(pdf_bytes))
+    Uses PyMuPDF (fitz): ~10× faster than pypdf on the 100–170 page factsheets
+    (Tata: 3.8s vs 38.6s), which keeps the monthly run inside budget.
+    """
+    import fitz
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     out: list[dict] = []
     seen: set[str] = set()
-    for page in reader.pages:
+    for i in range(doc.page_count):
         try:
-            text = page.extract_text() or ""
+            text = doc[i].get_text()
         except Exception:                                   # noqa: BLE001
             continue
         rec = _parse_page(text, cfg)

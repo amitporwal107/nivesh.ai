@@ -19,6 +19,8 @@ from nidp.services.mf_disclosure_snapshot.factsheet import (
 _HDFC = FACTSHEET_SOURCES["hdfc"]
 _DSP = FACTSHEET_SOURCES["dsp"]
 _HSBC = FACTSHEET_SOURCES["hsbc"]
+_TATA = FACTSHEET_SOURCES["tata"]
+_MIRAE = FACTSHEET_SOURCES["mirae"]
 
 # Real extracted text of the HDFC Flexi Cap Fund page (April 2026 factsheet).
 _HDFC_FLEXI_PAGE = (
@@ -51,6 +53,20 @@ _HSBC_PAGE = (
     "HSBC Midcap Fund \nAn open ended equity scheme predominantly investing in mid cap stocks. \n"
     "Date of Inception \n09 Aug 2004 \n"
     "AAUM (for the month \nof May) ₹ 13801.72 Cr. \nMonth End Expense Ratios \n"
+)
+
+# Real extracted text of a Tata fund page (May 2026). Tata has no AAUM text
+# label — the holdings-table total row carries Net Assets in ₹ LAKH.
+_TATA_PAGE = (
+    "Tata Small Cap Fund \nAn open ended equity scheme predominantly investing in small cap stocks. \n"
+    "FUND SIZE \nPortfolio Holdings ... \n"
+    "Net Assets\n1164500.51\n100.00\n"
+)
+
+# Real extracted text of a Mirae fund page (May 2026).
+_MIRAE_PAGE = (
+    "Mirae Asset Midcap Fund \nAn open ended equity scheme predominantly investing in mid cap stocks. \n"
+    "NAV \nMonthly Average AUM (₹ Cr.)\n17,743.667\n2,165.780\n3,808.713\nMonthly Base Expense Ratio\n"
 )
 
 # A non-fund page (disclaimer/riskometer) — must NOT yield a record.
@@ -88,6 +104,28 @@ def test_hsbc_extracts_aaum_for_the_month():
     assert rec is not None
     assert rec["scheme_name"] == "HSBC Midcap Fund"
     assert rec["aaum_cr"] == 13801.72
+
+
+def test_tata_net_assets_lakh_to_crore():
+    rec = _parse_page(_TATA_PAGE, _TATA)
+    assert rec is not None
+    assert rec["scheme_name"] == "Tata Small Cap Fund"
+    # 1,164,500.51 lakh × 0.01 = 11,645.01 crore.
+    assert rec["aaum_cr"] == 11645.01
+
+
+def test_mirae_monthly_average_aum():
+    rec = _parse_page(_MIRAE_PAGE, _MIRAE)
+    assert rec is not None
+    assert rec["scheme_name"] == "Mirae Asset Midcap Fund"
+    # First value after the label is the AAUM (already in ₹ crore).
+    assert rec["aaum_cr"] == 17743.67
+
+
+def test_tata_scale_applied_only_to_tata():
+    # The lakh→crore scale must not bleed into crore-native configs.
+    assert _MIRAE.scale == 1.0
+    assert _TATA.scale == 0.01
 
 
 def test_cross_config_does_not_false_match():
