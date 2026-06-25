@@ -49,10 +49,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not request.url.path.startswith("/api"):
             return await call_next(request)
 
-        # Use session token or IP as rate limit key
+        # Use session token or IP as rate limit identity.
+        # NOTE: behind Cloudflare→nginx→uvicorn, request.client.host is the proxy
+        # hop (identical for every visitor), which would collapse all anonymous
+        # logins into ONE bucket — the global auth-strict 5/min budget would then
+        # be shared platform-wide, so a handful of concurrent sign-ins 429s
+        # everyone. Resolve the true client IP from Cloudflare's header, falling
+        # back to the left-most X-Forwarded-For entry, then the socket peer.
         session = request.cookies.get("session_token", "")
         auth = request.headers.get("Authorization", "")
-        key = session or auth or request.client.host if request.client else "unknown"
+        fwd = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "")
+        client_ip = fwd.split(",")[0].strip() or (request.client.host if request.client else "")
+        identity = (session or auth or client_ip) or "unknown"
 
         # Per-category budgets (fintech-appropriate):
         #   Auth     →   5/min  (brute-force protection on login)
@@ -65,23 +73,32 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         #   Default  →  200/min (catch-all)
         path = request.url.path
         if "/chat/stream" in path:
-            max_req = 30   # SSE streams are long-lived, fewer needed
+            category, max_req = "chat-stream", 30   # SSE streams are long-lived, fewer needed
         elif path.endswith("/chat/warmup"):
             # Idempotent fire-and-forget — exempt from limiting so a
             # rapid open-close-open of the drawer doesn't burn the bucket.
             return await call_next(request)
+        elif path in ("/api/auth/me", "/api/auth/google-client-id"):
+            category, max_req = "auth-session", 60   # Read-only session checks — no brute-force risk
         elif path.startswith("/api/auth/"):
-            max_req = 5    # Strict: protects login from brute-force
+            category, max_req = "auth-strict", 5    # Strict: protects login/oauth from brute-force
         elif path.startswith("/api/admin/"):
-            max_req = 10   # Management plane — low expected volume
+            category, max_req = "admin", 10   # Management plane — low expected volume
         elif "/goals/" in path or "/scenarios/" in path or "/analytics/" in path:
-            max_req = 30   # Compute-heavy or AI-backed analytics
+            category, max_req = "analytics", 30   # Compute-heavy or AI-backed analytics
         elif path.startswith("/api/portfolio/") or path.startswith("/api/portfolios"):
-            max_req = 100  # Dashboard holdings/enriched calls
+            category, max_req = "portfolio", 100  # Dashboard holdings/enriched calls
         elif "/chat/" in path or "/insights/" in path:
-            max_req = 200  # General chat + cached insight reads
+            category, max_req = "chat", 200  # General chat + cached insight reads
         else:
-            max_req = 200  # Default for all other /api/* paths
+            category, max_req = "default", 200  # Default for all other /api/* paths
+
+        # Bucket per (identity, category). A single shared bucket would let
+        # unrelated traffic (e.g. dashboard portfolio calls) burn the budget of
+        # a low-limit category, so the first sign-in POST /api/auth/google (5/min)
+        # would 429 because earlier /auth/me + portfolio calls already filled it.
+        # Segmenting by category means each limit only counts its own traffic.
+        key = f"{identity}:{category}"
 
         allowed = rate_limiter.is_allowed(key, max_requests=max_req, window_seconds=60)
         remaining = max(0, max_req - rate_limiter.current_count(key, window_seconds=60))

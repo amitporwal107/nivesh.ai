@@ -4,6 +4,7 @@ import type { AllocationSlice } from "@/types/portfolio";
 const COLORS: Record<AllocationSlice["assetClass"], string> = {
   equity:        "rgb(var(--accent))",
   debt:          "#A6A38E",
+  hybrid:        "#8FAE9D",
   gold:          "rgb(var(--warm))",
   international: "#7A8298",
   cash:          "#CFCFC2",
@@ -31,7 +32,7 @@ export function AllocationDonut({ slices, size = 220 }: AllocationDonutProps) {
           isAnimationActive={false}
         >
           {slices.map((s) => (
-            <Cell key={s.assetClass} fill={COLORS[s.assetClass]} />
+            <Cell key={s.assetClass} fill={COLORS[s.assetClass] ?? "#A6A38E"} />
           ))}
         </Pie>
         <Tooltip

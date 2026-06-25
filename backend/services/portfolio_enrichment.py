@@ -22,6 +22,8 @@ import math
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from services.sgb_prices import resolve_sgb_display_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -59,6 +61,113 @@ def xirr(flows: List[Tuple[date, float]], guess: float = 0.1) -> Optional[float]
         except (ValueError, ZeroDivisionError, OverflowError):
             return None
     return None
+
+
+# ── True money-weighted portfolio XIRR (from the dated transaction ledger) ──
+async def portfolio_xirr_from_ledger(
+    user_id: str,
+    current_value: float,
+    cost_basis: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Money-weighted portfolio XIRR from the dated `cas_transactions` ledger.
+
+    Pools EVERY transaction into a single cashflow series — purchases negative,
+    redemptions/sells positive, on their actual dates — plus today's total
+    market value as the final positive flow, then solves ONE IRR. This is the
+    textbook money-weighted return; unlike averaging per-holding *annualised*
+    rates (which explodes for short-horizon holdings), it stays sane because a
+    small recent buy contributes a small cashflow, not an outsized rate.
+
+    Returns {xirr_pct, xirr_raw_pct, reliable, coverage_pct, n_txn, source}.
+    `xirr_pct` is None (reliable=False) when the ledger can't be trusted —
+    too few transactions, or the buys cover well under the current cost basis
+    (i.e. positions predate the statement / lack opening balances). The caller
+    should then fall back to the absolute return rather than show a number we
+    know is incomplete.
+    """
+    try:
+        from deps import db
+        # Reuse the tax engine's VALIDATED parsers — robust date handling
+        # (_parse_dt accepts datetime objects + ISO strings, where a naive
+        # strptime silently dropped every row) and the canonical buy/sell type
+        # sets, so this reads exactly the transactions the FIFO engine does.
+        from services.tax_engine_fifo import _parse_dt, _BUY_TYPES, _SELL_TYPES
+    except Exception:  # noqa: BLE001
+        return {"xirr_pct": None, "reliable": False, "coverage_pct": None, "n_txn": 0, "source": "no_db"}
+
+    flows: List[Tuple[date, float]] = []
+    buy_total = 0.0
+    sell_total = 0.0
+    n_txn = 0
+    n_raw = 0
+    try:
+        cursor = db.cas_transactions.find(
+            {"user_id": user_id},
+            {"_id": 0, "date": 1, "type": 1, "transaction_type": 1,
+             "amount": 1, "amount_inr": 1, "units": 1, "nav": 1},
+        )
+        async for t in cursor:
+            n_raw += 1
+            ttype = (t.get("type") or t.get("transaction_type") or "").upper()
+            # Dividend reinvestment is INTERNAL to the portfolio (the payout was
+            # already counted in value), not an external contribution — counting
+            # it as a buy would understate the money-weighted return.
+            is_buy = ttype in _BUY_TYPES and ttype != "DIV_REINVEST"
+            is_sell = ttype in _SELL_TYPES
+            if not (is_buy or is_sell):
+                continue
+            amt = 0.0
+            try:
+                amt = float(t.get("amount") or t.get("amount_inr") or 0)
+                if amt <= 0:  # reconstruct from units × NAV when amount missing
+                    amt = float(t.get("units") or 0) * float(t.get("nav") or 0)
+            except (TypeError, ValueError):
+                continue
+            if amt <= 0:
+                continue
+            dt = _parse_dt(t.get("date"))
+            if dt is None:
+                continue
+            d = dt.date()
+            if is_buy:
+                flows.append((d, -amt)); buy_total += amt; n_txn += 1
+            else:
+                flows.append((d, amt)); sell_total += amt; n_txn += 1
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("portfolio_xirr_from_ledger: ledger read failed for %s: %s", user_id, exc)
+        return {"xirr_pct": None, "reliable": False, "coverage_pct": None, "n_txn": 0, "source": "ledger_error"}
+
+    if n_txn < 2 or buy_total <= 0 or current_value <= 0:
+        # n_raw distinguishes "no ledger on file at all" (snapshot-only import)
+        # from "ledger present but unusable" — different message to the user.
+        return {"xirr_pct": None, "reliable": False, "coverage_pct": None,
+                "n_txn": n_txn, "n_raw": n_raw, "has_ledger": n_raw > 0,
+                "source": "no_ledger" if n_raw == 0 else "insufficient_ledger"}
+
+    flows.append((datetime.now(timezone.utc).date(), float(current_value)))
+    r = xirr(flows)
+    xirr_pct = round(r * 100.0, 2) if r is not None else None
+
+    # Reliability: the ledger's net invested should explain most of the current
+    # cost basis. If it covers well under it, the statement is missing opening
+    # balances → the IRR overstates and we shouldn't report it.
+    net_invested = buy_total - sell_total
+    coverage = (net_invested / cost_basis) if (cost_basis and cost_basis > 0) else None
+    reliable = (
+        xirr_pct is not None
+        and -60.0 <= xirr_pct <= 120.0
+        and (coverage is None or coverage >= 0.6)
+    )
+    return {
+        "xirr_pct": xirr_pct if reliable else None,
+        "xirr_raw_pct": xirr_pct,
+        "reliable": reliable,
+        "coverage_pct": round(coverage * 100.0, 1) if coverage is not None else None,
+        "n_txn": n_txn,
+        "n_raw": n_raw,
+        "has_ledger": True,
+        "source": "ledger",
+    }
 
 
 def _holding_xirr(buy_date: Optional[str], buy_price: float,
@@ -912,7 +1021,11 @@ async def build_enriched_portfolio(
 
         enriched.append({
             "holding_id": h.get("holding_id"),
-            "name": h.get("name"), "isin": h.get("ticker"),
+            # Substitute the ISIN-derived SGB series for generic issuer-only
+            # names (e.g. "Government of India") on stored holdings ingested
+            # before the SGB ISIN was mapped. No-op for non-SGB names.
+            "name": resolve_sgb_display_name(h.get("name"), h.get("ticker")),
+            "isin": h.get("ticker"),
             "nse_symbol": h.get("nse_symbol"),
             "asset_type": at, "sector": h.get("sector"),
             "category": category,

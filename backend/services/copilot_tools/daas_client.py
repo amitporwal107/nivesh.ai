@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -113,7 +114,7 @@ async def get_stock_features_latest(symbol: str) -> Optional[Dict[str, Any]]:
 
     Returns the feature dict or None if no data exists.
     """
-    data = await _get(f"/v1/features/stocks/{symbol}/latest")
+    data = await _get(f"/features/stocks/{symbol}/latest")
     if data is None:
         return None
     return data.get("data")
@@ -131,7 +132,7 @@ async def get_stock_features_history(
         params["start"] = start
     if end:
         params["end"] = end
-    data = await _get(f"/v1/features/stocks/{symbol}", params=params)
+    data = await _get(f"/features/stocks/{symbol}", params=params)
     if data is None:
         return []
     return data.get("data", [])
@@ -139,7 +140,7 @@ async def get_stock_features_history(
 
 async def get_stock_price_latest(symbol: str) -> Optional[Dict[str, Any]]:
     """Fetch the latest OHLCV price row for a symbol."""
-    data = await _get(f"/v1/prices/latest/{symbol}")
+    data = await _get(f"/prices/latest/{symbol}")
     if data is None:
         return None
     return data.get("data")
@@ -147,10 +148,221 @@ async def get_stock_price_latest(symbol: str) -> Optional[Dict[str, Any]]:
 
 async def get_stock_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     """Fetch the latest fundamental/financial data for a symbol."""
-    data = await _get(f"/v1/financials/{symbol}")
+    data = await _get(f"/financials/{symbol}")
     if data is None:
         return None
     return data.get("data")
+
+
+async def get_stock_scores(symbol: str) -> Optional[Dict[str, Any]]:
+    """Fetch the latest persisted V3 composite scores + sector ranking for a symbol.
+
+    Calls GET /v1/stocks/scores/{symbol} (nidp.v_v3_stock_scores_latest, with the
+    sector-ranking columns from migration 086): quality_score, health_score,
+    sector, industry, sector_rank, sector_size, sector_pct, band,
+    fundamental_score, technical_score, final_score.
+
+    Returns the score dict or None on 404 / connectivity failure so callers can
+    omit the quality/rank section rather than fabricate it.
+    """
+    try:
+        data = await _get(f"/stocks/scores/{symbol}")
+    except DaasError as exc:
+        logger.debug("get_stock_scores(%s): %s", symbol, exc)
+        return None
+    if data is None:
+        return None
+    return data.get("data") or None
+
+
+async def get_sector_peers(sector: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """Latest V3 scores for every stock in a sector, ranked by quality_score.
+
+    Calls GET /v1/stocks/scores/ (the screener) filtered by sector. Used to build
+    the in-card peer comparison. min_quality_coverage=0 so the full peer set is
+    returned (ranking is by quality_score among whoever has one). Returns [] on
+    any failure so the caller omits the peers section rather than fabricate it.
+    """
+    if not sector:
+        return []
+    try:
+        data = await _get("/stocks/scores/", params={
+            "sector": sector,
+            "sort_by": "quality_score",
+            "sort_desc": "true",
+            "min_quality_coverage": 0,
+            "limit": limit,
+        })
+    except DaasError as exc:
+        logger.debug("get_sector_peers(%s): %s", sector, exc)
+        return []
+    if not isinstance(data, dict):
+        return []
+    rows = data.get("data")
+    return rows if isinstance(rows, list) else []
+
+
+async def list_stock_universe(limit: int = 800) -> List[Dict[str, Any]]:
+    """All scored stocks (symbol + company_name + sector) — the full V3 equity
+    universe — for chat autocomplete. Calls GET /v1/stocks/scores/ with no sector
+    filter, ranked by quality so substring matches surface the better names first.
+    Returns [] on any failure so the caller falls back to the curated list."""
+    try:
+        data = await _get("/stocks/scores/", params={
+            "sort_by": "quality_score",
+            "sort_desc": "true",
+            "min_quality_coverage": 0,
+            "limit": limit,
+        })
+    except DaasError as exc:
+        logger.debug("list_stock_universe: %s", exc)
+        return []
+    rows = data.get("data") if isinstance(data, dict) else None
+    return rows if isinstance(rows, list) else []
+
+
+async def get_stock_screener(
+    limit: int = 2000,
+    sort_by: str = "market_cap_cr",
+    sort_desc: bool = True,
+    sector: Optional[str] = None,
+    market_cap: Optional[str] = None,
+    timeout: float = 15.0,
+) -> List[Dict[str, Any]]:
+    """Per-stock V3 primitive rows from the NIDP feature store.
+
+    Calls GET /v1/stocks/screener (nidp.stock_features_daily, latest date). Each
+    row carries symbol, sector, industry, market_cap_bucket, market_cap_cr,
+    pe_ttm, pb, roe_pct, return_252d_pct, momentum_score, etc. Used to build the
+    Sector Analysis aggregates over DaaS when the app has no direct nidp.* rows.
+    Returns [] on any failure so the caller can fall back to a direct PG read.
+    """
+    params: Dict[str, Any] = {"limit": limit, "sort_by": sort_by, "sort_desc": str(sort_desc).lower()}
+    if sector:
+        params["sector"] = sector
+    if market_cap:
+        params["market_cap"] = market_cap
+    try:
+        data = await _get("/stocks/screener", params=params, timeout=timeout)
+    except DaasError as exc:
+        logger.debug("get_stock_screener: %s", exc)
+        return []
+    rows = data.get("data") if isinstance(data, dict) else None
+    return rows if isinstance(rows, list) else []
+
+
+async def get_corporate_actions(symbol: str, limit: int = 8) -> List[Dict[str, Any]]:
+    """Recent corporate actions (dividends, splits, bonuses) for one symbol.
+
+    Calls GET /v1/corporate-actions/{symbol} (newest ex_date first). Returns []
+    on any failure so the caller omits the section rather than fabricate it.
+    """
+    try:
+        data = await _get(f"/corporate-actions/{symbol}", params={"limit": limit})
+    except DaasError as exc:
+        logger.debug("get_corporate_actions(%s): %s", symbol, exc)
+        return []
+    if not isinstance(data, dict):
+        return []
+    rows = data.get("data")
+    return rows if isinstance(rows, list) else []
+
+
+# ── Market Pulse feeds — read the populated NIDP DB via DaaS ──────────────
+# The Nivesh app's own Postgres carries the nidp.* schema but none of the
+# ingested rows on some environments (staging), so the Market Pulse tabs must
+# source these over DaaS rather than the app's direct pool. Each returns the
+# dict the app's /api/markets/* endpoint forwards verbatim, or None on failure.
+
+async def get_market_pulse_fii_dii(days: int = 90) -> Optional[Dict[str, Any]]:
+    try:
+        data = await _get("/market-pulse/fii-dii", params={"days": days})
+    except DaasError as exc:
+        logger.debug("get_market_pulse_fii_dii: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def get_market_pulse_corporate_actions(
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
+    action_type: Optional[str] = None, q: Optional[str] = None,
+    limit: int = 200, offset: int = 0,
+) -> Optional[Dict[str, Any]]:
+    params: Dict[str, Any] = {"limit": limit, "offset": offset}
+    if date_from:   params["date_from"] = date_from
+    if date_to:     params["date_to"] = date_to
+    if action_type: params["action_type"] = action_type
+    if q:           params["q"] = q
+    try:
+        data = await _get("/market-pulse/corporate-actions", params=params)
+    except DaasError as exc:
+        logger.debug("get_market_pulse_corporate_actions: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def get_market_pulse_articles(
+    days: int = 7, category: Optional[str] = None, impact: Optional[str] = None,
+    sentiment: Optional[str] = None, q: Optional[str] = None,
+    limit: int = 60, offset: int = 0,
+) -> Optional[Dict[str, Any]]:
+    params: Dict[str, Any] = {"days": days, "limit": limit, "offset": offset}
+    if category:  params["category"] = category
+    if impact:    params["impact"] = impact
+    if sentiment: params["sentiment"] = sentiment
+    if q:         params["q"] = q
+    try:
+        data = await _get("/market-pulse/articles", params=params)
+    except DaasError as exc:
+        logger.debug("get_market_pulse_articles: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def get_market_pulse_movers(cap: str = "large") -> Optional[Dict[str, Any]]:
+    try:
+        data = await _get("/market-pulse/movers", params={"cap": cap})
+    except DaasError as exc:
+        logger.debug("get_market_pulse_movers: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def get_market_pulse_institutional_positioning() -> Optional[Dict[str, Any]]:
+    try:
+        data = await _get("/market-pulse/institutional-positioning")
+    except DaasError as exc:
+        logger.debug("get_market_pulse_institutional_positioning: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def get_market_pulse_earnings(
+    index: str = "Nifty 500", quarter: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    params: Dict[str, Any] = {"index": index}
+    if quarter:
+        params["quarter"] = quarter
+    try:
+        data = await _get("/market-pulse/earnings", params=params)
+    except DaasError as exc:
+        logger.debug("get_market_pulse_earnings: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def get_market_pulse_earnings_companies(
+    index: str = "Nifty 500", sector: str = "", quarter: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    params: Dict[str, Any] = {"index": index, "sector": sector}
+    if quarter:
+        params["quarter"] = quarter
+    try:
+        data = await _get("/market-pulse/earnings/companies", params=params)
+    except DaasError as exc:
+        logger.debug("get_market_pulse_earnings_companies: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
 
 
 async def get_quarterly_financials(
@@ -163,7 +375,7 @@ async def get_quarterly_financials(
     Returns newest-first list of up to `limit` quarters.
     """
     params: Dict[str, Any] = {"limit": limit, "consolidated": str(consolidated).lower()}
-    data = await _get(f"/v1/financials/{symbol}", params=params)
+    data = await _get(f"/financials/{symbol}", params=params)
     if data is None:
         return []
     rows = data.get("data") or data.get("rows") or []
@@ -178,7 +390,7 @@ async def get_shareholding_history(
 
     Returns newest-first list of up to `limit` periods.
     """
-    data = await _get(f"/v1/shareholding/{symbol}", params={"limit": limit})
+    data = await _get(f"/shareholding/{symbol}", params={"limit": limit})
     if data is None:
         return []
     rows = data.get("data") or data.get("rows") or []
@@ -216,7 +428,7 @@ async def get_mf_scorecard(scheme_code: str) -> Optional[Dict[str, Any]]:
 
     Returns None on 404 or DaaS unavailability so callers can degrade gracefully.
     """
-    data = await _get(f"/v1/mf/performance/scorecard/{scheme_code}")
+    data = await _get(f"/mf/performance/scorecard/{scheme_code}")
     if data is None:
         return None
     return data.get("data") or data
@@ -227,10 +439,113 @@ async def get_mf_events(scheme_code: str, limit: int = 20) -> list[Dict[str, Any
 
     Returns empty list on failure so callers never need to guard against None.
     """
-    data = await _get(f"/v1/mf/schemes/{scheme_code}/events", params={"limit": limit})
+    data = await _get(f"/mf/schemes/{scheme_code}/events", params={"limit": limit})
     if data is None:
         return []
     rows = data.get("data") or data.get("events") or data.get("rows") or []
+    return rows if isinstance(rows, list) else []
+
+
+# ── MF card support (summary + overview/returns/holdings/peers detail views) ──
+
+async def search_mf_schemes(q: str, limit: int = 8) -> list[Dict[str, Any]]:
+    """Resolve a scheme NAME (substring, case-insensitive) to scheme master rows.
+
+    Calls GET /mf/schemes?q=<name>&status=active (nidp.mf_scheme_master). Each row
+    has scheme_code, scheme_name, amc_name, isin_growth, scheme_category, latest_nav.
+    Returns an empty list on 404 / connectivity failure so callers degrade rather
+    than raise. Results are AMFI-ordered by scheme_name.
+    """
+    q = (q or "").strip()
+    if not q:
+        return []
+    try:
+        data = await _get("/mf/schemes", params={"q": q, "status": "active", "limit": limit})
+    except DaasError as exc:
+        logger.debug("search_mf_schemes(%r): %s", q[:40], exc)
+        return []
+    if not data:
+        return []
+    rows = data.get("data") or data.get("rows") or []
+    return rows if isinstance(rows, list) else []
+
+
+async def get_mf_scheme(scheme_code: str) -> Optional[Dict[str, Any]]:
+    """Single scheme detail + latest disclosure (benchmark, managers, TER, risk, AUM).
+
+    Calls GET /mf/schemes/{scheme_code}. Many disclosure fields can be null when the
+    AMC-disclosure feed has not populated them — callers must omit, never default.
+    Returns None on 404 / connectivity failure.
+    """
+    data = await _get(f"/mf/schemes/{scheme_code}")
+    if data is None:
+        return None
+    return data.get("data") or data
+
+
+async def get_mf_nav_series(scheme_code: str, limit: int = 2) -> list[Dict[str, Any]]:
+    """Recent NAV rows (newest first) — used to derive the daily NAV change %.
+
+    Calls GET /mf/nav/{scheme_code}?limit=<n>. Returns [] on failure.
+    """
+    data = await _get(f"/mf/nav/{scheme_code}", params={"limit": limit})
+    if data is None:
+        return []
+    rows = data.get("data") or data.get("rows") or []
+    return rows if isinstance(rows, list) else []
+
+
+async def get_mf_holdings(
+    scheme_code: str,
+    instrument_type: Optional[str] = None,
+    limit: int = 400,
+) -> list[Dict[str, Any]]:
+    """Per-security monthly holdings (weight DESC).
+
+    Calls GET /mf/holdings/{scheme_code}. Each row: security_name, security_isin,
+    instrument_type, sector, rating, quantity, market_value_inr, weight_pct.
+    Returns [] on 404 (no holdings) OR HTTP 500 (the AMC-holdings feed is currently
+    unreliable) so the caller can gate the holdings view on a non-empty list.
+    """
+    params: Dict[str, Any] = {"limit": limit}
+    if instrument_type:
+        params["instrument_type"] = instrument_type
+    try:
+        data = await _get(f"/mf/holdings/{scheme_code}", params=params)
+    except DaasError as exc:
+        logger.debug("get_mf_holdings(%s): %s", scheme_code, exc)
+        return []
+    if not data:
+        return []
+    rows = data.get("data") or data.get("rows") or []
+    return rows if isinstance(rows, list) else []
+
+
+async def get_mf_category_scorecard(
+    sub_category: str,
+    sort_by: str = "aum",
+    limit: int = 12,
+) -> list[Dict[str, Any]]:
+    """Composite-scored category leaderboard (peers).
+
+    Calls GET /mf/performance/scorecard/category/{sub_category} (ILIKE match on
+    nidp.v_mf_category_scorecard). Each row has scheme_code, scheme_name, aum_cr,
+    return_1y, return_3y, ter, composite_score, quality_label. Returns [] on 404.
+    """
+    sub = (sub_category or "").strip()
+    if not sub:
+        return []
+    try:
+        data = await _get(
+            f"/mf/performance/scorecard/category/{sub}",
+            params={"sort_by": sort_by, "limit": limit},
+        )
+    except DaasError as exc:
+        logger.debug("get_mf_category_scorecard(%r): %s", sub[:40], exc)
+        return []
+    if not data:
+        return []
+    rows = data.get("data") or data.get("rows") or []
     return rows if isinstance(rows, list) else []
 
 
@@ -240,7 +555,7 @@ async def get_price_latest(symbol: str) -> Optional[float]:
     Returns None if the symbol has no price data yet (data lake may be empty
     before the yfinance backfill runs).
     """
-    data = await _get(f"/v1/prices/latest/{symbol}")
+    data = await _get(f"/prices/latest/{symbol}")
     if data is None:
         return None
     row = data.get("data") or data
@@ -386,7 +701,7 @@ async def get_user_holdings(
         params["on"] = on
     try:
         payload = await _get(
-            f"/v1/intelligence/portfolio/{external_user_id}/holdings",
+            f"/intelligence/portfolio/{external_user_id}/holdings",
             params=params,
         )
     except DaasError as exc:
@@ -423,7 +738,7 @@ async def get_portfolio_correlations(
         return []
     try:
         payload = await _post(
-            "/v1/intelligence/graph/correlations/bulk",
+            "/intelligence/graph/correlations/bulk",
             {"security_ids": security_ids},
             timeout=timeout,
         )
@@ -453,7 +768,7 @@ async def get_v3_stock_primitives_bulk(
         return {}
     try:
         payload = await _post(
-            "/v1/stocks/v3-primitives/bulk",
+            "/stocks/v3-primitives/bulk",
             {"symbols": symbols},
             timeout=timeout,
         )
@@ -488,3 +803,116 @@ async def get_portfolio_risk(
     if not payload:
         return None
     return payload.get("data") or payload
+
+
+async def get_portfolio_snapshot(
+    external_user_id: str,
+    timeout: float = 8.0,
+) -> Optional[Dict[str, Any]]:
+    """Fetch the latest NIDP portfolio snapshot for a user.
+
+    Calls GET /v1/intelligence/portfolio/{external_user_id}/snapshot.
+    Returns a dict with keys like: total_market_value_inr, equity_weight_pct,
+    debt_weight_pct, avg_beta_90d, top_sector, top_sector_weight_pct,
+    concentration_top5_pct, quality_tier, avg_rsi_14, high_corr_pairs,
+    snapshot_date.
+    Returns None on 404 / connectivity failure so callers can fall back.
+    """
+    if not external_user_id:
+        return None
+    try:
+        payload = await _get(
+            f"/intelligence/portfolio/{external_user_id}/snapshot",
+            timeout=timeout,
+        )
+    except DaasError as exc:
+        if getattr(exc, "status_code", None) == 404:
+            return None
+        logger.warning("get_portfolio_snapshot[%s]: %s", external_user_id, exc)
+        return None
+    if not payload:
+        return None
+    return payload.get("data") or payload
+
+
+# ── Sleeve builder support — rank funds within a sub-category ─────────────────
+
+# Plans that should never be recommended even if they rank high: segregated side-
+# pockets, unclaimed/closed/matured plans, and IDCW (income) variants.
+_JUNK_PLAN = re.compile(r"segregated|unclaimed|closed[\s-]?end|matured|idcw|dividend", re.I)
+
+
+async def get_top_funds_by_subcategory(
+    fund_category: Optional[str],
+    sub_category: str,
+    n: int = 3,
+    timeout: float = 8.0,
+) -> List[Dict[str, Any]]:
+    """Return the top-`n` V3-scored funds in a sub-category, ranked by quality.
+
+    Powers the sleeve-based Portfolio Builder. Calls GET /v1/mf/scores/ filtered
+    by fund_category (optional) + sub_category (ILIKE), sorted by quality_score
+    DESC. Coverage gate is 0 here because sub-category universes are small and
+    average coverage is modest; ranking is relative WITHIN the sleeve. Junk plans
+    (segregated/unclaimed/IDCW) are dropped and Direct plans preferred.
+
+    Returns [] on connectivity failure so a sleeve degrades to "no picks yet"
+    rather than fabricating one.
+    """
+    if not sub_category:
+        return []
+    params: Dict[str, Any] = {
+        "sub_category": sub_category,
+        "sort_by": "quality_score",
+        "sort_desc": "true",
+        "min_quality_coverage": 0,
+        "limit": 40,
+    }
+    if fund_category:
+        params["fund_category"] = fund_category
+    try:
+        data = await _get("/mf/scores/", params=params, timeout=timeout)
+    except DaasError as exc:
+        logger.debug("get_top_funds_by_subcategory(%r): %s", sub_category, exc)
+        return []
+    rows = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return []
+
+    clean = [r for r in rows if not _JUNK_PLAN.search(str(r.get("scheme_name") or ""))]
+    direct = [r for r in clean if "direct" in str(r.get("scheme_name") or "").lower()]
+    pool = direct if len(direct) >= n else clean
+    return pool[:n]
+
+
+async def get_debt_sleeve_funds(
+    fund_category: Optional[str],
+    sub_category: str,
+    pool: int = 40,
+    timeout: float = 10.0,
+) -> List[Dict[str, Any]]:
+    """Candidate debt funds in a sub-category WITH the NAV-side primitives the
+    governed debt model needs (Sharpe, TER, AUM, FM tenure, max drawdown).
+
+    Two-step: (1) the scored screener for the candidate ISINs (junk-filtered,
+    Direct-preferred), (2) the v3-primitives bulk endpoint for their raw fields.
+    Returns fund dicts ready for services.debt_scoring.rank_peers(). [] on
+    failure so the sleeve degrades rather than fabricates.
+    """
+    rows = await get_top_funds_by_subcategory(fund_category, sub_category, n=pool, timeout=timeout)
+    isins = [r.get("isin") for r in rows if r.get("isin")]
+    prims = await get_v3_mf_primitives_bulk(isins) if isins else {}
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        p = prims.get(r.get("isin")) or {}
+        out.append({
+            "scheme_name": r.get("scheme_name"),
+            "isin": r.get("isin"),
+            "sub_category": sub_category,
+            "sharpe": p.get("sharpe"),
+            "expense_ratio": p.get("expense_ratio_direct") or p.get("expense_ratio"),
+            "aum_cr": p.get("aum_cr"),
+            "manager_tenure_years": p.get("manager_tenure_years"),
+            "max_drawdown_pct": p.get("max_drawdown_pct"),
+        })
+    return out

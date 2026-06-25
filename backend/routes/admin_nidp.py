@@ -95,6 +95,8 @@ NIDP_INGESTERS: List[Dict[str, str]] = [
     # Portfolio sync pipeline (Nivesh PG → NIDP → intelligence)
     {"ingester": "portfolio_holdings_sync",     "cadence": "daily"},
     {"ingester": "portfolio_intelligence_sync", "cadence": "daily"},
+    # Portfolio Risk Analytics — nightly at 23:45 IST weekdays (VM cron, not Cloud Run)
+    {"ingester": "pra_engine", "cadence": "daily", "runner": "vm"},
 ]
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "niveshdataintelligence")
@@ -123,10 +125,21 @@ def _job_name(ingester: str) -> str:
     return f"nidp-{ingester.replace('_', '-')}"
 
 
+def _ingester_spec(ingester: str) -> Dict[str, str]:
+    for spec in NIDP_INGESTERS:
+        if spec["ingester"] == ingester:
+            return spec
+    raise HTTPException(status_code=404, detail=f"unknown ingester: {ingester}")
+
+
 def _ingester_or_404(ingester: str) -> str:
-    if ingester not in {i["ingester"] for i in NIDP_INGESTERS}:
-        raise HTTPException(status_code=404, detail=f"unknown ingester: {ingester}")
+    _ingester_spec(ingester)
     return ingester
+
+
+def _is_vm_only(ingester: str) -> bool:
+    """True if the ingester runs only on the VM (not a Cloud Run job)."""
+    return _ingester_spec(ingester).get("runner") == "vm"
 
 
 async def _run_gcloud(*args: str, timeout: int = 60) -> tuple[int, str, str]:
@@ -425,6 +438,8 @@ async def execute_job(
     await require_admin(request)
     _ingester_or_404(ingester)
 
+    vm_only = _is_vm_only(ingester)
+
     # ── Primary path: VM via query_api ──────────────────────────────
     if _nq.is_configured():
         try:
@@ -443,9 +458,21 @@ async def execute_job(
                 "hint":        resp.get("hint"),
             }
         except _nq.NidpQueryClientError as e:
+            if vm_only:
+                logger.warning("admin/nidp: VM execute failed for %s: %s", ingester, e.detail)
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Could not reach NIDP VM to trigger {ingester}: {e.detail}",
+                ) from e
             logger.warning("admin/nidp: VM execute failed for %s: %s — falling back to gcloud", ingester, e.detail)
+    elif vm_only:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{ingester} runs on the NIDP VM. NIDP_QUERY_API_URL is not configured — "
+                   "add the secret so the trigger can reach the VM.",
+        )
 
-    # ── Legacy path: gcloud Cloud Run jobs (deprecated) ─────────────
+    # ── Legacy path: gcloud Cloud Run jobs (not for VM-only services) ─
     job = _job_name(ingester)
     rc, out, err = await _run_gcloud(
         "run", "jobs", "execute", job,
@@ -1008,3 +1035,73 @@ async def regenerate_nidp_api_key(key: str, request: Request):
         "new_value": new_token,
         "message": "Token regenerated. Copy it now — it will not be shown again in full.",
     }
+
+
+# ── Static-key job trigger (no session required) ─────────────────────────────
+# Protected by the same shared secret used by /reset-onboarding so that
+# admin tasks can be triggered from curl/scripts without a browser session.
+#
+#   curl -X POST https://niveshcopilot.com/api/admin/nidp/run-job \
+#        -H 'Content-Type: application/json' \
+#        -H 'X-Admin-Key: niv3sh-reset-2026' \
+#        -d '{"ingester": "pra_engine"}'
+#
+# Works for any ingester in NIDP_INGESTERS. Routes through the NIDP
+# Query API (same as the session-auth /jobs/{ingester}/execute endpoint).
+
+_STATIC_KEY = "niv3sh-reset-2026"
+
+router_static = APIRouter(prefix="/api/admin/nidp", tags=["admin-nidp-static"])
+
+
+@router_static.post("/run-job")
+async def run_job_static_key(request: Request) -> Dict[str, Any]:
+    """Trigger any NIDP ingester by name using a static admin key.
+
+    Useful for scripts / cron / curl where a browser session is unavailable.
+    Routes through the NIDP Query API on the VM — same behaviour as the
+    session-auth /jobs/{ingester}/execute endpoint.
+
+    curl -X POST https://niveshcopilot.com/api/admin/nidp/run-job \\
+         -H 'Content-Type: application/json' \\
+         -H 'X-Admin-Key: niv3sh-reset-2026' \\
+         -d '{"ingester": "pra_engine", "target_date": "2026-06-03"}'
+    """
+    key = request.headers.get("X-Admin-Key", "")
+    if key != _STATIC_KEY:
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+    body = await request.json()
+    ingester = (body.get("ingester") or "").strip()
+    target_date = (body.get("target_date") or "").strip() or None
+
+    if not ingester:
+        raise HTTPException(status_code=400, detail="ingester required")
+
+    # Validate against known ingesters
+    known = {s["ingester"] for s in NIDP_INGESTERS}
+    if ingester not in known:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown ingester '{ingester}'. Known: {sorted(known)}",
+        )
+
+    if not _nq.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="NIDP_QUERY_API_URL / NIDP_QUERY_API_TOKEN not configured. "
+                   "Set them via Admin → Secrets before using this endpoint.",
+        )
+
+    try:
+        resp = await _nq.execute_feed(ingester, target_date=target_date)
+        logger.info("static-key trigger: %s (date=%s)", ingester, target_date or "default")
+        return {
+            "ok":          True,
+            "ingester":    ingester,
+            "target_date": target_date,
+            "status":      resp.get("status", "spawned"),
+            "hint":        resp.get("hint"),
+        }
+    except _nq.NidpQueryClientError as e:
+        raise HTTPException(status_code=503, detail=f"NIDP Query API error: {e.detail}") from e

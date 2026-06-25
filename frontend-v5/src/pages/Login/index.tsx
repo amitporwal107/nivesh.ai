@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { Capacitor } from "@capacitor/core";
+import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
+import { dlog } from "@/lib/device-log";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useGoogleSignIn, useMagicLink, useMe } from "@/hooks/use-auth";
@@ -8,7 +11,19 @@ import { usePortfolioSummary } from "@/hooks/use-portfolio";
 import { useHealthAnalysis } from "@/hooks/use-insights";
 import { authService } from "@/services";
 import { useToastStore } from "@/stores/toast.store";
+import { useImpersonationStore } from "@/stores/impersonation.store";
 import { ALLOWED_DOMAINS } from "@/types/user";
+
+/** Decode a JWT's `aud` claim (for diagnostics only — no verification). */
+function jwtAud(token?: string): string {
+  if (!token) return "(none)";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
+    return String(payload.aud ?? "(no aud)");
+  } catch {
+    return "(unparseable)";
+  }
+}
 
 function formatRs(paise: number) {
   const rs = Math.abs(paise) / 100;
@@ -36,8 +51,34 @@ export default function LoginPage() {
   const handleCredential = useCallback(async (credential: string) => {
     try {
       const user = await google.mutateAsync(credential);
-      navigate(user.onboardingCompleted ? "/dashboard" : "/onboarding");
+      dlog("backend exchange ACCEPTED", {
+        email: user.email,
+        onboardingCompleted: user.onboardingCompleted,
+      });
+      // Confirm the session cookie is re-sent on the NEXT request (RequireAuth +
+      // every data call depend on it), AND read workspace_type — it only comes
+      // back on /auth/me, not the google exchange, and decides the landing page.
+      let meCheck: Awaited<ReturnType<typeof authService.me>> | null = null;
+      try {
+        meCheck = await authService.me();
+        dlog("auth/me probe OK (session cookie works)", { email: meCheck.email });
+      } catch (probeErr) {
+        dlog("auth/me probe FAILED (cookie not sent on next request)", probeErr);
+      }
+      // Fresh login starts at the workspace root — drop any impersonation left
+      // in the persisted store from a previous session so the advisor doesn't
+      // land inside a stale client view (full nav + banner).
+      useImpersonationStore.getState().clear();
+      // Advisors land on their workspace (reduced advisor nav), not their own
+      // portfolio dashboard. To view their own book they open the SELF profile.
+      const dest = !user.onboardingCompleted ? "/onboarding"
+        : (meCheck?.workspaceType || "").toUpperCase() === "ADVISORY" ? "/advisor"
+        : "/dashboard";
+      navigate(dest);
     } catch (err) {
+      // Log the REAL backend rejection (status, code, message) — this is the
+      // line that tells us whitelist vs audience vs network, etc.
+      dlog("backend exchange REJECTED", err);
       pushToast({
         kind: "error",
         title: "Sign-in failed",
@@ -48,17 +89,60 @@ export default function LoginPage() {
 
   const gis = useGoogleIdentity(handleCredential);
 
+  // Inside the native app the web Google Identity Services button can't run
+  // (Google blocks OAuth in WebViews). Use the native Google sign-in plugin;
+  // it returns a Google ID token (audience = our web client) which we hand to
+  // the same backend endpoint via handleCredential().
+  const isNative = Capacitor.isNativePlatform();
+
+  useEffect(() => {
+    if (!isNative) return;
+    try {
+      GoogleAuth.initialize();
+    } catch {
+      /* native plugin initializes from config — ignore double-init */
+    }
+  }, [isNative]);
+
+  const [nativePending, setNativePending] = useState(false);
+  const handleNativeGoogle = useCallback(async () => {
+    setNativePending(true);
+    dlog("native google sign-in: tapped");
+    try {
+      const result = await GoogleAuth.signIn();
+      const idToken = result?.authentication?.idToken;
+      dlog("native google sign-in: returned", {
+        email: result?.email,
+        aud: jwtAud(idToken),
+        hasIdToken: Boolean(idToken),
+      });
+      if (!idToken) throw new Error("Google did not return an ID token");
+      // handleCredential logs the real backend outcome (ACCEPTED / REJECTED).
+      await handleCredential(idToken);
+    } catch (err) {
+      dlog("native google sign-in: FAILED", err);
+      pushToast({
+        kind: "error",
+        title: "Sign-in failed",
+        description: err instanceof Error ? err.message : "Try again",
+      });
+    } finally {
+      setNativePending(false);
+    }
+  }, [handleCredential, pushToast]);
+
   const isAllowed = email ? authService.isAllowedDomain(email) : true;
   const userName = me?.name?.split(" ")[0] ?? null;
   const healthScore = (health as any)?.health_score ?? (summary as any)?.healthScore ?? null;
   const aum = summary?.totalValue ? formatRs(summary.totalValue) : null;
 
-  // Render Google's native sign-in button
+  // Render Google's web sign-in button (browser only — not in the native app)
   useEffect(() => {
+    if (isNative) return;
     if (gis.ready && googleBtnRef.current) {
       gis.renderButton(googleBtnRef.current);
     }
-  }, [gis.ready, gis.renderButton]);
+  }, [isNative, gis.ready, gis.renderButton]);
 
   const handleMagic = async () => {
     try {
@@ -136,9 +220,19 @@ export default function LoginPage() {
             inbox. Read-only — we never send mail or read anything else.
           </p>
 
-          {/* Google Sign-In — native rendered button */}
+          {/* Google Sign-In — native plugin in the app, web GIS button in browsers */}
           <div className="mt-6">
-            {gis.ready ? (
+            {isNative ? (
+              <Button
+                variant="accent"
+                size="lg"
+                className="w-full"
+                disabled={nativePending || google.isPending}
+                onClick={handleNativeGoogle}
+              >
+                {nativePending ? "Opening Google…" : "Continue with Google"}
+              </Button>
+            ) : gis.ready ? (
               <div ref={googleBtnRef} className="flex justify-center" />
             ) : gis.loadError ? (
               <div className="font-mono text-[11px] text-neg mt-2">Google Sign-In failed to load. Check your browser's popup/cookie settings.</div>
@@ -193,6 +287,18 @@ export default function LoginPage() {
             ENCRYPTED · NEVER STORED · ARN-128459<br />
             <span className="text-ink-4">By continuing you agree to the IPS and risk disclosure.</span>
           </div>
+
+          {isNative && (
+            <div className="text-center mt-4">
+              <button
+                type="button"
+                onClick={() => navigate("/debug-logs")}
+                className="font-mono text-[10px] text-ink-4 underline underline-offset-2"
+              >
+                Debug logs
+              </button>
+            </div>
+          )}
         </div>
       </section>
     </div>

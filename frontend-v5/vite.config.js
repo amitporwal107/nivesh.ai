@@ -13,6 +13,18 @@ export default defineConfig({
             "@": path.resolve(__dirname, "./src"),
         },
     },
-    server: { port: 5174, host: true },
+    server: {
+        port: 5174,
+        host: true, // binds 0.0.0.0 so phone on same WiFi can reach it
+        proxy: {
+            // Forward /api calls to staging so no CORS issue from localhost.
+            // Set VITE_USE_MOCK_API=false and leave VITE_API_BASE_URL blank in .env.local.
+            "/api": {
+                target: "https://staging.niveshcopilot.com",
+                changeOrigin: true,
+                secure: true,
+            },
+        },
+    },
     build: { sourcemap: true },
 });

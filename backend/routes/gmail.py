@@ -90,16 +90,30 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
         from routes.client_cas_invite import _handle_invite_oauth_callback
         return await _handle_invite_oauth_callback(request, code, state, error)
 
+    # Resolve the caller's relay page (return_to) up-front so EVERY exit path —
+    # success *and* failure — sends the popup back to it. Google echoes the
+    # `state` parameter on error responses too (RFC 6749 §4.1.2.1), so even a
+    # user who declines consent can be returned to the popup relay, which posts
+    # the outcome to the opener and closes itself. Hard-coding a path here left
+    # the popup stranded on a non-relay route (the v5 app has no /v2/dashboard);
+    # the user closing that stranded popup surfaced as a misleading
+    # "Gmail connection was cancelled" with no real reason shown.
+    state_doc = await db.gmail_oauth_states.find_one({"state": state}, {"_id": 0}) if state else None
+    return_to = (state_doc or {}).get("return_to") or "/v2/dashboard"
+
+    def _fail(reason: str) -> RedirectResponse:
+        sep = "&" if "?" in return_to else "?"
+        return RedirectResponse(url=f"{return_to}{sep}gmail_error={reason}")
+
     if error:
-        logger.error("Gmail OAuth error: %s", error)
-        return RedirectResponse(url="/v2/dashboard?gmail_error=denied")
+        logger.warning("Gmail OAuth declined/error: %s", error)
+        return _fail("denied")
 
     if not code or not state:
-        return RedirectResponse(url="/v2/dashboard?gmail_error=missing_params")
+        return _fail("missing_params")
 
-    state_doc = await db.gmail_oauth_states.find_one({"state": state}, {"_id": 0})
     if not state_doc:
-        return RedirectResponse(url="/v2/dashboard?gmail_error=invalid_state")
+        return _fail("invalid_state")
 
     expires_at = state_doc["expires_at"]
     if isinstance(expires_at, str):
@@ -107,11 +121,10 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if datetime.now(timezone.utc) > expires_at:
-        return RedirectResponse(url="/v2/dashboard?gmail_error=state_expired")
+        return _fail("state_expired")
 
     user_id = state_doc["user_id"]
     code_verifier = state_doc.get("code_verifier")
-    return_to = state_doc.get("return_to") or "/v2/dashboard"
     await db.gmail_oauth_states.delete_one({"state": state})
 
     redirect_uri = _resolve_gmail_redirect_uri(request)
@@ -120,7 +133,7 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
         tokens = exchange_code_for_tokens(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirect_uri, code, code_verifier=code_verifier)
     except Exception as e:
         logger.error("Gmail token exchange failed: %s", e)
-        return RedirectResponse(url=f"{return_to}?gmail_error=token_exchange_failed")
+        return _fail("token_exchange_failed")
 
     await db.gmail_tokens.update_one(
         {"user_id": user_id},

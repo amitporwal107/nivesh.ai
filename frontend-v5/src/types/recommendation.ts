@@ -52,6 +52,16 @@ export interface Recommendation {
   expectedEffect?: ExpectedEffect;
   confidence?: Confidence;
   appliedAt?: string | null;
+  /** Advisory conviction text from the engine — leads with fund/reason, no BUY/SELL/HOLD.
+   *  When present, rendered as the card headline instead of the generic verbLabel+name title. */
+  convictionText?: string | null;
+  /** Phase 4: plan-level confidence tier riding on every action */
+  confidenceTier?: "goals_and_risk" | "risk_only" | "dob_only" | "generic" | null;
+  confidenceLabel?: string | null;
+  planConfidenceScore?: number | null;
+  /** Phase 5 (D-5): deferred action — non-empty means this exit is flagged but not executable now */
+  deferReason?: string | null;
+  executionDate?: string | null;
 }
 
 /** UI filter group for the Recommendations page tabs */

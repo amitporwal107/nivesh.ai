@@ -45,6 +45,105 @@ export function useConcentrationAnalysis() {
   });
 }
 
+// ── Portfolio X-ray (dashboard look-through hero) ───────────────────────────
+// Built entirely from the real /api/portfolio/exposure/concentration envelope
+// (the same compute_concentration engine the Insights tab uses). No mock data:
+// when the look-through is empty the snapshot's leaders are null and the
+// dashboard section simply doesn't render.
+
+export interface XrayLeader {
+  name: string;
+  pct: number;        // % within its own lens (AMC = % of MF corpus, etc.)
+  valueInr: number;   // ₹ value of the bucket
+}
+
+export interface FundSlice {
+  name: string;       // fund scheme name (or "Others (N funds)")
+  valueInr: number;   // ₹ of this stock's exposure that comes via this fund
+  pct: number;        // share of the look-through total (slices sum to ~100%)
+}
+
+export interface XraySnapshot {
+  holdingsCount: number;   // number of holdings looked through
+  companyCount: number;    // distinct underlying companies (look-through)
+  effectiveBets: number;   // effective_n of underlying companies — the "real" bets
+  topAmc: XrayLeader | null;
+  topSector: XrayLeader | null;
+  // funds = how many distinct funds hold it; fundBreakdown = top-10 funds by
+  // ₹ exposure (+ an "Others" slice) for the donut.
+  topStock: (XrayLeader & { funds: number; fundBreakdown: FundSlice[] }) | null;
+  amcBars: XrayLeader[];     // top AMCs for the mini stacked bar
+  sectorBars: XrayLeader[];  // top sectors for the mini bars
+}
+
+interface RawSectionItem {
+  name?: string; pct?: number; value_inr?: number; via_funds_count?: number;
+  fund_breakdown?: { name?: string; value_inr?: number; pct?: number }[];
+}
+interface RawSection { items?: RawSectionItem[]; effective_n?: number; all_items_count?: number }
+interface RawConcentration {
+  amc?: RawSection; sector?: RawSection; company?: RawSection;
+  holdings_count?: number; empty?: boolean;
+}
+
+function leader(items: RawSectionItem[] | undefined): XrayLeader | null {
+  const it = items?.[0];
+  if (!it?.name) return null;
+  return { name: it.name, pct: Number(it.pct ?? 0), valueInr: Number(it.value_inr ?? 0) };
+}
+function bars(items: RawSectionItem[] | undefined, n: number): XrayLeader[] {
+  return (items ?? []).slice(0, n)
+    .filter((it) => it.name)
+    .map((it) => ({ name: it.name!, pct: Number(it.pct ?? 0), valueInr: Number(it.value_inr ?? 0) }));
+}
+
+// "Unclassified"/"Other" buckets are real but useless as a hero "largest
+// sector" — the look-through engine emits them when a fund's holdings aren't
+// sector-tagged. Drop them so the card surfaces a meaningful sector.
+const SKIP_SECTOR = new Set(["unclassified", "unknown", "other", "others", "-", ""]);
+function meaningfulSector(it: RawSectionItem): boolean {
+  return !SKIP_SECTOR.has((it.name ?? "").trim().toLowerCase());
+}
+
+function mapXray(raw: RawConcentration): XraySnapshot {
+  const company = raw.company ?? {};
+  const topStockBase = leader(company.items);
+  const topStock = topStockBase
+    ? {
+        ...topStockBase,
+        funds: Number(company.items?.[0]?.via_funds_count ?? 0),
+        fundBreakdown: (company.items?.[0]?.fund_breakdown ?? [])
+          .filter((s) => s.name)
+          .map((s) => ({
+            name: s.name!,
+            valueInr: Number(s.value_inr ?? 0),
+            pct: Number(s.pct ?? 0),
+          })),
+      }
+    : null;
+  const sectorItems = (raw.sector?.items ?? []).filter(meaningfulSector);
+  return {
+    holdingsCount: Number(raw.holdings_count ?? 0),
+    companyCount: Number(company.all_items_count ?? company.items?.length ?? 0),
+    effectiveBets: Math.round(Number(company.effective_n ?? 0)),
+    topAmc: leader(raw.amc?.items),
+    topSector: leader(sectorItems),
+    topStock,
+    amcBars: bars(raw.amc?.items, 5),
+    sectorBars: bars(sectorItems, 5),
+  };
+}
+
+export function usePortfolioXray() {
+  return useQuery({
+    queryKey: ["analytics", "xray"],
+    queryFn: () => import("@/services/api/http").then(({ http }) =>
+      http({ path: "/api/portfolio/exposure/concentration" }).then((r) => mapXray(r.data as RawConcentration))
+    ),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useRemediation() {
   return useQuery({
     queryKey: ["analytics", "remediation"],

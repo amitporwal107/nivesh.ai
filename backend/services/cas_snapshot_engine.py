@@ -158,8 +158,12 @@ async def _resolve_full_scheme_name(name: str, ticker: str, asset_type: str) -> 
     canonical = (entry.get("scheme_name") or "").strip()
     if not canonical:
         return name
-    # Use AMFI's name if our stored one is materially shorter or generic.
+    # Prefer AMFI's canonical name when ours is materially shorter (truncation)
+    # OR a CAS column-glue artifact (stray commas from a name that wrapped across
+    # PDF columns — AMFI scheme names never contain commas).
     if len(canonical) > len(name) + 4:
+        return canonical
+    if "," in name and "," not in canonical:
         return canonical
     return name
 
@@ -503,11 +507,35 @@ async def create_cas_snapshot(
         aggs=aggs,
     )
 
-    # Export fresh holdings to GCS then trigger NIDP sync — fire-and-forget.
-    # NIDP reads from GCS (no cross-VM PG bridge needed).
+    # Push holdings + transactions directly to NIDP Postgres via Query API.
+    # Direct path (no GCS): Nivesh app → NIDP Query API → TimescaleDB.
+    # Falls back to GCS export if direct push is unavailable (legacy path).
     import asyncio as _asyncio
 
-    async def _export_then_sync() -> None:
+    async def _push_to_nidp() -> None:
+        from services import nidp_query_client as _nqc
+
+        if _nqc.is_configured():
+            # ── Primary path: direct push (bypasses GCS) ────────────────────
+            try:
+                from services.portfolio_direct_push import (
+                    push_portfolio_direct,
+                    push_transactions_direct,
+                )
+                h_result = await push_portfolio_direct(db, target_date=snapshot_date)
+                logger.info("portfolio direct push after CAS import: %s", h_result)
+                t_result = await push_transactions_direct(db, target_date=snapshot_date)
+                logger.info("transactions direct push after CAS import: %s", t_result)
+                # Still trigger intelligence sync so V3 scores update
+                try:
+                    await _nqc.execute_feed("portfolio_intelligence_sync", target_date=snapshot_date)
+                except Exception as _exc:  # noqa: BLE001
+                    logger.debug("intelligence sync trigger skipped: %s", _exc)
+                return
+            except Exception as _exc:  # noqa: BLE001
+                logger.warning("portfolio direct push failed — falling back to GCS: %s", _exc)
+
+        # ── Fallback path: GCS export + sync jobs (original flow) ───────────
         try:
             from services.portfolio_gcs_export import (
                 export_portfolio_to_gcs,
@@ -515,23 +543,19 @@ async def create_cas_snapshot(
             )
             holdings_result = await export_portfolio_to_gcs(db, target_date=snapshot_date)
             logger.info("portfolio GCS export after CAS import: %s", holdings_result)
-            # Transactions are the source of truth for the lot-level FIFO
-            # tax engine — re-export them on every CAS import so NIDP's
-            # tax/exit-score calculations stay current.
             txn_result = await export_cas_transactions_to_gcs(db, target_date=snapshot_date)
             logger.info("transactions GCS export after CAS import: %s", txn_result)
         except Exception as _exc:  # noqa: BLE001
             logger.warning("portfolio/transactions GCS export failed (non-blocking): %s", _exc)
-            return  # don't attempt NIDP sync if export failed
+            return
         try:
-            from services import nidp_query_client as _nqc
             if _nqc.is_configured():
                 await _nqc.execute_feed("portfolio_holdings_sync", target_date=snapshot_date)
                 await _nqc.execute_feed("portfolio_transactions_sync", target_date=snapshot_date)
         except Exception as _exc:  # noqa: BLE001
             logger.debug("NIDP portfolio sync trigger skipped: %s", _exc)
 
-    _asyncio.ensure_future(_export_then_sync())
+    _asyncio.ensure_future(_push_to_nidp())
 
     # If this snapshot is now the latest → mirror to the live holdings table
     if is_latest:

@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 
-from .._llm import COPILOT_LLM_MODEL
+from .._llm import COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
 from ..schemas import AgentName, CopilotState, IntentClassification
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,34 @@ _P_MF = re.compile(
     r"index\s+fund|elss|debt\s+fund|liquid\s+fund|"
     r"direct\s+plan|regular\s+plan|switch\s+to\s+direct|"
     r"expense\s+ratio|ter\b|fund\s+manager|"
-    r"too\s+many\s+(?:mutual\s+)?funds?|sip\s+allocation)\b",
+    r"too\s+many\s+(?:mutual\s+)?funds?|sip\s+allocation|"
+    # Single-fund card prompts (summary + overview/returns/holdings/peers tabs).
+    r"(?:overview|returns?|holdings?|ratios?|peers?|full\s+analysis|allocation)\s+of\s+\w|"
+    r"compare\s+.+\bwith\s+its\s+peers|\bwith\s+its\s+peers\b|"
+    r"balanced\s+advantage|blue\s*chip|start\s+a?\s*sip\s+in)\b",
+    re.IGNORECASE,
+)
+
+# Fund overlap / consolidation questions must reach mf_analyst (which renders
+# the fund_consolidation / fund_overlap / overlap_severity widgets), NOT
+# portfolio_analyst — _P_PORTFOLIO greedily matches "overlap". Checked FIRST.
+_P_FUND_OVERLAP = re.compile(
+    r"too many (?:mutual )?funds?|how many (?:mutual )?funds?|"
+    r"(?:fix|reduce|cut|trim|too much|significant\w*)\s+(?:the\s+)?overlap|"
+    r"overlap\w*\s+(?:in|between|of|among|significan)\s*(?:my\s+)?funds?|"
+    r"(?:my |fund\s+)?funds?\s+overlap\w*|"
+    r"(?:are|do)\s+my\s+funds?\s+overlap|"
+    r"consolidat\w*\s+(?:my\s+)?(?:funds?|portfolio)",
+    re.IGNORECASE,
+)
+
+# Cap-category education ("large-cap vs flexi-cap vs mid-cap", "which category").
+# Must reach mf_analyst (renders the cap_education widget). Handles hyphenated
+# forms that _P_MF's `\s*cap` patterns miss. Checked FIRST.
+_P_CAP = re.compile(
+    r"(?:large|mid|small|flexi|multi)[\s-]?cap.{0,40}\b(?:vs|versus|or)\b.{0,40}(?:large|mid|small|flexi|multi)[\s-]?cap|"
+    r"which\s+(?:cap|category|type\s+of\s+fund)|"
+    r"difference\s+between\s+(?:large|mid|small|flexi)[\s-]?cap",
     re.IGNORECASE,
 )
 
@@ -76,13 +103,22 @@ _P_PORTFOLIO = re.compile(
     r"realized\s+(?:vs|or)\s+unrealized|realised\s+(?:vs|or)\s+unrealised|"
     r"p\s*&\s*l|pnl|p_and_l|profit\s+and\s+loss|"
     r"earmark(?:ed)?|currency\s+exposure|india(?:.|-)?focus|"
+    # AMC / sector / company / fund-wise allocation drill-down (the user's
+    # portfolio, not live market sectors — anchored on allocation nouns so
+    # "which sector is up today" still routes to market_analyst).
+    r"(?:sector|amc|fund[\s-]?house|company|companies|fund[\s-]?wise)\s+(?:allocation|concentration|exposure|breakdown|distribution|weight|split|mix)|"
+    r"(?:allocation|concentration|exposure|distribution)\s+(?:of|by|across|per|within)\s+(?:sector|amc|compan|fund)|"
+    r"highest\s+(?:sector|amc|company|fund)?\s*(?:allocation|concentration|exposure)|"
+    r"which\s+(?:sector|amc|fund\s*house)\s+(?:has|have|do\s+i|am\s+i|holds?|is\s+(?:my\s+)?(?:highest|biggest|largest))|"
     r"(?:how\s+much|what)\s+(?:would|will)\s+i\s+(?:lose|gain))\b",
     re.IGNORECASE,
 )
 
 _P_RISK = re.compile(
-    r"\b(risk\s+(?:profile|suitability|capacity|tolerance)|"
+    r"\b(risk\s+(?:profile|suitability|capacity|tolerance|level|score|assessment|exposure|rating)|"
     r"portfolio\s+risk|my\s+risk|too\s+(?:much|aggressive|risky)|"
+    r"how\s+risk(?:y)?|risk(?:y|ier)?\s+(?:is|am|right\s+now)|"
+    r"is\s+my\s+portfolio\s+(?:too\s+)?risky|how\s+much\s+risk|"
     r"var\b|value\s+at\s+risk|volatility|drawdown|beta|"
     r"am\s+i\s+(?:over|under)(?:weight|invested|exposed)|"
     r"risk(?:y|ier)?\s+(?:stocks?|funds?|portfolio)|"
@@ -108,6 +144,19 @@ _P_GOAL = re.compile(
     re.IGNORECASE,
 )
 
+# Stock screener — the Query Builder / composer emit "Screen [bucket] stocks
+# where …". Must win over _P_STOCK (which matches the keyword "roe"/"pe" and
+# would mis-resolve "ROE" as a ticker) and over _P_CAP ("large cap"). Checked
+# FIRST. "screen stocks?" alone (the old _P_RECOMMENDATION clause) missed
+# "Screen large cap stocks" because of the words in between.
+_P_SCREENER = re.compile(
+    r"\bstock\s+screener\b|"
+    r"\bscreener\b|"
+    r"\bscreen(?:\s+\w+){0,4}\s+stocks?\b|"          # screen [≤4 words] stocks
+    r"\bscreen\s+(?:large|mid|small|micro)[\s-]?cap\b",
+    re.IGNORECASE,
+)
+
 _P_RECOMMENDATION = re.compile(
     r"\b(recommend|recommendation|suggest|what\s+(?:should|can)\s+i\s+(?:buy|invest)|"
     r"what\s+stocks?\s+should\s+(?:i|we)\s+(?:buy|invest)|"
@@ -123,10 +172,29 @@ _P_RECOMMENDATION = re.compile(
 )
 
 
+# "Build me a portfolio" / "create my portfolio" → the in-chat builder wizard
+# (routes to the recommendation node, which short-circuits to a portfolio_builder
+# seed widget). Anchored on a build-verb + "portfolio"/"investing" so a plain
+# "my portfolio" still routes to portfolio_analyst.
+_P_BUILDER = re.compile(
+    r"\b(?:build|create|design|set\s*up|make|start|begin)\s+(?:me\s+)?(?:a\s+|my\s+|my\s+first\s+|an?\s+)?"
+    r"(?:portfolio|investment\s+plan|investing)\b"
+    r"|\bportfolio\s+builder\b"
+    r"|\bhelp\s+me\s+(?:build|create|start)\s+(?:a\s+)?(?:portfolio|investing|investment\s+plan)\b"
+    r"|\binvest\s+from\s+scratch\b",
+    re.IGNORECASE,
+)
+
+
 # Pattern → agent mapping (priority order)
+# BUILDER before PORTFOLIO so "build me a portfolio" → builder (not portfolio_analyst)
 # RISK before PORTFOLIO so "portfolio risk" → risk_analyst
 # MARKET before STOCK so "What is Nifty?" → market_analyst (not stock_analyst)
 _PATTERNS = [
+    (_P_BUILDER,         AgentName.RECOMMENDATION),  # "build me a portfolio" → builder wizard (before PORTFOLIO grabs "portfolio")
+    (_P_SCREENER,        AgentName.RECOMMENDATION),  # "Screen [bucket] stocks where …" → screener (before STOCK grabs "roe")
+    (_P_CAP,             AgentName.MF),       # cap-category education → mf (cap_education widget) before others
+    (_P_FUND_OVERLAP,    AgentName.MF),       # fund overlap/consolidation → mf (widgets) before PORTFOLIO grabs "overlap"
     (_P_RISK,            AgentName.RISK),
     (_P_GOAL,            AgentName.GOAL),
     (_P_PORTFOLIO,       AgentName.PORTFOLIO),
@@ -152,9 +220,20 @@ _N_RESULTS_RE = re.compile(r"\b(?:top|best|worst)\s+(\d+)\b", re.IGNORECASE)
 def _extract_slots(text: str, agent: AgentName) -> Dict[str, Any]:
     slots: Dict[str, Any] = {}
     if agent == AgentName.STOCK:
-        m = _SYMBOL_RE.search(text)
-        if m:
-            slots["symbol"] = m.group(1)
+        # Resolve via the shared resolver (lazy import — keeps this module free of
+        # a hard dependency on the app-level copilot_tools package at import time).
+        # Handles lowercase tickers ("hdfc"), company names ("reliance"), and
+        # uppercase pass-through; the old case-sensitive `[A-Z]{2,10}` regex
+        # silently dropped anything not typed in capitals.
+        try:
+            from services.copilot_tools.symbol_resolver import resolve_symbol
+            res = resolve_symbol(text)
+            if res.symbol:
+                slots["symbol"] = res.symbol
+        except Exception:  # noqa: BLE001 — never let resolution break routing
+            m = _SYMBOL_RE.search(text)
+            if m:
+                slots["symbol"] = m.group(1)
     if agent == AgentName.MF:
         m = _SCHEME_RE.search(text)
         if m:
@@ -199,8 +278,8 @@ async def _llm_classify(text: str) -> IntentClassification:
     try:
         llm = ChatOpenAI(
             model=COPILOT_LLM_MODEL,
-            temperature=0,
-            api_key=os.environ.get("OPENAI_API_KEY", ""),
+            temperature=temperature_for(0),
+            api_key=get_openai_api_key(),
         )
         # Tag this LLM call so the SSE consumer can filter its tokens out of
         # the user-facing stream — otherwise the routing JSON leaks into the

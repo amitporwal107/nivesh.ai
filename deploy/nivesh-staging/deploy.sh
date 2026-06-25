@@ -148,20 +148,24 @@ fail() { printf "  [remote] FATAL: %s\n" "$*" >&2; exit 1; }
 sudo mkdir -p "${REMOTE_ROOT}"
 sudo chown "${USER}:${USER}" "${REMOTE_ROOT}"
 
+# Pass safe.directory INLINE (-c) so git never has to write ~/.gitconfig — a
+# global-config write fails when HOME is non-writable/root-owned ("could not
+# lock config file /home/<user>/.gitconfig: Permission denied").
+GIT=(git -c "safe.directory=${REMOTE_REPO}")
 if [[ ! -d "${REMOTE_REPO}/.git" ]]; then
     log "First-time clone of branch ${STAGING_BRANCH} into ${REMOTE_REPO}..."
     git clone --branch "${STAGING_BRANCH}" --quiet "${ORIGIN_URL}" "${REMOTE_REPO}"
 else
     log "Fetching branch ${STAGING_BRANCH}..."
-    git -C "${REMOTE_REPO}" remote set-url origin "${ORIGIN_URL}" >/dev/null
-    git -C "${REMOTE_REPO}" fetch --quiet origin "${STAGING_BRANCH}"
-    git -C "${REMOTE_REPO}" checkout --quiet "${STAGING_BRANCH}"
-    git -C "${REMOTE_REPO}" reset --hard --quiet "origin/${STAGING_BRANCH}"
+    "${GIT[@]}" -C "${REMOTE_REPO}" remote set-url origin "${ORIGIN_URL}" >/dev/null
+    "${GIT[@]}" -C "${REMOTE_REPO}" fetch --quiet origin "${STAGING_BRANCH}"
+    "${GIT[@]}" -C "${REMOTE_REPO}" checkout --quiet "${STAGING_BRANCH}"
+    "${GIT[@]}" -C "${REMOTE_REPO}" reset --hard --quiet "origin/${STAGING_BRANCH}"
 fi
 # Scrub the PAT-bearing URL so it isn't sitting in .git/config on disk
-git -C "${REMOTE_REPO}" remote set-url origin "https://github.com/amitporwal107/nivesh.ai.git" >/dev/null
+"${GIT[@]}" -C "${REMOTE_REPO}" remote set-url origin "https://github.com/amitporwal107/nivesh.ai.git" >/dev/null
 
-log "HEAD on VM: $(git -C ${REMOTE_REPO} log -1 --oneline)"
+log "HEAD on VM: $("${GIT[@]}" -C ${REMOTE_REPO} log -1 --oneline)"
 
 log "Running bootstrap-staging.sh..."
 sudo bash "${REMOTE_REPO}/deploy/nivesh-staging/bootstrap-staging.sh"

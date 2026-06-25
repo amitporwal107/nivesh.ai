@@ -1,0 +1,60 @@
+# =============================================================================
+# Indian Debt Mutual Fund - Scoring Model (governed config)
+# Faithful encoding of docs/debt_fund_scoring_model (2).xlsx, v1.0.
+#
+# 11 parameters scored 1-5 via thresholds, weighted to a composite (1.0-5.0 and
+# /100), graded, and ranked WITHIN one SEBI category. Category-specific weight
+# sets are provided. Each parameter declares its NIDP source field and whether
+# that data is currently available -- the NAV-derived params compute today; the
+# disclosure-bound params (rating profile, CRV, duration/PRC, issuer, liquid %)
+# have no working free feed (mfdata.in is dead) and are marked unavailable, so
+# the scorer redistributes weight over what it has and reports coverage.
+# =============================================================================
+meta:
+  name: "Indian Debt MF Scoring Model"
+  version: "1.0.0"
+  source_doc: "docs/debt_fund_scoring_model (2).xlsx"
+  encoded: "2026-06-23"
+
+grade_bands:   # on the 1-5 composite
+  - { min: 4.2, label: "A+ Top pick" }
+  - { min: 3.6, label: "A Strong" }
+  - { min: 3.0, label: "B Average" }
+  - { min: 2.4, label: "C Below par" }
+  - { min: 0.0, label: "D Avoid" }
+
+# Parameters. `direction`: up = higher better, down = lower better.
+# `thresholds`: cutoffs for scores [5,4,3,2]; below the last => 1.
+# `source`: the NIDP v_v3_mf_primitives field; `available`: is it populated today.
+parameters:
+  - { id: 1,  key: pct_sovereign_aaa, label: "% Sovereign + AAA",        direction: up,   thresholds: [95, 85, 70, 50],     source: null,                   available: false }
+  - { id: 2,  key: crv,               label: "Credit Risk Value (CRV)",   direction: up,   thresholds: [12, 10, 8, 6],       source: null,                   available: false }
+  - { id: 3,  key: sharpe_3y,         label: "Sharpe ratio (3y)",         direction: up,   thresholds: [1.5, 1.0, 0.5, 0.0], source: sharpe,                 available: true }
+  - { id: 4,  key: rolling_consistency,label: "Rolling consistency %",    direction: up,   thresholds: [80, 65, 50, 35],     source: null,                   available: false }
+  - { id: 5,  key: md_vs_prc_max,     label: "MD / PRC-class max %",      direction: down, thresholds: [60, 80, 100, 120],   source: null,                   available: false }
+  - { id: 6,  key: expense_ratio,     label: "Total expense ratio %",     direction: down, thresholds: [0.30, 0.60, 1.00, 1.50], source: expense_ratio,       available: true }
+  - { id: 7,  key: top_issuer,        label: "Top issuer exposure %",     direction: down, thresholds: [5, 8, 12, 18],       source: null,                   available: false }
+  - { id: 8,  key: liquid_assets,     label: "Liquid assets %",           direction: up,   thresholds: [40, 25, 15, 8],      source: null,                   available: false }
+  - { id: 9,  key: aum_cr,            label: "AUM (Rs cr)",               direction: up,   thresholds: [5000, 1000, 300, 100], source: aum_cr,               available: true }
+  - { id: 10, key: fm_tenure,         label: "FM tenure (yrs)",           direction: up,   thresholds: [7, 4, 2, 1],         source: manager_tenure_years,   available: true }
+  - { id: 11, key: max_drawdown_3y,   label: "Max drawdown 3y %",         direction: down, thresholds: [0.5, 1.5, 3, 6],     source: max_drawdown_pct,       available: true }
+
+# Category-specific weight sets (copy a column from the Scoring Rubric tab).
+# Keyed by parameter id; each set sums to 1.00.
+weight_sets:
+  default:        { 1: 0.15, 2: 0.10, 3: 0.12, 4: 0.08, 5: 0.15, 6: 0.10, 7: 0.05, 8: 0.05, 9: 0.05, 10: 0.05, 11: 0.10 }
+  liquid:         { 1: 0.20, 2: 0.15, 3: 0.05, 4: 0.05, 5: 0.10, 6: 0.12, 7: 0.06, 8: 0.12, 9: 0.05, 10: 0.05, 11: 0.05 }
+  corporate_bond: { 1: 0.15, 2: 0.10, 3: 0.12, 4: 0.08, 5: 0.15, 6: 0.10, 7: 0.05, 8: 0.05, 9: 0.05, 10: 0.05, 11: 0.10 }
+  gilt_dynamic:   { 1: 0.10, 2: 0.05, 3: 0.15, 4: 0.10, 5: 0.22, 6: 0.08, 7: 0.04, 8: 0.04, 9: 0.05, 10: 0.05, 11: 0.12 }
+  credit_risk:    { 1: 0.18, 2: 0.17, 3: 0.10, 4: 0.07, 5: 0.08, 6: 0.08, 7: 0.08, 8: 0.05, 9: 0.04, 10: 0.05, 11: 0.10 }
+
+# Map a SEBI sub_category (ILIKE) to a weight set.
+category_weight_map:
+  - { match: "liquid",          set: liquid }
+  - { match: "overnight",       set: liquid }
+  - { match: "money market",    set: liquid }
+  - { match: "gilt",            set: gilt_dynamic }
+  - { match: "dynamic bond",    set: gilt_dynamic }
+  - { match: "credit risk",     set: credit_risk }
+  - { match: "corporate bond",  set: corporate_bond }
+  - { match: "banking and psu",  set: corporate_bond }

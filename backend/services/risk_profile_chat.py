@@ -131,18 +131,31 @@ PERSONA_BANDS: List[Dict[str, Any]] = [
 ]
 
 
-# ── In-memory session store ────────────────────────────────────────────
-# Each session: {session_id, user_id, created_at, expires_at, answers: [...]}
-_SESSIONS: Dict[str, Dict[str, Any]] = {}
+# ── Session store (MongoDB — shared across all uvicorn workers) ─────────
+# Was a process-local dict, which broke under the prod `--workers 4` setup:
+# /start created the session in one worker and /answer was load-balanced to
+# another → "session_not_found". Sessions now live in `risk_profile_sessions`
+# keyed by session_id, with a TTL index that auto-reaps after 30 min.
 _SESSION_TTL = timedelta(minutes=30)
+_SESSIONS_COLL = "risk_profile_sessions"
+_ttl_index_ready = False
 
 
-def _gc_sessions():
-    """Drop expired sessions. Cheap — runs on every start/answer call."""
-    now = datetime.now(timezone.utc)
-    expired = [sid for sid, s in _SESSIONS.items() if s["expires_at"] < now]
-    for sid in expired:
-        _SESSIONS.pop(sid, None)
+def _utcnow() -> datetime:
+    # Naive UTC — matches what Mongo returns on read (no aware/naive compares).
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+async def _ensure_ttl_index(db) -> None:
+    """Create the TTL index once per process so abandoned sessions self-clean."""
+    global _ttl_index_ready
+    if _ttl_index_ready:
+        return
+    try:
+        await db[_SESSIONS_COLL].create_index("expires_at", expireAfterSeconds=0)
+        _ttl_index_ready = True
+    except Exception as e:  # noqa: BLE001 — index hygiene is best-effort
+        logger.debug("risk session TTL index setup: %s", e)
 
 
 def _persona_for(score: float) -> Dict[str, str]:
@@ -174,18 +187,20 @@ def _public_question(q: Dict[str, Any], idx: int, total: int) -> Dict[str, Any]:
 
 
 # ── Public API ─────────────────────────────────────────────────────────
-def start_session(user_id: str) -> Dict[str, Any]:
+async def start_session(user_id: str) -> Dict[str, Any]:
     """Begin a new risk-profile chat. Returns the session id + first question."""
-    _gc_sessions()
+    from deps import db
+    await _ensure_ttl_index(db)
     sid = f"rp_{uuid.uuid4().hex[:16]}"
-    now = datetime.now(timezone.utc)
-    _SESSIONS[sid] = {
+    now = _utcnow()
+    await db[_SESSIONS_COLL].insert_one({
+        "_id": sid,
         "session_id": sid,
         "user_id": user_id,
         "created_at": now,
         "expires_at": now + _SESSION_TTL,
         "answers": [],
-    }
+    })
     return {
         "session_id": sid,
         "question": _public_question(QUESTIONS[0], 0, len(QUESTIONS)),
@@ -193,11 +208,13 @@ def start_session(user_id: str) -> Dict[str, Any]:
     }
 
 
-def submit_answer(session_id: str, question_id: str, value: str) -> Dict[str, Any]:
+async def submit_answer(session_id: str, question_id: str, value: str) -> Dict[str, Any]:
     """Record one answer; return the next question OR the final result."""
-    _gc_sessions()
-    sess = _SESSIONS.get(session_id)
-    if not sess:
+    from deps import db
+    sess = await db[_SESSIONS_COLL].find_one({"_id": session_id})
+    if not sess or (sess.get("expires_at") and sess["expires_at"] < _utcnow()):
+        if sess:
+            await db[_SESSIONS_COLL].delete_one({"_id": session_id})
         return {"error": "session_not_found",
                 "message": "This risk-profile session expired or doesn't exist. Start over."}
 
@@ -211,7 +228,7 @@ def submit_answer(session_id: str, question_id: str, value: str) -> Dict[str, An
         return {"error": "invalid_choice",
                 "message": f"Choice '{value}' is not valid for question '{question_id}'."}
 
-    sess["answers"].append({
+    answer_record = {
         "question_id": question_id,
         "value": value,
         "label": choice["label"],
@@ -219,7 +236,11 @@ def submit_answer(session_id: str, question_id: str, value: str) -> Dict[str, An
         # Carry through any extra metadata the question attaches to choices
         # (e.g. horizon_years on the horizon Q, loss_tolerance_pct on loss Q)
         **{k: v for k, v in choice.items() if k not in ("label", "value", "score")},
-    })
+    }
+    sess["answers"].append(answer_record)
+    await db[_SESSIONS_COLL].update_one(
+        {"_id": session_id}, {"$push": {"answers": answer_record}},
+    )
 
     next_idx = q_idx + 1
     if next_idx < len(QUESTIONS):
@@ -229,8 +250,10 @@ def submit_answer(session_id: str, question_id: str, value: str) -> Dict[str, An
             "question": _public_question(QUESTIONS[next_idx], next_idx, len(QUESTIONS)),
         }
 
-    # All questions answered — compute the result.
-    return _finalize(sess)
+    # All questions answered — compute the result, then clean up the session.
+    result = _finalize(sess)
+    await db[_SESSIONS_COLL].delete_one({"_id": session_id})
+    return result
 
 
 def _finalize(sess: Dict[str, Any]) -> Dict[str, Any]:

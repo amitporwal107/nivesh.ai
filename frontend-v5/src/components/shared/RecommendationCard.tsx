@@ -11,7 +11,7 @@
  */
 
 import { useState, useId } from "react";
-import { Lock } from "lucide-react";
+import { Lock, Clock } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { SeverityBadge } from "@/components/shared/SeverityBadge";
@@ -23,6 +23,7 @@ import { ArrowRight } from "lucide-react";
 import { formatINRCompact } from "@/lib/formatters";
 import type { Recommendation } from "@/types/recommendation";
 import { cn } from "@/lib/utils";
+import { ConfidenceBadge } from "@/components/shared/ConfidenceBadge";
 
 interface Props {
   rec: Recommendation;
@@ -37,9 +38,10 @@ export function RecommendationCard({ rec, onApply, onLearnMore, className }: Pro
   const lockDescId = useId();
   const liveRegionId = useId();
 
-  const magLabel   = rec.magnitude != null ? formatINRCompact(rec.magnitude) : null;
-  const isLocked   = !!rec.taxImpact?.lock_in;
-  const isApplied  = applied || !!rec.appliedAt;
+  const magLabel    = rec.magnitude != null ? formatINRCompact(rec.magnitude) : null;
+  const isLocked    = !!rec.taxImpact?.lock_in;
+  const isDeferred  = !!rec.deferReason;
+  const isApplied   = applied || !!rec.appliedAt;
   const needsConfirm = rec.requiresConfirmation && !isApplied;
 
   async function handleApply() {
@@ -72,18 +74,21 @@ export function RecommendationCard({ rec, onApply, onLearnMore, className }: Pro
           <StatusBadge action={rec.action} />
           <SeverityBadge severity={rec.severity} />
           {rec.execution && <ExecutionChip execution={rec.execution} />}
+          {rec.confidenceTier && rec.confidenceTier !== "goals_and_risk" && (
+            <ConfidenceBadge tier={rec.confidenceTier} />
+          )}
           {magLabel && (
             <span className="ml-auto font-mono text-[12px] text-ink-2 num">{magLabel}</span>
           )}
         </div>
 
-        {/* Title */}
+        {/* Title — conviction_text when available (advisory framing), else generic verbLabel+name */}
         <h3 className="font-display text-xl sm:text-[22px] tracking-tightish mt-3 leading-snug">
-          {rec.title}
+          {rec.convictionText || rec.title}
         </h3>
 
-        {/* Reason */}
-        {rec.reason && (
+        {/* Reason — only show if different from the conviction headline (avoids duplication) */}
+        {rec.reason && !rec.convictionText && (
           <p className="text-[13.5px] text-ink-2 mt-2 leading-relaxed">{rec.reason}</p>
         )}
 
@@ -110,8 +115,23 @@ export function RecommendationCard({ rec, onApply, onLearnMore, className }: Pro
         )}
 
         {/* Actions */}
-        <div className="flex gap-2 mt-5 items-center">
-          {isLocked ? (
+        <div className="flex gap-2 mt-5 items-center flex-wrap">
+          {isDeferred ? (
+            /* Deferred action — D-5: flagged but not executable now */
+            <div className="flex items-start gap-2 w-full">
+              <div
+                className="inline-flex items-center gap-1.5 px-3 h-9 rounded-md text-[13px] font-medium border border-warm/30 bg-warm/5 text-warm-600 cursor-default shrink-0"
+                aria-disabled="true"
+                aria-describedby={lockDescId}
+              >
+                <Clock className="h-3.5 w-3.5" aria-hidden />
+                Flagged
+              </div>
+              <span id={lockDescId} className="text-[12px] text-ink-3 leading-relaxed pt-1.5">
+                {rec.deferReason}
+              </span>
+            </div>
+          ) : isLocked ? (
             <>
               <button
                 type="button"

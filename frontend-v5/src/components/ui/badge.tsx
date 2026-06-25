@@ -8,7 +8,7 @@ const badgeVariants = cva(
     variants: {
       tone: {
         default: "bg-surface-2 text-ink-2",
-        accent: "bg-accent-soft text-accent",
+        accent: "bg-[rgb(var(--accent)/0.12)] text-accent",
         good: "bg-[rgb(var(--pos)/0.10)] text-pos",
         warm: "bg-[rgb(var(--warm)/0.10)] text-warm",
         neg: "bg-[rgb(var(--neg)/0.10)] text-neg",

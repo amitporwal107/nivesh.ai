@@ -34,6 +34,18 @@ _VAR_RATING_THRESHOLDS = [
     (0.22, "HIGH"),
 ]
 
+# Name/category keywords that mark a fund as NON-equity. Used to classify
+# MF/ETF holdings when an explicit equity_allocation_pct isn't available on the
+# holding (the common case for CAS-imported holdings).
+_NON_EQUITY_KEYWORDS = (
+    "liquid", "money market", "overnight", "gilt", "g-sec", "bond", "debt",
+    "duration", "credit risk", "arbitrage", "gold", "silver", "ultra short",
+    "ultra-short", "short term", "short duration", "low duration",
+    "corporate bond", "banking & psu", "banking and psu", "dynamic bond",
+    "floating rate", "fixed maturity", "fmp", "income fund",
+)
+
+
 # Historical / hypothetical stress scenarios. Each entry encodes the
 # asset-class shocks needed to project portfolio drawdown. Recovery years
 # come from the post-event mean-reversion windows observed in Nifty 50.
@@ -94,6 +106,313 @@ class RiskResult:
                 if k not in ("rows",):
                     parts.append(f"{k}={v}")
         return self.summary + " | " + ", ".join(parts)
+
+
+# ── Canonical precomputed risk (PRA) ─────────────────────────────────────────
+
+async def get_portfolio_risk_pra(user_id: str) -> RiskResult:
+    """Precomputed portfolio risk (VaR / volatility / beta / max-drawdown) from
+    the PRA engine — the SAME source the Risk dashboard reads via
+    ``daas_client.get_portfolio_risk``. The copilot must prefer this over
+    recomputing parametric VaR from per-symbol volatility_20d (which times out
+    and disagrees with the dashboard). ``ok=False`` when PRA has no result yet,
+    so the caller can fall back to the parametric estimate.
+    """
+    from services.copilot_tools.daas_client import get_portfolio_risk as _pra
+    pra: Optional[Dict[str, Any]] = None
+    try:
+        pra = await _pra(user_id, timeout=8.0)
+    except Exception:  # noqa: BLE001 — live PRA often times out; fall back to cache
+        pra = None
+    # Fall back to pra_daily_cache (written by the Risk dashboard) so the copilot
+    # shows the same VaR/vol/beta even when the live PRA endpoint is unavailable.
+    if not (pra and pra.get("var_95_1y_pct") is not None):
+        try:
+            from deps import db
+            doc = await db.pra_daily_cache.find_one({"user_id": user_id}, sort=[("date", -1)])
+            if doc and (doc.get("payload") or {}).get("var_95_1y_pct") is not None:
+                pra = doc["payload"]
+        except Exception:  # noqa: BLE001
+            pass
+    if not pra or pra.get("var_95_1y_pct") is None:
+        return RiskResult(ok=False, summary="No precomputed PRA risk result for this user yet")
+
+    def _f(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    var_pct = _f(pra.get("var_95_1y_pct"))      # PRA stores the loss magnitude (e.g. 33.1)
+    var_inr = _f(pra.get("var_95_1y_inr"))
+    vol     = _f(pra.get("volatility_annual_pct"))
+    beta    = _f(pra.get("beta_nifty500"))
+    mdd     = _f(pra.get("max_drawdown_pct"))
+    data = {
+        "var_95_1y_pct":         round(var_pct, 1) if var_pct is not None else None,
+        "var_95_1y_inr":         round(var_inr) if var_inr is not None else None,
+        "volatility_annual_pct": round(vol, 1) if vol is not None else None,
+        "beta_nifty500":         round(beta, 2) if beta is not None else None,
+        "max_drawdown_pct":      round(mdd, 1) if mdd is not None else None,
+        "source":                "PRA (precomputed nightly)",
+    }
+    bits: List[str] = []
+    if var_pct is not None:
+        bits.append(f"VaR 95% 1Y −{abs(var_pct):.1f}%" + (f" (~₹{round(var_inr):,})" if var_inr else ""))
+    if vol is not None:
+        bits.append(f"volatility {vol:.1f}%")
+    if beta is not None:
+        bits.append(f"beta {beta:.2f} vs NIFTY 500")
+    if mdd is not None:
+        bits.append(f"max drawdown −{abs(mdd):.1f}%")
+    summary = "Precomputed portfolio risk — " + ", ".join(bits) if bits else "Precomputed portfolio risk available"
+    return RiskResult(ok=True, summary=summary, data=data)
+
+
+# ── Risk-overview widget builder ──────────────────────────────────────────
+
+_PROFILE_BAND = {
+    "conservative": [0, 4], "moderate": [3, 6],
+    "moderately_aggressive": [4, 7], "aggressive": [6, 10],
+}
+
+
+def build_risk_overview_widget(pra_tr: Any, suit_tr: Any) -> Dict[str, Any]:
+    """Build the 'rebalance my risk' widget (gauge, stat tiles, worst-case VaR,
+    risk drivers, suggested action) from the PRA and suitability tool results.
+    """
+    pd = (getattr(pra_tr, "data", None) or {})
+    sd = (getattr(suit_tr, "data", None) or {})
+
+    def _n(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    var_pct  = _n(pd.get("var_95_1y_pct"))
+    var_inr  = _n(pd.get("var_95_1y_inr"))
+    vol      = _n(pd.get("volatility_annual_pct"))
+    beta     = _n(pd.get("beta_nifty500")) or _n(sd.get("portfolio_beta"))
+    mdd      = _n(pd.get("max_drawdown_pct"))
+    equity   = _n(sd.get("equity_pct"))
+    smallmid = _n(sd.get("small_mid_pct"))
+    score    = _n(sd.get("risk_score"))
+    rating   = (sd.get("risk_rating") or "—")
+    profile  = str(sd.get("user_profile") or "moderate")
+
+    band = _PROFILE_BAND.get(profile.lower().replace(" ", "_").replace("-", "_"), [3, 6])
+    profile_label = profile.replace("_", " ").title()
+    sc = score if score is not None else 5.0
+    over = sc > band[1]
+
+    description = (
+        "The needle sits just past the top of your stated band — not wildly off-profile, but at the "
+        "high edge. The drivers below are why." if over else
+        "The needle sits inside your stated tolerance band; the drivers below are the main contributors."
+    )
+    tiles = []
+    if equity is not None: tiles.append({"label": "Equity exposure", "value": f"{round(equity)}%"})
+    if beta is not None:   tiles.append({"label": "Beta vs NIFTY 500", "value": f"{beta:.2f}"})
+    if vol is not None:    tiles.append({"label": "Volatility", "value": f"{vol:.1f}%"})
+    if mdd is not None:    tiles.append({"label": "Max drawdown", "value": f"−{abs(mdd):.0f}%"})
+
+    var_block = None
+    if var_pct is not None:
+        lakh = (var_inr or 0) / 1e5
+        var_block = {
+            "pct": -abs(var_pct),
+            "inr": round(var_inr) if var_inr else None,
+            "inr_label": f"₹{lakh:.1f} lakh" if var_inr else None,
+            "subtitle": (
+                f"In a severe year (1-in-20), losses of about ₹{round(var_inr):,} are within range. "
+                f"1-day VaR isn't available from this data." if var_inr else
+                "1-in-20 worst case over 12 months."
+            ),
+        }
+
+    items = []
+    if equity is not None:
+        items.append({"label": "Equity concentration", "value_label": f"{round(equity)}%", "pct": equity,
+                      "color": "red" if equity >= 85 else "amber",
+                      "note": "Almost no debt cushion — full exposure to market drawdowns." if equity >= 85
+                              else "Heavy equity tilt."})
+    if beta is not None:
+        items.append({"label": "Market sensitivity (beta)", "value_label": f"{beta:.2f}×",
+                      "pct": min(100, beta / 2 * 100), "color": "amber",
+                      "note": (f"Tends to fall ~{round((beta - 1) * 100)}% more than the broad market on down days."
+                               if beta > 1 else "Roughly market-like.")})
+    if smallmid is not None:
+        items.append({"label": "Small / mid-cap exposure", "value_label": f"{round(smallmid)}%",
+                      "pct": smallmid, "color": "amber",
+                      "note": "Modest, but adds extra volatility on top of the large-cap core."
+                              if smallmid < 30 else "Meaningful small/mid tilt — a real volatility driver."})
+
+    action = {
+        "title": "Suggested action",
+        "text": (
+            f"Nudge risk down toward the middle of your band: redirect future SIPs and rebalances toward "
+            f"lower-risk categories (a debt sleeve, given {round(equity) if equity is not None else 0}% "
+            f"equity today) rather than selling in one go." if over else
+            "You're within band — keep contributions on plan and review the allocation periodically."
+        ),
+    }
+    caveat = (
+        "Risk metrics only — scheme-level overlap, expense ratios, manager tenure, AUM trend and "
+        "category-gap analysis aren't available from this data. Not financial advice."
+    )
+    return {
+        "gauge": {"rating": str(rating).upper(), "score": round(sc, 1), "max": 10,
+                  "profile": profile_label, "band": band},
+        "description": description, "tiles": tiles, "var": var_block,
+        "drivers": {"title": "What's driving the risk", "items": items},
+        "action": action, "caveat": caveat,
+    }
+
+
+def _inr_in(v: Any) -> str:
+    """Indian-grouped rupee string, e.g. 108211 → '₹1,08,211'."""
+    import re as _re
+    try:
+        n = int(round(float(v)))
+    except (TypeError, ValueError):
+        return "—"
+    s = str(abs(n))
+    if len(s) > 3:
+        last3, rest = s[-3:], s[:-3]
+        rest = _re.sub(r"(\d)(?=(\d\d)+$)", r"\1,", rest)
+        s = f"{rest},{last3}"
+    return ("-" if n < 0 else "") + "₹" + s
+
+
+def build_risk_assessment_widget(pra_tr: Any, suit_tr: Any, stress_tr: Any,
+                                 var_tr: Any = None) -> Dict[str, Any]:
+    """Comprehensive risk view: an overall suitability rating, VaR / volatility /
+    equity KPI tiles, the stress-test downside per scenario (₹ value-after +
+    loss), the key risk drivers, and a profile-misalignment alert. Built from
+    the PRA, suitability, stress and (fallback) parametric-VaR tool results —
+    nothing invented."""
+    pd = getattr(pra_tr, "data", None) or {}
+    sd = getattr(suit_tr, "data", None) or {}
+    std = getattr(stress_tr, "data", None) or {}
+    vd = getattr(var_tr, "data", None) or {}
+
+    def _n(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    vol = _n(pd.get("volatility_annual_pct")) or _n(vd.get("portfolio_annual_vol_pct"))
+    equity = _n(sd.get("equity_pct"))
+    smallmid = _n(sd.get("small_mid_pct"))
+    rating = str(sd.get("risk_rating") or pd.get("risk_rating") or "—").upper()
+    profile = str(sd.get("user_profile") or "moderate").replace("_", " ")
+    misalignment = sd.get("misalignment") or []
+    current_value = (_n(std.get("current_value_rs")) or _n(sd.get("total_portfolio_value"))
+                     or _n(vd.get("total_portfolio_value_rs")) or _n(pd.get("portfolio_value_rs")))
+
+    # ── VaR 1-day / 10-day (95%) ──────────────────────────────────────────────
+    # Prefer the parametric VaR tool's directly-computed figures (used as the
+    # fallback when the precomputed PRA result isn't available for this user);
+    # otherwise derive from annual volatility: σ_daily = σ_annual/√252,
+    # 95% VaR = 1.645·σ_daily·value, 10-day = ·√10.
+    var_1d = _n(vd.get("var_1d_95_rs"))
+    var_10d = _n(vd.get("var_10d_95_rs"))
+    if not (var_1d and var_1d > 0):
+        var_1d = var_10d = None
+        if vol and current_value:
+            daily_sigma = (vol / 100.0) / (252 ** 0.5)
+            var_1d = 1.645 * daily_sigma * current_value
+            var_10d = var_1d * (10 ** 0.5)
+    # Model confidence: PRA-backed → medium; pure parametric estimate → medium
+    # too (normal-assumption), only "high" model risk when we have no VaR at all.
+    var_model_risk = "medium" if var_1d is not None else "high"
+
+    # Overall rating tone
+    _tone = {"VERY HIGH": "neg", "HIGH": "neg", "MEDIUM": "warm", "LOW": "accent"}.get(rating, "warm")
+    hero = {
+        "tone": _tone,
+        "title": "Overall suitability risk",
+        "rating": rating,
+        "profile": profile,
+        "var_model_risk": var_model_risk,
+    }
+
+    kpis = []
+    if var_1d is not None:
+        kpis.append({"label": "1-day 95% VaR", "value": _inr_in(var_1d)})
+    if var_10d is not None:
+        kpis.append({"label": "10-day 95% VaR", "value": _inr_in(var_10d)})
+    if vol is not None:
+        kpis.append({"label": "Annual volatility", "value": f"{vol:.1f}%"})
+    if equity is not None:
+        kpis.append({"label": "Equity allocation", "value": f"{round(equity)}%"})
+
+    # ── Stress-test downside ──────────────────────────────────────────────────
+    scenarios = std.get("scenarios") or []
+    base = current_value or _n(std.get("current_value_rs"))
+    rows = []
+    any_recovery = False
+    s_sorted = sorted(scenarios, key=lambda s: _n(s.get("drop_pct")) or 0)  # worst (most negative) first
+    max_drop = max((abs(_n(s.get("drop_pct")) or 0) for s in scenarios), default=1) or 1
+    for s in s_sorted:
+        drop = _n(s.get("drop_pct"))
+        after = _n(s.get("stressed_value_rs"))
+        if drop is None or after is None:
+            continue
+        loss = (base - after) if base else None
+        rec = s.get("recovery_years")
+        if rec:
+            any_recovery = True
+        ad = abs(drop)
+        color = "red" if ad >= 25 else "amber" if ad >= 15 else "blue"
+        rows.append({
+            "name": s.get("name") or s.get("key", "Scenario"),
+            "drop_label": f"−{ad:.1f}%",
+            "bar_pct": round(ad / max_drop * 100, 1),
+            "color": color,
+            "value_after": _inr_in(after),
+            "loss": _inr_in(loss) if loss is not None else None,
+            "recovery_years": rec,
+        })
+    stress = ({
+        "title": "Stress-test downside",
+        "subtitle": (f"Estimated portfolio value after each scenario (base ≈ {_inr_in(base)})."
+                     + ("" if any_recovery else " Recovery horizons: data unavailable.")),
+        "rows": rows,
+    } if rows else None)
+
+    # ── Key risk drivers ──────────────────────────────────────────────────────
+    drivers = []
+    if equity is not None and equity >= 60:
+        drivers.append(f"High equity concentration at {round(equity)}%")
+    if smallmid is not None and smallmid >= 10:
+        drivers.append(f"Small/mid exposure at {round(smallmid)}% can amplify crash drawdowns")
+    if rows:
+        drivers.append(f"Stress sensitivity is highest in a {rows[0]['name'].split('(')[0].strip()}")
+
+    # ── Misalignment alert ────────────────────────────────────────────────────
+    alert = None
+    if misalignment:
+        body = (str(misalignment[0]) if isinstance(misalignment, (list, tuple)) else str(misalignment))
+        alert = {
+            "title": "Misalignment alert",
+            "body": (f"Portfolio risk is above a {profile} profile. Suggested action: reduce equity "
+                     f"and small/mid exposure, and rebalance toward lower-volatility debt, gold, "
+                     f"international, or alternatives in a tax-aware manner."),
+            "detail": body,
+        }
+
+    return {
+        "hero": hero,
+        "kpis": kpis,
+        "stress": stress,
+        "drivers": {"title": "Key risk drivers", "items": drivers} if drivers else None,
+        "alert": alert,
+        "caveat": ("Risk metrics and asset-class stress assumptions only — scheme-level analysis isn't "
+                   "included here. VaR is a parametric estimate, not a guarantee. Not financial advice."),
+    }
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -215,13 +534,24 @@ async def get_risk_suitability(user_id: str) -> RiskResult:
         sector = h.get("sector") or "Other"
         eq_pct = h.get("equity_allocation_pct")  # for MFs
 
-        # Classify as equity
-        try:
-            is_equity = asset_type in ("STOCK", "ETF", "EQUITY") or (
-                asset_type in ("MF", "MUTUAL_FUND") and eq_pct is not None and float(eq_pct) >= 65.0
-            )
-        except (TypeError, ValueError):
-            is_equity = asset_type in ("STOCK", "ETF", "EQUITY")
+        # Classify as equity.
+        #   • direct stocks → always equity
+        #   • MF/ETF → use equity_allocation_pct when present; otherwise (the
+        #     common case — Mongo holdings don't carry it) treat the fund as
+        #     equity UNLESS its name/category marks it non-equity (debt / liquid
+        #     / gold / arbitrage). Without this, equity MFs were dropped and
+        #     equity% read ~23% for a 93%-equity portfolio.
+        name_cat = ((h.get("name") or "") + " " + str(h.get("category") or "")
+                    + " " + str(sector or "")).lower()
+        if asset_type in ("STOCK", "EQUITY"):
+            is_equity = True
+        elif asset_type in ("MF", "MUTUAL_FUND", "ETF"):
+            # equity_allocation_pct is unreliable on CAS-imported holdings (often
+            # 0), so classify by name/category/sector: equity unless the fund is
+            # clearly debt/liquid/gold/arbitrage.
+            is_equity = not any(kw in name_cat for kw in _NON_EQUITY_KEYWORDS)
+        else:
+            is_equity = False
         if is_equity:
             equity_value += value
 

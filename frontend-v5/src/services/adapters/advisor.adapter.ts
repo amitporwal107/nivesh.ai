@@ -1,8 +1,9 @@
 /**
- * Advisor + MFD adapter — REAL backend (advisor.yaml v2.0.0).
+ * Advisor + MFD adapter — REAL backend (backend/routes/advisor.py + mfd.py).
  *
- * Key correction: /api/advisor/today returns bucketed
- * { high_priority, medium_priority, low_priority, summary } — NOT a flat list.
+ * Card endpoints (/advisor/today, /aum, /underperformers, /rebalance) return
+ * flat `rows[]` envelopes; /mfd/profiles returns { workspace, profiles, count }.
+ * Contracts in advisor.contract.ts mirror the running handlers exactly.
  */
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
@@ -14,44 +15,49 @@ import {
   AdvisorUnderperformersRes,
   AdvisorRebalanceRes,
   MfdWorkspaceC,
+  type ClientProfileC as ClientProfile,
+  type ProfilesListRes as ProfilesList,
+  type AdvisorTodayRes as TodayRes,
+  type AdvisorAumRes as AumRes,
+  type AdvisorUnderperformersRes as UnderRes,
+  type AdvisorRebalanceRes as RebalanceRes,
+  type MfdWorkspaceC as Workspace,
 } from "@/services/contracts/advisor.contract";
 
 export interface AdvisorAdapter {
-  today(limit?: number): Promise<import("@/services/contracts/advisor.contract").AdvisorTodayRes>;
-  aum(limit?: number): Promise<import("@/services/contracts/advisor.contract").AdvisorAumRes>;
-  underperformers(gapPct?: number, benchmark?: string): Promise<import("@/services/contracts/advisor.contract").AdvisorUnderperformersRes>;
-  rebalance(gapPp?: number): Promise<import("@/services/contracts/advisor.contract").AdvisorRebalanceRes>;
+  today(limit?: number): Promise<TodayRes>;
+  aum(limit?: number): Promise<AumRes>;
+  underperformers(gapPct?: number, benchmark?: string): Promise<UnderRes>;
+  rebalance(gapPp?: number): Promise<RebalanceRes>;
 
-  workspaceGet(): Promise<import("@/services/contracts/advisor.contract").MfdWorkspaceC>;
-  workspaceUpdate(body: Partial<import("@/services/contracts/advisor.contract").MfdWorkspaceC>): Promise<import("@/services/contracts/advisor.contract").MfdWorkspaceC>;
+  workspaceGet(): Promise<Workspace>;
+  workspaceUpdate(body: Partial<Workspace>): Promise<Workspace>;
 
-  listProfiles(includeSelf?: boolean): Promise<import("@/services/contracts/advisor.contract").ClientProfileC[]>;
-  createProfile(body: { name: string; email?: string; mobile?: string; pan?: string; aum_rs?: number; tags?: string[]; notes?: string }): Promise<import("@/services/contracts/advisor.contract").ClientProfileC>;
+  /** GET /api/mfd/profiles → { workspace, profiles } (the advisor book). */
+  listProfiles(includeSelf?: boolean): Promise<ProfilesList>;
+  createProfile(body: { name: string; email?: string; mobile?: string; pan?: string; aum_rs?: number | null; tags?: string[] | null; notes?: string | null }): Promise<ClientProfile>;
   getProfile(profileId: string): Promise<unknown>;
-  updateProfile(profileId: string, body: Record<string, unknown>): Promise<import("@/services/contracts/advisor.contract").ClientProfileC>;
+  updateProfile(profileId: string, body: Record<string, unknown>): Promise<ClientProfile>;
   deleteProfile(profileId: string): Promise<{ ok: true }>;
 
   activate(profileId: string): Promise<{ ok: true; profile_id: string; name: string }>;
   deactivate(): Promise<{ ok: true }>;
 
-  getNotes(profileId: string): Promise<unknown>;
-  saveNotes(profileId: string, body: Record<string, unknown>): Promise<unknown>;
-  taxSummary(profileId: string): Promise<unknown>;
-  portfolioTrend(profileId: string): Promise<unknown>;
-
   summary(): Promise<{ book_aum_rs: number; avg_health_score: number; needs_attention_count: number; actions_open_count: number; clients_total: number }>;
   sipBoard(state?: string, cycle?: string): Promise<{ cycle: string; queues: { failed: unknown[]; expiring: unknown[]; step_up: unknown[]; healthy: unknown[] } }>;
   sipBoardSummary(): Promise<{ monthly_inflow_rs: number; active_sips_count: number; failed_count: number; mandate_at_risk_count: number }>;
+
+  refreshIndex(name: string): Promise<{ ok?: boolean; reason?: string }>;
 }
 
 export const realAdvisorAdapter: AdvisorAdapter = {
-  async today(limit = 100) {
+  async today(limit = 10) {
     const res = await http({ path: "/api/advisor/today", query: { limit } });
     const parsed = AdvisorTodayRes.safeParse(res.data);
     if (!parsed.success) throw ApiError.contractDrift(`advisor.today: ${parsed.error.message}`);
     return parsed.data;
   },
-  async aum(limit = 100) {
+  async aum(limit = 10) {
     const res = await http({ path: "/api/advisor/aum", query: { limit } });
     const parsed = AdvisorAumRes.safeParse(res.data);
     if (!parsed.success) throw ApiError.contractDrift(`advisor.aum: ${parsed.error.message}`);
@@ -87,7 +93,7 @@ export const realAdvisorAdapter: AdvisorAdapter = {
     const res = await http({ path: "/api/mfd/profiles", query: { include_self } });
     const parsed = ProfilesListRes.safeParse(res.data);
     if (!parsed.success) throw ApiError.contractDrift(`advisor.listProfiles: ${parsed.error.message}`);
-    return parsed.data.profiles;
+    return parsed.data;
   },
   async createProfile(body) {
     const res = await http({ method: "POST", path: "/api/mfd/profiles", body });
@@ -112,29 +118,12 @@ export const realAdvisorAdapter: AdvisorAdapter = {
 
   async activate(profileId) {
     const res = await http({ method: "POST", path: `/api/mfd/profiles/${encodeURIComponent(profileId)}/activate` });
-    const obj = res.data as { profile_id?: string; name?: string };
-    return { ok: true, profile_id: obj.profile_id ?? profileId, name: obj.name ?? "" };
+    const obj = res.data as { profile_id?: string; name?: string; active_profile_id?: string };
+    return { ok: true, profile_id: obj.active_profile_id ?? obj.profile_id ?? profileId, name: obj.name ?? "" };
   },
   async deactivate() {
     await http({ method: "POST", path: "/api/mfd/profiles/deactivate" });
     return { ok: true };
-  },
-
-  async getNotes(profileId) {
-    const res = await http({ path: `/api/mfd/profiles/${encodeURIComponent(profileId)}/notes` });
-    return res.data;
-  },
-  async saveNotes(profileId, body) {
-    const res = await http({ method: "PUT", path: `/api/mfd/profiles/${encodeURIComponent(profileId)}/notes`, body });
-    return res.data;
-  },
-  async taxSummary(profileId) {
-    const res = await http({ path: `/api/mfd/profiles/${encodeURIComponent(profileId)}/tax-summary` });
-    return res.data;
-  },
-  async portfolioTrend(profileId) {
-    const res = await http({ path: `/api/mfd/profiles/${encodeURIComponent(profileId)}/portfolio-trend` });
-    return res.data;
   },
 
   async summary() {
@@ -172,5 +161,11 @@ export const realAdvisorAdapter: AdvisorAdapter = {
       failed_count:          obj.failed_count           ?? 0,
       mandate_at_risk_count: obj.mandate_at_risk_count ?? 0,
     };
+  },
+
+  // Admin-only benchmark cache refresh that backs the Underperformers card.
+  async refreshIndex(name) {
+    const res = await http({ method: "POST", path: "/api/index/refresh", query: { name } });
+    return (res.data ?? {}) as { ok?: boolean; reason?: string };
   },
 };

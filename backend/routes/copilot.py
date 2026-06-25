@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -246,12 +247,19 @@ async def _build_context(user_id: str) -> Dict[str, Any]:
     return ctx
 
 
-async def _is_advisor_caller(session_user_id: str, calling_user_id: str) -> bool:
-    """True if the caller is the owner of an ADVISORY workspace AND is
-    NOT currently impersonating a specific client. Mirrors the same
-    detection used by /copilot/suggested-prompts so prompt suggestions
-    and ask-context stay in sync."""
-    if session_user_id != calling_user_id:
+async def _is_advisor_caller(session_user_id: str, active_profile_id: Optional[str]) -> bool:
+    """True if the caller owns an ADVISORY workspace AND is viewing the
+    workspace root — i.e. is NOT currently impersonating any client profile.
+    Mirrors the detection in /copilot/suggested-prompts so prompt suggestions
+    and ask-context stay in sync.
+
+    Impersonation is detected via the session's ``active_profile_id``, NOT by
+    comparing user-ids: an advisor who is *their own client* opens a SELF
+    profile whose ``shadow_user_id`` equals their own ``user_id``, so an
+    id-comparison would wrongly read as "not impersonating" and keep the
+    cross-client copilot active. ``active_profile_id`` flips SELF and CLIENT
+    profiles alike to the personal/client copilot."""
+    if active_profile_id:
         return False
     try:
         ws = await db.workspaces.find_one(
@@ -260,6 +268,47 @@ async def _is_advisor_caller(session_user_id: str, calling_user_id: str) -> bool
     except Exception:  # noqa: BLE001
         return False
     return bool(ws and (ws.get("type") or "").upper() == "ADVISORY")
+
+
+# ── Mode-agnostic research tools ─────────────────────────────────────────
+# The Chat surface exposes four launchers — Research a stock, Research a
+# fund, Build a portfolio, Stocks Screener — that ask about an instrument
+# or run a tool and DO NOT depend on the advisor's client book. They must
+# return identical results whether the caller is in advisor (cross-client)
+# mode or client mode. So in advisor mode these bypass the book-summary
+# path and run the normal investor (LangGraph) engine.
+_RESEARCH_INTENT_RE = re.compile(
+    r"(?:"
+    r"\btell\s+me\s+about\b|"                                  # "Research a stock/fund" chip prefill
+    r"\bresearch\s+(?:the\s+)?(?:stock|fund|mutual\s+fund|company|scheme)\b|"
+    r"\banalys[ez]e?\s+(?:the\s+)?(?:stock|fund|mutual\s+fund|scheme)\b|"
+    r"\bbuild\s+(?:me\s+)?(?:a\s+|my\s+)?portfolio\b|"         # "Build a portfolio" chip
+    r"\bscreen\s+(?:stocks?|for|where)\b|\bstocks?\s+screener\b"  # "Stocks Screener" chip
+    r")",
+    re.IGNORECASE,
+)
+
+# Cross-client book questions always stay on the advisor book path, even
+# when they contain a research-ish verb (e.g. "tell me about my top
+# client"). This guard takes priority over the research gate so the
+# advisor book experience (and its regression test) is never hijacked.
+_ADVISOR_BOOK_INTENT_RE = re.compile(
+    r"\b(clients?|client\s+book|my\s+book|across\s+(?:my\s+)?clients|"
+    r"aum|assets?\s+under\s+management|workspace|advisory|"
+    r"which\s+(?:of\s+my\s+)?clients?)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_research_tool_intent(message: str) -> bool:
+    """True when an advisor-mode message is one of the four mode-agnostic
+    research tools (stock/fund research, portfolio builder, stock
+    screener) and should therefore run the investor engine so the answer
+    matches client mode. Cross-client book questions are excluded."""
+    m = message or ""
+    if _ADVISOR_BOOK_INTENT_RE.search(m):
+        return False
+    return bool(_RESEARCH_INTENT_RE.search(m))
 
 
 async def _advisor_book_block(owner_user_id: str) -> str:
@@ -445,7 +494,7 @@ async def ask(payload: AskRequest, request: Request):
     uid = user["user_id"] if isinstance(user, dict) else user.user_id
     session_uid = user.get("_session_user_id") if isinstance(user, dict) else None
     session_uid = session_uid or uid
-    advisor_mode = await _is_advisor_caller(session_uid, uid)
+    advisor_mode = await _is_advisor_caller(session_uid, user.get("_active_profile_id") if isinstance(user, dict) else None)
     ctx = await _build_context(uid)
     base_system = (
         "You are the advisor's cross-client AI copilot. You have access to "

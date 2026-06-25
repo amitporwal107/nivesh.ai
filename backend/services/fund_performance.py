@@ -411,7 +411,11 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
                     else:
                         rating["rating"] = "meeting"; meet_count += 1
                 else:
-                    rating["rating"] = "meeting"; meet_count += 1
+                    # No category benchmark available — we did NOT compare this
+                    # fund to anything, so it is no_data, not "meeting". (Leaving
+                    # rating at its "no_data" default; the remainder formula in
+                    # performance_distribution counts it.)
+                    rating["rating"] = "no_data"
             # NIDP category rank (rank within sub-category peer group)
             # category_rank + category_size come from mf_category_rank_daily (migration 085).
             # Fall back to DaaS category_sizes for category_total if category_size is absent.
@@ -445,7 +449,8 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
                 else:
                     rating["rating"] = "meeting"; meet_count += 1
             else:
-                rating["rating"] = "meeting"; meet_count += 1
+                # No category benchmark → no_data, not "meeting" (see above).
+                rating["rating"] = "no_data"
 
         if rating["return_1y"] is None:
             # No data from either source — leave return_1y=None so the fund is

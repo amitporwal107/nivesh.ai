@@ -39,7 +39,7 @@ def _base_inp(**kw):
 # ── compute_switch_costs() ──────────────────────────────────────────────
 def test_cost_breakdown_matches_user_example():
     """User's PRD example: invested=5L, current=6L, gain=1L, STCG, 1% exit load.
-    Expected: exit=6k, tax=15k, slippage=1.2k → total cost ≈ 3.7%."""
+    FY25-26: exit=6k, tax=20k (1L × 20%), slippage=1.2k → total cost ≈ 4.53%."""
     inp = sde.DecisionInputs(
         invested_amount=500_000, current_value=600_000,
         holding_period_days=240,                # STCG
@@ -49,12 +49,12 @@ def test_cost_breakdown_matches_user_example():
     )
     c = sde.compute_switch_costs(inp)
     assert c["exit_cost"] == 6_000.0
-    assert c["tax_cost"] == 15_000.0    # 1L gain × 15% STCG
+    assert c["tax_cost"] == 20_000.0    # 1L gain × 20% STCG (FY25-26)
     assert c["slippage_cost"] == 1_200.0
-    assert c["total_cost"] == 22_200.0
-    # Total cost % = 22,200 / 600,000 = 3.7%
-    assert c["switch_cost_pct"] == pytest.approx(0.037, abs=1e-4)
-    assert c["tax_impact_pct"] == pytest.approx(0.025, abs=1e-4)
+    assert c["total_cost"] == 27_200.0
+    # Total cost % = 27,200 / 600,000 = 4.533%
+    assert c["switch_cost_pct"] == pytest.approx(0.045333, abs=1e-4)
+    assert c["tax_impact_pct"] == pytest.approx(0.033333, abs=1e-4)
 
 
 def test_cost_breakdown_zero_gain_zero_tax():

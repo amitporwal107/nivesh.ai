@@ -11,6 +11,8 @@ Pipeline:
   4. For each genuinely new cluster, ask OpenAI (gpt-4o-mini) for a root-cause
      and fix suggestion, given the cluster info + relevant code snippets.
   5. Append to backlog in a fresh clone of the repo; push branch + open PR.
+  6. POST all clusters (new + recurring) to /api/work/issues/ingest so they
+     appear on the work.niveshcopilot.com dashboard.
 
 Auth (all stdlib, no pip deps):
   GCP    — VM metadata server token (the VM's attached SA must have
@@ -55,6 +57,8 @@ OPENAI_MODEL = "gpt-4o-mini"
 OPENAI_MAX_TOKENS = 350
 GH_TOKEN_FILE = "/opt/nivesh/.gh_pat"
 OPENAI_KEY_FILE = "/opt/nivesh/.openai_key"
+WORK_INGEST_URL = os.environ.get("WORK_INGEST_URL", "http://localhost:8001/api/work/issues/ingest")
+WORK_INGEST_SECRET = os.environ.get("WORK_INGEST_SECRET", "")
 METADATA_TOKEN_URL = (
     "http://metadata.google.internal/computeMetadata/v1/"
     "instance/service-accounts/default/token"
@@ -509,6 +513,40 @@ def push_and_pr(
         )
 
 
+# ── Work dashboard ingest ────────────────────────────────────────────────────
+
+def ingest_to_work_dashboard(clusters: dict[str, dict], rca_map: dict[str, tuple[str, str]]) -> None:
+    """
+    POST all clusters (with their RCA) to the work dashboard ingest endpoint.
+    Non-fatal — a failure here must not abort the backlog/PR pipeline.
+    """
+    if not WORK_INGEST_URL:
+        return
+    payload_clusters = []
+    for sig, c in clusters.items():
+        entry = dict(c)
+        entry["apps"] = list(c.get("apps", set()))
+        root_cause, fix_suggestion = rca_map.get(sig, ("", ""))
+        entry["root_cause"] = root_cause
+        entry["fix_suggestion"] = fix_suggestion
+        payload_clusters.append(entry)
+
+    body = json.dumps({"clusters": payload_clusters}).encode()
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if WORK_INGEST_SECRET:
+        headers["X-Ingest-Secret"] = WORK_INGEST_SECRET
+
+    req = urllib.request.Request(
+        WORK_INGEST_URL, data=body, headers=headers, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            result = json.loads(r.read())
+            log.info("work dashboard ingest: created=%s updated=%s", result.get("created"), result.get("updated"))
+    except Exception as exc:
+        log.warning("work dashboard ingest failed (non-fatal): %s", exc)
+
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -605,6 +643,11 @@ def main() -> int:
                 f"{c['endpoint'] or c['job_name'] or '-'}: "
                 f"{(c['sample_msg'] or '')[:80]}"
             )
+
+        # Persist ALL clusters (new + recurring) to work dashboard
+        rca_map = {c["sig"]: llm_analyze(openai_key, c, "") for c in ordered}
+        ingest_to_work_dashboard(all_clusters, rca_map)
+
         return 0
 
 

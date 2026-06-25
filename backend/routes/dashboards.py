@@ -26,12 +26,14 @@ remain unchanged for existing mobile-app + partner callers.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from deps import db, get_current_user
+from services import dashboard_cache, pg_client
 from services.action_plan_manager import ActionPlanManager
 
 logger = logging.getLogger(__name__)
@@ -255,6 +257,46 @@ async def _diversification_composite(user_id: str, lens: str) -> dict[str, Any]:
     }
 
 
+def _build_risk_drivers(drivers: list[dict]) -> list[dict]:
+    """Build the risk-driver breakdown items combining market risk (share of Σ)
+    with fundamental risk scores.
+
+    Composite ranking = 0.4 × normalised_sigma + 0.6 × (fundamental_score / 100).
+    Falls back to pure sigma when no fundamental data is present.
+    Stocks with a fundamental_risk_score > 0 get their risk flags surfaced.
+    """
+    if not drivers:
+        return []
+
+    max_sigma = max((float(d.get("share_of_sigma_pct") or 0) for d in drivers), default=1.0) or 1.0
+
+    scored = []
+    for d in drivers:
+        sigma = float(d.get("share_of_sigma_pct") or 0)
+        fund  = d.get("fundamental_risk_score")
+        if fund is not None:
+            composite = 0.4 * (sigma / max_sigma) + 0.6 * (float(fund) / 100.0)
+        else:
+            composite = sigma / max_sigma
+        scored.append((composite, sigma, d))
+
+    scored.sort(key=lambda t: t[0], reverse=True)
+
+    items = []
+    for composite, sigma, d in scored[:10]:
+        fund_score = d.get("fundamental_risk_score")
+        flags      = d.get("risk_flags") or []
+        items.append({
+            "name":               d.get("security_name") or d.get("security_key", "Unknown"),
+            "cls":                d.get("asset_class", ""),
+            "value":              round(sigma, 1),          # share of Σ % (bar width)
+            "weight":             round(float(d.get("effective_weight_pct") or 0), 1),
+            "fundamental_score":  round(float(fund_score), 1) if fund_score is not None else None,
+            "risk_flags":         flags,
+        })
+    return items
+
+
 async def _risk_composite(user_id: str) -> dict[str, Any]:
     """Serves screen 07 Risk Dashboard.
 
@@ -262,15 +304,59 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
     via the NIDP DaaS /v1/portfolio-risk/{user_id} endpoint.
     Falls back to the legacy weighted-beta approach if no PRA result exists yet.
     """
+    from datetime import date, datetime
     from services.copilot_tools import daas_client as _daas
 
-    # ── Primary path: precomputed PRA results ──────────────────────────
-    pra: Optional[dict] = None
-    try:
-        pra = await _daas.get_portfolio_risk(user_id)
-    except Exception as exc:
-        logger.debug("risk composite: PRA DaaS unavailable (%s), falling back", exc)
+    # ── Fetch PRA data and MongoDB holdings concurrently ──────────────
+    # Both DaaS calls capped at 5s; concurrent fetch keeps worst-case at
+    # max(5s PRA, ~0ms Mongo) + 5s MF bulk = 10s instead of the old 25s.
+    async def _fetch_pra() -> Optional[dict]:
+        return await _daas.get_portfolio_risk(user_id, timeout=5.0)
 
+    async def _fetch_holdings() -> list[dict]:
+        rows: list[dict] = await db.holdings.find(
+            {"user_id": user_id},
+            {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1,
+             "quantity": 1, "current_price": 1, "category": 1},
+        ).to_list(1000)
+        if not rows:
+            from services.pi_bridge import pi_holdings_for_user
+            rows = await pi_holdings_for_user(user_id)
+        return rows
+
+    pra, holdings = await asyncio.gather(_fetch_pra(), _fetch_holdings())
+    pra_error: Optional[str] = None
+    pra_from_cache = False
+
+    # ── Cache write: persist fresh PRA result to MongoDB pra_daily_cache ─
+    if pra and pra.get("var_95_1y_pct") and pra.get("computed_date"):
+        try:
+            await db.pra_daily_cache.update_one(
+                {"user_id": user_id, "date": pra["computed_date"]},
+                {"$set": {
+                    "user_id": user_id,
+                    "date": pra["computed_date"],
+                    "payload": pra,
+                    "cached_at": datetime.utcnow(),
+                }},
+                upsert=True,
+            )
+        except Exception as _exc:
+            logger.debug("pra_daily_cache write failed: %s", _exc)
+
+    # ── Cache read: fall back to MongoDB when DaaS has no data ────────────
+    if not (pra and pra.get("var_95_1y_pct")):
+        try:
+            cached_doc = await db.pra_daily_cache.find_one(
+                {"user_id": user_id}, sort=[("date", -1)]
+            )
+            if cached_doc and cached_doc.get("payload", {}).get("var_95_1y_pct"):
+                pra = cached_doc["payload"]
+                pra_from_cache = True
+        except Exception as _exc:
+            logger.debug("pra_daily_cache read failed: %s", _exc)
+
+    # ── Primary path: precomputed PRA results ──────────────────────────
     if pra and pra.get("var_95_1y_pct"):
         var_pct   = float(pra["var_95_1y_pct"])
         var_inr   = float(pra.get("var_95_1y_inr") or 0)
@@ -283,7 +369,14 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
         color     = pra.get("risk_color", "amber")
         drivers   = pra.get("risk_drivers") or []
         stress    = pra.get("stress_scenarios") or []
-        computed_at = pra.get("computed_at", "")
+        computed_at   = pra.get("computed_at", "")
+        computed_date = pra.get("computed_date", "")
+        pra_run_today = computed_date == str(date.today()) and not pra_from_cache
+        if pra_from_cache:
+            pra_error = (
+                "Nightly PRA job did not complete today. "
+                f"Showing results from {computed_date}."
+            )
 
         tone = {"green": "moss", "amber": "saffron", "red": "rust"}.get(color, "saffron")
         badge_label = "High risk" if color == "red" else ("Moderate risk" if color == "amber" else "Low risk")
@@ -305,17 +398,9 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
                 {"label": "Beta",                "value": f"{beta:.2f}",     "sub": "vs NIFTY 500"},
             ],
             "breakdown": {
-                "lens": "component_var",
-                "lens_options": ["component_var"],
-                "items": [
-                    {
-                        "name":  d.get("security_name") or d.get("security_key", "Unknown"),
-                        "cls":   d.get("asset_class", ""),
-                        "value": round(float(d.get("share_of_sigma_pct") or 0), 1),
-                        "weight": round(float(d.get("effective_weight_pct") or 0), 1),
-                    }
-                    for d in drivers[:10]
-                ],
+                "lens": "composite_risk",
+                "lens_options": ["composite_risk"],
+                "items": _build_risk_drivers(drivers),
             },
             "stress_scenarios": [
                 {
@@ -327,24 +412,36 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
                 for s in stress
             ],
             "meta": {
-                "computed_at": computed_at,
-                "data_stale":  stale,
-                "sharpe_1y":   sharpe,
+                "pra_available":    True,
+                "pra_run_today":    pra_run_today,
+                "pra_computed_date": computed_date,
+                "pra_error":        pra_error,
+                "computed_at":      computed_at,
+                "data_stale":       stale or pra_from_cache,
+                "sharpe_1y":        sharpe,
             },
         }
 
     # ── Fallback: legacy weighted-beta approach (no PRA results yet) ───
-    holdings: list[dict] = await db.holdings.find(
-        {"user_id": user_id},
-        {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1,
-         "quantity": 1, "current_price": 1, "category": 1},
-    ).to_list(1000)
-    if not holdings:
-        from services.pi_bridge import pi_holdings_for_user
-        holdings = await pi_holdings_for_user(user_id)
+    # Determine why PRA isn't available so we can surface it in the UI.
+    if pra_error:
+        _pra_meta_error = f"Risk analytics service unavailable: {pra_error}"
+    elif pra is None:
+        _pra_meta_error = "PRA engine has not run for this user yet. Trigger a run from the admin panel."
+    else:
+        _pra_meta_error = "PRA results exist but are incomplete (VaR not yet computed)."
+    _pra_computed_date = pra.get("computed_date") if pra else None
 
+    # holdings already fetched concurrently at the top of this function
     if not holdings:
-        return _empty_domain("risk")
+        result = _empty_domain("risk")
+        result["meta"] = {
+            "pra_available":     False,
+            "pra_run_today":     False,
+            "pra_computed_date": _pra_computed_date,
+            "pra_error":         _pra_meta_error,
+        }
+        return result
 
     mf_isins = [h["ticker"] for h in holdings
                 if (h.get("asset_type") or "").lower() in {"mutual_fund", "etf"} and h.get("ticker")]
@@ -356,7 +453,7 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
 
     if mf_isins:
         try:
-            mf_data = await _daas.get_v3_mf_primitives_bulk(mf_isins[:30])
+            mf_data = await _daas.get_v3_mf_primitives_bulk(mf_isins[:30], timeout=5.0)
             wb2 = wv2 = ws2 = 0.0
             for h in holdings:
                 isin = h.get("ticker")
@@ -405,7 +502,13 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
             ],
         },
         "stress_scenarios": [],
-        "meta": {"data_stale": False, "pra_available": False},
+        "meta": {
+            "pra_available":     False,
+            "pra_run_today":     False,
+            "pra_computed_date": _pra_computed_date,
+            "pra_error":         _pra_meta_error,
+            "data_stale":        False,
+        },
     }
 
 
@@ -509,80 +612,264 @@ async def _performance_composite(user_id: str, period: str, force: bool = False)
     }
 
 
+def _goal_fan_projection(goals: list[dict], base_year: int) -> dict:
+    """Build a year-by-year fan trajectory from goal rows (values in rupees)."""
+    if not goals:
+        return {}
+    total_sip = sum(float(g.get("monthly_sip_rs") or 0) for g in goals)
+    total_corpus = sum(float(g.get("current_corpus_rs") or 0) for g in goals)
+    total_target = sum(float(g.get("target_amount_rs") or 0) for g in goals)
+    max_horizon = max(max(int(float(g.get("horizon_years") or 1)), 1) for g in goals)
+
+    def fv(corpus: float, sip: float, annual_rate: float, years: int) -> float:
+        n = years * 12
+        if annual_rate == 0:
+            return corpus + sip * n
+        r = annual_rate / 12
+        return corpus * (1 + r) ** n + sip * ((1 + r) ** n - 1) / r
+
+    years = list(range(base_year, base_year + max_horizon + 1))
+    median    = [round(fv(total_corpus, total_sip, 0.12, yr - base_year)) for yr in years]
+    lo_68     = [round(fv(total_corpus, total_sip, 0.09, yr - base_year)) for yr in years]
+    hi_68     = [round(fv(total_corpus, total_sip, 0.15, yr - base_year)) for yr in years]
+    lo_95     = [round(fv(total_corpus, total_sip, 0.06, yr - base_year)) for yr in years]
+    hi_95     = [round(fv(total_corpus, total_sip, 0.18, yr - base_year)) for yr in years]
+    required  = [
+        round(total_corpus + (total_target - total_corpus) * (yr - base_year) / max_horizon)
+        for yr in years
+    ]
+    markers = [
+        {
+            "year": base_year + max(int(float(g.get("horizon_years") or 1)), 1),
+            "label": (g.get("goal_name") or "Goal")[:10],
+            "amount": round(float(g.get("target_amount_rs") or 0)),
+            "on_track": float(g.get("on_track_pct") or 0) >= 70,
+        }
+        for g in goals
+    ]
+    return {
+        "years": years, "median": median,
+        "band_68_lo": lo_68, "band_68_hi": hi_68,
+        "band_95_lo": lo_95, "band_95_hi": hi_95,
+        "required": required, "goals": markers,
+    }
+
+
 async def _goals_composite(user_id: str) -> dict[str, Any]:
     """Serves screen 09 Goals Dashboard."""
-    goals_doc = await db.goals.find_one({"user_id": user_id}) or {}
-    goals = goals_doc.get("goals") or []
-    at_risk = [g for g in goals if (g.get("funding_pct") or 100) < 80]
-    tone = "rust" if at_risk else "moss"
+    import uuid as _uuid
+    from datetime import date as _date
+
+    # user_id from auth is a Mongo-style string (e.g. 'user_abc123');
+    # user_goals.user_id is UUID — same deterministic mapping as routes/goals.py _user_uuid().
+    try:
+        pg_user_id = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        pg_user_id = _uuid.uuid5(_uuid.NAMESPACE_DNS, f"nivesh:user:{user_id}")
+
+    pool = await pg_client.get_pool()
+    goals = []
+    if pool:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT goal_name, goal_type, target_amount_rs, horizon_years, "
+                "on_track_pct, monthly_sip_rs, current_corpus_rs FROM user_goals "
+                "WHERE user_id = $1 AND status != 'abandoned' ORDER BY created_at",
+                pg_user_id,
+            )
+            goals = [dict(r) for r in rows]
+
+    total = len(goals)
+    at_risk_count = sum(1 for g in goals if (g.get("on_track_pct") or 100) < 80)
+    on_track_count = total - at_risk_count
+    tone = "rust" if at_risk_count else "moss"
 
     return {
-        "badge": {"label": f"{len(at_risk)} goal{'s' if len(at_risk) != 1 else ''} at risk" if at_risk else "On track", "tone": tone},
+        "badge": {
+            "label": f"{at_risk_count} goal{'s' if at_risk_count != 1 else ''} at risk" if at_risk_count else "On track",
+            "tone": tone,
+        },
         "insight": {
-            "headline": f"{len(at_risk)} of {len(goals)} goals are at risk." if at_risk else "All goals on track.",
-            "subtext": "Raise SIP or extend horizon to close the gap." if at_risk else "",
-            "hero": {"label": "AT RISK", "value": str(len(at_risk)), "tone": tone},
+            "headline": f"{at_risk_count} of {total} goals are at risk." if at_risk_count else "All goals on track.",
+            "subtext": "Raise SIP or extend horizon to close the gap." if at_risk_count else "",
+            "hero": {"label": "AT RISK", "value": str(at_risk_count), "tone": tone},
         },
         "stat_tiles": [
-            {"label": "Goals", "value": str(len(goals))},
-            {"label": "At risk", "value": str(len(at_risk)), "tone": tone},
-            {"label": "On track", "value": str(len(goals) - len(at_risk)), "tone": "moss"},
+            {"label": "Goals", "value": str(total)},
+            {"label": "At risk", "value": str(at_risk_count), "tone": tone},
+            {"label": "On track", "value": str(on_track_count), "tone": "moss"},
         ],
         "breakdown": {
             "lens": "goals",
             "lens_options": ["goals"],
             "items": [
                 {
-                    "name": g.get("name") or g.get("goal_name") or "Goal",
-                    "value": round(float(g.get("funding_pct") or 0), 1),
-                    "tone": _score_tone(float(g.get("funding_pct") or 0)),
+                    "name": g.get("goal_name") or "Goal",
+                    "value": round(float(g.get("on_track_pct") or 0), 1),
+                    "tone": _score_tone(float(g.get("on_track_pct") or 0)),
                     "target_rs": g.get("target_amount_rs"),
                     "horizon_years": g.get("horizon_years"),
                 }
                 for g in goals[:6]
             ],
         },
+        # Fan trajectory — consumed by GoalTrajectory SVG chart in V5
+        "projection": _goal_fan_projection(goals, _date.today().year) or None,
     }
 
 
+def _tax_timeline_from_events(events: list, today) -> Optional[dict]:
+    """Realized gains(booked)/losses by month for the current FY, built from
+    FIFO ``TaxEvent``s. Returns ``None`` when there are no realized events so
+    the UI shows its honest 'pending' state rather than a fabricated chart."""
+    from datetime import date as _d
+    if not events:
+        return None
+    fy_start_year = today.year if today.month >= 4 else today.year - 1
+    order: list[tuple[str, dict]] = []
+    buckets: dict[str, dict] = {}
+    for i in range(12):
+        m = ((4 - 1 + i) % 12) + 1
+        y = fy_start_year + ((4 - 1 + i) // 12)
+        key = f"{y}-{m:02d}"
+        cell = {
+            "label": _d(y, m, 1).strftime("%b"),
+            "gains": 0.0,
+            "losses": 0.0,
+            "highlighted": (y == today.year and m == today.month),
+        }
+        buckets[key] = cell
+        order.append((key, cell))
+
+    any_event = False
+    for e in events:
+        sd = getattr(e, "sell_date", None)
+        if sd is None:
+            continue
+        key = f"{sd.year}-{sd.month:02d}"
+        cell = buckets.get(key)
+        if cell is None:
+            continue
+        g = float(getattr(e, "gain_rs", 0) or 0)
+        any_event = True
+        if g >= 0:
+            cell["gains"] += g
+        else:
+            cell["losses"] += abs(g)
+
+    if not any_event:
+        return None
+    return {"months": [cell for _, cell in order]}
+
+
 async def _tax_composite(user_id: str) -> dict[str, Any]:
-    """Serves screen 10 Tax Dashboard."""
-    from routes.portfolio_tax import get_tax_summary
-    from fastapi import Request as _Req
+    """Serves screen 10 Tax Dashboard.
 
-    # Re-use the GET /api/portfolio/tax-summary logic directly
-    cg_doc = await db.capital_gains_summary.find_one({"user_id": user_id}) or {}
-    ltcg_remaining = max(0.0, 125_000.0 - float(cg_doc.get("ltcg_booked_rs") or 0))
-    harvestable_raw = []
-    async for h in db.holdings.find({"user_id": user_id}, {"_id": 0}):
-        gain = float(h.get("unrealised_gain") or 0)
-        days = int(h.get("days_held") or 0)
-        if gain > 0 and days >= 365:
-            harvestable_raw.append(gain)
-    total_harvestable = sum(g for g in harvestable_raw if g <= ltcg_remaining)
-
-    tone = "moss" if total_harvestable > 0 else "mute"
+    Reuses services.tax_engine (Phase-1 tax-aware classifier + loss
+    harvesting), services.tax_constants (canonical FY25-26 rates) and the
+    FIFO engine's realised events for the timeline — no parallel tax math
+    is done here. Tones use the Tax page's vocab (good/warm/neg/info).
+    """
     from datetime import date
-    fy_end_year = date.today().year if date.today().month < 4 else date.today().year + 1
-    days_left = max(0, (date(fy_end_year, 3, 31) - date.today()).days)
+    from services import tax_engine
+    from services.tax_constants import (
+        EQUITY_LTCG_EXEMPTION, EQUITY_LTCG_RATE, EQUITY_STCG_RATE,
+    )
+
+    enriched = await tax_engine._enriched_holdings(user_id)
+    if not enriched:
+        return _empty_domain("tax")
+
+    today = date.today()
+    fy_end_year = today.year if today.month < 4 else today.year + 1
+    days_left = max(0, (date(fy_end_year, 3, 31) - today).days)
+
+    cg_doc = await db.capital_gains_summary.find_one({"user_id": user_id}) or {}
+    ltcg_used = float(cg_doc.get("ltcg_booked_rs") or 0)
+    ltcg_remaining = max(0.0, EQUITY_LTCG_EXEMPTION - ltcg_used)
+
+    # Bucket unrealized gains by LT/ST classification; tally losses.
+    lt_gain = st_gain = 0.0
+    for h in enriched:
+        g = h["_gain"]
+        if g < 0:
+            continue
+        cls = tax_engine.classify_holding(h)
+        if cls.tier == "LIKELY_LTCG":
+            lt_gain += g
+        else:  # STCG or UNKNOWN → conservative short-term bucket
+            st_gain += g
+
+    lt_taxable = max(0.0, lt_gain - ltcg_remaining)
+    lt_tax = lt_taxable * EQUITY_LTCG_RATE
+    st_tax = st_gain * EQUITY_STCG_RATE
+    est_total_tax = lt_tax + st_tax
+
+    # Harvest lots = unrealized losses (reuse the engine, incl. FIFO lots).
+    loss_scores = await tax_engine.loss_harvesting_candidates(user_id)
+    harvest_lots = [
+        {
+            "name": s.name,
+            "ticker": (s.asset_type.replace("_", " ").title() if s.asset_type else None),
+            "loss": round(abs(s.gain_rs)),
+        }
+        for s in loss_scores[:8]
+    ]
+    harvestable_loss = sum(abs(s.gain_rs) for s in loss_scores)
+    # Tax saved by using those losses to offset gains (STCG first — higher
+    # rate), capped at the gains actually available to offset.
+    st_offset = min(harvestable_loss, st_gain)
+    lt_offset = min(harvestable_loss - st_offset, lt_gain)
+    net_saved = round(st_offset * EQUITY_STCG_RATE + lt_offset * EQUITY_LTCG_RATE)
+
+    # Realized gains/losses timeline — real FIFO events, else honest pending.
+    projection = None
+    try:
+        from services import tax_engine_fifo as _tef
+        state = await _tef.build_user_tax_state(user_id)
+        projection = _tax_timeline_from_events(state.calculator.events, today)
+    except Exception as _e:  # noqa: BLE001
+        logger.debug("tax timeline build failed for %s: %s", user_id, _e)
+
+    has_harvest = bool(harvest_lots)
+    has_gains = (lt_gain + st_gain) > 0
+    if has_harvest:
+        badge = {"label": "Harvest available", "tone": "good"}
+        headline = f"₹{harvestable_loss / 1000:.0f}K in losses you can harvest this FY."
+    elif has_gains:
+        badge = {"label": "Gains to watch", "tone": "warm"}
+        headline = f"₹{est_total_tax / 1000:.0f}K estimated tax if you exit everything today."
+    else:
+        badge = {"label": "All clear", "tone": "good"}
+        headline = "No taxable gains or harvest opportunities right now."
 
     return {
-        "badge": {"label": "Harvest available" if total_harvestable > 0 else "Nothing to harvest", "tone": tone},
+        "badge": badge,
         "insight": {
-            "headline": f"₹{total_harvestable / 1000:.0f}K LTCG harvestable within ₹1.25L limit." if total_harvestable > 0 else "No LTCG harvest opportunities right now.",
-            "subtext": f"{days_left} days until FY end.",
-            "hero": {"label": "HARVESTABLE", "value": f"₹{total_harvestable / 1000:.0f}K" if total_harvestable else "—", "tone": tone},
+            "headline": headline,
+            "subtext": f"{days_left} days until FY end · ₹{ltcg_remaining / 1000:.0f}K LTCG exemption left.",
+            "hero": {
+                "label": "HARVESTABLE",
+                "value": f"₹{harvestable_loss / 1000:.0f}K" if has_harvest else "—",
+                "tone": "good",
+            },
         },
         "stat_tiles": [
-            {"label": "LTCG remaining", "value": f"₹{ltcg_remaining / 1000:.0f}K", "tone": "moss" if ltcg_remaining > 0 else "rust"},
-            {"label": "Days to FY end", "value": str(days_left)},
-            {"label": "Harvest opp.", "value": str(len(harvestable_raw))},
+            {"label": "LTCG exempt left", "value": f"₹{ltcg_remaining / 1000:.0f}K", "tone": "good" if ltcg_remaining > 0 else "neg"},
+            {"label": "Harvestable loss", "value": f"₹{harvestable_loss / 1000:.0f}K", "tone": "good" if harvestable_loss > 0 else "info"},
+            {"label": "Est. tax if exit", "value": f"₹{est_total_tax / 1000:.0f}K", "tone": "warm" if est_total_tax > 0 else "info"},
+            {"label": "Days to FY end", "value": str(days_left), "tone": "info"},
         ],
-        "breakdown": {
-            "lens": "harvest",
-            "lens_options": ["harvest", "structure"],
-            "items": [],  # full list via /api/portfolio/tax-summary
-        },
+        # Tax page renders breakdown as an array of rows (label/value/rate/tax/tone).
+        "breakdown": [
+            {"label": "Long-term gains", "value": f"₹{lt_gain / 1000:.0f}K", "rate": "12.5%", "tax": f"~₹{lt_tax / 1000:.1f}K tax", "tone": "warm"},
+            {"label": "Short-term gains", "value": f"₹{st_gain / 1000:.0f}K", "rate": "20%", "tax": f"~₹{st_tax / 1000:.1f}K tax", "tone": "neg"},
+            {"label": "Harvestable losses", "value": f"₹{harvestable_loss / 1000:.0f}K", "rate": "offset", "tax": f"~₹{net_saved / 1000:.1f}K saved", "tone": "good"},
+            {"label": "LTCG exemption", "value": f"₹{ltcg_remaining / 1000:.0f}K", "rate": "of ₹1.25L", "tax": f"₹{ltcg_used / 1000:.0f}K used", "tone": "info"},
+        ],
+        "harvest_lots": harvest_lots,
+        "net_saved": net_saved if net_saved > 0 else None,
+        "projection": projection,
     }
 
 
@@ -592,6 +879,42 @@ def _empty_domain(domain: str) -> dict[str, Any]:
         "insight": {"headline": "Upload your portfolio to see this dashboard.", "subtext": "", "hero": None},
         "stat_tiles": [],
         "breakdown": {"lens": domain, "lens_options": [], "items": []},
+    }
+
+
+# ── Meta endpoint (lightweight freshness check) ───────────────────────────────
+
+@router.get("/meta")
+async def get_dashboard_meta(request: Request) -> dict[str, Any]:
+    """Return cache freshness info without computing full dashboard data.
+
+    Frontend calls this first on page load; if ``hasCachedData`` is true and
+    ``lastUpdated`` matches the locally-stored generatedAt, the page can skip
+    the full fetch and serve from localStorage.
+    """
+    from datetime import date
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+    today = str(date.today())
+
+    last_updated: Optional[str] = None
+    has_cache = False
+    try:
+        doc = await db.dashboard_daily_snapshot.find_one(
+            {"user_id": user_id, "date": today},
+            {"_id": 0, "updated_at": 1},
+            sort=[("updated_at", -1)],
+        )
+        if doc:
+            has_cache = True
+            last_updated = doc.get("updated_at")
+    except Exception:
+        pass
+
+    return {
+        "hasCachedData": has_cache,
+        "marketDate": today,
+        "lastUpdated": last_updated,
     }
 
 
@@ -624,47 +947,81 @@ async def get_dashboard(
     user = await get_current_user(request)
     user_id = user["user_id"]
 
-    # ── 1. Domain data ────────────────────────────────────────────────────────
-    try:
-        if type == "concentration":
-            domain = await _concentration_composite(user_id, lens)
-        elif type == "diversification":
-            domain = await _diversification_composite(user_id, lens)
-        elif type == "risk":
-            domain = await _risk_composite(user_id)
-        elif type == "performance":
-            force = request.query_params.get("force") == "1"
-            domain = await _performance_composite(user_id, period, force=force)
-        elif type == "goals":
-            domain = await _goals_composite(user_id)
-        else:  # tax
-            domain = await _tax_composite(user_id)
-    except Exception as exc:
-        logger.warning("dashboard[%s] domain failed for user %s: %s", type, user_id, exc)
-        domain = _empty_domain(type)
+    # ── 0. Cache check (L1 Redis → L2 MongoDB) ───────────────────────────────
+    # Cache only default-param requests (lens=sector, period=1y).  Param
+    # variants and force-refresh bypass the cache so callers can still get
+    # fresh data on demand.
+    _force = request.query_params.get("force") == "1"
+    _is_default_params = (lens == "sector" and period == "1y")
+    if not _force and _is_default_params:
+        cached = await dashboard_cache.get(user_id, type)
+        if cached is not None:
+            return cached
 
-    # ── 2. Recommendations (plan actions filtered by source_domain) ───────────
-    try:
+    # ── 1-3. Domain + recommendations + projection — all concurrent ──────────
+    # Run all three in parallel so total latency = max(each), not sum(each).
+
+    async def _safe_domain() -> dict:
+        if type == "concentration":
+            return await _concentration_composite(user_id, lens)
+        elif type == "diversification":
+            return await _diversification_composite(user_id, lens)
+        elif type == "risk":
+            return await _risk_composite(user_id)
+        elif type == "performance":
+            return await _performance_composite(user_id, period, force=_force)
+        elif type == "goals":
+            return await _goals_composite(user_id)
+        else:
+            return await _tax_composite(user_id)
+
+    async def _safe_plan() -> list:
         plan = await _plan_mgr.get_active_plan(user_id, source_domain=type)
-        actions = (plan.get("actions") or [])[:5]
-        # Normalise status to UPPERCASE for v4 consumers
-        for a in actions:
+        acts = (plan.get("actions") or [])[:5]
+        for a in acts:
             if isinstance(a.get("status"), str):
                 a["status"] = a["status"].upper()
-    except Exception as exc:
-        logger.warning("dashboard[%s] plan failed for user %s: %s", type, user_id, exc)
+        return acts
+
+    async def _safe_projection() -> dict:
+        return await asyncio.wait_for(_health_projection(user_id, type), timeout=5.0)
+
+    _domain_r, _plan_r, _proj_r = await asyncio.gather(
+        _safe_domain(), _safe_plan(), _safe_projection(),
+        return_exceptions=True,
+    )
+
+    if isinstance(_domain_r, BaseException):
+        logger.warning("dashboard[%s] domain failed for user %s: %s", type, user_id, _domain_r)
+        domain = _empty_domain(type)
+    else:
+        domain = _domain_r
+
+    if isinstance(_plan_r, BaseException):
+        logger.warning("dashboard[%s] plan failed for user %s: %s", type, user_id, _plan_r)
         actions = []
+    else:
+        actions = _plan_r
 
-    # ── 3. Health projection (cached / lightweight) ───────────────────────────
-    try:
-        projection = await _health_projection(user_id, type)
-    except Exception as exc:
-        logger.warning("dashboard[%s] projection failed for user %s: %s", type, user_id, exc)
+    # Domain provides its own projection (e.g. goals fan chart); others use health delta.
+    domain_projection = domain.pop("projection", None)
+    if domain_projection is not None:
+        projection = domain_projection
+    elif isinstance(_proj_r, BaseException):
+        logger.warning("dashboard[%s] projection failed for user %s: %s", type, user_id, _proj_r)
         projection = {"metric_label": "Projected health", "current": None, "projected": None, "unit": "", "tone": "mute"}
+    else:
+        projection = _proj_r
 
-    return {
+    result = {
         "type": type,
         **domain,
         "recommendations": actions,
         "projection": projection,
     }
+
+    # ── Cache the computed result (default params only) ───────────────────────
+    if _is_default_params and not _force:
+        await dashboard_cache.set(user_id, type, result)
+
+    return result

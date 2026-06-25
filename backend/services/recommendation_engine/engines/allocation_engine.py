@@ -3,6 +3,16 @@ AllocationEngine — Rule 5 (V2.5 Dynamic Debt Target).
 
 ADD a debt fund when portfolio debt % is below the risk-profile-based target.
 
+Phase 2 demotion: DriftEngine now owns all bucket-level sizing (bidirectional).
+AllocationEngine is a fallback — it only fires when ctx.deviation_result is None
+(i.e. DriftEngine is inactive). Once Phase 3 wires compute_deviation() into
+action_plan_manager, AllocationEngine will be dormant for all users with
+holdings + risk profile, and can be retired in a future cleanup.
+
+Why this ordering: the two engines would otherwise double-count a debt
+underweight — AllocationEngine adds debt AND DriftEngine adds debt for the
+same gap. One signal per bucket is enforced by this guard.
+
 Pure engine: all data from context.
 """
 from __future__ import annotations
@@ -55,15 +65,17 @@ def _normalise_daas_fund(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _suggest_debt_fund(
+def _suggest_debt_funds(
     amount: float,
     excluded_amcs: List[str],
     live_candidates: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
-    """Pick the best available debt fund.
+    top_n: int = 3,
+) -> List[Dict[str, Any]]:
+    """Return up to top_n ranked debt fund options.
 
-    Prefers live NIDP DaaS candidates (already sorted by composite_rank ASC);
+    Prefers live NIDP DaaS candidates (sorted by composite_rank ASC);
     falls back to the static list when DaaS is unavailable.
+    The first item is the primary recommendation; items 2+ are alternatives.
     """
     candidates = (
         [_normalise_daas_fund(r) for r in live_candidates]
@@ -71,11 +83,16 @@ def _suggest_debt_fund(
         else _DEBT_FUNDS_FALLBACK
     )
     available = [f for f in candidates if f.get("amc") not in excluded_amcs] or candidates
-    if amount >= 500_000:
-        return available[0]
-    if amount >= 200_000:
-        return available[min(1, len(available) - 1)]
-    return available[min(2, len(available) - 1)]
+    return available[:top_n]
+
+
+def _suggest_debt_fund(
+    amount: float,
+    excluded_amcs: List[str],
+    live_candidates: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Pick the single best debt fund (primary recommendation)."""
+    return _suggest_debt_funds(amount, excluded_amcs, live_candidates, top_n=1)[0]
 
 
 def _debt_target(risk: str, params: Dict[str, Any]) -> float:
@@ -94,6 +111,12 @@ class AllocationEngine(BaseEngine):
 
     def generate(self, ctx: RecommendationContext) -> List[EngineSignal]:
         if ctx.total_value_rs <= 0:
+            return []
+
+        # Phase 2 demotion: DriftEngine owns bucket sizing when deviation_result is set.
+        # Return empty so the two engines never double-count the same bucket gap.
+        if ctx.deviation_result is not None:
+            logger.debug("[AllocationEngine] deferred to DriftEngine (deviation_result is set)")
             return []
 
         r5_params = (ctx.rules_cfg.get("rule_5_debt_allocation") or {}).get("params", {})
@@ -143,7 +166,8 @@ class AllocationEngine(BaseEngine):
         gap_pct = target - debt_pct
         gap_rs = ctx.total_value_rs * (gap_pct / 100.0)
         live_debt = ctx.top_add_candidates.get("debt") or []
-        fund = _suggest_debt_fund(gap_rs, excluded_amcs, live_debt)
+        fund_options = _suggest_debt_funds(gap_rs, excluded_amcs, live_debt, top_n=3)
+        fund = fund_options[0]
         fund_name = fund["fund_name"]
         fund_type = fund.get("fund_type", "")
 
@@ -177,4 +201,5 @@ class AllocationEngine(BaseEngine):
             execution_path="redirect",   # always prefer new money for ADD
         )
         signal.__dict__["_fund_details"] = fund
+        signal.__dict__["_fund_options"] = fund_options  # top-3 for frontend fund picker
         return [signal]

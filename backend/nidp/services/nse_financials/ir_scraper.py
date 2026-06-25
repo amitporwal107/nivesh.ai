@@ -8,6 +8,7 @@ Returns raw text content for the LLM extractor to parse.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -53,23 +54,37 @@ def _screener_session_cookie() -> Optional[str]:
     return os.environ.get("SCREENER_SESSION_COOKIE")
 
 
+# Transient HTTP statuses worth retrying — rate-limiting (429) and server-side
+# blips (5xx). A 404 means the page genuinely isn't there, so we give up at once.
+_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+_MAX_ATTEMPTS = 3
+
+
 async def _get_text(url: str) -> Optional[str]:
     headers = dict(_HEADERS)
     cookie = _screener_session_cookie()
     if cookie and "screener.in" in url:
         headers["Cookie"] = f"sessionid={cookie}"
-    try:
-        async with aiohttp.ClientSession(headers=headers, timeout=_TIMEOUT) as s:
-            async with s.get(url, allow_redirects=True) as r:
-                if r.status != 200:
-                    return None
-                ct = r.headers.get("Content-Type", "")
-                if "pdf" in ct:
-                    return await _extract_pdf_text(await r.read())
-                return await r.text(errors="replace")
-    except Exception as e:
-        logger.debug("_get_text(%s) failed: %s", url, e)
-        return None
+    last: str = "no attempt"
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            async with aiohttp.ClientSession(headers=headers, timeout=_TIMEOUT) as s:
+                async with s.get(url, allow_redirects=True) as r:
+                    if r.status == 200:
+                        ct = r.headers.get("Content-Type", "")
+                        if "pdf" in ct:
+                            return await _extract_pdf_text(await r.read())
+                        return await r.text(errors="replace")
+                    if r.status not in _RETRY_STATUSES:
+                        return None          # genuine miss (404 etc.) — don't retry
+                    last = f"HTTP {r.status}"  # transient — fall through to backoff
+        except Exception as e:               # timeouts, connection resets, etc.
+            last = repr(e)
+        # Transient failure: back off (1.5s, 3s) and retry, unless this was the last try.
+        if attempt < _MAX_ATTEMPTS - 1:
+            await asyncio.sleep(1.5 * (2 ** attempt))
+    logger.debug("_get_text(%s) gave up after %d attempts (last: %s)", url, _MAX_ATTEMPTS, last)
+    return None
 
 
 async def _extract_pdf_text(data: bytes) -> Optional[str]:

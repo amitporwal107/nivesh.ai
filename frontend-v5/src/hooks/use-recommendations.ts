@@ -14,6 +14,28 @@ export function useRecommendations() {
   });
 }
 
+export function useGeneratePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => plansService.generate(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recommendations"] });
+      qc.invalidateQueries({ queryKey: ["plans"] });
+    },
+  });
+}
+
+export function useRefreshPlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => plansService.refresh(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recommendations"] });
+      qc.invalidateQueries({ queryKey: ["plans"] });
+    },
+  });
+}
+
 export function useApplyRecommendation(planId?: string) {
   const qc = useQueryClient();
   return useMutation({

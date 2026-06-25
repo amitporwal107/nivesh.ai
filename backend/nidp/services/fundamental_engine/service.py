@@ -38,6 +38,13 @@ logger = logging.getLogger(__name__)
 SOURCE = "COPILOT_FUND_ENGINE"
 BATCH_SIZE = 200
 
+# The shared asyncpg pool sets command_timeout=30 (see nidp/shared/storage/pg.py),
+# but populate_stock_features_extended / _v3 are bulk UPDATEs over the whole universe
+# that take ~35s on staging. At 30s asyncpg cancels them with an empty-message
+# TimeoutError, which left shareholding/fundamentals columns silently blank for the
+# latest date. Override the per-statement timeout for these heavy maintenance calls.
+_POPULATE_TIMEOUT_S = 600
+
 
 @dataclass
 class FundRunReport:
@@ -78,12 +85,15 @@ async def _populate_extended(conn: asyncpg.Connection, target_date: date) -> int
         rows = await conn.fetchval(
             "SELECT nidp.populate_stock_features_extended($1)",
             target_date,
+            timeout=_POPULATE_TIMEOUT_S,
         )
         logger.info("fund_engine_populate_extended date=%s rows_updated=%s", target_date, rows)
         return rows or 0
     except Exception as exc:
-        logger.error("fund_engine_populate_extended_error date=%s error=%s", target_date, exc)
-        return 0
+        # %r so an empty-message TimeoutError still shows its type — silent blanks
+        # were caused by this being logged as an empty string and ignored.
+        logger.error("fund_engine_populate_extended_error date=%s error=%r", target_date, exc)
+        raise
 
 
 async def _populate_v3(conn: asyncpg.Connection, target_date: date) -> int:
@@ -97,12 +107,13 @@ async def _populate_v3(conn: asyncpg.Connection, target_date: date) -> int:
         rows = await conn.fetchval(
             "SELECT nidp.populate_stock_features_v3($1)",
             target_date,
+            timeout=_POPULATE_TIMEOUT_S,
         )
         logger.info("fund_engine_populate_v3 date=%s rows_updated=%s", target_date, rows)
         return rows or 0
     except Exception as exc:
-        logger.error("fund_engine_populate_v3_error date=%s error=%s", target_date, exc)
-        return 0
+        logger.error("fund_engine_populate_v3_error date=%s error=%r", target_date, exc)
+        raise
 
 
 # ── Step 2: fetch financial data for scoring ──────────────────────────

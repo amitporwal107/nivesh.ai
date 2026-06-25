@@ -180,8 +180,16 @@ async def build_portfolio_returns(
     )
     benchmark_series: pd.Series = pd.Series(dtype=float)
     if bench_rows:
-        bench_df = pd.DataFrame(bench_rows, columns=["date", "price"]).set_index("date")["price"].astype(float)
-        benchmark_series = np.log(bench_df / bench_df.shift(1)).dropna()
+        # Build float64 Series directly from asyncpg Records — avoids Decimal
+        # dtype propagation that causes np.log ufunc dispatch to fail when
+        # the intermediate division produces a non-float element type.
+        bench_df = pd.Series(
+            [float(r["close_price"]) for r in bench_rows],
+            index=[r["as_of_date"] for r in bench_rows],
+            dtype="float64",
+        )
+        if len(bench_df) > 1:
+            benchmark_series = np.log(bench_df / bench_df.shift(1)).dropna()
 
     # 6. Combine equity + MF price frames and compute log-returns
     prices = pd.concat(

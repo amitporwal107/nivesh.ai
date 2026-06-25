@@ -150,6 +150,35 @@ _AMC_DISPLAY = {
     ("OLD", "BRIDGE"): "Old Bridge",
 }
 
+# Tokens that stay UPPERCASE inside an otherwise Title-Cased scheme name.
+# Source feeds give scheme names in mixed case (ALL CAPS from CAMS/Karvy,
+# Title-case from others) — chip display needs them consistent.
+_SCHEME_KEEP_UPPER = {
+    "ETF", "MF", "FOF", "FMP", "ELSS", "PSU", "NIFTY", "BSE", "NSE", "US", "UK",
+    "SBI", "LIC", "ICICI", "HDFC", "UTI", "DSP", "PGIM", "ITI", "NJ", "JM", "BNP",
+    "PPFAS", "IDFC", "ESG", "REIT", "IT", "AAA", "IDCW", "PPF",
+}
+
+
+def _pretty_scheme_name(name: str) -> str:
+    """Title-case an MF/ETF scheme name for the 'Most-Owned Stock' fund chips,
+    keeping common acronyms (ETF, NIFTY, SBI, …) uppercase. Preserves '-'/'/'
+    separators inside a token (e.g. 'FUND-REGULAR' → 'Fund-Regular')."""
+    if not name:
+        return ""
+    words = []
+    for raw in str(name).split():
+        rebuilt = []
+        for part in re.split(r"([-/])", raw):
+            if part in ("-", "/"):
+                rebuilt.append(part)
+            elif part.upper() in _SCHEME_KEEP_UPPER:
+                rebuilt.append(part.upper())
+            else:
+                rebuilt.append(part.capitalize())
+        words.append("".join(rebuilt))
+    return " ".join(words)
+
 
 # MF category labels that leak into MF `sector` metadata but are NOT
 # real economic sectors (Balanced, Mid Cap, etc. are fund categories).
@@ -497,8 +526,15 @@ def compute_concentration(
     }
 
     # 4. Company buckets — direct equity 1:1, MFs dissolved via lookthrough
+    # `funds` maps a distinct fund identity (ticker/ISIN, falling back to its
+    # display name) → that fund's prettified scheme name. Keying by ticker is
+    # what makes "held across N funds" count *distinct funds*, not folios: the
+    # same scheme held in several folios — or a fund that lists the stock twice
+    # in its look-through — collapses to one. (Real portfolios hold the same
+    # fund across multiple folios; counting folios overstated the fund count
+    # and orphaned the surplus chips.)
     company_buckets: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"value_inr": 0.0, "via_direct": 0.0, "via_funds": 0, "sector": None}
+        lambda: {"value_inr": 0.0, "via_direct": 0.0, "sector": None, "funds": {}}
     )
     for h in holdings:
         v = _hv(h)
@@ -514,6 +550,8 @@ def compute_concentration(
             lookup = fund_lookthrough.get(h.get("ticker") or "")
             if not lookup or not (lookup.get("holdings") or []):
                 continue
+            fund_key = (h.get("ticker") or "").strip() or (h.get("name") or "").strip()
+            fund_name = _pretty_scheme_name((h.get("name") or "").strip())
             for sh in lookup["holdings"]:
                 name = (sh.get("name") or "").strip()
                 if not name:
@@ -523,13 +561,38 @@ def compute_concentration(
                     continue
                 # Title-case but preserve a couple of acronyms
                 disp = name.replace(" Ltd.", " Ltd").replace(" Limited", " Ltd")
-                company_buckets[disp]["value_inr"] += v * (pct / 100.0)
-                company_buckets[disp]["via_funds"] += 1
+                exposure = v * (pct / 100.0)
+                company_buckets[disp]["value_inr"] += exposure
                 company_buckets[disp]["sector"] = sh.get("sector") or company_buckets[disp]["sector"]
+                if fund_key:
+                    f = company_buckets[disp]["funds"].setdefault(
+                        fund_key, {"name": fund_name, "value_inr": 0.0})
+                    f["value_inr"] += exposure
     company_items = []
     for name, vobj in company_buckets.items():
         via_direct = vobj["via_direct"]
-        via_funds  = vobj["via_funds"]
+        # Distinct funds (by ticker) holding this company; names drop blanks so
+        # the frontend can label the slice "Unknown fund" rather than blank.
+        funds = vobj["funds"]
+        fund_names = [f["name"] for f in funds.values() if f["name"]]
+        via_funds  = len(funds)
+        # Donut breakdown: top-10 funds by ₹ exposure into this stock + Others.
+        # pct is share of the look-through exposure (slices sum to 100%).
+        ranked = sorted(funds.values(), key=lambda f: -f["value_inr"])
+        funds_total = sum(f["value_inr"] for f in funds.values()) or 1.0
+        fund_breakdown = [
+            {"name": f["name"] or "Unknown fund",
+             "value_inr": round(f["value_inr"], 2),
+             "pct": round(f["value_inr"] / funds_total * 100, 1)}
+            for f in ranked[:10]
+        ]
+        if len(ranked) > 10:
+            rest = ranked[10:]
+            rest_val = sum(f["value_inr"] for f in rest)
+            fund_breakdown.append(
+                {"name": f"Others ({len(rest)} funds)",
+                 "value_inr": round(rest_val, 2),
+                 "pct": round(rest_val / funds_total * 100, 1)})
         # Cross-held = held in BOTH direct equity AND ≥1 mutual fund,
         # OR held across ≥2 mutual funds. Either way, this single name
         # is exposed through multiple routes — what the PRD calls
@@ -540,6 +603,8 @@ def compute_concentration(
             "value_inr": vobj["value_inr"],
             "via_direct_inr": via_direct,
             "via_funds_count": via_funds,
+            "fund_names": fund_names,
+            "fund_breakdown": fund_breakdown,
             "sector": vobj["sector"],
             "group": _group_for(name),
             "cross_held": cross_routes >= 2,

@@ -29,7 +29,12 @@ from .writer import SOURCE_NAME, upsert_shareholding
 logger = logging.getLogger(__name__)
 
 _XBRL_FETCH_CONCURRENCY = 4
-_MAX_FILINGS_PER_RUN = 200
+# NSE's master list carries the whole current-quarter universe (~2,300 equities).
+# Cap above that so a single run covers every stock — otherwise only the first
+# 200 filings land and the sector-level shareholding views stay sparse. A full
+# run fetches ~2,300 XBRL docs at the concurrency above (~3 min); shareholding
+# is quarterly, so consider a weekly (not daily) cadence to avoid re-fetching.
+_MAX_FILINGS_PER_RUN = 2600
 
 
 class NseShareholdingIngester(BaseIngester):

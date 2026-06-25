@@ -352,3 +352,82 @@ class TestDebtMFSlabRate:
             acquisition_date=date(2021, 1, 1),    # before cutover
         )
         assert category == AssetCategory.DEBT_MF_PRE23
+
+
+class TestPropertyIndexation:
+    """Sec 112 proviso: property acquired before 23-Jul-2024 is taxed at the
+    LOWER of 12.5% unindexed vs 20% on the CII-indexed gain."""
+
+    def test_cii_lookup(self):
+        from services.capital_gains_engine import cost_inflation_index
+        assert cost_inflation_index(date(2024, 6, 1)) == 363   # FY 2024-25
+        assert cost_inflation_index(date(2002, 5, 1)) == 105   # FY 2002-03
+
+    def test_indexed_option_elected_when_cheaper(self):
+        """Old property + heavy inflation → 20%-indexed beats 12.5%-flat."""
+        from services.capital_gains_engine import compute_single_gain
+        txn = Transaction(
+            asset_category=AssetCategory.PROPERTY, quantity=1,
+            buy_price=1_000_000, sell_price=5_000_000,
+            buy_date=date(2002, 5, 1), sell_date=date(2024, 6, 1),
+        )
+        gr = compute_single_gain(txn)
+        assert gr.indexation_applied is True
+        assert gr.tax_category == "property_ltcg_indexed"
+        assert gr.applicable_rate == pytest.approx(0.20)
+        # indexed cost = 10L × 363/105 ; indexed gain taxed, not the flat 40L
+        assert gr.indexed_cost_basis == pytest.approx(1_000_000 * 363 / 105, rel=1e-4)
+        assert gr.gross_gain == pytest.approx(5_000_000 - gr.indexed_cost_basis, rel=1e-4)
+
+    def test_flat_option_when_indexation_does_not_help(self):
+        """Long-term property, modest inflation, large gain → flat 12.5% wins."""
+        from services.capital_gains_engine import compute_single_gain
+        txn = Transaction(
+            asset_category=AssetCategory.PROPERTY, quantity=1,
+            buy_price=1_000_000, sell_price=5_000_000,
+            buy_date=date(2022, 1, 1), sell_date=date(2024, 12, 1),
+        )
+        gr = compute_single_gain(txn)
+        assert gr.is_long_term is True
+        assert gr.indexation_applied is False
+        assert gr.tax_category == "property_ltcg"
+
+    def test_no_indexation_option_after_cutoff(self):
+        """Property bought on/after 23-Jul-2024 → no indexation option at all."""
+        from services.capital_gains_engine import compute_single_gain
+        txn = Transaction(
+            asset_category=AssetCategory.PROPERTY, quantity=1,
+            buy_price=1_000_000, sell_price=5_000_000,
+            buy_date=date(2024, 8, 1), sell_date=date(2026, 9, 1),
+        )
+        gr = compute_single_gain(txn)
+        assert gr.indexation_applied is False
+        assert gr.tax_category == "property_ltcg"
+
+    def test_full_computation_taxes_indexed_gain_at_20pct(self):
+        txn = Transaction(
+            asset_category=AssetCategory.PROPERTY, quantity=1,
+            buy_price=1_000_000, sell_price=5_000_000,
+            buy_date=date(2002, 5, 1), sell_date=date(2024, 6, 1),
+        )
+        from services.capital_gains_engine import compute_single_gain
+        gr = compute_single_gain(txn)
+        res = compute_capital_gains([txn], total_income_rs=1_000_000)
+        assert res.property_ltcg_indexed_tax == pytest.approx(gr.gross_gain * 0.20, rel=1e-4)
+        assert res.base_tax >= res.property_ltcg_indexed_tax  # included in base tax
+
+    def test_ltcl_absorbs_indexed_pool_first(self):
+        """A long-term loss offsets the 20% indexed pool before lower-rate LTCG."""
+        prop = Transaction(
+            asset_category=AssetCategory.PROPERTY, quantity=1,
+            buy_price=1_000_000, sell_price=5_000_000,
+            buy_date=date(2002, 5, 1), sell_date=date(2024, 6, 1),
+        )
+        ltcl = Transaction(
+            asset_category=AssetCategory.EQUITY_MF, quantity=1,
+            buy_price=2_000_000, sell_price=1_000_000,
+            buy_date=date(2020, 1, 1), sell_date=date(2024, 6, 1),
+        )
+        base = compute_capital_gains([prop], total_income_rs=1_000_000)
+        with_loss = compute_capital_gains([prop, ltcl], total_income_rs=1_000_000)
+        assert with_loss.net_property_ltcg_indexed < base.net_property_ltcg_indexed

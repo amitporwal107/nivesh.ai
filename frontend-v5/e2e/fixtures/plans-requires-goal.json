@@ -3,9 +3,29 @@
   "plan": {
     "plan_id": "plan_gate_goal",
     "status": "active",
-    "actions": [],
-    "total_actions": 0,
-    "pending_actions": 0,
+    "actions": [
+      {
+        "id": "act_goal_nudge_001",
+        "action_id": "act_goal_nudge_001",
+        "action": "ADD",
+        "type": "ADD",
+        "asset_name": "ICICI Pru Corporate Bond Fund",
+        "magnitude": 50000,
+        "amount": 50000,
+        "severity": "minor",
+        "execution": "redirect",
+        "execution_path": "redirect",
+        "reason_text": "Your debt allocation is below the risk-base target. Topping up improves stability.",
+        "confidence": "MEDIUM",
+        "status": "PENDING",
+        "requires_confirmation": false,
+        "tax_impact": null,
+        "expected_effect": { "risk_band_delta": "lower", "score_delta_pct": 3.0, "funding_probability_delta": 0.0 },
+        "priority": 1
+      }
+    ],
+    "total_actions": 1,
+    "pending_actions": 1,
     "gate_flags": { "requires_persona": false, "requires_goal": true, "capacity_tolerance_diverged": false }
   }
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Users, KeyRound, Flag, Gauge, Server, BarChart3 } from "lucide-react";
+import { Users, KeyRound, Flag, Gauge, Server, BarChart3, PieChart } from "lucide-react";
 import { useMe } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
@@ -7,6 +7,7 @@ import { UserManagement } from "@/components/admin/UserManagement";
 import { SecretsSection } from "@/components/admin/SecretsSection";
 import { FeatureFlagsSection } from "@/components/admin/FeatureFlagsSection";
 import { V3EngineSection } from "@/components/admin/V3EngineSection";
+import { AllocationBandsSection } from "@/components/admin/AllocationBandsSection";
 import { cn } from "@/lib/utils";
 
 interface AdminStats {
@@ -20,6 +21,7 @@ const TABS = [
   { id: "secrets", label: "Secrets",      icon: KeyRound, blurb: "API keys, tokens, OAuth credentials. Values are masked at rest; reveal is audit-logged." },
   { id: "flags",   label: "Feature Flags", icon: Flag,    blurb: "Control feature rollout: Off / Allowlist / Everyone. Hot-reloaded — no deploy required." },
   { id: "engine",  label: "V3 Engine",    icon: Gauge,   blurb: "V3 composite score weights overview + tunable rule thresholds for MF and equity scoring." },
+  { id: "bands",   label: "Alloc Bands",  icon: PieChart, blurb: "Canonical {min, target, max} allocation bands per risk tier. Single source of truth — changes take effect immediately." },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -96,6 +98,7 @@ export default function AdminPage() {
       {tab === "secrets" && <SecretsSection />}
       {tab === "flags"   && <FeatureFlagsSection />}
       {tab === "engine"  && <V3EngineSection />}
+      {tab === "bands"   && <AllocationBandsSection />}
     </div>
   );
 }

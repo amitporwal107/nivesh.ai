@@ -1,0 +1,1462 @@
+{
+  "description": "Single pane of glass \u2014 environment health, active alerts sorted by severity, hardware summary, feed status.",
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "gridPos": {
+        "h": 2,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "options": {
+        "content": "<div style=\"background:linear-gradient(135deg,#1565C0 0%,#0D47A1 100%);color:#fff;padding:8px 18px;border-radius:4px;height:100%;display:flex;align-items:center;gap:14px;\"><span style=\"font-size:24px;\">\ud83d\udd35</span><div><div style=\"font-size:17px;font-weight:700;letter-spacing:.5px;\">PRODUCTION</div><div style=\"font-size:11px;opacity:.85;margin-top:2px;\">niveshcopilot.com &middot; nivesh-app-vm (34.47.250.214) &middot; nidp-stack-vm (data.niveshcopilot.com)</div></div></div>",
+        "mode": "html"
+      },
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "gridPos": {
+        "h": 2,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 101,
+      "options": {
+        "content": "<div style=\"background:linear-gradient(135deg,#E65100 0%,#BF360C 100%);color:#fff;padding:8px 18px;border-radius:4px;height:100%;display:flex;align-items:center;gap:14px;\"><span style=\"font-size:24px;\">\ud83d\udfe1</span><div><div style=\"font-size:17px;font-weight:700;letter-spacing:.5px;\">STAGING</div><div style=\"font-size:11px;opacity:.85;margin-top:2px;\">staging.niveshcopilot.com &middot; nivesh-app-vm (34.47.250.214)</div></div></div>",
+        "mode": "html"
+      },
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "description": "PRODUCTION \u2014 alerts-based overall health (last 10 min)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "green",
+                  "text": "\u2713 Operational"
+                },
+                "1": {
+                  "color": "orange",
+                  "text": "\u26a0 Degraded"
+                },
+                "2": {
+                  "color": "red",
+                  "text": "\u2715 Critical"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 2
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT CASE WHEN COUNT(*) FILTER (WHERE severity='critical' AND state='firing') > 0 THEN 2 WHEN COUNT(*) FILTER (WHERE severity='warning' AND state='firing') > 0 THEN 1 ELSE 0 END FROM monitoring.alert_events WHERE environment='prod' AND received_at > now()-interval'10 minutes'",
+          "refId": "A"
+        }
+      ],
+      "title": "\u2713 Production",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "description": "STAGING \u2014 alerts-based overall health (last 10 min)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "green",
+                  "text": "\u2713 Operational"
+                },
+                "1": {
+                  "color": "orange",
+                  "text": "\u26a0 Degraded"
+                },
+                "2": {
+                  "color": "red",
+                  "text": "\u2715 Critical"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 2
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT CASE WHEN COUNT(*) FILTER (WHERE severity='critical' AND state='firing') > 0 THEN 2 WHEN COUNT(*) FILTER (WHERE severity='warning' AND state='firing') > 0 THEN 1 ELSE 0 END FROM monitoring.alert_events WHERE environment='staging' AND received_at > now()-interval'10 minutes'",
+          "refId": "A"
+        }
+      ],
+      "title": "\u2713 Staging",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "description": "Active CRITICAL alerts across all environments",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 2,
+        "x": 8,
+        "y": 2
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT COUNT(*) FROM monitoring.alert_events WHERE severity='critical' AND state='firing' AND received_at > now()-interval'10 minutes'",
+          "refId": "A"
+        }
+      ],
+      "title": "\ud83d\udd34 Critical Firing",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "description": "Active WARNING alerts across all environments",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 2,
+        "x": 10,
+        "y": 2
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT COUNT(*) FROM monitoring.alert_events WHERE severity='warning' AND state='firing' AND received_at > now()-interval'10 minutes'",
+          "refId": "A"
+        }
+      ],
+      "title": "\u26a0 Warning Firing",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "description": "HTTP-probed prod REST endpoints that responded \u22645 s",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "green",
+            "mode": "fixed"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 4,
+        "y": 2
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT COUNT(*) FROM monitoring.v_latest_services WHERE is_up=true AND environment='prod'",
+          "refId": "A"
+        }
+      ],
+      "title": "Services Up (prod)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "description": "HTTP-probed prod REST endpoints that failed or timed out",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 6,
+        "y": 2
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT COUNT(*) FROM monitoring.v_latest_services WHERE (is_up=false OR is_up IS NULL) AND environment='prod'",
+          "refId": "A"
+        }
+      ],
+      "title": "Services Down (prod)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "description": "Docker containers currently in 'running' state across all envs",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "blue",
+            "mode": "fixed"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 2
+      },
+      "id": 7,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT COUNT(*) FROM monitoring.v_latest_containers WHERE status='running'",
+          "refId": "A"
+        }
+      ],
+      "title": "Containers Running",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "description": "HTTP-probed staging REST endpoints that failed or timed out",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 18,
+        "y": 2
+      },
+      "id": 8,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT COUNT(*) FROM monitoring.v_latest_services WHERE (is_up=false OR is_up IS NULL) AND environment='staging'",
+          "refId": "A"
+        }
+      ],
+      "title": "Services Down (staging)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "description": "Distinct NIDP feed ingesters that failed today",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 2,
+        "x": 8,
+        "y": 4
+      },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT COUNT(DISTINCT ingester) FROM nidp.job_log WHERE status='FAILED' AND started_at >= CURRENT_DATE",
+          "refId": "A"
+        }
+      ],
+      "title": "Feeds Failed Today",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "description": "Docker containers not in 'running' state or health=unhealthy",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 2,
+        "x": 10,
+        "y": 4
+      },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT COUNT(*) FROM monitoring.v_latest_containers WHERE status!='running' OR health='unhealthy'",
+          "refId": "A"
+        }
+      ],
+      "title": "Containers Unhealthy",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "severity"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "critical": {
+                        "color": "red",
+                        "text": "\ud83d\udd34 critical"
+                      },
+                      "info": {
+                        "color": "blue",
+                        "text": "\u2139 info"
+                      },
+                      "warning": {
+                        "color": "orange",
+                        "text": "\u26a0 warning"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "firing": {
+                        "color": "red",
+                        "text": "FIRING"
+                      },
+                      "resolved": {
+                        "color": "green",
+                        "text": "resolved"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "firing_for"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "firing for"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "id": 20,
+      "noDataMessage": "\u2713 No active alerts",
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT alert_name, severity, environment, state, received_at, EXTRACT(EPOCH FROM (now()-received_at))::int||'s' AS firing_for FROM monitoring.alert_events WHERE state='firing' ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END, received_at ASC LIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "\ud83d\udea8 Active Alerts \u2014 sorted by severity then firing duration",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "NIDP-Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 16
+      },
+      "id": 30,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "NIDP-Prometheus"
+          },
+          "expr": "100 - (avg(rate(node_cpu_seconds_total{job=\"node\",mode=\"idle\",vm=\"nidp-stack-vm\"}[5m])) * 100)",
+          "legendFormat": "CPU %",
+          "refId": "A"
+        }
+      ],
+      "title": "CPU % \u2014 nidp-stack-vm",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "NIDP-Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 16
+      },
+      "id": 31,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "NIDP-Prometheus"
+          },
+          "expr": "100 * (1 - node_memory_MemAvailable_bytes{job=\"node\",vm=\"nidp-stack-vm\"} / node_memory_MemTotal_bytes{job=\"node\",vm=\"nidp-stack-vm\"})",
+          "legendFormat": "Mem %",
+          "refId": "A"
+        }
+      ],
+      "title": "Memory % \u2014 nidp-stack-vm",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "NIDP-Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 75
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 16
+      },
+      "id": 32,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "NIDP-Prometheus"
+          },
+          "expr": "100 * (1 - node_filesystem_avail_bytes{job=\"node\",vm=\"nidp-stack-vm\",mountpoint=\"/\",fstype!~\"tmpfs|squashfs\"} / node_filesystem_size_bytes{job=\"node\",vm=\"nidp-stack-vm\",mountpoint=\"/\",fstype!~\"tmpfs|squashfs\"})",
+          "legendFormat": "Disk %",
+          "refId": "A"
+        }
+      ],
+      "title": "Disk % \u2014 nidp-stack-vm",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "NIDP-Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 33,
+      "options": {
+        "legend": {
+          "displayMode": "hidden"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "NIDP-Prometheus"
+          },
+          "expr": "100 - (avg(rate(node_cpu_seconds_total{job=\"node\",mode=\"idle\",vm=\"nidp-stack-vm\"}[5m])) * 100)",
+          "legendFormat": "CPU %",
+          "refId": "A"
+        }
+      ],
+      "title": "CPU Trend \u2014 nidp-stack-vm (1h)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "env"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "fixed",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "infra": {
+                        "color": "#4A148C",
+                        "text": "\ud83d\udfe3 infra"
+                      },
+                      "prod": {
+                        "color": "#1565C0",
+                        "text": "\ud83d\udd35 prod"
+                      },
+                      "staging": {
+                        "color": "#BF360C",
+                        "text": "\ud83d\udfe1 staging"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "exited": {
+                        "color": "dark-red",
+                        "text": "\ud83d\udd34 exited"
+                      },
+                      "paused": {
+                        "color": "gray",
+                        "text": "\u23f8 paused"
+                      },
+                      "running": {
+                        "color": "dark-green",
+                        "text": "\ud83d\udfe2 running"
+                      },
+                      "unhealthy": {
+                        "color": "orange",
+                        "text": "\ud83d\udfe0 unhealthy"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "container_name"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 200
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "purpose"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 280
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "id": 40,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT\n  CASE environment\n    WHEN 'prod'    THEN 'prod'\n    WHEN 'staging' THEN 'staging'\n    ELSE environment\n  END AS env,\n  container_name,\n  CASE container_name\n    WHEN 'nidp-grafana'          THEN 'Monitoring dashboards UI'\n    WHEN 'nidp-loki'             THEN 'Log aggregation store'\n    WHEN 'nidp-minio'            THEN 'Object storage (S3-compatible)'\n    WHEN 'nidp-prometheus'       THEN 'Metrics scraper + alert rules'\n    WHEN 'nidp-promtail'         THEN 'Log shipper \u2192 Loki'\n    WHEN 'nidp-redis'            THEN 'In-memory cache / pub-sub broker'\n    WHEN 'nidp-redpanda'         THEN 'Kafka-compatible event stream'\n    WHEN 'nidp-schema-registry'  THEN 'Schema registry for Redpanda topics'\n    WHEN 'nidp-postgres'         THEN 'Primary NIDP TimescaleDB (prod, port 5433)'\n    WHEN 'nidp-alertmanager'     THEN 'Alert routing + webhook delivery'\n    WHEN 'nidp-node-exporter'    THEN 'Host metrics exporter \u2192 Prometheus'\n    WHEN 'nidp-daas-api-staging' THEN 'Staging Data-as-a-Service API'\n    WHEN 'nidp-postgres-staging' THEN 'Staging NIDP TimescaleDB (port 5434)'\n    ELSE container_name\n  END AS purpose,\n  status,\n  ROUND(cpu_percent,1) AS \"cpu %\",\n  ROUND(mem_usage_mb,0) AS \"mem MB\",\n  FLOOR(uptime_seconds/3600)||'h' AS uptime\nFROM monitoring.v_latest_containers\nORDER BY\n  CASE WHEN status != 'running' THEN 0 ELSE 1 END,\n  environment,\n  container_name",
+          "refId": "A"
+        }
+      ],
+      "title": "Container Health \u2014 all environments",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "env"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "fixed",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "infra": {
+                        "color": "#4A148C",
+                        "text": "\ud83d\udfe3 infra"
+                      },
+                      "prod": {
+                        "color": "#1565C0",
+                        "text": "\ud83d\udd35 prod"
+                      },
+                      "staging": {
+                        "color": "#BF360C",
+                        "text": "\ud83d\udfe1 staging"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "is_up"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "false": {
+                        "color": "dark-red",
+                        "text": "\ud83d\udd34 Down"
+                      },
+                      "true": {
+                        "color": "dark-green",
+                        "text": "\ud83d\udfe2 Up"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "latency"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "purpose"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 310
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "service_name"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "id": 41,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT\n  CASE environment\n    WHEN 'prod'    THEN 'prod'\n    WHEN 'staging' THEN 'staging'\n    ELSE environment\n  END AS env,\n  vm AS host_vm,\n  service_name,\n  CASE service_name\n    WHEN 'nginx'               THEN 'Reverse proxy \u00b7 TLS terminator (nidp-stack-vm)'\n    WHEN 'grafana'             THEN 'Monitoring dashboards (port 3000)'\n    WHEN 'daas-api'            THEN 'NIDP Data-as-a-Service REST API (port 8083)'\n    WHEN 'query-api'           THEN 'SQL query proxy for Grafana / BI tools (port 8090)'\n    WHEN 'loki'                THEN 'Log aggregation store (port 3100)'\n    WHEN 'promtail'            THEN 'Log shipper \u2192 Loki (port 9080)'\n    WHEN 'prometheus'          THEN 'Metrics scraper + alert TSDB (port 9090)'\n    WHEN 'minio'               THEN 'Object storage \u2014 S3-compatible (port 9001)'\n    WHEN 'timescaledb-prod'    THEN 'Primary NIDP TimescaleDB (port 5433)'\n    WHEN 'timescaledb-stg'     THEN 'Staging NIDP TimescaleDB (port 5434)'\n    WHEN 'frontend-prod'       THEN 'Nivesh.ai V2 React frontend (prod)'\n    WHEN 'backend-prod'        THEN 'Nivesh.ai FastAPI + Copilot backend (prod)'\n    WHEN 'frontend-v5-prod'    THEN 'Nivesh.ai V5 Vite/React frontend (prod)'\n    WHEN 'frontend-staging'    THEN 'Nivesh.ai V2 React frontend (staging)'\n    WHEN 'backend-staging'     THEN 'Nivesh.ai FastAPI + Copilot backend (staging)'\n    WHEN 'frontend-v5-staging' THEN 'Nivesh.ai V5 Vite/React frontend (staging)'\n    ELSE service_name\n  END AS purpose,\n  is_up,\n  COALESCE(response_ms::text || ' ms', '\u2014') AS latency,\n  COALESCE(error_msg, '') AS error\nFROM monitoring.v_latest_services\nORDER BY\n  CASE WHEN is_up=false OR is_up IS NULL THEN 0 ELSE 1 END,\n  environment,\n  service_name",
+          "refId": "A"
+        }
+      ],
+      "title": "REST Service Health \u2014 all environments",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "FAILED": {
+                        "color": "red",
+                        "text": "\u2715 FAILED"
+                      },
+                      "OK": {
+                        "color": "green",
+                        "text": "\u2713 OK"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 0,
+        "y": 38
+      },
+      "id": 50,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT ingester, status, started_at, duration_ms FROM nidp.job_log WHERE started_at >= now()-interval'24 hours' ORDER BY CASE WHEN status='FAILED' THEN 0 ELSE 1 END, started_at DESC LIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "\ud83d\udcc5 Recent Feed Runs (last 24h)",
+      "type": "table"
+    },
+    {
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 14,
+        "y": 38
+      },
+      "id": 51,
+      "options": {
+        "content": "### Drill-downs\n\n| Dashboard | Description |\n|---|---|\n| [\ud83c\udf0d Environment Overview](/grafana/d/nidp-env-overview) | Container status, prod vs staging vs infra |\n| [\ud83d\udcc5 Cron / Feed Schedule](/grafana/d/nidp-cron-feeds) | All 48 jobs, overdue indicator |\n| [\u2695 Service Health](/grafana/d/nidp-service-health) | RED metrics, latency, error rates |\n| [\ud83d\udda5 Hardware / Host](/grafana/d/nidp-hardware-host) | CPU, memory, disk, network (USE) |\n\n### Alert Management\n- [\ud83d\udd14 Alert Rules](/grafana/alerting/list)\n- [\ud83d\udd15 Silences](/grafana/alerting/silences)\n- [\ud83d\udce8 Contact Points](/grafana/alerting/notifications)\n\n### Quick Status Queries\n```sql\n-- Active alerts\nSELECT * FROM monitoring.alert_events\nWHERE state='firing' ORDER BY received_at DESC;\n\n-- Latest container health\nSELECT * FROM monitoring.v_latest_containers\nWHERE status!='running';\n```",
+        "mode": "markdown"
+      },
+      "title": "\ud83d\udd17 Drill-down Dashboards",
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "description": "HTTP-probed staging REST endpoints that responded \u22645 s",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "green",
+            "mode": "fixed"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 16,
+        "y": 2
+      },
+      "id": 11,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          },
+          "format": "table",
+          "rawSql": "SELECT COUNT(*) FROM monitoring.v_latest_services WHERE is_up=true AND environment='staging'",
+          "refId": "A"
+        }
+      ],
+      "title": "Services Up (staging)",
+      "type": "stat"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": [
+    "monitoring",
+    "command-center"
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "title": "Command Center",
+  "uid": "nidp-command-center"
+}

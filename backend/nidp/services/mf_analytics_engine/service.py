@@ -30,7 +30,12 @@ from typing import Optional
 import asyncpg
 import numpy as np
 
-from .calculator import compute_returns, compute_risk_metrics
+from .calculator import (
+    annualised_return,
+    compute_returns,
+    compute_risk_metrics,
+    rolling_returns_distribution,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +232,7 @@ INSERT INTO analytics.fund_category_rank (
     return_since_launch_cagr,
     volatility_1y, sharpe_1y, sortino_1y, max_drawdown_1y,
     alpha_1y, beta_1y,
+    r_squared_1y, tracking_error_1y, information_ratio_1y,
     ter,
     scheme_launch_date, data_since_date, nav_count,
     built_at
@@ -239,8 +245,9 @@ VALUES (
     $15,
     $16, $17, $18, $19,
     $20, $21,
-    $22,
-    $23, $24, $25,
+    $22, $23, $24,
+    $25,
+    $26, $27, $28,
     NOW()
 )
 ON CONFLICT (scheme_code, rank_date)
@@ -256,19 +263,43 @@ DO UPDATE SET
     return_3y   = EXCLUDED.return_3y,
     return_5y   = EXCLUDED.return_5y,
     return_ytd  = EXCLUDED.return_ytd,
-    return_since_launch_cagr = EXCLUDED.return_since_launch_cagr,
-    volatility_1y   = EXCLUDED.volatility_1y,
-    sharpe_1y       = EXCLUDED.sharpe_1y,
-    sortino_1y      = EXCLUDED.sortino_1y,
-    max_drawdown_1y = EXCLUDED.max_drawdown_1y,
-    alpha_1y        = EXCLUDED.alpha_1y,
-    beta_1y         = EXCLUDED.beta_1y,
-    ter             = EXCLUDED.ter,
-    scheme_launch_date = EXCLUDED.scheme_launch_date,
-    data_since_date    = EXCLUDED.data_since_date,
-    nav_count          = EXCLUDED.nav_count,
-    built_at           = NOW()
+    return_since_launch_cagr  = EXCLUDED.return_since_launch_cagr,
+    volatility_1y             = EXCLUDED.volatility_1y,
+    sharpe_1y                 = EXCLUDED.sharpe_1y,
+    sortino_1y                = EXCLUDED.sortino_1y,
+    max_drawdown_1y           = EXCLUDED.max_drawdown_1y,
+    alpha_1y                  = EXCLUDED.alpha_1y,
+    beta_1y                   = EXCLUDED.beta_1y,
+    r_squared_1y              = EXCLUDED.r_squared_1y,
+    tracking_error_1y         = EXCLUDED.tracking_error_1y,
+    information_ratio_1y      = EXCLUDED.information_ratio_1y,
+    ter                       = EXCLUDED.ter,
+    scheme_launch_date        = EXCLUDED.scheme_launch_date,
+    data_since_date           = EXCLUDED.data_since_date,
+    nav_count                 = EXCLUDED.nav_count,
+    built_at                  = NOW()
 """
+
+_UPSERT_ROLLING_SQL = """
+INSERT INTO nidp.mf_rolling_returns
+    (scheme_code, as_of_date, window_months,
+     obs_count, positive_pct,
+     ret_min, ret_p10, ret_p25, ret_p50, ret_p75, ret_p90, ret_max)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+ON CONFLICT (scheme_code, as_of_date, window_months) DO UPDATE SET
+    obs_count    = EXCLUDED.obs_count,
+    positive_pct = EXCLUDED.positive_pct,
+    ret_min      = EXCLUDED.ret_min,
+    ret_p10      = EXCLUDED.ret_p10,
+    ret_p25      = EXCLUDED.ret_p25,
+    ret_p50      = EXCLUDED.ret_p50,
+    ret_p75      = EXCLUDED.ret_p75,
+    ret_p90      = EXCLUDED.ret_p90,
+    ret_max      = EXCLUDED.ret_max,
+    built_at     = NOW()
+"""
+
+_ROLLING_WINDOWS = [(12, 252), (36, 756), (60, 1260)]
 
 
 def _scheme_category(raw_category: Optional[str]) -> tuple[str, Optional[str]]:
@@ -317,16 +348,24 @@ async def compute_for_date(
 
         logger.info("mf_engine_start date=%s schemes=%d run=%s", rank_date, len(schemes), run_id)
 
-        # Step 2: fetch Nifty 50 for benchmark (Alpha/Beta)
+        # Step 2: fetch Nifty 50 for benchmark (Alpha/Beta/R²/TE/IR)
         bench_navs = await _fetch_benchmark(conn, since, rank_date)
         if bench_navs is None:
             logger.warning("mf_engine_no_benchmark benchmark=%s", BENCHMARK)
+
+        # Pre-compute benchmark 1y annualised return for IR denominator
+        bench_1y_ret: Optional[float] = None
+        if bench_navs is not None and len(bench_navs) >= 253:
+            bench_1y_ret = annualised_return(
+                float(bench_navs[-253]), float(bench_navs[-1]), 252,
+            )
 
         # Step 3: process in batches
         scheme_codes = [s["scheme_code"] for s in schemes]
         meta_by_code = {s["scheme_code"]: s for s in schemes}
 
         upsert_rows: list[tuple] = []
+        rolling_rows: list[tuple] = []
 
         for i in range(0, len(scheme_codes), batch_size):
             batch_codes = scheme_codes[i: i + batch_size]
@@ -351,6 +390,7 @@ async def compute_for_date(
                     risk = compute_risk_metrics(
                         navs, bench_navs, rets.get("return_1y"),
                         window_bars=252,
+                        bench_ann_return_pct=bench_1y_ret,
                     )
                     cat, sub_cat = _scheme_category(meta.get("scheme_category"))
 
@@ -372,11 +412,32 @@ async def compute_for_date(
                         _r(risk.get("max_drawdown_1y")),
                         _r(risk.get("alpha_1y")),
                         _r(risk.get("beta_1y")),
+                        _r(risk.get("r_squared_1y")),
+                        _r(risk.get("tracking_error_1y")),
+                        _r(risk.get("information_ratio_1y")),
                         _r(meta.get("ter")),
                         meta.get("launch_date"),
                         nav_dates[0],
                         len(navs),
                     ))
+
+                    # Rolling return distributions (12m, 36m, 60m)
+                    for window_months, window_bars in _ROLLING_WINDOWS:
+                        dist = rolling_returns_distribution(navs, window_bars)
+                        if dist is not None:
+                            rolling_rows.append((
+                                code, rank_date, window_months,
+                                dist["obs_count"],
+                                _r(dist["positive_pct"]),
+                                _r(dist["ret_min"]),
+                                _r(dist["ret_p10"]),
+                                _r(dist["ret_p25"]),
+                                _r(dist["ret_p50"]),
+                                _r(dist["ret_p75"]),
+                                _r(dist["ret_p90"]),
+                                _r(dist["ret_max"]),
+                            ))
+
                     report.schemes_computed += 1
 
                 except Exception as exc:
@@ -386,7 +447,7 @@ async def compute_for_date(
             logger.info("mf_engine_batch_done batch=%d-%d computed=%d",
                         i, i + len(batch_codes), report.schemes_computed)
 
-        # Step 4: upsert all rows
+        # Step 4a: upsert fund_category_rank rows
         if upsert_rows:
             try:
                 await conn.executemany(_UPSERT_SQL, upsert_rows)
@@ -395,6 +456,15 @@ async def compute_for_date(
             except Exception as exc:
                 logger.error("mf_engine_upsert_error date=%s error=%s", rank_date, exc)
                 report.errors.append(f"upsert: {exc}")
+
+        # Step 4b: upsert rolling return distributions
+        if rolling_rows:
+            try:
+                await conn.executemany(_UPSERT_ROLLING_SQL, rolling_rows)
+                logger.info("mf_engine_rolling_upserted rows=%d", len(rolling_rows))
+            except Exception as exc:
+                logger.warning("mf_engine_rolling_upsert_error date=%s error=%s", rank_date, exc)
+                report.errors.append(f"rolling_upsert: {exc}")
 
         # Step 5: compute within-category rankings (two separate statements — asyncpg
         # does not support multiple commands in a single prepared statement)
@@ -452,6 +522,17 @@ async def run(target_date: Optional[date] = None) -> dict:
     pool = await create_pool(url)
     try:
         report = await compute_for_date(pool, target_date)
+        # Refresh the materialized v_v3_mf_primitives (migration 098) so fast
+        # reads pick up today's ranks/analytics. Non-concurrent REFRESH re-runs
+        # the heavy view query (~110s); the brief read-lock during this off-peak
+        # nightly run is acceptable. Best-effort — a failure here must not fail
+        # the analytics run.
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute("REFRESH MATERIALIZED VIEW nidp.v_v3_mf_primitives")
+            logger.info("refreshed materialized view nidp.v_v3_mf_primitives")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("v_v3_mf_primitives refresh failed: %s", exc)
         return report.as_dict() if hasattr(report, "as_dict") else {"rank_date": str(target_date)}
     finally:
         await pool.close()

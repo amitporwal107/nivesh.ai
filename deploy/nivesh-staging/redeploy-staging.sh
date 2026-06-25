@@ -38,15 +38,17 @@ fail() { echo "[redeploy-staging] FATAL: $*" >&2; exit 1; }
 [[ -d "${REPO_DIR}/.git" ]] || fail "Missing ${REPO_DIR}. Clone the repo there first."
 
 # Git ≥2.35.2 refuses to operate on repos owned by a different user.
-# Running as root (sudo) on a repo owned by another user triggers this.
-# Mark it safe globally so git fetch/reset work regardless of ownership.
-git config --global --add safe.directory "${REPO_DIR}"
+# Running as root (sudo) on a repo owned by another user triggers this. Pass
+# safe.directory INLINE (-c) on every command instead of writing the global
+# config — writing ~/.gitconfig fails when HOME is non-writable or root-owned
+# ("could not lock config file /home/<user>/.gitconfig: Permission denied").
+GIT=(git -c "safe.directory=${REPO_DIR}")
 [[ -f "${COMPOSE_FILE}" ]] || fail "Missing ${COMPOSE_FILE}."
 
 log "Refreshing repo at ${REPO_DIR} (branch=${BRANCH})..."
-git -C "${REPO_DIR}" fetch --quiet origin
-git -C "${REPO_DIR}" checkout --quiet "${BRANCH}"
-git -C "${REPO_DIR}" reset --hard --quiet "origin/${BRANCH}"
+"${GIT[@]}" -C "${REPO_DIR}" fetch --quiet origin
+"${GIT[@]}" -C "${REPO_DIR}" checkout --quiet "${BRANCH}"
+"${GIT[@]}" -C "${REPO_DIR}" reset --hard --quiet "origin/${BRANCH}"
 
 log "Mode: backend=${BUILD_BACKEND} frontend=${BUILD_FRONTEND}"
 
@@ -61,11 +63,15 @@ if [[ "${BUILD_BACKEND}" == "true" && "${BUILD_FRONTEND}" == "true" ]]; then
 elif [[ "${BUILD_BACKEND}" == "true" ]]; then
     log "Building backend image only..."
     docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull app-backend
-    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d app-backend
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --force-recreate app-backend
 elif [[ "${BUILD_FRONTEND}" == "true" ]]; then
     log "Building frontend images only (v2 + v5)..."
     docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull app-frontend app-frontend-v5
-    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d app-frontend app-frontend-v5
+    # --force-recreate --remove-orphans: services pin a fixed container_name, so a
+    # stale container left by an interrupted recreate (Docker auto-renames it with a
+    # hex prefix) otherwise blocks plain `up -d` with a name-conflict error. The full
+    # and backend-only branches already pass these flags; the frontend path must too.
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --force-recreate --remove-orphans app-frontend app-frontend-v5
 fi
 
 # ── Backend health check (skip for frontend-only deploys) ────────────────────

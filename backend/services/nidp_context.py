@@ -270,7 +270,13 @@ async def get_portfolio_context(external_user_id: str) -> str:
     except Exception:
         pass
 
-    data = await _fetch(f"/intelligence/portfolio/{external_user_id}/snapshot")
+    # Use daas_client (correct /v1 prefix + API key handling) instead of _fetch
+    try:
+        from services.copilot_tools import daas_client as _dc
+        data = await _dc.get_portfolio_snapshot(external_user_id)
+    except Exception as exc:
+        logger.debug("nidp_context: snapshot via daas_client failed: %s", exc)
+        data = None
     if not data:
         return ""
 

@@ -12,7 +12,7 @@ import sys
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
-from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -110,41 +110,111 @@ async def _fetch_stock_data(symbol: str) -> list:
 
 
 async def stock_node(state: CopilotState) -> dict:
-    symbol = state.intent.symbol if state.intent else None
-    if not symbol:
-        # try to extract from last user message
-        import re
-        user_msg = next(
-            (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
-            "",
-        )
-        m = re.search(r"\b([A-Z]{2,10})\b", user_msg)
-        symbol = m.group(1) if m else "NIFTY50"
-
-    tool_results = await _fetch_stock_data(symbol)
-    tool_context = "TOOL_DATA:\n" + "\n".join(
-        f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results
-    )
-
     user_msg = next(
         (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
-        f"Analyse {symbol}",
+        "",
     )
+    # The intent classifier already resolves a symbol when it can; if it didn't
+    # (e.g. an ambiguous message), resolve from the raw text here too. Both paths
+    # use the same resolver so lowercase tickers and company names work.
+    symbol = state.intent.symbol if state.intent else None
+    if not symbol:
+        from services.copilot_tools.symbol_resolver import resolve_symbol
+        symbol = resolve_symbol(user_msg).symbol
+
+    if not symbol:
+        # No identifiable stock — ask rather than silently analysing an index
+        # (the old NIFTY50 default produced a misleading "couldn't retrieve data"
+        # error because index symbols have no per-stock fundamentals/technicals).
+        clarify = (
+            "Which stock would you like me to look at? You can use the company "
+            "name or its NSE symbol — for example: Reliance, TCS, HDFC Bank, "
+            "Infosys, or RELIANCE."
+        )
+        return {
+            "tool_results": [],
+            "response": AgentResponse(
+                agent=AgentName.STOCK,
+                text=clarify,
+                widget_type=WidgetType.NONE,
+                widget_data={},
+                tool_results=[],
+            ),
+            "messages": [AIMessage(content=clarify)],
+        }
+
+    # Fetch the per-section tool data AND the composed research card (quality
+    # score + sector rank + fundamental/technical) concurrently. The research
+    # card drives the instrument_detail widget; its summary also grounds the LLM.
+    import asyncio as _asyncio
+    research = None
+    try:
+        research_mod = __import__("services.copilot_tools.instrument_research", fromlist=["get_stock_research"])
+        tool_results, research = await _asyncio.gather(
+            _fetch_stock_data(symbol),
+            research_mod.get_stock_research(symbol),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("stock research fetch failed for %s: %s", symbol, exc)
+        tool_results = await _fetch_stock_data(symbol)
+
+    # A transient data-source outage (DaaS 5xx / DB in recovery) must NOT fall
+    # through to the LLM, where empty TOOL_DATA triggers the generic anti-
+    # hallucination "couldn't retrieve the data" line — that reads as "this stock
+    # is unsupported" when the feed is simply down. Surface it honestly and as
+    # retryable instead. (Coverage itself is ~100% for features+scores; this path
+    # only fires when the source is unreachable, not when a stock lacks data.)
+    if research is not None and getattr(research, "error", None) == "source_unavailable":
+        outage = (
+            f"I couldn't reach our market-data service just now, so I can't pull "
+            f"{symbol}'s numbers this moment. This is a temporary issue on our end, "
+            f"not a gap in coverage — please try again in a few moments."
+        )
+        return {
+            "tool_results": tool_results,
+            "response": AgentResponse(
+                agent=AgentName.STOCK,
+                text=outage,
+                widget_type=WidgetType.NONE,
+                widget_data={},
+                tool_results=tool_results,
+            ),
+            "messages": [AIMessage(content=outage)],
+        }
+
+    ctx_lines = [f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results]
+    if research is not None and research.ok:
+        ctx_lines.insert(0, f"  [instrument_research] {research.as_llm_context()}")
+    tool_context = "TOOL_DATA:\n" + "\n".join(ctx_lines)
+
+    llm_user_msg = user_msg or f"Analyse {symbol}"
 
     llm = ChatOpenAI(
         model=COPILOT_LLM_MODEL,
-        temperature=0.1,
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
+        temperature=temperature_for(0.1),
+        api_key=get_openai_api_key(),
     )
     resp = await llm.ainvoke([
         {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
-        {"role": "user", "content": user_msg},
+        {"role": "user", "content": llm_user_msg},
     ])
     answer_text = resp.content
+
+    widget_type = WidgetType.NONE
+    widget_data: dict = {}
+    if research is not None and research.ok and research.widget:
+        widget_type = WidgetType.INSTRUMENT_DETAIL
+        widget_data = research.widget
+        # Attach the question-first research rail (chips + lens views) so the card
+        # renders as a Research Hub. No-op if the widget has no lens data.
+        from services.copilot_tools.research_lenses import build_research_hub
+        build_research_hub("stock", widget_data)
 
     response = AgentResponse(
         agent=AgentName.STOCK,
         text=answer_text,
+        widget_type=widget_type,
+        widget_data=widget_data,
         tool_results=tool_results,
     )
     return {

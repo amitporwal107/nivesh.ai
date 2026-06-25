@@ -7,6 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { mfdService } from "@/services";
 import { usePolling } from "@/lib/polling";
+import { useImpersonationStore } from "@/stores/impersonation.store";
 import type { CallOutcome, ReviewPackSection, ReviewPackStatus, SipNudgeTemplate } from "@/services/adapters/mfd.adapter";
 
 export function useMfdProfiles() {
@@ -16,10 +17,21 @@ export function useMfdProfiles() {
   });
 }
 
+/**
+ * Open a client = start per-request impersonation. There is NO backend
+ * round-trip: the active client is carried on every request as the
+ * X-Active-Profile header, sourced from the impersonation store (see http.ts).
+ * We set the store FIRST so the subsequent invalidation refetches every query
+ * in the client's context. The backend validates ownership per request.
+ */
 export function useActivateProfile() {
   const qc = useQueryClient();
+  const setImpersonating = useImpersonationStore((s) => s.setImpersonating);
   return useMutation({
-    mutationFn: (profileId: string) => mfdService.activateProfile(profileId),
+    mutationFn: async (args: { profileId: string; name: string }) => {
+      setImpersonating(args.profileId, args.name);
+      return { ok: true };
+    },
     onSuccess: () => {
       // impersonation changes nearly every query result; clear server-state cache
       qc.invalidateQueries();
@@ -29,8 +41,9 @@ export function useActivateProfile() {
 
 export function useDeactivateProfile() {
   const qc = useQueryClient();
+  const clear = useImpersonationStore((s) => s.clear);
   return useMutation({
-    mutationFn: () => mfdService.deactivateProfile(),
+    mutationFn: async () => { clear(); return { ok: true }; },
     onSuccess: () => { qc.invalidateQueries(); },
   });
 }

@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { usePortfolioSummary, useHoldings } from "@/hooks/use-portfolio";
+import { usePortfolioSummary, useHoldingsEnriched, usePortfolioSips, usePortfolioConcentration } from "@/hooks/use-portfolio";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -8,9 +8,11 @@ import { Portfolio } from "./Portfolio";
 export default function PortfolioPage() {
   const navigate = useNavigate();
   const summary = usePortfolioSummary();
-  const holdings = useHoldings();
+  const enriched = useHoldingsEnriched();
+  const sips = usePortfolioSips();
+  const concentration = usePortfolioConcentration();
 
-  if (summary.isPending || holdings.isPending) {
+  if (summary.isPending || enriched.isPending) {
     return (
       <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full">
         <LoadingSkeleton variant="list" />
@@ -18,17 +20,17 @@ export default function PortfolioPage() {
     );
   }
 
-  if (summary.isError || holdings.isError) {
+  if (summary.isError || enriched.isError) {
     return (
       <ErrorState
         title="Couldn't load your portfolio"
-        error={summary.error ?? holdings.error}
-        onRetry={() => { summary.refetch(); holdings.refetch(); }}
+        error={summary.error ?? enriched.error}
+        onRetry={() => { summary.refetch(); enriched.refetch(); }}
       />
     );
   }
 
-  if (!holdings.data?.length) {
+  if (!enriched.data?.holdings?.length) {
     return (
       <EmptyState
         title="No holdings yet"
@@ -38,5 +40,12 @@ export default function PortfolioPage() {
     );
   }
 
-  return <Portfolio summary={summary.data!} holdings={holdings.data} />;
+  return (
+    <Portfolio
+      summary={summary.data!}
+      enriched={enriched.data}
+      sips={sips.data ?? null}
+      concentration={concentration.data ?? null}
+    />
+  );
 }

@@ -20,22 +20,12 @@ from services.recommendation_engine.context import EngineSignal, RecommendationC
 
 logger = logging.getLogger(__name__)
 
-# Reuse OV-3 Keep Score formula (same quality ranking, different trigger)
 def _keep_score(iid: Optional[str], v3_scores: Dict[str, Any]) -> float:
-    v3 = v3_scores.get(iid or "", {})
-    if not v3:
-        return 5.0
-    prims = v3.get("v3_primitives") or {}
-    nidp = (v3.get("quality_score") or 0) / 10.0
-    consistency = float(prims.get("consistency_score") or 5.0)
-    sharpe = prims.get("sharpe")
-    risk_adj = max(0.0, min(10.0, 5.0 + float(sharpe) * 2.0)) if sharpe is not None else 5.0
-    ter = float(prims.get("expense_ratio_direct") or 1.0)
-    expense = max(0.0, min(10.0, 10.0 - (ter - 0.3) * 4.0))
-    tenure = float(prims.get("manager_tenure_years") or 2.0)
-    manager = min(10.0, tenure * 2.0)
-    return round(0.35 * nidp + 0.20 * consistency + 0.15 * risk_adj
-                 + 0.10 * expense + 0.10 * manager + 0.10 * 5.0, 2)
+    """Delegates to canonical survivor.keep_score (D-2 normalized weights)."""
+    from services.recommendation_engine.survivor import raw_signals, normalize_signals_batch, keep_score_normalized
+    raw = raw_signals(iid, v3_scores)
+    normed_list, overlap_available = normalize_signals_batch([raw])
+    return keep_score_normalized(normed_list[0], overlap_available)
 
 
 class CorrelationEngine(BaseEngine):

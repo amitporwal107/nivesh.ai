@@ -12,7 +12,54 @@ from __future__ import annotations
 import os
 
 
-COPILOT_LLM_MODEL: str = os.environ.get("COPILOT_LLM_MODEL", "gpt-5")
+# Copilot model. Set to gpt-5.5 per product direction (2026-06). NOTE: this
+# id is unverified against the live OpenAI account from CI — if the account's
+# exact id differs (e.g. a dated snapshot) or lacks gpt-5.5 access, the nodes
+# will 'model_not_found' and surface "trouble connecting to my AI engine".
+# Override without a code change via the COPILOT_LLM_MODEL env var / GSM.
+COPILOT_LLM_MODEL: str = os.environ.get("COPILOT_LLM_MODEL", "gpt-5.5")
+
+
+def temperature_for(requested: float) -> float:
+    """Return a temperature the configured model will accept.
+
+    gpt-5.x reasoning models only support the default temperature (1) — any
+    other value returns a 400 ("Only the default (1) value is supported"),
+    which the nodes catch and surface as "trouble connecting to my AI engine".
+    For those models we force 1.0; for others (e.g. gpt-4o) we honour the
+    node's requested value so determinism tuning still applies.
+    """
+    return 1.0 if COPILOT_LLM_MODEL.startswith("gpt-5") else requested
+
+
+def get_openai_api_key() -> str:
+    """Resolve the OpenAI API key at call time (NFR-09 order):
+
+      1. Google Secret Manager (``helpers.gsm`` — secret ``OPENAI_API_KEY``)
+      2. DB-backed admin override (``helpers.secrets``)
+      3. ``OPENAI_API_KEY`` env var
+
+    Every specialist node must use this rather than reading os.environ
+    directly, so the key can be rotated via GSM / the admin console
+    without a redeploy and without an env var being present on the box.
+    Returns "" if no source has it — the caller's LLM call then fails
+    loudly, which the node surfaces as an error (no silent fallback).
+    """
+    try:
+        from helpers import gsm as _gsm  # type: ignore
+        k = _gsm.get("OPENAI_API_KEY")
+        if k:
+            return k
+    except Exception:  # noqa: BLE001 — GSM unavailable in local dev; fall through
+        pass
+    try:
+        from helpers import secrets as _secrets  # type: ignore
+        k = _secrets.get("OPENAI_API_KEY")
+        if k:
+            return k
+    except Exception:  # noqa: BLE001
+        pass
+    return os.environ.get("OPENAI_API_KEY", "")
 
 
 # Appended verbatim to every specialist agent's system prompt. Kept
@@ -27,4 +74,9 @@ Anti-hallucination rules — these override every other instruction:
 4. If TOOL_DATA is empty, says no_data, or all tool calls failed, reply: "I couldn't retrieve the data needed to answer this — please try again or contact support." Do not answer from training data.
 5. Do not interpolate, extrapolate, average, or estimate values not explicitly present in TOOL_DATA. If unsure, say so.
 6. Quote scheme names, symbols and figures verbatim from TOOL_DATA — do not paraphrase numerical values.
+
+Output format — this chat surface does NOT render Markdown:
+7. PLAIN TEXT ONLY. Do not use '#' headings, '*' or '**' emphasis/bold, backticks, or '|' tables — they appear as literal characters to the user.
+8. Use short paragraphs and line breaks. For a list, start the line with a hyphen and a space ("- item"). The arrow → is fine.
+9. For a comparison, write each item on its own line(s) — a label followed by its points — never a pipe table. Keep the whole answer under ~180 words.
 """

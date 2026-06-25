@@ -501,3 +501,15 @@ docs/cloudflare/.cloudfalre
 frontend-v5/pw-report.json/
 frontend-v5/pw-stderr.txt
 frontend-v5/test-results/
+
+# Local secret drop — OpenAI key for manual staging env injection (never commit)
+.open_api_key
+KEY_JSON
+.staging_session
+
+# OpenAI key handoff file (never commit)
+docs/.OPENAI_API_KEY
+.OPENAI_API_KEY
+
+# CAS parser key — local secret, never commit
+.CAS_PARSER_KEY

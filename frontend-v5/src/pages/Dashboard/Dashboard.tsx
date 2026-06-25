@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Upload, Info, ArrowRight, Lock, AlertTriangle, Check, ShieldAlert, Target } from "lucide-react";
 import { useActivePlan, useGateFlags } from "@/hooks/use-active-plan";
 import type { PortfolioSummary, NavPoint, PortfolioInsight } from "@/types/portfolio";
@@ -11,18 +11,23 @@ import { PersonaCard } from "./PersonaCard";
 import { IntelligenceFeed, type AllocationDrift } from "./IntelligenceFeed";
 import { QuickActions } from "./QuickActions";
 import { plansService } from "@/services";
+import { apiFetch } from "@/services/api/authed-fetch";
 import type { PlanActionC, PlanC } from "@/services/contracts/plan.contract";
 import type { RiskProfile } from "@/hooks/use-risk-profile";
-import { TARGET_ALLOCATION } from "@/hooks/use-risk-profile";
+import { targetAllocationFor } from "@/hooks/use-risk-profile";
 import { cn } from "@/lib/utils";
 import { SafeWidget } from "@/components/shared/SafeWidget";
 import { ProfileWizardModal, type WizardCompleteness } from "./ProfileWizardModal";
+import { GmailSyncModal } from "./GmailSyncModal";
+import { Reveal } from "./Reveal";
+import { PortfolioXray } from "./PortfolioXray";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface OboardingState {
   cas_statement_period?: string | null;
   gmail_connected?: boolean;
+  pan_on_file?: boolean;
   persona?: string | null;
   persona_confidence?: number | null;
   has_risk_profile?: boolean;
@@ -42,10 +47,10 @@ interface DashboardProps {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function healthLabel(score: number): { phrase: string; tone: string } {
-  if (score >= 85) return { phrase: "in great shape",  tone: "text-pos"  };
-  if (score >= 70) return { phrase: "mostly healthy",  tone: "text-accent" };
-  if (score >= 55) return { phrase: "needs some work", tone: "text-warm"  };
-  return { phrase: "needs attention", tone: "text-neg" };
+  if (score >= 85) return { phrase: "in great shape",      tone: "text-pos"  };
+  if (score >= 70) return { phrase: "mostly healthy",      tone: "text-accent" };
+  if (score >= 55) return { phrase: "in need of some work", tone: "text-warm"  };
+  return { phrase: "in need of attention", tone: "text-neg" };
 }
 
 function fmtLakh(rs: number | null | undefined): string | null {
@@ -59,7 +64,7 @@ function useCasState() {
   return useQuery({
     queryKey: ["onboarding", "state"],
     queryFn: async () => {
-      const res = await fetch("/api/onboarding/state", { credentials: "include" });
+      const res = await apiFetch("/api/onboarding/state");
       if (!res.ok) return null;
       return res.json() as Promise<OboardingState>;
     },
@@ -84,11 +89,9 @@ function CasStatementBanner({ period, gmailConnected, onSync, onUpload }: {
       <span className="hidden sm:inline text-ink-4">·</span>
       <span className="hidden sm:inline text-ink-3">Update if you have a newer statement</span>
       <div className="flex items-center gap-2 ml-auto shrink-0">
-        {gmailConnected && (
-          <button onClick={onSync} className="flex items-center gap-1.5 text-accent font-medium hover:underline text-[12px]">
-            <RefreshCw className="h-3 w-3" />Sync Gmail
-          </button>
-        )}
+        <button onClick={onSync} className="flex items-center gap-1.5 text-accent font-medium hover:underline text-[12px]">
+          <RefreshCw className="h-3 w-3" />{gmailConnected ? "Sync Gmail" : "Connect Gmail"}
+        </button>
         <span className="text-ink-4">·</span>
         <button onClick={onUpload} className="flex items-center gap-1.5 text-ink-2 hover:text-accent hover:underline text-[12px]">
           <Upload className="h-3 w-3" />Upload file
@@ -296,6 +299,11 @@ function ActionMatrix({ actions, total, onViewAll }: { actions: PlanActionC[]; t
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[13px] font-medium truncate">{name}</span>
                             {amtRs && <span className="font-mono text-[10px] text-ink-3">{amtRs}</span>}
+                            {a.goal_name && (
+                              <span className="font-mono text-[9px] text-accent bg-[rgba(var(--accent)/0.08)] px-1.5 py-0.5 rounded-full">
+                                for {a.goal_name}
+                              </span>
+                            )}
                             {needsConfirm && (
                               <span className="flex items-center gap-0.5 font-mono text-[9px] text-ink-3 bg-surface-2 px-1.5 py-0.5 rounded-full border border-hairline">
                                 <Lock className="h-2.5 w-2.5" />confirm
@@ -339,10 +347,19 @@ function ActionMatrix({ actions, total, onViewAll }: { actions: PlanActionC[]; t
 
 export function Dashboard({ summary, navHistory, healthBreakdown, insights, riskProfile, holdingsCount = 0, hasGoal = false, onRiskProfileSaved }: DashboardProps) {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const casState  = useCasState();
   const planQuery = useActivePlan();
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStart, setWizardStart] = useState<0 | 1 | 2>(0);
+  const [gmailModalOpen, setGmailModalOpen] = useState(false);
+
+  // After a successful Gmail import, refresh everything the new CAS affects.
+  function handleImported() {
+    qc.invalidateQueries({ queryKey: ["onboarding", "state"] });
+    qc.invalidateQueries({ queryKey: ["portfolio"] });
+    qc.invalidateQueries({ queryKey: ["plans"] });
+  }
 
   const gates = useGateFlags();
   const score = Math.round(summary.healthScore);
@@ -366,9 +383,9 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
   // Allocation drift: compare actual equity % vs risk-profile target
   const allocationDrift: AllocationDrift | null = riskProfile
     ? (() => {
-        const target = TARGET_ALLOCATION[riskProfile.category];
+        const target = targetAllocationFor(riskProfile.category);
         const equitySlice = summary.allocation?.find(a => a.assetClass === "equity");
-        if (!equitySlice) return null;
+        if (!equitySlice || !target) return null;
         return {
           actual_pct: equitySlice.pct,  // already 0-100
           target_pct: target.equity,
@@ -406,6 +423,15 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
           setWizardOpen(false);
           onRiskProfileSaved?.();
         }}
+      />
+
+      {/* Gmail → latest-eCAS sync */}
+      <GmailSyncModal
+        open={gmailModalOpen}
+        onClose={() => setGmailModalOpen(false)}
+        gmailConnected={casState.data?.gmail_connected ?? false}
+        panOnFile={casState.data?.pan_on_file ?? false}
+        onImported={handleImported}
       />
 
       {/* Profile completion banner — shown until both risk + goal are done */}
@@ -449,23 +475,40 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
       <CasStatementBanner
         period={casState.data?.cas_statement_period}
         gmailConnected={casState.data?.gmail_connected ?? false}
-        onSync={() => navigate("/onboarding?sync=gmail")}
+        onSync={() => setGmailModalOpen(true)}
         onUpload={() => navigate("/onboarding?tab=upload")}
       />
 
       {/* eyebrow + headline */}
-      <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">Dashboard</div>
-      <h1 className="font-display text-3xl sm:text-4xl tracking-tightish leading-[1.05] mt-1.5">
-        Your portfolio is <span className={tone}>{phrase}</span>.
-      </h1>
-      <p className="text-[15.5px] sm:text-base text-ink-2 mt-3 leading-relaxed max-w-[600px]">
-        {pending.length > 0
-          ? `${totalPending} action${totalPending !== 1 ? "s" : ""} identified — apply them to improve your score.`
-          : "Upload your latest CAS statement to see personalised actions."}
-      </p>
+      <Reveal delay={40}>
+        <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">Dashboard</div>
+        <h1 className="font-display text-3xl sm:text-4xl tracking-tightish leading-[1.05] mt-1.5">
+          Your portfolio is <span className={tone}>{phrase}</span>.
+        </h1>
+        {pending.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => navigate("/plan")}
+            className="group mt-3 inline-flex items-center gap-1.5 text-[15.5px] sm:text-base text-ink-2 leading-relaxed text-left max-w-[600px] hover:text-ink-1 transition-colors"
+          >
+            <span>
+              {`${totalPending} action${totalPending !== 1 ? "s" : ""} identified — `}
+              <span className="text-accent underline decoration-accent/40 underline-offset-2 group-hover:decoration-accent">
+                apply them to improve your score
+              </span>
+              .
+            </span>
+            <ArrowRight className="w-4 h-4 text-accent shrink-0 transition-transform group-hover:translate-x-0.5" />
+          </button>
+        ) : (
+          <p className="text-[15.5px] sm:text-base text-ink-2 mt-3 leading-relaxed max-w-[600px]">
+            Upload your latest CAS statement to see personalised actions.
+          </p>
+        )}
+      </Reveal>
 
       {/* Persona card */}
-      <div className="mt-7">
+      <Reveal delay={120} className="mt-7">
         <SafeWidget name="PersonaCard" flagKey="persona_card" retryDelayMs={5000}>
           <PersonaCard
             persona={persona}
@@ -478,10 +521,10 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
             onOpenWizard={openWizard}
           />
         </SafeWidget>
-      </div>
+      </Reveal>
 
       {/* Hero: value · health · risk */}
-      <div className="rounded-lg bg-surface-1 border border-hairline shadow-card">
+      <Reveal delay={200} className="rounded-lg bg-surface-1 border border-hairline shadow-card">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-y-7 md:divide-x md:divide-[rgb(var(--line)/0.10)] p-6 sm:p-7">
           <SafeWidget name="PortfolioValueCard" flagKey="portfolio_value_card">
             <PortfolioValueCard value={summary.totalValue} yearChangePct={summary.yearChange.pct} navHistory={navHistory} />
@@ -519,33 +562,45 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
             </InfoTooltip>
           </div>
         </div>
-      </div>
+      </Reveal>
+
+      {/* Portfolio X-ray — look-through "what you actually own" (real concentration data) */}
+      <Reveal delay={280} className="mt-7">
+        <SafeWidget name="PortfolioXray" flagKey="portfolio_xray">
+          <PortfolioXray />
+        </SafeWidget>
+      </Reveal>
 
       {/* Intelligence feed + Quick actions (side-by-side on desktop) */}
       {((insights && insights.length > 0) || allocationDrift) && (
-        <div className="mt-7 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+        <Reveal delay={360} className="mt-7 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
           <SafeWidget name="IntelligenceFeed" flagKey="intelligence_feed" retryDelayMs={5000}>
             <IntelligenceFeed insights={insights ?? []} allocationDrift={allocationDrift} />
           </SafeWidget>
           <SafeWidget name="QuickActions" flagKey="quick_actions">
             <QuickActions persona={persona} riskCategory={riskProfile?.category} />
           </SafeWidget>
-        </div>
+        </Reveal>
       )}
       {(!insights || insights.length === 0) && !allocationDrift && (
-        <div className="mt-7">
+        <Reveal delay={360} className="mt-7">
           <SafeWidget name="QuickActions" flagKey="quick_actions">
             <QuickActions persona={persona} riskCategory={riskProfile?.category} />
           </SafeWidget>
-        </div>
+        </Reveal>
       )}
 
-      {/* Action matrix */}
-      <SafeWidget name="ActionMatrix" flagKey="action_matrix">
-        <ActionMatrix actions={pending} total={totalPending} onViewAll={() => navigate("/recommendations")} />
-      </SafeWidget>
+      {/* Action matrix — hidden until risk profile + goal are both set */}
+      {!gates.requiresPersona && !gates.requiresGoal && (
+        <Reveal delay={440}>
+          <SafeWidget name="ActionMatrix" flagKey="action_matrix">
+            <ActionMatrix actions={pending} total={totalPending} onViewAll={() => navigate("/recommendations")} />
+          </SafeWidget>
+        </Reveal>
+      )}
 
       {/* The one thing / gate CTA */}
+      <Reveal delay={520}>
       <SafeWidget name="ImproveCTA" flagKey="improve_cta">
         {gates.requiresPersona ? (
           <div className="mt-7 p-5 rounded-lg border border-[rgba(var(--warm)/0.35)] bg-[rgba(var(--warm)/0.06)] flex flex-col sm:flex-row gap-4 sm:items-center">
@@ -593,6 +648,7 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
           </div>
         ) : null}
       </SafeWidget>
+      </Reveal>
     </div>
   );
 }

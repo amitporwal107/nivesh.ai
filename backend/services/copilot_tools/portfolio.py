@@ -120,9 +120,39 @@ async def get_portfolio_xirr(user_id: str) -> PortfolioResult:
 
     portfolio_gain = total_current - total_invested
     portfolio_return_pct = (portfolio_gain / total_invested * 100.0) if total_invested > 0 else 0.0
-    portfolio_xirr = (weighted_xirr_sum / weighted_xirr_weight) if weighted_xirr_weight > 0 else None
+    avg_xirr = (weighted_xirr_sum / weighted_xirr_weight) if weighted_xirr_weight > 0 else None
 
-    xirr_str = f" (XIRR {portfolio_xirr:+.1f}%)" if portfolio_xirr is not None else ""
+    # TRUE portfolio XIRR — solve a single money-weighted IRR over the dated
+    # `cas_transactions` ledger (purchases negative, redemptions positive, plus
+    # today's value). This replaces the old "average of per-holding annualised
+    # rates", which is mathematically invalid and explodes to figures like
+    # +1211% for short-horizon holdings. The ledger result is reported only when
+    # transaction coverage is good enough to trust; otherwise we fall back to
+    # the absolute return and keep the avg figure purely to explain the gap.
+    from services.portfolio_enrichment import portfolio_xirr_from_ledger
+    ledger = await portfolio_xirr_from_ledger(user_id, total_current, cost_basis=total_invested)
+
+    portfolio_xirr_safe = ledger.get("xirr_pct") if ledger.get("reliable") else None
+    xirr_raw = round(avg_xirr, 2) if avg_xirr is not None else ledger.get("xirr_raw_pct")
+    # "Unreliable" only matters for the broken-number alert: true when we have a
+    # raw figure to flag but no trustworthy XIRR to show.
+    xirr_unreliable = portfolio_xirr_safe is None and xirr_raw is not None and abs(xirr_raw) > 100.0
+
+    _cov = ledger.get("coverage_pct")
+    _has_ledger = bool(ledger.get("has_ledger"))
+    if portfolio_xirr_safe is not None:
+        xirr_str = f" (money-weighted XIRR {portfolio_xirr_safe:+.1f}%, from {ledger.get('n_txn')} txns)"
+    elif xirr_unreliable:
+        if not _has_ledger:
+            xirr_str = (" (a money-weighted XIRR needs your dated buy/sell history; this account has "
+                        "only a holdings snapshot on file, so we report the absolute return)")
+        elif _cov is not None:
+            xirr_str = (f" (XIRR withheld — transaction ledger covers only ~{_cov:.0f}% of cost basis, "
+                        f"so a money-weighted XIRR isn't reliable; absolute return shown)")
+        else:
+            xirr_str = " (XIRR withheld — transaction ledger too incomplete; absolute return shown)"
+    else:
+        xirr_str = ""
     summary = (
         f"Portfolio: invested ₹{total_invested:,.0f} → current ₹{total_current:,.0f} "
         f"= {portfolio_return_pct:+.1f}% absolute return{xirr_str} "
@@ -137,7 +167,12 @@ async def get_portfolio_xirr(user_id: str) -> PortfolioResult:
             "total_current_rs": round(total_current, 0),
             "total_gain_rs": round(portfolio_gain, 0),
             "portfolio_return_pct": round(portfolio_return_pct, 2),
-            "portfolio_xirr_pct": round(portfolio_xirr, 2) if portfolio_xirr is not None else None,
+            "portfolio_xirr_pct": round(portfolio_xirr_safe, 2) if portfolio_xirr_safe is not None else None,
+            "portfolio_xirr_raw_pct": xirr_raw,
+            "xirr_unreliable": xirr_unreliable,
+            "xirr_source": ledger.get("source"),
+            "xirr_coverage_pct": ledger.get("coverage_pct"),
+            "xirr_has_ledger": _has_ledger,
             "position_count": len(rows),
         },
         rows=sorted(rows, key=lambda r: r.get("xirr_pct") or -999, reverse=True),
@@ -158,7 +193,11 @@ async def get_portfolio_summary(user_id: str) -> PortfolioResult:
         logger.warning("portfolio_summary pi_failed user=%s error=%s", user_id, exc)
         return PortfolioResult(ok=False, summary="Portfolio intelligence unavailable", error=str(exc))
 
-    alloc = intel.get("holistic_allocation") or {}
+    # compute_portfolio_intelligence exposes the canonical allocation under
+    # "asset_allocation" (equity 93.6% etc. — same as the dashboard). The old
+    # key "holistic_allocation" doesn't exist on the response, so this silently
+    # read {} and reported a wrong/zero equity split.
+    alloc = intel.get("asset_allocation") or {}
     top_stocks = (intel.get("top_stocks") or [])[:5]
     pairs = (intel.get("pairwise_overlap") or [])
     high_overlap = [p for p in pairs if p.get("overlap_pct", 0) >= 40]
@@ -166,13 +205,34 @@ async def get_portfolio_summary(user_id: str) -> PortfolioResult:
 
     equity_pct = alloc.get("equity_pct", 0)
     debt_pct = alloc.get("debt_pct", 0)
-    total_rs = alloc.get("total_value", 0)
+    gold_pct = alloc.get("gold_pct", 0)
+    other_pct = alloc.get("other_pct", 0)
+    total_rs = intel.get("total_value", 0) or alloc.get("total_value", 0)
+    effective_stocks = intel.get("effective_stocks")
 
+    # The summary string is the ONLY thing the copilot LLM sees (as_llm_context
+    # drops data/rows). So the concentration drivers — asset split, top stock,
+    # top sector, effective-stock count — must live here, or the agent reports
+    # them as "data unavailable" when they are in fact present.
     summary_parts = [f"Total ₹{total_rs:,.0f}" if total_rs else "Portfolio"]
     if equity_pct:
         summary_parts.append(f"equity {equity_pct:.0f}%")
     if debt_pct:
         summary_parts.append(f"debt {debt_pct:.0f}%")
+    if gold_pct:
+        summary_parts.append(f"gold {gold_pct:.0f}%")
+    if other_pct:
+        summary_parts.append(f"other {other_pct:.0f}%")
+    if top_stocks:
+        ts = top_stocks[0]
+        summary_parts.append(
+            f"top stock {ts.get('name') or ts.get('slug', '?')} {ts.get('exposure_pct', 0):.1f}%"
+        )
+    if sectors:
+        sc = sectors[0]
+        summary_parts.append(f"top sector {sc.get('sector', '?')} {sc.get('pct', 0):.0f}%")
+    if effective_stocks:
+        summary_parts.append(f"~{effective_stocks:.0f} effective stocks")
     if high_overlap:
         summary_parts.append(f"{len(high_overlap)} high-overlap fund pair(s)")
 
@@ -199,9 +259,15 @@ async def get_portfolio_summary(user_id: str) -> PortfolioResult:
             "total_value_rs": total_rs,
             "equity_pct": equity_pct,
             "debt_pct": debt_pct,
+            "gold_pct": gold_pct,
+            "other_pct": other_pct,
             "high_overlap_pairs": len(high_overlap),
-            "effective_stocks": intel.get("effective_stocks"),
+            "effective_stocks": effective_stocks,
             "compression_score": intel.get("compression_score"),
+            "top_stock": ({"name": top_stocks[0].get("name") or top_stocks[0].get("slug", ""),
+                           "pct": top_stocks[0].get("exposure_pct", 0)} if top_stocks else None),
+            "top_sector": ({"name": sectors[0].get("sector", ""),
+                            "pct": sectors[0].get("pct", 0)} if sectors else None),
         },
         rows=rows,
     )
@@ -236,22 +302,1009 @@ async def get_portfolio_overlap(user_id: str) -> PortfolioResult:
     ]
     rows.sort(key=lambda r: r["overlap_pct"], reverse=True)
 
+    # Regular vs Direct of the SAME scheme is a cost issue, not overlap. Flag
+    # each pair so the LLM can separate "switch Regular→Direct" (Fix #1) from
+    # genuine cross-fund overlap (Fix #2).
+    import re as _re
+
+    def _base_scheme(name: str) -> str:
+        n = (name or "").lower()
+        # "fund"/"scheme" must be stripped too: source names are inconsistent
+        # ("HDFC Flexi Cap Fund Growth" vs "HDFC Flexi Cap Direct Plan Growth"),
+        # so without them a genuine Regular/Direct pair fails to match and gets
+        # mislabelled as cross-fund overlap.
+        for tok in ("direct", "regular", "growth", "idcw", "dividend", "payout",
+                    "reinvestment", "plan", "option", "fund", "scheme", "-"):
+            n = n.replace(tok, " ")
+        return _re.sub(r"\s+", " ", n).strip()
+
+    for r in rows:
+        r["is_plan_duplicate"] = bool(
+            r["fund_a"] and r["fund_b"]
+            and _base_scheme(r["fund_a"]) == _base_scheme(r["fund_b"])
+        )
+
     high = [r for r in rows if r["overlap_pct"] >= 40]
-    # Embed top high-overlap pairs (names + %) so the LLM can quote them verbatim
+    dupe_pairs = [r for r in high if r["is_plan_duplicate"]]
+    cross_pairs = [r for r in high if not r["is_plan_duplicate"]]
+
+    # Counts needed to answer "do I have too many funds?" (count, not overlap).
+    mf_count = len(intel.get("mf_investments") or [])
+    removable_count = len(intel.get("redundancy_suggestions") or [])
+
     top_lines = "; ".join(
         f"{r['fund_a']} ↔ {r['fund_b']} {r['overlap_pct']:.0f}%"
         for r in high[:5]
     ) if high else ""
     summary = (
-        f"{len(rows)} fund pair(s) analysed; {len(high)} pair(s) with ≥40% overlap"
+        f"{mf_count} mutual fund(s) held; {len(rows)} pair(s) analysed; "
+        f"{len(high)} pair(s) with ≥40% overlap "
+        f"({len(dupe_pairs)} are Regular+Direct duplicates of the same scheme, "
+        f"{len(cross_pairs)} are cross-fund); ~{removable_count} fund(s) removable "
+        f"with no loss of exposure"
         + (f" — top: {top_lines}" if top_lines else "")
     )
     return PortfolioResult(
         ok=True,
         summary=summary,
-        data={"pair_count": len(rows), "high_overlap_count": len(high)},
+        data={
+            "mf_count":                       mf_count,
+            "pair_count":                     len(rows),
+            "high_overlap_count":             len(high),
+            "regular_direct_duplicate_pairs": len(dupe_pairs),
+            "cross_fund_overlap_pairs":       len(cross_pairs),
+            "removable_fund_count":           removable_count,
+            # For pacing only — never derive per-fund switch amounts from these.
+            "total_value_rs":                 intel.get("total_value"),
+            "equity_pct":                     (intel.get("asset_allocation") or {}).get("equity_pct"),
+        },
         rows=rows,
     )
+
+
+# ── Fund-consolidation widget builder ─────────────────────────────────────
+
+def _short_fund(name: str) -> str:
+    """Trim a scheme name for display (drop plan/option/growth noise)."""
+    import re as _re
+    n = name or ""
+    for tok in ("Regular Plan", "Direct Plan", "Growth Plan", "Growth Option",
+                "Regular", "Direct", "Growth", "Plan", "Option", "Fund", "Scheme", "-"):
+        n = _re.sub(_re.escape(tok), " ", n, flags=_re.I)
+    return _re.sub(r"\s+", " ", n).strip()
+
+
+def _norm_scheme(name: str) -> str:
+    """Aggressively normalise a scheme name to a base key for matching across
+    sources (intel scheme_name vs holdings name vs leaderboard) — strips plan,
+    option, payout and all punctuation so 'HDFC Flexi Cap Fund - Growth' and
+    'HDFC Flexi Cap Fund Growth' collapse to the same key."""
+    import re as _re
+    n = (name or "").lower()
+    for tok in ("direct", "regular", "growth", "idcw", "dividend", "payout",
+                "reinvestment", "reinvest", "plan", "option", "fund", "scheme",
+                "retail", "monthly", "weekly", "daily", "fortnightly", "income",
+                "distribution", "cum", "capital", "withdrawal"):
+        n = _re.sub(rf"\b{tok}\b", " ", n)
+    n = _re.sub(r"[^a-z0-9 ]", " ", n)
+    return _re.sub(r"\s+", " ", n).strip()
+
+
+def _redundancy_question(a: str, b: str) -> str:
+    t = (a + " " + b).lower()
+    if "index" in t or "nifty" in t or "sensex" in t:
+        return "Same index exposure, different weighting — keep both only if you want the tilt."
+    return "Keep one — does the second earn its place vs the cheaper option?"
+
+
+def build_consolidation_widget(overlap: Any) -> Dict[str, Any]:
+    """Build the structured fund-consolidation widget_data (verdict, stat tiles,
+    hold→need bars, Step 1 cost fixes, Step 2 redundancy review, caveat) from a
+    get_portfolio_overlap result (anything with .data and .rows). Every count
+    comes from the tool data — no invented numbers.
+    """
+    d = getattr(overlap, "data", None) or {}
+    rows = getattr(overlap, "rows", None) or []
+    n = int(d.get("mf_count") or 0)
+    dupe_rows = [r for r in rows if r.get("is_plan_duplicate") and (r.get("overlap_pct") or 0) >= 40]
+    cross_rows = [r for r in rows if not r.get("is_plan_duplicate") and (r.get("overlap_pct") or 0) >= 40]
+    high = int(d.get("high_overlap_count") or (len(dupe_rows) + len(cross_rows)))
+    distinct = max(1, n - len(dupe_rows))
+    target_lo, target_hi, target_mid = 8, 12, 10
+    too_many = n > 15
+
+    verdict = {
+        "tone": "warm" if too_many else "good",
+        "title": "Yes — more funds than any goal needs" if too_many else "About right — minor cleanup only",
+        "subtitle": (
+            f"{distinct} distinct funds is well past a sensible count on its own — before overlap "
+            f"even enters the picture. This is a count problem first, an overlap problem second."
+            if too_many else
+            f"{distinct} distinct strategies is a manageable count; only a little overlap to tidy."
+        ),
+    }
+    tiles = [
+        {"label": "Holdings you own",    "value": str(n)},
+        {"label": "Distinct strategies", "value": str(distinct)},
+        {"label": "Healthy target",      "value": f"~{target_lo}–{target_hi}"},
+        {"label": "High-overlap pairs",  "value": str(high)},
+    ]
+    bars = {
+        "title": "From what you hold to what you need",
+        "max": max(n, 1),
+        "items": [
+            {"label": "Holdings owned", "value": n, "color": "blue"},
+            {"label": "Distinct strategies", "sublabel": f"{len(dupe_rows)} plan-duplicate pairs collapse",
+             "value": distinct, "color": "green"},
+            {"label": "Healthy target", "sublabel": "one fund per role", "value": target_mid,
+             "color": "amber", "approx": True},
+        ],
+        "reading": (
+            f"Removing duplicates gets you from {n} to {distinct} — but the real gap is "
+            f"{distinct} → ~{target_mid}. You only need one fund per role: a large-cap, a mid, a "
+            f"small, a hybrid, and a debt sleeve cover most goals."
+        ),
+    }
+    step1 = None
+    if dupe_rows:
+        step1 = {
+            "title": "Step 1 — switch same-scheme duplicates (free)",
+            "subtitle": "Identical portfolio, just a cheaper plan. Move Regular units to Direct.",
+            "rows": [
+                {"name": f"{_short_fund(r.get('fund_a', ''))} — Regular → Direct",
+                 "meta": f"{round(r.get('overlap_pct') or 0)}% overlap"}
+                for r in dupe_rows[:5]
+            ],
+        }
+    step2 = None
+    if cross_rows:
+        step2 = {
+            "title": "Step 2 — question redundant pairs (keep one each)",
+            "rows": [
+                {"name": f"{_short_fund(r.get('fund_a', ''))} vs {_short_fund(r.get('fund_b', ''))}",
+                 "meta": f"~{round(r.get('overlap_pct') or 0)}%",
+                 "detail": _redundancy_question(r.get('fund_a', ''), r.get('fund_b', ''))}
+                for r in cross_rows[:4]
+            ],
+        }
+    tv = d.get("total_value_rs")
+    eq = d.get("equity_pct")
+    lead = ""
+    if tv:
+        lead = f"Book size ₹{tv / 1e7:.2f} cr"
+        if eq is not None:
+            lead += f" · {round(eq)}% equity"
+        lead += ". Stagger switches across financial years to manage capital-gains tax — don't redeem in one go. "
+    caveat = lead + (
+        "Based on holdings overlap and counts only — no returns, fees, fund size or manager record "
+        "here. Exact switch amounts aren't available from this data. Not financial advice; confirm "
+        "tax and exit load before acting."
+    )
+    return {"verdict": verdict, "tiles": tiles, "bars": bars, "step1": step1, "step2": step2, "caveat": caveat}
+
+
+def _abbrev(name: str) -> str:
+    """Short, readable code for a fund in the heatmap — the AMC/first word, with
+    an ·EW suffix for equal-weight variants (e.g. Mirae, UTI, ICICI, SBI, HDFC·EW)."""
+    s = _short_fund(name)
+    words = s.split()
+    base = (words[0] if words else s)[:6]
+    low = (name or "").lower()
+    if "equal weight" in low:
+        base += "·EW"
+    return base
+
+
+def build_overlap_widget(overlap: Any) -> Dict[str, Any]:
+    """Build the structured fund-overlap widget_data (tiles, same-scheme cost
+    fixes, different-funds redundancy review, a cluster heatmap of the most
+    inter-correlated funds, caveat) from a get_portfolio_overlap result.
+    """
+    d = getattr(overlap, "data", None) or {}
+    rows = getattr(overlap, "rows", None) or []
+    pair_count = int(d.get("pair_count") or len(rows))
+    high_rows = [r for r in rows if (r.get("overlap_pct") or 0) >= 40]
+    dupe_rows = [r for r in high_rows if r.get("is_plan_duplicate")]
+    cross_rows = [r for r in high_rows if not r.get("is_plan_duplicate")]
+    highest = round(max((r.get("overlap_pct") or 0) for r in rows)) if rows else 0
+
+    tiles = [
+        {"label": "Pairs analysed",       "value": str(pair_count)},
+        {"label": "High overlap (≥40%)",  "value": str(len(high_rows))},
+        {"label": "Highest overlap",      "value": f"{highest}%"},
+    ]
+    same_scheme = None
+    if dupe_rows:
+        same_scheme = {
+            "title": "Same scheme, two plans",
+            "subtitle": "Identical portfolio. Switch Regular units to Direct for a lower expense ratio.",
+            "badge": "cost fix — free",
+            "tone": "neg",
+            "rows": [
+                {"name": f"{_short_fund(r.get('fund_a', ''))} · Regular ↔ Direct",
+                 "overlap_pct": round(r.get("overlap_pct") or 0)}
+                for r in dupe_rows[:5]
+            ],
+        }
+    different_funds = None
+    if cross_rows:
+        top = sorted(cross_rows, key=lambda r: -(r.get("overlap_pct") or 0))
+        shown = top[:2]
+        rest = len(top) - len(shown)
+        lo = round(min((r.get("overlap_pct") or 0) for r in top[len(shown):])) if rest > 0 else 0
+        hi = round(max((r.get("overlap_pct") or 0) for r in top[len(shown):])) if rest > 0 else 0
+        different_funds = {
+            "title": "Different funds, similar holdings",
+            "subtitle": "Not duplicates — a judgement call on whether each earns its place.",
+            "badge": "review — keep one",
+            "tone": "warm",
+            "rows": [
+                {"name": f"{_short_fund(r.get('fund_a', ''))} ↔ {_short_fund(r.get('fund_b', ''))}",
+                 "overlap_pct": round(r.get("overlap_pct") or 0),
+                 "detail": _redundancy_question(r.get("fund_a", ""), r.get("fund_b", ""))}
+                for r in shown
+            ],
+            "more_note": (f"+ {rest} more pair(s) in the {lo}–{hi}% range — lower priority." if rest > 0 else None),
+        }
+
+    # ── Heatmap: the funds carrying the most cross-fund overlap (the large-cap/
+    #    index cluster). Cluster picked by TOTAL overlap weight (not pair count,
+    #    which mis-ranks funds tied on count); up to 5 members so the whole
+    #    cluster shows. Matrix values come from ALL non-duplicate pairs, so even
+    #    sub-40% cluster cells show their real %.
+    heatmap = None
+    if cross_rows:
+        from collections import defaultdict
+        all_pct: Dict[frozenset, int] = {}
+        for r in rows:
+            a, b = r.get("fund_a", ""), r.get("fund_b", "")
+            if a and b and not r.get("is_plan_duplicate"):
+                all_pct[frozenset((a, b))] = round(r.get("overlap_pct") or 0)
+        weight: Dict[str, float] = defaultdict(float)
+        for r in cross_rows:
+            a, b = r.get("fund_a", ""), r.get("fund_b", "")
+            if a and b:
+                weight[a] += (r.get("overlap_pct") or 0)
+                weight[b] += (r.get("overlap_pct") or 0)
+        cluster = [f for f, _ in sorted(weight.items(), key=lambda kv: -kv[1])[:5]]
+        if len(cluster) >= 3:
+            labels = [{"key": _abbrev(f), "full": _short_fund(f)} for f in cluster]
+            matrix = [
+                [None if i == j else all_pct.get(frozenset((ci, cj)), 0)
+                 for j, cj in enumerate(cluster)]
+                for i, ci in enumerate(cluster)
+            ]
+            heatmap = {
+                "title": "How the large-cap / index funds cluster",
+                "subtitle": "Darker = more shared holdings. These funds overlap heavily with each other.",
+                "labels": labels,
+                "matrix": matrix,
+                "legend": " · ".join(f"{l['key']} = {l['full']}" for l in labels),
+            }
+
+    caveat = (
+        "Based on holdings overlap only — no returns, fees, fund size or manager record here. "
+        "Switching is a sell-and-rebuy: stagger across financial years and check exit load and "
+        "capital-gains tax. Not financial advice."
+    )
+    return {
+        "tiles": tiles,
+        "same_scheme": same_scheme,
+        "different_funds": different_funds,
+        "heatmap": heatmap,
+        "caveat": caveat,
+    }
+
+
+def build_overlap_severity_widget(overlap: Any) -> Dict[str, Any]:
+    """Build the 'are my funds overlapping significantly?' widget: verdict,
+    tiles, severity bands (effectively-identical / high / moderate), and the
+    biggest offenders. Assessment-oriented (vs the action-oriented fund_overlap).
+    """
+    d = getattr(overlap, "data", None) or {}
+    rows = getattr(overlap, "rows", None) or []
+    high = [r for r in rows if (r.get("overlap_pct") or 0) >= 40]
+    dupe = [r for r in high if r.get("is_plan_duplicate")]
+    identical = [r for r in high if (r.get("overlap_pct") or 0) >= 80]
+    high_band = [r for r in high if 60 <= (r.get("overlap_pct") or 0) < 80]
+    moderate = [r for r in high if 40 <= (r.get("overlap_pct") or 0) < 60]
+    highest = round(max((r.get("overlap_pct") or 0) for r in rows)) if rows else 0
+    removable = int(d.get("removable_fund_count") or 0)
+    mx = max(len(identical), len(high_band), len(moderate), 1)
+
+    concentrated = len(identical) > 0 and len(moderate) >= len(identical)
+    verdict = {
+        "tone": "warm",
+        "title": "Yes — but it's concentrated, not everywhere" if concentrated else "Some overlap worth a look",
+        "subtitle": (
+            "A handful of holdings are near-identical; the rest only partly overlap. The fix is "
+            "small and targeted, not a portfolio teardown." if concentrated else
+            "A few pairs share a lot; most are only partial overlap."
+        ),
+    }
+    tiles = [
+        {"label": "High-overlap pairs", "value": str(len(high))},
+        {"label": "Funds removable",    "value": f"~{removable}"},
+        {"label": "Highest overlap",    "value": f"{highest}%"},
+    ]
+    bands = {
+        "title": "How severe is the overlap?",
+        "subtitle": f"{len(high)} high-overlap pairs, split by how much they actually share.",
+        "max": mx,
+        "items": [
+            {"label": "Effectively identical", "note": "≥80% — same-scheme duplicates",
+             "value": len(identical), "unit": "pairs", "color": "red"},
+            {"label": "High", "note": "60–79% — index/large-cap",
+             "value": len(high_band), "unit": "pairs", "color": "amber"},
+            {"label": "Moderate", "note": "40–59% — partial",
+             "value": len(moderate), "unit": "pairs", "color": "blue"},
+        ],
+        "reading": (
+            f"The “significant” overlap is really {len(dupe)} duplicate pair(s) — and those are "
+            f"the cheapest to fix (same fund, just switch Regular to Direct). Most pairs are only "
+            f"partial overlap, which is normal for funds in the same category."
+        ),
+    }
+    offenders = None
+    top = sorted(high, key=lambda r: -(r.get("overlap_pct") or 0))[:3]
+    if top:
+        offenders = {
+            "title": "The biggest offenders",
+            "rows": [
+                {"name": (f"{_short_fund(r.get('fund_a',''))} · Regular ↔ Direct" if r.get("is_plan_duplicate")
+                          else f"{_short_fund(r.get('fund_a',''))} ↔ {_short_fund(r.get('fund_b',''))}"),
+                 "overlap_pct": round(r.get("overlap_pct") or 0)}
+                for r in top
+            ],
+            "note": ("All same-scheme held in two plans — a cost issue, not a diversification one. "
+                     "Switch Regular units to Direct first." if all(r.get("is_plan_duplicate") for r in top)
+                     else "Mix of plan duplicates and similar funds — handle the duplicates first."),
+        }
+    caveat = (
+        "Based on holdings overlap only — no returns, fees or manager record here. Switching is a "
+        "sell-and-rebuy: check exit load and capital-gains tax. Not financial advice."
+    )
+    return {"verdict": verdict, "tiles": tiles, "bands": bands, "offenders": offenders, "caveat": caveat}
+
+
+def build_cap_education_widget(overlap: Any) -> Dict[str, Any]:
+    """Build the large-cap vs flexi-cap vs mid-cap education widget: a core→
+    satellite spectrum, three category cards, a PERSONALISED large-cap-overlap
+    insight (from the user's overlap data), and an illustrative allocation
+    shape. The category roles are general; only the insight is user-specific.
+    """
+    rows = getattr(overlap, "rows", None) or []
+    cross = sorted(
+        [r for r in rows if not r.get("is_plan_duplicate") and (r.get("overlap_pct") or 0) >= 40],
+        key=lambda r: -(r.get("overlap_pct") or 0),
+    )
+    insight = None
+    if cross:
+        parts = [
+            f"{_short_fund(r.get('fund_a', ''))} ↔ {_short_fund(r.get('fund_b', ''))} at {round(r.get('overlap_pct') or 0)}% overlap"
+            for r in cross[:2]
+        ]
+        insight = {
+            "tone": "warm",
+            "title": "Your large-cap bucket is already doubled up",
+            "body": (
+                f"{', and '.join(parts)}. Adding another large-cap fund would buy little new exposure "
+                f"— fix this bucket before extending elsewhere."
+            ),
+        }
+    return {
+        "spectrum": {
+            "title": "Where each sits — steady core to punchy satellite",
+            "left_label": "Lower volatility · core",
+            "right_label": "Higher growth · satellite",
+            "points": [
+                {"label": "Large-cap", "pos": 0.2, "color": "blue"},
+                {"label": "Flexi-cap", "pos": 0.5, "color": "green"},
+                {"label": "Mid-cap",   "pos": 0.8, "color": "amber"},
+            ],
+        },
+        "cards": [
+            {"title": "Large-cap", "color": "blue",
+             "body": "Your core — steadier exposure to large, established companies.",
+             "watch": "Overlaps heavily with Nifty/Sensex index funds — easy to duplicate."},
+            {"title": "Flexi-cap", "color": "green",
+             "body": "One flexible active fund — the manager moves across caps for you.",
+             "watch": "Outcome rides on the manager's style and calls."},
+            {"title": "Mid-cap", "color": "amber",
+             "body": "A satellite for growth — a smaller, deliberate tilt.",
+             "watch": "Bigger swings and drawdowns — don't over-allocate."},
+        ],
+        "insight": insight,
+        "shape": {
+            "title": "A cleaner shape (illustrative, not a recommendation)",
+            "subtitle": "One fund per role usually beats many overlapping ones.",
+            "bars": [
+                {"label": "Large-cap index — core", "weight": 100, "color": "blue", "note": "biggest weight"},
+                {"label": "Flexi-cap", "weight": 65, "color": "green", "note": "flexible middle"},
+                {"label": "Mid-cap", "weight": 35, "color": "amber", "note": "small satellite"},
+            ],
+        },
+        "caveat": (
+            "Category roles are general principles, not personalised weights. Specific flexi-cap and "
+            "mid-cap funds can't be ranked here — no scheme-level scorecard, expense ratio, manager "
+            "tenure or overlap data available. Not financial advice."
+        ),
+    }
+
+
+# ── Goal-simulation widget builder ────────────────────────────────────────
+
+def _inr_rupees(v: Any) -> str:
+    """Indian-grouped exact rupees, e.g. 50043 → '₹50,043'."""
+    import re as _re
+    try:
+        n = int(round(float(v)))
+    except (TypeError, ValueError):
+        return "—"
+    s = str(abs(n))
+    if len(s) > 3:
+        last3, rest = s[-3:], s[:-3]
+        rest = _re.sub(r"(\d)(?=(\d\d)+$)", r"\1,", rest)
+        s = f"{rest},{last3}"
+    return ("-" if n < 0 else "") + "₹" + s
+
+
+def _inr_crl(v: Any) -> str:
+    """Crore/lakh rupee label, e.g. 50000000 → '₹5.00 Cr', 9990000 → '₹99.9 L'."""
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    if abs(n) >= 1e7:
+        return f"₹{n / 1e7:.2f} Cr"
+    if abs(n) >= 1e5:
+        return f"₹{n / 1e5:.1f} L"
+    return f"₹{n:,.0f}"
+
+
+def _sip_curve(monthly: float, years: int, annual_rate: float) -> List[float]:
+    """Year-by-year future value of a monthly SIP (year 0 = 0). Mirrors
+    sip._yearly_projection so the chart and the headline numbers agree."""
+    r = annual_rate / 12.0
+    fv = 0.0
+    out = [0.0]
+    for _ in range(1, years + 1):
+        fv = (fv * (1 + r) ** 12 + monthly * 12) if r == 0 else \
+            fv * (1 + r) ** 12 + monthly * ((1 + r) ** 12 - 1) / r * (1 + r)
+        out.append(round(fv))
+    return out
+
+
+def build_goal_simulation_widget(goal: Any, sip: Any, summary: Any) -> Dict[str, Any]:
+    """Build the 'simulate my plan' widget: goal-funding progress, target/current/
+    gap/SIP-needed KPIs, a projected-SIP-growth line chart (needed vs an
+    illustrative baseline vs the target line), today's allocation donut, an
+    overlap nudge, and two actions. All numbers come from the goal +
+    SIP-projection + portfolio-summary tools."""
+    gd = getattr(goal, "data", None) or {}
+    sd_ = getattr(sip, "data", None) or {}
+    pd = getattr(summary, "data", None) or {}
+    prows = getattr(summary, "rows", None) or []
+    pg = gd.get("primary_goal") or {}
+
+    def _n(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    name = pg.get("name") or "Your goal"
+    target = _n(pg.get("target_rs")) or _n(sd_.get("goal_amount")) or 0.0
+    current = _n(sd_.get("current_corpus")) or _n(pd.get("total_value_rs")) or 0.0
+    on_track = _n(pg.get("on_track_pct")) or 0.0
+    years = int(_n(sd_.get("years")) or 20)
+    rate = _n(sd_.get("annual_rate_pct")) or 12.0
+    sip_needed = _n(sd_.get("sip_needed")) or 0.0
+    base_monthly = _n(sd_.get("monthly_sip")) or 10000.0
+    gap = max(0.0, target - current)               # funding gap: target − corpus
+    funded_pct = round(current / target * 100, 1) if target else 0.0
+    # Badge uses the goal record's on_track_pct (SIP-adequacy signal); the
+    # progress bar separately shows funded_pct (corpus vs target).
+    on_track_flag = on_track >= 80
+
+    # ── Chart series: needed SIP vs illustrative baseline, both to `years` ────
+    needed_curve = _sip_curve(sip_needed, years, rate / 100.0) if sip_needed else []
+    base_curve = _sip_curve(base_monthly, years, rate / 100.0)
+    points = []
+    for y in range(years + 1):
+        p = {"year": y, "target": round(target)}
+        if needed_curve:
+            p["needed"] = needed_curve[y]
+        p["baseline"] = base_curve[y]
+        points.append(p)
+    base_final = base_curve[-1] if base_curve else 0.0
+
+    chart = {
+        "title": f"Projected SIP growth over {years} years @ {rate:.0f}%",
+        "subtitle": (f"Growth of contributions only — excludes your existing {_inr_crl(current)} "
+                     f"corpus, which compounds separately."),
+        "target": round(target),
+        "series": [
+            *( [{"key": "needed", "color": "green", "dash": "solid",
+                 "label": f"{_inr_rupees(sip_needed)}/mo → {_inr_crl(target)}"}] if sip_needed else [] ),
+            {"key": "baseline", "color": "grey", "dash": "dashed",
+             "label": f"{_inr_rupees(base_monthly)}/mo → {_inr_crl(base_final)}"},
+            {"key": "target", "color": "red", "dash": "dotted", "label": f"Target {_inr_crl(target)}"},
+        ],
+        "points": points,
+    }
+
+    # ── Allocation donut ─────────────────────────────────────────────────────
+    eq = round(_n(pd.get("equity_pct")) or 0)
+    gold = round(_n(pd.get("gold_pct")) or 0)
+    debt = round(_n(pd.get("debt_pct")) or 0)
+    other = round(_n(pd.get("other_pct")) or 0)
+    slices = [s for s in (
+        {"label": "Equity", "pct": eq, "color": "blue"},
+        {"label": "Gold", "pct": gold, "color": "amber"},
+        {"label": "Debt", "pct": debt, "color": "grey"},
+        {"label": "Other", "pct": other, "color": "green"},
+    ) if s["pct"] > 0]
+    top_stock = pd.get("top_stock") or next(
+        ({"name": r.get("label"), "pct": r.get("value")} for r in prows if r.get("type") == "stock_exposure"), None)
+    top_sector = pd.get("top_sector") or next(
+        ({"name": r.get("label"), "pct": r.get("value")} for r in prows if r.get("type") == "sector"), None)
+    donut = {
+        "title": f"Portfolio today — {_inr_crl(current)}",
+        "slices": slices,
+        "top_stock": (f"{top_stock.get('name')} {float(top_stock.get('pct') or 0):.1f}%" if top_stock else None),
+        "top_sector": (f"{top_sector.get('name')} {round(float(top_sector.get('pct') or 0))}%" if top_sector else None),
+    }
+
+    overlap_n = pd.get("high_overlap_pairs")
+    alert = ({
+        "text": (f"{overlap_n} high-overlap fund pairs — funds holding largely the same stocks. "
+                 f"Consolidating reduces hidden concentration and can make exits more tax-efficient."),
+    } if overlap_n else None)
+
+    return {
+        "hero": {
+            "title": f"{name} — {_inr_crl(target)}",
+            "badge": (f"On track · {on_track:.0f}%" if on_track_flag else f"Not on track · {on_track:.0f}%"),
+            "tone": "accent" if on_track_flag else "warm",
+            "funded_label": f"{_inr_crl(current)} funded ({funded_pct:.1f}%)",
+            "target_label": f"{_inr_crl(target)} target",
+            "funded_pct": funded_pct,
+        },
+        "kpis": [
+            {"label": "Target corpus", "value": _inr_crl(target)},
+            {"label": "Current corpus", "value": _inr_crl(current)},
+            {"label": "Gap", "value": _inr_crl(gap), "tone": "neg"},
+            {"label": "SIP needed", "value": f"{_inr_rupees(sip_needed)}/mo", "tone": "pos"},
+        ],
+        "chart": chart,
+        "donut": donut,
+        "alert": alert,
+        "actions": [
+            {"label": "Review overlapping funds", "intent": "review_overlap"},
+            {"label": "Recalculate with my real SIP", "intent": "recalc_sip"},
+        ],
+        "caveat": ("Assumes a constant 12% annual return and excludes taxes, fees and inflation. "
+                   "Illustrative, not a guarantee. Not financial advice."),
+    }
+
+
+# ── Concentration widget builder ──────────────────────────────────────────
+
+_NUM_WORD = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}
+
+
+def _pair_label(r: Dict[str, Any]) -> str:
+    """Display label for an overlap pair. Regular+Direct of the same scheme
+    collapses to '<scheme> · Regular ↔ Direct'; a genuine cross-fund pair shows
+    both short names."""
+    a, b = r.get("fund_a", ""), r.get("fund_b", "")
+    if r.get("is_plan_duplicate"):
+        return f"{_short_fund(a)} · Regular ↔ Direct"
+    return f"{_short_fund(a)} ↔ {_short_fund(b)}"
+
+
+def build_concentration_widget(summary: Any, overlap: Any) -> Dict[str, Any]:
+    """Build the 'where is concentration risk highest' widget: a hero verdict,
+    four KPI tiles, three concentration lenses (asset-class stacked bar, top
+    sector, top stock — each with a worry note), the actionable fund-overlap
+    layer, and a prioritised fix list. All values come from
+    get_portfolio_summary + get_portfolio_overlap — nothing is invented."""
+    sd = getattr(summary, "data", None) or {}
+    srows = getattr(summary, "rows", None) or []
+    od = getattr(overlap, "data", None) or {}
+    orows = getattr(overlap, "rows", None) or []
+
+    equity = round(sd.get("equity_pct") or 0)
+    debt = round(sd.get("debt_pct") or 0)
+    gold = round(sd.get("gold_pct") or 0)
+    other = round(sd.get("other_pct") or 0)
+
+    top_stock = sd.get("top_stock") or (
+        {"name": r.get("label"), "pct": r.get("value")}
+        for r in srows if r.get("type") == "stock_exposure"
+    )
+    if not isinstance(top_stock, dict):
+        top_stock = next(top_stock, None)
+    top_sector = sd.get("top_sector") or next(
+        ({"name": r.get("label"), "pct": r.get("value")}
+         for r in srows if r.get("type") == "sector"), None)
+
+    ts_pct = round(float(top_stock["pct"]), 1) if top_stock and top_stock.get("pct") is not None else None
+    ts_name = top_stock.get("name") if top_stock else None
+    sec_pct = round(float(top_sector["pct"])) if top_sector and top_sector.get("pct") is not None else None
+    sec_name = top_sector.get("name") if top_sector else None
+
+    mf_count = od.get("mf_count")
+    high_count = od.get("high_overlap_count")
+    pairs = sorted(
+        [r for r in orows if (r.get("overlap_pct") or 0) >= 40],
+        key=lambda r: -(r.get("overlap_pct") or 0),
+    )[:5]
+    if high_count is None:
+        high_count = len([r for r in orows if (r.get("overlap_pct") or 0) >= 40])
+    dupe_count = sum(1 for r in pairs if r.get("is_plan_duplicate"))
+    all_dupe = bool(pairs) and dupe_count == len(pairs)
+
+    # ── KPI tiles ────────────────────────────────────────────────────────
+    kpis = [{"label": "Equity", "value": f"{equity}%", "sub": ""}]
+    if sec_pct is not None:
+        kpis.append({"label": "Top sector", "value": f"{sec_pct}%", "sub": sec_name})
+    if ts_pct is not None:
+        kpis.append({"label": "Top stock", "value": f"{ts_pct}%", "sub": ts_name})
+    kpis.append({"label": "Overlap pairs", "value": str(high_count),
+                 "sub": f"across {mf_count} funds" if mf_count else ""})
+
+    # ── Lens 1: asset-class stacked bar ──────────────────────────────────
+    segs = []
+    for label, pct, color in (("Equity", equity, "red"), ("Gold", gold, "amber"),
+                              ("Debt", debt, "blue"), ("Other", other, "grey")):
+        if pct > 0:
+            segs.append({"label": f"{label} {pct}%" if pct >= 8 else "", "pct": pct, "color": color})
+    asset_note = (
+        f"Debt just {debt}% — little cushion. This is the real asset-class skew."
+        if debt < 5 else
+        f"Equity {equity}% / debt {debt}% — a more balanced asset-class mix."
+    )
+
+    # ── Lens 2: top sector ───────────────────────────────────────────────
+    lenses = [{"label": "Asset class", "kind": "stacked", "segments": segs, "note": asset_note}]
+    if sec_pct is not None:
+        fin = bool(sec_name) and any(w in sec_name.lower() for w in ("financ", "bank"))
+        sec_color = "red" if sec_pct >= 35 else "amber" if sec_pct >= 20 else "green"
+        if fin:
+            sec_note = (f"{sec_pct}% — elevated, but financials are a large share of the Indian "
+                        f"market too, so this is partly index-like, not unusual.")
+        elif sec_pct >= 35:
+            sec_note = f"{sec_pct}% — high single-sector concentration; worth trimming."
+        else:
+            sec_note = f"{sec_pct}% — somewhat elevated; worth keeping an eye on."
+        lenses.append({"label": f"Top sector — {sec_name}", "kind": "single",
+                       "pct": sec_pct, "color": sec_color, "note": sec_note})
+
+    # ── Lens 3: top stock ────────────────────────────────────────────────
+    if ts_pct is not None:
+        if ts_pct >= 20:
+            stock_color, stock_note = "red", f"{ts_pct}% — high single-stock concentration; review the position size."
+        elif ts_pct >= 10:
+            stock_color, stock_note = "amber", f"{ts_pct}% — moderate; keep an eye on it."
+        else:
+            stock_color, stock_note = "green", f"{ts_pct}% — actually low. Single-stock concentration isn't a problem here."
+        lenses.append({"label": f"Top stock — {ts_name}", "kind": "single",
+                       "pct": ts_pct, "color": stock_color, "note": stock_note})
+
+    # ── Actionable layer: fund overlap ───────────────────────────────────
+    overlap_rows = []
+    for r in pairs:
+        pct = round(r.get("overlap_pct") or 0)
+        # Colour off the rounded value so a row labelled "80%" doesn't render
+        # amber because its raw value was 79.x.
+        overlap_rows.append({"label": _pair_label(r), "pct": pct,
+                             "color": "red" if pct >= 80 else "amber"})
+    if all_dupe:
+        overlap_sub = (f"All {_NUM_WORD.get(len(pairs), len(pairs))} worst pairs are the same fund in "
+                       f"Regular + Direct — pure cost duplication, the easiest thing to clean up.")
+    elif dupe_count:
+        overlap_sub = (f"{dupe_count} of the worst pairs are the same fund in Regular + Direct "
+                       f"(cost duplication); the rest are genuinely overlapping funds.")
+    else:
+        overlap_sub = "These funds hold heavily overlapping portfolios — consolidating removes hidden duplication."
+
+    # ── Hero verdict ─────────────────────────────────────────────────────
+    asset_label = "equities" if equity >= max(debt, gold, other) else "your largest asset class"
+    title = "Highest in " + asset_label + (f", then the {sec_name} sector" if sec_name else "")
+    if all_dupe:
+        body = (f"But the most fixable concentration is duplicate funds — and all "
+                f"{_NUM_WORD.get(len(pairs), len(pairs))} worst overlaps are the same scheme held in two plans.")
+    elif dupe_count:
+        body = (f"But the most fixable concentration is duplicate funds — {dupe_count} of the worst "
+                f"overlaps are the same scheme held in two plans.")
+    elif pairs:
+        body = "The most fixable concentration is fund overlap — consolidating removes hidden duplication."
+    else:
+        body = "No high-overlap fund pairs found — the concentration is in the asset-class and sector mix."
+
+    # ── Prioritised fix list ─────────────────────────────────────────────
+    fix_items, n = [], 1
+    if dupe_count:
+        fix_items.append({"n": n, "color": "red", "title": "Duplicate funds",
+                          "body": f"switch the {dupe_count} Regular plans to Direct. Free, identical exposure, lower cost."})
+        n += 1
+    fix_items.append({"n": n, "color": "amber", "title": "Equity allocation",
+                      "body": f"{equity}% with {debt}% debt. Consider whether a debt sleeve fits your goals."})
+    n += 1
+    if sec_pct is not None:
+        fix_items.append({"n": n, "color": "grey", "title": f"{sec_name} sector",
+                          "body": f"{sec_pct}%. Worth watching, but largely mirrors the market; lowest priority."})
+
+    return {
+        "hero": {"tone": "warm", "title": title, "body": body},
+        "kpis": kpis,
+        "lenses": {"title": "Three lenses — and how worried to be", "items": lenses},
+        "overlap": {"title": "The actionable layer — fund overlap", "badge": "fix first",
+                    "subtitle": overlap_sub, "rows": overlap_rows},
+        "fix_order": {"title": "Fix in this order", "items": fix_items},
+        "caveat": ("Switching plans is a sell-and-rebuy — check exit load and capital-gains tax, and "
+                   "stagger across financial years. Not financial advice."),
+    }
+
+
+# ── Allocation-review widget builder ──────────────────────────────────────
+
+def _inr_short(v: Any) -> str:
+    v = float(v or 0)
+    if v >= 1e7:
+        return f"₹{v / 1e7:.2f}cr"
+    if v >= 1e5:
+        return f"₹{v / 1e5:.1f}L"
+    return f"₹{v:,.0f}"
+
+
+def build_allocation_review_widget(summary: Any, rebalance: Any, xirr: Any) -> Dict[str, Any]:
+    """Build the 'is my wealth allocation optimal?' verdict widget: a verdict
+    hero (over/under/aligned vs target), a current-vs-target comparison, an
+    optional broken-XIRR alert, the reliable figures, and a prioritised action
+    list. If the canonical and rebalance equity readings STILL disagree (they
+    shouldn't, post-fix) it falls back to an honest data-conflict hero rather
+    than guessing a verdict."""
+    sd = getattr(summary, "data", None) or {}
+    rd = getattr(rebalance, "data", None) or {}
+    xd = getattr(xirr, "data", None) or {}
+    srows = getattr(summary, "rows", None) or []
+    rrows = getattr(rebalance, "rows", None) or []
+
+    equity = round(float(sd.get("equity_pct") or 0))
+    gold = round(float(sd.get("gold_pct") or 0))
+    debt = round(float(sd.get("debt_pct") or 0))
+    other = round(float(sd.get("other_pct") or 0))
+    target_eq = round(float(rd.get("target_equity_pct") or 65))
+    target_dt = round(float(rd.get("target_debt_pct") or 35))
+    rebalance_eq = rd.get("equity_pct")
+    target_rp = rd.get("target_risk_profile") or "moderate"
+    target_rp_known = rd.get("target_risk_profile_known", False)
+    target_h = rd.get("target_horizon_years")
+    target_h_src = rd.get("target_horizon_source")
+
+    top_sector = sd.get("top_sector") or next(
+        ({"name": r.get("label"), "pct": r.get("value")} for r in srows if r.get("type") == "sector"), None)
+    sec_pct = round(float(top_sector["pct"])) if top_sector and top_sector.get("pct") is not None else None
+    sec_name = top_sector.get("name") if top_sector else None
+    overlap_n = sd.get("high_overlap_pairs")
+
+    invested = xd.get("total_invested_rs")
+    current = xd.get("total_current_rs")
+    abs_ret = xd.get("portfolio_return_pct")
+    xirr_unreliable = bool(xd.get("xirr_unreliable"))
+    xirr_raw = xd.get("portfolio_xirr_raw_pct")
+
+    # ── Integrity guard: only if the two equity feeds STILL conflict badly ──
+    conflict = None
+    if rebalance_eq is not None and abs(round(float(rebalance_eq)) - equity) > 15:
+        conflict = {
+            "tone": "warm",
+            "title": "Can't confirm — your allocation data conflicts",
+            "body": (f"Two sources disagree on your equity weight ({equity}% vs "
+                     f"{round(float(rebalance_eq))}%). Until that's reconciled, any 'optimal or not' "
+                     f"verdict would be guesswork — don't rebalance yet."),
+        }
+
+    # ── Verdict ────────────────────────────────────────────────────────────
+    gap = equity - target_eq
+    if gap > 5:
+        v_title = "You're overweight equity vs your target"
+        v_body = (f"You're at {equity}% equity against a {target_eq}% target — about {gap}pp over. "
+                  f"Trimming toward target adds ballast for a market drawdown.")
+    elif gap < -5:
+        v_title = "You're underweight equity vs your target"
+        v_body = (f"You're at {equity}% equity against a {target_eq}% target — about {abs(gap)}pp under. "
+                  f"Adding equity (e.g. a flexi-cap) moves you toward the growth your plan assumes.")
+    else:
+        v_title = "Your equity weight is broadly on target"
+        v_body = (f"You're at {equity}% equity against a {target_eq}% target — within a few points. "
+                  f"The bigger levers now are fund overlap and sector concentration.")
+    hero = conflict or {"tone": "accent", "title": v_title, "body": v_body}
+
+    # ── Current vs target comparison ─────────────────────────────────────────
+    cur_segs = []
+    for label, pct, color in (("Equity", equity, "red"), ("Gold", gold, "amber"),
+                              ("Debt", debt, "blue"), ("Other", other, "grey")):
+        if pct > 0:
+            cur_segs.append({"label": f"{label} {pct}%" if pct >= 8 else "", "pct": pct, "color": color})
+    tgt_segs = [
+        {"label": f"Equity {target_eq}%", "pct": target_eq, "color": "red"},
+        {"label": f"Debt {target_dt}%", "pct": target_dt, "color": "blue"},
+    ]
+    # Basis line: where the recommended target comes from.
+    if target_rp_known:
+        basis = f"Recommended for your {target_rp} risk profile"
+        basis += (f" and {target_h:.0f}-year goal horizon" if target_h_src == "goals" and target_h
+                  else " (long-term horizon)")
+    else:
+        basis = (f"Default {target_rp} target — set your risk profile and goals for a tailored "
+                 f"allocation")
+    comparison = {
+        "title": "Current vs recommended",
+        "rows": [
+            {"label": "Current", "segments": cur_segs},
+            {"label": f"Recommended · {target_rp} profile", "dashed": True, "segments": tgt_segs},
+        ],
+        "note": (f"{basis}. You're {equity}% equity vs the {target_eq}% target — a {abs(gap)}pp "
+                 f"{'overweight' if gap > 0 else 'underweight' if gap < 0 else 'match'}."),
+    }
+
+    # ── Broken-XIRR alert (only when genuinely implausible) ──────────────────
+    xirr_alert = None
+    if xirr_unreliable and xirr_raw is not None:
+        cov = xd.get("xirr_coverage_pct")
+        has_ledger = bool(xd.get("xirr_has_ledger"))
+        if not has_ledger:
+            reason = ("A money-weighted XIRR needs your dated buy/sell history, and this account has "
+                      "only a current-holdings snapshot on file — no transaction ledger. ")
+        elif cov is not None:
+            reason = (f"Your transaction history covers only ~{cov:.0f}% of your cost basis, so older "
+                      f"positions are missing and a XIRR from a partial ledger would overstate. ")
+        else:
+            reason = "Your transaction history is too incomplete to compute a reliable XIRR. "
+        xirr_alert = {
+            "title": "XIRR can't be computed reliably — using absolute return",
+            "body": (f"{reason}The naive annualised figure ({xirr_raw:+.0f}%) is a short-horizon "
+                     f"artifact that contradicts your {abs_ret:+.1f}% absolute return, so we show the "
+                     f"absolute. Invested and current values are accurate."),
+        }
+
+    # ── Reliable figures ─────────────────────────────────────────────────────
+    tiles = []
+    if invested and current:
+        tiles.append({"label": "Invested → now", "value": f"{_inr_short(invested)} → {_inr_short(current)}",
+                      "sub": f"{abs_ret:+.1f}% absolute" if abs_ret is not None else ""})
+    xirr_pct = xd.get("portfolio_xirr_pct")
+    if xirr_pct is not None:
+        tiles.append({"label": "XIRR (money-weighted)", "value": f"{xirr_pct:+.1f}%",
+                      "sub": "annualised, from real cashflows"})
+    if gold:
+        tiles.append({"label": "Gold", "value": f"{gold}%", "sub": "meaningful — review vs plan"})
+    if sec_pct is not None:
+        tiles.append({"label": "Top sector", "value": f"{sec_pct}%",
+                      "sub": f"{sec_name} — some concentration"})
+    if overlap_n:
+        tiles.append({"label": "Overlap pairs", "value": str(overlap_n), "sub": "possible duplication"})
+
+    # ── Action list ──────────────────────────────────────────────────────────
+    trim = next((r for r in rrows if r.get("action") in ("SELL", "BUY") and r.get("asset") in ("equity",)), None)
+    items, n = [], 1
+    if conflict:
+        items.append({"n": n, "title": "Verify the equity/debt split",
+                      "body": "which feed is right? Nothing else is safe until this is settled."})
+        n += 1
+    elif gap > 5:
+        amt = f" (~{_inr_short(trim.get('amount_rs'))})" if trim and trim.get("amount_rs") else ""
+        items.append({"n": n, "title": "Trim equity toward target",
+                      "body": f"move{amt} from equity into a short-term debt sleeve to reach ~{target_eq}%."})
+        n += 1
+    elif gap < -5:
+        amt = f" (~{_inr_short(trim.get('amount_rs'))})" if trim and trim.get("amount_rs") else ""
+        items.append({"n": n, "title": "Add to equity toward target",
+                      "body": f"add{amt} to a flexi-cap fund to reach ~{target_eq}%."})
+        n += 1
+    if overlap_n or (sec_pct is not None and sec_pct >= 25):
+        items.append({"n": n, "title": "Reduce overlap and sector concentration",
+                      "body": "consolidate duplicate funds and watch the top sector weight."})
+        n += 1
+    items.append({"n": n, "title": "Hold off on new PMS/AIF",
+                  "body": "until the core allocation is rebalanced toward target."})
+
+    # ── Rebalance plan: which to exit + where to redeploy ────────────────────
+    # Named, valued exits (redundancy engine) + the equity-trim amount → debt.
+    trim_rs = rd.get("trim_equity_rs") or 0
+    add_rs = rd.get("add_equity_rs") or 0
+    redundancy = rd.get("redundancy") or []
+    switches = [r.get("asset") for r in rrows if r.get("action") == "SWITCH" and r.get("asset")]
+
+    plan = None
+    if not conflict:
+        if gap > 5:
+            headline = (f"Move ~{_inr_short(trim_rs)} out of equity into debt to bring equity "
+                        f"from {equity}% down to your {target_eq}% target.")
+        elif gap < -5:
+            headline = (f"Add ~{_inr_short(add_rs)} to equity to bring it from {equity}% up to your "
+                        f"{target_eq}% target.")
+        else:
+            headline = (f"Equity is on target ({equity}% vs {target_eq}%). No big trade needed — "
+                        f"just consolidate duplicates below.")
+
+        exit_rows = []
+        for r in redundancy:
+            q = r.get("quality_score")
+            ex = r.get("exit_score")
+            # Build a "why exit" line from the real scores + overlap.
+            bits = []
+            if ex is not None:
+                bits.append(f"exit score {ex}/100")
+            if q is not None:
+                bits.append(f"quality {q}/100")
+            if r.get("overlap_reduced_pp"):
+                bits.append(f"cuts overlap ~{r.get('overlap_reduced_pp'):.0f}pp")
+            note = " · ".join(bits) if bits else "duplicate exposure"
+            exit_rows.append({
+                "name": _short_fund(r.get("name", "")),
+                "amount": _inr_short(r.get("amount_rs")) if r.get("amount_rs") else None,
+                "quality_score": q,
+                "exit_score": ex,
+                "note": note,
+                "reason": r.get("score_reason"),
+            })
+
+        # Redeploy: name the top-3 debt funds (recommendation engine) when we're
+        # trimming into debt; otherwise the generic add target.
+        redeploy_rows = []
+        redeploy_recs = rd.get("redeploy_recommendations") or []
+        if gap > 5 and trim_rs:
+            if redeploy_recs:
+                for rec in redeploy_recs[:3]:
+                    sub = []
+                    if rec.get("composite_score") is not None:
+                        sub.append(f"score {rec['composite_score']}/100")
+                    elif rec.get("rank"):
+                        sub.append(f"#{rec['rank']} in category")
+                    if rec.get("category"):
+                        sub.append(str(rec["category"]))
+                    if rec.get("return_3y") is not None:
+                        sub.append(f"3y {rec['return_3y']:+.1f}%")
+                    redeploy_rows.append({"label": rec["name"], "amount": None,
+                                          "note": " · ".join(sub) if sub else "top-ranked debt fund"})
+            else:
+                redeploy_rows.append({"label": "Short-duration / corporate-bond debt fund",
+                                      "amount": _inr_short(trim_rs), "note": "the defensive sleeve you're missing"})
+        elif gap < -5 and add_rs:
+            redeploy_rows.append({"label": "One diversified flexi-cap equity fund",
+                                  "amount": _inr_short(add_rs), "note": "adds equity without new overlap"})
+
+        redeploy_subtitle = (f"~{_inr_short(trim_rs)} to move — top-ranked debt funds by category score:"
+                             if (gap > 5 and trim_rs and redeploy_recs) else None)
+
+        plan = {
+            "title": "Your rebalance plan",
+            "headline": headline,
+            "exit": ({"title": "Exit these first — scored for redundancy & quality",
+                      "subtitle": "Ranked by exit score (overlap + quality + cost). Selling these loses almost no diversification.",
+                      "rows": exit_rows} if exit_rows else None),
+            "redeploy": ({"title": "Redeploy into", "subtitle": redeploy_subtitle, "rows": redeploy_rows} if redeploy_rows else None),
+            "switch": ({"title": "Also switch to Direct plans (same fund, ~0.8% p.a. cheaper)",
+                        "names": [_short_fund(s) for s in switches[:6]]} if switches else None),
+            "note": ("Exit/quality scores are the V3 engine's; debt picks are the top of the category "
+                     "ranking. Review fund-level details before acting. Not financial advice."),
+        }
+
+    return {
+        "hero": hero,
+        "comparison": comparison,
+        "xirr_alert": xirr_alert,
+        "reliable": {"title": "What looks reliable", "tiles": tiles},
+        "plan": plan,
+        "actions": {"title": "Do this, in order", "items": items},
+        "caveat": ("International, alternatives, and tax/estate impact weren't available — treat this as a "
+                   "directional review, not a full plan. Not financial advice."),
+    }
 
 
 # ── Portfolio fund comparison (rolling returns + TER + overlap) ───────────
@@ -391,10 +1444,67 @@ async def compare_portfolio_funds(user_id: str) -> PortfolioResult:
     )
 
 
+# ── Target allocation (risk profile + goal horizon) ───────────────────────
+
+_RISK_ALIASES = {
+    "conservative": "conservative", "cautious": "conservative", "defensive": "conservative", "low": "conservative",
+    "moderate": "moderate", "balanced": "moderate", "medium": "moderate", "moderately aggressive": "moderate",
+    "aggressive": "aggressive", "growth": "aggressive", "high": "aggressive", "very aggressive": "aggressive",
+}
+
+
+async def get_target_allocation(user_id: str, risk_profile: Optional[str] = None) -> Dict[str, Any]:
+    """Recommended equity/debt target derived from the user's RISK PROFILE and
+    GOAL horizon — not a hardcoded 65/35. Uses goal_engine.allocation_for_profile
+    (conservative 30/70, moderate 60/40, aggressive 80/20) with its <5y horizon
+    guardrail (caps equity at 40 for short goals). The longest active goal drives
+    the horizon (you can hold equity for long goals)."""
+    rp = (risk_profile or "").strip().lower() or None
+    if not rp:
+        try:
+            from deps import db
+            prof = await db.user_profiles.find_one(
+                {"user_id": user_id}, {"_id": 0, "risk_profile": 1, "risk_category": 1}) or {}
+            rpv = prof.get("risk_profile") or prof.get("risk_category")
+            if isinstance(rpv, dict):
+                rpv = rpv.get("category")
+            rp = rpv.strip().lower() if isinstance(rpv, str) else None
+        except Exception:  # noqa: BLE001
+            pass
+    rp_norm = _RISK_ALIASES.get(rp or "", "moderate")
+
+    horizon = 10.0
+    horizon_source = "default"
+    try:
+        from services.copilot_rag.retrievers import goals_status
+        gs = await goals_status(user_id)
+        if gs.ok and gs.rows:
+            hs = [float(r.get("horizon_years") or 0) for r in gs.rows if r.get("horizon_years")]
+            if hs:
+                horizon = max(hs)
+                horizon_source = "goals"
+    except Exception:  # noqa: BLE001
+        pass
+
+    from services import goal_engine
+    alloc = goal_engine.allocation_for_profile(rp_norm, horizon)
+    equity = round(float(alloc.get("equity", 60)))
+    return {
+        "equity_pct": equity,
+        "debt_pct": round(100 - equity),                     # debt + hybrid (two-way model)
+        "hybrid_pct": round(float(alloc.get("hybrid", 0))),
+        "risk_profile": rp_norm,
+        "risk_profile_known": rp is not None,
+        "horizon_years": round(horizon, 1),
+        "horizon_source": horizon_source,
+    }
+
+
 # ── Rebalance plan ────────────────────────────────────────────────────────
 
-async def get_rebalance_plan(user_id: str) -> PortfolioResult:
-    """Compute equity/debt rebalance actions from current holdings.
+async def get_rebalance_plan(user_id: str, risk_profile: Optional[str] = None) -> PortfolioResult:
+    """Compute equity/debt rebalance actions from current holdings, against a
+    target derived from the user's risk profile + goal horizon.
 
     Used for: "Should I rebalance?", "How should I rebalance my portfolio?"
     """
@@ -410,17 +1520,116 @@ async def get_rebalance_plan(user_id: str) -> PortfolioResult:
     if current_value <= 0:
         return PortfolioResult(ok=False, summary="Cannot compute — holdings have no current value", error="no_value")
 
-    equity_val = sum(
-        float(h.get("current_value") or float(h.get("current_price") or 0) * float(h.get("quantity") or 0))
-        for h in holdings
-        if (h.get("asset_class") or h.get("asset_type") or "equity").lower() in ("equity", "stock")
-    )
-    debt_val = current_value - equity_val
-    equity_pct = round(equity_val / current_value * 100, 1)
-    debt_pct = round(debt_val / current_value * 100, 1)
+    # Equity weight MUST come from the canonical look-through allocation (the
+    # same source get_portfolio_summary / the dashboard use). The naive
+    # holdings-level `asset_class in (equity, stock)` test counted every equity
+    # MUTUAL FUND as non-equity (debt), so an MF-heavy portfolio reported ~15%
+    # equity while its true look-through weight was ~81% — the two feeds
+    # contradicted each other. Use the canonical figure; fall back to the
+    # holdings heuristic only if intelligence is unavailable.
+    equity_pct = None
+    _intel: Dict[str, Any] = {}
+    try:
+        from services import portfolio_intelligence as PI
+        _intel = await PI.compute_portfolio_intelligence(user_id)
+        _alloc = _intel.get("asset_allocation") or {}
+        if _alloc.get("equity_pct") is not None:
+            equity_pct = round(float(_alloc["equity_pct"]), 1)
+            current_value = float(_intel.get("total_value") or current_value) or current_value
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("rebalance: canonical allocation unavailable, falling back: %s", exc)
 
-    target_equity = 65.0
-    target_debt = 35.0
+    # Named, valued exit candidates — funds removable with little/no loss of
+    # exposure (the redundancy engine already ranks by overlap-cut vs sector
+    # drift). These are the safe instruments to exit first when freeing money to
+    # rebalance, and each carries its ₹ value so we can show what redeploys.
+    redundancy = [
+        {
+            "name": r.get("remove_name"),
+            "amount_rs": r.get("remove_amount_rs"),
+            "overlap_reduced_pp": r.get("overlap_reduced_pp"),
+            "sector_drift_pct": r.get("sector_l1_drift_pct"),
+        }
+        for r in (_intel.get("redundancy_suggestions") or [])[:4]
+        if r.get("remove_name")
+    ]
+
+    # Attach REAL quality + exit scores (V3 scoring via build_enriched_portfolio,
+    # Redis-cached) so the exit list explains WHY each fund is a candidate —
+    # not just "cuts overlap". Matched by scheme name; missing scores are left
+    # null rather than invented.
+    try:
+        from services.portfolio_enrichment import build_enriched_portfolio
+        enriched = await build_enriched_portfolio(user_id)
+        score_map = {}
+        for h in (enriched.get("holdings") or []):
+            key = _norm_scheme(h.get("name") or h.get("scheme_name") or "")
+            if not key:
+                continue
+            sc = h.get("scores") or {}
+            score_map[key] = {
+                "quality": sc.get("quality"),
+                "exit": sc.get("exit"),
+                "reason": h.get("recommendation_reason") or h.get("action_badge"),
+            }
+        for cand in redundancy:
+            m = score_map.get(_norm_scheme(cand.get("name") or ""))
+            if m:
+                cand["quality_score"] = round(m["quality"]) if m["quality"] is not None else None
+                cand["exit_score"] = round(float(m["exit"])) if m["exit"] is not None else None
+                cand["score_reason"] = m["reason"]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("rebalance: exit-score enrichment unavailable: %s", exc)
+
+    # Top-3 debt funds for the redeploy target — from the category ranking
+    # (recommendation engine), so we name real funds instead of a category.
+    redeploy_recs: List[Dict[str, Any]] = []
+    try:
+        from services.copilot_tools.mf import get_top_funds
+        # Fetch a wider slice, then keep only one GROWTH plan per distinct fund —
+        # the raw leaderboard is polluted by IDCW/reinvestment plan-variants of
+        # the same scheme (which also show misleading ~0% NAV "returns").
+        top = await get_top_funds("Debt", metric="composite_rank", limit=15)
+        seen_base = set()
+        for t in top:
+            d = getattr(t, "data", None) or {}
+            nm = d.get("scheme_name") or d.get("name") or ""
+            low = nm.lower()
+            if any(k in low for k in ("idcw", "dividend", "reinvest", "payout",
+                                      "daily", "weekly", "monthly", "fortnight")):
+                continue  # not a growth plan — skip the payout/reinvest variants
+            base = _norm_scheme(nm)
+            if not base or base in seen_base:
+                continue
+            seen_base.add(base)
+            import re as _re_n
+            clean_nm = _short_fund(_re_n.sub(r"\(.*?\)", " ", nm).replace("Retail", " "))
+            redeploy_recs.append({
+                "name": clean_nm,
+                "category": d.get("sub_category") or d.get("category"),
+                "composite_score": round(float(d["composite_score"])) if d.get("composite_score") is not None else None,
+                "return_3y": round(float(d["return_3y"]), 1) if d.get("return_3y") is not None else None,
+                "rank": d.get("composite_rank") or d.get("category_rank"),
+            })
+            if len(redeploy_recs) >= 3:
+                break
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("rebalance: debt fund recommendations unavailable: %s", exc)
+    if equity_pct is None:
+        equity_val = sum(
+            float(h.get("current_value") or float(h.get("current_price") or 0) * float(h.get("quantity") or 0))
+            for h in holdings
+            if (h.get("asset_class") or h.get("asset_type") or "equity").lower() in ("equity", "stock")
+        )
+        equity_pct = round(equity_val / current_value * 100, 1)
+    # "Debt" here is the non-equity remainder (debt + gold + other) for the
+    # two-way equity/debt rebalance model.
+    debt_pct = round(100.0 - equity_pct, 1)
+
+    # Target from the user's risk profile + goal horizon (was hardcoded 65/35).
+    _target = await get_target_allocation(user_id, risk_profile)
+    target_equity = float(_target["equity_pct"])
+    target_debt = float(_target["debt_pct"])
     actions: List[Dict[str, Any]] = []
 
     if equity_pct > target_equity + 5:
@@ -472,9 +1681,12 @@ async def get_rebalance_plan(user_id: str) -> PortfolioResult:
                 "reason": "Switch to Direct plan to save ~0.8% p.a. in expenses",
             })
 
+    _basis = (f"{_target['risk_profile']} risk profile"
+              + (f", {_target['horizon_years']:.0f}y goal horizon" if _target["horizon_source"] == "goals"
+                 else ", default long-term horizon"))
     summary = (
         f"Portfolio ₹{current_value:,.0f}: equity {equity_pct:.0f}% / debt {debt_pct:.0f}% "
-        f"vs target {target_equity:.0f}/{target_debt:.0f}. "
+        f"vs target {target_equity:.0f}/{target_debt:.0f} (from your {_basis}). "
         f"{len(actions)} action(s) suggested."
     )
     return PortfolioResult(
@@ -486,6 +1698,14 @@ async def get_rebalance_plan(user_id: str) -> PortfolioResult:
             "debt_pct": debt_pct,
             "target_equity_pct": target_equity,
             "target_debt_pct": target_debt,
+            "target_risk_profile": _target["risk_profile"],
+            "target_risk_profile_known": _target["risk_profile_known"],
+            "target_horizon_years": _target["horizon_years"],
+            "target_horizon_source": _target["horizon_source"],
+            "redeploy_recommendations": redeploy_recs,
+            "trim_equity_rs": round((equity_pct - target_equity) / 100 * current_value, -2) if equity_pct > target_equity + 5 else 0,
+            "add_equity_rs": round((target_equity - equity_pct) / 100 * current_value, -2) if equity_pct < target_equity - 5 else 0,
+            "redundancy": redundancy,
         },
         rows=actions,
     )
@@ -498,100 +1718,68 @@ async def get_tax_harvest_candidates(
     *,
     slab_rate: float = 0.30,
 ) -> PortfolioResult:
-    """Per-holding tax estimate using the FY 2025-26 capital gains engine.
-
-    Uses `capital_gains_engine.quick_tax_estimate()` which correctly applies:
-    - ₹1,25,000 LTCG exemption (shared across equity + REIT)
-    - Grandfathering (pre-31-Jan-2018 cost basis)
-    - 20% STCG / 12.5% LTCG rates + 4% cess
-    - SGB-RBI full exemption
-    - Debt MF acquired post-Apr-2023 → slab rate
-
-    Returns rows sorted: losses first (harvest immediately), then LTCG
-    with high tax liability (review urgently), then STCG.
-
-    Used for: "Which positions should I sell for tax savings?",
-              "Help me harvest tax losses", "Show my capital gains exposure"
+    """Tax-loss harvesting via services.tax_engine — the SAME engine the Tax
+    dashboard (_tax_composite) uses: loss_harvesting_candidates (FIFO-aware) plus
+    ST/LT-offset netting. The previous implementation used a flat
+    harvestable_loss x slab_rate estimate, which disagreed with the dashboard
+    (e.g. Rs 10,997 vs Rs 22,693). `slab_rate` is kept for signature
+    compatibility; canonical equity ST/LT rates are used for net savings.
     """
-    from services.capital_gains_engine import quick_tax_estimate
+    from services import tax_engine
+    from services.tax_constants import (
+        EQUITY_LTCG_EXEMPTION, EQUITY_LTCG_RATE, EQUITY_STCG_RATE,
+    )
 
-    holdings = await _load_holdings(user_id)
-    if not holdings:
+    enriched = await tax_engine._enriched_holdings(user_id)
+    if not enriched:
         return PortfolioResult(ok=False, summary="No holdings found", error="no_holdings")
 
-    rows: List[Dict[str, Any]] = []
-    ltcg_used = 0.0          # track ₹1,25,000 exemption consumed as we iterate
-    total_tax_if_sold = 0.0
-    total_harvestable_loss = 0.0
-
-    for h in holdings:
-        est = quick_tax_estimate(h, ltcg_used=ltcg_used, slab_rate=slab_rate)
-        if not est.get("ok"):
+    # Bucket unrealised GAINS by long/short term (losses handled below).
+    lt_gain = st_gain = 0.0
+    for h in enriched:
+        g = h.get("_gain") or 0.0
+        if g <= 0:
             continue
+        if tax_engine.classify_holding(h).tier == "LIKELY_LTCG":
+            lt_gain += g
+        else:  # STCG / UNKNOWN -> conservative short-term bucket
+            st_gain += g
 
-        capital_gain = est["capital_gain"]
-        tax_if_sold = est["tax_liability"]
-        is_lt = est["is_long_term"]
-        regime = est.get("tax_regime", "")
+    # Harvestable losses (FIFO-aware) -- the exact call the dashboard makes.
+    loss_scores = await tax_engine.loss_harvesting_candidates(user_id)
+    harvestable_loss = sum(abs(s.gain_rs) for s in loss_scores)
 
-        # Update LTCG exemption tracker for subsequent holdings
-        if is_lt and capital_gain > 0 and "equity" in regime:
-            ltcg_used += capital_gain
+    # Tax saved by offsetting gains with those losses: STCG first (higher rate),
+    # then LTCG, each capped at the gains actually available to offset.
+    st_offset = min(harvestable_loss, st_gain)
+    lt_offset = min(harvestable_loss - st_offset, lt_gain)
+    net_saved = round(st_offset * EQUITY_STCG_RATE + lt_offset * EQUITY_LTCG_RATE)
 
-        gain_type = (
-            "EXEMPT" if regime == "sgb_rbi_exempt" else
-            "LTCG"   if is_lt else
-            "STCG"
-        )
-        harvest_saving = abs(tax_if_sold) if capital_gain < 0 else 0.0
-
-        name = h.get("fund_name") or h.get("scheme_name") or h.get("name", "Unknown")
-        rows.append({
-            "name":             name,
-            "asset_category":   est.get("asset_category", ""),
-            "gain_type":        gain_type,
-            "capital_gain":     round(capital_gain, 0),
-            "tax_if_sold":      round(tax_if_sold, 0),
-            "tax_saved_if_harvested": round(harvest_saving, 0),
-            "holding_days":     est.get("holding_days", 0),
-            "is_long_term":     is_lt,
-            "is_grandfathered": est.get("is_grandfathered", False),
-            "tax_rate":         est.get("tax_rate", 0),
-            "tax_regime":       regime,
-            "note":             est.get("note", ""),
-        })
-
-        if capital_gain < 0:
-            total_harvestable_loss += abs(capital_gain)
-        if capital_gain > 0:
-            total_tax_if_sold += tax_if_sold
-
-    if not rows:
-        return PortfolioResult(
-            ok=True,
-            summary="Insufficient holding data for tax estimate",
-            rows=[],
-        )
-
-    # Sort: losses first, then by descending tax liability
-    rows.sort(key=lambda r: (0 if r["capital_gain"] < 0 else 1, -abs(r["tax_if_sold"])))
-
-    loss_count = sum(1 for r in rows if r["capital_gain"] < 0)
-    gain_count = len(rows) - loss_count
+    rows: List[Dict[str, Any]] = [
+        {
+            "name":       s.name,
+            "asset_type": (s.asset_type or "").replace("_", " ").title(),
+            "loss_rs":    round(abs(s.gain_rs)),
+            "tax_tier":   s.classification.tier,
+        }
+        for s in loss_scores
+    ]
+    loss_count = len(loss_scores)
     summary = (
-        f"{loss_count} loss position(s) to harvest (saving up to ₹{total_harvestable_loss * slab_rate:,.0f} tax); "
-        f"{gain_count} gain position(s) with ₹{total_tax_if_sold:,.0f} total tax if exited today"
+        f"{loss_count} loss position(s); Rs {harvestable_loss:,.0f} harvestable loss "
+        f"-> up to Rs {net_saved:,.0f} tax saved by offsetting gains "
+        f"(short-term gains Rs {st_gain:,.0f}, long-term gains Rs {lt_gain:,.0f})"
     )
     return PortfolioResult(
         ok=True,
         summary=summary,
         data={
-            "total_harvestable_loss_rs": round(total_harvestable_loss, 0),
-            "total_tax_if_sold_rs": round(total_tax_if_sold, 0),
-            "ltcg_exemption_used_rs": round(ltcg_used, 0),
-            "ltcg_exemption_remaining_rs": max(0, 125_000 - round(ltcg_used, 0)),
-            "candidate_count": len(rows),
-            "slab_rate_used": slab_rate,
+            "harvestable_loss_rs":  round(harvestable_loss),
+            "net_tax_saved_rs":     net_saved,
+            "loss_position_count":  loss_count,
+            "short_term_gain_rs":   round(st_gain),
+            "long_term_gain_rs":    round(lt_gain),
+            "ltcg_exemption_rs":    EQUITY_LTCG_EXEMPTION,
         },
         rows=rows,
     )

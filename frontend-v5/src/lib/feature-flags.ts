@@ -8,6 +8,7 @@ export type WidgetFlagKey =
   | "intelligence_feed"
   | "quick_actions"
   | "action_matrix"
+  | "portfolio_xray"
   | "improve_cta";
 
 const flagStore: Record<WidgetFlagKey, boolean> = {
@@ -18,6 +19,7 @@ const flagStore: Record<WidgetFlagKey, boolean> = {
   intelligence_feed: true,
   quick_actions: true,
   action_matrix: true,
+  portfolio_xray: true,
   improve_cta: true,
 };
 

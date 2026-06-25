@@ -18,13 +18,14 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
+
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from deps import get_current_user
-from services import pg_client, goal_engine, goal_fund_picker, goal_copilot
+from services import dashboard_cache, pg_client, goal_engine, goal_fund_picker, goal_copilot
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/goals")
@@ -200,6 +201,7 @@ async def put_snapshot(payload: FinancialSnapshot, request: Request):
             payload.current_corpus_rs, payload.total_liabilities_rs,
             payload.risk_profile, payload.behavior_score,
         )
+    await dashboard_cache.invalidate(user_id)
     return await get_snapshot(request)
 
 
@@ -346,6 +348,7 @@ async def create_goal(payload: GoalCreate, request: Request):
             json.dumps(alloc), json.dumps(selected), False,
             ev.on_track_pct, json.dumps(ev.to_dict()),
         )
+    await dashboard_cache.invalidate(user_id)
     return await _get_goal(str(goal_id), user_id)
 
 
@@ -396,6 +399,7 @@ async def patch_goal(goal_id: str, payload: GoalUpdate, request: Request):
             f"WHERE goal_id = $1 AND user_id = $2",
             uuid.UUID(goal_id), _user_uuid(user_id), *vals,
         )
+    await dashboard_cache.invalidate(user_id)
     return await _get_goal(goal_id, user_id)
 
 
@@ -409,6 +413,7 @@ async def delete_goal(goal_id: str, request: Request):
             "WHERE goal_id = $1 AND user_id = $2",
             uuid.UUID(goal_id), _user_uuid(user_id),
         )
+    await dashboard_cache.invalidate(user_id)
     return {"ok": True, "goal_id": goal_id, "status": "abandoned"}
 
 

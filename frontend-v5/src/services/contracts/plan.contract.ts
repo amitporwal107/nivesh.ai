@@ -75,6 +75,8 @@ export const PlanActionC = z.object({
   expected_effect:       ExpectedEffectC.nullable().optional(),
   engine_name:           z.string().optional(),
   source_domain:         z.string().optional(),
+  goal_id:               z.string().optional(),
+  goal_name:             z.string().optional(),
 }).passthrough();
 export type PlanActionC = z.infer<typeof PlanActionC>;
 export type ActionSeverity = z.infer<typeof ActionSeverityC>;

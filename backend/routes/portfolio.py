@@ -8,6 +8,8 @@ from deps import db, get_current_user
 from models import PortfolioCreate, HoldingCreate, HoldingUpdate
 from core.exceptions import ResourceNotFoundException, ValidationException, SystemException
 from core.dto import clean, clean_list
+from services import dashboard_cache as _dc
+from services.sgb_prices import resolve_sgb_display_name
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -105,7 +107,7 @@ async def get_enriched_holdings(request: Request, fresh: bool = False):
                 cb_known = bp > 0
                 holdings.append({
                     "holding_id": h.get("holding_id"),
-                    "name": h.get("name"),
+                    "name": resolve_sgb_display_name(h.get("name"), h.get("ticker")),
                     "isin": h.get("ticker"),
                     "nse_symbol": h.get("nse_symbol"),
                     "asset_type": h.get("asset_type"),
@@ -366,6 +368,7 @@ async def add_holding(request: Request, holding: HoldingCreate):
     }
     await db.holdings.insert_one(holding_doc)
     result = await db.holdings.find_one({"holding_id": holding_doc["holding_id"]}, {"_id": 0})
+    await _dc.invalidate(user["user_id"])
     return clean(result)
 
 
@@ -384,6 +387,7 @@ async def update_holding(request: Request, holding_id: str, holding: HoldingUpda
     result = await db.holdings.find_one({"holding_id": holding_id}, {"_id": 0})
     if not result:
         raise ResourceNotFoundException("Holding not found", code="RES-003")
+    await _dc.invalidate(user["user_id"])
     return result
 
 
@@ -393,6 +397,7 @@ async def delete_holding(request: Request, holding_id: str):
     result = await db.holdings.delete_one({"holding_id": holding_id, "user_id": user["user_id"]})
     if result.deleted_count == 0:
         raise ResourceNotFoundException("Holding not found", code="RES-003")
+    await _dc.invalidate(user["user_id"])
     return {"message": "Holding deleted"}
 
 
@@ -409,6 +414,7 @@ async def clear_all_holdings(request: Request):
     await db.ai_insights.delete_many({"user_id": uid})
     await db.upload_tasks.delete_many({"user_id": uid})
     await db.chat_messages.delete_many({"user_id": uid})
+    await _dc.invalidate(uid)
 
     return {"message": f"{holdings_deleted} holdings cleared. All portfolio data reset.", "deleted": holdings_deleted}
 

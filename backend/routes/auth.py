@@ -113,6 +113,14 @@ async def google_auth(request: Request, response: Response):
         pass
 
     user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    # Use user_profiles as the authoritative source for onboarding_completed
+    # so that admin resets (which write to user_profiles) are reflected at login.
+    profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    user_doc["onboarding_completed"] = bool(profile.get("onboarding_completed", False))
+    # Also return the session token in the body so the mobile app can send it as
+    # `Authorization: Bearer` — Android WebViews don't reliably keep the cross-site
+    # session cookie. get_current_user already accepts this header.
+    user_doc["session_token"] = session_token
     return user_doc
 
 
@@ -125,6 +133,31 @@ async def exchange_session(request: Request, response: Response):
 @router.get("/auth/me")
 async def get_me(request: Request):
     user = await get_current_user(request)
+    # Mirror the login handlers (/auth/google, /auth/gmail-session): user_profiles
+    # is the authoritative source for onboarding_completed. Without this, the
+    # field is absent for users whose flag lives only in user_profiles (e.g.
+    # admin-invited accounts), which fails the frontend UserProfileC contract and
+    # wedges useMe() in a permanent error → RequireAuth remount loop.
+    profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0}) or {}
+    user["onboarding_completed"] = bool(profile.get("onboarding_completed", False))
+    # workspace_type drives the advisor-vs-investor primary navigation on the
+    # client. Resolved for the *session owner* (the logged-in account), NOT the
+    # effective user — so it stays "ADVISORY" for an advisor whether or not they
+    # are currently impersonating a client. The client distinguishes "advisor at
+    # root" from "advisor inside a client" via active_profile_id (below). Keying
+    # this off the effective user used to make it go null during impersonation,
+    # which left the nav flipping on a stale /auth/me cache.
+    session_owner_id = user.get("_session_user_id") or user["user_id"]
+    ws = await db.workspaces.find_one(
+        {"owner_user_id": session_owner_id}, {"_id": 0, "type": 1},
+    )
+    user["workspace_type"] = (ws or {}).get("type")
+    # Surface the session's active impersonation so the client can reconcile its
+    # (localStorage-persisted) impersonation state with backend truth. Without
+    # this, a persisted "Viewing <client>" banner can outlive the server session
+    # (e.g. after re-login) and show a phantom client view while the backend is
+    # actually at the advisor root.
+    user["active_profile_id"] = user.get("_active_profile_id")
     return user
 
 
@@ -196,6 +229,8 @@ async def exchange_gmail_session(request: Request, response: Response):
         path="/", max_age=7 * 24 * 3600,
     )
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    user["onboarding_completed"] = bool(profile.get("onboarding_completed", False))
     return user
 
 

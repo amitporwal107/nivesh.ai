@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useMountProgress } from "@/hooks/use-animate";
 
 interface ScoreRingProps {
   score: number;            // 0..100
@@ -6,6 +7,9 @@ interface ScoreRingProps {
   strokeWidth?: number;
   label?: string;
   className?: string;
+  /** Sweep the arc and count the number up on mount. Off by default so
+   *  other callers keep the static render. */
+  animate?: boolean;
 }
 
 /**
@@ -18,11 +22,17 @@ export function ScoreRing({
   strokeWidth = 10,
   label = "/ 100",
   className,
+  animate = false,
 }: ScoreRingProps) {
+  const p = useMountProgress(1400, animate ? 250 : 0);
+  const shown = animate ? p : 1;
   const r = (size - strokeWidth - 4) / 2;
   const C = 2 * Math.PI * r;
-  const dash = C * Math.min(1, Math.max(0, score / 100));
+  const dash = C * Math.min(1, Math.max(0, score / 100)) * shown;
   const cx = size / 2;
+  // Keep the exact source value once settled (and for reduced motion, where
+  // p starts at 1) so display precision is unchanged; only count during play.
+  const display = shown >= 1 ? score : Math.round(score * shown);
 
   return (
     <svg
@@ -60,7 +70,7 @@ export function ScoreRing({
         className="fill-ink font-display"
         style={{ fontSize: size * 0.34, letterSpacing: "-0.04em" }}
       >
-        {score}
+        {display}
       </text>
       <text
         x={cx}

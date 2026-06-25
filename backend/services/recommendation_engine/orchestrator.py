@@ -196,8 +196,12 @@ def build_context(
 def _signal_to_action(
     sig: EngineSignal,
     priority: int,
+    confidence_tier: str = "generic",
+    confidence_label: str = "Generic plan — add your profile",
+    plan_confidence_score: float = 40.0,
 ) -> Dict[str, Any]:
     """Convert an EngineSignal to the backward-compatible action dict shape."""
+    from services.recommendation_engine import conviction_templates
     _id = f"act_{uuid4().hex[:8]}"
     _confidence = (
         "HIGH" if sig.confidence >= 0.85
@@ -226,6 +230,17 @@ def _signal_to_action(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "engine_signal_id": sig.signal_id,
         "engine_name": sig.engine_name,
+        # Phase 4: plan-level confidence tier rides on every action
+        "confidence_tier": confidence_tier,
+        "confidence_label": confidence_label,
+        "plan_confidence_score": round(plan_confidence_score, 1),
+        # Phase 5 (D-5): deferred action fields
+        "defer_reason": sig.defer_reason,
+        "execution_date": sig.execution_date,
+        # Advisory conviction text — primary user-facing string (spec §1b).
+        # Leads with fund/bucket name; reason precedes implied action.
+        # Never contains "BUY", "SELL", or "HOLD" as standalone words.
+        "conviction_text": conviction_templates.build(sig),
         # PRD §12 output contract fields
         "severity": sig.severity,
         "requires_confirmation": sig.requires_confirmation,
@@ -254,15 +269,33 @@ def _signal_to_action(
         # PRD §12 requires tax_impact to be non-null on all EXIT/TRIM actions.
         base["tax_impact"] = {}
 
+    # Carry reinvestment gap metadata from OverlapEngine R9 so the frontend
+    # can render "Exit X → Reinvest into Debt/Gold/International".
+    reinvest_gap = sig.__dict__.get("_reinvest_gap")
+    if reinvest_gap:
+        base["reinvest_into"] = reinvest_gap
+    tax_note = sig.__dict__.get("_tax_note")
+    if tax_note:
+        base["tax_note"] = tax_note
+
     if sig.action_type == "ADD":
         fund_details = sig.__dict__.get("_fund_details")
         if fund_details:
             base["fund_details"] = fund_details
             base["asset_name"] = fund_details.get("fund_name") or sig.instrument_name
+        fund_options = sig.__dict__.get("_fund_options")
+        if fund_options:
+            base["fund_options"] = fund_options  # top-3 ranked alternatives for fund picker
 
     if sig.suppressed:
         base["status"] = "SUPPRESSED"
         base["suppression_reason"] = sig.suppression_reason
+
+    # Goal linkage — surfaced in action cards as "for [goal]"
+    if sig.goal_id:
+        base["goal_id"] = sig.goal_id
+    if sig.goal_name:
+        base["goal_name"] = sig.goal_name
 
     # PRD §12: expected_effect — risk-band Δ, score Δ, funding-probability Δ
     # Computed from the signal's AR-3 priority components as a best-effort estimate.
@@ -350,10 +383,31 @@ async def run_engine_pipeline(
         logger.info("[Orchestrator] user=%s: no risk persona — skipping engine pipeline", user_id)
         return [], None, {"requires_persona": True, "requires_goal": False, "capacity_tolerance_diverged": False}
 
-    # 1a-2. Mandatory gate (PRD §4 Rule 1): no goals → prompt user, don't generate.
-    if not goal_evaluations:
-        logger.info("[Orchestrator] user=%s: no active goals — skipping engine pipeline", user_id)
-        return [], None, {"requires_persona": False, "requires_goal": True, "capacity_tolerance_diverged": ctx.capacity_tolerance_diverged}
+    # 1a-2. Phase 3 gate split: the 7 goal-agnostic engines always run.
+    # Only GoalAlignmentEngine and GoalBucketFirstEngine self-gate when goals absent
+    # (confirmed: both already return [] when ctx.goal_evaluations is empty).
+    # The old binary "no goals → skip everything" blocked ~90% of users from getting
+    # any recommendations. The requires_goal flag now only surfaces as a soft nudge
+    # (not a hard wall) — handled by the frontend RecGateState variant="goal_nudge".
+    _has_goals = bool(goal_evaluations)
+    if not _has_goals:
+        logger.info(
+            "[Orchestrator] user=%s: no active goals — running 7 goal-agnostic engines; "
+            "GoalAlignmentEngine + GoalBucketFirstEngine will self-skip. tag=no_goals_soft",
+            user_id,
+        )
+
+    # 1a-3. Phase 4: populate confidence tier from TargetAllocation (best-effort).
+    # This gives every action dict a confidence_tier without requiring a second DB round-trip
+    # (compute_target_allocation was already called to produce deviation_result upstream).
+    try:
+        from services.target_allocator import compute_target_allocation as _cta
+        _ta = await _cta(user_id)
+        ctx.confidence_tier = _ta.confidence_tier
+        ctx.confidence_label = _ta.confidence_label
+        ctx.plan_confidence_score = _ta.confidence_score
+    except Exception as _ta_exc:
+        logger.debug("[Orchestrator] TargetAllocation fetch failed: %s — using default tier", _ta_exc)
 
     # 1b. Pre-fetch MF quality scores from DAAS (best-effort)
     # Merges quality_score, health_score, category_rank into v3_scores keyed by ISIN.
@@ -451,8 +505,114 @@ async def run_engine_pipeline(
     except Exception as _exc:
         logger.debug("[Orchestrator] ADD fund pre-fetch skipped: %s", _exc)
 
+    # 1g. reconcile_bucket pre-pass (Phase 2 / D-7)
+    # Runs BEFORE the engine registry so engines see already-designated exits.
+    # Identifies fund-count exits (bucket_count_exit) for buckets above FUNDS_PER_BUCKET.
+    # Uses canonical keep_score from survivor.py (normalized, D-2 weights).
+    _reconcile_signals: List[EngineSignal] = []
+    try:
+        from services.recommendation_engine.constants import FUNDS_PER_BUCKET, classify_bucket
+        from services.recommendation_engine.survivor import select_survivors
+        from uuid import uuid4 as _uuid4
+
+        # Group MF holdings by bucket
+        bucket_funds: Dict[str, List[Dict[str, Any]]] = {}
+        for h in (mf_holdings or []):
+            fid = h.get("isin") or h.get("instrument_id") or h.get("id") or ""
+            if not fid:
+                continue
+            bucket = classify_bucket(
+                h.get("asset_class") or h.get("asset_type") or "",
+                h.get("category") or h.get("fund_category") or "",
+            )
+            bucket_funds.setdefault(bucket, []).append(h)
+
+        for bucket, bucket_holdings in bucket_funds.items():
+            target_count = FUNDS_PER_BUCKET.get(bucket, 3)
+            if len(bucket_holdings) <= target_count:
+                continue  # no consolidation needed
+
+            fund_ids = [
+                h.get("isin") or h.get("instrument_id") or h.get("id") or ""
+                for h in bucket_holdings
+            ]
+            fund_ids = [fid for fid in fund_ids if fid]
+            if not fund_ids:
+                continue
+
+            # Overlap data from portfolio_intelligence (best-effort)
+            overlap_data: Dict[str, float] = {}
+            for pair in (ctx.portfolio_intelligence.get("pairwise_overlap") or []):
+                a_id = pair.get("isin_a") or pair.get("a")
+                b_id = pair.get("isin_b") or pair.get("b")
+                pct  = pair.get("overlap_pct") or pair.get("overlap") or 0.0
+                if a_id in fund_ids:
+                    overlap_data[a_id] = overlap_data.get(a_id, 0.0) + float(pct)
+                if b_id in fund_ids:
+                    overlap_data[b_id] = overlap_data.get(b_id, 0.0) + float(pct)
+
+            survivors, exits, overlap_available = select_survivors(
+                fund_ids=fund_ids,
+                n=target_count,
+                v3_scores=ctx.v3_scores,
+                overlap_data=overlap_data if overlap_data else None,
+                amc_cap_breaches=set(),  # AMC cap handled by ArbitrationEngine
+            )
+
+            # Mark exits in ctx so downstream engines don't re-propose them
+            for fid in exits:
+                ctx.exited_ids.add(fid)
+
+            # Emit bucket_count_exit signals for each exit
+            for fid in exits:
+                # Find the holding dict for conviction text
+                h = next((x for x in bucket_holdings
+                           if (x.get("isin") or x.get("instrument_id") or x.get("id")) == fid), {})
+                fname = h.get("name") or h.get("fund_name") or h.get("scheme_name") or fid[:8]
+                sig_id = f"bucket_count::{bucket}::{fid[:8]}"
+                sig = EngineSignal(
+                    signal_id=sig_id,
+                    engine_name="reconcile_bucket",
+                    rule_label="BucketCount",
+                    action_type="EXIT",
+                    instrument_id=fid,
+                    instrument_name=fname,
+                    amount_rs=float(h.get("current_value") or h.get("value") or 0),
+                    base_score=4.0,
+                    confidence=0.65,
+                    risk_reduction=0.3,
+                    diversification_gain=0.4,
+                    urgency=0.4,
+                    implementation_ease=0.6,
+                    reason_codes=["BUCKET_COUNT_EXIT"],
+                    reason_text=(
+                        f"{bucket.capitalize()} bucket has {len(bucket_holdings)} funds; "
+                        f"target is {target_count}. Lowest-ranked by quality and cost."
+                    ),
+                    dedup_key=f"EXIT::bucket_count::{fid}",
+                )
+                _reconcile_signals.append(sig)
+
+            if not overlap_available:
+                ctx.telemetry["data_quality_warning"] = (
+                    ctx.telemetry.get("data_quality_warning") or []
+                )
+                ctx.telemetry["data_quality_warning"].append(
+                    f"overlap unavailable for {bucket} bucket — using cost+perf+amc only"
+                )
+
+        if _reconcile_signals:
+            logger.info(
+                "[Orchestrator] reconcile_bucket: %d bucket_count_exit signals across %d buckets",
+                len(_reconcile_signals),
+                len({s.reason_text.split(" bucket")[0].lower() for s in _reconcile_signals}),
+            )
+    except Exception as _exc:
+        logger.warning("[Orchestrator] reconcile_bucket pre-pass failed: %s", _exc)
+
     # 2. Collect signals from all engines (pure, no I/O)
-    all_signals: List[EngineSignal] = []
+    # reconcile_bucket signals are prepended so they're visible to arbitration
+    all_signals: List[EngineSignal] = list(_reconcile_signals)
     for engine in ENGINE_REGISTRY:
         try:
             engine_signals = engine.safe_generate(ctx)
@@ -487,12 +647,53 @@ async def run_engine_pipeline(
             bucket_key = sig.__dict__.get("_complement_category") or sig.dedup_key
             ctx.added_buckets.add(bucket_key)
 
+    # 5b. Phase 5 — sell_score-based trade ordering (D-3).
+    # Order: ADD (new inflows) first; within EXITs, sell_score highest goes first
+    # (highest sell_score = cheapest to sell + most redundant).
+    # Deferred actions move to the end regardless of sell_score.
+    try:
+        from services.recommendation_engine.survivor import sort_exits_by_sell_score
+        _active = [s for s in arbitrated if not s.suppressed]
+        _adds    = [s for s in _active if s.action_type == "ADD" and not s.defer_reason]
+        _exits   = [s for s in _active if s.action_type in ("EXIT", "TRIM", "SWITCH")
+                    and not s.defer_reason]
+        _other   = [s for s in _active if s.action_type not in ("ADD","EXIT","TRIM","SWITCH")
+                    and not s.defer_reason]
+        _deferred = [s for s in _active if s.defer_reason]
+
+        # Build overlap lookup for sell_score
+        _ov: dict = {}
+        for pair in (portfolio_intelligence.get("pairwise_overlap") or []):
+            a_id = pair.get("isin_a") or pair.get("a")
+            b_id = pair.get("isin_b") or pair.get("b")
+            pct  = float(pair.get("overlap_pct") or pair.get("overlap") or 0)
+            if a_id:
+                _ov[a_id] = _ov.get(a_id, 0.0) + pct
+            if b_id:
+                _ov[b_id] = _ov.get(b_id, 0.0) + pct
+
+        sort_exits_by_sell_score(_exits, ctx.v3_scores, _ov, total_value_rs)
+
+        # Reassemble: ADD → sorted EXITs → other → deferred
+        arbitrated_ordered = _adds + _exits + _other + _deferred
+        # Re-add suppressed for audit trail
+        arbitrated_ordered += [s for s in arbitrated if s.suppressed]
+        arbitrated = arbitrated_ordered
+    except Exception as _ord_exc:
+        logger.warning("[Orchestrator] trade ordering failed: %s — using default order", _ord_exc)
+
     # 6. Convert signals → backward-compatible action dicts
     active_signals = [s for s in arbitrated if not s.suppressed]
     max_actions = int((rules_cfg.get("plan_limits") or {}).get("max_actions_per_plan", 6))
     actions: List[Dict[str, Any]] = []
     for i, sig in enumerate(active_signals[:max_actions]):
-        actions.append(_signal_to_action(sig, priority=i + 1))
+        actions.append(_signal_to_action(
+            sig,
+            priority=i + 1,
+            confidence_tier=ctx.confidence_tier,
+            confidence_label=ctx.confidence_label,
+            plan_confidence_score=ctx.plan_confidence_score,
+        ))
 
     # 7. Stamp V3 scores
     for a in actions:
@@ -532,15 +733,31 @@ async def run_engine_pipeline(
     # Stash simulation on ctx for callers that need it (e.g. generate_plan)
     ctx.__dict__["_simulation_result"] = simulation_result
 
+    # Telemetry: emit exactly one of three tags so ops can distinguish
+    # "engine didn't run" from "engine ran, nothing to do" from "actions emitted".
+    if ctx.telemetry.get("skipped:no_target"):
+        telem_tag = "skipped:no_target"
+    elif not actions:
+        telem_tag = "ran:no_drift"
+        ctx.telemetry["ran:no_drift"] = True
+    else:
+        telem_tag = "ran:actions_emitted"
+        ctx.telemetry["ran:actions_emitted"] = True
+
     logger.info(
-        "[Orchestrator] pipeline complete: %d actions (%d signals, %d suppressed)",
+        "[Orchestrator] pipeline complete: %d actions (%d signals, %d suppressed) tag=%s",
         len(actions), len(active_signals),
         sum(1 for s in arbitrated if s.suppressed),
+        telem_tag,
     )
 
     gate_flags: Dict[str, bool] = {
         "requires_persona": False,
-        "requires_goal": False,
+        # Phase 3: requires_goal is a soft nudge, not a hard wall.
+        # True = "user has no goals, show the goal_nudge banner"
+        # False = "user has goals, no nudge needed"
+        # Either way, actions are returned (the hard block is gone).
+        "requires_goal": not _has_goals,
         "capacity_tolerance_diverged": ctx.capacity_tolerance_diverged,
     }
     return actions, simulation_result, gate_flags

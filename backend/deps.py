@@ -62,27 +62,34 @@ async def get_current_user(request: Request) -> dict:
     if expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=401, detail="Session expired")
 
-    # ── MFD profile impersonation ──────────────────────────────────────
-    # If the session has an active_profile_id (set via the MFD dashboard
-    # "Open client" action), resolve the effective user_id to the profile's
-    # shadow user. The entire existing engine (portfolio/insights/goals/V3)
-    # then runs against that client's data without needing any route-level
-    # changes. See services/mfd_workspace.py for details.
-    effective_user_id = session_doc["user_id"]
-    if session_doc.get("active_profile_id"):
+    # ── MFD profile impersonation (per-request, access-controlled) ─────
+    # The active client profile is passed per request via the X-Active-Profile
+    # header (driven by the advisor's frontend state) — it is NOT stored on the
+    # session token. An advisor may act as any client they OWN; ownership is
+    # validated in resolve_effective_for_profile. No header → the advisor's own
+    # context. This decouples impersonation from the session entirely, so it
+    # can't desync with persisted UI state. See services/mfd_workspace.py.
+    session_owner_id = session_doc["user_id"]
+    requested_profile_id = request.headers.get("X-Active-Profile") or None
+    effective_user_id = session_owner_id
+    granted_profile_id = None
+    if requested_profile_id:
         try:
             from services import mfd_workspace
-            effective_user_id = await mfd_workspace.resolve_effective_user(session_doc)
+            effective_user_id, granted_profile_id = await mfd_workspace.resolve_effective_for_profile(
+                session_owner_id, requested_profile_id,
+            )
         except Exception as e:  # noqa: BLE001
             logger.warning("Profile impersonation failed, falling back: %s", e)
+            effective_user_id, granted_profile_id = session_owner_id, None
 
     user_doc = await db.users.find_one({"user_id": effective_user_id}, {"_id": 0})
     if not user_doc:
         raise HTTPException(status_code=401, detail="User not found")
-    # Expose the real (logged-in) user_id and active-profile metadata so
-    # MFD-specific routes can enforce workspace ownership.
-    user_doc["_session_user_id"] = session_doc["user_id"]
-    user_doc["_active_profile_id"] = session_doc.get("active_profile_id")
+    # Expose the real (logged-in) user_id and the ACCESS-GRANTED active profile
+    # so MFD-specific routes + the copilot can enforce/branch on impersonation.
+    user_doc["_session_user_id"] = session_owner_id
+    user_doc["_active_profile_id"] = granted_profile_id
     return user_doc
 
 

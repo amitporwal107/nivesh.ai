@@ -15,7 +15,7 @@ from typing import List, Optional
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
-from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -26,7 +26,7 @@ _SYSTEM = """You are the Risk Analyst for Nivesh AI, an Indian investment platfo
 You assess portfolio risk using the data in TOOL_DATA below.
 
 Style:
-- ≤ 220 words, markdown
+- ≤ 220 words, plain text (no markdown)
 - Risk rating: LOW / MEDIUM / HIGH / VERY HIGH with brief justification
 - Key risk drivers (top 2-3 bullet points)
 - VaR figures: "1-day 95% VaR: ₹X means on a bad day you could lose ₹X"
@@ -85,6 +85,19 @@ async def _fetch_risk_data(state: CopilotState, user_text: str) -> List[ToolResu
         risk_mod = importlib.import_module("services.copilot_tools.risk")
         user_id = state.user_id
 
+        # ── Canonical precomputed risk (VaR/volatility/beta/max-DD) ──────────
+        # Same PRA source the Risk dashboard uses — prefer it over the
+        # parametric estimate so the copilot agrees with the dashboard.
+        pra_risk = await risk_mod.get_portfolio_risk_pra(user_id)
+        pra_ok = pra_risk.ok
+        if pra_ok:
+            results.append(ToolResult(
+                ok=True,
+                tool_name="get_portfolio_risk",
+                summary=pra_risk.summary,
+                data=pra_risk.data,
+            ))
+
         # ── Risk suitability ──────────────────────────────────────────────────
         suitability = await risk_mod.get_risk_suitability(user_id)
         results.append(ToolResult(
@@ -102,30 +115,35 @@ async def _fetch_risk_data(state: CopilotState, user_text: str) -> List[ToolResu
             error=suitability.error,
         ))
 
-        # ── Portfolio VaR ─────────────────────────────────────────────────────
-        var_result = await risk_mod.get_portfolio_var(user_id, confidence=0.95)
-        results.append(ToolResult(
-            ok=var_result.ok,
-            tool_name="get_portfolio_var",
-            summary=var_result.summary,
-            data=var_result.data,
-            rows=var_result.rows,
-            error=var_result.error,
-        ))
-
-        # ── Stress test scenarios (only when the user asked) ─────────────────
-        if _wants_stress_test(user_text):
-            scen_keys = _select_scenarios(user_text)
-            stress = await risk_mod.get_stress_scenarios(user_id, scenario_keys=scen_keys)
+        # ── Portfolio VaR (parametric) — ONLY when PRA is unavailable ────────
+        # The parametric estimate is noisy and disagrees with the dashboard, so
+        # we skip it whenever the canonical PRA result above is present.
+        if not pra_ok:
+            var_result = await risk_mod.get_portfolio_var(user_id, confidence=0.95)
             results.append(ToolResult(
-                ok=stress.ok,
-                tool_name="get_stress_scenarios",
-                summary=stress.summary,
-                data=stress.data,
-                rows=stress.rows,
-                widget_type=WidgetType.STRESS_TEST,
-                error=stress.error,
+                ok=var_result.ok,
+                tool_name="get_portfolio_var",
+                summary=var_result.summary,
+                data=var_result.data,
+                rows=var_result.rows,
+                error=var_result.error,
             ))
+
+        # ── Stress test scenarios ────────────────────────────────────────────
+        # Always run so the risk-assessment widget can show the downside per
+        # scenario. If the user named specific scenarios, use those; otherwise
+        # the full default set (GFC / COVID / inflation / rate shock).
+        scen_keys = _select_scenarios(user_text) if _wants_stress_test(user_text) else None
+        stress = await risk_mod.get_stress_scenarios(user_id, scenario_keys=scen_keys)
+        results.append(ToolResult(
+            ok=stress.ok,
+            tool_name="get_stress_scenarios",
+            summary=stress.summary,
+            data=stress.data,
+            rows=stress.rows,
+            widget_type=WidgetType.STRESS_TEST,
+            error=stress.error,
+        ))
 
     except Exception as exc:
         logger.warning("risk data fetch failed: %s", exc)
@@ -146,17 +164,6 @@ async def risk_node(state: CopilotState) -> dict:
         f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results
     )
 
-    llm = ChatOpenAI(
-        model=COPILOT_LLM_MODEL,
-        temperature=0.1,
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
-    )
-    resp = await llm.ainvoke([
-        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
-        {"role": "user", "content": user_msg},
-    ])
-    answer_text = resp.content
-
     # Prefer the stress-test widget when the user asked for it; otherwise
     # the risk-suitability widget (data shape comes from the matching tool).
     stress_tr = next(
@@ -167,15 +174,44 @@ async def risk_node(state: CopilotState) -> dict:
         (r for r in tool_results if r.tool_name == "get_risk_suitability" and r.ok),
         None,
     )
-    if stress_tr:
+    pra_tr = next(
+        (r for r in tool_results if r.tool_name == "get_portfolio_risk" and r.ok),
+        None,
+    )
+    # Parametric VaR fallback — fetched by _fetch_risk_data when PRA is absent;
+    # supplies the 1-day / 10-day VaR + annual vol the PRA result would have.
+    var_tr = next(
+        (r for r in tool_results if r.tool_name == "get_portfolio_var" and r.ok),
+        None,
+    )
+    if suitability_tr or pra_tr or var_tr:
+        # Comprehensive risk view: suitability rating + VaR/vol KPIs + stress
+        # downside + drivers + misalignment, in one widget.
+        from services.copilot_tools.risk import build_risk_assessment_widget
+        widget_type = WidgetType.RISK_ASSESSMENT
+        widget_data = build_risk_assessment_widget(pra_tr, suitability_tr, stress_tr, var_tr)
+    elif stress_tr:
         widget_type = WidgetType.STRESS_TEST
         widget_data = {**stress_tr.data, "rows": stress_tr.rows}
-    elif suitability_tr:
-        widget_type = WidgetType.NONE
-        widget_data = {}
     else:
         widget_type = WidgetType.NONE
         widget_data = {}
+
+    # Widget data is ready (built from the tools, not the LLM) — push it now so
+    # the client renders it first and streams the narrative underneath.
+    from .._stream import emit_widget
+    await emit_widget(widget_type, widget_data)
+
+    llm = ChatOpenAI(
+        model=COPILOT_LLM_MODEL,
+        temperature=temperature_for(0.1),
+        api_key=get_openai_api_key(),
+    )
+    resp = await llm.ainvoke([
+        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
+        {"role": "user", "content": user_msg},
+    ])
+    answer_text = resp.content
 
     response = AgentResponse(
         agent=AgentName.RISK,

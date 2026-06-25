@@ -1,6 +1,7 @@
 import { CardLabel } from "@/components/ui/card";
 import { ScoreRing } from "@/components/charts/ScoreRing";
 import { cn } from "@/lib/utils";
+import { useMountProgress } from "@/hooks/use-animate";
 
 // Health band thresholds matching portfolio_health.py _band() (AC-21 / OQ-4)
 function healthBand(score: number): { label: string; color: string; pill: string } {
@@ -31,10 +32,13 @@ const SUB_SCORES: Array<{ key: keyof HealthBreakdown; label: string; color: stri
   { key: "return_quality",  label: "Performance",     color: "bg-[#8B5CF6]", track: "bg-[rgba(139,92,246,0.15)]" },
 ];
 
-function ScoreBar({ value, color, track }: { value: number; color: string; track: string }) {
+function ScoreBar({ value, color, track, p }: { value: number; color: string; track: string; p: number }) {
   return (
     <div className={cn("relative h-[3px] rounded-full w-full", track)}>
-      <div className={cn("absolute inset-y-0 left-0 rounded-full", color)} style={{ width: `${Math.min(100, value)}%` }} />
+      <div
+        className={cn("absolute inset-y-0 left-0 rounded-full", color)}
+        style={{ width: `${Math.min(100, value) * p}%` }}
+      />
     </div>
   );
 }
@@ -42,10 +46,11 @@ function ScoreBar({ value, color, track }: { value: number; color: string; track
 export function HealthScoreCard({ score, verdict, breakdown }: Props) {
   const rows = SUB_SCORES.filter(s => breakdown?.[s.key] != null);
   const band = healthBand(score);
+  const p = useMountProgress(1100, 600); // bars fill just after the ring sweeps
   return (
     <div className="md:px-7 flex items-start gap-4">
       <div className="shrink-0 mt-0.5">
-        <ScoreRing score={score} size={rows.length ? 108 : 132} />
+        <ScoreRing score={score} size={rows.length ? 108 : 132} animate />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
@@ -67,8 +72,8 @@ export function HealthScoreCard({ score, verdict, breakdown }: Props) {
             {rows.map(s => (
               <div key={s.key} className="flex items-center gap-2">
                 <span className="font-mono text-[9px] text-ink-4 w-[68px] shrink-0 uppercase tracking-[.05em] leading-none">{s.label}</span>
-                <ScoreBar value={breakdown![s.key]!} color={s.color} track={s.track} />
-                <span className="font-mono text-[10px] text-ink-2 shrink-0 w-5 text-right">{Math.round(breakdown![s.key]!)}</span>
+                <ScoreBar value={breakdown![s.key]!} color={s.color} track={s.track} p={p} />
+                <span className="font-mono text-[10px] text-ink-2 shrink-0 w-5 text-right">{Math.round(breakdown![s.key]! * p)}</span>
               </div>
             ))}
           </div>

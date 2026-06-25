@@ -205,6 +205,88 @@ def convert_casparser_to_holdings(cas_data: dict) -> list:
     return holdings
 
 
+def _to_float(v) -> float:
+    try:
+        return float(str(v).replace(",", "").strip() or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _looks_sgb(name: str, isin: str) -> bool:
+    s = f"{name} {isin}".upper()
+    return ("SGB" in s or "SOVEREIGN GOLD" in s or "GOLDBOND" in s or "GOLD BOND" in s)
+
+
+def convert_nsdl_offline_to_holdings(cas_data: dict) -> list:
+    """Map the offline casparser NSDL/CDSL dict to our holdings format.
+
+    NSDL/CDSL consolidated statements hold positions on each demat account as
+    `equities` (demat stocks + SGB), `mutual_funds` (demat MF), and `folios`
+    (non-demat MF, the same schema CAMS/KFin use). NSDL CAS shows current
+    holdings without a cost basis, so buy_price defaults to current_price.
+    """
+    holdings: list = []
+    accounts = cas_data.get("accounts") or []
+    folio_blobs: list = []
+
+    for acc in accounts:
+        if not isinstance(acc, dict):
+            continue
+        # `account.folios` can be an int count rather than a list of folios —
+        # only extend when it's actually a list of folio dicts.
+        f = acc.get("folios")
+        if isinstance(f, list):
+            folio_blobs.extend(x for x in f if isinstance(x, dict))
+
+        # Demat equities (E) — SGB also appears in this list in NSDL CAS.
+        for eq in (acc.get("equities") or []):
+            if not isinstance(eq, dict):
+                continue
+            qty = _to_float(eq.get("num_shares"))
+            value = _to_float(eq.get("value"))
+            price = _to_float(eq.get("price")) or (value / qty if qty else 0)
+            if qty <= 0 and value <= 0:
+                continue
+            name = (eq.get("name") or "Unknown").strip()
+            isin = (eq.get("isin") or "").strip()
+            holdings.append({
+                "name": name,
+                "ticker": isin,
+                "asset_type": "sgb" if _looks_sgb(name, isin) else "equity",
+                "quantity": round(qty, 4),
+                "buy_price": round(price, 4),
+                "current_price": round(price, 4),
+                "sector": "",
+            })
+
+        # Demat mutual funds (M)
+        for mf in (acc.get("mutual_funds") or []):
+            if not isinstance(mf, dict):
+                continue
+            qty = _to_float(mf.get("balance"))
+            value = _to_float(mf.get("value"))
+            nav = _to_float(mf.get("nav")) or (value / qty if qty else 0)
+            if qty <= 0 and value <= 0:
+                continue
+            name = (mf.get("name") or "Unknown Fund").strip()
+            holdings.append({
+                "name": name,
+                "ticker": (mf.get("isin") or "").strip(),
+                "asset_type": "mutual_fund",
+                "quantity": round(qty, 4),
+                "buy_price": round(nav, 4),
+                "current_price": round(nav, 4),
+                "sector": classify_mf_sector(name),
+            })
+
+    # Non-demat MF folios (F) — the casparser folio schema CAMS/KFin use.
+    if folio_blobs:
+        holdings.extend(convert_casparser_to_holdings({"folios": folio_blobs}))
+
+    logger.info("nsdl-offline: %d accounts -> %d holdings", len(accounts), len(holdings))
+    return holdings
+
+
 def _normalize_casparser_folios(cas_data: dict) -> dict:
     """Convert casparser library folios→schemes to the `mutual_funds` format
     expected by `cas_transactions.extract_transactions()`.
@@ -305,6 +387,26 @@ async def save_holdings(user_id: str, parsed: list, file_type: str, task_id: str
     """Save parsed holdings to DB. For CAS uploads, replaces ALL existing holdings."""
     is_cas = "cas" in file_type.lower()
 
+    # ── Masterdata enrichment (single chokepoint for ALL import paths) ──
+    # Resolve ISIN → real names + sectors before persisting, so demat/eCAS
+    # rows that arrive as raw ISINs ("INE364U01010", "INF879O01019") or
+    # garbled fragments are replaced with the actual company / fund (incl.
+    # AMC) name, and equity/MF sectors are classified. Every caller funnels
+    # through here (Gmail eCAS, broker, manual upload, CAS Connect), so this
+    # is the one place that guarantees no import path ships unresolved names.
+    # validate_and_enrich_holdings only overwrites names it judges garbled
+    # (too short, no letters, a raw ISIN, or a '#' glue artifact), so good
+    # user-entered names are preserved.
+    # Sector classification keys off the name, so it must run AFTER names
+    # are resolved. Enrichment failure must never block the save.
+    try:
+        from services.masterdata import validate_and_enrich_holdings
+        from services.equity_sectors import enrich_holdings_with_sectors
+        parsed = validate_and_enrich_holdings(parsed)
+        parsed = enrich_holdings_with_sectors(parsed)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("save_holdings: masterdata enrichment skipped: %s", e, extra={"user_id": user_id})
+
     old_count = 0
     if is_cas:
         delete_query = {"user_id": user_id}
@@ -317,7 +419,11 @@ async def save_holdings(user_id: str, parsed: list, file_type: str, task_id: str
     holdings_added = []
     for h in parsed:
         asset_type = h.get("asset_type", "equity")
-        if asset_type not in ["equity", "mutual_fund", "etf", "bond", "gold", "fd", "other"]:
+        # Sovereign Gold Bonds are gold; without this they fell through to the
+        # equity fallback below and corrupted the asset-class mix.
+        if asset_type == "sgb":
+            asset_type = "gold"
+        if asset_type not in ["equity", "mutual_fund", "etf", "bond", "gold", "fd", "nps", "other"]:
             asset_type = "mutual_fund" if "fund" in h.get("name", "").lower() else "equity"
 
         buy_price_val = float(h.get("buy_price", 0))

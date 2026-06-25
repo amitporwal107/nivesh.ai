@@ -1,0 +1,21 @@
+apiVersion: 1
+
+datasources:
+  - name: Google Cloud Logging
+    type: googlecloud-logging-datasource
+    uid: gcp-logging
+    access: proxy
+    editable: true
+    jsonData:
+      authenticationType: jwt
+      defaultProject: niveshdataintelligence
+      # Service account: log-triage@niveshdataintelligence.iam.gserviceaccount.com
+      # Requires role: roles/logging.viewer
+      clientEmail: nivesh-log-triage-sa@niveshdataintelligence.iam.gserviceaccount.com
+      tokenUri: https://oauth2.googleapis.com/token
+    secureJsonData:
+      # Export private key from the SA JSON:
+      #   jq -r .private_key log-triage-sa.json
+      # Then set on the VM:
+      #   export GCP_LOG_TRIAGE_PRIVATE_KEY="$(jq -r .private_key /opt/nidp/secrets/log-triage-sa.json)"
+      privateKey: ${GCP_LOG_TRIAGE_PRIVATE_KEY}

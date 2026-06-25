@@ -48,6 +48,48 @@ function pctCell(n: number | null | undefined) {
   );
 }
 
+// Recommendation pill — colour by the action keyword (matches the V2 mapping).
+function ActionBadge({ badge }: { badge: EnrichedHolding["action_badge"] }) {
+  if (!badge) return <span className="opacity-30">—</span>;
+  const action = (typeof badge === "string" ? badge : badge.action ?? "").trim();
+  if (!action) return <span className="opacity-30">—</span>;
+  const reason = typeof badge === "string" ? undefined : badge.reason;
+  const a = action.toUpperCase();
+  const color =
+    /EXIT|SELL/.test(a)            ? "var(--neg)"   :
+    /REDUCE|SWITCH|TRIM/.test(a)   ? "var(--warm)"  :
+    /REVIEW|WATCH/.test(a)         ? "var(--accent)":
+    /BUY|ADD|INCREASE/.test(a)     ? "var(--pos)"   :
+    "var(--ink-3)"; // HOLD / unknown
+  return (
+    <span title={reason}
+      className="inline-block text-[10px] px-2 py-0.5 rounded font-medium uppercase tracking-wide"
+      style={{ background: `rgb(${color} / 0.14)`, color: `rgb(${color})` }}>
+      {a}
+    </span>
+  );
+}
+
+// ── Asset-type tabs ─────────────────────────────────────────────────────────
+// Group holdings by the kind of instrument. SGBs arrive as gold/bond with a
+// "Government of India" / "Sovereign Gold" name, so name wins over asset_type.
+type AssetTab = "all" | "equity" | "mutual_fund" | "etf" | "gold_sgb";
+
+const ASSET_TAB_LABEL: Record<AssetTab, string> = {
+  all: "All", equity: "Equity", mutual_fund: "Mutual funds", etf: "ETFs", gold_sgb: "Gold / SGB",
+};
+
+function holdingTab(h: EnrichedHolding): Exclude<AssetTab, "all"> | "other" {
+  const at = (h.asset_type ?? "").toLowerCase();
+  const name = (h.name ?? "").toLowerCase();
+  if (/sovereign gold|\bsgb\b|government of india/.test(name)) return "gold_sgb";
+  if (at === "gold") return "gold_sgb";
+  if (at === "etf") return "etf";
+  if (at === "mutual_fund") return "mutual_fund";
+  if (at === "equity") return "equity";
+  return "other"; // bonds/fd/other: only ever shown under "All", never miscounted
+}
+
 // ── Column definitions ─────────────────────────────────────────────────────
 
 const COLS: Array<{ key: string; label: string; sortKey?: SortKey; align?: "right" }> = [
@@ -59,6 +101,7 @@ const COLS: Array<{ key: string; label: string; sortKey?: SortKey; align?: "righ
   { key: "weight_pct",      label: "Weight",         sortKey: "weight_pct",     align: "right" },
   { key: "xirr_pct",        label: "XIRR",           sortKey: "xirr_pct",       align: "right" },
   { key: "benchmark_delta", label: "vs Benchmark",   sortKey: "benchmark_delta",align: "right" },
+  { key: "action",          label: "Action" },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────────
@@ -67,8 +110,20 @@ export function HoldingsTable({ holdings, className }: Props) {
   const [sortKey, setSortKey]   = useState<SortKey>("value_rs");
   const [sortDir, setSortDir]   = useState<SortDir>("desc");
   const [search, setSearch]     = useState("");
+  const [assetTab, setAssetTab] = useState<AssetTab>("all");
   const [drawer, setDrawer]     = useState<EnrichedHolding | null>(null);
   const { filter, clearFilter } = useHoldingsFilter();
+
+  // Counts per asset-type tab — only tabs that actually have holdings are shown.
+  const tabCounts = useMemo(() => {
+    const c: Record<Exclude<AssetTab, "all"> | "other", number> = {
+      equity: 0, mutual_fund: 0, etf: 0, gold_sgb: 0, other: 0,
+    };
+    for (const h of holdings) c[holdingTab(h)]++;
+    return c;
+  }, [holdings]);
+  const assetTabs: AssetTab[] = ["all", "equity", "mutual_fund", "etf", "gold_sgb"]
+    .filter((t) => t === "all" || tabCounts[t as Exclude<AssetTab, "all">] > 0) as AssetTab[];
 
   // Sort toggle
   function handleSort(key: SortKey) {
@@ -79,6 +134,11 @@ export function HoldingsTable({ holdings, className }: Props) {
   // Filter + search + sort
   const rows = useMemo(() => {
     let list = holdings;
+
+    // Asset-type tab (Equity / Mutual funds / ETFs / Gold-SGB)
+    if (assetTab !== "all") {
+      list = list.filter((h) => holdingTab(h) === assetTab);
+    }
 
     // Dimension filter from Composition Explorer / Benchmark donut
     if (filter) {
@@ -112,13 +172,13 @@ export function HoldingsTable({ holdings, className }: Props) {
     });
 
     return list;
-  }, [holdings, filter, search, sortKey, sortDir]);
+  }, [holdings, assetTab, filter, search, sortKey, sortDir]);
 
   const tableBodyRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => tableBodyRef.current,
-    estimateSize: () => 48,
+    estimateSize: () => 64,
     overscan: 5,
   });
 
@@ -133,6 +193,29 @@ export function HoldingsTable({ holdings, className }: Props) {
     <>
       <div className={cn("rounded-lg overflow-hidden", className)}
         style={{ border: "1px solid rgba(var(--line),0.08)", background: "rgb(var(--surface-2))" }}>
+
+        {/* Asset-type tabs */}
+        {assetTabs.length > 2 && (
+          <div className="flex items-center gap-1.5 px-4 pt-3 flex-wrap">
+            {assetTabs.map((t) => {
+              const active = assetTab === t;
+              const count = t === "all" ? holdings.length : tabCounts[t as Exclude<AssetTab, "all">];
+              return (
+                <button
+                  key={t}
+                  onClick={() => setAssetTab(t)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] transition-colors"
+                  style={active
+                    ? { background: "rgb(var(--accent) / 0.14)", color: "rgb(var(--accent))" }
+                    : { background: "rgba(var(--surface-3),0.5)", color: "rgb(var(--ink-2))" }}
+                >
+                  {ASSET_TAB_LABEL[t]}
+                  <span className="font-mono text-[10px] opacity-60">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Toolbar */}
         <div className="flex items-center gap-3 px-4 py-3"
@@ -169,7 +252,7 @@ export function HoldingsTable({ holdings, className }: Props) {
 
         {/* Desktop table */}
         <div className="hidden sm:block overflow-x-auto">
-          <table className="w-full text-sm" style={{ minWidth: 760 }}>
+          <table className="w-full text-sm" style={{ minWidth: 880 }}>
             <thead>
               <tr style={{ borderBottom: "1px solid rgba(var(--line),0.08)" }}>
                 {COLS.map((col) => (
@@ -195,7 +278,7 @@ export function HoldingsTable({ holdings, className }: Props) {
               {holdings.length === 0 ? "No holdings here yet." : "No holdings match your filter."}
             </div>
           ) : (
-            <div ref={tableBodyRef} style={{ height: Math.min(rows.length * 48, 480), overflowY: "auto" }}>
+            <div ref={tableBodyRef} style={{ height: Math.min(rows.length * 64, 520), overflowY: "auto" }}>
               <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                   const h = rows[virtualRow.index];
@@ -206,7 +289,7 @@ export function HoldingsTable({ holdings, className }: Props) {
                     <table key={h.holding_id}
                       className="w-full text-sm"
                       style={{
-                        minWidth: 760,
+                        minWidth: 880,
                         position: "absolute",
                         top: virtualRow.start,
                         left: 0,
@@ -221,9 +304,12 @@ export function HoldingsTable({ holdings, className }: Props) {
                           onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(var(--surface-3),0.5)")}
                           onMouseLeave={(e) => (e.currentTarget.style.background = "")}>
 
-                          {/* Name */}
-                          <td className="px-4 py-3 max-w-[220px]">
-                            <div className="font-medium text-[13px] truncate" title={h.name}>{h.name}</div>
+                          {/* Name — full canonical scheme/stock name (wraps to 2 lines) */}
+                          <td className="px-4 py-2.5 w-[40%] max-w-[360px]">
+                            <div className="font-medium text-[13px] leading-snug" title={h.name}
+                              style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                              {h.name}
+                            </div>
                             <div className="flex items-center gap-1.5 mt-0.5">
                               {h.isin && (
                                 <span className="text-[10px] opacity-35" style={{ fontFamily: "var(--font-mono)" }}>
@@ -242,7 +328,7 @@ export function HoldingsTable({ holdings, className }: Props) {
 
                           {/* Asset class */}
                           <td className="px-4 py-3 text-[11px] opacity-60" style={{ fontFamily: "var(--font-mono)" }}>
-                            {any.asset_class ?? "—"}
+                            {any.asset_class ?? h.asset_type ?? "—"}
                           </td>
 
                           {/* Category */}
@@ -275,11 +361,25 @@ export function HoldingsTable({ holdings, className }: Props) {
                             {pctCell(h.xirr_pct)}
                           </td>
 
-                          {/* vs Benchmark */}
+                          {/* vs Benchmark — relative delta + the index it's measured against */}
                           <td className="px-4 py-3 text-right text-[12px]">
-                            {unmatched
-                              ? <span className="opacity-30" aria-label="benchmark data unavailable — fund not AMFI-matched">—</span>
-                              : pctCell(any.benchmark_delta)}
+                            {unmatched ? (
+                              <span className="opacity-30" aria-label="benchmark data unavailable — fund not AMFI-matched">—</span>
+                            ) : (
+                              <div className="flex flex-col items-end leading-tight">
+                                {pctCell(h.benchmark_delta)}
+                                {h.benchmark_label && (
+                                  <span className="text-[9.5px] opacity-40 mt-0.5" style={{ fontFamily: "var(--font-mono)" }}>
+                                    vs {h.benchmark_label}{any.benchmark_delta_horizon ? ` · ${any.benchmark_delta_horizon}` : ""}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Action */}
+                          <td className="px-4 py-3">
+                            <ActionBadge badge={h.action_badge} />
                           </td>
 
                           {/* Chevron */}
@@ -323,6 +423,9 @@ export function HoldingsTable({ holdings, className }: Props) {
                     </span>
                   )}
                 </div>
+                {h.action_badge && (
+                  <div className="mt-1.5"><ActionBadge badge={h.action_badge} /></div>
+                )}
               </li>
             );
           })}

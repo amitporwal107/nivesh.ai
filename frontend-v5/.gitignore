@@ -10,3 +10,9 @@ e2e/screenshots/
 e2e/test-results/
 playwright-report/
 .env.test
+
+# Built mobile binaries (reproducible from android/ via gradlew assembleDebug)
+*.apk
+
+# Firebase config (contains the Android API key — keep local, build uses it)
+android/app/google-services.json

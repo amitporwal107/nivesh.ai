@@ -10,7 +10,9 @@
  */
 import { apiConfig } from "./config";
 import { ApiError } from "./errors";
+import { getAuthToken } from "./auth-token";
 import { correlationId, getObserver } from "@/lib/observability";
+import { useImpersonationStore } from "@/stores/impersonation.store";
 
 export interface HttpRequest {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -40,10 +42,19 @@ export async function http<T = unknown>(req: HttpRequest): Promise<HttpResponse<
   const id = correlationId();
   const url = buildUrl(req.path, req.query);
   const method = req.method ?? "GET";
+  const authToken = getAuthToken();
+  // Per-request impersonation: when an advisor is viewing a client, carry the
+  // active client profile on every request. The backend validates ownership
+  // and resolves the effective user. Single source of truth = the store; no
+  // session-token coupling.
+  const activeProfileId = useImpersonationStore.getState().profileId;
   const headers: Record<string, string> = {
     Accept: "application/json",
     "X-Correlation-Id": id,
     "X-Client-Version": apiConfig.appVersion,
+    // Bearer fallback for native (WebView drops the cross-site session cookie).
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    ...(activeProfileId ? { "X-Active-Profile": activeProfileId } : {}),
     ...(req.body != null ? { "Content-Type": "application/json" } : {}),
     ...(req.ifNoneMatch ? { "If-None-Match": req.ifNoneMatch } : {}),
     ...(req.headers ?? {}),
@@ -142,7 +153,8 @@ async function safeJson(res: Response): Promise<unknown> {
 }
 
 function shouldRetry(err: ApiError): boolean {
-  return err.kind === "network" || err.kind === "server" || err.kind === "rate_limit" || err.kind === "timeout";
+  // 429 is intentional — retrying without Retry-After just burns the same budget again
+  return err.kind === "network" || err.kind === "server" || err.kind === "timeout";
 }
 
 function backoff(attempt: number): number {

@@ -248,10 +248,20 @@ async def build_tax_harvest_data(user_id: str) -> TaxHarvestData:
 # ── Rebalance ──────────────────────────────────────────────────────
 
 async def build_rebalance_data(user_id: str) -> RebalancePlanData:
-    """Build BUY/SELL/SWITCH/HOLD actions toward a 65/35 target. Mirrors
-    `routes/copilot_widgets.rebalance_plan` heuristics."""
+    """Build rebalance actions toward the user's risk-profile-derived target allocation.
+
+    Target comes from compute_target_allocation() — the single canonical source.
+    Previously hardcoded to 65/35 for all users regardless of risk profile.
+    """
+    from services.target_allocator import compute_target_allocation
     raw = await _load_holdings(user_id)
     current_value = sum(float(h.get("current_value") or h.get("value") or 0) for h in raw)
+
+    # Resolve user's personalised target from the allocation_bands service
+    ta = await compute_target_allocation(user_id)
+    target_equity = ta.allocation.get("equity", 55.0)
+    target_debt   = ta.allocation.get("debt",   35.0)
+    risk_label    = ta.risk_category.capitalize()
 
     actions: List[RebalanceAction] = []
     if raw and current_value > 0:
@@ -263,35 +273,36 @@ async def build_rebalance_data(user_id: str) -> RebalancePlanData:
         debt_val = current_value - equity_val
         equity_pct = round(equity_val / current_value * 100, 1)
         debt_pct = round(debt_val / current_value * 100, 1)
-        target_equity, target_debt = 65.0, 35.0
 
         if equity_pct > target_equity + 5:
             excess = (equity_pct - target_equity) / 100 * current_value
+            delta = round(equity_pct - target_equity, 1)
             actions.append(RebalanceAction(
                 action="SELL", fund_name="Highest-drift equity fund",
                 current_pct=equity_pct, target_pct=target_equity,
                 amount_rs=round(excess, -2),
-                reason=f"Equity is {equity_pct}% vs target {target_equity}%",
+                reason=f"Equity at {equity_pct}% — {delta}pp above your {risk_label} band target of {target_equity}%",
             ))
             actions.append(RebalanceAction(
                 action="BUY", fund_name="Short-term Debt Fund",
                 current_pct=debt_pct, target_pct=target_debt,
                 amount_rs=round(excess, -2),
-                reason="Redirect proceeds to restore debt allocation",
+                reason=f"Debt at {debt_pct}% — redirect equity proceeds to restore your {risk_label} debt target",
             ))
         elif equity_pct < target_equity - 5:
             deficit = (target_equity - equity_pct) / 100 * current_value
+            delta = round(target_equity - equity_pct, 1)
             actions.append(RebalanceAction(
                 action="BUY", fund_name="Flexi-Cap Fund",
                 current_pct=equity_pct, target_pct=target_equity,
                 amount_rs=round(deficit, -2),
-                reason=f"Equity is {equity_pct}% vs target {target_equity}%",
+                reason=f"Equity at {equity_pct}% — {delta}pp below your {risk_label} band target of {target_equity}%",
             ))
         else:
             actions.append(RebalanceAction(
                 action="HOLD", fund_name="All holdings",
                 current_pct=equity_pct, target_pct=target_equity,
-                reason="Allocation is within ±5% of target — no rebalance needed.",
+                reason=f"Equity at {equity_pct}% — within ±5pp of your {risk_label} band target. No rebalance needed.",
             ))
 
         for h in raw[:3]:

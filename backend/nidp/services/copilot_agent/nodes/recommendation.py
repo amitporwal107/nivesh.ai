@@ -12,7 +12,7 @@ from typing import List
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
-from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -24,13 +24,158 @@ You surface actionable investment ideas grounded in screener data in TOOL_DATA.
 Always cite specific data points (RSI, PE ratio, Piotroski score, Sharpe ratio).
 
 Style:
-- ≤ 300 words, markdown
+- ≤ 300 words, plain text (no markdown)
 - Stocks: table — Symbol | Score/10 | Signal | RSI | PE | Key Reason
 - Funds:  table — Fund | Category | 3Y CAGR | Sharpe | TER | Reason
 - Max 5 picks; bold the top pick
 - Note the user's risk profile if mentioned
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 """ + ANTI_HALLUCINATION_RULES
+
+
+import re
+
+# Metric synonyms → widget filter key (used by the stock-screener NL parser).
+# Order matters: longer / more-specific phrases first so e.g. "sales growth yoy"
+# is not eaten by "sales growth". Keys match the NIDP-backed primitive catalog
+# in services/copilot_tools/stock_intelligence.py (_SCREENER_PRIMITIVES).
+_SCREEN_METRICS = [
+    # Valuation
+    ("evEbitda",     r"ev\s*/?\s*ebitda|enterprise value"),
+    ("peVsSector",   r"p\s*/?\s*e\s+vs\s+sector|pe\s+vs\s+sector"),
+    ("pe",           r"p\s*/?\s*e(?:\s+ratio)?|price[\s-]+to[\s-]+earnings"),
+    ("pb",           r"p\s*/?\s*b(?:\s+ratio)?|price[\s-]+to[\s-]+book"),
+    ("divYield",     r"dividend\s+yield|div\s+yield|dividend"),
+    # Profitability
+    ("roce",         r"roce|return on capital(?: employed)?"),
+    ("roe",          r"roe|return on equity"),
+    ("profitMargin", r"net\s+(?:profit\s+)?margin|profit\s+margin|net\s+margin"),
+    ("interestCoverage", r"interest\s+cover(?:age)?"),
+    ("earningsConsistency", r"earnings\s+consistency"),
+    # Growth
+    ("salesGyoy",    r"sales\s+growth\s+yoy|revenue\s+growth\s+yoy|sales\s+yoy|revenue\s+yoy"),
+    ("profitGyoy",   r"profit\s+growth\s+yoy|pat\s+growth\s+yoy|profit\s+yoy|pat\s+yoy"),
+    ("epsGyoy",      r"eps\s+growth\s+yoy|eps\s+yoy"),
+    ("salesG",       r"sales\s+growth|revenue\s+growth|topline\s+growth"),
+    ("profitG",      r"profit\s+growth|earnings\s+growth|eps\s+growth|pat\s+growth"),
+    ("marginTrend",  r"margin\s+trend"),
+    # Financial health
+    ("de",           r"debt[\s-]+to[\s-]+equity|debt\s*/\s*equity|d\s*/\s*e"),
+    ("debtTrend",    r"debt\s+trend"),
+    ("liquidity",    r"liquidity(?:\s+score)?"),
+    # Size
+    ("mcap",         r"market\s+cap(?:italisation|italization)?|mcap"),
+    # Price / technical
+    ("return1y",     r"1\s*y(?:ea)?r?\s+return|one\s+year\s+return|return\s+1y|annual\s+return"),
+    ("volatility",   r"volatility"),
+    ("beta",         r"beta"),
+    ("maxDrawdown",  r"max(?:imum)?\s+drawdown|drawdown"),
+    ("rsi",          r"rsi(?:\s*14)?"),
+    ("momentum",     r"momentum(?:\s+score)?"),
+    ("accumulation", r"accumulation(?:\s+score)?"),
+    # Ownership / smart money
+    ("promoterPledge", r"promoter\s+pledge|pledged?\s+(?:shares|holding)?"),
+    ("promoterChange", r"promoter\s+(?:holding\s+)?change"),
+    ("promoter",     r"promoter(?:\s+holding)?"),
+    ("fiiChange",    r"fii\s+change"),
+    ("fii",          r"fii(?:\s+holding)?|foreign\s+(?:institutional|holding)"),
+    ("dii",          r"dii(?:\s+holding)?|domestic\s+institutional"),
+]
+_MIN_WORDS = r"over|above|greater than|more than|at least|min(?:imum)?|higher than|>"
+_MAX_WORDS = r"under|below|less than|at most|max(?:imum)?|lower than|<"
+
+
+def _parse_screen_filters(text: str) -> dict:
+    """Parse a natural-language screen ("ROE over 18, P/E under -20, low debt")
+    into widget filter keys + server-side kwargs. Forward phrasing only.
+
+    Matched spans are masked as they're consumed so a generic synonym
+    ("promoter") can't re-match inside an already-claimed phrase
+    ("promoter pledge"). Negative thresholds are supported (e.g. down-20 screens)."""
+    tl = text.lower()           # for qualitative + cap-bucket detection
+    t = tl                      # working copy that gets masked as metrics are claimed
+    num = r"(-?[\d]+(?:\.[\d]+)?)"
+    client: dict = {}
+    for key, syn in _SCREEN_METRICS:
+        for words, suffix in ((_MIN_WORDS, "min"), (_MAX_WORDS, "max")):
+            m = re.search(rf"(?:{syn})[^\d-]{{0,12}}?(?:{words})\s*{num}", t)
+            if m:
+                client[f"{key}_{suffix}"] = float(m.group(1))
+                t = t[:m.start()] + " " * (m.end() - m.start()) + t[m.end():]
+    # Qualitative shortcuts
+    if re.search(r"debt[\s-]*free|no\s+debt|zero\s+debt", tl):
+        client["de_max"] = min(client.get("de_max", 0.1), 0.1)
+    elif re.search(r"low\s+debt", tl) and "de_max" not in client:
+        client["de_max"] = 0.5
+
+    market_cap = None
+    if re.search(r"large[\s-]*cap", tl):     market_cap = "LARGE_CAP"
+    elif re.search(r"mid[\s-]*cap", tl):     market_cap = "MID_CAP"
+    elif re.search(r"small[\s-]*cap", tl):   market_cap = "SMALL_CAP"
+    elif re.search(r"micro[\s-]*cap", tl):   market_cap = "MICRO_CAP"
+
+    # Only the params the /v1/stocks/screener endpoint supports go server-side;
+    # every other parsed filter rides along as a client_filter (the widget
+    # applies it over the returned rows).
+    server = {
+        "min_roe": client.get("roe_min"),
+        "max_de": client.get("de_max"),
+        "min_sales_cagr_3y": client.get("salesG_min"),
+        "min_profit_cagr_3y": client.get("profitG_min"),
+        "max_rsi": client.get("rsi_max"),
+        "min_rsi": client.get("rsi_min"),
+        "max_pe_vs_sector": client.get("peVsSector_max"),
+        "market_cap": market_cap,
+    }
+    if client.get("roe_min") is not None:
+        server["sort_by"] = "roe_pct"
+    elif client.get("salesG_min") is not None:
+        server["sort_by"] = "revenue_growth_3y_cagr_pct"
+    elif client.get("profitG_min") is not None:
+        server["sort_by"] = "eps_growth_3y_cagr_pct"
+    else:
+        server["sort_by"] = "market_cap_cr"
+
+    # Human title from the parsed constraints (covers the full primitive catalog).
+    _lbl = {
+        "pe": "P/E", "pb": "P/B", "evEbitda": "EV/EBITDA", "peVsSector": "P/E vs sector",
+        "divYield": "Div Yield", "roe": "ROE", "roce": "ROCE", "profitMargin": "Net margin",
+        "interestCoverage": "Int cover", "earningsConsistency": "Earnings consistency",
+        "salesG": "Sales 3Y", "profitG": "Profit 3Y", "salesGyoy": "Sales YoY",
+        "profitGyoy": "Profit YoY", "epsGyoy": "EPS YoY", "marginTrend": "Margin trend",
+        "de": "D/E", "debtTrend": "Debt trend", "liquidity": "Liquidity", "mcap": "Mkt Cap",
+        "return1y": "1Y return", "volatility": "Volatility", "beta": "Beta",
+        "maxDrawdown": "Max drawdown", "rsi": "RSI", "momentum": "Momentum",
+        "accumulation": "Accumulation", "promoter": "Promoter %", "promoterPledge": "Pledge",
+        "fii": "FII %", "dii": "DII %", "fiiChange": "FII Δ", "promoterChange": "Promoter Δ",
+    }
+    bits = []
+    if market_cap:
+        bits.append(market_cap.replace("_", "-").title())
+    for key, _ in _SCREEN_METRICS:
+        if f"{key}_min" in client: bits.append(f"{_lbl[key]} > {client[f'{key}_min']:g}")
+        if f"{key}_max" in client: bits.append(f"{_lbl[key]} < {client[f'{key}_max']:g}")
+    title = " · ".join(bits) if bits else "Stock screen"
+
+    return {"client_filters": client, "server": server, "title": title}
+
+
+# "Build me a portfolio" launches the in-chat builder wizard instead of the
+# screener. Kept independent of intent._P_BUILDER to avoid a cross-node import;
+# the wizard self-drives the risk chat + /portfolio-builder endpoints client-side.
+_P_BUILD_PORTFOLIO = re.compile(
+    r"\b(?:build|create|design|set\s*up|make|start|begin)\s+(?:me\s+)?(?:a\s+|my\s+|my\s+first\s+|an?\s+)?"
+    r"(?:portfolio|investment\s+plan|investing)\b"
+    r"|\bportfolio\s+builder\b"
+    r"|\bhelp\s+me\s+(?:build|create|start)\s+(?:a\s+)?(?:portfolio|investing|investment\s+plan)\b"
+    r"|\binvest\s+from\s+scratch\b",
+    re.IGNORECASE,
+)
+
+_BUILDER_INTRO = (
+    "Let's build your portfolio. Pick a goal and I'll shape a real, ranked mix "
+    "to your risk profile — every fund scored on live V3 quality, not samples."
+)
 
 
 def _infer_risk_band(user_msg: str) -> str:
@@ -148,82 +293,64 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
                     error=mf_rec.error,
                 ))
 
-        # ── Stock screener + composite scoring ─────────────────────────────────
+        # ── Stock screener (real NIDP feature-store universe) ───────────────────
         else:
-            max_pe    = 30.0 if any(w in msg_lower for w in ("value", "undervalued")) else None
-            min_piotr = 6    if any(w in msg_lower for w in ("quality", "strong fundamental")) else None
-            valuation = "undervalued" if "undervalued" in msg_lower else None
+            intel_mod = importlib.import_module("services.copilot_tools.stock_intelligence")
+            parsed = _parse_screen_filters(user_msg)
 
-            screener = await rec_mod.screen_stocks(
-                rsi_max=65.0,
-                max_pe=max_pe,
-                min_piotroski=min_piotr,
-                valuation=valuation,
-                limit=20,
+            fetched = await intel_mod.nidp_stock_screener(
+                limit=60, **{k: v for k, v in parsed["server"].items() if v is not None},
             )
+            fetch_ok = fetched.get("ok", True)   # False only when the source is unreachable
+            raw_rows = fetched.get("rows", [])
 
-            if screener.ok and screener.rows:
-                symbols = [r["symbol"] for r in screener.rows if r.get("symbol")]
-                scored  = await rec_mod.composite_score_batch(
-                    symbols,
-                    user_risk_profile=risk_band,
-                    portfolio_data=portfolio_data,
-                    top_n=5,
-                )
-                rows = [
-                    {
-                        "symbol":    s.symbol,
-                        "score":     s.total_score,
-                        "signal":    s.signal,
-                        "rsi14":     s.data.get("rsi14"),
-                        "pe_ttm":    s.data.get("pe_ttm"),
-                        "piotroski": s.data.get("piotroski_score"),
-                        "sector":    s.data.get("sector"),
-                        "reason":    s.reasons[0] if s.reasons else "",
-                    }
-                    for s in scored
-                ]
-            else:
-                rows = []
+            widget_data = intel_mod.build_stock_screener_widget(
+                raw_rows,
+                title=parsed["title"],
+                initial_filters=parsed["client_filters"],
+                as_of_date=fetched.get("as_of_date"),
+            )
+            if fetch_ok and not raw_rows:
+                widget_data["note"] = "No stocks matched these filters — loosen a threshold and try again."
 
-            # Embed the top picks (symbol + score + signal + key metric) so the
-            # LLM has actual stocks to quote — without this the summary is
-            # just "20 scanned, 5 picks" and the LLM correctly answers
-            # "data unavailable" under the anti-hallucination rules.
+            # Ground the LLM narrative in the actual top names (the widget itself
+            # is deterministic; the LLM only writes the explanation). Without real
+            # symbols + metrics here the anti-hallucination rules force a
+            # "data unavailable" answer.
             pick_lines = []
-            for r in rows[:5]:
-                bits = [r.get("symbol", "?")]
-                if r.get("score") is not None:
-                    bits.append(f"{float(r['score']):.1f}/10")
-                if r.get("signal"):
-                    bits.append(str(r["signal"]))
+            for r in (widget_data.get("universe") or [])[:5]:
+                bits = [str(r.get("ticker") or r.get("name") or "?")]
                 metric_bits = []
-                if r.get("rsi14") is not None:
-                    metric_bits.append(f"RSI {float(r['rsi14']):.0f}")
-                if r.get("pe_ttm") is not None:
-                    metric_bits.append(f"PE {float(r['pe_ttm']):.1f}")
+                if r.get("roe") is not None:  metric_bits.append(f"ROE {float(r['roe']):.0f}%")
+                if r.get("pe") is not None:   metric_bits.append(f"PE {float(r['pe']):.1f}")
+                if r.get("de") is not None:   metric_bits.append(f"D/E {float(r['de']):.2f}")
                 if metric_bits:
                     bits.append("(" + " ".join(metric_bits) + ")")
                 pick_lines.append(" ".join(bits))
-            picks_str = "; ".join(pick_lines) if pick_lines else ""
+            picks_str = "; ".join(pick_lines)
+            count = widget_data.get("count", 0)
+
+            if not fetch_ok:
+                # Source unreachable → no widget; LLM emits the "couldn't retrieve" line.
+                summary = f"Stock screen ({parsed['title']}): screener data source unavailable"
+            elif count == 0:
+                # Valid empty result — a real answer, not a failure. Emit the widget
+                # (empty-state note) and let the LLM say "no stocks matched".
+                summary = f"Stock screen ({parsed['title']}): 0 stocks matched the filters"
+            else:
+                summary = (
+                    f"Stock screen ({parsed['title']}): {count} matches"
+                    + (f" — {picks_str}" if picks_str else "")
+                    + (f" [as of {fetched.get('as_of_date')}]" if fetched.get("as_of_date") else "")
+                )
 
             results.append(ToolResult(
-                ok=screener.ok,
+                ok=fetch_ok,                       # True even for 0 matches → widget still renders
                 tool_name="stock_screener",
-                summary=(
-                    f"Screener ({screener.filter_summary}): "
-                    f"{screener.total_scanned} scanned, {len(rows)} top picks"
-                    + (f" — {picks_str}" if picks_str else "")
-                ),
-                data={
-                    "filter_summary":  screener.filter_summary,
-                    "total_scanned":   screener.total_scanned,
-                    "top_picks_count": len(rows),
-                    "risk_band":       risk_band,
-                },
-                rows=rows,
+                summary=summary,
+                data=widget_data,
+                rows=widget_data.get("universe", []),
                 widget_type=WidgetType.STOCK_SCREENER,
-                error=screener.error,
             ))
 
     except Exception as exc:
@@ -237,6 +364,31 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
 
 
 async def recommendation_node(state: CopilotState) -> dict:
+    # ── Builder short-circuit ───────────────────────────────────────────────
+    # "Build me a portfolio" → emit the interactive builder seed widget (the
+    # wizard self-drives the risk chat + /portfolio-builder endpoints). Static
+    # intro, no LLM call — deterministic, nothing to hallucinate.
+    _builder_msg = next(
+        (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
+        "",
+    )
+    if _P_BUILD_PORTFOLIO.search(_builder_msg or ""):
+        from .._stream import emit_widget
+        seed = {"has_risk_profile": False}
+        await emit_widget(WidgetType.PORTFOLIO_BUILDER, seed)
+        response = AgentResponse(
+            agent=AgentName.RECOMMENDATION,
+            text=_BUILDER_INTRO,
+            widget_type=WidgetType.PORTFOLIO_BUILDER,
+            widget_data=seed,
+            tool_results=[],
+        )
+        return {
+            "tool_results": [],
+            "response":     response,
+            "messages":     [AIMessage(content=_BUILDER_INTRO)],
+        }
+
     tool_results = await _fetch_recommendation_data(state)
     tool_context  = "TOOL_DATA:\n" + "\n".join(
         f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results
@@ -249,8 +401,8 @@ async def recommendation_node(state: CopilotState) -> dict:
 
     llm = ChatOpenAI(
         model=COPILOT_LLM_MODEL,
-        temperature=0.2,
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
+        temperature=temperature_for(0.2),
+        api_key=get_openai_api_key(),
     )
     resp = await llm.ainvoke([
         {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},

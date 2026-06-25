@@ -131,9 +131,13 @@ def score_technical(
     else:
         vol_avg_score = 30.0   # low volume — weak confirmation
 
-    # OBV trend: use accumulation_score from stock_features_daily
-    obv_score = _p("accumulation_score") or 50.0
-    obv_score = max(0.0, min(100.0, float(obv_score)))
+    # OBV trend: accumulation_score is 0..100 accumulation STRENGTH from the TI engine
+    # (None when there isn't enough history). Map to an OBV-style contribution centred
+    # on 50 — no accumulation is neutral, strong accumulation pulls the score up — so a
+    # moderate signal can't score below a no-signal stock (the old `or 50.0` did exactly
+    # that, and also treated a real 0.0 as missing).
+    acc = _p("accumulation_score")
+    obv_score = 50.0 if acc is None else max(0.0, min(100.0, 50.0 + float(acc) * 0.5))
 
     volume_score = weighted([
         (deliv_score,  50),

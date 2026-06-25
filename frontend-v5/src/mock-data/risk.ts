@@ -8,10 +8,10 @@ export const mockRisk: RiskSnapshot = {
   maxDrawdownPct: -0.18,
   beta: 1.08,
   riskDrivers: [
-    { name: "Financials concentration", sharePct: 38 },
-    { name: "Mid/small-cap tilt",       sharePct: 19 },
-    { name: "INR exposure (96%)",       sharePct: 10 },
-    { name: "Other (diversified)",      sharePct: 33 },
+    { name: "Financials concentration", sharePct: 38, fundamentalScore: 35, riskFlags: ["WEAK_COVERAGE"] },
+    { name: "Mid/small-cap tilt",       sharePct: 19, fundamentalScore: null, riskFlags: [] },
+    { name: "INR exposure (96%)",       sharePct: 10, fundamentalScore: null, riskFlags: [] },
+    { name: "Other (diversified)",      sharePct: 33, fundamentalScore: null, riskFlags: [] },
   ],
   stressScenarios: [
     { name: "2008 GFC",            portfolioPct: -0.324, benchPct: -0.381, recovery: "14 months" },

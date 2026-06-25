@@ -16,6 +16,7 @@
  * Pairs with /api/insights/analysis for the health score.
  */
 import { http } from "@/services/api/http";
+import { apiFetch } from "@/services/api/authed-fetch";
 import { ApiError } from "@/services/api/errors";
 import {
   HoldingsListRes,
@@ -23,11 +24,42 @@ import {
   EnrichedHoldingsRes,
   InstrumentSearchRes,
   SipsListRes,
+  ConcentrationBreakdownC,
 } from "@/services/contracts/portfolio.contract";
 import { mapHoldings } from "@/services/mappers/portfolio.mapper";
 import { realInsightsAdapter } from "./insights.adapter";
 import type { Holding } from "@/types/fund";
-import type { PortfolioSummary, NavPoint } from "@/types/portfolio";
+import type { PortfolioSummary, NavPoint, AllocationSlice, AssetClass } from "@/types/portfolio";
+
+/** Asset classes the UI knows how to colour/label. */
+const ALLOCATION_LABELS: Record<AssetClass, string> = {
+  equity: "Equity", debt: "Debt", hybrid: "Hybrid",
+  gold: "Gold", international: "International", cash: "Cash",
+};
+
+/**
+ * Map the backend `allocation_actual` object ({ equity: 66.9, hybrid: 33.1 })
+ * into the AllocationSlice[] the donut + Portfolio page expect. Backend gives
+ * only percentages, so per-class value is derived from the portfolio total.
+ * Returns [] for missing/garbage input — callers must tolerate an empty array.
+ */
+function mapAllocation(actual: unknown, totalValuePaise: number): AllocationSlice[] {
+  if (!actual || typeof actual !== "object") return [];
+  return Object.entries(actual as Record<string, unknown>)
+    .map(([key, raw]) => {
+      const pct = typeof raw === "number" ? raw : Number(raw);
+      if (!Number.isFinite(pct) || pct <= 0) return null;
+      const assetClass = key.toLowerCase() as AssetClass;
+      return {
+        assetClass,
+        label: ALLOCATION_LABELS[assetClass] ?? (key.charAt(0).toUpperCase() + key.slice(1)),
+        pct,
+        value: Math.round((pct / 100) * totalValuePaise),
+      } satisfies AllocationSlice;
+    })
+    .filter((s): s is AllocationSlice => s !== null)
+    .sort((a, b) => b.pct - a.pct);
+}
 
 export interface PortfolioAdapter {
   listHoldings(portfolioId?: string, assetType?: string): Promise<Holding[]>;
@@ -36,6 +68,7 @@ export interface PortfolioAdapter {
   getNavHistory(range: "1m" | "3m" | "6m" | "1y" | "all"): Promise<NavPoint[]>;
   searchInstruments(q: string): Promise<import("@/services/contracts/portfolio.contract").InstrumentSearchRes>;
   listSips(): Promise<import("@/services/contracts/portfolio.contract").SipsListRes>;
+  getConcentration(): Promise<import("@/services/contracts/portfolio.contract").ConcentrationBreakdownC>;
 }
 
 const DAYS_BY_RANGE: Record<string, number> = {
@@ -57,6 +90,23 @@ export const realPortfolioAdapter: PortfolioAdapter = {
     const res = await http({ path: "/api/portfolio/holdings-enriched", query: { fresh } });
     const parsed = EnrichedHoldingsRes.safeParse(res.data);
     if (!parsed.success) throw ApiError.contractDrift(`portfolio.enriched: ${parsed.error.message}`);
+    // The backend sends per-row fund CAGR + the matched index CAGR, but not the
+    // relative delta the Holdings table / drawer render. Derive it here (once)
+    // so every consumer agrees: fund − benchmark, preferring the 1y horizon and
+    // falling back to 3y, with the horizon recorded so the label stays honest.
+    for (const h of parsed.data.holdings) {
+      const any = h as Record<string, number | null | undefined>;
+      if (any.benchmark_delta != null) continue;
+      const f1 = any.cagr_1y_pct, b1 = any.benchmark_cagr_1y_pct;
+      const f3 = any.cagr_3y_pct, b3 = any.benchmark_cagr_3y_pct;
+      let delta: number | null = null, horizon: "1y" | "3y" | null = null;
+      if (f1 != null && b1 != null) { delta = f1 - b1; horizon = "1y"; }
+      else if (f3 != null && b3 != null) { delta = f3 - b3; horizon = "3y"; }
+      if (delta != null) {
+        any.benchmark_delta = Math.round(delta * 10) / 10;
+        (h as Record<string, unknown>).benchmark_delta_horizon = horizon;
+      }
+    }
     return parsed.data;
   },
 
@@ -66,7 +116,7 @@ export const realPortfolioAdapter: PortfolioAdapter = {
     const [enriched, health, casState] = await Promise.all([
       this.listHoldingsEnriched().catch(() => null),
       realInsightsAdapter.analysis().catch(() => null),
-      fetch("/api/onboarding/state", { credentials: "include" })
+      apiFetch("/api/onboarding/state")
         .then((r) => r.ok ? r.json() as Promise<{ cas_portfolio_value_rs?: number | null; cas_statement_date?: string | null }> : null)
         .catch(() => null),
     ]);
@@ -89,7 +139,7 @@ export const realPortfolioAdapter: PortfolioAdapter = {
       healthScore: health?.health.health_score ?? health?.health.score ?? 0,
       riskBucket: "moderate" as const,
       riskBucketIndex: 3,
-      allocation: [],
+      allocation: mapAllocation(enriched?.allocation_actual, totalValue),
       topInsights: [],
     };
   },
@@ -98,7 +148,7 @@ export const realPortfolioAdapter: PortfolioAdapter = {
     const days = DAYS_BY_RANGE[range] ?? 365;
     const [trendRes, casState] = await Promise.all([
       http({ path: "/api/portfolio/trend", query: { days } }).catch(() => ({ data: null })),
-      fetch("/api/onboarding/state", { credentials: "include" })
+      apiFetch("/api/onboarding/state")
         .then((r) => r.ok ? r.json() as Promise<{
           cas_portfolio_value_rs?: number | null;
           cas_statement_date?: string | null;
@@ -162,6 +212,14 @@ export const realPortfolioAdapter: PortfolioAdapter = {
     const res = await http({ path: "/api/portfolio/sips" });
     const parsed = SipsListRes.safeParse(res.data);
     if (!parsed.success) throw ApiError.contractDrift(`portfolio.listSips: ${parsed.error.message}`);
+    return parsed.data;
+  },
+
+  async getConcentration() {
+    // AMC / sector / company / group look-through (the Insights engine).
+    const res = await http({ path: "/api/portfolio/exposure/concentration" });
+    const parsed = ConcentrationBreakdownC.safeParse(res.data);
+    if (!parsed.success) throw ApiError.contractDrift(`portfolio.concentration: ${parsed.error.message}`);
     return parsed.data;
   },
 };

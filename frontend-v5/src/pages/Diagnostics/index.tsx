@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Activity, Flag, Bug, Globe, Copy, ExternalLink, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 import { getHealthRegistry, getOverallHealth, type ComponentHealthRecord } from "@/lib/health-registry";
 import { getAllFlags, enableFlag, disableFlag, type WidgetFlagKey } from "@/lib/feature-flags";
+import { apiFetch } from "@/services/api/authed-fetch";
 import { getCrashRegistry, type CrashFingerprint } from "@/lib/crash-fingerprint";
 import { buildDiagnosticPayload, copyDiagnosticsToClipboard, formatAsGitHubIssueUrl } from "@/lib/diagnostic-payload";
 
@@ -44,7 +45,7 @@ export default function DiagnosticsPage() {
 
   useEffect(() => {
     const t0 = performance.now();
-    fetch("/api/auth/me", { credentials: "include" })
+    apiFetch("/api/auth/me")
       .then((r) => {
         setApiLatency(Math.round(performance.now() - t0));
         setApiStatus(r.ok || r.status === 401 ? "ok" : "down");

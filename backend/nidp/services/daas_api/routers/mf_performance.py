@@ -389,19 +389,26 @@ async def v3_mf_primitives_bulk(
 
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # Migration 098 converted v_v3_mf_primitives from a plain view into a
+        # MATERIALIZED view for fast reads. information_schema.views does NOT
+        # list materialized views, so check pg_matviews too — otherwise this
+        # guard wrongly 503s ("migration 058 not applied") on every call even
+        # though the populated matview is right there.
         view_exists = await conn.fetchval(
             """
             SELECT EXISTS (
                 SELECT 1 FROM information_schema.views
-                 WHERE table_schema = 'nidp'
-                   AND table_name   = 'v_v3_mf_primitives'
+                 WHERE table_schema = 'nidp' AND table_name = 'v_v3_mf_primitives'
+            ) OR EXISTS (
+                SELECT 1 FROM pg_matviews
+                 WHERE schemaname = 'nidp' AND matviewname = 'v_v3_mf_primitives'
             )
             """
         )
         if not view_exists:
             raise HTTPException(
                 status_code=503,
-                detail="nidp.v_v3_mf_primitives missing — migration 058 not applied",
+                detail="nidp.v_v3_mf_primitives missing — migration 058/098 not applied",
             )
         rows = await conn.fetch(
             f"""

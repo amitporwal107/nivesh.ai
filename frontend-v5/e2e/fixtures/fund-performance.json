@@ -1,0 +1,61 @@
+{
+  "performance_distribution": { "overperforming": 12, "meeting": 28, "underperforming": 20 },
+  "top_performers": [
+    { "name": "PARAG PARIKH FLEXI CAP FUND", "return_1y": 32.4, "rating": "overperforming" },
+    { "name": "HDFC BALANCED ADVANTAGE FUND", "return_1y": 28.7, "rating": "overperforming" },
+    { "name": "MIRAE ASSET LARGE CAP FUND", "return_1y": 26.1, "rating": "overperforming" }
+  ],
+  "bottom_performers": [
+    { "name": "ICICI PRUDENTIAL NIFTY IT ETF", "return_1y": -4.2, "rating": "underperforming" },
+    { "name": "NIPPON INDIA SMALL CAP FUND", "return_1y": 2.1, "rating": "underperforming" }
+  ],
+  "fund_ratings": [
+    {
+      "name": "PARAG PARIKH FLEXI CAP FUND",
+      "ticker": "INF879O01027",
+      "asset_type": "mutual_fund",
+      "invested": 247854,
+      "current_value": 328476,
+      "simple_return_pct": 32.4,
+      "return_1y": 32.4,
+      "return_3y": 18.6,
+      "xirr_pct": 21.3,
+      "alpha": 10.2,
+      "rating": "overperforming",
+      "scheme_category": "Flexi Cap Fund",
+      "category_rank": 1,
+      "category_total": 28,
+      "category_rank_pct": 96.4
+    },
+    {
+      "name": "HDFC BALANCED ADVANTAGE FUND",
+      "ticker": "INF179K01BB0",
+      "asset_type": "mutual_fund",
+      "invested": 1453428,
+      "current_value": 1872147,
+      "simple_return_pct": 28.7,
+      "return_1y": 28.7,
+      "return_3y": 16.2,
+      "xirr_pct": 18.9,
+      "alpha": 6.8,
+      "rating": "overperforming",
+      "scheme_category": "Balanced Advantage Fund",
+      "category_rank": 3,
+      "category_total": 19,
+      "category_rank_pct": 84.2
+    },
+    {
+      "name": "ICICI PRUDENTIAL NIFTY IT ETF",
+      "ticker": "INF109KC19U5",
+      "asset_type": "etf",
+      "invested": 52100,
+      "current_value": 49948,
+      "simple_return_pct": -4.2,
+      "return_1y": -4.2,
+      "xirr_pct": -3.1,
+      "alpha": null,
+      "rating": "underperforming",
+      "scheme_category": "ETF"
+    }
+  ]
+}

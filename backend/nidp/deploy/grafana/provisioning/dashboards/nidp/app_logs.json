@@ -1,0 +1,398 @@
+{
+  "title": "Centralized Application Logs",
+  "uid": "app-logs-central",
+  "schemaVersion": 39,
+  "version": 8,
+  "editable": true,
+  "tags": [
+    "logs",
+    "centralized",
+    "app"
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "timezone": "Asia/Kolkata",
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Environment",
+        "type": "custom",
+        "hide": 0,
+        "options": [
+          {
+            "text": "prod",
+            "value": "nivesh-app-vm",
+            "selected": true
+          },
+          {
+            "text": "staging",
+            "value": "nidp-stack-vm",
+            "selected": false
+          }
+        ],
+        "current": {
+          "text": "prod",
+          "value": "nivesh-app-vm"
+        },
+        "multi": false,
+        "includeAll": false,
+        "query": "prod : nivesh-app-vm,staging : nidp-stack-vm"
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "custom",
+        "hide": 0,
+        "includeAll": true,
+        "allValue": "",
+        "options": [
+          {
+            "text": "All",
+            "value": "",
+            "selected": true
+          },
+          {
+            "text": "nivesh-api",
+            "value": "nivesh-api",
+            "selected": false
+          },
+          {
+            "text": "nidp-console",
+            "value": "nidp-console",
+            "selected": false
+          },
+          {
+            "text": "nidp-intelligence",
+            "value": "nidp-intelligence",
+            "selected": false
+          },
+          {
+            "text": "nidp-nse-financials",
+            "value": "nidp-nse-financials",
+            "selected": false
+          },
+          {
+            "text": "nidp-mf-holdings",
+            "value": "nidp-mf-holdings",
+            "selected": false
+          }
+        ],
+        "current": {
+          "text": "All",
+          "value": ""
+        },
+        "multi": false,
+        "query": "nivesh-api,nidp-console,nidp-intelligence,nidp-nse-financials,nidp-mf-holdings"
+      },
+      {
+        "name": "min_severity",
+        "label": "Min Severity",
+        "type": "custom",
+        "hide": 0,
+        "options": [
+          {
+            "text": "DEBUG",
+            "value": "DEBUG",
+            "selected": false
+          },
+          {
+            "text": "INFO",
+            "value": "INFO",
+            "selected": true
+          },
+          {
+            "text": "WARNING",
+            "value": "WARNING",
+            "selected": false
+          },
+          {
+            "text": "ERROR",
+            "value": "ERROR",
+            "selected": false
+          },
+          {
+            "text": "CRITICAL",
+            "value": "CRITICAL",
+            "selected": false
+          }
+        ],
+        "current": {
+          "text": "INFO",
+          "value": "INFO"
+        },
+        "multi": false,
+        "includeAll": false,
+        "query": "DEBUG,INFO,WARNING,ERROR,CRITICAL"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Errors (1h)",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "googlecloud-logging-datasource",
+        "uid": "gcp-logging"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "logs",
+          "projectId": "niveshdataintelligence",
+          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(\" [45][0-9][0-9] |error|Error)\""
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Criticals (1h)",
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "googlecloud-logging-datasource",
+        "uid": "gcp-logging"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "logs",
+          "projectId": "niveshdataintelligence",
+          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(critical|CRITICAL|500 |502 |503 )\""
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Warnings (1h)",
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "googlecloud-logging-datasource",
+        "uid": "gcp-logging"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "orange",
+                "value": 50
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "logs",
+          "projectId": "niveshdataintelligence",
+          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\"\njsonPayload.log=~\"(?i)(warning|Warning|400 |401 |403 |404 )\""
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Total Entries (1h)",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "googlecloud-logging-datasource",
+        "uid": "gcp-logging"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "blue",
+            "mode": "fixed"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ]
+        },
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "logs",
+          "projectId": "niveshdataintelligence",
+          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\""
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "logs",
+      "title": "GCP Cloud Logging \u2014 [${env}] \u2265 ${min_severity}",
+      "description": "Centralized logs from Nivesh app (FastAPI) and NIDP services. Structured JSON, GCP trace-correlated.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 22
+      },
+      "datasource": {
+        "type": "googlecloud-logging-datasource",
+        "uid": "gcp-logging"
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "logs",
+          "projectId": "niveshdataintelligence",
+          "queryText": "labels.\"compute.googleapis.com/resource_name\"=\"${env}\""
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "logs",
+      "title": "NIDP VM Logs \u2014 Loki (nidp-stack-vm local)",
+      "description": "Logs shipped by Promtail from /opt/nidp/logs/ on nidp-stack-vm. Complements GCP panel above.",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 12
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{filename=~\"/nidp/logs/.*\"} | json | severity >= `${min_severity}`"
+        }
+      ]
+    }
+  ]
+}

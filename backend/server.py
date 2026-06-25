@@ -39,7 +39,8 @@ from routes.admin_datastores import router as admin_datastores_router
 from routes.admin_rules import router as admin_rules_router
 from routes.admin_users import router as admin_users_router
 from routes.admin_data_pipeline import router as admin_pipeline_router
-from routes.admin_nidp import router as admin_nidp_router  # NIDP one-click diagnostic dump
+from routes.admin_nidp import router as admin_nidp_router, router_static as admin_nidp_static_router  # NIDP job control plane
+from routes.admin_allocation_bands import router as admin_allocation_bands_router  # allocation band config
 from routes.admin_nidp_replay import router as admin_nidp_replay_router  # NIDP 90-day replay engine
 from routes.admin_nidp_backfill import router as admin_nidp_backfill_router  # NIDP backfill status proxy
 from routes.copilot_prompts import router as copilot_prompts_router
@@ -50,6 +51,7 @@ from routes.portfolio import router as portfolio_router
 from routes.upload import router as upload_router
 from routes.analytics import router as analytics_router
 from routes.chat import router as chat_router
+from routes.screeners import router as screeners_router
 from routes.user import router as user_router
 from routes.insights import router as insights_router
 from routes.scenarios import router as scenarios_router
@@ -66,6 +68,7 @@ from routes.portfolio_snapshots import router as portfolio_snapshots_router  # T
 from routes.portfolio_export import router as portfolio_export_router  # CSV/XLSX export
 from routes.client_cas_invite import mfd_router as cas_invite_mfd_router, public_router as cas_invite_public_router
 from routes.data_health import router as data_health_router  # Global stale-data banner
+from routes.client_logs import router as client_logs_router  # Mobile app → Cloud Logging ingest
 from routes.cas_transactions import router as cas_transactions_router  # SIP detection + txn history
 from routes.cas_snapshots import router as cas_snapshots_router  # CAS Time-Machine endpoints
 from routes.benchmarks import router as benchmarks_router  # Benchmark Index Data Service
@@ -78,6 +81,7 @@ from routes.broker_native import router as broker_native_router  # Native broker
 from routes.work import router as work_router                    # Work issues dashboard (/api/work/) — error triage + diagnostics
 from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reverse-proxy for the Nivesh-hosted OpenAlgo dashboard
 from routes.market_events import router as market_events_router  # Market Event Intelligence — corporate events, AI signals, breakout feed
+from routes.markets import router as markets_router              # Markets home dashboard aggregator (/api/markets/home)
 from routes.portfolio_exposure import router as portfolio_exposure_router  # Diversification & Concentration analytics — AMC / Sector / Company exposure
 from routes.portfolio_risk_analytics import router as portfolio_risk_analytics_router  # V3 risk analytics — beta/sharpe/volatility from DAAS
 from routes.portfolio_composition import router as portfolio_composition_router  # v5 Composition Explorer — asset_class/sector/fund/group breakdown
@@ -95,6 +99,7 @@ from routes.copilot_agents import router as copilot_agents_router  # Copilot age
 from routes.copilot_widgets import router as copilot_widgets_router  # Copilot embedded-widget producers (Fund card, Market brief, ...)
 from routes.admin_swagger import router as admin_swagger_router  # Admin-only Swagger UI (/api/admin/swagger)
 from routes.grafana_alerts import router as grafana_alerts_router  # Grafana webhook receiver + active alerts query
+from routes.monitoring_actions import router as monitoring_actions_router  # Operator actions webhook + audit log
 
 # ── CAS ingestion module ──────────────────────────────────────────────
 # Used to be a standalone FastAPI service in its own container; now mounted
@@ -118,17 +123,26 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="nivesh.ai API", version="2.0")
 register_error_handlers(app)
 
+# Prometheus RED metrics — exposes /metrics for Prometheus scraping.
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator().instrument(app).expose(app, include_in_schema=False)
+except ImportError:
+    pass  # graceful no-op if not installed (local dev without the package)
+
 # Include all routers
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(admin_users_router)
 app.include_router(admin_v3_master_router)
 app.include_router(admin_v3_weights_router)
+app.include_router(admin_allocation_bands_router)  # GET/PUT/POST /api/admin/allocation-bands
 app.include_router(admin_v3_stock_router)
 app.include_router(admin_datastores_router)
 app.include_router(admin_rules_router)
 app.include_router(admin_pipeline_router)
 app.include_router(admin_nidp_router)
+app.include_router(admin_nidp_static_router)
 app.include_router(admin_nidp_replay_router)
 app.include_router(admin_nidp_backfill_router)
 app.include_router(copilot_prompts_router)
@@ -140,6 +154,7 @@ app.include_router(portfolio_export_router)
 app.include_router(upload_router)
 app.include_router(analytics_router)
 app.include_router(chat_router)
+app.include_router(screeners_router)
 app.include_router(user_router)
 app.include_router(insights_router)
 app.include_router(scenarios_router)
@@ -157,6 +172,7 @@ app.include_router(portfolio_snapshots_router)  # Portfolio Time-Machine
 app.include_router(cas_invite_mfd_router)       # Client CAS invite (MFD side)
 app.include_router(cas_invite_public_router)    # Client CAS invite (public, no auth)
 app.include_router(data_health_router)           # Global stale-data banner
+app.include_router(client_logs_router)           # Mobile app → Cloud Logging ingest
 app.include_router(cas_transactions_router)      # SIP detection + txn history
 app.include_router(cas_snapshots_router)          # CAS Time-Machine endpoints
 app.include_router(benchmarks_router)             # Benchmark Index Data Service
@@ -168,6 +184,7 @@ app.include_router(broker_connect_router)          # Secure Portfolio Connect �
 app.include_router(broker_native_router)           # Native broker connect (no OpenAlgo) — preferred path for SPC retail
 app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://127.0.0.1:5000/api/openalgo/* (reverse proxy)
 app.include_router(market_events_router)           # Market Event Intelligence feed (/api/market/events, /signals)
+app.include_router(markets_router)                 # Markets home dashboard aggregator (/api/markets/home)
 app.include_router(portfolio_exposure_router)      # Diversification & Concentration analytics (/api/portfolio/exposure/concentration)
 app.include_router(portfolio_risk_analytics_router) # V3 risk analytics (/api/portfolio/risk-analytics) — beta/sharpe/vol from DAAS
 app.include_router(portfolio_composition_router)   # v5 Composition Explorer (/api/portfolio/composition)
@@ -193,6 +210,7 @@ app.include_router(cas_admin_router)      # GET  /api/admin/jobs/stale|summary, 
 app.include_router(cas_health_router)     # GET  /api/healthz, /api/readyz (CAS-specific; V2 has none)
 app.include_router(work_router)           # GET/POST/PATCH /api/work/issues, /api/work/stats
 app.include_router(grafana_alerts_router) # POST /api/internal/grafana-alerts, GET /api/admin/grafana-alerts
+app.include_router(monitoring_actions_router) # POST /api/admin/monitoring/action, GET /api/admin/monitoring/actions
 
 
 # Root endpoint
@@ -223,6 +241,16 @@ if _cors_env == '' or _cors_env == '*':
     _cors_origin_regex = r".*"
 else:
     _cors_origins = [o.strip() for o in _cors_env.split(',') if o.strip()]
+
+# Native mobile (Capacitor) WebView origins are ALWAYS allowed so the Android/
+# iOS app can call the API cross-origin regardless of the per-env web allowlist.
+# A Capacitor app with androidScheme:"https" reports origin "https://localhost";
+# iOS / the legacy scheme reports "capacitor://localhost". Skipped when the
+# wildcard regex is already echoing every origin.
+if _cors_origin_regex is None:
+    for _native_origin in ("https://localhost", "capacitor://localhost"):
+        if _native_origin not in _cors_origins:
+            _cors_origins.append(_native_origin)
 
 app.add_middleware(
     CORSMiddleware,
@@ -256,6 +284,8 @@ async def startup_seed():
         await _ff.hydrate_from_db(db)
         await _v3w.hydrate_from_db(db)
         await _sscore.hydrate_from_db(db)
+        from services import allocation_bands as _ab
+        await _ab.hydrate_from_db(db)
         cas_cfg = await db.system_config.find_one({"key": "cas_parser"}, {"_id": 0})
         if cas_cfg and "use_sandbox" in cas_cfg:
             cas_api_client.set_override(use_sandbox=cas_cfg["use_sandbox"])

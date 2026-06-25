@@ -1,0 +1,121 @@
+{
+  "holdings": [
+    {
+      "name": "HDFC BALANCED ADVANTAGE FUND - DIRECT PLAN - GROWTH",
+      "asset_type": "mutual_fund",
+      "isin": "INF179K01BB0",
+      "action": "HOLD",
+      "reason": "Consistent outperformer — top quartile 3y returns with low volatility. No action needed.",
+      "quality_score": 82,
+      "current_value_rs": 1872147,
+      "invested_rs": 1453428,
+      "return_pct": 28.7,
+      "alpha": 6.8,
+      "risk_band": "moderate"
+    },
+    {
+      "name": "PARAG PARIKH FLEXI CAP FUND - DIRECT GROWTH",
+      "asset_type": "mutual_fund",
+      "isin": "INF879O01027",
+      "action": "BUY_MORE",
+      "reason": "Top category performer with low expense ratio and consistent alpha generation.",
+      "quality_score": 91,
+      "current_value_rs": 328476,
+      "invested_rs": 247854,
+      "return_pct": 32.4,
+      "alpha": 10.2,
+      "risk_band": "moderate"
+    },
+    {
+      "name": "NIPPON INDIA SMALL CAP FUND - DIRECT GROWTH",
+      "asset_type": "mutual_fund",
+      "isin": "INF204K01EY0",
+      "action": "REVIEW",
+      "reason": "Underperforming category average. High volatility and drawdown — review suitability.",
+      "quality_score": 42,
+      "current_value_rs": 185320,
+      "invested_rs": 181562,
+      "return_pct": 2.1,
+      "alpha": -3.2,
+      "risk_band": "high"
+    },
+    {
+      "name": "PUNJ LLOYD LIMITED",
+      "asset_type": "equity",
+      "isin": "INE701B01021",
+      "action": "EXIT",
+      "reason": "Illiquid micro-cap with no institutional coverage. Fundamentals deteriorated significantly.",
+      "quality_score": 18,
+      "current_value_rs": 1115,
+      "invested_rs": 2500,
+      "return_pct": -55.4,
+      "alpha": null,
+      "risk_band": "very_high"
+    },
+    {
+      "name": "ICICI PRUDENTIAL NIFTY IT ETF",
+      "asset_type": "etf",
+      "isin": "INF109KC19U5",
+      "action": "HOLD",
+      "reason": "Sector ETF performing in line with benchmark. Retain for tactical exposure.",
+      "quality_score": 65,
+      "current_value_rs": 49948,
+      "invested_rs": 52100,
+      "return_pct": -4.2,
+      "alpha": null,
+      "risk_band": "high"
+    }
+  ],
+  "top5_by_asset_class": {
+    "mutual_fund": [
+      {
+        "name": "PARAG PARIKH FLEXI CAP FUND - DIRECT GROWTH",
+        "asset_type": "mutual_fund",
+        "isin": "INF879O01027",
+        "action": "BUY_MORE",
+        "reason": "Top category performer with consistent alpha.",
+        "quality_score": 91,
+        "current_value_rs": 328476,
+        "invested_rs": 247854,
+        "return_pct": 32.4
+      },
+      {
+        "name": "HDFC BALANCED ADVANTAGE FUND - DIRECT PLAN - GROWTH",
+        "asset_type": "mutual_fund",
+        "isin": "INF179K01BB0",
+        "action": "HOLD",
+        "reason": "Consistent outperformer.",
+        "quality_score": 82,
+        "current_value_rs": 1872147,
+        "invested_rs": 1453428,
+        "return_pct": 28.7
+      }
+    ],
+    "equity": [
+      {
+        "name": "RELIANCE INDUSTRIES LIMITED",
+        "asset_type": "equity",
+        "isin": "INE002A01018",
+        "action": "HOLD",
+        "reason": "Core large-cap holding with strong fundamentals.",
+        "quality_score": 78,
+        "current_value_rs": 312540,
+        "invested_rs": 245000,
+        "return_pct": 27.6
+      }
+    ],
+    "etf": [
+      {
+        "name": "ICICI PRUDENTIAL NIFTY IT ETF",
+        "asset_type": "etf",
+        "isin": "INF109KC19U5",
+        "action": "HOLD",
+        "reason": "In-line with benchmark. Retain for tactical exposure.",
+        "quality_score": 65,
+        "current_value_rs": 49948,
+        "invested_rs": 52100,
+        "return_pct": -4.2
+      }
+    ]
+  }
+}

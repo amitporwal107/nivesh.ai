@@ -31,3 +31,17 @@ datasources:
       timeout: 60
     isDefault: false
     editable: true
+
+  - name: Google Cloud Logging
+    uid: gcp-logging
+    type: googlecloud-logging-datasource
+    access: proxy
+    editable: true
+    jsonData:
+      authenticationType: jwt
+      defaultProject: niveshdataintelligence
+      clientEmail: nivesh-log-triage-sa@niveshdataintelligence.iam.gserviceaccount.com
+      tokenUri: https://oauth2.googleapis.com/token
+    secureJsonData:
+      # Set on host before starting: export GCP_LOG_TRIAGE_PRIVATE_KEY="$(jq -r .private_key /opt/nidp/secrets/log-triage-sa.json)"
+      privateKey: ${GCP_LOG_TRIAGE_PRIVATE_KEY}

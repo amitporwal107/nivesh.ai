@@ -128,7 +128,7 @@ async def run(target_date: date | None = None) -> dict[str, int | str]:
             INSERT INTO features.stock_features_daily (
                 security_id, as_of_date, close_price,
                 ret_5d, ret_20d, rsi_14, macd, macd_signal,
-                sma_20, sma_50, atr_14, source_run_id
+                sma_20, sma_50, atr_14, volatility_20d, beta_90d, source_run_id
             )
             SELECT
                 sm.security_id,
@@ -142,6 +142,8 @@ async def run(target_date: date | None = None) -> dict[str, int | str]:
                 f.sma20,
                 f.sma50,
                 f.atr14,
+                f.volatility_1y_pct,
+                f.beta_1y,
                 f.source_run_id
             FROM nidp.stock_features_daily f
             JOIN ref.security_master sm
@@ -149,15 +151,17 @@ async def run(target_date: date | None = None) -> dict[str, int | str]:
             WHERE ($1::date IS NULL OR f.as_of_date = $1::date)
             ON CONFLICT (security_id, as_of_date)
             DO UPDATE SET
-                close_price = EXCLUDED.close_price,
-                ret_5d      = EXCLUDED.ret_5d,
-                ret_20d     = EXCLUDED.ret_20d,
-                rsi_14      = EXCLUDED.rsi_14,
-                macd        = EXCLUDED.macd,
-                macd_signal = EXCLUDED.macd_signal,
-                sma_20      = EXCLUDED.sma_20,
-                sma_50      = EXCLUDED.sma_50,
-                atr_14      = EXCLUDED.atr_14
+                close_price    = EXCLUDED.close_price,
+                ret_5d         = EXCLUDED.ret_5d,
+                ret_20d        = EXCLUDED.ret_20d,
+                rsi_14         = EXCLUDED.rsi_14,
+                macd           = EXCLUDED.macd,
+                macd_signal    = EXCLUDED.macd_signal,
+                sma_20         = EXCLUDED.sma_20,
+                sma_50         = EXCLUDED.sma_50,
+                atr_14         = EXCLUDED.atr_14,
+                volatility_20d = EXCLUDED.volatility_20d,
+                beta_90d       = EXCLUDED.beta_90d
             """,
             target_date,
             timeout=300,

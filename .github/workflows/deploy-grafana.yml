@@ -113,10 +113,11 @@ jobs:
             fi
 
             # ── 4. Recreate Grafana container ──────────────────────────────────
-            # `docker compose up -d` (not `docker restart`) re-injects env vars
-            # including GCP_LOG_TRIAGE_PRIVATE_KEY and GF_INSTALL_PLUGINS.
+            # `--force-recreate` ensures the container is always replaced, even
+            # when the compose config is unchanged (e.g. stable SA key value).
+            # This guarantees Grafana re-reads all provisioned files on startup.
             log "Recreating nidp-grafana container..."
-            sudo -E docker compose -f "$INFRA_COMPOSE" up -d grafana
+            sudo -E docker compose -f "$INFRA_COMPOSE" up -d --force-recreate grafana
             # Wait up to 60s for Grafana — first-run plugin install adds ~30s
             for i in $(seq 1 12); do
               sleep 5
@@ -132,6 +133,17 @@ jobs:
               echo "::error::Grafana did not come up. Check: sudo docker logs nidp-grafana --tail 50"
               exit 1
             fi
+
+            # ── 5b. Reload provisioned dashboards ──────────────────────────────
+            # Belt-and-suspenders: force Grafana to re-read all provisioned
+            # dashboard files. The version gate in Grafana provisioning only
+            # updates a dashboard if file version > DB version; calling reload
+            # after --force-recreate ensures fresh files are always applied.
+            sleep 3
+            curl -sf -u admin:admin -X POST \
+              http://127.0.0.1:3000/api/admin/provisioning/dashboards/reload >/dev/null && \
+              ok "Provisioned dashboards reloaded" || \
+              warn "Dashboard reload API failed — dashboards may show stale config until next restart"
 
       - name: Verify datasource provisioned
         uses: appleboy/ssh-action@v1.0.3

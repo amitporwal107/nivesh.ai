@@ -9,8 +9,19 @@ export const UserProfileC = z.object({
   name: z.string(),
   is_admin: z.boolean(),
   journey_type: z.string().nullable().optional(),
+  // Drives advisor-vs-investor primary navigation. "ADVISORY" → advisor (reduced
+  // nav); anything else / absent → full personal nav. During impersonation the
+  // backend resolves the effective (client) user, who owns no workspace → null.
+  workspace_type: z.string().nullable().optional(),
+  // The session's active impersonation profile (null when at the advisor root).
+  // Backend truth that the client reconciles its persisted banner against.
+  active_profile_id: z.string().nullable().optional(),
   risk_profile: z.unknown().nullable().optional(),
-  onboarding_completed: z.boolean(),
+  // Tolerant by design: a missing onboarding_completed must NOT fail the whole
+  // parse. When absent (backend contract drift) it defaults to false, routing
+  // the user to onboarding rather than wedging useMe() in a permanent contract
+  // error → RequireAuth remount loop. See get_me in backend/routes/auth.py.
+  onboarding_completed: z.boolean().optional().default(false),
   copilot_enabled: z.boolean().optional().default(false),
 });
 export type UserProfileC = z.infer<typeof UserProfileC>;

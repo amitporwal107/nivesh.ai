@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
-from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -25,12 +25,34 @@ You help users plan for financial goals like retirement, education, home purchas
 Use the data in TOOL_DATA where available.
 
 Style:
-- ≤ 250 words, markdown
-- Show: Goal | Target ₹ | Current corpus | Gap | Monthly SIP needed
+- ≤ 250 words, plain text (no markdown)
 - Use Indian numbering (lakhs, crores)
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
-If no goal data is available, perform the calculation from the user's stated inputs.
+Two cases — pick based on TOOL_DATA:
+
+CASE A — get_user_goals is OK and has a primary_goal:
+Lead with that goal. Show on their own lines (use the primary_goal / SIP_PROJECTION
+numbers verbatim — never invent or round):
+- Goal: {goal name}
+- Target: {target_rs}
+- Current corpus: {corpus_rs, or portfolio total if the goal has none earmarked}
+- Gap: {shortfall from SIP_PROJECTION}
+- Monthly SIP needed: {sip_needed from SIP_PROJECTION}
+Then one line on whether they're on track (goal_feasible / on_track_pct) and one
+concrete next step.
+
+CASE B — get_user_goals is NOT ok / no goals recorded:
+Do NOT print a "Goal: data unavailable / Target: data unavailable" table — that
+reads as broken. Instead:
+1. Say plainly they haven't set up a goal yet, so you'll show an illustrative
+   projection, and invite them to add a goal (name, target amount, time horizon)
+   for a tailored plan.
+2. Show the SIP_PROJECTION numbers that ARE available (the ₹/month → corpus line).
+3. Show their portfolio context (total, equity/debt split) if present.
+Never write "data unavailable" more than necessary; only state a single field as
+unavailable if it genuinely is and is needed.
+
 When SIP_PROJECTION data is present, quote its numbers verbatim — do not recompute.
 """ + ANTI_HALLUCINATION_RULES
 
@@ -80,8 +102,13 @@ def _parse_sip_intent(user_msg: str) -> Optional[Dict[str, Any]]:
 async def _run_sip_projection(
     user_msg: str,
     portfolio_total: float = 0.0,
+    primary_goal: Optional[Dict[str, Any]] = None,
 ) -> Optional[ToolResult]:
-    """Call the SIP projection tool with parameters extracted from user message."""
+    """Call the SIP projection tool with parameters extracted from the user
+    message, falling back to the user's primary recorded goal for the target
+    amount, horizon and corpus when the message doesn't state them. This is
+    what makes "Target ₹ / Gap / Monthly SIP needed" resolve instead of
+    coming back "data unavailable"."""
     try:
         from services.copilot_tools.sip import get_sip_projection
     except ImportError:
@@ -89,17 +116,25 @@ async def _run_sip_projection(
         return None
 
     params = _parse_sip_intent(user_msg) or {}
+    g = primary_goal or {}
+
     monthly = params.get("monthly_amount", 10_000.0)
-    years = int(params.get("years", 10))
-    goal = params.get("goal_amount")
+    # Horizon: stated → goal horizon → 10y default
+    years = int(params.get("years") or g.get("horizon_years") or 10)
+    # Target: stated → goal target. Leave None (no gap analysis) only when
+    # neither the message nor a recorded goal gives us one.
+    goal = params.get("goal_amount") or (g.get("target_rs") or None)
     step_up = params.get("step_up_pct", 0.0)
     category = params.get("fund_category", "equity")
+
+    # Corpus already earmarked to this goal, if any, else the whole portfolio.
+    current_corpus = float(g.get("corpus_rs") or 0) or portfolio_total
 
     result = await get_sip_projection(
         monthly_amount=monthly,
         years=years,
         goal_amount=goal,
-        current_corpus=portfolio_total,
+        current_corpus=current_corpus,
         step_up_pct=step_up,
         fund_category=category,
     )
@@ -110,10 +145,20 @@ async def _run_sip_projection(
             summary=f"SIP calculation failed: {result.error}",
             error=result.error,
         )
+    # Surface the goal-gap numbers in the summary — as_llm_context() hides
+    # `data`, so sip_needed/shortfall must be in the summary text to be usable.
+    summary = result.summary
+    d = result.data or {}
+    if d.get("sip_needed") is not None:
+        feas = "on track" if d.get("goal_feasible") else "short of target"
+        summary += (
+            f" | GOAL GAP: to hit ₹{goal:,.0f} in {years}y you need ₹{d['sip_needed']:,.0f}/month"
+            f"; current-path shortfall ₹{d.get('shortfall', 0):,.0f} ({feas})."
+        )
     return ToolResult(
         ok=True,
         tool_name="sip_projection",
-        summary=result.summary,
+        summary=summary,
         data=result.data,
         rows=result.rows,
         widget_type=WidgetType.SIP_PLAN,
@@ -123,24 +168,53 @@ async def _run_sip_projection(
 async def _fetch_goal_data(state: CopilotState) -> List[ToolResult]:
     results: List[ToolResult] = []
     portfolio_total = 0.0
+    primary_goal: Optional[Dict[str, Any]] = None
 
     try:
         import importlib
 
-        # 1. Existing goals from goal_engine
+        # 1. Existing goals — canonical source is the `user_goals` Postgres table,
+        #    read via the RAG retriever (the same one the dashboards use). NOTE:
+        #    `goal_engine` is a pure-math module and has NO get_user_goals(); the
+        #    old call here raised AttributeError on every turn, which is why goal
+        #    name / target / gap / monthly-SIP-needed always came back "data
+        #    unavailable".
         try:
-            goal_mod = importlib.import_module("services.goal_engine")
-            goals = await goal_mod.get_user_goals(state.user_id)
-            results.append(ToolResult(
-                ok=True,
-                tool_name="get_user_goals",
-                summary=f"Found {len(goals)} goals",
-                data={"goals": goals},
-                rows=goals,
-                widget_type=WidgetType.GOAL_TRACKER,
-            ))
-        except (ImportError, AttributeError, Exception) as exc:
-            logger.debug("goal_engine unavailable: %s", exc)
+            from services.copilot_rag.retrievers import goals_status
+            gs = await goals_status(state.user_id)
+            if gs.ok and gs.rows:
+                primary_goal = gs.rows[0]  # rows are priority-ordered (high first)
+                # as_llm_context() only shows `summary`, never `data` — so the
+                # primary goal's numbers must live IN the summary or the LLM
+                # answers "primary goal details unavailable".
+                pg = primary_goal
+                others = ", ".join(g.get("name", "?") for g in gs.rows[1:]) if len(gs.rows) > 1 else ""
+                goal_summary = (
+                    f"{len(gs.rows)} active goals. PRIMARY GOAL — name='{pg.get('name')}', "
+                    f"target=₹{pg.get('target_rs', 0):,.0f}, horizon={pg.get('horizon_years', 0):g}y, "
+                    f"corpus_earmarked=₹{pg.get('corpus_rs', 0):,.0f}, "
+                    f"plan_sip=₹{pg.get('plan_sip_rs', 0):,.0f}/mo, on_track={pg.get('on_track_pct', 0):g}%."
+                    + (f" Other goals: {others}." if others else "")
+                )
+                results.append(ToolResult(
+                    ok=True,
+                    tool_name="get_user_goals",
+                    summary=goal_summary,
+                    data={"goals": gs.rows, "primary_goal": primary_goal},
+                    rows=gs.rows,
+                    widget_type=WidgetType.GOAL_TRACKER,
+                ))
+            else:
+                # No goals recorded — honest, and the LLM is told to compute a
+                # generic projection and prompt the user to set a goal.
+                results.append(ToolResult(
+                    ok=False,
+                    tool_name="get_user_goals",
+                    summary="No goals recorded for this user — compute a generic projection and ask them to set one",
+                    error=gs.reason or "no_goals",
+                ))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("goals_status unavailable: %s", exc)
             results.append(ToolResult(
                 ok=False,
                 tool_name="get_user_goals",
@@ -166,12 +240,15 @@ async def _fetch_goal_data(state: CopilotState) -> List[ToolResult]:
             summary="Goal/portfolio data unavailable", error=str(exc),
         ))
 
-    # 3. SIP projection from the user's message (uses sip.py — never re-invents math)
+    # 3. SIP projection — uses the user's stated inputs, falling back to the
+    #    primary recorded goal's target/horizon/corpus (uses sip.py math).
     user_msg = next(
         (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
         "",
     )
-    sip_result = await _run_sip_projection(user_msg, portfolio_total=portfolio_total)
+    sip_result = await _run_sip_projection(
+        user_msg, portfolio_total=portfolio_total, primary_goal=primary_goal,
+    )
     if sip_result:
         results.append(sip_result)
 
@@ -189,22 +266,18 @@ async def goal_node(state: CopilotState) -> dict:
         "Am I on track for my financial goals?",
     )
 
-    llm = ChatOpenAI(
-        model=COPILOT_LLM_MODEL,
-        temperature=0.15,
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
-    )
-    resp = await llm.ainvoke([
-        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
-        {"role": "user", "content": user_msg},
-    ])
-    answer_text = resp.content
-
     # Prefer SIP_PLAN widget over GOAL_TRACKER when a projection was computed
     sip_tr = next((r for r in tool_results if r.widget_type == WidgetType.SIP_PLAN and r.ok), None)
     goal_tr = next((r for r in tool_results if r.widget_type == WidgetType.GOAL_TRACKER and r.ok), None)
+    summary_tr = next((r for r in tool_results if r.tool_name == "get_portfolio_summary" and r.ok), None)
 
-    if sip_tr:
+    if goal_tr and sip_tr:
+        # "Simulate my plan" — the comprehensive goal-simulation widget (progress,
+        # KPIs, SIP-growth chart, allocation donut, overlap nudge, actions).
+        from services.copilot_tools.portfolio import build_goal_simulation_widget
+        widget_type = WidgetType.GOAL_SIMULATION
+        widget_data = build_goal_simulation_widget(goal_tr, sip_tr, summary_tr)
+    elif sip_tr:
         widget_type = WidgetType.SIP_PLAN
         # Build SipPlanData-compatible structure that SipPlanWidget can render.
         # The raw SipResult has projection math; we wrap it into allocations format.
@@ -246,6 +319,22 @@ async def goal_node(state: CopilotState) -> dict:
     else:
         widget_type = WidgetType.NONE
         widget_data = {}
+
+    # Widget data is ready (built from the tools, not the LLM) — push it now so
+    # the client renders it first and streams the narrative underneath.
+    from .._stream import emit_widget
+    await emit_widget(widget_type, widget_data)
+
+    llm = ChatOpenAI(
+        model=COPILOT_LLM_MODEL,
+        temperature=temperature_for(0.15),
+        api_key=get_openai_api_key(),
+    )
+    resp = await llm.ainvoke([
+        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
+        {"role": "user", "content": user_msg},
+    ])
+    answer_text = resp.content
 
     response = AgentResponse(
         agent=AgentName.GOAL,

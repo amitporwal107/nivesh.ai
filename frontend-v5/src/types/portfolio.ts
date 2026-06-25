@@ -1,6 +1,6 @@
 import type { ISODate, ISOTimestamp, Paise, Severity } from "./common";
 
-export type AssetClass = "equity" | "debt" | "gold" | "international" | "cash";
+export type AssetClass = "equity" | "debt" | "hybrid" | "gold" | "international" | "cash";
 export type RiskBucket = "very-low" | "low" | "moderate" | "high" | "very-high";
 
 export interface PortfolioSummary {

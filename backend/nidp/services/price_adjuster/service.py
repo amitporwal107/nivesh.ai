@@ -4,7 +4,7 @@ and corporate_actions.
 Strategy:
     1. Load every row from nidp.prices_eod (or scoped: --since DATE,
        --symbols X,Y,Z) into memory, grouped by symbol.
-    2. Load every SPLIT/BONUS/DIVIDEND row from nidp.corporate_actions
+    2. Load every SPLIT/BONUS/DIVIDEND/DISTRIBUTION row from nidp.corporate_actions
        with the structured fields needed to derive a factor.
     3. For each symbol independently:
          a. Build the prev-close lookup dict.
@@ -47,10 +47,12 @@ class AdjusterReport:
     symbols_processed: int = 0
     rows_written: int = 0
     rows_skipped: int = 0
+    rows_orphans_deleted: int = 0
     events_total: int = 0
     events_split: int = 0
     events_bonus: int = 0
     events_dividend: int = 0
+    events_distribution: int = 0
     duration_ms: int = 0
     errors: List[str] = field(default_factory=list)
 
@@ -60,11 +62,13 @@ class AdjusterReport:
             "symbols_processed": self.symbols_processed,
             "rows_written":      self.rows_written,
             "rows_skipped":      self.rows_skipped,
+            "rows_orphans_deleted": self.rows_orphans_deleted,
             "events_total":      self.events_total,
             "events_split":      self.events_split,
             "events_bonus":      self.events_bonus,
-            "events_dividend":   self.events_dividend,
-            "duration_ms":       self.duration_ms,
+            "events_dividend":      self.events_dividend,
+            "events_distribution":  self.events_distribution,
+            "duration_ms":          self.duration_ms,
             "errors":            self.errors[:20],
         }
 
@@ -123,9 +127,10 @@ async def run(
         events_by_symbol[sym] = evts
         report.events_total += len(evts)
         for e in evts:
-            if e.action_type == "SPLIT":      report.events_split += 1
-            elif e.action_type == "BONUS":    report.events_bonus += 1
-            elif e.action_type == "DIVIDEND": report.events_dividend += 1
+            if e.action_type == "SPLIT":              report.events_split += 1
+            elif e.action_type == "BONUS":            report.events_bonus += 1
+            elif e.action_type == "DIVIDEND":         report.events_dividend += 1
+            elif e.action_type == "DISTRIBUTION":     report.events_distribution += 1
 
     # 5. Compute adjusted rows
     prices_by_symbol: Dict[str, List[dict]] = defaultdict(list)
@@ -170,6 +175,22 @@ async def run(
     if output_rows:
         report.rows_written = await _upsert_adjusted(output_rows, run_id)
 
+    # 7. Delete orphaned adjusted rows — dates where prices_eod has no EQ
+    #    series row. These can accumulate when a prior pipeline wrote rows
+    #    for dates that no longer have EQ backing (e.g. after a series
+    #    change or a data-source switch). The ON CONFLICT upsert above
+    #    only fires for dates it found EQ data, so orphans must be
+    #    explicitly removed to prevent stale ±200% returns from inflating VaR.
+    processed_symbols = list(prices_by_symbol.keys())
+    if processed_symbols:
+        report.rows_orphans_deleted = await _delete_orphaned_adjusted(processed_symbols)
+        if report.rows_orphans_deleted:
+            logger.warning(
+                "price_adjuster: deleted %d orphaned adjusted rows (no EQ backing) "
+                "across %d symbols",
+                report.rows_orphans_deleted, len(processed_symbols),
+            )
+
     report.duration_ms = int((time.monotonic() - started) * 1000)
     logger.info("price_adjuster done: %s", report.as_dict())
     return report
@@ -191,6 +212,32 @@ def _scale_volume(volume: Optional[int], factor: float) -> Optional[int]:
 
 
 # ── DB helpers ──────────────────────────────────────────────────────
+async def _delete_orphaned_adjusted(symbols: List[str]) -> int:
+    """Delete prices_eod_adjusted rows that have no EQ backing in prices_eod.
+
+    Scoped to the supplied symbols so a targeted run (--symbols X,Y) only
+    cleans up the symbols it processed.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            DELETE FROM nidp.prices_eod_adjusted a
+            WHERE a.source = $1
+              AND a.symbol = ANY($2::text[])
+              AND NOT EXISTS (
+                  SELECT 1 FROM nidp.prices_eod e
+                   WHERE e.symbol = a.symbol
+                     AND e.as_of_date = a.as_of_date
+                     AND e.series = 'EQ'
+              )
+            """,
+            SOURCE_NAME, symbols,
+        )
+    # asyncpg returns "DELETE N" from conn.execute
+    return int(result.split()[-1])
+
+
 async def _load_prices(conn, *, since: Optional[date], symbols: Optional[List[str]]) -> List[dict]:
     where = ["close_price IS NOT NULL"]
     args: list = []
@@ -207,7 +254,8 @@ async def _load_prices(conn, *, since: Optional[date], symbols: Optional[List[st
                open_price, high_price, low_price, close_price,
                volume AS traded_volume
           FROM nidp.prices_eod
-         WHERE {' AND '.join(where)}
+         WHERE series = 'EQ'
+           AND {' AND '.join(where)}
     """
     # Long-running query — bump server-side and asyncpg timeouts.
     # SET (not SET LOCAL) since we're not in a transaction here.
@@ -217,7 +265,7 @@ async def _load_prices(conn, *, since: Optional[date], symbols: Optional[List[st
 
 
 async def _load_actions(conn, *, symbols: Optional[List[str]]) -> List[dict]:
-    where = ["action_type IN ('SPLIT','BONUS','DIVIDEND')",
+    where = ["action_type IN ('SPLIT','BONUS','DIVIDEND','DISTRIBUTION')",
              "ex_date IS NOT NULL"]
     args: list = []
     if symbols:

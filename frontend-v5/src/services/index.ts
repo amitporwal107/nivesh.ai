@@ -22,6 +22,7 @@ import { realCasUploadAdapter } from "./adapters/cas-upload.adapter";
 import { realScenariosAdapter } from "./adapters/scenarios.adapter";
 import { realIntelligenceAdapter } from "./adapters/intelligence.adapter";
 import { realPositionalAdapter } from "./adapters/positional.adapter";
+import { realMarketsAdapter } from "./adapters/markets.adapter";
 import { mockAuthAdapter } from "./mock/auth.mock";
 import { mockPortfolioAdapter } from "./mock/portfolio.mock";
 import { mockPlansAdapter } from "./mock/plans.mock";
@@ -55,6 +56,8 @@ export const scenariosService  = apiConfig.useMock ? mockScenariosAdapter  : rea
 export const intelligenceService = apiConfig.useMock ? mockIntelligenceAdapter : realIntelligenceAdapter;
 // Pro Trader has no mock — always uses real backend
 export const positionalService = realPositionalAdapter;
+// Markets home has no mock — always uses real backend
+export const marketsService = realMarketsAdapter;
 
 // Re-export the adapter interfaces so consumers can import types.
 export type { AuthAdapter }        from "./adapters/auth.adapter";
@@ -71,3 +74,4 @@ export type { CasUploadAdapter }   from "./adapters/cas-upload.adapter";
 export type { ScenariosAdapter, ScenarioSimulateBody }    from "./adapters/scenarios.adapter";
 export type { IntelligenceAdapter } from "./adapters/intelligence.adapter";
 export type { PositionalAdapter, BasketParams } from "./adapters/positional.adapter";
+export type { MarketsAdapter }     from "./adapters/markets.adapter";

@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
-from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -23,7 +24,7 @@ You have the user's personal portfolio data in TOOL_DATA below.
 Ground every figure in that data. Do not use generic percentages.
 
 Style:
-- ≤ 300 words, markdown
+- ≤ 300 words, plain text (no markdown)
 - Lead with the direct answer to what they asked (XIRR / rebalance actions / tax savings / stress impact)
 - Use ₹ for rupee amounts, % for rates
 - If rebalance: show a table with Action | Fund | Amount
@@ -33,6 +34,21 @@ Style:
   Fund | Category | 1Y | 3Y | 5Y | TER | Allocation. Use scheme names verbatim from TOOL_DATA (never UUIDs).
   Then list the top 3 overlap pairs by name (from TOP_OVERLAP block) with %.
   If returns/TER are missing for some funds, mark those cells "—" — do not write "data unavailable" for the whole answer when partial data exists.
+- If `get_concentration_breakdown` ran, ANSWER FROM IT. It gives, in order:
+  SECTOR ALLOCATION (each sector's % with the underlying companies and their %
+  inside the parentheses), AMC CONCENTRATION (each fund house's % and the funds
+  under it), TOP COMPANIES (look-through), and FUND-WISE ALLOCATION. For "which
+  sector is highest and which companies are in it", read the first sector and
+  the companies in its parentheses verbatim. For "which AMC", read AMC
+  CONCENTRATION. NEVER say company-within-sector / AMC / fund-wise data is
+  unavailable when this block is present — it is the data.
+- If `get_portfolio_health_score` ran, lead with the exact score and grade from
+  it (it matches the user's overview page), then name the biggest fixes.
+- If `get_top_recommendations` ran, present the ranked list verbatim (number,
+  title, action, ₹ impact) — these are the dashboard's real recommendations.
+- For rebalancing, name the specific funds to EXIT FIRST and the funds/stocks to
+  ADD from `get_rebalance_plan` (the summary lists both) — do not answer with
+  only the equity/debt split.
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 """ + ANTI_HALLUCINATION_RULES
 
@@ -68,12 +84,51 @@ async def _fetch_portfolio_data(state: CopilotState) -> list:
             "",
         ).lower()
 
-        if any(kw in user_msg for kw in ("rebalanc", "drift", "allocation", "trim", "overweight", "underweight", "which sector", "which fund", "which stock", "which holding")):
-            rb = await port_mod.get_rebalance_plan(user_id)
+        if any(kw in user_msg for kw in ("rebalanc", "drift", "allocation", "trim", "overweight", "underweight", "which sector", "which fund", "which stock", "which holding", "exit", "sell first", "what should i exit", "redeploy")):
+            rb = await port_mod.get_rebalance_plan(user_id, state.risk_profile)
             results.append(ToolResult(
                 ok=rb.ok, tool_name="get_rebalance_plan",
                 summary=rb.summary, data=rb.data, rows=rb.rows,
                 widget_type=WidgetType.REBALANCE_PLAN,
+            ))
+
+        # AMC / sector→company / company / fund-wise concentration drill-down.
+        # This is the only tool that surfaces companies-within-a-sector, AMC
+        # concentration, and fund-wise allocation in the LLM context.
+        if any(kw in user_msg for kw in (
+            "sector", "amc", "fund house", "fund-house", "company", "companies",
+            "concentrat", "exposure", "fund-wise", "fund wise", "allocation breakdown",
+            "which companies", "highest allocation", "distribution", "breakdown",
+            "diversif", "most exposed",
+        )):
+            conc = await port_mod.get_concentration_breakdown(user_id)
+            results.append(ToolResult(
+                ok=conc.ok, tool_name="get_concentration_breakdown",
+                summary=conc.summary, data=conc.data, rows=conc.rows,
+                widget_type=WidgetType.CONCENTRATION,
+            ))
+
+        # Portfolio Health score — same number the overview page shows.
+        if any(kw in user_msg for kw in (
+            "health score", "portfolio score", "portfolio health", "how healthy",
+            "overview score", "my score", "health of my",
+        )):
+            health = await port_mod.get_portfolio_health_score(user_id)
+            results.append(ToolResult(
+                ok=health.ok, tool_name="get_portfolio_health_score",
+                summary=health.summary, data=health.data, rows=health.rows,
+                widget_type=WidgetType.PORTFOLIO_OVERVIEW,
+            ))
+
+        # Top prioritised recommendations — same list as the dashboard Top-Actions.
+        if any(kw in user_msg for kw in (
+            "recommend", "what should i", "fix first", "top action", "top recommendation",
+            "improve my portfolio", "suggestion", "next step", "what to do",
+        )):
+            recs = await port_mod.get_top_recommendations(user_id)
+            results.append(ToolResult(
+                ok=recs.ok, tool_name="get_top_recommendations",
+                summary=recs.summary, data=recs.data, rows=recs.rows,
             ))
 
         if any(kw in user_msg for kw in ("tax", "harvest", "ltcg", "stcg", "capital gain")):
@@ -146,7 +201,9 @@ async def _fetch_portfolio_data(state: CopilotState) -> list:
                 widget_type=WidgetType.FUND_COMPARISON,
             ))
 
-        if any(kw in user_msg for kw in ("overlap", "duplicate", "similar fund")):
+        if any(kw in user_msg for kw in ("overlap", "duplicate", "similar fund",
+                                         "concentrat", "diversif", "most exposed",
+                                         "biggest holding", "top holding", "where is")):
             ov = await port_mod.get_portfolio_overlap(user_id)
             results.append(ToolResult(
                 ok=ov.ok, tool_name="get_portfolio_overlap",
@@ -171,30 +228,65 @@ async def portfolio_node(state: CopilotState) -> dict:
         "How is my portfolio doing?",
     )
 
+    _msg = user_msg.lower()
+    # "Is my wealth allocation optimal?" → the allocation-review verdict widget.
+    is_allocation = bool(re.search(
+        r"allocation\s+optimal|optimal\s+allocation|wealth\s+allocation|"
+        r"is\s+my\s+(?:asset\s+)?allocation|(?:asset\s+)?allocation\s+(?:optimal|right|good|ok|balanced)|"
+        r"review\s+my\s+allocation|how(?:'s| is)\s+my\s+allocation|am\s+i\s+well\s+allocated|asset\s+mix",
+        _msg,
+    ))
+    # "Where is concentration risk highest?" gets the dedicated concentration
+    # widget (V5-native), built from the summary + overlap tool results.
+    is_concentration = any(
+        kw in _msg
+        for kw in ("concentrat", "where is the risk", "where is risk", "most exposed",
+                   "biggest risk", "diversif")
+    )
+    summary_tr = next((r for r in tool_results if r.tool_name == "get_portfolio_summary" and r.ok), None)
+    overlap_tr = next((r for r in tool_results if r.tool_name == "get_portfolio_overlap" and r.ok), None)
+    rebalance_tr = next((r for r in tool_results if r.tool_name == "get_rebalance_plan" and r.ok), None)
+    xirr_tr = next((r for r in tool_results if r.tool_name == "get_portfolio_xirr" and r.ok), None)
+
+    if is_allocation and summary_tr:
+        from services.copilot_tools.portfolio import build_allocation_review_widget
+        widget_type = WidgetType.ALLOCATION_REVIEW
+        widget_data = build_allocation_review_widget(summary_tr, rebalance_tr, xirr_tr)
+    elif is_concentration and summary_tr:
+        from services.copilot_tools.portfolio import build_concentration_widget
+        widget_type = WidgetType.CONCENTRATION
+        widget_data = build_concentration_widget(summary_tr, overlap_tr)
+    else:
+        # pick the richest widget to surface
+        _PRIORITY = [
+            WidgetType.STRESS_TEST, WidgetType.TAX_HARVEST, WidgetType.REBALANCE_PLAN,
+            WidgetType.FUND_COMPARISON, WidgetType.OVERLAP_REVEAL, WidgetType.PORTFOLIO_OVERVIEW,
+        ]
+        widget_type = WidgetType.NONE
+        widget_data = {}
+        for wt in _PRIORITY:
+            tr = next((r for r in tool_results if r.widget_type == wt and r.ok), None)
+            if tr:
+                widget_type = wt
+                widget_data = {"rows": tr.rows, **tr.data}
+                break
+
+    # The widget data is ready now (built from the tools, not the LLM). Push it
+    # to the stream BEFORE generating the narrative so the client renders it
+    # first and streams the text underneath.
+    from .._stream import emit_widget
+    await emit_widget(widget_type, widget_data)
+
     llm = ChatOpenAI(
         model=COPILOT_LLM_MODEL,
-        temperature=0.1,
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
+        temperature=temperature_for(0.1),
+        api_key=get_openai_api_key(),
     )
     resp = await llm.ainvoke([
         {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},
     ])
     answer_text = resp.content
-
-    # pick the richest widget to surface
-    _PRIORITY = [
-        WidgetType.STRESS_TEST, WidgetType.TAX_HARVEST, WidgetType.REBALANCE_PLAN,
-        WidgetType.FUND_COMPARISON, WidgetType.OVERLAP_REVEAL, WidgetType.PORTFOLIO_OVERVIEW,
-    ]
-    widget_type = WidgetType.NONE
-    widget_data: dict = {}
-    for wt in _PRIORITY:
-        tr = next((r for r in tool_results if r.widget_type == wt and r.ok), None)
-        if tr:
-            widget_type = wt
-            widget_data = {"rows": tr.rows, **tr.data}
-            break
 
     response = AgentResponse(
         agent=AgentName.PORTFOLIO,

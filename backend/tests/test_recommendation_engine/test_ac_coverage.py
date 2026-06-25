@@ -49,8 +49,10 @@ async def test_ac1_no_persona_returns_gate_flag():
 
 @pytest.mark.asyncio
 async def test_ac2_no_goals_returns_gate_flag():
-    """Given risk persona but zero goals, pipeline returns [] + requires_goal=True."""
-    actions, _sim, gate = await run_engine_pipeline(
+    """Given risk persona but zero goals, pipeline sets requires_goal=True (soft nudge).
+    Phase 3: goal-agnostic engines still run and may produce actions; requires_goal is
+    a UI nudge, not a hard gate that suppresses all output."""
+    _actions, _sim, gate = await run_engine_pipeline(
         user_id="u_ac2",
         risk_profile="moderate",
         total_value_rs=1_000_000,
@@ -61,7 +63,6 @@ async def test_ac2_no_goals_returns_gate_flag():
         goal_evaluations=[],          # <-- no goals
         risk_score_numeric=50.0,
     )
-    assert actions == []
     assert gate["requires_goal"] is True
     assert gate["requires_persona"] is False
 
@@ -154,7 +155,8 @@ def test_ac7_aggressive_no_concentration_at_14pct():
 # ── AC-9 · ELSS lock-in → no EXIT ────────────────────────────────────────────
 
 def test_ac9_elss_locked_exit_suppressed():
-    """ELSS holding within lock-in window must not produce an un-suppressed EXIT."""
+    """ELSS holding within lock-in window must produce a deferred (not active) EXIT.
+    Phase 5 D-5: lock-in → deferred EXIT with defer_reason, not suppressed silently."""
     from datetime import date, timedelta
     from services.recommendation_engine.arbitration_engine import ArbitrationEngine
     from services.recommendation_engine.portfolio_impact_engine import PortfolioImpactEngine
@@ -196,13 +198,14 @@ def test_ac9_elss_locked_exit_suppressed():
         reason_codes=["CATEGORY_SUITABILITY_BREACH"], reason_text="ELSS not allowed.",
     )
 
-    # Arbitration must suppress it
+    # Arbitration must defer (Phase 5 D-5): signal is present but has a defer_reason;
+    # it is NOT suppressed — it carries an explained reason for why exit is deferred.
     weighted = PortfolioImpactEngine().apply([exit_sig], ctx)
     arbitrated = ArbitrationEngine().arbitrate(weighted, ctx)
-    active = [s for s in arbitrated if not s.suppressed]
-    assert len(active) == 0, "EXIT signal for locked ELSS must be suppressed"
-    suppressed = [s for s in arbitrated if s.suppressed]
-    assert len(suppressed) == 1
+    assert len(arbitrated) == 1, "Arbitration must produce exactly one output signal"
+    sig_out = arbitrated[0]
+    assert not sig_out.suppressed, "Deferred ELSS signal should not be marked suppressed"
+    assert sig_out.defer_reason, "Locked ELSS EXIT must carry a defer_reason explaining the constraint"
 
 
 # ── AC-10 · PRD §12 output schema completeness ───────────────────────────────

@@ -177,14 +177,17 @@ class RiskPersonaProfile:
 
 
 # ── Canonical profile catalog (PRD §6.1 + §6.2) ──────────────────────────────
-# Thresholds are tunable defaults. quality_score is on NIDP 0–100 scale.
+# allocation target ranges (equity_target_pct, debt_target_pct, gold_alt_target_pct)
+# are derived from allocation_bands.DEFAULT_BANDS (the single source of truth).
+# Action-trigger thresholds (quality, rank, concentration) are engine calibration
+# and remain independently tunable here.
 PERSONA_PROFILES: Dict[RiskPersonaType, RiskPersonaProfile] = {
 
     RiskPersonaType.CONSERVATIVE: RiskPersonaProfile(
         persona_type=RiskPersonaType.CONSERVATIVE,
-        equity_target_pct=(25.0, 35.0),
-        debt_target_pct=(55.0, 65.0),
-        gold_alt_target_pct=(5.0, 10.0),
+        equity_target_pct=(20.0, 45.0),    # allocation_bands conservative equity {min,max}
+        debt_target_pct=(45.0, 65.0),      # allocation_bands conservative debt {min,max}
+        gold_alt_target_pct=(5.0, 12.0),   # allocation_bands conservative gold {min,max}
         large_cap_min_of_equity_pct=100.0,   # large-cap/index only
         exit_quality_threshold=60.0,          # exit if quality_score < 60
         add_quality_threshold=75.0,           # add if quality_score >= 75
@@ -203,9 +206,9 @@ PERSONA_PROFILES: Dict[RiskPersonaType, RiskPersonaProfile] = {
 
     RiskPersonaType.MODERATE: RiskPersonaProfile(
         persona_type=RiskPersonaType.MODERATE,
-        equity_target_pct=(40.0, 50.0),
-        debt_target_pct=(40.0, 50.0),
-        gold_alt_target_pct=(5.0, 10.0),
+        equity_target_pct=(40.0, 65.0),    # allocation_bands moderate equity {min,max}
+        debt_target_pct=(25.0, 45.0),      # allocation_bands moderate debt {min,max}
+        gold_alt_target_pct=(5.0, 12.0),   # allocation_bands moderate gold {min,max}
         large_cap_min_of_equity_pct=65.0,
         exit_quality_threshold=55.0,
         add_quality_threshold=70.0,
@@ -224,9 +227,9 @@ PERSONA_PROFILES: Dict[RiskPersonaType, RiskPersonaProfile] = {
 
     RiskPersonaType.BALANCED: RiskPersonaProfile(
         persona_type=RiskPersonaType.BALANCED,
-        equity_target_pct=(55.0, 65.0),
-        debt_target_pct=(25.0, 35.0),
-        gold_alt_target_pct=(3.0, 8.0),
+        equity_target_pct=(55.0, 72.0),    # allocation_bands balanced equity {min,max}
+        debt_target_pct=(20.0, 35.0),      # allocation_bands balanced debt {min,max}
+        gold_alt_target_pct=(3.0, 10.0),   # allocation_bands balanced gold {min,max}
         large_cap_min_of_equity_pct=50.0,
         exit_quality_threshold=50.0,
         add_quality_threshold=65.0,
@@ -245,9 +248,9 @@ PERSONA_PROFILES: Dict[RiskPersonaType, RiskPersonaProfile] = {
 
     RiskPersonaType.GROWTH: RiskPersonaProfile(
         persona_type=RiskPersonaType.GROWTH,
-        equity_target_pct=(70.0, 80.0),
-        debt_target_pct=(15.0, 25.0),
-        gold_alt_target_pct=(0.0, 5.0),
+        equity_target_pct=(65.0, 82.0),    # allocation_bands growth equity {min,max}
+        debt_target_pct=(12.0, 28.0),      # allocation_bands growth debt {min,max}
+        gold_alt_target_pct=(0.0, 8.0),    # allocation_bands growth gold {min,max}
         large_cap_min_of_equity_pct=40.0,
         exit_quality_threshold=45.0,
         add_quality_threshold=60.0,
@@ -266,9 +269,9 @@ PERSONA_PROFILES: Dict[RiskPersonaType, RiskPersonaProfile] = {
 
     RiskPersonaType.AGGRESSIVE: RiskPersonaProfile(
         persona_type=RiskPersonaType.AGGRESSIVE,
-        equity_target_pct=(80.0, 90.0),
-        debt_target_pct=(5.0, 15.0),
-        gold_alt_target_pct=(0.0, 5.0),
+        equity_target_pct=(75.0, 90.0),    # allocation_bands aggressive equity {min,max}
+        debt_target_pct=(5.0, 18.0),       # allocation_bands aggressive debt {min,max}
+        gold_alt_target_pct=(0.0, 8.0),    # allocation_bands aggressive gold {min,max}
         large_cap_min_of_equity_pct=30.0,
         exit_quality_threshold=40.0,
         add_quality_threshold=55.0,

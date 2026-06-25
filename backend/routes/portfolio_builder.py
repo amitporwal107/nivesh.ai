@@ -86,6 +86,45 @@ async def generate_portfolio(payload: BuilderRequest, request: Request):
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Sleeve builder — category/sub-category allocation on real V3-scored funds
+# ─────────────────────────────────────────────────────────────────────────
+class SleeveBuilderRequest(BaseModel):
+    monthly_sip_rs: Optional[float] = Field(None, ge=0)
+    lumpsum_rs: Optional[float] = Field(None, ge=0)
+    risk_bucket: Optional[str] = None  # override; else read the user's saved profile
+    horizon_years: float = Field(10.0, gt=0, le=100)
+    n_per_sleeve: int = Field(2, ge=1, le=5)
+
+
+@router.post("/portfolio-builder/generate-sleeves")
+async def generate_sleeves(payload: SleeveBuilderRequest, request: Request):
+    """Guided sleeve portfolio: asset class → sub-category sleeves (Large Cap,
+    Flexi Cap, Balanced Advantage, Corporate Bond, International, Gold, …), each
+    filled with real V3-scored funds ranked within the sleeve.
+
+    Risk profile comes from `risk_bucket` if given, else the user's saved
+    `user_profiles.risk_profile.category` (default moderate).
+    """
+    user = await get_current_user(request)
+    profile = payload.risk_bucket
+    if not profile:
+        from deps import db
+        doc = await db.user_profiles.find_one(
+            {"user_id": user["user_id"]}, {"_id": 0, "risk_profile": 1},
+        )
+        profile = ((doc or {}).get("risk_profile") or {}).get("category") or "moderate"
+
+    from services import sleeve_builder as _sb
+    return await _sb.build_sleeve_portfolio(
+        profile,
+        horizon_years=payload.horizon_years,
+        monthly_sip_rs=payload.monthly_sip_rs,
+        lumpsum_rs=payload.lumpsum_rs,
+        n_per_sleeve=payload.n_per_sleeve,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Simulation overlay — what-if return / drawdown scenarios
 # ─────────────────────────────────────────────────────────────────────────
 class SimulateBuilderRequest(BaseModel):
@@ -222,7 +261,7 @@ async def risk_profile_start(request: Request):
     """Begin a new risk-profile chat session. Returns first question."""
     user = await get_current_user(request)
     from services import risk_profile_chat as _rpc
-    return _rpc.start_session(user["user_id"])
+    return await _rpc.start_session(user["user_id"])
 
 
 class RiskProfileAnswer(BaseModel):
@@ -236,7 +275,7 @@ async def risk_profile_answer(session_id: str, payload: RiskProfileAnswer, reque
     the profile to user_profiles when complete."""
     user = await get_current_user(request)
     from services import risk_profile_chat as _rpc
-    out = _rpc.submit_answer(session_id, payload.question_id, payload.value)
+    out = await _rpc.submit_answer(session_id, payload.question_id, payload.value)
     if out.get("error"):
         raise HTTPException(400, detail=out)
     if out.get("complete"):

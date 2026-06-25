@@ -1,17 +1,22 @@
-"""Periodic Gmail CAS auto-import.
+"""Periodic Gmail ECAS auto-import.
 
 For every Gmail-connected user with a saved CAS password (the PAN they
 typed during their first manual import — see `routes.gmail`), scan their
-inbox once a day for new NSDL/CDSL/CAMS/KFintech statements and import
-any not yet processed. Wired into the AsyncIO scheduler in
-`services.mf_scheduler` to run at 06:30 IST daily, which is a few hours
-after CAS providers typically email statements (early-morning IST batch).
+inbox for new NSDL/CDSL/CAMS/KFintech statements and import any not yet
+processed. Gmail tokens (access + refresh) are saved at OAuth time and
+refreshed automatically here so credentials persist across sessions.
 
-The actual parse + snapshot creation reuses `_process_gmail_cas_background`
-from the routes module so the data shape is identical to a manual
-import — meaning auto-imported statements show up in Time-Machine,
-populate live holdings if they're the latest, and contribute to
-transactions / SIP detection on equal footing.
+Scheduled: 1st of each month at 06:30 IST via `services.mf_scheduler`.
+ECAS providers (NSDL priority, then CDSL) email monthly statements in
+the first few days of the month; running on the 1st at 06:30 IST catches
+same-day delivery for most users. On-demand sync is available via
+`/api/gmail/auto-import/run` (Dashboard "Sync Gmail" button).
+
+The actual parse uses the same casparser SDK-flow as the onboarding
+orchestrator (`services.cas_api_client.parse_cas_via_sdk_flow_with_error`)
+and persists with `helpers.parsing.save_holdings`, so the data shape is
+identical to a manual import — auto-imported statements populate live
+holdings and contribute to transactions / SIP detection on equal footing.
 """
 from __future__ import annotations
 
@@ -24,22 +29,35 @@ logger = logging.getLogger(__name__)
 
 
 async def auto_import_for_user(db, user_id: str) -> Dict[str, Any]:
-    """Scan one user's Gmail and import any CAS attachments that
-    haven't been imported yet. Returns a small status dict for logging."""
-    # Lazy imports to avoid circular import at module load (mf_scheduler
-    # imports this module before `routes.gmail` is registered).
+    """Scan one user's Gmail and import the latest not-yet-imported CAS.
+    Returns a small status dict for logging.
+
+    Parses via the same casparser SDK-flow the onboarding orchestrator uses
+    (`services.cas_api_client`) and persists with `save_holdings` — the old
+    `_persist_gmail_pdf` / `_process_gmail_cas_background` helpers were removed
+    when CAS parsing moved fully server-side, which left this path raising
+    ImportError on every run (scheduler + Dashboard 'Sync Gmail')."""
+    # Lazy imports to avoid circular import at module load.
     from services.gmail_service import (
         get_gmail_credentials, build_gmail_service,
         scan_for_cas_emails, download_attachment,
     )
-    from routes.gmail import _persist_gmail_pdf, _process_gmail_cas_background
+    from services import cas_api_client
+    from helpers.parsing import save_holdings
 
     token_doc = await db.gmail_tokens.find_one({"user_id": user_id}, {"_id": 0})
     if not token_doc:
         return {"status": "skipped", "reason": "no_tokens"}
     if token_doc.get("auto_import_enabled") is False:
         return {"status": "skipped", "reason": "disabled"}
-    pwd = token_doc.get("cas_password", "")
+
+    # Unlock the CAS PDF. A user-entered statement password (cas_pdf_password —
+    # CAMS/KFin statements locked with a non-PAN password) wins and is used
+    # verbatim; otherwise fall back to the PAN. Check gmail_tokens first (the
+    # onboarding paths mirror both fields there), then the profile.
+    profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    custom = (token_doc.get("cas_pdf_password") or profile.get("cas_pdf_password") or "").strip()
+    pwd = custom or (token_doc.get("cas_password") or profile.get("cas_password") or profile.get("pan") or "")
     if not pwd:
         return {"status": "skipped", "reason": "no_saved_password"}
 
@@ -68,22 +86,21 @@ async def auto_import_for_user(db, user_id: str) -> Dict[str, Any]:
         logger.warning("auto_import: scan failed for %s: %s", user_id, e)
         return {"status": "error", "reason": "scan_failed", "error": str(e)}
 
-    # Already-processed dedupe: skip rows that are completed OR currently
-    # in-flight. We re-try ones that previously errored out — the user may
-    # have updated their password since the last attempt.
+    # Dedupe against statements already imported (completed). Emails come back
+    # sorted by source priority, so the first not-yet-imported one is the best.
     existing = await db.gmail_imports.find(
         {"user_id": user_id},
         {"_id": 0, "message_id": 1, "attachment_id": 1, "status": 1},
     ).to_list(500)
-    skip_keys = {
+    done_keys = {
         (e["message_id"], e.get("attachment_id"))
-        for e in existing
-        if e.get("status") in ("completed", "processing")
+        for e in existing if e.get("status") == "completed"
     }
-    fresh = [
-        e for e in emails
-        if (e["message_id"], e.get("attachment_id")) not in skip_keys
-    ]
+
+    def _att_id(em: Dict[str, Any]):
+        return em.get("attachment_id") or (em.get("attachments") or [{}])[0].get("attachment_id")
+
+    fresh = [e for e in emails if (e["message_id"], _att_id(e)) not in done_keys]
     if not fresh:
         await db.gmail_tokens.update_one(
             {"user_id": user_id},
@@ -91,105 +108,63 @@ async def auto_import_for_user(db, user_id: str) -> Dict[str, Any]:
         )
         return {"status": "no_new_emails", "scanned": len(emails)}
 
-    imported_ok = 0
-    imported_fail = 0
-    for email in fresh:
-        attachment_id = email.get("attachment_id")
-        message_id = email["message_id"]
-        filename = email.get("filename") or "cas.pdf"
-        if not attachment_id:
-            continue
-        try:
-            content = download_attachment(service, message_id, attachment_id)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "auto_import: download failed for %s/%s: %s",
-                user_id, message_id, e,
-            )
-            imported_fail += 1
-            continue
+    email = fresh[0]
+    message_id = email["message_id"]
+    attachment_id = _att_id(email)
+    filename = (
+        email.get("filename")
+        or (email.get("attachments") or [{}])[0].get("filename")
+        or "cas.pdf"
+    )
+    if not attachment_id:
+        return {"status": "error", "reason": "no_attachment", "scanned": len(emails)}
 
-        task_id = f"gmail_auto_{uuid.uuid4().hex[:12]}"
-        await db.upload_tasks.insert_one({
-            "task_id": task_id,
-            "user_id": user_id,
-            "status": "processing",
-            "message": f"Auto-importing {filename}...",
-            "count": 0,
-            "holdings": [],
-            "source": "gmail_auto",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-        await db.gmail_imports.update_one(
-            {"user_id": user_id, "message_id": message_id, "attachment_id": attachment_id},
-            {"$set": {
-                "user_id": user_id,
-                "message_id": message_id,
-                "attachment_id": attachment_id,
-                "filename": filename,
-                "task_id": task_id,
-                "status": "processing",
-                "trigger": "auto",
-                "imported_at": datetime.now(timezone.utc).isoformat(),
-            }},
-            upsert=True,
+    try:
+        content = download_attachment(service, message_id, attachment_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("auto_import: download failed for %s/%s: %s", user_id, message_id, e)
+        return {"status": "error", "reason": "download_failed", "error": str(e)}
+
+    try:
+        holdings, _raw, _norm, parse_err = cas_api_client.parse_cas_via_sdk_flow_with_error(
+            content, password=pwd,
         )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("auto_import: parse crashed for %s/%s: %s", user_id, filename, e)
+        return {"status": "error", "reason": "parse_failed", "error": str(e)}
 
-        # Persist raw PDF to disk first (so a parse failure can be
-        # diagnosed later without re-pulling from Gmail).
-        try:
-            file_id, file_path, file_sha256 = _persist_gmail_pdf(user_id, content, filename)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("auto_import: persist failed for %s: %s", user_id, e)
-            await db.upload_tasks.update_one(
-                {"task_id": task_id},
-                {"$set": {"status": "error", "message": f"persist failed: {e}"}},
-            )
-            imported_fail += 1
-            continue
-        await db.gmail_imports.update_one(
-            {"user_id": user_id, "message_id": message_id, "attachment_id": attachment_id},
-            {"$set": {
-                "file_id": file_id, "file_path": file_path, "file_sha256": file_sha256,
-            }},
+    if not holdings:
+        kind = (parse_err or {}).get("kind", "parse")
+        logger.warning(
+            "auto_import: parse failed for %s (%s) kind=%s detail=%s",
+            filename, user_id, kind, (parse_err or {}).get("detail"),
         )
+        return {
+            "status": "error", "reason": "parse_failed",
+            "error_kind": kind, "error": (parse_err or {}).get("message"),
+            "scanned": len(emails),
+        }
 
-        # Parse + snapshot synchronously inside this scheduler tick.
-        # Each CAS takes ~10-30s; serializing per user is fine because
-        # the scheduler runs once a day and most users have 0-1 new
-        # statements per run.
-        try:
-            await _process_gmail_cas_background(
-                content, user_id, task_id, "", pwd,
-                message_id, attachment_id, file_id, filename,
-            )
-            # Re-read the gmail_imports row to see the final status
-            row = await db.gmail_imports.find_one(
-                {"user_id": user_id, "message_id": message_id, "attachment_id": attachment_id},
-                {"_id": 0, "status": 1},
-            )
-            if row and row.get("status") == "completed":
-                imported_ok += 1
-                logger.info(
-                    "auto_import: imported %s for %s (%s)",
-                    filename, user_id, file_id[:8],
-                )
-            else:
-                imported_fail += 1
-        except Exception as e:  # noqa: BLE001
-            logger.warning("auto_import: parse failed for %s/%s: %s", user_id, filename, e)
-            imported_fail += 1
+    task_id = f"gmail_auto_{uuid.uuid4().hex[:12]}"
+    await save_holdings(user_id, holdings, file_type="gmail_cas", task_id=task_id)
 
+    now = datetime.now(timezone.utc).isoformat()
+    await db.gmail_imports.update_one(
+        {"user_id": user_id, "message_id": message_id, "attachment_id": attachment_id},
+        {"$set": {
+            "user_id": user_id, "message_id": message_id, "attachment_id": attachment_id,
+            "filename": filename, "count": len(holdings), "task_id": task_id,
+            "status": "completed", "source": "gmail_auto", "trigger": "auto",
+            "imported_at": now,
+        }},
+        upsert=True,
+    )
     await db.gmail_tokens.update_one(
         {"user_id": user_id},
-        {"$set": {"last_auto_import_at": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"last_auto_import_at": now, "auto_import_enabled": True}},
     )
-    return {
-        "status": "ok",
-        "scanned": len(emails),
-        "imported": imported_ok,
-        "failed": imported_fail,
-    }
+    logger.info("auto_import: imported %s holdings for %s (%s)", len(holdings), user_id, filename)
+    return {"status": "ok", "scanned": len(emails), "imported": 1, "holdings": len(holdings)}
 
 
 async def auto_import_all_users() -> Dict[str, Any]:

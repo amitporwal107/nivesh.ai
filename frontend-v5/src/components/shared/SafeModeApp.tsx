@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ShieldAlert, RefreshCw, Copy, AlertTriangle } from "lucide-react";
 import { getAllFlags } from "@/lib/feature-flags";
 import { buildDiagnosticPayload, copyDiagnosticsToClipboard } from "@/lib/diagnostic-payload";
+import { apiFetch } from "@/services/api/authed-fetch";
 
 interface SafeModeAppProps {
   error?: Error;
@@ -13,7 +14,7 @@ export function SafeModeApp({ error, onReset }: SafeModeAppProps) {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    fetch("/api/auth/me", { credentials: "include" })
+    apiFetch("/api/auth/me")
       .then((r) => setApiStatus(r.ok || r.status === 401 ? "ok" : "down"))
       .catch(() => setApiStatus("down"));
   }, []);

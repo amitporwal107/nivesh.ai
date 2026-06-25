@@ -5,12 +5,21 @@ import type { RiskProfile, RiskCategory } from "@/hooks/use-risk-profile";
 import { RiskProfileModal } from "./RiskProfileModal";
 
 const PERSONA_LABELS: Record<string, string> = {
-  mutual_fund_investor:    "Mutual Fund Investor",
-  equity_investor:         "Equity Investor",
-  balanced_investor:       "Balanced Investor",
-  conservative_investor:   "Conservative Investor",
-  aggressive_investor:     "Aggressive Growth Investor",
-  new_investor:            "New Investor",
+  retail_investor:       "Retail Investor",
+  mutual_fund_investor:  "Mutual Fund Investor",
+  stock_investor:        "Stock Investor",
+  active_trader:         "Active Trader",
+  swing_trader:          "Swing Trader",
+  intraday_trader:       "Intraday Trader",
+  options_trader:        "Options Trader",
+  mfd_advisor:           "MFD / Advisor",
+  hni_investor:          "HNI / UHNI Investor",
+  retirement_planner:    "Retirement Planner",
+  parents_planning:      "Planning for Children",
+  tax_saver:             "Tax Saver",
+  conservative_investor: "Conservative Investor",
+  beginner_investor:     "Beginner Investor",
+  nri_investor:          "NRI Investor",
 };
 
 const CATEGORY_COLOR: Record<RiskCategory, string> = {

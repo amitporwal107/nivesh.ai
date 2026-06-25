@@ -106,7 +106,65 @@ async def _compute_holistic_allocation(user_id: str) -> Dict[str, Any]:
     }
 
 
-async def compute_portfolio_intelligence(user_id: str) -> Dict[str, Any]:
+async def compute_portfolio_intelligence(user_id: str, *, force: bool = False) -> Dict[str, Any]:
+    """Snapshot-date-cached portfolio intelligence.
+
+    The underlying compute is heavy (Postgres + Mongo + look-through overlap) and
+    is called several times per copilot request. Holdings only change when a new
+    CAS snapshot lands, so we cache the result keyed by the user's latest
+    snapshot date: the first call of the day computes, every call after serves
+    from Redis, and a new snapshot date is a fresh key (auto-refresh next day).
+    Pass force=True (or call bust_portfolio_intelligence) to recompute now.
+    """
+    from datetime import datetime, timezone
+    from services import redis_client as _rc
+    from services.cas_snapshot_engine import get_latest_snapshot_date
+
+    try:
+        snap = await get_latest_snapshot_date(user_id)
+    except Exception:  # noqa: BLE001 — never let cache-key derivation break compute
+        snap = None
+    # Fall back to the calendar day so snapshot-less (manual) portfolios still
+    # refresh daily instead of caching forever under a 'None' key.
+    snap = (str(snap)[:10] if snap else datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    cache_key = f"pi:{user_id}:{snap}"
+
+    if not force:
+        try:
+            cached = await _rc.cache_get(cache_key)
+            if isinstance(cached, dict):
+                cached["_cache_hit"] = True
+                return cached
+        except Exception:  # noqa: BLE001
+            pass
+
+    result = await _compute_portfolio_intelligence_raw(user_id)
+    try:
+        # Long TTL (~26h) so it survives the trading day; the key itself rolls
+        # over when the snapshot date advances, which is the real invalidator.
+        await _rc.cache_set(cache_key, result, ttl_s=26 * 3600)
+    except Exception:  # noqa: BLE001
+        pass
+    return result
+
+
+async def bust_portfolio_intelligence(user_id: str) -> None:
+    """Force-drop today's cached intelligence for a user (manual refresh)."""
+    from datetime import datetime, timezone
+    from services import redis_client as _rc
+    from services.cas_snapshot_engine import get_latest_snapshot_date
+    try:
+        snap = await get_latest_snapshot_date(user_id)
+    except Exception:  # noqa: BLE001
+        snap = None
+    snap = (str(snap)[:10] if snap else datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    try:
+        await _rc.cache_del(f"pi:{user_id}:{snap}")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def _compute_portfolio_intelligence_raw(user_id: str) -> Dict[str, Any]:
     # Holistic allocation + total value (all asset types, not just MF)
     holistic = await _compute_holistic_allocation(user_id)
 

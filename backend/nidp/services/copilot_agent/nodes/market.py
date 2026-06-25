@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
-from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 from ..tools.daas_bridge import call_daas
@@ -25,7 +25,7 @@ You have access to live NSE/BSE indices, FII/DII flows and macro indicators
 provided in the TOOL_DATA block below. Ground every statement in those numbers.
 
 Style:
-- ≤ 200 words, markdown bullet points
+- ≤ 200 words, plain text (no markdown)
 - Always include a one-line market sentiment call (bullish/bearish/neutral)
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
@@ -91,8 +91,8 @@ async def market_node(state: CopilotState) -> dict:
 
     llm = ChatOpenAI(
         model=COPILOT_LLM_MODEL,
-        temperature=0.2,
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
+        temperature=temperature_for(0.2),
+        api_key=get_openai_api_key(),
     )
     resp = await llm.ainvoke([
         {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},

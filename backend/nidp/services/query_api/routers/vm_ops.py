@@ -28,7 +28,18 @@ router = APIRouter(prefix="", tags=["vm-ops"], dependencies=[Depends(require_bea
 
 NIDP_HOME = Path(os.environ.get("NIDP_HOME", "/opt/nidp"))
 LOGS_DIR  = NIDP_HOME / "logs"
-RUN_SCRIPT = NIDP_HOME / "repo" / "backend" / "nidp" / "deploy" / "vm" / "run_service.sh"
+
+# run_service.sh location differs by environment layout:
+#   • prod VM:      $NIDP_HOME/repo/backend/nidp/deploy/vm/run_service.sh
+#   • staging VM:   $NIDP_HOME/run_service.sh   (flattened — runs from dev-repo)
+# Resolve to whichever exists so VM-only jobs (e.g. pra_engine) trigger on both.
+# Falls back to the prod path when neither exists (Docker/dev → existence check
+# below routes to the in-process Python fallback).
+_RUN_SCRIPT_CANDIDATES = (
+    NIDP_HOME / "repo" / "backend" / "nidp" / "deploy" / "vm" / "run_service.sh",
+    NIDP_HOME / "run_service.sh",
+)
+RUN_SCRIPT = next((p for p in _RUN_SCRIPT_CANDIDATES if p.exists()), _RUN_SCRIPT_CANDIDATES[0])
 
 
 # Lock down ingester names to alnum + underscore so we can never shell-
@@ -139,21 +150,47 @@ async def feed_execute(
         )
         runner = "run_service.sh"
     else:
-        # Docker/dev path: invoke current Python directly
+        # Docker/dev path: invoke current Python directly.
+        # pra_engine is a VM-only nightly job and does not exist as a
+        # Python module inside the Query API container — reject early.
+        VM_ONLY_INGESTERS = {"pra_engine"}
+        if ingester in VM_ONLY_INGESTERS:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{ingester} is a VM-only job and can only be triggered when "
+                    f"run_service.sh is present ({RUN_SCRIPT}). "
+                    "Ensure the NIDP VM is the target, not a Docker/Cloud Run container."
+                ),
+            )
         import sys as _sys
         py_args = [_sys.executable, "-m", f"nidp.services.{ingester}"]
         if target_date:
             py_args += ["--date", target_date]
         log_dir = LOGS_DIR / ingester
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_path = log_dir / f"{ingester}.log"
-        with open(log_path, "ab") as _lf:
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / f"{ingester}.log"
+            _lf = open(log_path, "ab")
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Cannot open log file for {ingester}: {exc}",
+            ) from exc
+        try:
             proc = await asyncio.create_subprocess_exec(
                 *py_args,
                 stdout=_lf,
                 stderr=_lf,
                 start_new_session=True,
             )
+        except Exception as exc:
+            _lf.close()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to spawn {ingester}: {exc}",
+            ) from exc
+        _lf.close()
         runner = f"python -m nidp.services.{ingester}"
 
     try:

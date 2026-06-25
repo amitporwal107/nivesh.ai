@@ -80,6 +80,10 @@ class HoldingUpdate(BaseModel):
 class ChatMessageInput(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     session_id: Optional[str] = None
+    # Optional human-readable label of the dashboard the user is viewing when
+    # they ask (e.g. "Risk", "Performance"). Sent by the global Copilot dock so
+    # answers can be grounded to the screen in view. None = generic/full chat.
+    page: Optional[str] = Field(default=None, max_length=60)
 
 
 class JourneyType(str, Enum):

@@ -51,6 +51,18 @@ class WidgetType(str, Enum):
     FUND_COMPARISON = "fund_comparison"
     GOAL_TRACKER = "goal_tracker"
     SIP_PLAN = "sip_plan"
+    FUND_CONSOLIDATION = "fund_consolidation"
+    FUND_OVERLAP = "fund_overlap"
+    OVERLAP_SEVERITY = "overlap_severity"
+    RISK_OVERVIEW = "risk_overview"
+    CAP_EDUCATION = "cap_education"
+    CONCENTRATION = "concentration"
+    ALLOCATION_REVIEW = "allocation_review"
+    RISK_ASSESSMENT = "risk_assessment"
+    INSTRUMENT_DETAIL = "instrument_detail"
+    MF_DETAIL = "mf_detail"
+    GOAL_SIMULATION = "goal_simulation"
+    PORTFOLIO_BUILDER = "portfolio_builder"   # in-chat multi-step builder wizard
     NONE = "none"
 
 

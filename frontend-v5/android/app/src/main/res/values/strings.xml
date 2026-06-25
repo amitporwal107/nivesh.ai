@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Nivesh (Staging)</string>
+    <string name="title_activity_main">Nivesh (Staging)</string>
+    <string name="package_name">ai.nivesh.staging</string>
+    <string name="custom_url_scheme">ai.nivesh.staging</string>
+    <!-- Web OAuth client ID ("nivesh.ai"). Used by @codetrix-studio/capacitor-google-auth
+         so the native sign-in returns an ID token with aud == web client ID, which the
+         backend /api/auth/google accepts. -->
+    <string name="server_client_id">728147509901-ge5iih70l1g6evd0fk9iroruiju14jeh.apps.googleusercontent.com</string>
+</resources>

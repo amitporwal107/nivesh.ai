@@ -7,13 +7,17 @@ in a structured format. SBI MF's Excel typically has one sheet per scheme
   Name of Instrument | ISIN | Industry/Sector | Rating | Quantity |
   Market/Fair Value (Rs in Lakhs) | % to Net Assets
 
+Debt-fund disclosures additionally include:
+  Maturity Date | Coupon Rate | YTM (%)
+
 The scheme name appears as a merged-cell header above each block.
 """
 from __future__ import annotations
 
 import io
 import logging
-from datetime import date
+import re
+from datetime import date, datetime
 from typing import Any, Optional
 
 import openpyxl
@@ -45,7 +49,47 @@ _COL_ALIASES: list[tuple[str, str]] = [
     ("% of net",           "weight_pct"),
     ("% to nav",           "weight_pct"),      # Nippon
     ("% to aum",           "weight_pct"),
+    # Debt-fund specific columns (SEBI circular format)
+    ("maturity date",      "maturity_date"),   # "Maturity Date", "Maturity  Date"
+    ("residual maturity",  "maturity_date"),   # some AMCs use "Residual Maturity"
+    ("redemption date",    "maturity_date"),   # alternate naming
+    ("ytm",                "ytm_pct"),         # "YTM", "YTM (%)", "YTM(%)"
+    ("yield to maturity",  "ytm_pct"),
+    ("yield",              "ytm_pct"),         # "Yield (%)" — catch-all
 ]
+
+# Date format patterns used in AMFI disclosures (try in order)
+_DATE_FORMATS = [
+    "%d-%m-%Y",    # 31-03-2027
+    "%d/%m/%Y",    # 31/03/2027
+    "%d-%b-%Y",    # 31-Mar-2027
+    "%d/%b/%Y",    # 31/Mar/2027
+    "%d-%B-%Y",    # 31-March-2027
+    "%d %b %Y",    # 31 Mar 2027  (after ordinal-suffix strip: "31st Mar 2027" → "31 Mar 2027")
+    "%d %B %Y",    # 31 March 2027
+    "%Y-%m-%d",    # 2027-03-31 (ISO)
+]
+
+
+def _to_date(v: Any) -> Optional[date]:
+    """Parse a cell value to a date. Returns None on failure."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    s = str(v).strip()
+    if not s or s in {"-", "N.A.", "NA", "—", "N/A"}:
+        return None
+    # Strip ordinal suffixes: "31st" → "31"
+    s = re.sub(r"(\d+)(st|nd|rd|th)\b", r"\1", s, flags=re.IGNORECASE)
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 _ITYPE_KEYWORDS: list[tuple[str, str]] = [
     ("equity shares",              "EQUITY"),
@@ -98,26 +142,44 @@ def _col_idx(headers: list[str], *fragments: str) -> Optional[int]:
     return None
 
 
+# Write-guard for security_isin. A misaligned column can land a date, quantity or
+# name in the ISIN slot (observed: SBI sheets wrote '2026-05-26 00:00:00' for 3,160
+# rows). Reject anything that isn't a well-formed ISIN so garbage never reaches the
+# column. Pattern matches the DQ regex, so the guard nulls exactly what the suite
+# would flag — no more, no less.
+_ISIN_WRITE_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
+
+
+def _clean_isin(v: Any) -> Optional[str]:
+    if not v:
+        return None
+    s = str(v).strip().upper()
+    return s if _ISIN_WRITE_RE.match(s) else None
+
+
 def _normalise_weights(rows: list[dict]) -> list[dict]:
-    """Normalise weight_pct to decimal fraction (0.0–1.0 range).
+    """Normalise weight_pct to PERCENT (0–100 range).
 
-    Some AMC files (e.g. HDFC) publish weight_pct as a percentage (6.47),
-    others (e.g. Nippon) as a decimal fraction (0.0421). We detect the
-    scale by the maximum value: if any single security exceeds 2.0, the
-    values are in percentage form and should be divided by 100.
+    The DB column `weight_pct`, the DQ grouped-sum check (per-scheme ≈100) and
+    the v3 primitives view (`top10_concentration_pct = SUM(weight_pct)`) all read
+    this as a percentage. Excel files disagree on scale: some publish 6.47 (already
+    %), others publish 0.0421 because the cell is percent-FORMATTED and openpyxl
+    returns the underlying fraction. We detect by the maximum value — if no single
+    holding exceeds 2.0, the values are a 0–1 fraction and are multiplied by 100.
 
-    The 2.0 threshold is safe because no single holding legitimately
-    represents >200% of a fund's NAV in decimal form (and in percentage
-    form, >2% is extremely common for top holdings).
+    The 2.0 threshold is safe because in percent form top holdings routinely exceed
+    2%, whereas in fraction form a single holding rarely exceeds 2.0 (=200% of NAV).
+    (Previously this normalised to a 0–1 fraction, which mismatched every consumer
+    and made 1,497 schemes fail the per-scheme weight-sum check — see commit history.)
     """
     weights = [r["weight_pct"] for r in rows if r.get("weight_pct") is not None]
     if not weights:
         return rows
-    if max(weights) > 2.0:
-        # Percentage form → convert to decimal
+    if max(weights) <= 2.0:
+        # Fraction form (e.g. 0.0421) → convert to percent
         for r in rows:
             if r.get("weight_pct") is not None:
-                r["weight_pct"] = r["weight_pct"] / 100.0
+                r["weight_pct"] = r["weight_pct"] * 100.0
     return rows
 
 
@@ -207,6 +269,14 @@ def parse_sbi_multisheet_xlsx(
             sec_name = str_cells[name_col]
             if sec_name.lower() in _HEADER_REPEAT_NAMES:
                 continue
+            # The portfolio ends at GRAND TOTAL (AUM). Everything below it is
+            # supplementary disclosure — a DERIVATIVES / hedging-exposure detail table
+            # whose columns mean different things (the futures expiry DATE sits under
+            # ISIN, notional values under % to AUM) plus textual notes. Stop the sheet
+            # here so those rows never get ingested as holdings (they were the source of
+            # the date-in-ISIN + >1000% weight corruption in derivative-using schemes).
+            if "grand total" in sec_name.lower():
+                break
 
             def _get(field: str, _sc=str_cells, _hm=header_map) -> Optional[str]:
                 for ci, fn in _hm.items():
@@ -215,6 +285,11 @@ def parse_sbi_multisheet_xlsx(
                 return None
 
             isin    = _get("security_isin")
+            # Drop section subtotal / "Total" / "GRAND TOTAL (AUM)" rows — they carry a
+            # weight so the no-data filter lets them through, and counting them inflates
+            # the per-scheme sum (real SBI sheet: holdings + subtotals + grand total = 300%).
+            if _is_aggregation_row(sec_name, bool(isin and _VALID_ISIN_RE.match(isin))):
+                continue
             sector  = _get("sector")
             rating  = _get("rating")
             qty     = _to_float(_get("quantity"))
@@ -222,11 +297,25 @@ def parse_sbi_multisheet_xlsx(
             if mkt_val is not None:
                 mkt_val *= 100_000  # Lakhs → INR
             weight  = _to_float(_get("weight_pct"))
+            # Instrument-class section headers ("Commercial Paper", "b) Unlisted",
+            # "Term Deposits Placed as Margins", …) carry a name but no holding data.
+            # Skip anything with no ISIN, no market value AND no weight — not a holding.
+            if _clean_isin(isin) is None and mkt_val is None and weight is None:
+                continue
+            # Debt-fund specific: maturity date and YTM
+            mat_raw = next(
+                (row[ci] for ci, fn in header_map.items() if fn == "maturity_date" and ci < len(row)),
+                None,
+            )
+            mat_date = _to_date(mat_raw)
+            ytm_raw  = _to_float(_get("ytm_pct"))
+            if ytm_raw is not None and ytm_raw < 1.0:
+                ytm_raw = round(ytm_raw * 100, 4)
 
             result.append({
                 "scheme_code":      scheme_name,
                 "as_of_month":      as_of_str,
-                "security_isin":    isin if (isin and isin not in {"-", "N.A.", "NA"}) else None,
+                "security_isin":    _clean_isin(isin),
                 "security_name":    sec_name,
                 "instrument_type":  _guess_itype(sec_name, sector),
                 "sector":           sector,
@@ -234,6 +323,8 @@ def parse_sbi_multisheet_xlsx(
                 "quantity":         qty,
                 "market_value_inr": mkt_val,
                 "weight_pct":       weight,
+                "maturity_date":    mat_date,
+                "ytm_pct":          ytm_raw,
                 "source":           source_tag,
                 "source_url":       source_url,
             })
@@ -250,8 +341,7 @@ def parse_portfolio_xlsx(
     """Parse an AMC portfolio Excel → list of mf_holdings_monthly rows.
 
     Handles both .xlsx (openpyxl) and legacy .xls (xlrd) formats.
-    Normalises weight_pct to decimal fraction (0.0–1.0) regardless of
-    AMC-specific format.
+    Normalises weight_pct to percent (0–100) regardless of AMC-specific format.
     scheme_code is set to the scheme *name* from the Excel header row.
     The calling adapter resolves name → AMFI code via DB lookup.
     """
@@ -295,6 +385,29 @@ _HEADER_REPEAT_NAMES = {
     "name of instrument", "name of the instrument",
     "instrument name", "security name",
 }
+
+
+_VALID_ISIN_RE = re.compile(r"^IN[EF][A-Z0-9]{9}$")
+# SEBI sub-section bullets: "(a) Listed/awaiting listing", "(b) Unlisted",
+# "(c) Privately placed", etc. — labels, not holdings.
+_SECTION_BULLET_RE = re.compile(r"^\s*\([a-e]\)", re.I)
+
+
+def _is_aggregation_row(name: str, has_valid_isin: bool) -> bool:
+    """True for subtotal / grand-total / section-label rows that must not be counted
+    as holdings. They carry a value+weight (so the no-data filter misses them), and
+    including them double-counts — e.g. NIPPON schemes summed to ~224% because every
+    section's Sub Total plus the Grand Total were ingested alongside the real holdings.
+    A row with a valid ISIN is always a real security and is never treated as a total.
+    """
+    if has_valid_isin:
+        return False
+    n = name.strip()
+    if "total" in n.lower():            # subtotal / sub total / grand total / total
+        return True
+    if _SECTION_BULLET_RE.match(n):     # "(a) Listed", "(b) Unlisted", ...
+        return True
+    return False
 
 
 def _parse_sheet(
@@ -389,6 +502,10 @@ def _parse_sheet(
             return None
 
         isin    = _get("security_isin")
+        # Drop subtotal / grand-total / section-label rows (they carry a value so the
+        # no-data filter above lets them through, but counting them double-counts).
+        if _is_aggregation_row(sec_name, bool(isin and _VALID_ISIN_RE.match(isin))):
+            continue
         sector  = _get("sector")
         rating  = _get("rating")
         qty     = _to_float(_get("quantity"))
@@ -396,12 +513,26 @@ def _parse_sheet(
         if mkt_val is not None:
             mkt_val *= 100_000          # Lakhs → INR
         weight  = _to_float(_get("weight_pct"))
+        # Instrument-class section headers carry a name but no holding data — skip
+        # anything with no ISIN, no market value AND no weight (not a holding).
+        if _clean_isin(isin) is None and mkt_val is None and weight is None:
+            continue
+        # Debt-fund specific: maturity date and YTM
+        mat_raw = next(
+            (row[ci] for ci, fn in header_map.items() if fn == "maturity_date" and ci < len(row)),
+            None,
+        )
+        mat_date = _to_date(mat_raw)
+        ytm_raw  = _to_float(_get("ytm_pct"))
+        # YTM may be published as a decimal (0.0721) or percentage (7.21); normalise to %
+        if ytm_raw is not None and ytm_raw < 1.0:
+            ytm_raw = round(ytm_raw * 100, 4)
 
         result.append({
             # scheme_code will be resolved by the adapter (name → AMFI code).
             "scheme_code":      current_scheme or sheet_name,
             "as_of_month":      as_of_month,
-            "security_isin":    isin if (isin and isin not in {"-", "N.A.", "NA"}) else None,
+            "security_isin":    _clean_isin(isin),
             "security_name":    sec_name,
             "instrument_type":  _guess_itype(sec_name, sector),
             "sector":           sector,
@@ -409,6 +540,8 @@ def _parse_sheet(
             "quantity":         qty,
             "market_value_inr": mkt_val,
             "weight_pct":       weight,
+            "maturity_date":    mat_date,
+            "ytm_pct":          ytm_raw,
             "source":           source_tag,
             "source_url":       source_url,
         })

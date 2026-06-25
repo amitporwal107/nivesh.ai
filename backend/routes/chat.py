@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 import os
 import uuid
@@ -13,7 +13,7 @@ from deps import db, get_current_user, ai_engine
 from models import ChatMessageInput
 from services import portfolio_intelligence
 from services.action_plan_manager import ActionPlanManager
-from routes.copilot import _advisor_book_block, _is_advisor_caller
+from routes.copilot import _advisor_book_block, _is_advisor_caller, _is_research_tool_intent
 from services.copilot_charts import (
     CHART_PROTOCOL, validate_chart_blocks, log_invalid_chart_specs,
 )
@@ -665,12 +665,147 @@ async def _compute_portfolio_intelligence_context(user_id: str,
 
 
 
+# ── Per-user chat-history cache (Redis) ────────────────────────────────────
+# Chat history is read on every session open / post-send refetch. Cache the
+# session list and per-session message list in Redis, namespaced per user, and
+# bust on every write so a just-sent message can never be hidden by a stale
+# read. The TTL is only a safety net — explicit busts are the real invalidator.
+_CHAT_CACHE_TTL_S = 6 * 3600
+
+
+def _sessions_key(user_id: str) -> str:
+    return f"chat:sessions:{user_id}"
+
+
+def _messages_key(user_id: str, session_id: str) -> str:
+    return f"chat:msgs:{user_id}:{session_id}"
+
+
+async def _bust_chat_cache(user_id: str, session_id: Optional[str] = None) -> None:
+    """Drop a user's session-list cache and (optionally) one session's messages."""
+    try:
+        from services import redis_client as _redis
+        await _redis.cache_del(_sessions_key(user_id))
+        if session_id:
+            await _redis.cache_del(_messages_key(user_id, session_id))
+    except Exception:  # noqa: BLE001 — cache is best-effort; never break a write
+        pass
+
+
+# Cached full equity universe for autocomplete — refreshed hourly so we don't hit
+# the NIDP screener on every keystroke. Shared across requests in this process.
+_STOCK_UNIVERSE: Dict[str, Any] = {"ts": 0.0, "rows": []}
+_STOCK_UNIVERSE_TTL = 3600.0
+
+
+async def _stock_universe() -> List[Dict[str, Any]]:
+    import time
+    now = time.time()
+    if _STOCK_UNIVERSE["rows"] and (now - _STOCK_UNIVERSE["ts"]) < _STOCK_UNIVERSE_TTL:
+        return _STOCK_UNIVERSE["rows"]
+    try:
+        from services.copilot_tools import daas_client
+        rows = await daas_client.list_stock_universe(limit=800)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("_stock_universe load failed: %s", exc)
+        rows = []
+    if rows:
+        _STOCK_UNIVERSE["rows"] = rows
+        _STOCK_UNIVERSE["ts"] = now
+    return _STOCK_UNIVERSE["rows"]
+
+
+@router.get("/chat/instrument-search")
+async def chat_instrument_search(q: str = "", limit: int = 6):
+    """Typeahead for the chat composer — matching stocks (curated equity universe)
+    and mutual funds (live NIDP scheme master). Read-only; degrades to empty lists
+    if DaaS is unavailable. Fund rows are deduped to one per fund family (plan
+    variants collapsed, Growth/Regular preferred)."""
+    term = (q or "").strip()
+    if len(term) < 2:
+        return {"stocks": [], "funds": []}
+    ql = term.lower()
+    limit = max(1, min(int(limit or 6), 10))
+
+    # Stocks — substring match on the full V3 equity universe (cached), ranked by
+    # quality. Falls back to the curated list if NIDP is unavailable.
+    stocks: List[Dict[str, Any]] = []
+    universe = await _stock_universe()
+    for r in universe:
+        sym = (r.get("symbol") or "").strip()
+        if not sym:
+            continue
+        name = (r.get("company_name") or r.get("name") or "").strip()
+        if ql in sym.lower() or (name and ql in name.lower()):
+            stocks.append({"symbol": sym, "name": name or sym, "sector": r.get("sector") or r.get("industry")})
+        if len(stocks) >= limit:
+            break
+    if not stocks:
+        from instruments_data import INDIAN_INSTRUMENTS
+        for inst in INDIAN_INSTRUMENTS:
+            if inst.get("type") != "equity":
+                continue
+            if ql in inst["name"].lower() or ql in inst["ticker"].lower():
+                stocks.append({"symbol": inst["ticker"], "name": inst["name"], "sector": inst.get("sector")})
+            if len(stocks) >= limit:
+                break
+
+    # Funds — live scheme search, collapsed to one row per fund family.
+    funds: List[Dict[str, Any]] = []
+    try:
+        import re as _re
+        from services.copilot_tools import daas_client
+        from services.copilot_tools.mf_cards import _clean_name, _fund_key, _peer_pref
+        # _fund_key collapses plan/option variants (Direct/Regular/Growth/IDCW);
+        # also strip share-class words so "X", "X - Retail", "X - Wholesale" collapse.
+        _share = _re.compile(r"\b(retail|wholesale|institutional|inst|super)\b")
+        def _fam(nm: str) -> str:
+            return _re.sub(r"\s+", " ", _share.sub(" ", _fund_key(nm))).strip()
+        def _disp(nm: str) -> str:
+            d = _clean_name(nm)
+            d = _re.sub(r"\s*[-–]\s*(?:retail|wholesale|institutional|super\s+institutional)\b.*$", "", d, flags=_re.I)
+            return d.strip()
+        raw = await daas_client.search_mf_schemes(term, limit=max(limit * 5, 30))
+        best: Dict[str, Dict[str, Any]] = {}
+        for r in raw:
+            fam = _fam(r.get("scheme_name") or "")
+            if not fam:
+                continue
+            prev = best.get(fam)
+            if prev is None or _peer_pref(r) < _peer_pref(prev):
+                best[fam] = r
+        for r in list(best.values())[:limit]:
+            funds.append({
+                "name": _disp(r.get("scheme_name") or ""),
+                "scheme_code": r.get("scheme_code"),
+                "amc": r.get("amc_name"),
+                "category": r.get("scheme_category"),
+            })
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("chat_instrument_search funds(%r): %s", term[:40], exc)
+
+    return {"stocks": stocks, "funds": funds}
+
+
 @router.get("/chat/sessions")
 async def list_chat_sessions(request: Request):
     user = await get_current_user(request)
+    uid = user["user_id"]
+    try:
+        from services import redis_client as _redis
+        cached = await _redis.cache_get(_sessions_key(uid))
+        if isinstance(cached, list):
+            return cached
+    except Exception:  # noqa: BLE001
+        pass
     sessions = await db.chat_sessions.find(
-        {"user_id": user["user_id"]}, {"_id": 0}
+        {"user_id": uid}, {"_id": 0}
     ).sort("updated_at", -1).to_list(50)
+    try:
+        from services import redis_client as _redis
+        await _redis.cache_set(_sessions_key(uid), sessions, ttl_s=_CHAT_CACHE_TTL_S)
+    except Exception:  # noqa: BLE001
+        pass
     return sessions
 
 
@@ -685,6 +820,7 @@ async def create_chat_session(request: Request):
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.chat_sessions.insert_one(session_doc)
+    await _bust_chat_cache(user["user_id"])
     return {k: v for k, v in session_doc.items() if k != "_id"}
 
 
@@ -726,7 +862,7 @@ async def warmup_chat_context(request: Request):
     user = await get_current_user(request)
     user_id = user["user_id"]
     session_user_id = user.get("_session_user_id") or user_id
-    advisor_mode = await _is_advisor_caller(session_user_id, user_id)
+    advisor_mode = await _is_advisor_caller(session_user_id, user.get("_active_profile_id"))
     if advisor_mode:
         return {"ok": True, "warmed": False, "reason": "advisor_mode"}
     # Warm all five context pieces in parallel. Intelligence is the only
@@ -769,18 +905,35 @@ async def delete_chat_session(request: Request, session_id: str):
     user = await get_current_user(request)
     await db.chat_sessions.delete_one({"session_id": session_id, "user_id": user["user_id"]})
     await db.chat_messages.delete_many({"session_id": session_id, "user_id": user["user_id"]})
+    await _bust_chat_cache(user["user_id"], session_id)
     return {"message": "Session deleted"}
 
 
 @router.get("/chat/messages")
 async def get_chat_messages(request: Request, session_id: Optional[str] = None):
     user = await get_current_user(request)
-    query = {"user_id": user["user_id"]}
+    uid = user["user_id"]
+    # Cache only the common per-session read (the cross-session case is rare).
+    if session_id:
+        try:
+            from services import redis_client as _redis
+            cached = await _redis.cache_get(_messages_key(uid, session_id))
+            if isinstance(cached, list):
+                return cached
+        except Exception:  # noqa: BLE001
+            pass
+    query = {"user_id": uid}
     if session_id:
         query["session_id"] = session_id
     messages = await db.chat_messages.find(
         query, {"_id": 0}
     ).sort("created_at", 1).to_list(200)
+    if session_id:
+        try:
+            from services import redis_client as _redis
+            await _redis.cache_set(_messages_key(uid, session_id), messages, ttl_s=_CHAT_CACHE_TTL_S)
+        except Exception:  # noqa: BLE001
+            pass
     return messages
 
 
@@ -789,7 +942,11 @@ async def send_chat(request: Request, msg: ChatMessageInput):
     user = await get_current_user(request)
     user_id = user["user_id"]
     session_user_id = user.get("_session_user_id") or user_id
-    advisor_mode = await _is_advisor_caller(session_user_id, user_id)
+    advisor_mode = await _is_advisor_caller(session_user_id, user.get("_active_profile_id"))
+    # Research tools (stock/fund research, portfolio builder, screener) are
+    # mode-agnostic: in advisor mode they run the investor engine so the
+    # answer matches client mode rather than the cross-client book path.
+    route_investor = (not advisor_mode) or _is_research_tool_intent(msg.message)
 
     session_id = msg.session_id
     if not session_id:
@@ -818,6 +975,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.chat_messages.insert_one(user_msg_doc)
+    await _bust_chat_cache(user_id, session_id)
 
     # Auto-title session
     session_msgs_count = await db.chat_messages.count_documents({"session_id": session_id, "role": "user"})
@@ -852,7 +1010,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
     # Copilot is NIDP-only — V3 RAG retired. If LangGraph deps failed
     # to import at startup, surface a clean error rather than silently
     # degrading.
-    if not advisor_mode:
+    if route_investor:
         if not _lg_available:
             ai_response = (
                 "Copilot is currently unavailable — the LangGraph engine "
@@ -869,7 +1027,19 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                         lg_messages.append(_HumanMessage(content=m["content"]))
                     elif m["role"] == "assistant":
                         lg_messages.append(_AIMessage(content=m["content"]))
-                lg_messages.append(_HumanMessage(content=msg.message))
+                # Page-aware grounding: when the question comes from the global
+                # Copilot dock on a specific dashboard, prefix a light context
+                # hint so "explain this" / "why is this high?" resolve to the
+                # screen in view. Stored user message (above) stays clean.
+                current_message = msg.message
+                if msg.page:
+                    page_label = msg.page.strip()[:60]
+                    if page_label:
+                        current_message = (
+                            f"[Context: I'm currently viewing the {page_label} "
+                            f"dashboard.]\n\n{msg.message}"
+                        )
+                lg_messages.append(_HumanMessage(content=current_message))
                 persona_ctx = await _load_persona_context(db, user_id) if _load_persona_context else {}
                 result = await graph.ainvoke(
                     {
@@ -883,17 +1053,9 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                 resp = result.get("response")
                 prose = (getattr(resp, "text", None) or "") if resp else ""
                 wt = getattr(resp, "widget_type", None)
+                wt_str = wt.value if hasattr(wt, "value") else (str(wt) if wt else None)
                 wd = getattr(resp, "widget_data", None)
-                if wt and wt != "none" and wd:
-                    # Upgrade NIDP widget to the unified insight_card layout
-                    # (matches /chat/stream behaviour).
-                    try:
-                        from services.copilot_tools.insight_card_transformers import (
-                            nidp_widget_to_insight_card,
-                        )
-                        unified = nidp_widget_to_insight_card(wt, wd)
-                    except Exception:
-                        unified = None
+                if wt_str and wt_str != "none" and wd:
                     agent_val = getattr(resp, "agent", None)
                     agent_id = agent_val.value if hasattr(agent_val, "value") else agent_val
                     freshness = {
@@ -902,20 +1064,35 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                         "source": ["NIDP", "portfolio_holdings"],
                     }
                     agent_block = {"id": agent_id or "risk_analyst", "confidence": 85}
-                    if unified is not None:
+                    # Structured V5-native widgets pass through verbatim — no
+                    # insight_card transform.
+                    if wt_str in ("fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "risk_assessment", "instrument_detail", "goal_simulation", "stock_screener"):
                         widget_envelope = {
-                            "widget_type": "insight_card",
-                            "data":        unified.model_dump(),
-                            "freshness":   freshness,
-                            "agent":       agent_block,
+                            "widget_type": wt_str, "data": wd,
+                            "freshness": freshness, "agent": agent_block,
                         }
                     else:
-                        widget_envelope = {
-                            "widget_type": wt,
-                            "data":        wd,
-                            "freshness":   freshness,
-                            "agent":       agent_block,
-                        }
+                        try:
+                            from services.copilot_tools.insight_card_transformers import (
+                                nidp_widget_to_insight_card,
+                            )
+                            unified = nidp_widget_to_insight_card(wt, wd)
+                        except Exception:
+                            unified = None
+                        if unified is not None:
+                            widget_envelope = {
+                                "widget_type": "insight_card",
+                                "data":        unified.model_dump(),
+                                "freshness":   freshness,
+                                "agent":       agent_block,
+                            }
+                        else:
+                            widget_envelope = {
+                                "widget_type": wt_str,
+                                "data":        wd,
+                                "freshness":   freshness,
+                                "agent":       agent_block,
+                            }
                 validated = validate_chart_blocks(prose)
                 ai_response = validated["clean_text"]
                 await log_invalid_chart_specs(
@@ -970,11 +1147,46 @@ async def send_chat(request: Request, msg: ChatMessageInput):
     if widget_envelope:
         ai_msg_doc["widget"] = widget_envelope
     await db.chat_messages.insert_one(ai_msg_doc)
+    await _bust_chat_cache(user_id, session_id)
 
     return {
         "user_message": {k: v for k, v in user_msg_doc.items() if k != "_id"},
         "ai_message": {k: v for k, v in ai_msg_doc.items() if k != "_id"}
     }
+
+
+def _widget_envelope(wt: Optional[str], wd: Optional[Dict[str, Any]],
+                     agent_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Build the SSE widget envelope from a (widget_type, widget_data) pair.
+    V5-native widgets pass through verbatim; legacy ones become the unified
+    insight_card. Returns None when there's no widget. Shared by the early
+    custom-event emit and the final on_chain_end emit."""
+    if not (wt and wt != "none" and wd):
+        return None
+    title_map = {
+        "stress_test": (wd.get("scenario_name") or "Portfolio Stress Test"),
+        "rebalance_plan": "Rebalance Plan", "tax_harvest": "Tax Harvest Plan",
+        "sip_plan": "SIP Plan", "overlap_reveal": "Fund Overlap",
+        "sector_rotation": "Sector Rotation", "fund_comparison": "Fund Comparison",
+        "portfolio_overview": "Portfolio Overview", "goal_tracker": "Goal Tracker",
+        "stock_screener": "Stock Screener",
+    }
+    title = title_map.get(wt, "Insight")
+    freshness = {"state": "cached", "last_updated": datetime.now(timezone.utc).isoformat(),
+                 "source": ["NIDP", "portfolio_holdings"]}
+    agent = {"id": agent_id or "portfolio_analyst", "confidence": 90}
+    unified = None
+    # V5-native widgets render with their own component — never insight_card-ify.
+    if wt not in ("instrument_detail", "stock_screener", "portfolio_builder"):
+        try:
+            from services.copilot_tools.insight_card_transformers import nidp_widget_to_insight_card
+            unified = nidp_widget_to_insight_card(wt, wd)
+        except Exception:  # noqa: BLE001
+            unified = None
+    if unified is not None:
+        return {"widget_type": "insight_card", "data": unified.model_dump(),
+                "title": title, "freshness": freshness, "agent": agent}
+    return {"widget_type": wt, "data": wd, "title": title, "freshness": freshness, "agent": agent}
 
 
 @router.post("/chat/stream")
@@ -983,13 +1195,18 @@ async def stream_chat(request: Request):
     user = await get_current_user(request)
     user_id = user["user_id"]
     session_user_id = user.get("_session_user_id") or user_id
-    advisor_mode = await _is_advisor_caller(session_user_id, user_id)
+    advisor_mode = await _is_advisor_caller(session_user_id, user.get("_active_profile_id"))
     body = await request.json()
     message = body.get("message", "").strip()
     session_id = body.get("session_id")
 
     if not message:
         raise HTTPException(status_code=400, detail="Message required")
+
+    # Research tools (stock/fund research, portfolio builder, screener) are
+    # mode-agnostic: in advisor mode they must return the same answer as in
+    # client mode, so they run the investor engine instead of the book path.
+    route_investor = (not advisor_mode) or _is_research_tool_intent(message)
 
     # Resolve or create session
     if not session_id:
@@ -1019,6 +1236,7 @@ async def stream_chat(request: Request):
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.chat_messages.insert_one(user_msg_doc)
+    await _bust_chat_cache(user_id, session_id)
 
     # Auto-title
     session_msgs_count = await db.chat_messages.count_documents({"session_id": session_id, "role": "user"})
@@ -1034,10 +1252,11 @@ async def stream_chat(request: Request):
         {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
     )
 
-    # Portfolio context \u2014 advisor mode swaps to the cross-client book.
+    # Portfolio context \u2014 advisor mode swaps to the cross-client book,
+    # except for mode-agnostic research tools which run the investor engine.
     portfolio_context = ""
     risk_context = ""
-    if advisor_mode:
+    if advisor_mode and not route_investor:
         book = await _advisor_book_block(session_user_id)
         portfolio_context = f"\n\nADVISOR CLIENT BOOK:\n{book}\n"
     else:
@@ -1075,7 +1294,7 @@ async def stream_chat(request: Request):
             yield f"data: {json.dumps({'type': 'meta', **meta})}\n\n"
 
             # ── Single-portfolio (investor) path ─────────────────────────────
-            if not advisor_mode:
+            if route_investor:
                 await _ensure_plan_for_actionable_question(user_id, message)
 
                 # Per-request engine selection: NIDP (LangGraph) when the
@@ -1112,10 +1331,22 @@ async def stream_chat(request: Request):
                         **persona_ctx,
                     }
                     prose = ""
+                    streamed_any = False  # True once real LLM tokens are emitted
+                    widget_streamed = False  # True once a widget frame is emitted (early or final)
                     widget_envelope: Optional[Dict] = None
                     async for event in graph.astream_events(lg_input, config=lg_config, version="v2"):
                         kind = event.get("event", "")
-                        if kind == "on_tool_start":
+                        if kind == "on_custom_event" and event.get("name") == "copilot_widget":
+                            # A node pushed its widget early (data ready, before
+                            # the narrative). Emit it now so the client renders
+                            # the widget first and streams the text underneath.
+                            cdata = event.get("data") or {}
+                            env = _widget_envelope(cdata.get("widget_type"), cdata.get("widget_data"))
+                            if env and not widget_streamed:
+                                widget_envelope = env
+                                widget_streamed = True
+                                yield f"data: {json.dumps({'type': 'widget', **env})}\n\n"
+                        elif kind == "on_tool_start":
                             tool_name = event.get("name") or event.get("data", {}).get("input", {}).get("name", "tool")
                             yield f"data: {json.dumps({'type': 'thinking', 'tool': tool_name, 'status': 'start'})}\n\n"
                         elif kind == "on_tool_end":
@@ -1128,6 +1359,7 @@ async def stream_chat(request: Request):
                             chunk = event.get("data", {}).get("chunk")
                             if chunk and hasattr(chunk, "content") and chunk.content:
                                 prose += chunk.content
+                                streamed_any = True
                                 yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
                         elif kind == "on_chain_end" and event.get("name") == "intent_node":
                             output = event.get("data", {}).get("output", {})
@@ -1151,60 +1383,25 @@ async def stream_chat(request: Request):
                                     prose = getattr(final_resp, "text", "") or str(final_resp)
                                 wt = getattr(final_resp, "widget_type", None)
                                 wd = getattr(final_resp, "widget_data", None)
-                                if wt and wt != "none" and wd:
+                                wt_s = wt.value if hasattr(wt, "value") else (str(wt) if wt else None)
+                                if wt_s and wt_s != "none" and wd:
                                     agent_val = getattr(final_resp, "agent", None)
                                     agent_id = agent_val.value if hasattr(agent_val, "value") else agent_val
-                                    confidence = float(getattr(final_resp, "confidence", 0.85) or 0.85) * 100
-                                    title_map = {
-                                        "stress_test":         (wd.get("scenario_name") or "Portfolio Stress Test"),
-                                        "rebalance_plan":      "Rebalance Plan",
-                                        "tax_harvest":         "Tax Harvest Plan",
-                                        "sip_plan":            "SIP Plan",
-                                        "overlap_reveal":      "Fund Overlap",
-                                        "sector_rotation":     "Sector Rotation",
-                                        "fund_comparison":     "Fund Comparison",
-                                        "portfolio_overview":  "Portfolio Overview",
-                                        "goal_tracker":        "Goal Tracker",
-                                        "stock_screener":      "Stock Screener",
-                                    }
-                                    title = title_map.get(wt, "Insight")
-                                    freshness = {
-                                        "state": "cached",
-                                        "last_updated": datetime.now(timezone.utc).isoformat(),
-                                        "source": ["NIDP", "portfolio_holdings"],
-                                    }
-                                    agent = {
-                                        "id": agent_id or "risk_analyst",
-                                        "confidence": int(round(confidence)),
-                                    }
-                                    try:
-                                        from services.copilot_tools.insight_card_transformers import (
-                                            nidp_widget_to_insight_card,
-                                        )
-                                        unified = nidp_widget_to_insight_card(wt, wd)
-                                    except Exception:
-                                        unified = None
-                                    if unified is not None:
-                                        widget_envelope = {
-                                            "widget_type": "insight_card",
-                                            "data":        unified.model_dump(),
-                                            "title":       title,
-                                            "freshness":   freshness,
-                                            "agent":       agent,
-                                        }
-                                    else:
-                                        widget_envelope = {
-                                            "widget_type": wt,
-                                            "data":        wd,
-                                            "title":       title,
-                                            "freshness":   freshness,
-                                            "agent":       agent,
-                                        }
+                                    # Same envelope the node already emitted early
+                                    # — kept here for the DB save (and as a fallback
+                                    # if the early custom event didn't fire).
+                                    env = _widget_envelope(wt_s, wd, agent_id)
+                                    if env:
+                                        widget_envelope = env
                                 fu = getattr(final_resp, "follow_ups", None) or []
                                 if fu:
                                     follow_ups = list(fu)[:3]
 
-                    if prose and not full_response:
+                    # Only chunk-emit the final prose when NOTHING was streamed
+                    # live (e.g. a node returned text without token events).
+                    # When real tokens already streamed, re-emitting here would
+                    # DOUBLE the answer in the client.
+                    if prose and not streamed_any:
                         CHUNK = 24
                         for i in range(0, len(prose), CHUNK):
                             tok = prose[i:i + CHUNK]
@@ -1214,8 +1411,11 @@ async def stream_chat(request: Request):
                         full_response = prose
 
                     if widget_envelope:
-                        pending_widget = widget_envelope
-                        yield f"data: {json.dumps({'type': 'widget', **widget_envelope})}\n\n"
+                        pending_widget = widget_envelope  # always persist for the DB save
+                        # Only emit here if the node didn't already stream it early.
+                        if not widget_streamed:
+                            widget_streamed = True
+                            yield f"data: {json.dumps({'type': 'widget', **widget_envelope})}\n\n"
             else:
                 # Advisor (cross-client) mode — legacy book-block path.
                 full_context = portfolio_context
@@ -1237,8 +1437,8 @@ async def stream_chat(request: Request):
             full_response = validated["clean_text"]
             await log_invalid_chart_specs(
                 db, user_id,
-                model="copilot_rag" if not advisor_mode else "ai_engine",
-                route=f"chat/stream/{'advisor' if advisor_mode else 'investor'}",
+                model="copilot_rag" if route_investor else "ai_engine",
+                route=f"chat/stream/{'investor' if route_investor else 'advisor'}",
                 invalid=validated["invalid_specs"],
             )
 
@@ -1254,6 +1454,7 @@ async def stream_chat(request: Request):
             if pending_widget:
                 ai_msg_doc["widget"] = pending_widget
             await db.chat_messages.insert_one(ai_msg_doc)
+            await _bust_chat_cache(user_id, session_id)
 
             done_payload = {
                 "type": "done",
@@ -1277,6 +1478,7 @@ async def stream_chat(request: Request):
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
             await db.chat_messages.insert_one(ai_msg_doc)
+            await _bust_chat_cache(user_id, session_id)
             yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
 
     return StreamingResponse(
@@ -1301,4 +1503,5 @@ async def clear_chat(request: Request, session_id: Optional[str] = None):
         await db.chat_sessions.delete_one({"session_id": session_id, "user_id": user["user_id"]})
     else:
         await db.chat_sessions.delete_many({"user_id": user["user_id"]})
+    await _bust_chat_cache(user["user_id"], session_id)
     return {"message": "Chat cleared"}

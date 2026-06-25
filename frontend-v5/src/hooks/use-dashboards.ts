@@ -17,5 +17,7 @@ export function useDashboard(
   return useQuery({
     queryKey: ["dashboards", domain, params ?? {}],
     queryFn: () => dashboardsService.fetch(domain, params),
+    staleTime: 24 * 60 * 60 * 1000, // 24 h — backend Redis cache is the source of truth
+    gcTime: 24 * 60 * 60 * 1000,
   });
 }

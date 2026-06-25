@@ -31,7 +31,7 @@ log "Installing dashboard providers (NIDP Prod + NIDP Staging)"
 cp "$SRC/dashboards.yml"  "$DST/dashboards/dashboards.yml"
 
 # ── 4. Dashboards — prod + staging (hot-reload; no restart needed) ────────────
-DASHBOARDS="job_health infra dq_chain dq_analytics feed_sched environment_overview"
+DASHBOARDS="job_health infra dq_chain dq_analytics feed_sched environment_overview app_logs frontend-errors error_dashboard"
 for dash in $DASHBOARDS; do
     if [[ -f "$SRC/dashboards/prod/$dash.json" ]]; then
         log "  prod/$dash.json"
@@ -53,26 +53,31 @@ fi
 chmod -R a+rX "$DST"
 
 # ── 7. Restart Grafana (required for datasource + alerting changes) ────────────
-if sudo docker ps --format '{{.Names}}' | grep -q '^nidp-grafana$'; then
-    log "Restarting nidp-grafana to apply datasource/alerting changes..."
-    sudo docker restart nidp-grafana >/dev/null
-    sleep 5
-    if curl -sf http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
-        log "✓ Grafana is healthy at https://data.niveshcopilot.com/grafana"
-        log "  Login: admin / admin (change on first login)"
-        log "  Dashboards:"
-        log "    NIDP Prod   → 'NIDP Prod — Environment Overview'"
-        log "    NIDP Prod   → 'NIDP Prod — Job Health'"
-        log "    NIDP Prod   → 'NIDP Prod — Feed Schedule & Status'"
-        log "    NIDP Staging→ 'NIDP Staging — Environment Overview'"
-    else
-        log "✗ Grafana didn't come back up. Check: sudo docker logs nidp-grafana --tail 50"
-        exit 1
-    fi
+# Use `docker compose up -d` (not `docker restart`) so any env-var changes
+# (e.g. GCP_LOG_TRIAGE_PRIVATE_KEY) are picked up by recreating the container.
+INFRA_COMPOSE="$NIDP_HOME/repo/backend/nidp/deploy/vm/docker-compose.infra.yml"
+
+if [[ -z "${GCP_LOG_TRIAGE_PRIVATE_KEY:-}" ]]; then
+    log "⚠ GCP_LOG_TRIAGE_PRIVATE_KEY is not set — Cloud Logging datasource will have no credentials."
+    log "  Export it before running this script:"
+    log "    export GCP_LOG_TRIAGE_PRIVATE_KEY=\"\$(jq -r .private_key /opt/nidp/secrets/log-triage-sa.json)\""
+fi
+
+log "Recreating nidp-grafana to apply datasource/env/alerting changes..."
+sudo -E docker compose -f "$INFRA_COMPOSE" up -d grafana
+sleep 8
+if curl -sf http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
+    log "✓ Grafana is healthy at https://data.niveshcopilot.com/grafana"
+    log "  Login: admin / admin (change on first login)"
+    log "  Dashboards:"
+    log "    NIDP Prod    → 'NIDP Prod — Environment Overview'"
+    log "    NIDP Prod    → 'NIDP Prod — Job Health'"
+    log "    NIDP Prod    → 'NIDP Prod — Feed Schedule & Status'"
+    log "    NIDP Staging → 'NIDP Staging — Environment Overview'"
+    log "    Both envs    → 'Centralized Application Logs' (GCP Cloud Logging)"
 else
-    log "⚠ nidp-grafana container not running."
-    log "  Start the full infra stack with:"
-    log "    docker compose -f docker-compose.prod.yml -f docker-compose.infra.yml up -d"
+    log "✗ Grafana didn't come back up. Check: sudo docker logs nidp-grafana --tail 50"
+    exit 1
 fi
 
 log "Done."

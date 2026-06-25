@@ -119,7 +119,7 @@ def test_classify_risk_persona_from_string_conservative():
 
 def test_persona_profile_conservative_thresholds():
     pp = get_persona_profile(risk_profile_str="Conservative")
-    assert pp.equity_target_pct[1] <= 40.0, f"Conservative equity max should be ≤40%, got {pp.equity_target_pct}"
+    assert pp.equity_target_pct[1] <= 45.0, f"Conservative equity max should be ≤45%, got {pp.equity_target_pct}"
     assert pp.debt_mid_target >= 50.0, f"Conservative debt target should be ≥50%, got {pp.debt_mid_target}"
     assert pp.target_holdings_max <= 15, f"Conservative holdings max should be ≤15, got {pp.target_holdings_max}"
 

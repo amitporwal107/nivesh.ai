@@ -38,6 +38,7 @@ async def write_results(
     component_var_rows: list[dict],
     stress_results: list[ScenarioResult],
     lookthrough_coverage_pct: float,
+    fundamental_summary: dict | None = None,
     dry_run: bool = False,
 ) -> str:
     """Write a complete PRA result set for one user. Returns result_id."""
@@ -78,32 +79,39 @@ async def write_results(
             formula_version,
             lookback_days,
             risk_free_rate_pct,
-            computed_at
+            computed_at,
+            portfolio_fundamental_risk_score,
+            n_high_fundamental_risk,
+            pct_value_high_fundamental_risk
         ) VALUES (
             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-            $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
+            $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
+            $23,$24,$25
         )
         ON CONFLICT (external_user_id, computed_date) DO UPDATE SET
-            portfolio_value_inr         = EXCLUDED.portfolio_value_inr,
-            holding_count               = EXCLUDED.holding_count,
-            lookthrough_coverage_pct    = EXCLUDED.lookthrough_coverage_pct,
-            volatility_annual_pct       = EXCLUDED.volatility_annual_pct,
-            benchmark_vol_annual_pct    = EXCLUDED.benchmark_vol_annual_pct,
-            var_95_1y_pct               = EXCLUDED.var_95_1y_pct,
-            var_95_1y_inr               = EXCLUDED.var_95_1y_inr,
-            max_drawdown_pct            = EXCLUDED.max_drawdown_pct,
-            beta_nifty500               = EXCLUDED.beta_nifty500,
-            sharpe_1y                   = EXCLUDED.sharpe_1y,
-            tracking_error_pct          = EXCLUDED.tracking_error_pct,
-            look_through_stale          = EXCLUDED.look_through_stale,
-            price_stale                 = EXCLUDED.price_stale,
-            data_stale                  = EXCLUDED.data_stale,
-            missing_symbols             = EXCLUDED.missing_symbols,
-            holdings_snapshot_hash      = EXCLUDED.holdings_snapshot_hash,
-            formula_version             = EXCLUDED.formula_version,
-            lookback_days               = EXCLUDED.lookback_days,
-            risk_free_rate_pct          = EXCLUDED.risk_free_rate_pct,
-            computed_at                 = EXCLUDED.computed_at
+            portfolio_value_inr                  = EXCLUDED.portfolio_value_inr,
+            holding_count                        = EXCLUDED.holding_count,
+            lookthrough_coverage_pct             = EXCLUDED.lookthrough_coverage_pct,
+            volatility_annual_pct                = EXCLUDED.volatility_annual_pct,
+            benchmark_vol_annual_pct             = EXCLUDED.benchmark_vol_annual_pct,
+            var_95_1y_pct                        = EXCLUDED.var_95_1y_pct,
+            var_95_1y_inr                        = EXCLUDED.var_95_1y_inr,
+            max_drawdown_pct                     = EXCLUDED.max_drawdown_pct,
+            beta_nifty500                        = EXCLUDED.beta_nifty500,
+            sharpe_1y                            = EXCLUDED.sharpe_1y,
+            tracking_error_pct                   = EXCLUDED.tracking_error_pct,
+            look_through_stale                   = EXCLUDED.look_through_stale,
+            price_stale                          = EXCLUDED.price_stale,
+            data_stale                           = EXCLUDED.data_stale,
+            missing_symbols                      = EXCLUDED.missing_symbols,
+            holdings_snapshot_hash               = EXCLUDED.holdings_snapshot_hash,
+            formula_version                      = EXCLUDED.formula_version,
+            lookback_days                        = EXCLUDED.lookback_days,
+            risk_free_rate_pct                   = EXCLUDED.risk_free_rate_pct,
+            computed_at                          = EXCLUDED.computed_at,
+            portfolio_fundamental_risk_score     = EXCLUDED.portfolio_fundamental_risk_score,
+            n_high_fundamental_risk              = EXCLUDED.n_high_fundamental_risk,
+            pct_value_high_fundamental_risk      = EXCLUDED.pct_value_high_fundamental_risk
         RETURNING result_id
         """,
         external_user_id,
@@ -128,6 +136,9 @@ async def write_results(
         pr.lookback_days_actual,
         metrics.risk_free_rate_pct,
         datetime.now(tz=timezone.utc),
+        (fundamental_summary or {}).get("portfolio_fundamental_risk_score"),
+        (fundamental_summary or {}).get("n_high_fundamental_risk"),
+        (fundamental_summary or {}).get("pct_value_high_fundamental_risk"),
     )
 
     # ── Component VaR rows (delete + re-insert for clean upsert) ────────
@@ -141,8 +152,15 @@ async def write_results(
             INSERT INTO pra.component_var (
                 result_id, security_key, security_name, asset_class,
                 effective_weight_pct, marginal_var_pct, component_var_pct,
-                share_of_sigma_pct, look_through_path
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                share_of_sigma_pct, look_through_path,
+                altman_z_score, debt_to_equity, interest_coverage,
+                current_ratio, cfo_pat_ratio, promoter_pledged_pct,
+                free_float_pct, operating_margin_pct,
+                fundamental_risk_score, risk_flags
+            ) VALUES (
+                $1,$2,$3,$4,$5,$6,$7,$8,$9,
+                $10,$11,$12,$13,$14,$15,$16,$17,$18,$19
+            )
             """,
             [
                 (
@@ -155,6 +173,16 @@ async def write_results(
                     r["component_var_pct"],
                     r["share_of_sigma_pct"],
                     json.dumps(r.get("look_through_path", [])),
+                    r.get("altman_z_score"),
+                    r.get("debt_to_equity"),
+                    r.get("interest_coverage"),
+                    r.get("current_ratio"),
+                    r.get("cfo_pat_ratio"),
+                    r.get("promoter_pledged_pct"),
+                    r.get("free_float_pct"),
+                    r.get("operating_margin_pct"),
+                    r.get("fundamental_risk_score"),
+                    r.get("risk_flags") or [],
                 )
                 for r in component_var_rows
             ],

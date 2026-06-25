@@ -47,7 +47,14 @@ async def load_persona_context(db, user_id: str) -> Dict[str, Any]:
     elif isinstance(persona_block, str):
         ctx["persona"] = persona_block
 
-    ctx["risk_profile"] = profile.get("risk_profile") or profile.get("risk_category")
+    # `user_profiles.risk_profile` is the structured object
+    # {category, score, capacity_score, persona, ...} (see services.risk_profile_chat),
+    # but CopilotState.risk_profile is a plain band string. Coerce to the category
+    # label; tolerate the legacy string shape and anything else → None.
+    rp = profile.get("risk_profile") or profile.get("risk_category")
+    if isinstance(rp, dict):
+        rp = rp.get("category")
+    ctx["risk_profile"] = rp if isinstance(rp, str) else None
     ctx["age_band"] = profile.get("age_band")
     ctx["journey_type"] = profile.get("journey_type")
 

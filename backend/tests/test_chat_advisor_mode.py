@@ -76,6 +76,29 @@ def test_chat_stream_advisor_sees_client_book():
     )
 
 
+def test_chat_stream_advisor_fund_research_works():
+    """The four research launchers (Research a stock/fund, Build a portfolio,
+    Stocks Screener) are mode-agnostic and must work in advisor mode too —
+    they should run the investor engine, NOT refuse with the cross-client
+    "not in your client book" message. Regression for the bug where an
+    advisor asking 'Tell me about the mutual fund …' got told the fund was
+    not in the client book."""
+    reply = _stream_chat_response(
+        "Tell me about the mutual fund HDFC Balanced Advantage Fund"
+    )
+    assert reply, "advisor fund-research returned empty reply"
+    lower = reply.lower()
+    # Must NOT bounce the user to the client-book refusal.
+    assert "client book" not in lower, (
+        "advisor fund research wrongly routed to the cross-client book path; "
+        f"got: {reply[:500]!r}"
+    )
+    # Must actually engage with the fund that was asked about.
+    assert ("hdfc" in lower or "balanced advantage" in lower), (
+        f"advisor fund research did not reference the fund; got: {reply[:500]!r}"
+    )
+
+
 def test_chat_send_advisor_sees_client_book():
     """Non-streaming /chat/send mirrors the same advisor-mode behaviour."""
     r = requests.post(

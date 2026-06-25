@@ -314,6 +314,101 @@ async def fetch_risk_all_amfi_api(http: aiohttp.ClientSession) -> dict[str, str]
     return {}
 
 
+# ---------------------------------------------------------------------------
+# Average AUM (AAUM) API
+# ---------------------------------------------------------------------------
+#
+# AMFI publishes scheme-wise quarterly AAUM via the same Next.js JSON API that
+# powers /aum-data/average-aum. Crucially the rows carry AMFI_Code directly, so
+# (unlike TER) no NAV-name resolution is needed.
+#
+#   GET /api/average-aum-schemewise?strType=Typewise&MF_ID=0
+#       → {type:"financial_years", data:[{id, financial_year}]}   (id=1 latest)
+#   GET /api/average-aum-schemewise?fyId={id}&strType=Typewise&MF_ID=0
+#       → {type:"periods", data:{periods:[{id, period}]}}          (id=1 latest quarter)
+#   GET /api/average-aum-schemewise?strType=Typewise&fyId={id}&periodId={id}&MF_ID=0
+#       → {data:[{Mfname, schemes:[{SchemeNAVName, AMFI_Code,
+#                AverageAumForTheMonth:{ExcludingFundOfFundsDomesticButIncludingFundOfFundsOverseas}}]}]}
+#
+# AAUM values are in ₹ LAKHS — divide by 100 for ₹ crore. Values are per scheme
+# (per plan/option); fund-level AUM is the sum across a fund's plan variants.
+
+_AAUM_API = f"{_BASE_API}/average-aum-schemewise"
+_AAUM_CACHE: dict[str, float] | None = None
+
+
+async def _aaum_get(http: aiohttp.ClientSession, params: dict) -> Optional[dict]:
+    try:
+        async with http.get(_AAUM_API, params=params,
+                             timeout=aiohttp.ClientTimeout(total=40)) as resp:
+            if resp.status != 200:
+                logger.warning("amfi_api: AAUM %s → status=%d", params, resp.status)
+                return None
+            return await resp.json(content_type=None)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("amfi_api: AAUM %s error: %s: %s", params, type(e).__name__, e)
+        return None
+
+
+async def fetch_aaum_all_amfi_api(http: aiohttp.ClientSession) -> dict[str, float]:
+    """Fetch scheme-wise Average AUM (₹ crore) for ALL schemes via the AMFI API.
+
+    Returns {scheme_code: aaum_inr_crore} for the latest available quarter.
+    Per-scheme (per plan/option); module-level cached.
+    """
+    global _AAUM_CACHE
+    if _AAUM_CACHE is not None:
+        return _AAUM_CACHE
+
+    fys = await _aaum_get(http, {"strType": "Typewise", "MF_ID": "0"})
+    years = (fys or {}).get("data") or []
+    if not years:
+        logger.error("amfi_api: AAUM — no financial years returned")
+        return {}
+    fy_id = years[0].get("id")  # newest-first
+
+    periods_doc = await _aaum_get(http, {"fyId": fy_id, "strType": "Typewise", "MF_ID": "0"})
+    periods = (((periods_doc or {}).get("data") or {}).get("periods")) or []
+    if not periods:
+        logger.error("amfi_api: AAUM — no periods for fyId=%s", fy_id)
+        return {}
+
+    # Try quarters newest-first until one returns scheme data.
+    rows: list[dict] = []
+    chosen_period = None
+    for per in periods:
+        pid = per.get("id")
+        doc = await _aaum_get(http, {
+            "strType": "Typewise", "fyId": fy_id, "periodId": pid, "MF_ID": "0",
+        })
+        data = (doc or {}).get("data") or []
+        if data:
+            rows = data
+            chosen_period = per.get("period")
+            break
+
+    if not rows:
+        logger.error("amfi_api: AAUM — no scheme data for any period of fyId=%s", fy_id)
+        return {}
+
+    result: dict[str, float] = {}
+    for mf in rows:
+        for s in mf.get("schemes") or []:
+            code = s.get("AMFI_Code")
+            aaum = (s.get("AverageAumForTheMonth") or {}).get(
+                "ExcludingFundOfFundsDomesticButIncludingFundOfFundsOverseas")
+            v = _to_float(aaum)
+            if code is None or v is None or v <= 0:
+                continue
+            result[str(code)] = round(v / 100.0, 2)  # ₹ Lakh → ₹ Cr
+
+    _AAUM_CACHE = result
+    logger.info("amfi_api: AAUM loaded %d schemes (fyId=%s, period=%s)",
+                len(result), fy_id, chosen_period)
+    return _AAUM_CACHE
+
+
 def clear_cache() -> None:
-    global _TER_CACHE
+    global _TER_CACHE, _AAUM_CACHE
     _TER_CACHE = None
+    _AAUM_CACHE = None
