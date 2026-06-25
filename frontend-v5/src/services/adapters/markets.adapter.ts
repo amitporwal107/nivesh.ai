@@ -18,6 +18,7 @@ import {
   ArticlesC, type Articles,
   DailyBriefRespC, type DailyBriefResp,
   BriefHistoryC, type BriefHistory,
+  EarningsC, type Earnings,
 } from "@/services/contracts/markets.contract";
 
 export type CapSegment = "large" | "mid" | "small";
@@ -37,6 +38,11 @@ export interface ArticlesQuery {
   q?: string;
 }
 
+export interface EarningsQuery {
+  index?: string;
+  quarter?: string;
+}
+
 export interface MarketsAdapter {
   getHome(): Promise<MarketsHome>;
   getExplore(): Promise<MarketsExplore>;
@@ -46,6 +52,7 @@ export interface MarketsAdapter {
   getArticles(params: ArticlesQuery): Promise<Articles>;
   getDailyBrief(date?: string): Promise<DailyBriefResp>;
   getBriefHistory(limit?: number): Promise<BriefHistory>;
+  getEarnings(params: EarningsQuery): Promise<Earnings>;
 }
 
 export const realMarketsAdapter: MarketsAdapter = {
@@ -123,6 +130,15 @@ export const realMarketsAdapter: MarketsAdapter = {
     const parsed = BriefHistoryC.safeParse(res.data);
     if (!parsed.success) {
       throw ApiError.contractDrift(`markets.daily-brief.history: ${parsed.error.message}`);
+    }
+    return parsed.data;
+  },
+
+  async getEarnings({ index, quarter }) {
+    const res = await http({ path: "/api/markets/earnings", query: { index, quarter } });
+    const parsed = EarningsC.safeParse(res.data);
+    if (!parsed.success) {
+      throw ApiError.contractDrift(`markets.earnings: ${parsed.error.message}`);
     }
     return parsed.data;
   },

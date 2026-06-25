@@ -37,6 +37,7 @@ import NidpConsolePage from "./pages/NidpConsole";
 import ProTraderPage from "./pages/ProTrader";
 import MarketsPage from "./pages/Markets";
 import MarketPulseLayout from "./pages/Markets/MarketPulseLayout";
+import EarningsPage from "./pages/Markets/Earnings";
 import FiiDiiPage from "./pages/Markets/FiiDii";
 import CorporateActionsPage from "./pages/Markets/CorporateActions";
 import ArticlesPage from "./pages/Markets/Articles";
@@ -84,6 +85,7 @@ export function AppRoutes() {
         <Route path="/dashboard"        element={<RouteErrorBoundary pageName="Dashboard"><DashboardPage /></RouteErrorBoundary>} />
         <Route path="/markets" element={<RouteErrorBoundary pageName="Markets"><MarketPulseLayout /></RouteErrorBoundary>}>
           <Route index element={<MarketsPage />} />
+          <Route path="earnings" element={<EarningsPage />} />
           <Route path="fii-dii" element={<FiiDiiPage />} />
           <Route path="corporate-actions" element={<CorporateActionsPage />} />
           <Route path="articles" element={<ArticlesPage />} />

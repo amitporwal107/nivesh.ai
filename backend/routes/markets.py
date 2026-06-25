@@ -971,3 +971,195 @@ async def markets_explore(request: Request):
     if not lists:
         return {"ok": False, "high_52w": [], "low_52w": [], "most_active": [], "universe": "Nifty 50"}
     return {"ok": True, **lists}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Earnings Tracker — per-sector results for one index + quarter.
+#
+# Real NIDP data only (nidp.nse_financials_quarterly + nidp.index_constituents);
+# we have no analyst-consensus feed, so there is no beat/miss-vs-estimate — we
+# report YoY/QoQ growth and a profit-grew / shrank / no-comparable split. The
+# sector headline is the MEDIAN of per-company growth (robust to outliers and
+# negative-base sign-flips). This PG fallback mirrors the DaaS implementation in
+# backend/nidp/services/daas_api/routers/market_pulse.py verbatim, so the app
+# returns an identical shape whether sourced over DaaS or the direct PG pool.
+# ════════════════════════════════════════════════════════════════════════
+
+#   $1 = index_name   $2 = target period_end (DATE, nullable → latest quarter)
+_EARNINGS_CTE = """
+WITH params AS (
+    SELECT COALESCE($2::date,
+                    (SELECT MAX(period_end) FROM nidp.nse_financials_quarterly
+                      WHERE LOWER(period_type) = 'quarterly')) AS pe
+),
+idx AS (
+    SELECT DISTINCT ic.symbol, ic.industry
+      FROM nidp.index_constituents ic
+     WHERE ic.index_name = $1
+       AND ic.as_of_date = (SELECT MAX(as_of_date) FROM nidp.index_constituents
+                             WHERE index_name = $1)
+),
+prior_q AS (
+    SELECT MAX(period_end) AS pe FROM nidp.nse_financials_quarterly
+     WHERE LOWER(period_type) = 'quarterly' AND period_end < (SELECT pe FROM params)
+),
+fin AS (
+    SELECT symbol, period_end, revenue_from_ops_cr AS rev, pat_cr AS pat,
+           ROW_NUMBER() OVER (PARTITION BY symbol, period_end
+                              ORDER BY consolidated DESC) AS rn
+      FROM nidp.nse_financials_quarterly
+     WHERE LOWER(period_type) = 'quarterly'
+       AND period_end IN ((SELECT pe FROM params),
+                          ((SELECT pe FROM params) - INTERVAL '1 year')::date,
+                          (SELECT pe FROM prior_q))
+),
+cur AS (SELECT symbol, rev, pat FROM fin WHERE rn = 1 AND period_end =  (SELECT pe FROM params)),
+yoy AS (SELECT symbol, rev, pat FROM fin WHERE rn = 1 AND period_end = ((SELECT pe FROM params) - INTERVAL '1 year')::date),
+qoq AS (SELECT symbol, rev, pat FROM fin WHERE rn = 1 AND period_end =  (SELECT pe FROM prior_q)),
+j AS (
+    SELECT idx.industry              AS sector,
+           (cur.symbol IS NOT NULL)  AS declared,
+           cur.rev AS crev, cur.pat AS cpat,
+           yoy.rev AS yrev, yoy.pat AS ypat,
+           qoq.rev AS qrev, qoq.pat AS qpat
+      FROM idx
+      LEFT JOIN cur ON cur.symbol = idx.symbol
+      LEFT JOIN yoy ON yoy.symbol = idx.symbol
+      LEFT JOIN qoq ON qoq.symbol = idx.symbol
+)
+"""
+
+_EARNINGS_METRICS = """
+    COUNT(*)                                                         AS members,
+    COUNT(*) FILTER (WHERE declared)                                 AS declared,
+    ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY (crev - yrev) / yrev * 100)
+          FILTER (WHERE crev IS NOT NULL AND yrev > 0)::numeric, 1)   AS sales_yoy,
+    ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY (cpat - ypat) / ypat * 100)
+          FILTER (WHERE cpat IS NOT NULL AND ypat > 0)::numeric, 1)   AS profit_yoy,
+    ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY (crev - qrev) / qrev * 100)
+          FILTER (WHERE crev IS NOT NULL AND qrev > 0)::numeric, 1)   AS sales_qoq,
+    ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY (cpat - qpat) / qpat * 100)
+          FILTER (WHERE cpat IS NOT NULL AND qpat > 0)::numeric, 1)   AS profit_qoq,
+    COUNT(*) FILTER (WHERE cpat IS NOT NULL AND ypat IS NOT NULL AND cpat >  ypat) AS grew,
+    COUNT(*) FILTER (WHERE cpat IS NOT NULL AND ypat IS NOT NULL AND cpat <= ypat) AS shrank,
+    COUNT(*) FILTER (WHERE cpat IS NOT NULL AND ypat IS NULL)                      AS no_compare
+"""
+
+_EARN_SECTOR_SQL = _EARNINGS_CTE + "SELECT sector, " + _EARNINGS_METRICS + """
+  FROM j
+ WHERE sector IS NOT NULL
+ GROUP BY sector
+ ORDER BY declared DESC, members DESC
+"""
+
+_EARN_SUMMARY_SQL = _EARNINGS_CTE + "SELECT " + _EARNINGS_METRICS + """,
+       (SELECT pe FROM params)  AS period_end,
+       (SELECT pe FROM prior_q) AS prior_q
+  FROM j
+"""
+
+
+def _quarter_label(pe) -> Optional[str]:
+    """Indian-fiscal-year quarter label for a quarter-end date (Apr–Mar FY)."""
+    if pe is None:
+        return None
+    m, y = pe.month, pe.year
+    if   m == 3:  q, fy = 4, y
+    elif m == 6:  q, fy = 1, y + 1
+    elif m == 9:  q, fy = 2, y + 1
+    elif m == 12: q, fy = 3, y + 1
+    else:
+        return pe.isoformat()
+    return f"Q{q} FY{fy % 100:02d}"
+
+
+def _earn_pct(v) -> Optional[float]:
+    return round(float(v), 1) if v is not None else None
+
+
+def _earn_metrics(r) -> Dict[str, Any]:
+    return {
+        "members":    int(r["members"]),
+        "declared":   int(r["declared"]),
+        "sales_yoy":  _earn_pct(r["sales_yoy"]),
+        "profit_yoy": _earn_pct(r["profit_yoy"]),
+        "sales_qoq":  _earn_pct(r["sales_qoq"]),
+        "profit_qoq": _earn_pct(r["profit_qoq"]),
+        "grew":       int(r["grew"]),
+        "shrank":     int(r["shrank"]),
+        "no_compare": int(r["no_compare"]),
+    }
+
+
+def _earnings_empty(index: str) -> Dict[str, Any]:
+    return {"index": index, "period_end": None, "quarter": None, "summary": None,
+            "sectors": [], "available_indices": [], "available_quarters": []}
+
+
+async def _earnings_pg(pool, index: str, quarter: Optional[str]) -> Dict[str, Any]:
+    """Direct-PG fallback when DaaS is unavailable (prod app PG carries the rows)."""
+    pe_param = None
+    if quarter:
+        try:
+            pe_param = date.fromisoformat(quarter)
+        except ValueError:
+            pe_param = None
+    try:
+        async with pool.acquire() as conn:
+            sectors = await conn.fetch(_EARN_SECTOR_SQL, index, pe_param)
+            summary = await conn.fetchrow(_EARN_SUMMARY_SQL, index, pe_param)
+            quarters = await conn.fetch(
+                """SELECT DISTINCT period_end FROM nidp.nse_financials_quarterly
+                    WHERE LOWER(period_type) = 'quarterly'
+                    ORDER BY period_end DESC LIMIT 8""")
+            indices = await conn.fetch(
+                """SELECT index_name FROM (
+                       SELECT ic.index_name, COUNT(*) AS n
+                         FROM nidp.index_constituents ic
+                        WHERE ic.as_of_date = (SELECT MAX(as_of_date)
+                                                 FROM nidp.index_constituents i2
+                                                WHERE i2.index_name = ic.index_name)
+                        GROUP BY ic.index_name) t
+                    ORDER BY n DESC""")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("markets.earnings PG fallback failed: %s", e)
+        return _earnings_empty(index)
+
+    period_end = summary["period_end"] if summary else None
+    summary_obj = None
+    if summary and summary["declared"]:
+        m = _earn_metrics(summary)
+        summary_obj = {
+            "members": m["members"], "declared": m["declared"],
+            "profit_grew": m["grew"], "profit_shrank": m["shrank"], "no_compare": m["no_compare"],
+            "sales_yoy": m["sales_yoy"], "profit_yoy": m["profit_yoy"],
+            "sales_qoq": m["sales_qoq"], "profit_qoq": m["profit_qoq"],
+        }
+    return {
+        "index":      index,
+        "period_end": period_end.isoformat() if period_end else None,
+        "quarter":    _quarter_label(period_end),
+        "summary":    summary_obj,
+        "sectors":    [{"sector": r["sector"], **_earn_metrics(r)} for r in sectors],
+        "available_indices":  [r["index_name"] for r in indices],
+        "available_quarters": [
+            {"period_end": r["period_end"].isoformat(), "label": _quarter_label(r["period_end"])}
+            for r in quarters],
+    }
+
+
+@router.get("/earnings")
+async def markets_earnings(request: Request, index: str = "Nifty 500", quarter: Optional[str] = None):
+    """Earnings Tracker — per-sector results for an index in a given quarter
+    (latest filed quarter when omitted). Real NIDP financials; growth vs the
+    year-ago and prior quarter plus a profit grew/shrank split (no analyst
+    estimates exist, so there is deliberately no beat/miss-vs-estimate).
+    """
+    await get_current_user(request)
+    index = (index or "Nifty 500").strip()
+    data = await _aux_cached(f"earnings:{index}:{quarter or 'latest'}", lambda: _daas_first(
+        "get_market_pulse_earnings", {"index": index, "quarter": quarter},
+        lambda pool: _earnings_pg(pool, index, quarter),
+        _earnings_empty(index),
+    ))
+    return {"ok": True, **data}

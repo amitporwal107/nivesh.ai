@@ -7,7 +7,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { marketsService } from "@/services";
-import type { CapSegment, CorpActionsQuery, ArticlesQuery } from "@/services/adapters/markets.adapter";
+import type { CapSegment, CorpActionsQuery, ArticlesQuery, EarningsQuery } from "@/services/adapters/markets.adapter";
 
 export function useMarketsHome() {
   return useQuery({
@@ -81,5 +81,15 @@ export function useBriefHistory(limit = 30) {
     queryKey: ["markets", "brief-history", limit],
     queryFn: () => marketsService.getBriefHistory(limit),
     staleTime: 5 * 60_000,
+  });
+}
+
+/** Earnings Tracker — per-sector results for an index + quarter (EOD). */
+export function useEarnings(params: EarningsQuery) {
+  return useQuery({
+    queryKey: ["markets", "earnings", params],
+    queryFn: () => marketsService.getEarnings(params),
+    staleTime: 5 * 60_000,
+    placeholderData: (prev) => prev,
   });
 }

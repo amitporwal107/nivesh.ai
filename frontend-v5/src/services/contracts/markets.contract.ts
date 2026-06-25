@@ -260,3 +260,49 @@ export type MarketNews    = z.infer<typeof MarketNewsC>;
 export type GlobalQuote   = z.infer<typeof GlobalQuoteC>;
 export type GlobalIndices = z.infer<typeof GlobalIndicesC>;
 export type MarketsHome   = z.infer<typeof MarketsHomeC>;
+
+// ── Earnings Tracker — per-sector results (GET /api/markets/earnings) ────
+// Growth values are already in percent (e.g. 14.1 = +14.1%); null when no
+// comparable period exists. There is no analyst-estimate beat/miss feed, so
+// grew/shrank/no_compare is profit vs the year-ago quarter, not vs estimates.
+export const EarningsSectorC = z.object({
+  sector:     z.string(),
+  members:    z.number(),
+  declared:   z.number(),
+  sales_yoy:  z.number().nullable(),
+  profit_yoy: z.number().nullable(),
+  sales_qoq:  z.number().nullable(),
+  profit_qoq: z.number().nullable(),
+  grew:       z.number().default(0),
+  shrank:     z.number().default(0),
+  no_compare: z.number().default(0),
+});
+export const EarningsSummaryC = z.object({
+  members:       z.number(),
+  declared:      z.number(),
+  profit_grew:   z.number().default(0),
+  profit_shrank: z.number().default(0),
+  no_compare:    z.number().default(0),
+  sales_yoy:     z.number().nullable(),
+  profit_yoy:    z.number().nullable(),
+  sales_qoq:     z.number().nullable(),
+  profit_qoq:    z.number().nullable(),
+});
+export const EarningsQuarterC = z.object({
+  period_end: z.string(),
+  label:      z.string(),
+});
+export const EarningsC = z.object({
+  ok:                 z.boolean().optional(),
+  index:              z.string(),
+  period_end:         z.string().nullable(),
+  quarter:            z.string().nullable(),
+  summary:            EarningsSummaryC.nullable(),
+  sectors:            z.array(EarningsSectorC).default([]),
+  available_indices:  z.array(z.string()).default([]),
+  available_quarters: z.array(EarningsQuarterC).default([]),
+});
+export type EarningsSector  = z.infer<typeof EarningsSectorC>;
+export type EarningsSummary = z.infer<typeof EarningsSummaryC>;
+export type EarningsQuarter = z.infer<typeof EarningsQuarterC>;
+export type Earnings        = z.infer<typeof EarningsC>;

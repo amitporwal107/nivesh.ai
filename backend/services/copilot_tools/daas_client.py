@@ -298,6 +298,20 @@ async def get_market_pulse_movers(cap: str = "large") -> Optional[Dict[str, Any]
     return data if isinstance(data, dict) else None
 
 
+async def get_market_pulse_earnings(
+    index: str = "Nifty 500", quarter: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    params: Dict[str, Any] = {"index": index}
+    if quarter:
+        params["quarter"] = quarter
+    try:
+        data = await _get("/market-pulse/earnings", params=params)
+    except DaasError as exc:
+        logger.debug("get_market_pulse_earnings: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
 async def get_quarterly_financials(
     symbol: str,
     limit: int = 8,
