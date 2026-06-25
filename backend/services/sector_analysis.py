@@ -193,13 +193,20 @@ async def _fetch_stocks_daas() -> List[Dict[str, Any]]:
         from services.copilot_tools import daas_client
         if not daas_client.is_configured():
             return []
-        rows = await daas_client.get_stock_screener(limit=2000, sort_by="market_cap_cr")
+        # 600 largest-cap names span all 8 profiles with room to spare; a smaller
+        # payload + a longer timeout avoids the silent timeout that left the grid
+        # empty at limit=2000.
+        rows = await daas_client.get_stock_screener(
+            limit=600, sort_by="market_cap_cr", timeout=30.0,
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning("sector_analysis daas screener failed: %s", e)
         return []
     out: List[Dict[str, Any]] = []
     for r in rows:
-        if not r.get("sector"):
+        # Classify on sector OR industry — _classify falls back to industry, so a
+        # null-sector-but-populated-industry universe still buckets correctly.
+        if not (r.get("sector") or r.get("industry")):
             continue
         out.append({
             "symbol":        r.get("symbol"),
@@ -235,7 +242,7 @@ async def _fetch_stocks_pg(pool) -> List[Dict[str, Any]]:
           LEFT JOIN ref.security_master sm
                  ON sm.entity_type = 'EQUITY' AND sm.symbol = sfd.symbol
          WHERE sfd.as_of_date = (SELECT max(as_of_date) FROM nidp.stock_features_daily)
-           AND sfd.sector IS NOT NULL
+           AND (sfd.sector IS NOT NULL OR sfd.industry IS NOT NULL)
          ORDER BY sfd.symbol, sfd.market_cap_cr DESC NULLS LAST
     """
     try:
@@ -388,7 +395,11 @@ async def diagnose(pool) -> Dict[str, Any]:
             sample = await daas_client.get_stock_screener(limit=5)
             out["daas_screener_rows"] = len(sample)
             if sample:
-                out["daas_screener_keys"] = sorted(sample[0].keys())
+                out["daas_sample_sectors"] = [r.get("sector") for r in sample]
+            # The actual mapped count my fetch produces (limit=600, after the
+            # non-null-sector filter) — the decisive number if the grid is empty.
+            mapped = await _fetch_stocks_daas()
+            out["daas_fetch_mapped"] = len(mapped)
     except Exception as e:  # noqa: BLE001
         out["daas_error"] = str(e)[:200]
 
