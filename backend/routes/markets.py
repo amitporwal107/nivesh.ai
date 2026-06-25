@@ -140,7 +140,7 @@ async def _news(pool, limit: int = 5) -> List[Dict[str, Any]]:
     high/medium-impact items and drop the routine 'regulatory'/'other'
     noise so the section reads like market news, not a compliance log.
     """
-    since = (date.today() - timedelta(days=3)).isoformat()
+    since = date.today() - timedelta(days=3)   # asyncpg $1::date needs a date obj, not a str
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
@@ -590,10 +590,11 @@ async def _corporate_actions(pool, d_from: str, d_to: str,
          GROUP BY action_type
     """
     like = f"%{q}%" if q else None
+    df, dt = date.fromisoformat(d_from), date.fromisoformat(d_to)  # asyncpg $::date needs date objs
     try:
         async with pool.acquire() as conn:
-            rows = await conn.fetch(list_sql, d_from, d_to, a_type, like, limit, offset)
-            counts = await conn.fetch(count_sql, d_from, d_to)
+            rows = await conn.fetch(list_sql, df, dt, a_type, like, limit, offset)
+            counts = await conn.fetch(count_sql, df, dt)
     except Exception as e:  # noqa: BLE001
         logger.warning("markets.corporate_actions failed: %s", e)
         return {"from": d_from, "to": d_to, "actions": [], "type_counts": {}}
@@ -631,7 +632,7 @@ async def markets_corporate_actions(
     """
     await get_current_user(request)
     today = date.today()
-    d_from = date_from or today.isoformat()
+    d_from = date_from or (today - timedelta(days=30)).isoformat()
     d_to = date_to or (today + timedelta(days=30)).isoformat()
     a_type = action_type.upper() if action_type else None
     if a_type and a_type not in _CA_TYPES:
@@ -665,7 +666,7 @@ async def _articles(pool, days: int, category: Optional[str], impact: Optional[s
     """Classified NSE/BSE announcements as an article feed. Real data only —
     no LLM, no fabrication. When no category filter is set we hide the routine
     'regulatory'/'other' noise so it reads like market news, not a filing log."""
-    since = (date.today() - timedelta(days=days)).isoformat()
+    since = date.today() - timedelta(days=days)   # asyncpg $1::date needs a date obj, not a str
     like = f"%{q}%" if q else None
     list_sql = """
         SELECT announcement_id, source, ticker_symbol, company_name, subject,
@@ -677,7 +678,7 @@ async def _articles(pool, days: int, category: Optional[str], impact: Optional[s
            AND ($3::text IS NULL OR impact_score = $3)
            AND ($4::text IS NULL OR sentiment = $4)
            AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
-           AND ($2::text IS NOT NULL OR coalesce(event_category,'other') NOT IN ('regulatory','other'))
+           AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
          ORDER BY (impact_score='high') DESC, filed_at DESC
          LIMIT $6 OFFSET $7
     """

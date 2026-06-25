@@ -24,14 +24,18 @@ function isoDate(d: Date): string {
 }
 
 export default function CorporateActionsPage() {
-  const today = useMemo(() => new Date(), []);
+  const minus30 = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d;
+  }, []);
   const plus30 = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + 30);
     return d;
   }, []);
 
-  const [from, setFrom] = useState(isoDate(today));
+  const [from, setFrom] = useState(isoDate(minus30));
   const [to, setTo] = useState(isoDate(plus30));
   const [type, setType] = useState<string | null>(null);
   const [qInput, setQInput] = useState("");
