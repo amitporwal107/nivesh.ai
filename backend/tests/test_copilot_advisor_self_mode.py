@@ -23,7 +23,7 @@ import pytest
 
 try:  # the route modules need the app runtime (fastapi/motor) to import
     from routes.copilot_prompts import _is_advisor_mode
-    from routes.copilot import _is_advisor_caller
+    from routes.copilot import _is_advisor_caller, _is_research_tool_intent
     import routes.copilot_prompts as _cp
     import routes.copilot as _co
 except Exception as exc:  # noqa: BLE001
@@ -70,3 +70,45 @@ def test_is_advisor_caller_keys_off_active_profile(monkeypatch, label, active_pr
     monkeypatch.setattr(_co, "db", _FakeDB(ws_doc))
     got = asyncio.run(_is_advisor_caller("advisor_uid", active_profile_id))
     assert got is expected, f"{label}: _is_advisor_caller → {got}, expected {expected}"
+
+
+# ── Research-tool routing (advisor mode must match client mode) ───────────
+# Bug: the four Chat launchers — Research a stock, Research a fund, Build a
+# portfolio, Stocks Screener — answered "no info in the client book" in
+# advisor mode because the chat route forced every advisor message onto the
+# cross-client book path. _is_research_tool_intent flips those four (and only
+# those) onto the investor engine so the answer matches client mode, while
+# genuine cross-client book questions stay on the book path.
+_RESEARCH_TOOL_MESSAGES = [
+    "Tell me about Reliance Industries",                                   # Research a stock chip
+    "Tell me about the mutual fund HDFC Balanced Advantage Fund",          # Research a fund chip
+    "Build me a portfolio",                                                # Build a portfolio chip
+    "Build a portfolio for retirement",
+    "screen stocks where ROE > 15 and PE < 20",                           # Stocks Screener chip
+    "Research the fund Parag Parikh Flexi Cap",
+    "Stocks Screener",
+]
+
+# Cross-client book questions — must NOT be treated as research tools so the
+# advisor book experience (and test_chat_advisor_mode.py) stays intact.
+_BOOK_MESSAGES = [
+    "How many clients do I have, and who are they?",
+    "List my top clients by AUM. Use a Markdown table.",
+    "Tell me about my top client",
+    "Which client has the most equity exposure?",
+    "Build a portfolio summary across my clients",
+]
+
+
+@pytest.mark.parametrize("message", _RESEARCH_TOOL_MESSAGES)
+def test_research_tools_route_to_investor(message):
+    assert _is_research_tool_intent(message) is True, (
+        f"research tool message should route to the investor engine: {message!r}"
+    )
+
+
+@pytest.mark.parametrize("message", _BOOK_MESSAGES)
+def test_book_questions_stay_on_book_path(message):
+    assert _is_research_tool_intent(message) is False, (
+        f"cross-client book question must stay on the book path: {message!r}"
+    )

@@ -13,7 +13,7 @@ from deps import db, get_current_user, ai_engine
 from models import ChatMessageInput
 from services import portfolio_intelligence
 from services.action_plan_manager import ActionPlanManager
-from routes.copilot import _advisor_book_block, _is_advisor_caller
+from routes.copilot import _advisor_book_block, _is_advisor_caller, _is_research_tool_intent
 from services.copilot_charts import (
     CHART_PROTOCOL, validate_chart_blocks, log_invalid_chart_specs,
 )
@@ -943,6 +943,10 @@ async def send_chat(request: Request, msg: ChatMessageInput):
     user_id = user["user_id"]
     session_user_id = user.get("_session_user_id") or user_id
     advisor_mode = await _is_advisor_caller(session_user_id, user.get("_active_profile_id"))
+    # Research tools (stock/fund research, portfolio builder, screener) are
+    # mode-agnostic: in advisor mode they run the investor engine so the
+    # answer matches client mode rather than the cross-client book path.
+    route_investor = (not advisor_mode) or _is_research_tool_intent(msg.message)
 
     session_id = msg.session_id
     if not session_id:
@@ -1006,7 +1010,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
     # Copilot is NIDP-only — V3 RAG retired. If LangGraph deps failed
     # to import at startup, surface a clean error rather than silently
     # degrading.
-    if not advisor_mode:
+    if route_investor:
         if not _lg_available:
             ai_response = (
                 "Copilot is currently unavailable — the LangGraph engine "
@@ -1199,6 +1203,11 @@ async def stream_chat(request: Request):
     if not message:
         raise HTTPException(status_code=400, detail="Message required")
 
+    # Research tools (stock/fund research, portfolio builder, screener) are
+    # mode-agnostic: in advisor mode they must return the same answer as in
+    # client mode, so they run the investor engine instead of the book path.
+    route_investor = (not advisor_mode) or _is_research_tool_intent(message)
+
     # Resolve or create session
     if not session_id:
         existing = await db.chat_sessions.find_one(
@@ -1243,10 +1252,11 @@ async def stream_chat(request: Request):
         {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
     )
 
-    # Portfolio context \u2014 advisor mode swaps to the cross-client book.
+    # Portfolio context \u2014 advisor mode swaps to the cross-client book,
+    # except for mode-agnostic research tools which run the investor engine.
     portfolio_context = ""
     risk_context = ""
-    if advisor_mode:
+    if advisor_mode and not route_investor:
         book = await _advisor_book_block(session_user_id)
         portfolio_context = f"\n\nADVISOR CLIENT BOOK:\n{book}\n"
     else:
@@ -1284,7 +1294,7 @@ async def stream_chat(request: Request):
             yield f"data: {json.dumps({'type': 'meta', **meta})}\n\n"
 
             # ── Single-portfolio (investor) path ─────────────────────────────
-            if not advisor_mode:
+            if route_investor:
                 await _ensure_plan_for_actionable_question(user_id, message)
 
                 # Per-request engine selection: NIDP (LangGraph) when the
@@ -1427,8 +1437,8 @@ async def stream_chat(request: Request):
             full_response = validated["clean_text"]
             await log_invalid_chart_specs(
                 db, user_id,
-                model="copilot_rag" if not advisor_mode else "ai_engine",
-                route=f"chat/stream/{'advisor' if advisor_mode else 'investor'}",
+                model="copilot_rag" if route_investor else "ai_engine",
+                route=f"chat/stream/{'investor' if route_investor else 'advisor'}",
                 invalid=validated["invalid_specs"],
             )
 

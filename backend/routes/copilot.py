@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -267,6 +268,47 @@ async def _is_advisor_caller(session_user_id: str, active_profile_id: Optional[s
     except Exception:  # noqa: BLE001
         return False
     return bool(ws and (ws.get("type") or "").upper() == "ADVISORY")
+
+
+# ── Mode-agnostic research tools ─────────────────────────────────────────
+# The Chat surface exposes four launchers — Research a stock, Research a
+# fund, Build a portfolio, Stocks Screener — that ask about an instrument
+# or run a tool and DO NOT depend on the advisor's client book. They must
+# return identical results whether the caller is in advisor (cross-client)
+# mode or client mode. So in advisor mode these bypass the book-summary
+# path and run the normal investor (LangGraph) engine.
+_RESEARCH_INTENT_RE = re.compile(
+    r"(?:"
+    r"\btell\s+me\s+about\b|"                                  # "Research a stock/fund" chip prefill
+    r"\bresearch\s+(?:the\s+)?(?:stock|fund|mutual\s+fund|company|scheme)\b|"
+    r"\banalys[ez]e?\s+(?:the\s+)?(?:stock|fund|mutual\s+fund|scheme)\b|"
+    r"\bbuild\s+(?:me\s+)?(?:a\s+|my\s+)?portfolio\b|"         # "Build a portfolio" chip
+    r"\bscreen\s+(?:stocks?|for|where)\b|\bstocks?\s+screener\b"  # "Stocks Screener" chip
+    r")",
+    re.IGNORECASE,
+)
+
+# Cross-client book questions always stay on the advisor book path, even
+# when they contain a research-ish verb (e.g. "tell me about my top
+# client"). This guard takes priority over the research gate so the
+# advisor book experience (and its regression test) is never hijacked.
+_ADVISOR_BOOK_INTENT_RE = re.compile(
+    r"\b(clients?|client\s+book|my\s+book|across\s+(?:my\s+)?clients|"
+    r"aum|assets?\s+under\s+management|workspace|advisory|"
+    r"which\s+(?:of\s+my\s+)?clients?)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_research_tool_intent(message: str) -> bool:
+    """True when an advisor-mode message is one of the four mode-agnostic
+    research tools (stock/fund research, portfolio builder, stock
+    screener) and should therefore run the investor engine so the answer
+    matches client mode. Cross-client book questions are excluded."""
+    m = message or ""
+    if _ADVISOR_BOOK_INTENT_RE.search(m):
+        return False
+    return bool(_RESEARCH_INTENT_RE.search(m))
 
 
 async def _advisor_book_block(owner_user_id: str) -> str:
