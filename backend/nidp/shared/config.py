@@ -217,6 +217,14 @@ MF_AMC_TIER2: Final[tuple[str, ...]] = (
     "jm_financial",
 )
 
+# Tier-3 AMCs whose FULL portfolio disclosure (spreadsheet) is on AdvisorKhoj
+# and parses cleanly via the AdvisorKhoj adapter (added 2026-06-25). Resolved
+# by scheme-name prefix (no amc_id in the master). Included in the holdings run.
+MF_AMC_TIER3: Final[tuple[str, ...]] = (
+    "franklin",
+    "ppfas",
+)
+
 # ── Per-ingester source-class metadata (mirrors schema seed) ────────
 SOURCE_REGISTRY: Final[list[dict]] = [
     # name, ingester, url-pattern, class, confidence, freq

@@ -50,12 +50,23 @@ _AK_BASE = "https://www.advisorkhoj.com/form-download-centre/Mutual"
 
 # amc_id → AdvisorKhoj slug. Covers the broken-adapter AMCs first; extend as
 # each is verified.
-AK_SLUG: dict[str, str] = {
-    "icici_pru": "ICICI-Prudential-Mutual-Fund",
-    "kotak":     "Kotak-Mahindra-Mutual-Fund",
-    "absl":      "Aditya-Birla-Sun-Life-Mutual-Fund",
-    "uti":       "UTI-Mutual-Fund",
-    "axis":      "Axis-Mutual-Fund",
+# amc_key → (AdvisorKhoj slug, scheme-master filter for name→code resolution).
+# Top-10 AMCs carry a populated amc_id; the rest live in the master with an
+# empty amc_id, so they resolve by scheme-name prefix (same as factsheet AUM).
+AK_AMCS: dict[str, dict] = {
+    # ── top-10 (amc_id populated) ──
+    "icici_pru": {"slug": "ICICI-Prudential-Mutual-Fund",     "filter": ("amc_id = $1", "icici_pru")},
+    "kotak":     {"slug": "Kotak-Mahindra-Mutual-Fund",       "filter": ("amc_id = $1", "kotak")},
+    "absl":      {"slug": "Aditya-Birla-Sun-Life-Mutual-Fund","filter": ("amc_id = $1", "absl")},
+    "axis":      {"slug": "Axis-Mutual-Fund",                 "filter": ("amc_id = $1", "axis")},
+    # ── tier-3 (resolve by scheme-name prefix) ──
+    # Only AMCs whose FULL portfolio disclosure (spreadsheet) is on AdvisorKhoj.
+    # DSP/HSBC/Invesco/Bandhan/Canara host only factsheet PDFs there (top-10
+    # holdings, not the full portfolio) → reaching them needs their own sites.
+    # Sundaram/Edelweiss/Motilal have spreadsheets but a timestamp-only filename,
+    # per-fund files, or a broken upload — deferred.
+    "franklin":  {"slug": "Franklin-Templeton-Mutual-Fund",   "filter": ("scheme_name ILIKE $1", "Franklin %")},
+    "ppfas":     {"slug": "PPFAS-Mutual-Fund",                "filter": ("scheme_name ILIKE $1", "Parag Parikh %")},
 }
 
 _ISIN_RE = re.compile(r"^IN[EF][A-Z0-9]{9}$")
@@ -106,10 +117,10 @@ def _file_url_for_month(html: str, base_url: str, as_of_month: date) -> Optional
 async def _discover_disclosure_url(
     http: aiohttp.ClientSession, amc_id: str, as_of_month: date,
 ) -> Optional[str]:
-    slug = AK_SLUG.get(amc_id)
-    if not slug:
+    cfg = AK_AMCS.get(amc_id)
+    if not cfg:
         return None
-    page = f"{_AK_BASE}/{slug}/Monthly-Portfolio-Disclosures"
+    page = f"{_AK_BASE}/{cfg['slug']}/Monthly-Portfolio-Disclosures"
     try:
         async with http.get(page, allow_redirects=True) as resp:
             if resp.status != 200:
@@ -159,7 +170,9 @@ def _scheme_from_sheet(rows: list) -> Optional[str]:
                 continue
             raw = re.sub(r"\s+", " ", str(c)).strip()
             had_prefix = bool(_SCHEME_PREFIX_RE.match(raw))
-            s = _SCHEME_SUFFIX_RE.sub("", _SCHEME_PREFIX_RE.sub("", raw)).strip()
+            s = _SCHEME_SUFFIX_RE.sub("", _SCHEME_PREFIX_RE.sub("", raw))
+            s = re.sub(r"\s*\([^)]*\)", " ", s).strip()      # drop '( An open ended … )' descriptors
+            s = re.sub(r"\s+", " ", s).strip()
             if not (8 < len(s) < 90) or _SCHEME_REJECT_RE.search(s):
                 continue
             if had_prefix or re.search(r"\b(fund|plan|etf)\b", s, re.I):
@@ -364,12 +377,14 @@ async def advisorkhoj_holdings_adapter(
         logger.info("advisorkhoj[%s]: %s parsed 0 holdings", amc_id, url)
         return []
 
-    # Resolve fund name → AMFI scheme_codes and fan out.
+    # Resolve fund name → AMFI scheme_codes and fan out. Top-10 AMCs scope by
+    # amc_id; the rest by scheme-name prefix (no amc_id in the master).
+    where, param = AK_AMCS[amc_id]["filter"]
     pool = await get_pool()
     async with pool.acquire() as conn:
         db = await conn.fetch(
-            "SELECT scheme_code, scheme_name FROM nidp.mf_scheme_master WHERE amc_id = $1",
-            amc_id,
+            f"SELECT scheme_code, scheme_name FROM nidp.mf_scheme_master WHERE {where}",
+            param,
         )
     index = _build_scheme_index(
         [{"scheme_code": r["scheme_code"], "scheme_name": r["scheme_name"]} for r in db]

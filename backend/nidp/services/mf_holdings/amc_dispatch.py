@@ -1156,6 +1156,16 @@ async def mirae(http: aiohttp.ClientSession, m: date) -> list[dict]:
     return await _amfi_holdings_adapter("mirae", http, m)
 
 
+# ── Tier-3 (AdvisorKhoj, resolved by scheme-name prefix) ─────────────────────
+async def franklin(http: aiohttp.ClientSession, m: date) -> list[dict]:
+    from .advisorkhoj import advisorkhoj_holdings_adapter
+    return await advisorkhoj_holdings_adapter("franklin", http, m)
+
+async def ppfas(http: aiohttp.ClientSession, m: date) -> list[dict]:
+    from .advisorkhoj import advisorkhoj_holdings_adapter
+    return await advisorkhoj_holdings_adapter("ppfas", http, m)
+
+
 # ── quant MF ─────────────────────────────────────────────────────────────────
 # ASP.NET WebMethod two-step API (discovered 2026-05-27 via Playwright XHR).
 #
@@ -1593,6 +1603,9 @@ ADAPTERS: dict[str, AdapterFn] = {
     # Tier 2
     "quant":        quant,
     "jm_financial": jm_financial,
+    # Tier 3 (AdvisorKhoj, name-prefix resolution)
+    "franklin":     franklin,
+    "ppfas":        ppfas,
 }
 
 
