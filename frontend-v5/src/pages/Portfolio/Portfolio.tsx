@@ -3,7 +3,7 @@ import { LineChart, PieChart, SlidersHorizontal, TrendingUp, TrendingDown } from
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { PieBreakdown, HeatmapTreemap, type BreakdownDatum } from "@/components/charts/AllocationCharts";
+import { PieBreakdown, BubbleChart, type BreakdownDatum } from "@/components/charts/AllocationCharts";
 import { HoldingsTable } from "@/components/shared/HoldingsTable";
 import { formatINR, formatINRCompact, formatPct } from "@/lib/formatters";
 import type { PortfolioSummary } from "@/types/portfolio";
@@ -288,9 +288,9 @@ export function Portfolio({ summary, enriched, sips, concentration }: Props) {
                 <PieBreakdown title="By sector" note="Look-through · % of portfolio" rows={sectorRows} />
                 <PieBreakdown title="By fund house (AMC)" note="% of mutual-fund corpus" rows={amcRows} />
               </div>
-              <HeatmapTreemap
+              <BubbleChart
                 title="Top companies"
-                note="Look-through · % of portfolio · click a box"
+                note="Look-through · % of portfolio · click a bubble"
                 rows={companyRows}
               />
             </>

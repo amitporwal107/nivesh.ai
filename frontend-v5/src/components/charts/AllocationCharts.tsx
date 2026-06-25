@@ -179,3 +179,113 @@ function HeatCell(props: {
     </g>
   );
 }
+
+interface PackedCircle { x: number; y: number; r: number; }
+
+/** Deterministic phyllotaxis (sunflower-spiral) packing. Places each circle —
+ *  largest first — at the nearest open spot along the spiral so the set clusters
+ *  tightly around the origin without overlapping. No randomness, no external dep. */
+function packCircles(radii: number[]): PackedCircle[] {
+  const placed: PackedCircle[] = [];
+  const gap = 3;
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  const step = Math.max(2, Math.min(...radii) * 0.5);
+  for (let i = 0; i < radii.length; i++) {
+    const r = radii[i];
+    if (i === 0) { placed.push({ x: 0, y: 0, r }); continue; }
+    let spot: PackedCircle = { x: 0, y: 0, r };
+    for (let a = 1; a < 6000; a++) {
+      const dist = step * Math.sqrt(a);
+      const angle = a * golden;
+      const x = Math.cos(angle) * dist;
+      const y = Math.sin(angle) * dist;
+      if (placed.every((c) => Math.hypot(c.x - x, c.y - y) >= c.r + r + gap)) {
+        spot = { x, y, r };
+        break;
+      }
+    }
+    placed.push(spot);
+  }
+  return placed;
+}
+
+// Shrink a label to roughly the chars that fit inside a bubble of radius r.
+function clampLabel(name: string, r: number): string {
+  const max = Math.max(4, Math.floor(r / 4));
+  return name.length > max ? name.slice(0, max - 1) + "…" : name;
+}
+
+/** Packed-bubble chart — each company is a circle whose AREA is proportional to
+ *  its share of the portfolio (radius ∝ √pct). Same data + drill-down as the
+ *  treemap: clicking a bubble reveals its underlying funds. */
+export function BubbleChart({ title, note, rows, height = 300, className }: {
+  title: string; note: string; rows: BreakdownDatum[]; height?: number; className?: string;
+}) {
+  const [sel, setSel] = useState<string | null>(null);
+  const data = rows.filter((r) => r.pct > 0).map((r, i) => ({ ...r, color: colorAt(i) }));
+  if (data.length === 0) return null;
+
+  const maxPct = Math.max(...data.map((r) => r.pct));
+  // area ∝ pct  ⇒  radius ∝ √pct. Floor keeps small bubbles legible + tappable.
+  const radii = data.map((r) => Math.max(16, 70 * Math.sqrt(r.pct / maxPct)));
+  const packed = packCircles(radii);
+
+  const pad = 6;
+  const minX = Math.min(...packed.map((c) => c.x - c.r)) - pad;
+  const maxX = Math.max(...packed.map((c) => c.x + c.r)) + pad;
+  const minY = Math.min(...packed.map((c) => c.y - c.r)) - pad;
+  const maxY = Math.max(...packed.map((c) => c.y + c.r)) + pad;
+
+  const selected = data.find((r) => r.name === sel) ?? null;
+
+  return (
+    <Card className={`p-6 ${className ?? ""}`}>
+      <div className="flex items-baseline justify-between mb-3">
+        <CardLabel>{title}</CardLabel>
+        <span className="font-mono text-[10px] uppercase tracking-[.08em] text-ink-3">{note}</span>
+      </div>
+      <div style={{ width: "100%", height }}>
+        <svg viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`} width="100%" height="100%"
+          preserveAspectRatio="xMidYMid meet" role="img"
+          aria-label={`${title} — bubbles sized by share of portfolio`}>
+          {data.map((r, i) => {
+            const c = packed[i];
+            const dim = sel && sel !== r.name;
+            const showName = c.r > 34;
+            const showPct = c.r > 22;
+            return (
+              <g key={r.name} style={{ cursor: "pointer" }}
+                onClick={() => setSel((s) => (s === r.name ? null : r.name))}
+                role="img"
+                aria-label={`${r.name}: ${r.pct.toFixed(1)}% of portfolio, ${formatINRCompact(r.value)}`}>
+                <title>{r.name} — {r.pct.toFixed(1)}% · {formatINRCompact(r.value)}</title>
+                <circle cx={c.x} cy={c.y} r={c.r} fill={r.color}
+                  fillOpacity={dim ? 0.26 : 0.82} stroke="rgb(var(--surface-1))" strokeWidth={2} />
+                {showName && (
+                  <text x={c.x} y={c.y - 2} textAnchor="middle"
+                    fontFamily="var(--font-sans)" fontWeight={500}
+                    fontSize={Math.min(13, c.r * 0.34)} fill="#FFFFFF">
+                    {clampLabel(r.name, c.r)}
+                  </text>
+                )}
+                {showPct && (
+                  <text x={c.x} y={showName ? c.y + 16 : c.y + 5} textAnchor="middle"
+                    fontFamily="var(--font-display)" letterSpacing="-0.02em"
+                    fontSize={Math.min(18, c.r * 0.5)} fill="#FFFFFF">
+                    {r.pct.toFixed(1)}%
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      {selected && selected.members && selected.members.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-hairline">
+          <div className="text-[12px] font-medium mb-0.5">{selected.name} · {selected.pct.toFixed(1)}%</div>
+          <MemberList members={selected.members} />
+        </div>
+      )}
+    </Card>
+  );
+}
