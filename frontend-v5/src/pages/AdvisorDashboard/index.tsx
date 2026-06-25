@@ -5,12 +5,13 @@
  * ADVISORY-mode upgrade gate, the Add-client modal, and the "open client"
  * activation flow (impersonate → invalidate → navigate + banner).
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Briefcase, ArrowRight } from "lucide-react";
 import { useAdvisorBook, useUpgradeToAdvisory, useDeleteClient } from "@/hooks/use-advisor";
 import { useActivateProfile } from "@/hooks/use-mfd";
 import { useToastStore } from "@/stores/toast.store";
+import { useImpersonationStore } from "@/stores/impersonation.store";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { AdvisorDashboard } from "./AdvisorDashboard";
@@ -25,8 +26,16 @@ export default function AdvisorDashboardPage() {
   const activate = useActivateProfile();
   const upgrade = useUpgradeToAdvisory();
   const del = useDeleteClient();
+  const clearImpersonation = useImpersonationStore((s) => s.clear);
 
   const [addOpen, setAddOpen] = useState(false);
+
+  // The Advisor Workspace root is, by definition, NOT a client view. Landing
+  // here exits any impersonation — covers arriving via the "Advisor Workspace"
+  // nav link while still inside a client (which otherwise leaves a stale store →
+  // full client nav + banner on the advisor page). Runs once on mount; the
+  // open-client flow sets the store *after* this and then navigates away.
+  useEffect(() => { clearImpersonation(); }, [clearImpersonation]);
 
   if (book.isPending) {
     return (
