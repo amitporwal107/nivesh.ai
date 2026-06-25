@@ -348,6 +348,36 @@ def _build_profile_doc(meta: Dict[str, str], stocks: List[Dict[str, Any]],
     }
 
 
+async def diagnose(pool) -> Dict[str, Any]:
+    """Probe the data state behind an empty grid — surfaces WHY (missing table
+    vs empty/NULL-sector data) without needing DB/log access. Each probe is
+    isolated so one failure (e.g. a missing table) still reports the rest."""
+    out: Dict[str, Any] = {}
+
+    async def _val(key: str, sql: str) -> None:
+        try:
+            async with pool.acquire() as conn:
+                out[key] = await conn.fetchval(sql)
+        except Exception as e:  # noqa: BLE001
+            out[key + "_error"] = str(e)[:200]
+
+    await _val("sfd_table",            "SELECT to_regclass('nidp.stock_features_daily')::text")
+    await _val("ref_security_master",  "SELECT to_regclass('ref.security_master')::text")
+    await _val("sector_master_table",  "SELECT to_regclass('nidp.sector_master')::text")
+    await _val("sfd_latest",           "SELECT max(as_of_date)::text FROM nidp.stock_features_daily")
+    await _val("sfd_rows_latest",
+               "SELECT count(*) FROM nidp.stock_features_daily "
+               "WHERE as_of_date=(SELECT max(as_of_date) FROM nidp.stock_features_daily)")
+    await _val("sfd_with_sector",
+               "SELECT count(*) FROM nidp.stock_features_daily "
+               "WHERE as_of_date=(SELECT max(as_of_date) FROM nidp.stock_features_daily) AND sector IS NOT NULL")
+    await _val("sfd_with_mcap",
+               "SELECT count(*) FROM nidp.stock_features_daily "
+               "WHERE as_of_date=(SELECT max(as_of_date) FROM nidp.stock_features_daily) AND market_cap_cr IS NOT NULL")
+    await _val("sector_master_rows",   "SELECT count(*) FROM nidp.sector_master")
+    return out
+
+
 async def build_all_metrics(pool, generated_at: str) -> List[Dict[str, Any]]:
     """Grounded metric docs for every profile that has enough stocks. No LLM."""
     stocks = await _fetch_stocks(pool)

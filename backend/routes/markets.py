@@ -1006,15 +1006,22 @@ async def markets_sectors(request: Request):
     await get_current_user(request)
     from services import pg_client, sector_analysis
     docs = [d async for d in db.market_sector_analysis.find({}, {"_id": 0})]
+    diagnostic = None
     if not docs:
         pool = await pg_client.get_pool()
         if pool is None:
             return {"ok": False, "error": "no_pg_pool", "sectors": [], "llm_enabled": sector_analysis.is_llm_configured()}
         docs = await sector_analysis.build_all_metrics(pool, _iso_utc())
         await _store_sector_docs(docs)
+        if not docs:
+            # Empty build → surface the data state so a blank grid is diagnosable.
+            diagnostic = await sector_analysis.diagnose(pool)
     docs.sort(key=lambda d: d.get("name") or "")
-    return {"ok": True, "sectors": [_sector_card(d) for d in docs],
+    resp = {"ok": True, "sectors": [_sector_card(d) for d in docs],
             "llm_enabled": sector_analysis.is_llm_configured()}
+    if diagnostic is not None:
+        resp["diagnostic"] = diagnostic
+    return resp
 
 
 @router.get("/sectors/{slug}")

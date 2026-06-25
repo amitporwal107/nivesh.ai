@@ -66,9 +66,16 @@ export default function SectorAnalysisPage() {
           Sector data is refreshing — it loads after the next NIDP market tick.
         </p>
       ) : (query.data?.sectors?.length ?? 0) === 0 ? (
-        <p className="mt-10 text-center text-sm text-ink-3">
-          Sector cards are still being prepared — they appear once the latest market data has loaded.
-        </p>
+        <div className="mt-10 text-center">
+          <p className="text-sm text-ink-3">
+            Sector cards are still being prepared — they appear once the latest market data has loaded.
+          </p>
+          {query.data?.diagnostic && (
+            <pre className="mx-auto mt-4 max-w-[680px] overflow-x-auto rounded-md border border-hairline bg-surface-1 p-3 text-left text-[11px] leading-relaxed text-ink-4">
+              {JSON.stringify(query.data.diagnostic, null, 2)}
+            </pre>
+          )}
+        </div>
       ) : sectors.length === 0 ? (
         <p className="mt-10 text-center text-sm text-ink-3">No sectors match “{qInput}”.</p>
       ) : (

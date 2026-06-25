@@ -302,6 +302,8 @@ export const SectorsRespC = z.object({
   ok:          z.boolean().optional(),
   sectors:     z.array(SectorCardC).default([]),
   llm_enabled: z.boolean().optional(),
+  /** Present only when the grid is empty — data-state probe for debugging. */
+  diagnostic:  z.record(z.unknown()).nullable().optional(),
 });
 
 export const SectorDetailC = z.object({
