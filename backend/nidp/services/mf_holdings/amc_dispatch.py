@@ -57,7 +57,16 @@ AdapterFn = Callable[[aiohttp.ClientSession, date], Awaitable[list[dict]]]
 # >1000%). The fix derives a "fund identity" by stripping only the *plan suffix*,
 # then matches in precision order (exact → identity → boundary-prefix → space-
 # insensitive) so e.g. Series 1 never matches Series 14.
-_PLAN_SUFFIX_RE = re.compile(r"\s*-\s*(regular|direct|institutional|retail)\b.*$", re.I)
+# Strip the plan/option tail so all variants of a fund share one identity.
+# Includes bare option keywords (Growth/IDCW/…) because some AMCs name the
+# Regular plan "X Fund - Growth" with NO "Regular" word — without these, the
+# Regular variants got a distinct identity and were dropped from resolution
+# (only the Direct variants matched), roughly halving holdings coverage.
+# Series numbers ("- Series 14") are NOT keywords, so FMP series stay distinct.
+_PLAN_SUFFIX_RE = re.compile(
+    r"\s*-\s*(regular|direct|institutional|retail|growth|idcw|dividend|payout|"
+    r"reinvest\w*|bonus|income distribution|daily|weekly|monthly|quarterly|"
+    r"annual|half.?yearly|fortnightly)\b.*$", re.I)
 _ERSTWHILE_RE = re.compile(r"\s*\(erstwhile[^)]*\)", re.I)
 
 
