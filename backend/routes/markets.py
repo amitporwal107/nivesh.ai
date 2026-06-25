@@ -956,6 +956,107 @@ async def markets_daily_brief_generate(request: Request):
     return {"ok": True, "brief": doc}
 
 
+# ── Sector Analysis — AI sector-overview cards (grounded metrics + commentary) ──
+
+def _sector_excerpt(md: Optional[str], n: int = 180) -> Optional[str]:
+    """First non-heading line of the commentary, markdown-stripped, for cards."""
+    import re
+    for line in (md or "").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        s = re.sub(r"[*`_]", "", s)
+        return (s[:n].rstrip() + "…") if len(s) > n else s
+    return None
+
+
+def _sector_card(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Trimmed view for the grid — drops the full commentary body."""
+    c = doc.get("commentary_md")
+    return {
+        "slug":            doc.get("slug"),
+        "name":            doc.get("name"),
+        "icon":            doc.get("icon"),
+        "blurb":           doc.get("blurb"),
+        "benchmark_index": doc.get("benchmark_index"),
+        "as_of_date":      doc.get("as_of_date"),
+        "generated_at":    doc.get("generated_at"),
+        "headline":        doc.get("headline"),
+        "metrics":         doc.get("metrics", {}),
+        "has_commentary":  bool(c),
+        "excerpt":         _sector_excerpt(c),
+    }
+
+
+async def _store_sector_docs(docs: List[Dict[str, Any]]) -> None:
+    for d in docs:
+        d.pop("_id", None)
+        try:
+            await db.market_sector_analysis.update_one({"slug": d["slug"]}, {"$set": d}, upsert=True)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("sector_analysis store failed for %s: %s", d.get("slug"), e)
+        d.pop("_id", None)
+
+
+@router.get("/sectors")
+async def markets_sectors(request: Request):
+    """Sector Analysis grid — one card per sector profile, backed by real NIDP
+    aggregates. Grounded metrics are built + persisted lazily on first read
+    (cheap, no LLM); the AI commentary is generated per sector on detail view."""
+    await get_current_user(request)
+    from services import pg_client, sector_analysis
+    docs = [d async for d in db.market_sector_analysis.find({}, {"_id": 0})]
+    if not docs:
+        pool = await pg_client.get_pool()
+        if pool is None:
+            return {"ok": False, "error": "no_pg_pool", "sectors": [], "llm_enabled": sector_analysis.is_llm_configured()}
+        docs = await sector_analysis.build_all_metrics(pool, _iso_utc())
+        await _store_sector_docs(docs)
+    docs.sort(key=lambda d: d.get("name") or "")
+    return {"ok": True, "sectors": [_sector_card(d) for d in docs],
+            "llm_enabled": sector_analysis.is_llm_configured()}
+
+
+@router.get("/sectors/{slug}")
+async def markets_sector_detail(request: Request, slug: str):
+    """Full sector card: grounded metrics + top companies + AI commentary.
+    The commentary is generated lazily on first view and then persisted."""
+    await get_current_user(request)
+    from services import pg_client, sector_analysis
+    doc = await db.market_sector_analysis.find_one({"slug": slug}, {"_id": 0})
+    if doc is None:
+        pool = await pg_client.get_pool()
+        if pool is None:
+            return {"ok": False, "error": "no_pg_pool", "sector": None}
+        built = await sector_analysis.build_all_metrics(pool, _iso_utc())
+        if built:
+            await _store_sector_docs(built)
+        doc = next((d for d in built if d["slug"] == slug), None)
+        if doc is None:
+            return {"ok": False, "error": "not_found", "sector": None}
+    if not doc.get("commentary_md"):
+        doc = await sector_analysis.generate_commentary(doc)
+        await _store_sector_docs([doc])
+    doc.pop("_id", None)
+    return {"ok": True, "sector": doc}
+
+
+@router.post("/sectors/generate")
+async def markets_sectors_generate(request: Request):
+    """(Re)build all sector cards — fresh metrics + AI commentary for every
+    profile. Wire a cron to hit this after the EOD NIDP tick. Auth required."""
+    await get_current_user(request)
+    from services import pg_client, sector_analysis
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return {"ok": False, "error": "no_pg_pool"}
+    docs = await sector_analysis.build_all_metrics(pool, _iso_utc())
+    for d in docs:
+        await sector_analysis.generate_commentary(d)
+    await _store_sector_docs(docs)
+    return {"ok": True, "count": len(docs), "llm_enabled": sector_analysis.is_llm_configured()}
+
+
 @router.get("/explore")
 async def markets_explore(request: Request):
     """52-week-high / 52-week-low / most-active lists for the Markets page
@@ -1161,5 +1262,180 @@ async def markets_earnings(request: Request, index: str = "Nifty 500", quarter: 
         "get_market_pulse_earnings", {"index": index, "quarter": quarter},
         lambda pool: _earnings_pg(pool, index, quarter),
         _earnings_empty(index),
+    ))
+    return {"ok": True, **data}
+
+
+# ── Drill-down: the companies behind one sector card ────────────────────
+# Mirrors backend/nidp/services/daas_api/routers/market_pulse.py verbatim.
+#   $1 = index_name   $2 = period_end (DATE, nullable)   $3 = sector (industry)
+_EARN_COMPANIES_SQL = """
+WITH params AS (
+    SELECT COALESCE($2::date,
+                    (SELECT MAX(period_end) FROM nidp.nse_financials_quarterly
+                      WHERE LOWER(period_type) = 'quarterly')) AS pe
+),
+idx AS (
+    SELECT DISTINCT ic.symbol, ic.company_name
+      FROM nidp.index_constituents ic
+     WHERE ic.index_name = $1
+       AND ic.as_of_date = (SELECT MAX(as_of_date) FROM nidp.index_constituents
+                             WHERE index_name = $1)
+       AND ic.industry = $3
+),
+prior_q AS (
+    SELECT MAX(period_end) AS pe FROM nidp.nse_financials_quarterly
+     WHERE LOWER(period_type) = 'quarterly' AND period_end < (SELECT pe FROM params)
+),
+fin AS (
+    SELECT symbol, period_end, revenue_from_ops_cr AS rev, pat_cr AS pat,
+           ROW_NUMBER() OVER (PARTITION BY symbol, period_end
+                              ORDER BY consolidated DESC) AS rn
+      FROM nidp.nse_financials_quarterly
+     WHERE LOWER(period_type) = 'quarterly'
+       AND period_end IN ((SELECT pe FROM params),
+                          ((SELECT pe FROM params) - INTERVAL '1 year')::date,
+                          (SELECT pe FROM prior_q))
+),
+cur AS (SELECT symbol, rev, pat FROM fin WHERE rn = 1 AND period_end =  (SELECT pe FROM params)),
+yoy AS (SELECT symbol, rev, pat FROM fin WHERE rn = 1 AND period_end = ((SELECT pe FROM params) - INTERVAL '1 year')::date),
+qoq AS (SELECT symbol, rev, pat FROM fin WHERE rn = 1 AND period_end =  (SELECT pe FROM prior_q))
+SELECT idx.symbol, idx.company_name,
+       (cur.symbol IS NOT NULL)                                            AS declared,
+       cur.rev AS revenue_cr, cur.pat AS pat_cr,
+       CASE WHEN yoy.rev > 0 THEN ROUND(((cur.rev - yoy.rev) / yoy.rev * 100)::numeric, 1) END AS sales_yoy,
+       CASE WHEN yoy.pat > 0 THEN ROUND(((cur.pat - yoy.pat) / yoy.pat * 100)::numeric, 1) END AS profit_yoy,
+       CASE WHEN qoq.rev > 0 THEN ROUND(((cur.rev - qoq.rev) / qoq.rev * 100)::numeric, 1) END AS sales_qoq,
+       CASE WHEN qoq.pat > 0 THEN ROUND(((cur.pat - qoq.pat) / qoq.pat * 100)::numeric, 1) END AS profit_qoq,
+       (cur.pat IS NOT NULL AND yoy.pat IS NOT NULL AND cur.pat >  yoy.pat) AS profit_grew
+  FROM idx
+  LEFT JOIN cur ON cur.symbol = idx.symbol
+  LEFT JOIN yoy ON yoy.symbol = idx.symbol
+  LEFT JOIN qoq ON qoq.symbol = idx.symbol
+ ORDER BY (cur.symbol IS NOT NULL) DESC, profit_yoy DESC NULLS LAST, idx.symbol
+"""
+
+
+def _earn_company(r) -> Dict[str, Any]:
+    return {
+        "symbol":      r["symbol"],
+        "name":        r["company_name"] or r["symbol"],
+        "declared":    bool(r["declared"]),
+        "revenue_cr":  round(float(r["revenue_cr"]), 1) if r["revenue_cr"] is not None else None,
+        "pat_cr":      round(float(r["pat_cr"]), 1) if r["pat_cr"] is not None else None,
+        "sales_yoy":   _earn_pct(r["sales_yoy"]),
+        "profit_yoy":  _earn_pct(r["profit_yoy"]),
+        "sales_qoq":   _earn_pct(r["sales_qoq"]),
+        "profit_qoq":  _earn_pct(r["profit_qoq"]),
+        "profit_grew": None if r["profit_grew"] is None else bool(r["profit_grew"]),
+    }
+
+
+def _earnings_companies_empty(index: str, sector: str) -> Dict[str, Any]:
+    return {"index": index, "sector": sector, "period_end": None, "quarter": None,
+            "declared": 0, "members": 0, "companies": []}
+
+
+async def _earnings_companies_pg(pool, index: str, quarter: Optional[str], sector: str) -> Dict[str, Any]:
+    pe_param = None
+    if quarter:
+        try:
+            pe_param = date.fromisoformat(quarter)
+        except ValueError:
+            pe_param = None
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(_EARN_COMPANIES_SQL, index, pe_param, sector)
+            period_end = await conn.fetchval(
+                """SELECT COALESCE($1::date, (SELECT MAX(period_end) FROM nidp.nse_financials_quarterly
+                                               WHERE LOWER(period_type) = 'quarterly'))""", pe_param)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("markets.earnings companies PG fallback failed: %s", e)
+        return _earnings_companies_empty(index, sector)
+    return {
+        "index":      index,
+        "sector":     sector,
+        "period_end": period_end.isoformat() if period_end else None,
+        "quarter":    _quarter_label(period_end),
+        "declared":   sum(1 for r in rows if r["declared"]),
+        "members":    len(rows),
+        "companies":  [_earn_company(r) for r in rows],
+    }
+
+
+@router.get("/earnings/companies")
+async def markets_earnings_companies(
+    request: Request, sector: str, index: str = "Nifty 500", quarter: Optional[str] = None,
+):
+    """Drill-down for the Earnings Tracker: the individual companies behind one
+    sector card, with each company's YoY/QoQ sales & profit growth."""
+    await get_current_user(request)
+    index = (index or "Nifty 500").strip()
+    sector = (sector or "").strip()
+    if not sector:
+        return {"ok": True, **_earnings_companies_empty(index, sector)}
+    data = await _aux_cached(f"earnings-co:{index}:{quarter or 'latest'}:{sector}", lambda: _daas_first(
+        "get_market_pulse_earnings_companies",
+        {"index": index, "sector": sector, "quarter": quarter},
+        lambda pool: _earnings_companies_pg(pool, index, quarter, sector),
+        _earnings_companies_empty(index, sector),
+    ))
+    return {"ok": True, **data}
+
+
+# ── Institutional positioning by sector (FII/DII holdings, latest quarter) ──
+# Mirrors backend/nidp/services/daas_api/routers/market_pulse.py verbatim.
+# Holding value = holding% × market cap (total_shares × EOD close), by sector.
+_INSTITUTIONAL_POSITIONING_SQL = """
+    SELECT sc.sector,
+           SUM((sh.fii_pct/100.0) * sh.total_shares * p.close_price / 1e7) AS fii_cr,
+           SUM((sh.dii_pct/100.0) * sh.total_shares * p.close_price / 1e7) AS dii_cr,
+           count(*) AS n
+      FROM nidp.shareholding_pattern sh
+      JOIN analytics.stock_card sc
+        ON sc.symbol = sh.symbol
+       AND sc.as_of_date = (SELECT max(as_of_date) FROM analytics.stock_card)
+      JOIN nidp.prices_eod p
+        ON p.symbol = sh.symbol
+       AND p.as_of_date = (SELECT max(as_of_date) FROM nidp.prices_eod)
+     WHERE sh.period_end = (SELECT max(period_end) FROM nidp.shareholding_pattern)
+       AND sc.sector IS NOT NULL
+       AND sh.total_shares IS NOT NULL
+       AND sh.fii_pct IS NOT NULL
+     GROUP BY sc.sector
+"""
+
+
+async def _institutional_positioning_pg(pool) -> Dict[str, Any]:
+    try:
+        async with pool.acquire() as conn:
+            period = await conn.fetchval("SELECT max(period_end) FROM nidp.shareholding_pattern")
+            rows = await conn.fetch(_INSTITUTIONAL_POSITIONING_SQL)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("markets.institutional_positioning PG fallback failed: %s", e)
+        return {"period_end": None, "universe": "Nifty 500", "sectors": []}
+    return {
+        "period_end": period.isoformat() if period else None,
+        "universe":   "Nifty 500",
+        "sectors": [{
+            "sector": r["sector"],
+            "fii_cr": round(float(r["fii_cr"]), 2) if r["fii_cr"] is not None else None,
+            "dii_cr": round(float(r["dii_cr"]), 2) if r["dii_cr"] is not None else None,
+            "n":      int(r["n"]),
+        } for r in rows],
+    }
+
+
+@router.get("/institutional-positioning")
+async def markets_institutional_positioning(request: Request):
+    """FII/DII *holdings* by sector from the latest quarterly shareholding
+    pattern (holding% × market cap). A positioning snapshot, NOT buy/sell flows —
+    NSE publishes only the current quarter, so quarter-over-quarter flows aren't
+    derivable until the next filing lands."""
+    await get_current_user(request)
+    data = await _aux_cached("inst_positioning", lambda: _daas_first(
+        "get_market_pulse_institutional_positioning", {},
+        lambda pool: _institutional_positioning_pg(pool),
+        {"period_end": None, "universe": "Nifty 500", "sectors": []},
     ))
     return {"ok": True, **data}

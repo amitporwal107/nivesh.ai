@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
  */
 const TABS: { to: string; label: string; end?: boolean }[] = [
   { to: "/markets", label: "Market", end: true },
+  { to: "/markets/sectors", label: "Sector Analysis" },
   { to: "/markets/earnings", label: "Earnings Tracker" },
   { to: "/markets/fii-dii", label: "FII / DII" },
   { to: "/markets/corporate-actions", label: "Corporate Actions" },

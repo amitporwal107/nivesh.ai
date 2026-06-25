@@ -19,6 +19,10 @@ import {
   DailyBriefRespC, type DailyBriefResp,
   BriefHistoryC, type BriefHistory,
   EarningsC, type Earnings,
+  EarningsCompaniesC, type EarningsCompanies,
+  SectorsRespC, type SectorsResp,
+  SectorDetailRespC, type SectorDetailResp,
+  InstitutionalPositioningC, type InstitutionalPositioning,
 } from "@/services/contracts/markets.contract";
 
 export type CapSegment = "large" | "mid" | "small";
@@ -43,6 +47,12 @@ export interface EarningsQuery {
   quarter?: string;
 }
 
+export interface EarningsCompaniesQuery {
+  index?: string;
+  sector: string;
+  quarter?: string;
+}
+
 export interface MarketsAdapter {
   getHome(): Promise<MarketsHome>;
   getExplore(): Promise<MarketsExplore>;
@@ -53,6 +63,10 @@ export interface MarketsAdapter {
   getDailyBrief(date?: string): Promise<DailyBriefResp>;
   getBriefHistory(limit?: number): Promise<BriefHistory>;
   getEarnings(params: EarningsQuery): Promise<Earnings>;
+  getEarningsCompanies(params: EarningsCompaniesQuery): Promise<EarningsCompanies>;
+  getSectors(): Promise<SectorsResp>;
+  getSector(slug: string): Promise<SectorDetailResp>;
+  getInstitutionalPositioning(): Promise<InstitutionalPositioning>;
 }
 
 export const realMarketsAdapter: MarketsAdapter = {
@@ -139,6 +153,42 @@ export const realMarketsAdapter: MarketsAdapter = {
     const parsed = EarningsC.safeParse(res.data);
     if (!parsed.success) {
       throw ApiError.contractDrift(`markets.earnings: ${parsed.error.message}`);
+    }
+    return parsed.data;
+  },
+
+  async getEarningsCompanies({ index, sector, quarter }) {
+    const res = await http({ path: "/api/markets/earnings/companies", query: { index, sector, quarter } });
+    const parsed = EarningsCompaniesC.safeParse(res.data);
+    if (!parsed.success) {
+      throw ApiError.contractDrift(`markets.earnings.companies: ${parsed.error.message}`);
+    }
+    return parsed.data;
+  },
+
+  async getSectors() {
+    const res = await http({ path: "/api/markets/sectors" });
+    const parsed = SectorsRespC.safeParse(res.data);
+    if (!parsed.success) {
+      throw ApiError.contractDrift(`markets.sectors: ${parsed.error.message}`);
+    }
+    return parsed.data;
+  },
+
+  async getSector(slug) {
+    const res = await http({ path: `/api/markets/sectors/${encodeURIComponent(slug)}` });
+    const parsed = SectorDetailRespC.safeParse(res.data);
+    if (!parsed.success) {
+      throw ApiError.contractDrift(`markets.sector: ${parsed.error.message}`);
+    }
+    return parsed.data;
+  },
+
+  async getInstitutionalPositioning() {
+    const res = await http({ path: "/api/markets/institutional-positioning" });
+    const parsed = InstitutionalPositioningC.safeParse(res.data);
+    if (!parsed.success) {
+      throw ApiError.contractDrift(`markets.institutional-positioning: ${parsed.error.message}`);
     }
     return parsed.data;
   },

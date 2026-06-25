@@ -486,3 +486,151 @@ async def earnings(
     pool = await get_pool()
     async with pool.acquire() as conn:
         return await build_earnings(conn, (index or "Nifty 500").strip(), quarter)
+
+
+# ── Drill-down: the individual companies behind one sector card ──────────
+#   $1 = index_name   $2 = period_end (DATE, nullable)   $3 = sector (industry)
+# Per-company growth is % off a positive base only (null = no comparable / loss
+# base), matching the sector-median basis. Declared rows first, then ranked by
+# profit YoY so the strongest results lead the list.
+_EARN_COMPANIES_SQL = """
+WITH params AS (
+    SELECT COALESCE($2::date,
+                    (SELECT MAX(period_end) FROM nidp.nse_financials_quarterly
+                      WHERE LOWER(period_type) = 'quarterly')) AS pe
+),
+idx AS (
+    SELECT DISTINCT ic.symbol, ic.company_name
+      FROM nidp.index_constituents ic
+     WHERE ic.index_name = $1
+       AND ic.as_of_date = (SELECT MAX(as_of_date) FROM nidp.index_constituents
+                             WHERE index_name = $1)
+       AND ic.industry = $3
+),
+prior_q AS (
+    SELECT MAX(period_end) AS pe FROM nidp.nse_financials_quarterly
+     WHERE LOWER(period_type) = 'quarterly' AND period_end < (SELECT pe FROM params)
+),
+fin AS (
+    SELECT symbol, period_end, revenue_from_ops_cr AS rev, pat_cr AS pat,
+           ROW_NUMBER() OVER (PARTITION BY symbol, period_end
+                              ORDER BY consolidated DESC) AS rn
+      FROM nidp.nse_financials_quarterly
+     WHERE LOWER(period_type) = 'quarterly'
+       AND period_end IN ((SELECT pe FROM params),
+                          ((SELECT pe FROM params) - INTERVAL '1 year')::date,
+                          (SELECT pe FROM prior_q))
+),
+cur AS (SELECT symbol, rev, pat FROM fin WHERE rn = 1 AND period_end =  (SELECT pe FROM params)),
+yoy AS (SELECT symbol, rev, pat FROM fin WHERE rn = 1 AND period_end = ((SELECT pe FROM params) - INTERVAL '1 year')::date),
+qoq AS (SELECT symbol, rev, pat FROM fin WHERE rn = 1 AND period_end =  (SELECT pe FROM prior_q))
+SELECT idx.symbol, idx.company_name,
+       (cur.symbol IS NOT NULL)                                            AS declared,
+       cur.rev AS revenue_cr, cur.pat AS pat_cr,
+       CASE WHEN yoy.rev > 0 THEN ROUND(((cur.rev - yoy.rev) / yoy.rev * 100)::numeric, 1) END AS sales_yoy,
+       CASE WHEN yoy.pat > 0 THEN ROUND(((cur.pat - yoy.pat) / yoy.pat * 100)::numeric, 1) END AS profit_yoy,
+       CASE WHEN qoq.rev > 0 THEN ROUND(((cur.rev - qoq.rev) / qoq.rev * 100)::numeric, 1) END AS sales_qoq,
+       CASE WHEN qoq.pat > 0 THEN ROUND(((cur.pat - qoq.pat) / qoq.pat * 100)::numeric, 1) END AS profit_qoq,
+       (cur.pat IS NOT NULL AND yoy.pat IS NOT NULL AND cur.pat >  yoy.pat) AS profit_grew
+  FROM idx
+  LEFT JOIN cur ON cur.symbol = idx.symbol
+  LEFT JOIN yoy ON yoy.symbol = idx.symbol
+  LEFT JOIN qoq ON qoq.symbol = idx.symbol
+ ORDER BY (cur.symbol IS NOT NULL) DESC, profit_yoy DESC NULLS LAST, idx.symbol
+"""
+
+
+def _earn_company(r) -> Dict[str, Any]:
+    return {
+        "symbol":      r["symbol"],
+        "name":        r["company_name"] or r["symbol"],
+        "declared":    bool(r["declared"]),
+        "revenue_cr":  round(float(r["revenue_cr"]), 1) if r["revenue_cr"] is not None else None,
+        "pat_cr":      round(float(r["pat_cr"]), 1) if r["pat_cr"] is not None else None,
+        "sales_yoy":   _pct(r["sales_yoy"]),
+        "profit_yoy":  _pct(r["profit_yoy"]),
+        "sales_qoq":   _pct(r["sales_qoq"]),
+        "profit_qoq":  _pct(r["profit_qoq"]),
+        "profit_grew": None if r["profit_grew"] is None else bool(r["profit_grew"]),
+    }
+
+
+async def build_earnings_companies(conn, index: str, quarter: Optional[str], sector: str) -> Dict[str, Any]:
+    """The companies behind one sector card. Shared verbatim with the app's PG
+    fallback (backend/routes/markets.py)."""
+    pe_param = None
+    if quarter:
+        try:
+            pe_param = date.fromisoformat(quarter)
+        except ValueError:
+            pe_param = None
+    rows = await conn.fetch(_EARN_COMPANIES_SQL, index, pe_param, sector)
+    period_end = await conn.fetchval(
+        """SELECT COALESCE($1::date, (SELECT MAX(period_end) FROM nidp.nse_financials_quarterly
+                                       WHERE LOWER(period_type) = 'quarterly'))""", pe_param)
+    return {
+        "index":      index,
+        "sector":     sector,
+        "period_end": period_end.isoformat() if period_end else None,
+        "quarter":    _quarter_label(period_end),
+        "declared":   sum(1 for r in rows if r["declared"]),
+        "members":    len(rows),
+        "companies":  [_earn_company(r) for r in rows],
+    }
+
+
+@router.get("/earnings/companies", summary="Earnings Tracker — companies in one sector")
+async def earnings_companies(
+    index: str = Query("Nifty 500"),
+    sector: str = Query(..., description="Sector (industry) name to drill into"),
+    quarter: Optional[str] = Query(None),
+):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await build_earnings_companies(conn, (index or "Nifty 500").strip(), quarter, sector)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Institutional positioning by sector — FII/DII HOLDINGS (not flows).
+# Derived from the latest quarterly shareholding pattern: holding %  ×  market
+# cap (total_shares × EOD close), aggregated by sector over the Nifty-500.
+# NSE only publishes the current quarter, so this is a positioning snapshot —
+# quarter-over-quarter *flows* (buy/sell) need ≥2 quarters and aren't derivable
+# until the next filing lands.
+# ════════════════════════════════════════════════════════════════════════
+
+@router.get("/institutional-positioning", summary="FII/DII holdings by sector (latest quarter)")
+async def institutional_positioning():
+    sql = """
+        SELECT sc.sector,
+               SUM((sh.fii_pct/100.0) * sh.total_shares * p.close_price / 1e7) AS fii_cr,
+               SUM((sh.dii_pct/100.0) * sh.total_shares * p.close_price / 1e7) AS dii_cr,
+               count(*) AS n
+          FROM nidp.shareholding_pattern sh
+          JOIN analytics.stock_card sc
+            ON sc.symbol = sh.symbol
+           AND sc.as_of_date = (SELECT max(as_of_date) FROM analytics.stock_card)
+          JOIN nidp.prices_eod p
+            ON p.symbol = sh.symbol
+           AND p.as_of_date = (SELECT max(as_of_date) FROM nidp.prices_eod)
+         WHERE sh.period_end = (SELECT max(period_end) FROM nidp.shareholding_pattern)
+           AND sc.sector IS NOT NULL
+           AND sh.total_shares IS NOT NULL
+           AND sh.fii_pct IS NOT NULL
+         GROUP BY sc.sector
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        period = await conn.fetchval("SELECT max(period_end) FROM nidp.shareholding_pattern")
+        rows = await conn.fetch(sql)
+    sectors = [{
+        "sector": r["sector"],
+        "fii_cr": _f(r["fii_cr"]),
+        "dii_cr": _f(r["dii_cr"]),
+        "n":      int(r["n"]),
+    } for r in rows]
+    return {
+        "period_end": period.isoformat() if period else None,
+        "universe":   "Nifty 500",
+        "sectors":    sectors,
+    }

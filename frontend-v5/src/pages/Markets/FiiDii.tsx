@@ -2,15 +2,16 @@ import { useState } from "react";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ReferenceLine, ResponsiveContainer, Legend,
+  PieChart, Pie, Cell,
 } from "recharts";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/formatters";
-import { useMarketsFiiDii } from "@/hooks/use-markets";
+import { useMarketsFiiDii, useInstitutionalPositioning } from "@/hooks/use-markets";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { EmptyState } from "@/components/shared/EmptyState";
-import type { FiiDiiFlowRow } from "@/services/contracts/markets.contract";
+import type { FiiDiiFlowRow, SectorPositioning } from "@/services/contracts/markets.contract";
 
 type Gran = "daily" | "monthly";
 
@@ -192,11 +193,113 @@ export default function FiiDiiPage() {
         </div>
       </Card>
 
+      {/* ── Institutional holdings by sector (positioning, not flows) ── */}
+      <InstitutionalPositioning />
+
       <p className="mt-6 text-[11px] text-ink-4">
         Source: NSE provisional FII/DII cash-segment figures from the NIDP data lake. Net = buy − sell;
         a positive net means institutions were net buyers that {gran === "daily" ? "session" : "month"}.
       </p>
     </div>
+  );
+}
+
+/* ─────────────── Institutional holdings by sector ─────────────── */
+
+type Lens = "fii" | "dii" | "combined";
+
+const SECTOR_COLORS = [
+  "#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#a855f7", "#c084fc",
+  "#f59e0b", "#fb923c", "#10b981", "#34d399", "#ef4444", "#f87171",
+];
+
+/** Compact ₹-crore, e.g. ₹21.85 L Cr / ₹3.7 K Cr. */
+function fmtCrShort(n: number | null | undefined): string {
+  if (n == null) return "—";
+  const a = Math.abs(n);
+  if (a >= 1e5) return `₹${(n / 1e5).toFixed(2)} L Cr`;
+  if (a >= 1e3) return `₹${(n / 1e3).toFixed(1)} K Cr`;
+  return `₹${Math.round(n)} Cr`;
+}
+
+function lensValue(s: SectorPositioning, lens: Lens): number {
+  if (lens === "fii") return s.fii_cr ?? 0;
+  if (lens === "dii") return s.dii_cr ?? 0;
+  return (s.fii_cr ?? 0) + (s.dii_cr ?? 0);
+}
+
+function InstitutionalPositioning() {
+  const [lens, setLens] = useState<Lens>("fii");
+  const q = useInstitutionalPositioning();
+
+  const ranked = [...(q.data?.sectors ?? [])]
+    .map((s) => ({ ...s, v: lensValue(s, lens) }))
+    .filter((s) => s.v > 0)
+    .sort((a, b) => b.v - a.v);
+  const top = ranked.slice(0, 10);
+  const pie = top.map((s, i) => ({ name: s.sector, value: s.v, fill: SECTOR_COLORS[i % SECTOR_COLORS.length] }));
+
+  return (
+    <Card className="mt-5 p-4">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.13em] text-ink-3">
+          Institutional holdings by sector
+        </span>
+        <div className="inline-flex rounded-md border border-hairline bg-surface-1 p-0.5 text-[11px]">
+          {(["fii", "dii", "combined"] as Lens[]).map((l) => (
+            <button
+              key={l}
+              onClick={() => setLens(l)}
+              className={cn(
+                "rounded px-2.5 py-1 font-medium uppercase transition-colors",
+                lens === l ? "bg-surface-3 text-ink" : "text-ink-3 hover:text-ink-2",
+              )}
+            >
+              {l === "combined" ? "FII+DII" : l}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="mb-3 text-[11px] text-ink-4">
+        Holding value (holding % × market cap) ·{" "}
+        {q.data?.universe ?? "Nifty 500"}
+        {q.data?.period_end ? ` · ${formatDate(q.data.period_end)} shareholding` : ""} · positioning, not flows
+      </p>
+
+      {q.isError ? (
+        <ErrorState title="Couldn't load institutional holdings" error={q.error} onRetry={() => q.refetch()} />
+      ) : q.isPending ? (
+        <p className="py-8 text-center text-sm text-ink-3">Loading…</p>
+      ) : top.length === 0 ? (
+        <p className="py-8 text-center text-sm text-ink-3">No shareholding data available.</p>
+      ) : (
+        <div className="grid items-center gap-4 sm:[grid-template-columns:200px_1fr]">
+          <div className="h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={pie} dataKey="value" nameKey="name" cx="50%" cy="50%"
+                     innerRadius={48} outerRadius={84} paddingAngle={1} stroke="none">
+                  {pie.map((p) => <Cell key={p.name} fill={p.fill} />)}
+                </Pie>
+                <Tooltip
+                  contentStyle={{ background: "rgb(var(--surface-1))", border: "1px solid rgb(var(--line)/0.16)", borderRadius: 10, fontSize: 12 }}
+                  formatter={(v: number, name) => [fmtCrShort(v), name]}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div>
+            {top.map((s, i) => (
+              <div key={s.sector} className="grid items-center gap-2 border-t border-hairline py-[7px] first:border-t-0 [grid-template-columns:14px_1fr_auto]">
+                <span className="h-2.5 w-2.5 rounded-sm" style={{ background: SECTOR_COLORS[i % SECTOR_COLORS.length] }} />
+                <span className="truncate text-[12.5px] text-ink-2">{s.sector} <span className="text-ink-4">· {s.n}</span></span>
+                <span className="num text-right text-[12.5px] font-medium text-ink">{fmtCrShort(s.v)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }
 

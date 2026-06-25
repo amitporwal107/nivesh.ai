@@ -42,6 +42,8 @@ import FiiDiiPage from "./pages/Markets/FiiDii";
 import CorporateActionsPage from "./pages/Markets/CorporateActions";
 import ArticlesPage from "./pages/Markets/Articles";
 import DailyBriefPage from "./pages/Markets/DailyBrief";
+import SectorAnalysisPage from "./pages/Markets/SectorAnalysis";
+import SectorAnalysisDetailPage from "./pages/Markets/SectorAnalysisDetail";
 import AdvisorDashboardPage from "./pages/AdvisorDashboard";
 import Client360Page from "./pages/Client360";
 import DebugLogsPage from "./pages/DebugLogs";
@@ -90,6 +92,8 @@ export function AppRoutes() {
           <Route path="corporate-actions" element={<CorporateActionsPage />} />
           <Route path="articles" element={<ArticlesPage />} />
           <Route path="daily-brief" element={<DailyBriefPage />} />
+          <Route path="sectors" element={<SectorAnalysisPage />} />
+          <Route path="sectors/:slug" element={<SectorAnalysisDetailPage />} />
 
         </Route>
         <Route path="/advisor"          element={<RouteErrorBoundary pageName="Advisor"><AdvisorDashboardPage /></RouteErrorBoundary>} />

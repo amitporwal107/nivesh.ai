@@ -257,6 +257,83 @@ export type MarketMover   = z.infer<typeof MarketMoverC>;
 export type MarketSector  = z.infer<typeof MarketSectorC>;
 export type FiiDii        = z.infer<typeof FiiDiiC>;
 export type MarketNews    = z.infer<typeof MarketNewsC>;
+
+// ── Sector Analysis — AI sector-overview cards (GET /api/markets/sectors) ───
+export const SectorMetricsC = z.object({
+  stock_count:      z.number().nullable().optional(),
+  advancing:        z.number().nullable().optional(),
+  declining:        z.number().nullable().optional(),
+  market_cap_cr:    z.number().nullable().optional(),
+  median_pe:        z.number().nullable().optional(),
+  median_pb:        z.number().nullable().optional(),
+  median_roe:       z.number().nullable().optional(),
+  avg_return_1d:    z.number().nullable().optional(),
+  avg_return_5d:    z.number().nullable().optional(),
+  avg_return_20d:   z.number().nullable().optional(),
+  avg_return_60d:   z.number().nullable().optional(),
+  index_pct_change: z.number().nullable().optional(),
+  index_pe:         z.number().nullable().optional(),
+});
+
+export const SectorTopCompanyC = z.object({
+  symbol:        z.string(),
+  name:          z.string(),
+  market_cap_cr: z.number().nullable().optional(),
+  return_1d_pct: z.number().nullable().optional(),
+  pe_ttm:        z.number().nullable().optional(),
+});
+
+export const SectorCardC = z.object({
+  slug:            z.string(),
+  name:            z.string(),
+  icon:            z.string().nullable().optional(),
+  blurb:           z.string().nullable().optional(),
+  benchmark_index: z.string().nullable().optional(),
+  as_of_date:      z.string().nullable().optional(),
+  generated_at:    z.string().nullable().optional(),
+  headline:        z.string().nullable().optional(),
+  metrics:         SectorMetricsC.default({}),
+  has_commentary:  z.boolean().default(false),
+  excerpt:         z.string().nullable().optional(),
+});
+
+export const SectorsRespC = z.object({
+  ok:          z.boolean().optional(),
+  sectors:     z.array(SectorCardC).default([]),
+  llm_enabled: z.boolean().optional(),
+});
+
+export const SectorDetailC = z.object({
+  slug:            z.string(),
+  profile:         z.string().nullable().optional(),
+  name:            z.string(),
+  icon:            z.string().nullable().optional(),
+  blurb:           z.string().nullable().optional(),
+  benchmark_index: z.string().nullable().optional(),
+  as_of_date:      z.string().nullable().optional(),
+  generated_at:    z.string().nullable().optional(),
+  headline:        z.string().nullable().optional(),
+  metrics:         SectorMetricsC.default({}),
+  top_companies:   z.array(SectorTopCompanyC).default([]),
+  metric_bullets:  z.array(z.string()).default([]),
+  commentary_md:           z.string().nullable().optional(),
+  commentary_disclaimer:   z.string().nullable().optional(),
+  commentary_error:        z.string().nullable().optional(),
+  model:           z.string().nullable().optional(),
+  sources:         z.array(z.string()).default([]),
+});
+
+export const SectorDetailRespC = z.object({
+  ok:     z.boolean().optional(),
+  sector: SectorDetailC.nullable(),
+});
+
+export type SectorMetrics     = z.infer<typeof SectorMetricsC>;
+export type SectorTopCompany  = z.infer<typeof SectorTopCompanyC>;
+export type SectorCard        = z.infer<typeof SectorCardC>;
+export type SectorsResp       = z.infer<typeof SectorsRespC>;
+export type SectorDetail      = z.infer<typeof SectorDetailC>;
+export type SectorDetailResp  = z.infer<typeof SectorDetailRespC>;
 export type GlobalQuote   = z.infer<typeof GlobalQuoteC>;
 export type GlobalIndices = z.infer<typeof GlobalIndicesC>;
 export type MarketsHome   = z.infer<typeof MarketsHomeC>;
@@ -306,3 +383,48 @@ export type EarningsSector  = z.infer<typeof EarningsSectorC>;
 export type EarningsSummary = z.infer<typeof EarningsSummaryC>;
 export type EarningsQuarter = z.infer<typeof EarningsQuarterC>;
 export type Earnings        = z.infer<typeof EarningsC>;
+
+// ── Earnings drill-down — companies in one sector
+//    (GET /api/markets/earnings/companies) ────────────────────────────────
+export const EarningsCompanyC = z.object({
+  symbol:      z.string(),
+  name:        z.string(),
+  declared:    z.boolean(),
+  revenue_cr:  z.number().nullable(),
+  pat_cr:      z.number().nullable(),
+  sales_yoy:   z.number().nullable(),
+  profit_yoy:  z.number().nullable(),
+  sales_qoq:   z.number().nullable(),
+  profit_qoq:  z.number().nullable(),
+  profit_grew: z.boolean().nullable(),
+});
+export const EarningsCompaniesC = z.object({
+  ok:         z.boolean().optional(),
+  index:      z.string(),
+  sector:     z.string(),
+  period_end: z.string().nullable(),
+  quarter:    z.string().nullable(),
+  declared:   z.number().default(0),
+  members:    z.number().default(0),
+  companies:  z.array(EarningsCompanyC).default([]),
+});
+export type EarningsCompany   = z.infer<typeof EarningsCompanyC>;
+export type EarningsCompanies = z.infer<typeof EarningsCompaniesC>;
+
+// ── Institutional positioning (GET /api/markets/institutional-positioning) ──
+// FII/DII *holdings* by sector from the latest quarterly shareholding pattern
+// (holding% × market cap). A positioning snapshot, not buy/sell flows.
+export const SectorPositioningC = z.object({
+  sector: z.string(),
+  fii_cr: z.number().nullable(),
+  dii_cr: z.number().nullable(),
+  n:      z.number(),
+});
+export const InstitutionalPositioningC = z.object({
+  ok:         z.boolean().optional(),
+  period_end: z.string().nullable().optional(),
+  universe:   z.string().default("Nifty 500"),
+  sectors:    z.array(SectorPositioningC).default([]),
+});
+export type SectorPositioning        = z.infer<typeof SectorPositioningC>;
+export type InstitutionalPositioning = z.infer<typeof InstitutionalPositioningC>;

@@ -7,7 +7,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { marketsService } from "@/services";
-import type { CapSegment, CorpActionsQuery, ArticlesQuery, EarningsQuery } from "@/services/adapters/markets.adapter";
+import type { CapSegment, CorpActionsQuery, ArticlesQuery, EarningsQuery, EarningsCompaniesQuery } from "@/services/adapters/markets.adapter";
 
 export function useMarketsHome() {
   return useQuery({
@@ -91,5 +91,45 @@ export function useEarnings(params: EarningsQuery) {
     queryFn: () => marketsService.getEarnings(params),
     staleTime: 5 * 60_000,
     placeholderData: (prev) => prev,
+  });
+}
+
+/** Earnings drill-down — companies in one sector (fetched only when a sector
+ *  card is opened). `sector` empty ⇒ disabled. */
+export function useEarningsCompanies(params: EarningsCompaniesQuery, enabled: boolean) {
+  return useQuery({
+    queryKey: ["markets", "earnings-companies", params],
+    queryFn: () => marketsService.getEarningsCompanies(params),
+    enabled: enabled && !!params.sector,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Sector Analysis grid — one card per sector profile (grounded metrics). */
+export function useSectorAnalyses() {
+  return useQuery({
+    queryKey: ["markets", "sectors"],
+    queryFn: () => marketsService.getSectors(),
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** One sector's full analysis (metrics + AI commentary, generated on demand). */
+export function useSectorAnalysis(slug: string) {
+  return useQuery({
+    queryKey: ["markets", "sector", slug],
+    queryFn: () => marketsService.getSector(slug),
+    enabled: !!slug,
+    // The first view generates the LLM commentary server-side, so allow longer.
+    staleTime: 10 * 60_000,
+  });
+}
+
+/** FII/DII holdings by sector (latest quarter) — positioning, not flows. */
+export function useInstitutionalPositioning() {
+  return useQuery({
+    queryKey: ["markets", "institutional-positioning"],
+    queryFn: () => marketsService.getInstitutionalPositioning(),
+    staleTime: 30 * 60_000,
   });
 }
