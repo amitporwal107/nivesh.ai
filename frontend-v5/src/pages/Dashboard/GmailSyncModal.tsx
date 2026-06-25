@@ -32,6 +32,22 @@ interface Props {
 
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
+/** Server-side check for a saved Gmail token — the COOP-proof success signal.
+ * Modern browsers can sever `window.opener` after the cross-origin Google
+ * round-trip, in which case the popup's relay postMessage never reaches us; the
+ * token is still persisted server-side, so we confirm the outcome here rather
+ * than assume the user cancelled. */
+async function gmailTokenSaved(): Promise<boolean> {
+  try {
+    const r = await apiFetch("/api/gmail/status");
+    if (!r.ok) return false;
+    const d = (await r.json().catch(() => ({}))) as { connected?: boolean };
+    return Boolean(d?.connected);
+  } catch {
+    return false;
+  }
+}
+
 export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImported }: Props) {
   const [step, setStep] = useState<Step>(gmailConnected ? "pan" : "connect");
   const [pan, setPan] = useState("");
@@ -80,30 +96,49 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
     popupRef.current = popup;
     setStep("connecting");
 
+    // Single settle point for both success signals (relay postMessage + the
+    // server-side token poll) and every failure path, guarded so overlapping
+    // async ticks can't transition twice.
+    let settled = false;
+    const finish = (ok: boolean, errMsg?: string) => {
+      if (settled) return;
+      settled = true;
+      stopPolling();
+      window.removeEventListener("message", onMessage);
+      try { popup.close(); } catch { /* ignore */ }
+      if (ok) {
+        setStep((s) => (s === "connecting" ? "pan" : s));
+      } else {
+        setStep((s) => (s === "connecting" ? "error" : s));
+        setError((e) => e ?? errMsg ?? "Gmail connection was cancelled.");
+      }
+    };
+
     // Listen for the outcome relayed by /gmail-callback.
     const onMessage = (ev: MessageEvent) => {
       if (ev.origin !== window.location.origin) return;
       if (!ev.data || ev.data.source !== "nivesh-gmail-callback") return;
-      window.removeEventListener("message", onMessage);
-      stopPolling();
-      if (ev.data.ok) {
-        setStep("pan");
-      } else {
-        setError(`Google authorisation failed${ev.data.error ? `: ${String(ev.data.error).replace(/_/g, " ")}` : ""}`);
-        setStep("error");
-      }
+      if (ev.data.ok) { finish(true); return; }
+      const raw = String(ev.data.error ?? "");
+      const msg = /deny|denied|cancel/i.test(raw)
+        ? "You cancelled the Google sign-in. Click Try again to connect Gmail."
+        : `Google authorisation failed${raw ? `: ${raw.replace(/_/g, " ")}` : ""}`;
+      finish(false, msg);
     };
     window.addEventListener("message", onMessage);
 
-    // Detect a popup the user closed without finishing.
-    pollRef.current = setInterval(() => {
+    // Fallback poller: detect success server-side (postMessage may be lost if
+    // COOP severs window.opener), and only treat a closed popup as a
+    // cancellation after the server confirms no token was saved.
+    pollRef.current = setInterval(async () => {
+      if (settled) return;
+      if (await gmailTokenSaved()) { finish(true); return; }
       if (popup.closed) {
-        stopPolling();
-        window.removeEventListener("message", onMessage);
-        setStep((s) => (s === "connecting" ? "error" : s));
-        setError((e) => e ?? "Gmail connection was cancelled.");
+        // Popup gone — confirm with the server once more before giving up, in
+        // case a successful connect closed it just before this tick.
+        finish(await gmailTokenSaved(), "Gmail connection was cancelled.");
       }
-    }, 600);
+    }, 1000);
 
     try {
       // The app is served under a base path (e.g. /v5/ in prod); the OAuth
@@ -119,11 +154,7 @@ export function GmailSyncModal({ open, onClose, gmailConnected, panOnFile, onImp
       if (!data.auth_url) throw new Error("No authorisation URL returned");
       popup.location.href = data.auth_url;
     } catch (e) {
-      stopPolling();
-      window.removeEventListener("message", onMessage);
-      try { popup.close(); } catch { /* ignore */ }
-      setError(e instanceof Error ? e.message : "Failed to start Gmail authorisation");
-      setStep("error");
+      finish(false, e instanceof Error ? e.message : "Failed to start Gmail authorisation");
     }
   }
 
