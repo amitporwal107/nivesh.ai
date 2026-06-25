@@ -121,6 +121,133 @@ export const MarketsExploreC = z.object({
   most_active: z.array(ExploreRowC).default([]),
 });
 
+// ── Movers by market-cap segment (GET /api/markets/movers?cap=) ─────────
+export const CapMoversC = z.object({
+  ok:      z.boolean().optional(),
+  cap:     z.string(),
+  as_of:   z.string().nullable().optional(),
+  gainers: z.array(MarketMoverC).default([]),
+  losers:  z.array(MarketMoverC).default([]),
+});
+export type CapMovers = z.infer<typeof CapMoversC>;
+
+// ── FII/DII history (GET /api/markets/fii-dii) ──────────────────────────
+/** One period of cash-segment flows (₹ crore). `date` for daily rows,
+ *  `month` for monthly aggregates. */
+export const FiiDiiFlowRowC = z.object({
+  date:     z.string().optional(),
+  month:    z.string().optional(),
+  fii_buy:  z.number().nullable(), fii_sell: z.number().nullable(), fii_net: z.number().nullable(),
+  dii_buy:  z.number().nullable(), dii_sell: z.number().nullable(), dii_net: z.number().nullable(),
+});
+export const FiiDiiSeriesC = z.object({
+  ok:      z.boolean().optional(),
+  as_of:   z.string().nullable().optional(),
+  daily:   z.array(FiiDiiFlowRowC).default([]),
+  monthly: z.array(FiiDiiFlowRowC).default([]),
+});
+export type FiiDiiFlowRow = z.infer<typeof FiiDiiFlowRowC>;
+export type FiiDiiSeries  = z.infer<typeof FiiDiiSeriesC>;
+
+// ── Corporate-action calendar (GET /api/markets/corporate-actions) ──────
+export const CorpActionC = z.object({
+  symbol:          z.string(),
+  name:            z.string(),
+  action_type:     z.string(),
+  subtype:         z.string().nullable().optional(),
+  ex_date:         z.string().nullable(),
+  record_date:     z.string().nullable().optional(),
+  value_label:     z.string().nullable().optional(),
+  dividend_amount: z.number().nullable().optional(),
+  ratio:           z.string().nullable().optional(),
+  purpose:         z.string().nullable().optional(),
+});
+export const CorpActionsC = z.object({
+  ok:          z.boolean().optional(),
+  from:        z.string().optional(),
+  to:          z.string().optional(),
+  types:       z.array(z.string()).default([]),
+  actions:     z.array(CorpActionC).default([]),
+  /** action_type → count over the whole date window (drives the filter rail). */
+  type_counts: z.record(z.number()).default({}),
+});
+export type CorpAction  = z.infer<typeof CorpActionC>;
+export type CorpActions = z.infer<typeof CorpActionsC>;
+
+// ── Articles — classified filings (GET /api/markets/articles) ───────────
+export const ArticleC = z.object({
+  id:        z.string(),
+  title:     z.string(),
+  summary:   z.string().nullable().optional(),
+  company:   z.string().nullable(),
+  symbol:    z.string().nullable(),
+  category:  z.string(),
+  impact:    z.string().nullable().optional(),
+  sentiment: z.string().nullable().optional(),
+  when:      z.string().nullable(),
+  source:    z.string().nullable().optional(),
+  url:       z.string().nullable().optional(),
+  read_min:  z.number().default(1),
+});
+export const ArticlesC = z.object({
+  ok:         z.boolean().optional(),
+  articles:   z.array(ArticleC).default([]),
+  /** raw event_category → count over the window (drives the filter chips). */
+  categories: z.record(z.number()).default({}),
+});
+export type Article  = z.infer<typeof ArticleC>;
+export type Articles = z.infer<typeof ArticlesC>;
+
+// ── Daily Iris Update — persisted brief (GET /api/markets/daily-brief) ───
+export const BriefStatsC = z.object({
+  nifty_close:      z.number().nullable().optional(),
+  nifty_change_pct: z.number().nullable().optional(),
+  vix:              z.number().nullable().optional(),
+  vix_change_pct:   z.number().nullable().optional(),
+  advances:         z.number().nullable().optional(),
+  declines:         z.number().nullable().optional(),
+  fii_net_cr:       z.number().nullable().optional(),
+  dii_net_cr:       z.number().nullable().optional(),
+  verdict:          z.string().nullable().optional(),
+});
+export const BriefNewsC = z.object({
+  title:    z.string(),
+  symbol:   z.string().nullable(),
+  category: z.string(),
+});
+export const DailyBriefC = z.object({
+  date:         z.string(),
+  generated_at: z.string().optional(),
+  headline:     z.string(),
+  bullets:      z.array(z.string()).default([]),
+  market_state: z.string().optional(),
+  stats:        BriefStatsC.default({}),
+  top_sectors:  z.array(MarketSectorC).default([]),
+  movers:       z.object({
+    gainers: z.array(MarketMoverC).default([]),
+    losers:  z.array(MarketMoverC).default([]),
+  }).default({ gainers: [], losers: [] }),
+  news:    z.array(BriefNewsC).default([]),
+  sources: z.array(z.string()).default([]),
+});
+export const DailyBriefRespC = z.object({
+  ok:    z.boolean().optional(),
+  brief: DailyBriefC.nullable(),
+});
+export const BriefHistoryItemC = z.object({
+  date:         z.string(),
+  headline:     z.string(),
+  generated_at: z.string().optional(),
+});
+export const BriefHistoryC = z.object({
+  ok:    z.boolean().optional(),
+  items: z.array(BriefHistoryItemC).default([]),
+});
+export type DailyBrief       = z.infer<typeof DailyBriefC>;
+export type DailyBriefResp   = z.infer<typeof DailyBriefRespC>;
+export type BriefHistoryItem = z.infer<typeof BriefHistoryItemC>;
+export type BriefHistory     = z.infer<typeof BriefHistoryC>;
+
 export type ExploreRow     = z.infer<typeof ExploreRowC>;
 export type MarketsExplore = z.infer<typeof MarketsExploreC>;
 

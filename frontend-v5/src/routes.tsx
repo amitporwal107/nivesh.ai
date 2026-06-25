@@ -36,6 +36,11 @@ import TestDiagnosticToolPage from "./pages/TestDiagnosticTool";
 import NidpConsolePage from "./pages/NidpConsole";
 import ProTraderPage from "./pages/ProTrader";
 import MarketsPage from "./pages/Markets";
+import MarketPulseLayout from "./pages/Markets/MarketPulseLayout";
+import FiiDiiPage from "./pages/Markets/FiiDii";
+import CorporateActionsPage from "./pages/Markets/CorporateActions";
+import ArticlesPage from "./pages/Markets/Articles";
+import DailyBriefPage from "./pages/Markets/DailyBrief";
 import AdvisorDashboardPage from "./pages/AdvisorDashboard";
 import Client360Page from "./pages/Client360";
 import DebugLogsPage from "./pages/DebugLogs";
@@ -77,7 +82,14 @@ export function AppRoutes() {
       {/* Authenticated app — sidebar layout */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
         <Route path="/dashboard"        element={<RouteErrorBoundary pageName="Dashboard"><DashboardPage /></RouteErrorBoundary>} />
-        <Route path="/markets"          element={<RouteErrorBoundary pageName="Markets"><MarketsPage /></RouteErrorBoundary>} />
+        <Route path="/markets" element={<RouteErrorBoundary pageName="Markets"><MarketPulseLayout /></RouteErrorBoundary>}>
+          <Route index element={<MarketsPage />} />
+          <Route path="fii-dii" element={<FiiDiiPage />} />
+          <Route path="corporate-actions" element={<CorporateActionsPage />} />
+          <Route path="articles" element={<ArticlesPage />} />
+          <Route path="daily-brief" element={<DailyBriefPage />} />
+
+        </Route>
         <Route path="/advisor"          element={<RouteErrorBoundary pageName="Advisor"><AdvisorDashboardPage /></RouteErrorBoundary>} />
         <Route path="/client-360"       element={<RouteErrorBoundary pageName="Client 360"><Client360Page /></RouteErrorBoundary>} />
         {/* Portfolio view now lives on the Dashboard; keep the path as a redirect for old links. */}

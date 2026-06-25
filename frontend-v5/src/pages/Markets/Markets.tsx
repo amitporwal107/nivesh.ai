@@ -7,7 +7,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/formatters";
-import { useMarketsExplore } from "@/hooks/use-markets";
+import { useMarketsExplore, useMarketsMovers } from "@/hooks/use-markets";
 import type {
   MarketsHome, MarketIndex, MarketMover, MarketBreadth,
   ExploreRow, GlobalQuote,
@@ -247,14 +247,11 @@ export function Markets({ data }: { data: MarketsHome }) {
             )}
           </Card>
 
-          <Card className="p-4">
-            <CardHead title="Top movers" meta="LTP · %" />
-            <div className="grid gap-0 sm:[grid-template-columns:1fr_1fr]">
-              <MoverColumn title="Gainers" tone="pos" movers={data.gainers} className="sm:border-r sm:border-hairline sm:pr-4" />
-              <MoverColumn title="Losers" tone="neg" movers={data.losers} className="sm:pl-4" />
-            </div>
-            {data.movers_as_of && <p className="mt-3 text-[11px] text-ink-4">As of {formatDate(data.movers_as_of)} · Nifty 500 EOD</p>}
-          </Card>
+          <TopMoversCard
+            fallbackGainers={data.gainers}
+            fallbackLosers={data.losers}
+            fallbackAsOf={data.movers_as_of}
+          />
         </section>
 
         {/* ── Global indices ─────────────────────────────────────── */}
@@ -537,6 +534,56 @@ function FlowRow({ label, value }: { label: string; value: number | null }) {
       </div>
       <span className={cn("num w-16 text-right text-[13px] font-medium", pos ? "text-pos" : "text-neg")}>{fmtCr(value)}</span>
     </div>
+  );
+}
+
+/** Top movers card with a Large/Mid/Small cap segmented control. Defaults to
+ *  Large and falls back to the home all-cap Nifty-500 movers while the segment
+ *  query loads (so the card never blanks on first paint). */
+const CAPS: { key: "large" | "mid" | "small"; label: string }[] = [
+  { key: "large", label: "Large" },
+  { key: "mid", label: "Mid" },
+  { key: "small", label: "Small" },
+];
+
+function TopMoversCard({
+  fallbackGainers, fallbackLosers, fallbackAsOf,
+}: { fallbackGainers: MarketMover[]; fallbackLosers: MarketMover[]; fallbackAsOf?: string | null }) {
+  const [cap, setCap] = useState<"large" | "mid" | "small">("large");
+  const q = useMarketsMovers(cap);
+  const hasData = !!q.data && (q.data.gainers.length > 0 || q.data.losers.length > 0);
+  const useFallback = cap === "large" && !hasData;
+  const gainers = useFallback ? fallbackGainers : (q.data?.gainers ?? []);
+  const losers = useFallback ? fallbackLosers : (q.data?.losers ?? []);
+  const asOf = useFallback ? fallbackAsOf : q.data?.as_of;
+
+  return (
+    <Card className="p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.13em] text-ink-3">Top movers</span>
+        <div className="inline-flex rounded-md border border-hairline bg-surface-1 p-0.5 text-[11px]">
+          {CAPS.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => setCap(c.key)}
+              className={cn(
+                "rounded px-2 py-0.5 font-medium transition-colors",
+                cap === c.key ? "bg-surface-3 text-ink" : "text-ink-3 hover:text-ink-2",
+              )}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-0 sm:[grid-template-columns:1fr_1fr]">
+        <MoverColumn title="Gainers" tone="pos" movers={gainers} className="sm:border-r sm:border-hairline sm:pr-4" />
+        <MoverColumn title="Losers" tone="neg" movers={losers} className="sm:pl-4" />
+      </div>
+      <p className="mt-3 text-[11px] text-ink-4">
+        {asOf ? `As of ${formatDate(asOf)} · ` : ""}Nifty 500 EOD · {cap} cap
+      </p>
+    </Card>
   );
 }
 

@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Request
 
-from deps import get_current_user
+from deps import db, get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -376,6 +376,560 @@ async def markets_home(request: Request):
     _CACHE["ts"] = now
     _CACHE["data"] = result
     return result
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Market Pulse — Phase 1 aux endpoints (movers-by-cap, FII/DII history, CA)
+# All read the same NIDP data lake via the direct PG pool that backs the home
+# aggregator above; each is a cheap SQL read behind the same market-hours TTL.
+# ════════════════════════════════════════════════════════════════════════
+
+_AUX_CACHE: Dict[str, Any] = {}
+
+
+async def _aux_cached(key: str, builder) -> Any:
+    """Tiny param-keyed cache (same 30s-open / 300s-closed TTL as home)."""
+    now = time.time()
+    hit = _AUX_CACHE.get(key)
+    if hit and (now - hit[0]) < _ttl():
+        return hit[1]
+    data = await builder()
+    _AUX_CACHE[key] = (now, data)
+    return data
+
+
+# SEBI-style cap buckets as stored by NIDP (migration 053, stock_features_daily).
+_CAP_BUCKET = {"large": "LARGE_CAP", "mid": "MID_CAP", "small": "SMALL_CAP"}
+
+
+async def _movers_by_cap(pool, cap: str) -> Dict[str, Any]:
+    """Top-5 gainers / losers within a market-cap segment (latest EOD).
+
+    Joins the Nifty-500 momentum card (analytics.stock_card — carries the daily
+    % change) to nidp.stock_features_daily (carries market_cap_bucket). Falls
+    back to empty lists when the segment is unpopulated rather than fabricate.
+    """
+    bucket = _CAP_BUCKET.get(cap)
+    if bucket is None:
+        return {"as_of": None, "cap": cap, "gainers": [], "losers": []}
+
+    sql = """
+        SELECT sc.symbol, sc.company_name, sc.close, sc.pct_change
+          FROM analytics.stock_card sc
+          JOIN nidp.stock_features_daily f
+            ON f.symbol = sc.symbol
+           AND f.as_of_date = (SELECT max(as_of_date) FROM nidp.stock_features_daily)
+         WHERE sc.as_of_date = (SELECT max(as_of_date) FROM analytics.stock_card)
+           AND sc.in_nifty500
+           AND sc.pct_change IS NOT NULL
+           AND f.market_cap_bucket = $1
+         ORDER BY sc.pct_change {dir}
+         LIMIT 5
+    """
+    try:
+        async with pool.acquire() as conn:
+            as_of = await conn.fetchval("SELECT max(as_of_date) FROM analytics.stock_card")
+            if as_of is None:
+                return {"as_of": None, "cap": cap, "gainers": [], "losers": []}
+            gainers = await conn.fetch(sql.format(dir="DESC"), bucket)
+            losers = await conn.fetch(sql.format(dir="ASC"), bucket)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("markets.movers cap=%s failed: %s", cap, e)
+        return {"as_of": None, "cap": cap, "gainers": [], "losers": []}
+
+    def _row(r) -> Dict[str, Any]:
+        return {
+            "symbol":     r["symbol"],
+            "name":       r["company_name"] or r["symbol"],
+            "price":      round(float(r["close"]), 2) if r["close"] is not None else None,
+            "change_pct": round(float(r["pct_change"]), 2) if r["pct_change"] is not None else None,
+        }
+
+    return {
+        "as_of":   as_of.isoformat(),
+        "cap":     cap,
+        "gainers": [_row(r) for r in gainers],
+        "losers":  [_row(r) for r in losers],
+    }
+
+
+@router.get("/movers")
+async def markets_movers(request: Request, cap: str = "large"):
+    """Top gainers / losers for one market-cap segment (large | mid | small).
+
+    Real data only — Nifty-500 EOD bucketed by NIDP's market_cap_bucket.
+    """
+    await get_current_user(request)
+    cap = (cap or "large").lower()
+    if cap not in _CAP_BUCKET:
+        cap = "large"
+    from services import pg_client
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return {"ok": False, "error": "no_pg_pool", "cap": cap, "gainers": [], "losers": []}
+    data = await _aux_cached(f"movers:{cap}", lambda: _movers_by_cap(pool, cap))
+    return {"ok": True, **data}
+
+
+def _fd_row(r) -> Dict[str, Any]:
+    """A single FII/DII pivot row (buy/sell/net for both, ₹ crore)."""
+    def _n(v) -> Optional[float]:
+        return round(float(v), 2) if v is not None else None
+    return {
+        "fii_buy":  _n(r["fii_buy"]),  "fii_sell": _n(r["fii_sell"]),  "fii_net": _n(r["fii_net"]),
+        "dii_buy":  _n(r["dii_buy"]),  "dii_sell": _n(r["dii_sell"]),  "dii_net": _n(r["dii_net"]),
+    }
+
+
+async def _fii_dii_series(pool, days: int = 90) -> Dict[str, Any]:
+    """Daily (last `days` sessions) + monthly (last 18 months) FII/DII EQUITY_CASH
+    flows, pivoted so each row carries FII & DII buy/sell/net in ₹ crore.
+    """
+    daily_sql = """
+        SELECT as_of_date,
+               SUM(buy_value_cr)  FILTER (WHERE category='FII') AS fii_buy,
+               SUM(sell_value_cr) FILTER (WHERE category='FII') AS fii_sell,
+               SUM(net_value_cr)  FILTER (WHERE category='FII') AS fii_net,
+               SUM(buy_value_cr)  FILTER (WHERE category='DII') AS dii_buy,
+               SUM(sell_value_cr) FILTER (WHERE category='DII') AS dii_sell,
+               SUM(net_value_cr)  FILTER (WHERE category='DII') AS dii_net
+          FROM nidp.fii_dii_flows
+         WHERE segment='EQUITY_CASH' AND category IN ('FII','DII')
+           AND as_of_date >= (current_date - $1::int)
+         GROUP BY as_of_date
+         ORDER BY as_of_date DESC
+    """
+    monthly_sql = """
+        SELECT date_trunc('month', as_of_date)::date AS month,
+               SUM(buy_value_cr)  FILTER (WHERE category='FII') AS fii_buy,
+               SUM(sell_value_cr) FILTER (WHERE category='FII') AS fii_sell,
+               SUM(net_value_cr)  FILTER (WHERE category='FII') AS fii_net,
+               SUM(buy_value_cr)  FILTER (WHERE category='DII') AS dii_buy,
+               SUM(sell_value_cr) FILTER (WHERE category='DII') AS dii_sell,
+               SUM(net_value_cr)  FILTER (WHERE category='DII') AS dii_net
+          FROM nidp.fii_dii_flows
+         WHERE segment='EQUITY_CASH' AND category IN ('FII','DII')
+           AND as_of_date >= (date_trunc('month', current_date) - interval '17 months')
+         GROUP BY month
+         ORDER BY month DESC
+    """
+    try:
+        async with pool.acquire() as conn:
+            daily = await conn.fetch(daily_sql, days)
+            monthly = await conn.fetch(monthly_sql)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("markets.fii_dii series failed: %s", e)
+        return {"as_of": None, "daily": [], "monthly": []}
+
+    return {
+        "as_of":   daily[0]["as_of_date"].isoformat() if daily else None,
+        "daily":   [{"date": r["as_of_date"].isoformat(), **_fd_row(r)} for r in daily],
+        "monthly": [{"month": r["month"].isoformat(), **_fd_row(r)} for r in monthly],
+    }
+
+
+@router.get("/fii-dii")
+async def markets_fii_dii(request: Request, days: int = 90):
+    """FII/DII cash-segment flows: daily series + monthly aggregates + summary
+    table rows. Real data from nidp.fii_dii_flows (NSE provisional).
+    """
+    await get_current_user(request)
+    days = max(7, min(int(days or 90), 365))
+    from services import pg_client
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return {"ok": False, "error": "no_pg_pool", "daily": [], "monthly": []}
+    data = await _aux_cached(f"fii_dii:{days}", lambda: _fii_dii_series(pool, days))
+    return {"ok": True, **data}
+
+
+# Action types the calendar surfaces, in display order (matches the filter rail).
+_CA_TYPES = ["DIVIDEND", "BONUS", "RIGHTS", "SPLIT", "MERGER", "DEMERGER", "BUYBACK"]
+
+
+def _ca_value_label(r) -> Optional[str]:
+    """A compact human value for one corporate action (mirrors the copilot card)."""
+    at = (r["action_type"] or "").upper()
+    if at == "DIVIDEND" and r["dividend_amount"] is not None:
+        return f"₹{float(r['dividend_amount']):g}"
+    if at == "SPLIT":
+        if r["face_value_pre"] is not None and r["face_value_post"] is not None:
+            return f"FV ₹{float(r['face_value_pre']):g} → ₹{float(r['face_value_post']):g}"
+        return r["ratio"] or None
+    if at in ("BONUS", "RIGHTS") and r["ratio"]:
+        return r["ratio"]
+    if r["ratio"]:
+        return r["ratio"]
+    return (r["purpose"] or None)
+
+
+async def _corporate_actions(pool, d_from: str, d_to: str,
+                             a_type: Optional[str], q: Optional[str],
+                             limit: int, offset: int) -> Dict[str, Any]:
+    """Filtered corporate-action calendar over nidp.corporate_actions, joined to
+    ref.security_master for the company name. Returns the page + per-type counts
+    over the whole date window (so the filter rail shows full counts)."""
+    list_sql = """
+        SELECT ca.symbol, sm.security_name AS name,
+               ca.action_type, ca.action_subtype, ca.purpose, ca.ratio,
+               ca.face_value_pre, ca.face_value_post, ca.dividend_amount,
+               ca.record_date, ca.ex_date
+          FROM nidp.corporate_actions ca
+          LEFT JOIN ref.security_master sm
+                 ON sm.entity_type = 'EQUITY' AND sm.symbol = ca.symbol
+         WHERE ca.ex_date >= $1::date AND ca.ex_date <= $2::date
+           AND ($3::text IS NULL OR ca.action_type = $3)
+           AND ($4::text IS NULL OR ca.symbol ILIKE $4 OR sm.security_name ILIKE $4)
+         ORDER BY ca.ex_date ASC, ca.symbol
+         LIMIT $5 OFFSET $6
+    """
+    count_sql = """
+        SELECT action_type, count(*) AS n
+          FROM nidp.corporate_actions
+         WHERE ex_date >= $1::date AND ex_date <= $2::date
+         GROUP BY action_type
+    """
+    like = f"%{q}%" if q else None
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(list_sql, d_from, d_to, a_type, like, limit, offset)
+            counts = await conn.fetch(count_sql, d_from, d_to)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("markets.corporate_actions failed: %s", e)
+        return {"from": d_from, "to": d_to, "actions": [], "type_counts": {}}
+
+    type_counts = {r["action_type"]: int(r["n"]) for r in counts if r["action_type"]}
+    actions = [{
+        "symbol":      r["symbol"],
+        "name":        r["name"] or r["symbol"],
+        "action_type": r["action_type"],
+        "subtype":     r["action_subtype"],
+        "ex_date":     r["ex_date"].isoformat() if r["ex_date"] else None,
+        "record_date": r["record_date"].isoformat() if r["record_date"] else None,
+        "value_label": _ca_value_label(r),
+        "dividend_amount": float(r["dividend_amount"]) if r["dividend_amount"] is not None else None,
+        "ratio":       r["ratio"],
+        "purpose":     r["purpose"],
+    } for r in rows]
+    return {"from": d_from, "to": d_to, "actions": actions, "type_counts": type_counts}
+
+
+@router.get("/corporate-actions")
+async def markets_corporate_actions(
+    request: Request,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    action_type: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 200,
+    offset: int = 0,
+):
+    """Corporate-action calendar (dividend/bonus/rights/split/merger/demerger/
+    buyback), filterable by date range, type and a company/symbol search.
+
+    Defaults to a forward 30-day window. Real data from nidp.corporate_actions.
+    """
+    await get_current_user(request)
+    today = date.today()
+    d_from = date_from or today.isoformat()
+    d_to = date_to or (today + timedelta(days=30)).isoformat()
+    a_type = action_type.upper() if action_type else None
+    if a_type and a_type not in _CA_TYPES:
+        a_type = None
+    limit = max(1, min(int(limit or 200), 500))
+    offset = max(0, int(offset or 0))
+    from services import pg_client
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return {"ok": False, "error": "no_pg_pool", "actions": [], "type_counts": {}}
+    key = f"ca:{d_from}:{d_to}:{a_type}:{q}:{limit}:{offset}"
+    data = await _aux_cached(key, lambda: _corporate_actions(pool, d_from, d_to, a_type, q, limit, offset))
+    return {"ok": True, "types": _CA_TYPES, **data}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Market Pulse — Phase 2: Articles (classified filings) + Daily Iris brief
+# ════════════════════════════════════════════════════════════════════════
+
+def _read_min(subject: Optional[str], description: Optional[str]) -> int:
+    """Honest reading-time estimate (~200 wpm). NSE filings often have no body,
+    so this is usually 1; never fabricated beyond the text we actually have."""
+    text = (description or subject or "").strip()
+    words = len(text.split())
+    return max(1, min(round(words / 200) or 1, 6))
+
+
+async def _articles(pool, days: int, category: Optional[str], impact: Optional[str],
+                    sentiment: Optional[str], q: Optional[str],
+                    limit: int, offset: int) -> Dict[str, Any]:
+    """Classified NSE/BSE announcements as an article feed. Real data only —
+    no LLM, no fabrication. When no category filter is set we hide the routine
+    'regulatory'/'other' noise so it reads like market news, not a filing log."""
+    since = (date.today() - timedelta(days=days)).isoformat()
+    like = f"%{q}%" if q else None
+    list_sql = """
+        SELECT announcement_id, source, ticker_symbol, company_name, subject,
+               description, event_category, impact_score, sentiment,
+               filed_at, attachment_url
+          FROM nidp.corporate_announcements
+         WHERE filed_at >= $1::date
+           AND ($2::text IS NULL OR event_category = $2)
+           AND ($3::text IS NULL OR impact_score = $3)
+           AND ($4::text IS NULL OR sentiment = $4)
+           AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
+           AND ($2::text IS NOT NULL OR coalesce(event_category,'other') NOT IN ('regulatory','other'))
+         ORDER BY (impact_score='high') DESC, filed_at DESC
+         LIMIT $6 OFFSET $7
+    """
+    cat_sql = """
+        SELECT event_category, count(*) AS n
+          FROM nidp.corporate_announcements
+         WHERE filed_at >= $1::date AND event_category IS NOT NULL
+           AND event_category NOT IN ('regulatory', 'other')
+         GROUP BY event_category
+         ORDER BY n DESC
+    """
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(list_sql, since, category, impact, sentiment, like, limit, offset)
+            cats = await conn.fetch(cat_sql, since)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("markets.articles failed: %s", e)
+        return {"articles": [], "categories": {}}
+
+    articles = []
+    for r in rows:
+        subject = (r["subject"] or "").strip()
+        desc = (r["description"] or "").strip()
+        articles.append({
+            "id":        r["announcement_id"],
+            "title":     subject or "Corporate announcement",
+            "summary":   desc[:240] or None,
+            "company":   r["company_name"] or r["ticker_symbol"],
+            "symbol":    r["ticker_symbol"],
+            "category":  (r["event_category"] or "markets").replace("_", " ").title(),
+            "impact":    r["impact_score"],
+            "sentiment": r["sentiment"],
+            "when":      r["filed_at"].isoformat() if r["filed_at"] else None,
+            "source":    r["source"],
+            "url":       r["attachment_url"],
+            "read_min":  _read_min(subject, desc),
+        })
+    categories = {r["event_category"]: int(r["n"]) for r in cats}
+    return {"articles": articles, "categories": categories}
+
+
+@router.get("/articles")
+async def markets_articles(
+    request: Request,
+    days: int = 7,
+    category: Optional[str] = None,
+    impact: Optional[str] = None,
+    sentiment: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 60,
+    offset: int = 0,
+):
+    """Stock-market news & analysis — classified NSE/BSE filings as an article
+    grid, filterable by category / impact / sentiment / search. Real data only.
+    """
+    await get_current_user(request)
+    days = max(1, min(int(days or 7), 30))
+    limit = max(1, min(int(limit or 60), 120))
+    offset = max(0, int(offset or 0))
+    impact = impact.lower() if impact else None
+    sentiment = sentiment.lower() if sentiment else None
+    category = category.lower() if category else None
+    from services import pg_client
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return {"ok": False, "error": "no_pg_pool", "articles": [], "categories": {}}
+    key = f"articles:{days}:{category}:{impact}:{sentiment}:{q}:{limit}:{offset}"
+    data = await _aux_cached(key, lambda: _articles(pool, days, category, impact, sentiment, q, limit, offset))
+    return {"ok": True, **data}
+
+
+# ── Daily Iris Update — persisted grounded daily brief ──────────────────
+
+def _ist_today() -> str:
+    from datetime import datetime, timezone as _tz, timedelta as _td
+    return datetime.now(_tz(_td(hours=5, minutes=30))).date().isoformat()
+
+
+def _iso_utc() -> str:
+    from datetime import datetime, timezone as _tz
+    return datetime.now(_tz.utc).isoformat()
+
+
+def _brief_narrative(nifty_pct, advances, declines, sectors_sorted, fii_dii,
+                     vix_val, vix_pct, state, news_n) -> tuple:
+    """Rules-based, fully grounded headline + bullets (same deterministic style
+    as the Markets 'Copilot read'). No LLM — every clause maps to a real number."""
+    tone = "little changed"
+    if nifty_pct is not None:
+        tone = "higher" if nifty_pct > 0.15 else "lower" if nifty_pct < -0.15 else "little changed"
+    lead = sectors_sorted[0] if sectors_sorted and (sectors_sorted[0].get("change_pct") or 0) > 0 else None
+    breadth_clause = ""
+    if advances and declines:
+        if advances >= declines * 1.2:
+            breadth_clause = " as breadth stayed firmly positive"
+        elif declines >= advances * 1.2:
+            breadth_clause = ", though breadth stayed weak"
+        else:
+            breadth_clause = " with breadth mixed"
+    verb = "closed" if state == "closed" else "are trading"
+    headline = (f"Markets {verb} {tone}"
+                + (f", led by {lead['name']}" if lead else "")
+                + breadth_clause + ".")
+
+    bullets: List[str] = []
+    if nifty_pct is not None:
+        bullets.append(f"Nifty 50 {'+' if nifty_pct >= 0 else ''}{nifty_pct:.2f}%")
+    if advances and declines:
+        bullets.append(f"Breadth: {advances:,} advancing vs {declines:,} declining")
+    if fii_dii:
+        fii = fii_dii.get("fii_net_cr")
+        dii = fii_dii.get("dii_net_cr")
+        if fii is not None:
+            bullets.append(f"FII net {'+' if fii >= 0 else '−'}₹{abs(fii):,.0f} Cr in cash")
+        if dii is not None:
+            bullets.append(f"DII net {'+' if dii >= 0 else '−'}₹{abs(dii):,.0f} Cr in cash")
+    if vix_val is not None:
+        trend = ""
+        if vix_pct is not None:
+            trend = " (cooling)" if vix_pct < -1 else " (rising)" if vix_pct > 1 else ""
+        bullets.append(f"India VIX at {vix_val:.2f}{trend}")
+    if lead:
+        bullets.append(f"Top sector: {lead['name']} {'+' if lead['change_pct'] >= 0 else ''}{lead['change_pct']:.2f}%")
+    if news_n:
+        bullets.append(f"{news_n} material corporate announcement{'s' if news_n != 1 else ''} today")
+    if not bullets:
+        bullets.append("Market data is refreshing — the full brief loads after the next NIDP tick.")
+    return headline, bullets
+
+
+async def _build_daily_brief(pool) -> Dict[str, Any]:
+    """Assemble today's brief from the SAME real feeds the /home dashboard uses."""
+    from services.positional_engine import market_dashboard as md, nse_live
+
+    dash: Dict[str, Any] = {}
+    try:
+        dash = await md.build()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("daily_brief dashboard build failed: %s", e)
+    live: Dict[str, Any] = {}
+    try:
+        live = await nse_live.get_live_snapshot() or {}
+    except Exception:  # noqa: BLE001
+        live = {}
+
+    dash_nifty = dash.get("nifty") or {}
+    live_nifty = live.get("nifty50") or {}
+    nifty_close = live_nifty.get("close") if live_nifty.get("close") is not None else dash_nifty.get("close")
+    nifty_pct = live_nifty.get("change_pct") if live_nifty.get("close") is not None else dash_nifty.get("change_pct")
+
+    dash_vix = dash.get("vix") or {}
+    live_vix = live.get("vix") or {}
+    vix_val = live_vix.get("value") if live_vix.get("value") is not None else dash_vix.get("value")
+    vix_pct = live_vix.get("change_pct") if live_vix.get("value") is not None else dash_vix.get("change_pct")
+
+    b = dash.get("breadth") or {}
+    advances, declines = b.get("advances"), b.get("declines")
+
+    sectors = [{"name": s.get("sector"), "change_pct": s.get("ret_5d_pct")}
+               for s in (dash.get("sector_heatmap") or []) if s.get("ret_5d_pct") is not None]
+    sectors_sorted = sorted(sectors, key=lambda s: s["change_pct"], reverse=True)
+
+    fii_dii = await _fii_dii(pool)
+    movers = await _top_movers(pool)
+    news = await _news(pool, limit=4)
+    state = "open" if nse_live._is_market_open_ist() else "closed"
+
+    headline, bullets = _brief_narrative(
+        nifty_pct, advances, declines, sectors_sorted, fii_dii, vix_val, vix_pct, state, len(news),
+    )
+
+    def _f(v):
+        return round(float(v), 2) if v is not None else None
+
+    return {
+        "date":         _ist_today(),
+        "generated_at": _iso_utc(),
+        "headline":     headline,
+        "bullets":      bullets,
+        "market_state": state,
+        "stats": {
+            "nifty_close":      _f(nifty_close),
+            "nifty_change_pct": _f(nifty_pct),
+            "vix":              _f(vix_val),
+            "vix_change_pct":   _f(vix_pct),
+            "advances":         advances,
+            "declines":         declines,
+            "fii_net_cr":       fii_dii.get("fii_net_cr") if fii_dii else None,
+            "dii_net_cr":       fii_dii.get("dii_net_cr") if fii_dii else None,
+            "verdict":          dash.get("deploy_verdict"),
+        },
+        "top_sectors": sectors_sorted[:3],
+        "movers":      {"gainers": movers["gainers"][:3], "losers": movers["losers"][:3]},
+        "news":        [{"title": n["title"], "symbol": n["symbol"], "category": n["category"]} for n in news],
+        "sources":     ["NIDP", "NSE", "Yahoo Finance"],
+    }
+
+
+async def _store_brief(doc: Dict[str, Any]) -> None:
+    try:
+        await db.market_daily_brief.update_one({"date": doc["date"]}, {"$set": doc}, upsert=True)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("daily_brief store failed: %s", e)
+    doc.pop("_id", None)
+
+
+@router.get("/daily-brief")
+async def markets_daily_brief(request: Request, date: Optional[str] = None):
+    """Daily Iris Update — the persisted grounded market brief. Returns the
+    given date's brief, or today's (lazily generating + storing it on first
+    read so the feed self-heals without depending on the cron)."""
+    await get_current_user(request)
+    if date:
+        doc = await db.market_daily_brief.find_one({"date": date}, {"_id": 0})
+        return {"ok": bool(doc), "brief": doc}
+
+    today = _ist_today()
+    doc = await db.market_daily_brief.find_one({"date": today}, {"_id": 0})
+    if doc is None:
+        from services import pg_client
+        pool = await pg_client.get_pool()
+        if pool is None:
+            return {"ok": False, "error": "no_pg_pool", "brief": None}
+        doc = await _build_daily_brief(pool)
+        await _store_brief(doc)
+    return {"ok": True, "brief": doc}
+
+
+@router.get("/daily-brief/history")
+async def markets_daily_brief_history(request: Request, limit: int = 30):
+    """Past briefs (newest first) — date + headline for the archive selector."""
+    await get_current_user(request)
+    limit = max(1, min(int(limit or 30), 90))
+    cur = (db.market_daily_brief
+           .find({}, {"_id": 0, "date": 1, "headline": 1, "generated_at": 1})
+           .sort("date", -1).limit(limit))
+    items = [d async for d in cur]
+    return {"ok": True, "items": items}
+
+
+@router.post("/daily-brief/generate")
+async def markets_daily_brief_generate(request: Request):
+    """(Re)generate + persist today's brief. Idempotent per IST date — wire a
+    cron to hit this after the EOD NIDP tick; the GET also self-generates."""
+    await get_current_user(request)
+    from services import pg_client
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return {"ok": False, "error": "no_pg_pool"}
+    doc = await _build_daily_brief(pool)
+    await _store_brief(doc)
+    return {"ok": True, "brief": doc}
 
 
 @router.get("/explore")
