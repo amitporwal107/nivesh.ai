@@ -629,7 +629,12 @@ async def _amfi_holdings_adapter(
 
 
 async def icici_pru(http: aiohttp.ClientSession, m: date) -> list[dict]:
-    """ICICI Pru — React SPA, requires Playwright to click the portfolio tab."""
+    """ICICI Pru — full monthly disclosure via AdvisorKhoj (uniform static
+    index of the official files); falls back to the Playwright SPA path."""
+    from .advisorkhoj import advisorkhoj_holdings_adapter
+    rows = await advisorkhoj_holdings_adapter("icici_pru", http, m)
+    if rows:
+        return rows
     return await _playwright_holdings_adapter("icici_pru", http, m)
 
 
