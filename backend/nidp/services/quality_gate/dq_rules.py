@@ -221,15 +221,20 @@ def _match_regex(df, *, col, pattern, allow_blank, severity, category, name):
                    violations=[{col: str(x)} for x in bad[col].head(50)])
 
 
-def no_subtotal_rows(col, *, pattern=DEFAULT_SUBTOTAL_REGEX, severity="fail") -> Rule:
+def no_subtotal_rows(col, *, isin_col=None, pattern=DEFAULT_SUBTOTAL_REGEX, severity="fail") -> Rule:
     return Rule(f"C2.no_subtotal[{col}]", "C2", severity, _no_subtotal,
-                {"col": col, "pattern": pattern})
+                {"col": col, "isin_col": isin_col, "pattern": pattern})
 
-def _no_subtotal(df, *, col, pattern, severity, category, name):
+def _no_subtotal(df, *, col, isin_col, pattern, severity, category, name):
     if col not in df.columns:
         return _result(name, "meta", False, "error", f"column absent: {col}")
     rx = re.compile(pattern)
     bad = df[df[col].astype(str).map(lambda v: bool(rx.search(v)))]
+    if isin_col and isin_col in df.columns:
+        # A row with a valid ISIN is a real security, never a subtotal — e.g.
+        # "Adani Total Gas Ltd." matches /total/ but is a holding (INE399L01023).
+        real = bad[isin_col].astype(str).str.match(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$").fillna(False)
+        bad = bad[~real]
     n = len(bad)
     return _result(name, category, n == 0, severity,
                    f"{n} subtotal-like row(s) in {col}",

@@ -297,6 +297,11 @@ def parse_sbi_multisheet_xlsx(
             if mkt_val is not None:
                 mkt_val *= 100_000  # Lakhs → INR
             weight  = _to_float(_get("weight_pct"))
+            # Instrument-class section headers ("Commercial Paper", "b) Unlisted",
+            # "Term Deposits Placed as Margins", …) carry a name but no holding data.
+            # Skip anything with no ISIN, no market value AND no weight — not a holding.
+            if _clean_isin(isin) is None and mkt_val is None and weight is None:
+                continue
             # Debt-fund specific: maturity date and YTM
             mat_raw = next(
                 (row[ci] for ci, fn in header_map.items() if fn == "maturity_date" and ci < len(row)),
@@ -508,6 +513,10 @@ def _parse_sheet(
         if mkt_val is not None:
             mkt_val *= 100_000          # Lakhs → INR
         weight  = _to_float(_get("weight_pct"))
+        # Instrument-class section headers carry a name but no holding data — skip
+        # anything with no ISIN, no market value AND no weight (not a holding).
+        if _clean_isin(isin) is None and mkt_val is None and weight is None:
+            continue
         # Debt-fund specific: maturity date and YTM
         mat_raw = next(
             (row[ci] for ci, fn in header_map.items() if fn == "maturity_date" and ci < len(row)),

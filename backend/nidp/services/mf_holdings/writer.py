@@ -18,8 +18,7 @@ INSERT INTO nidp.mf_holdings_monthly
      quantity, market_value_inr, weight_pct, source, source_url,
      source_run_id, ingested_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
-ON CONFLICT (scheme_code, as_of_month, security_name, source) DO UPDATE SET
-    security_isin    = EXCLUDED.security_isin,
+ON CONFLICT (scheme_code, as_of_month, security_name, security_isin, source) DO UPDATE SET
     instrument_type  = EXCLUDED.instrument_type,
     sector           = EXCLUDED.sector,
     rating           = EXCLUDED.rating,

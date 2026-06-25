@@ -161,9 +161,16 @@ def mf_holdings_suite(cal: TradingCalendar) -> Suite:
         fetch=FeedQuery("nidp.mf_holdings_monthly", cols,
                         scope="latest_period", period_col="as_of_month"),
         rules=[
-            E.not_null("scheme_code", "as_of_month", "security_name", "weight_pct"),
-            E.compound_unique("scheme_code", "as_of_month", "security_name", "source",
-                              note="matches real PK"),
+            E.not_null("scheme_code", "as_of_month", "security_name"),
+            # weight_pct is blank for a few legitimately-disclosed holdings (delisted
+            # /written-off names like Manpasand Beverages, some InvIT lines) — flag as
+            # coverage (WARN), not a hard failure. grouped_sum is the real weight gate.
+            E.not_null("weight_pct", severity="warn"),
+            # Uniqueness key matches migration 113: security_isin is part of the key
+            # so distinct instruments sharing an issuer NAME (e.g. 4 Kotak Securities
+            # CPs with 4 ISINs) are not flagged as duplicates.
+            E.compound_unique("scheme_code", "as_of_month", "security_name",
+                              "security_isin", "source", note="matches real uniqueness key"),
             # CORRECTION (real-data): 336 legit lines >100 (index-future/derivative
             # notionals, e.g. "Nifty Index" = 412.81; stale single-stock lines). A
             # per-line cap is WRONG. Lower bound admits the 5,179 legit shorts (min
@@ -176,9 +183,10 @@ def mf_holdings_suite(cal: TradingCalendar) -> Suite:
             # blank). All are legitimate asset classes — the prior set flagged 5,805
             # valid rows. Superset keeps both vintages so neither env false-positives.
             E.in_set("instrument_type",
-                     {"STO", "IDO", "STF", "IDF", "DEBT", "CASH", "REIT", "EQUITY"},
+                     {"STO", "IDO", "STF", "IDF", "DEBT", "CASH", "REIT", "EQUITY",
+                      "DERIVATIVE", "OTHER"},
                      allow_blank=True),
-            E.no_subtotal_rows("security_name"),                 # NIPPON/SBI subtotal rows
+            E.no_subtotal_rows("security_name", isin_col="security_isin"),  # exempt real securities
             # rating is 100% NULL (all 242,614 rows) — credit checks have nothing to
             # read. Surface as a coverage finding; max_rate=1.0 today, lower once built.
             G.null_rate_within("rating", max_rate=1.0, severity="info"),
