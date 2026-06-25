@@ -171,37 +171,44 @@ def _mean(values: List[float]) -> Optional[float]:
 
 # ── Grounding: fetch real per-stock facts from the data lake ──────────────────
 async def _fetch_stocks(pool) -> List[Dict[str, Any]]:
-    """Latest-date per-stock facts: identity + sector + valuation + returns.
+    """Latest-date per-stock facts straight from the base feature table.
 
-    Joins the analytics card (names, sector, returns) with the derived-metrics
-    table (market cap, P/E). Real data only — returns [] on any failure so the
-    feature degrades to an empty grid rather than fabricating numbers.
+    Sourced from nidp.stock_features_daily — the daily-refreshed derived-metrics
+    table the platform already depends on (it carries sector, industry,
+    market_cap_cr, pe_ttm, pb, roe_pct and 5d/20d/60d returns) — joined to
+    ref.security_master for the company name. We deliberately do NOT depend on
+    the analytics.stock_card layer (it has no market-cap/PE and its nightly
+    refresh has been unreliable). DISTINCT ON dedupes the
+    (symbol, as_of_date, source) primary key so each stock is counted once,
+    preferring the row that actually has a market cap.
+
+    Real data only — returns [] on failure. stock_features_daily has no 1-day
+    return, so breadth and the headline move are computed on the 5-day return.
     """
     sql = """
-        SELECT sc.symbol,
-               sc.company_name,
-               sc.sector,
-               sc.industry,
-               sc.pct_change      AS return_1d_pct,
-               sc.return_5d_pct,
-               sc.return_20d_pct,
-               sc.return_60d_pct,
-               sc.in_nifty500,
-               sc.close,
+        SELECT DISTINCT ON (sfd.symbol)
+               sfd.symbol,
+               sm.security_name AS company_name,
+               sfd.sector,
+               sfd.industry,
+               sfd.return_5d_pct,
+               sfd.return_20d_pct,
+               sfd.return_60d_pct,
+               sfd.close,
                sfd.market_cap_cr,
                sfd.pe_ttm,
                sfd.pb,
                sfd.roe_pct
-          FROM analytics.stock_card sc
-          LEFT JOIN nidp.stock_features_daily sfd
-            ON sfd.symbol = sc.symbol
-           AND sfd.as_of_date = sc.as_of_date
-         WHERE sc.as_of_date = (SELECT max(as_of_date) FROM analytics.stock_card)
-           AND COALESCE(sc.sector, sfd.sector) IS NOT NULL
+          FROM nidp.stock_features_daily sfd
+          LEFT JOIN ref.security_master sm
+                 ON sm.entity_type = 'EQUITY' AND sm.symbol = sfd.symbol
+         WHERE sfd.as_of_date = (SELECT max(as_of_date) FROM nidp.stock_features_daily)
+           AND sfd.sector IS NOT NULL
+         ORDER BY sfd.symbol, sfd.market_cap_cr DESC NULLS LAST
     """
     try:
         async with pool.acquire() as conn:
-            as_of = await conn.fetchval("SELECT max(as_of_date) FROM analytics.stock_card")
+            as_of = await conn.fetchval("SELECT max(as_of_date) FROM nidp.stock_features_daily")
             rows = await conn.fetch(sql)
     except Exception as e:  # noqa: BLE001
         logger.warning("sector_analysis fetch_stocks failed: %s", e)
@@ -210,19 +217,18 @@ async def _fetch_stocks(pool) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for r in rows:
         out.append({
-            "symbol":       r["symbol"],
-            "name":         r["company_name"] or r["symbol"],
-            "sector":       r["sector"],
-            "industry":     r["industry"],
-            "return_1d_pct": _f(r["return_1d_pct"]),
-            "return_5d_pct": _f(r["return_5d_pct"]),
+            "symbol":        r["symbol"],
+            "name":          r["company_name"] or r["symbol"],
+            "sector":        r["sector"],
+            "industry":      r["industry"],
+            "return_5d_pct":  _f(r["return_5d_pct"]),
             "return_20d_pct": _f(r["return_20d_pct"]),
             "return_60d_pct": _f(r["return_60d_pct"]),
             "market_cap_cr": _f(r["market_cap_cr"]),
-            "pe_ttm":       _f(r["pe_ttm"]),
-            "pb":           _f(r["pb"]),
-            "roe_pct":      _f(r["roe_pct"]),
-            "_as_of":       as_of,
+            "pe_ttm":        _f(r["pe_ttm"]),
+            "pb":            _f(r["pb"]),
+            "roe_pct":       _f(r["roe_pct"]),
+            "_as_of":        as_of,
         })
     return out
 
@@ -260,15 +266,15 @@ def _headline(name: str, m: Dict[str, Any]) -> str:
     breadth = "advancing broadly" if adv >= dec * 1.2 else "under pressure" if dec >= adv * 1.2 else "mixed"
     pe = m.get("median_pe")
     val = f", ~{pe:.1f}× median P/E" if pe else ""
-    return f"{name}: {n} stocks {breadth} today ({adv} up / {dec} down){val}."
+    return f"{name}: {n} stocks {breadth} over the past week ({adv} up / {dec} down){val}."
 
 
 def _metric_bullets(m: Dict[str, Any], benchmark: str) -> List[str]:
     out: List[str] = []
     if m.get("market_cap_cr") is not None:
         out.append(f"Aggregate market cap ₹{m['market_cap_cr']:,.0f} Cr across {m.get('stock_count', 0)} stocks")
-    if m.get("avg_return_1d") is not None:
-        out.append(f"Avg 1-day move {'+' if m['avg_return_1d'] >= 0 else ''}{m['avg_return_1d']:.2f}%")
+    if m.get("avg_return_5d") is not None:
+        out.append(f"Avg 1-week move {'+' if m['avg_return_5d'] >= 0 else ''}{m['avg_return_5d']:.2f}%")
     if m.get("avg_return_20d") is not None:
         out.append(f"Avg 1-month return {'+' if m['avg_return_20d'] >= 0 else ''}{m['avg_return_20d']:.2f}%")
     if m.get("median_pe") is not None:
@@ -288,8 +294,9 @@ def _build_profile_doc(meta: Dict[str, str], stocks: List[Dict[str, Any]],
     if len(members) < MIN_STOCKS:
         return None
 
-    adv = sum(1 for s in members if (s["return_1d_pct"] or 0) > 0)
-    dec = sum(1 for s in members if (s["return_1d_pct"] or 0) < 0)
+    # No 1-day return in the base table — breadth is measured on the 5-day move.
+    adv = sum(1 for s in members if (s["return_5d_pct"] or 0) > 0)
+    dec = sum(1 for s in members if (s["return_5d_pct"] or 0) < 0)
     mcap = sum(s["market_cap_cr"] for s in members if s["market_cap_cr"] is not None)
     pes = [s["pe_ttm"] for s in members if s["pe_ttm"] is not None and 0 < s["pe_ttm"] <= 200]
     idx = index_eod.get(meta["benchmark"], {})
@@ -302,7 +309,6 @@ def _build_profile_doc(meta: Dict[str, str], stocks: List[Dict[str, Any]],
         "median_pe":        _median(pes),
         "median_pb":        _median([s["pb"] for s in members]),
         "median_roe":       _median([s["roe_pct"] for s in members]),
-        "avg_return_1d":    _mean([s["return_1d_pct"] for s in members]),
         "avg_return_5d":    _mean([s["return_5d_pct"] for s in members]),
         "avg_return_20d":   _mean([s["return_20d_pct"] for s in members]),
         "avg_return_60d":   _mean([s["return_60d_pct"] for s in members]),
@@ -318,7 +324,7 @@ def _build_profile_doc(meta: Dict[str, str], stocks: List[Dict[str, Any]],
         "symbol":        s["symbol"],
         "name":          s["name"],
         "market_cap_cr": s["market_cap_cr"],
-        "return_1d_pct": s["return_1d_pct"],
+        "return_5d_pct": s["return_5d_pct"],
         "pe_ttm":        s["pe_ttm"],
     } for s in top]
 
@@ -382,7 +388,7 @@ def _facts_block(doc: Dict[str, Any]) -> str:
         f"Stocks covered: {m.get('stock_count')} ({m.get('advancing')} advancing, {m.get('declining')} declining today)",
         f"Aggregate market cap: ₹{m['market_cap_cr']:,.0f} Cr" if m.get("market_cap_cr") else "Aggregate market cap: n/a",
         f"Median P/E: {m.get('median_pe')}, median P/B: {m.get('median_pb')}, median ROE: {m.get('median_roe')}%",
-        f"Avg returns — 1d: {m.get('avg_return_1d')}%, 1w: {m.get('avg_return_5d')}%, "
+        f"Avg returns — 1w: {m.get('avg_return_5d')}%, "
         f"1m: {m.get('avg_return_20d')}%, 3m: {m.get('avg_return_60d')}%",
         f"{doc['benchmark_index']} index: {m.get('index_pct_change')}% today, P/E {m.get('index_pe')}",
     ]

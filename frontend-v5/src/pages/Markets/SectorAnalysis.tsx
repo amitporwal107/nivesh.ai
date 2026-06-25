@@ -65,6 +65,10 @@ export default function SectorAnalysisPage() {
         <p className="mt-10 text-center text-sm text-ink-3">
           Sector data is refreshing — it loads after the next NIDP market tick.
         </p>
+      ) : (query.data?.sectors?.length ?? 0) === 0 ? (
+        <p className="mt-10 text-center text-sm text-ink-3">
+          Sector cards are still being prepared — they appear once the latest market data has loaded.
+        </p>
       ) : sectors.length === 0 ? (
         <p className="mt-10 text-center text-sm text-ink-3">No sectors match “{qInput}”.</p>
       ) : (
@@ -82,8 +86,11 @@ function SectorGridCard({ s }: { s: SectorCard }) {
       <Card className="flex h-full flex-col p-4 transition-colors hover:bg-surface-2">
         <div className="flex items-start justify-between gap-2">
           <span className="text-2xl leading-none">{s.icon ?? "📊"}</span>
-          <span className={cn("font-mono text-[13px]", tone(s.metrics.avg_return_1d))}>
-            {fmtPct(s.metrics.avg_return_1d)}
+          <span
+            title="Average 1-week return"
+            className={cn("font-mono text-[13px]", tone(s.metrics.avg_return_5d))}
+          >
+            {fmtPct(s.metrics.avg_return_5d)}
           </span>
         </div>
         <h3 className="mt-2 font-display text-lg leading-tight text-ink">{s.name}</h3>

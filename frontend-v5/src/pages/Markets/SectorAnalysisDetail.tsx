@@ -79,9 +79,9 @@ export default function SectorAnalysisDetailPage() {
         <Metric label="Median ROE" value={s.metrics.median_roe != null ? `${s.metrics.median_roe.toFixed(1)}%` : "—"} />
         <Metric label="Stocks" value={s.metrics.stock_count != null ? String(s.metrics.stock_count) : "—"}
                 sub={s.metrics.advancing != null ? `${s.metrics.advancing} up / ${s.metrics.declining} down` : undefined} />
-        <Metric label="1-day" value={fmtPct(s.metrics.avg_return_1d)} valueClass={tone(s.metrics.avg_return_1d)} />
         <Metric label="1-week" value={fmtPct(s.metrics.avg_return_5d)} valueClass={tone(s.metrics.avg_return_5d)} />
         <Metric label="1-month" value={fmtPct(s.metrics.avg_return_20d)} valueClass={tone(s.metrics.avg_return_20d)} />
+        <Metric label="3-month" value={fmtPct(s.metrics.avg_return_60d)} valueClass={tone(s.metrics.avg_return_60d)} />
         <Metric label={s.benchmark_index ?? "Index"} value={fmtPct(s.metrics.index_pct_change)}
                 valueClass={tone(s.metrics.index_pct_change)}
                 sub={s.metrics.index_pe != null ? `${s.metrics.index_pe.toFixed(1)}× P/E` : undefined} />
@@ -158,7 +158,7 @@ function CompanyRow({ c }: { c: SectorTopCompany }) {
       </div>
       <div className="flex shrink-0 items-center gap-4 text-right">
         <span className="font-mono text-[12px] text-ink-2">{fmtCr(c.market_cap_cr)}</span>
-        <span className={cn("w-14 font-mono text-[12px]", tone(c.return_1d_pct))}>{fmtPct(c.return_1d_pct)}</span>
+        <span className={cn("w-14 font-mono text-[12px]", tone(c.return_5d_pct))} title="1-week return">{fmtPct(c.return_5d_pct)}</span>
       </div>
     </div>
   );

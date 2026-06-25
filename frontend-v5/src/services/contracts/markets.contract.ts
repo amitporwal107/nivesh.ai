@@ -280,6 +280,7 @@ export const SectorTopCompanyC = z.object({
   name:          z.string(),
   market_cap_cr: z.number().nullable().optional(),
   return_1d_pct: z.number().nullable().optional(),
+  return_5d_pct: z.number().nullable().optional(),
   pe_ttm:        z.number().nullable().optional(),
 });
 
