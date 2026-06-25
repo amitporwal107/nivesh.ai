@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 #    constraint; we load 250 (SMA200 + buffer for 52w lookups).
 LOOKBACK_BARS = 250
 
+# populate_stock_features_extended is a universe-wide bulk UPDATE (~35s); override
+# the pool's 30s command_timeout so it isn't cancelled mid-run.
+_EXTENDED_POPULATE_TIMEOUT_S = 600
+
 
 @dataclass
 class FeatureSnapshotReport:
@@ -195,18 +199,25 @@ async def snapshot_features_for_date(
         # the next run.
         try:
             async with pool.acquire() as conn:
+                # The pool's command_timeout is 30s (nidp/shared/storage/pg.py) but
+                # this bulk UPDATE takes ~35s over the full universe — without an
+                # override asyncpg cancels it and the extended columns are left blank.
                 extended_rows = await conn.fetchval(
                     "SELECT nidp.populate_stock_features_extended($1::date)",
                     target_date,
+                    timeout=_EXTENDED_POPULATE_TIMEOUT_S,
                 )
             logger.info(
                 "feature_snapshotter extended columns populated for %d rows",
                 int(extended_rows or 0),
             )
-        except Exception:                                                 # noqa: BLE001
+        except Exception as exc:                                          # noqa: BLE001
+            # %r so an empty-message TimeoutError is still identifiable. Non-fatal:
+            # technical features are already persisted; surface loudly so the gap
+            # isn't silent the way it was before.
             logger.exception(
                 "populate_stock_features_extended failed (continuing) — "
-                "technical features are already persisted"
+                "technical features are already persisted (error=%r)", exc
             )
 
     report.duration_ms = int((time.monotonic() - started) * 1000)
