@@ -115,6 +115,7 @@ else
   for f in \
     Dockerfile.backend.prod \
     Dockerfile.frontend.prod \
+    Dockerfile.frontend-v5.prod \
     nginx.conf \
     docker-compose.prod.yml; do
     src="$REPO_DEPLOY/$f"
@@ -176,6 +177,19 @@ if [[ "$BUILD_FRONTEND" == "true" ]]; then
     -t nivesh/frontend:prod \
     "$REPO_DIR"
   ok "Frontend image built."
+
+  # frontend-v5 (Vite/React 18) — served at /v5/ via the edge nginx proxy.
+  # VITE_API_URL is baked into the bundle at build time → use the prod apex.
+  log "Step 5b/7 — Building frontend-v5 image..."
+  log "         VITE_BASE=/v5/  VITE_API_URL=$BACKEND_URL"
+  docker build \
+    -f "$DEPLOY_DIR/Dockerfile.frontend-v5.prod" \
+    --build-arg VITE_BASE="/v5/" \
+    --build-arg VITE_API_URL="$BACKEND_URL" \
+    --build-arg VITE_USE_MOCK_API="false" \
+    -t nivesh/frontend-v5:prod \
+    "$REPO_DIR"
+  ok "frontend-v5 image built."
 else
   ok "Step 5/7 — Skipping frontend build (--backend-only)."
 fi
@@ -188,13 +202,14 @@ if [[ "$BUILD_BACKEND" == "true" ]]; then
   docker rm -f nivesh-backend  2>/dev/null && ok "  removed: nivesh-backend" || true
 fi
 if [[ "$BUILD_FRONTEND" == "true" ]]; then
-  docker rm -f nivesh-frontend 2>/dev/null && ok "  removed: nivesh-frontend" || true
+  docker rm -f nivesh-frontend    2>/dev/null && ok "  removed: nivesh-frontend"    || true
+  docker rm -f nivesh-frontend-v5 2>/dev/null && ok "  removed: nivesh-frontend-v5" || true
 fi
 
 # Compose up only the services that were rebuilt (data stores are unaffected).
 SERVICES=""
 [[ "$BUILD_BACKEND"  == "true" ]] && SERVICES="$SERVICES backend"
-[[ "$BUILD_FRONTEND" == "true" ]] && SERVICES="$SERVICES frontend"
+[[ "$BUILD_FRONTEND" == "true" ]] && SERVICES="$SERVICES frontend frontend-v5"
 
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d $SERVICES
 ok "Containers started."

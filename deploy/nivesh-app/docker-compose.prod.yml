@@ -110,6 +110,26 @@ services:
     depends_on:
       backend: { condition: service_healthy }
 
+  # ── New-design V5 SPA (Vite/React 18) — served at /v5/ ───────────────────────
+  # Built from the same Dockerfile as staging. The edge `frontend` nginx proxies
+  # /v5/ to this container (variable upstream + resolver, so a down v5 container
+  # 502s instead of crashing the edge). VITE_API_URL is baked to the prod apex.
+  frontend-v5:
+    build:
+      context: ../../
+      dockerfile: deploy/nivesh-app/Dockerfile.frontend-v5.prod
+      args:
+        VITE_BASE: /v5/
+        VITE_API_URL: https://niveshcopilot.com
+        VITE_USE_MOCK_API: "false"
+    image: nivesh/frontend-v5:prod
+    container_name: nivesh-frontend-v5
+    restart: unless-stopped
+    networks: [nivesh-prod]
+    logging: *default-logging
+    depends_on:
+      backend: { condition: service_healthy }
+
   # ── Host USE metrics for Prometheus ─────────────────────────────────────────
   node-exporter:
     image: prom/node-exporter:latest
