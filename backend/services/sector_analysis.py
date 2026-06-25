@@ -188,17 +188,28 @@ async def _fetch_stocks(pool) -> List[Dict[str, Any]]:
 
 
 async def _fetch_stocks_daas() -> List[Dict[str, Any]]:
-    """Universe via the deployed DaaS /v1/stocks/screener (nidp.stock_features_daily)."""
+    """Universe via the deployed DaaS /v1/stocks/screener (nidp.stock_features_daily).
+
+    Paginated in small pages: a single large-limit call came back empty (the
+    endpoint is slow / size-limited for big result sets — the limit=5 probe
+    worked but limit=600 returned nothing), so we accumulate the ~600
+    largest-cap names across 100-row pages, each like the small probe.
+    """
     try:
         from services.copilot_tools import daas_client
         if not daas_client.is_configured():
             return []
-        # 600 largest-cap names span all 8 profiles with room to spare; a smaller
-        # payload + a longer timeout avoids the silent timeout that left the grid
-        # empty at limit=2000.
-        rows = await daas_client.get_stock_screener(
-            limit=600, sort_by="market_cap_cr", timeout=30.0,
-        )
+        rows: List[Dict[str, Any]] = []
+        page = 100
+        for off in range(0, 600, page):
+            batch = await daas_client.get_stock_screener(
+                limit=page, offset=off, sort_by="market_cap_cr", timeout=20.0,
+            )
+            if not batch:
+                break
+            rows.extend(batch)
+            if len(batch) < page:
+                break
     except Exception as e:  # noqa: BLE001
         logger.warning("sector_analysis daas screener failed: %s", e)
         return []
@@ -400,6 +411,21 @@ async def diagnose(pool) -> Dict[str, Any]:
             # non-null-sector filter) — the decisive number if the grid is empty.
             mapped = await _fetch_stocks_daas()
             out["daas_fetch_mapped"] = len(mapped)
+            if not mapped:
+                # Capture the raw error of a single larger call (get_stock_screener
+                # swallows it) to see WHY big fetches come back empty.
+                try:
+                    raw = await daas_client._get(
+                        "/stocks/screener",
+                        params={"limit": 300, "offset": 0,
+                                "sort_by": "market_cap_cr", "sort_desc": "true"},
+                        timeout=30.0,
+                    )
+                    out["daas_big_rows"] = (
+                        len(raw.get("data", [])) if isinstance(raw, dict) else str(type(raw))
+                    )
+                except Exception as e2:  # noqa: BLE001
+                    out["daas_big_error"] = repr(e2)[:300]
     except Exception as e:  # noqa: BLE001
         out["daas_error"] = str(e)[:200]
 
