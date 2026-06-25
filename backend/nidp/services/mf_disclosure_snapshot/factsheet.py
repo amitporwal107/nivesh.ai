@@ -193,6 +193,8 @@ FACTSHEET_SOURCES: dict[str, _AmcCfg] = {
         urls=_dsp_urls,
         aum_re=_DSP_AUM_RE,
         name_re=re.compile(r"^DSP [A-Za-z0-9&',\.\- ]+?Fund\b", re.M),
+        # "FUND MANAGER\nBhavin Gandhi\nTotal work experience …"
+        manager_re=re.compile(r"FUND MANAGER\s*\n\s*([A-Z][A-Za-z.\s]+?)\s*\n", re.I),
         master_filter=("scheme_name ILIKE $1", "DSP %"),
     ),
     "hsbc": _AmcCfg(
@@ -207,6 +209,8 @@ FACTSHEET_SOURCES: dict[str, _AmcCfg] = {
         urls=_tata_urls,
         aum_re=_TATA_AUM_RE,
         name_re=re.compile(r"^Tata [A-Za-z0-9&',\.\- ]+?Fund\b", re.M),
+        # "FUND MANAGER\nAbhinav Sharma (Managing Since …)" — name before the paren
+        manager_re=re.compile(r"FUND MANAGER\s*\n\s*([A-Z][A-Za-z.\s]+?)\s*\(", re.I),
         master_filter=("amc_id = $1", "tata"),
         scale=0.01,                      # Net Assets are in ₹ lakh
     ),
