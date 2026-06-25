@@ -28,6 +28,7 @@ _HDFC_FLEXI_PAGE = (
     "An open ended dynamic equity scheme investing across large cap, mid cap & small cap stocks. \n"
     "CATEGORY OF SCHEME \nFLEXI CAP FUND \n"
     "NAV \nRegular Plan - Growth Option \n1,944.502 \n"
+    "FUND MANAGER ¥ \nName \nSince \nTotal Exp \nAmit Ganatra \nFebruary \n01, 2026 \nOver 19 years \n"
     "ASSETS UNDER MANAGEMENT € \nAs on April 30, 2026 \n"
     "Average for Month of April, \n2026 \n₹100,479.23Cr. \n₹99,221.43Cr. \n"
     "QUANTITATIVE DATA \nPortfolio Turnover \n"
@@ -82,6 +83,19 @@ def test_hdfc_extracts_average_aum_not_month_end():
     assert rec["scheme_name"] == "HDFC Flexi Cap Fund"
     # Captures the AAUM (average for the month), NOT the month-end 100,479.23.
     assert rec["aaum_cr"] == 99221.43
+
+
+def test_hdfc_extracts_fund_manager():
+    rec = _parse_page(_HDFC_FLEXI_PAGE, _HDFC)
+    assert rec is not None
+    assert rec["manager"] == "Amit Ganatra"
+
+
+def test_dsp_has_no_manager_configured():
+    # AMCs without a manager_re return manager=None (no false positives).
+    rec = _parse_page(_DSP_PAGE, _DSP)
+    assert rec is not None
+    assert rec.get("manager") is None
 
 
 def test_hdfc_balanced_advantage():

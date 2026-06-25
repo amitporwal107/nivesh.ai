@@ -104,6 +104,9 @@ class _AmcCfg:
     # Multiply the captured number to get ₹ crore (e.g. Tata reports Net
     # Assets in ₹ lakh → 0.01). Default 1.0 (value already in ₹ crore).
     scale: float = 1.0
+    # Optional: captures the primary fund-manager name as group(1) from the
+    # same scheme page. None → this AMC contributes no manager.
+    manager_re: Optional[re.Pattern] = None
 
 
 # ───────────────────────── URL builders ─────────────────────────
@@ -181,6 +184,9 @@ FACTSHEET_SOURCES: dict[str, _AmcCfg] = {
         aum_re=_HDFC_AUM_RE,
         name_re=re.compile(r"^HDFC [A-Za-z0-9&',\.\- ]+?Fund\b", re.M),
         master_filter=("amc_id = $1", "hdfc"),
+        # FUND MANAGER block: the name sits after the 'Total Exp' sub-header.
+        manager_re=re.compile(
+            r"FUND MANAGER.{0,80}?Total Exp(?:erience)?\s*\n\s*([A-Z][A-Za-z.\s]+?)\s*\n", re.S),
     ),
     "dsp": _AmcCfg(
         amc_id="dsp",
@@ -228,11 +234,19 @@ def _parse_page(text: str, cfg: _AmcCfg) -> Optional[dict]:
     if aaum is None:
         return None
     aaum = round(aaum * cfg.scale, 2)
+    manager = None
+    if cfg.manager_re is not None:
+        mm = cfg.manager_re.search(text)
+        if mm:
+            cand = re.sub(r"\s+", " ", mm.group(1)).strip()
+            # Plausible person name: 2–40 chars, not a stray header token.
+            if 2 < len(cand) < 40 and not re.search(r"\d|fund|plan|name|since|total", cand, re.I):
+                manager = cand
     head = text[: m.start()]
     for cand in reversed(cfg.name_re.findall(head)):
         c = re.sub(r"\s+", " ", cand).strip()
         if 8 < len(c) < 70 and not _NAME_REJECT.search(c):
-            return {"scheme_name": c, "aaum_cr": aaum}
+            return {"scheme_name": c, "aaum_cr": aaum, "manager": manager}
     return None
 
 
@@ -307,7 +321,8 @@ async def _resolve_funds_to_codes(cfg: _AmcCfg, funds: list[dict]) -> list[dict]
             continue
         matched += 1
         for code in codes:
-            rows.append({"scheme_code": str(code), "aum_inr_crore": f["aaum_cr"]})
+            rows.append({"scheme_code": str(code), "aum_inr_crore": f["aaum_cr"],
+                         "primary_manager": f.get("manager")})
     logger.info("factsheet[%s]: %d/%d funds resolved → %d scheme_codes",
                 cfg.amc_id, matched, len(funds), len(rows))
     return rows

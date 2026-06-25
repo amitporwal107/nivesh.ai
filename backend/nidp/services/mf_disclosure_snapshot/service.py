@@ -63,6 +63,7 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
         ter_central = 0
         aaum_central = 0
         factsheet_aum = 0
+        factsheet_mgr = 0
 
         with time_ingester(SERVICE_NAME):
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
@@ -159,7 +160,15 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
                                 if not row.get("source_url"):
                                     row["source_url"] = r.get("source_url")
                                 factsheet_aum += 1
-                    logger.info("mf_disclosure_snapshot: factsheet AAUM pass filled %d schemes", factsheet_aum)
+                            # Fund manager (the disclosure schema has the column
+                            # but no source populated it) — fill where missing.
+                            if r.get("primary_manager") and row.get("primary_manager") is None:
+                                row["primary_manager"] = r["primary_manager"]
+                                if not row.get("source_url"):
+                                    row["source_url"] = r.get("source_url")
+                                factsheet_mgr += 1
+                    logger.info("mf_disclosure_snapshot: factsheet pass filled aum=%d manager=%d schemes",
+                                factsheet_aum, factsheet_mgr)
                 except Exception as e:                                  # noqa: BLE001
                     logger.warning("mf_disclosure_snapshot: factsheet AAUM pass failed: %s: %s",
                                    type(e).__name__, e)
@@ -176,6 +185,7 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
             run.metadata["ter_central"] = ter_central
             run.metadata["aaum_central"] = aaum_central
             run.metadata["factsheet_aum"] = factsheet_aum
+            run.metadata["factsheet_mgr"] = factsheet_mgr
 
             INGESTER_ROWS.labels(service=SERVICE_NAME, kind="fetched").inc(len(all_rows))
             INGESTER_ROWS.labels(service=SERVICE_NAME, kind="inserted").inc(n_rows)
