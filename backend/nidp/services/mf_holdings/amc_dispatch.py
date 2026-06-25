@@ -862,13 +862,17 @@ async def nippon(http: aiohttp.ClientSession, m: date) -> list[dict]:
     return await _amfi_holdings_adapter("nippon", http, m)
 
 async def absl(http: aiohttp.ClientSession, m: date) -> list[dict]:
-    """ABSL publishes portfolios via a Sitecore CMS API that returns ZIP URLs.
+    """ABSL — full monthly disclosure via AdvisorKhoj (consolidated .xls);
+    falls back to the Sitecore CMS API (Azure CDN, often unreachable).
 
-    All listing page URLs are dead (404). The API endpoint requires no auth.
-    Note: ZIP CDN is abcscprod.azureedge.net (Azure); may be unreachable from
-    some GCP egress IPs — logged as warning so the gap is visible.
-    Discovered 2026-06 via HAR analysis.
+    Sitecore notes: all listing page URLs are dead (404); the API needs no
+    auth; ZIP CDN is abcscprod.azureedge.net. Discovered 2026-06 via HAR.
     """
+    from .advisorkhoj import advisorkhoj_holdings_adapter
+    _ak = await advisorkhoj_holdings_adapter("absl", http, m)
+    if _ak:
+        return _ak
+
     from .sbi_parser import parse_portfolio_xlsx
     from nidp.shared.storage.pg import get_pool
     import io, zipfile, json as _json
@@ -1128,11 +1132,21 @@ async def uti(http: aiohttp.ClientSession, m: date) -> list[dict]:
     return resolved
 
 async def axis(http: aiohttp.ClientSession, m: date) -> list[dict]:
-    """Axis — lazy-loaded SPA accordion, requires Playwright."""
+    """Axis — full monthly disclosure via AdvisorKhoj (consolidated xlsx);
+    falls back to the Playwright SPA accordion."""
+    from .advisorkhoj import advisorkhoj_holdings_adapter
+    rows = await advisorkhoj_holdings_adapter("axis", http, m)
+    if rows:
+        return rows
     return await _playwright_holdings_adapter("axis", http, m)
 
 async def kotak(http: aiohttp.ClientSession, m: date) -> list[dict]:
-    """Kotak — hCaptcha-protected; Playwright stealth mode attempted first."""
+    """Kotak — full monthly disclosure via AdvisorKhoj (consolidated xlsx);
+    falls back to the Playwright (hCaptcha) path."""
+    from .advisorkhoj import advisorkhoj_holdings_adapter
+    rows = await advisorkhoj_holdings_adapter("kotak", http, m)
+    if rows:
+        return rows
     return await _playwright_holdings_adapter("kotak", http, m)
 
 async def tata(http: aiohttp.ClientSession, m: date) -> list[dict]:

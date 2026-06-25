@@ -36,6 +36,12 @@ from urllib.parse import urljoin
 import aiohttp
 import openpyxl
 
+try:
+    import xlrd as _xlrd          # legacy .xls (UTI/ABSL/some others)
+    _XLRD = True
+except ImportError:
+    _XLRD = False
+
 from .sbi_parser import _to_float  # reuse the tolerant numeric coercion
 
 logger = logging.getLogger(__name__)
@@ -70,14 +76,15 @@ def _month_patterns(as_of_month: date) -> list[str]:
     abbr = as_of_month.strftime("%b").lower()      # 'may' / 'apr'
     yr, mo = as_of_month.year, as_of_month.month
     last = calendar.monthrange(yr, mo)[1]          # 31 for May
-    sep = r"[._\-/ ]?"                              # optional separator between parts
-    # Use digit/alpha lookarounds (not \b): a date is often preceded by '_'
-    # (a word char), where \b would NOT fire — e.g. 'portfolios_31.05.2026'.
+    sep = r"[._\-/ ,]?"                            # optional separator (incl. comma)
+    # Month-name patterns: no leading lookbehind, so a glued 'PortfolioMay2026'
+    # (Kotak) matches; the month name + nearby year is specific enough.
+    # Numeric patterns use a digit lookbehind (not \b, which won't fire after '_').
     return [
         rf"/{yr}/{full}/", rf"/{yr}/{abbr}/",                                  # ICICI path
-        rf"(?<![a-z]){full}{sep}(?:{last}{sep})?{yr}(?!\d)",                   # 'May-2026' / 'May-31-2026'
-        rf"(?<![a-z]){abbr}{sep}(?:{last}{sep})?{yr}(?!\d)",
-        rf"(?<![a-z]){last:02d}{sep}{full}{sep}{yr}(?!\d)",                    # '31-May-2026' (day first)
+        rf"{full}{sep}(?:{last}{sep})?{yr}(?!\d)",                            # 'May2026' / 'May-31-2026'
+        rf"{abbr}{sep}(?:{last}{sep})?{yr}(?!\d)",
+        rf"{last:02d}{sep}{full}{sep}{yr}(?!\d)",                             # '31-May-2026' (day first)
         rf"(?<!\d){last:02d}{sep}{mo:02d}{sep}{yr}(?!\d)",                     # 31.05.2026 / 31052026
         rf"(?<!\d){last:02d}{sep}{mo:02d}{sep}{yr % 100:02d}(?!\d)",           # 31_05_26 (2-digit yr)
         rf"/{yr}{sep}{mo:02d}(?!\d)",                                         # /2026/05, 2026-05
@@ -119,110 +126,208 @@ async def _discover_disclosure_url(
     return url
 
 
-def _parse_workbook(data: bytes, scheme_name: str, as_of_str: str,
-                    source_url: str, source_tag: str) -> list[dict]:
-    """Parse one per-fund disclosure xlsx → ISIN-keyed holding rows.
-
-    Reads the FIRST sheet (the portfolio; a 'Derivative' detail sheet, if
-    present, is skipped to avoid double counting). Keeps only rows with a
-    valid ISIN. weight_pct is normalised to 0–100.
-    """
+def _load_sheets(data: bytes) -> list[tuple[str, list]]:
+    """Return [(sheet_name, rows)] from an .xlsx (openpyxl) or legacy .xls (xlrd)."""
     try:
         wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-    except Exception as e:                                   # noqa: BLE001
-        logger.debug("advisorkhoj: workbook open failed for %r: %s", scheme_name, e)
+        return [(name, [list(r) for r in wb[name].iter_rows(values_only=True)])
+                for name in wb.sheetnames]
+    except Exception:                                        # noqa: BLE001 — try .xls next
+        pass
+    if not _XLRD:
         return []
-    ws = wb[wb.sheetnames[0]]
-    rows = [list(r) for r in ws.iter_rows(values_only=True)]
+    try:
+        wb = _xlrd.open_workbook(file_contents=data)
+    except Exception:                                        # noqa: BLE001
+        return []
+    return [(sh.name, [[sh.cell_value(r, c) for c in range(sh.ncols)] for r in range(sh.nrows)])
+            for sh in wb.sheets()]
 
-    # Locate the header row (has an instrument/company column AND an ISIN column).
+
+_SCHEME_PREFIX_RE = re.compile(r"^\s*(?:portfolio\s+(?:statement\s+)?of|scheme\s*[:\-])\s*", re.I)
+_SCHEME_SUFFIX_RE = re.compile(r"\s+as\s+(?:on|at|of)\b.*$", re.I)        # drop 'as on 31-May-2026'
+_SCHEME_REJECT_RE = re.compile(
+    r"portfolio statement|monthly portfolio|disclos|provisional|mutual fund$", re.I)
+
+
+def _scheme_from_sheet(rows: list) -> Optional[str]:
+    """Pull the fund name from a sheet's title rows — handles 'Portfolio of
+    Kotak X Fund as on …', 'SCHEME: UTI X', or a plain 'AMC … Fund' cell."""
+    for r in rows[:5]:
+        for c in r:
+            if not c:
+                continue
+            raw = re.sub(r"\s+", " ", str(c)).strip()
+            had_prefix = bool(_SCHEME_PREFIX_RE.match(raw))
+            s = _SCHEME_SUFFIX_RE.sub("", _SCHEME_PREFIX_RE.sub("", raw)).strip()
+            if not (8 < len(s) < 90) or _SCHEME_REJECT_RE.search(s):
+                continue
+            if had_prefix or re.search(r"\b(fund|plan|etf)\b", s, re.I):
+                return s
+    return None
+
+
+def _find_cols(rows: list) -> Optional[dict]:
+    """Locate the header row + columns. ISIN and name columns are confirmed
+    against the data so merged/offset name columns (Kotak) are handled."""
+    isin_counts: dict[int, int] = {}
+    for r in rows:
+        for j, c in enumerate(r):
+            if c and _ISIN_RE.match(str(c).strip().replace("\t", "")):
+                isin_counts[j] = isin_counts.get(j, 0) + 1
+    if not isin_counts:
+        return None
+    isin_col = max(isin_counts, key=lambda k: isin_counts[k])
+    if isin_counts[isin_col] < 2:
+        return None
+
     header_idx = None
     header: list[str] = []
-    for i, r in enumerate(rows[:25]):
+    for i, r in enumerate(rows[:40]):
         low = [str(c or "").strip().lower() for c in r]
-        if any(any(k in c for k in _H_NAME) for c in low) and any("isin" in c for c in low):
+        if any(any(k in c for k in _H_NAME) for c in low):
             header_idx, header = i, low
             break
     if header_idx is None:
-        return []
+        return None
 
-    def col(*keys: str) -> Optional[int]:
+    def hcol(*keys: str) -> Optional[int]:
         for j, c in enumerate(header):
             if any(k in c for k in keys):
                 return j
         return None
 
-    ci_name = col(*_H_NAME)
-    ci_isin = col("isin")
-    ci_ind = col("industry", "rating", "sector")
-    ci_qty = col("quantity")
-    ci_mv = col(*_H_MV)
-    ci_wt = col(*_H_WT)
-    if ci_name is None or ci_isin is None:
+    data_rows = [r for r in rows[header_idx + 1:]
+                 if isin_col < len(r) and r[isin_col]
+                 and _ISIN_RE.match(str(r[isin_col]).strip().replace("\t", ""))]
+
+    def textiness(col: int) -> int:
+        n = 0
+        for r in data_rows[:30]:
+            v = r[col] if col < len(r) else None
+            if isinstance(v, str) and any(ch.isalpha() for ch in v) and not _ISIN_RE.match(v.strip()):
+                n += 1
+        return n
+
+    name_col = hcol(*_H_NAME)
+    if name_col is None or textiness(name_col) < max(1, len(data_rows[:30]) // 3):
+        # Fall back to the most text-bearing column left of ISIN (merged-cell layouts).
+        cands = [c for c in range(len(header)) if c != isin_col]
+        left = [c for c in cands if c < isin_col] or cands
+        if left:
+            name_col = max(left, key=textiness)
+    return {
+        "header_idx": header_idx, "isin": isin_col, "name": name_col,
+        "wt": hcol(*_H_WT), "mv": hcol(*_H_MV),
+        "ind": hcol("industry", "rating", "sector"), "qty": hcol("quantity", "qty"),
+    }
+
+
+def _parse_sheet_holdings(rows: list, scheme: str, as_of_str: str,
+                          source_url: str, source_tag: str) -> list[dict]:
+    """ISIN-keyed holdings from one scheme sheet; weight normalised to 0–100."""
+    cols = _find_cols(rows)
+    if not cols or cols["name"] is None:
         return []
 
-    def cell(r: list, idx: Optional[int]):
-        return r[idx] if idx is not None and idx < len(r) else None
+    def cell(r: list, key: str):
+        j = cols[key]
+        return r[j] if j is not None and j < len(r) else None
 
     out: list[dict] = []
-    for r in rows[header_idx + 1:]:
-        raw_isin = cell(r, ci_isin)
-        isin = str(raw_isin).strip().replace("\t", "") if raw_isin else ""
+    for r in rows[cols["header_idx"] + 1:]:
+        iv = cell(r, "isin")
+        isin = str(iv).strip().replace("\t", "") if iv else ""
         if not _ISIN_RE.match(isin):
             continue                                   # drops aggregates/cash/TREPS/derivatives
-        name = str(cell(r, ci_name) or "").strip()
+        name = str(cell(r, "name") or "").strip()
         if not name:
             continue
-        mv_lakh = _to_float(cell(r, ci_mv))
-        weight = _to_float(cell(r, ci_wt))
-        sector = cell(r, ci_ind)
+        mv_lakh = _to_float(cell(r, "mv"))
+        sector = cell(r, "ind")
         out.append({
-            "scheme_code": scheme_name,                # resolved to AMFI code by the adapter
+            "scheme_code": scheme,                     # resolved to AMFI code by the adapter
             "as_of_month": as_of_str,
             "security_isin": isin,
             "security_name": name,
             "instrument_type": None,
             "sector": str(sector).strip() if sector else None,
             "rating": None,
-            "quantity": _to_float(cell(r, ci_qty)),
+            "quantity": _to_float(cell(r, "qty")),
             "market_value_inr": (mv_lakh * 100000.0) if mv_lakh is not None else None,  # ₹lakh → ₹
-            "weight_pct": weight,
+            "weight_pct": _to_float(cell(r, "wt")),
             "source": source_tag,
             "source_url": source_url,
         })
 
-    # Normalise weight to percent (0–100): some AMCs report a fraction (sum≈1).
     weights = [h["weight_pct"] for h in out if h["weight_pct"] is not None]
-    if weights and sum(weights) < 2.5:
+    if weights and sum(weights) < 2.5:                 # fraction (sum≈1) → percent
         for h in out:
             if h["weight_pct"] is not None:
                 h["weight_pct"] = round(h["weight_pct"] * 100, 4)
     return out
 
 
-def parse_disclosure_zip(zip_bytes: bytes, as_of_month: date,
-                         source_url: str, source_tag: str) -> list[dict]:
-    """Parse a monthly-disclosure ZIP (one xlsx per fund) → holding rows.
+# Sheets that are not a scheme portfolio (index/summary/disclaimer riders).
+_SKIP_SHEET_RE = re.compile(r"^(index|cover|content|disclaimer|risk|notes?|summary)\b", re.I)
 
-    scheme_code is set to the fund NAME (the xlsx filename); the adapter
-    resolves it to AMFI scheme_codes.
+
+def parse_disclosure(data: bytes, ext: str, as_of_month: date,
+                     source_url: str, source_tag: str,
+                     fallback_scheme: Optional[str] = None) -> list[dict]:
+    """Parse a monthly disclosure into holding rows (scheme_code = fund NAME).
+
+    Handles a ZIP (one workbook per fund, or a consolidated workbook inside),
+    a single per-fund workbook, and a single CONSOLIDATED workbook (one sheet
+    per scheme). .xlsx and legacy .xls both supported.
     """
     as_of_str = date(as_of_month.year, as_of_month.month, 1).isoformat()
-    out: list[dict] = []
-    try:
-        zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
-    except zipfile.BadZipFile:
-        logger.warning("advisorkhoj: not a valid zip (%s)", source_url)
-        return out
-    for name in zf.namelist():
-        if not name.lower().endswith((".xlsx", ".xls")):
-            continue
-        scheme_name = name.rsplit("/", 1)[-1].rsplit(".", 1)[0].strip()
+
+    if ext == "zip":
+        out: list[dict] = []
         try:
-            out.extend(_parse_workbook(zf.read(name), scheme_name, as_of_str, source_url, source_tag))
-        except Exception as e:                              # noqa: BLE001
-            logger.debug("advisorkhoj: member %r parse skipped: %s", scheme_name, e)
-    return out
+            zf = zipfile.ZipFile(io.BytesIO(data))
+        except zipfile.BadZipFile:
+            logger.warning("advisorkhoj: not a valid zip (%s)", source_url)
+            return out
+        for name in zf.namelist():
+            if not name.lower().endswith((".xlsx", ".xls")):
+                continue
+            stem = name.rsplit("/", 1)[-1].rsplit(".", 1)[0].strip()
+            member_ext = name.rsplit(".", 1)[-1].lower()
+            try:
+                out.extend(parse_disclosure(zf.read(name), member_ext, as_of_month,
+                                            source_url, source_tag, fallback_scheme=stem))
+            except Exception as e:                          # noqa: BLE001
+                logger.debug("advisorkhoj: member %r parse skipped: %s", stem, e)
+        return out
+
+    sheets = _load_sheets(data)
+    if not sheets:
+        return []
+
+    # Consolidated workbook (one sheet per scheme) vs single per-fund workbook.
+    if len(sheets) > 3:
+        out = []
+        for name, rows in sheets:
+            if _SKIP_SHEET_RE.match(name.strip()):
+                continue
+            scheme = _scheme_from_sheet(rows) or name.strip()
+            out.extend(_parse_sheet_holdings(rows, scheme, as_of_str, source_url, source_tag))
+        return out
+
+    # Single fund: the first sheet is the portfolio (a 'Derivative' detail
+    # sheet, if any, is skipped). Prefer the filename (cleaner than the
+    # in-sheet title), then the sheet title.
+    name, rows = sheets[0]
+    scheme = fallback_scheme or _scheme_from_sheet(rows) or name.strip()
+    return _parse_sheet_holdings(rows, scheme, as_of_str, source_url, source_tag)
+
+
+def parse_disclosure_zip(zip_bytes: bytes, as_of_month: date,
+                         source_url: str, source_tag: str) -> list[dict]:
+    """Back-compat wrapper: parse a disclosure ZIP into holding rows."""
+    return parse_disclosure(zip_bytes, "zip", as_of_month, source_url, source_tag)
 
 
 async def advisorkhoj_holdings_adapter(
@@ -251,7 +356,10 @@ async def advisorkhoj_holdings_adapter(
         return []
 
     source_tag = f"{amc_id.upper()}_DISCLOSURE_ADVISORKHOJ"
-    parsed = parse_disclosure_zip(data, as_of_month, url, source_tag)
+    ext = url.split("?")[0].rsplit(".", 1)[-1].lower()
+    if ext not in ("zip", "xlsx", "xls"):
+        ext = "zip"
+    parsed = parse_disclosure(data, ext, as_of_month, url, source_tag)
     if not parsed:
         logger.info("advisorkhoj[%s]: %s parsed 0 holdings", amc_id, url)
         return []
