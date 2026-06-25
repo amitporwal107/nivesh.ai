@@ -271,6 +271,7 @@ export const SectorMetricsC = z.object({
   avg_return_5d:    z.number().nullable().optional(),
   avg_return_20d:   z.number().nullable().optional(),
   avg_return_60d:   z.number().nullable().optional(),
+  avg_return_1y:    z.number().nullable().optional(),
   index_pct_change: z.number().nullable().optional(),
   index_pe:         z.number().nullable().optional(),
 });
@@ -281,6 +282,7 @@ export const SectorTopCompanyC = z.object({
   market_cap_cr: z.number().nullable().optional(),
   return_1d_pct: z.number().nullable().optional(),
   return_5d_pct: z.number().nullable().optional(),
+  return_1y_pct: z.number().nullable().optional(),
   pe_ttm:        z.number().nullable().optional(),
 });
 

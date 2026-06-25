@@ -171,30 +171,62 @@ def _mean(values: List[float]) -> Optional[float]:
 
 # ── Grounding: fetch real per-stock facts from the data lake ──────────────────
 async def _fetch_stocks(pool) -> List[Dict[str, Any]]:
-    """Latest-date per-stock facts straight from the base feature table.
+    """Per-stock facts for the latest trading day, as unified dicts:
+    {symbol, name, sector, industry, return_1y_pct, market_cap_cr, pe_ttm, pb,
+    roe_pct, _as_of}.
 
-    Sourced from nidp.stock_features_daily — the daily-refreshed derived-metrics
-    table the platform already depends on (it carries sector, industry,
-    market_cap_cr, pe_ttm, pb, roe_pct and 5d/20d/60d returns) — joined to
-    ref.security_master for the company name. We deliberately do NOT depend on
-    the analytics.stock_card layer (it has no market-cap/PE and its nightly
-    refresh has been unreliable). DISTINCT ON dedupes the
-    (symbol, as_of_date, source) primary key so each stock is counted once,
-    preferring the row that actually has a market cap.
-
-    Real data only — returns [] on failure. stock_features_daily has no 1-day
-    return, so breadth and the headline move are computed on the 5-day return.
+    Prefers the DaaS screener: on Cloud Run the app's own Postgres does NOT carry
+    the ingested nidp.* rows (often not even the tables), so the sector
+    aggregates must be sourced over DaaS like the other Market Pulse tabs. Falls
+    back to a direct PG read of nidp.stock_features_daily where the data lake is
+    colocated with the app. Real data only — [] when neither path yields rows.
     """
+    rows = await _fetch_stocks_daas()
+    if rows:
+        return rows
+    return await _fetch_stocks_pg(pool)
+
+
+async def _fetch_stocks_daas() -> List[Dict[str, Any]]:
+    """Universe via the deployed DaaS /v1/stocks/screener (nidp.stock_features_daily)."""
+    try:
+        from services.copilot_tools import daas_client
+        if not daas_client.is_configured():
+            return []
+        rows = await daas_client.get_stock_screener(limit=2000, sort_by="market_cap_cr")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("sector_analysis daas screener failed: %s", e)
+        return []
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        if not r.get("sector"):
+            continue
+        out.append({
+            "symbol":        r.get("symbol"),
+            "name":          r.get("symbol"),   # screener carries no company name
+            "sector":        r.get("sector"),
+            "industry":      r.get("industry"),
+            "return_1y_pct": _f(r.get("return_252d_pct")),
+            "market_cap_cr": _f(r.get("market_cap_cr")),
+            "pe_ttm":        _f(r.get("pe_ttm")),
+            "pb":            _f(r.get("pb")),
+            "roe_pct":       _f(r.get("roe_pct")),
+            "_as_of":        r.get("as_of_date"),
+        })
+    return out
+
+
+async def _fetch_stocks_pg(pool) -> List[Dict[str, Any]]:
+    """Direct PG read — used where the nidp data lake is colocated with the app.
+    DISTINCT ON dedupes the (symbol, as_of_date, source) PK so each stock counts
+    once, preferring the row that actually has a market cap."""
     sql = """
         SELECT DISTINCT ON (sfd.symbol)
                sfd.symbol,
                sm.security_name AS company_name,
                sfd.sector,
                sfd.industry,
-               sfd.return_5d_pct,
-               sfd.return_20d_pct,
-               sfd.return_60d_pct,
-               sfd.close,
+               sfd.return_252d_pct,
                sfd.market_cap_cr,
                sfd.pe_ttm,
                sfd.pb,
@@ -211,9 +243,8 @@ async def _fetch_stocks(pool) -> List[Dict[str, Any]]:
             as_of = await conn.fetchval("SELECT max(as_of_date) FROM nidp.stock_features_daily")
             rows = await conn.fetch(sql)
     except Exception as e:  # noqa: BLE001
-        logger.warning("sector_analysis fetch_stocks failed: %s", e)
+        logger.warning("sector_analysis fetch_stocks_pg failed: %s", e)
         return []
-
     out: List[Dict[str, Any]] = []
     for r in rows:
         out.append({
@@ -221,9 +252,7 @@ async def _fetch_stocks(pool) -> List[Dict[str, Any]]:
             "name":          r["company_name"] or r["symbol"],
             "sector":        r["sector"],
             "industry":      r["industry"],
-            "return_5d_pct":  _f(r["return_5d_pct"]),
-            "return_20d_pct": _f(r["return_20d_pct"]),
-            "return_60d_pct": _f(r["return_60d_pct"]),
+            "return_1y_pct": _f(r["return_252d_pct"]),
             "market_cap_cr": _f(r["market_cap_cr"]),
             "pe_ttm":        _f(r["pe_ttm"]),
             "pb":            _f(r["pb"]),
@@ -266,17 +295,15 @@ def _headline(name: str, m: Dict[str, Any]) -> str:
     breadth = "advancing broadly" if adv >= dec * 1.2 else "under pressure" if dec >= adv * 1.2 else "mixed"
     pe = m.get("median_pe")
     val = f", ~{pe:.1f}× median P/E" if pe else ""
-    return f"{name}: {n} stocks {breadth} over the past week ({adv} up / {dec} down){val}."
+    return f"{name}: {n} stocks {breadth} over the past year ({adv} up / {dec} down){val}."
 
 
 def _metric_bullets(m: Dict[str, Any], benchmark: str) -> List[str]:
     out: List[str] = []
     if m.get("market_cap_cr") is not None:
         out.append(f"Aggregate market cap ₹{m['market_cap_cr']:,.0f} Cr across {m.get('stock_count', 0)} stocks")
-    if m.get("avg_return_5d") is not None:
-        out.append(f"Avg 1-week move {'+' if m['avg_return_5d'] >= 0 else ''}{m['avg_return_5d']:.2f}%")
-    if m.get("avg_return_20d") is not None:
-        out.append(f"Avg 1-month return {'+' if m['avg_return_20d'] >= 0 else ''}{m['avg_return_20d']:.2f}%")
+    if m.get("avg_return_1y") is not None:
+        out.append(f"Avg 1-year return {'+' if m['avg_return_1y'] >= 0 else ''}{m['avg_return_1y']:.2f}%")
     if m.get("median_pe") is not None:
         out.append(f"Median P/E {m['median_pe']:.1f}× (median ROE {m['median_roe']:.1f}%)"
                    if m.get("median_roe") is not None else f"Median P/E {m['median_pe']:.1f}×")
@@ -294,9 +321,10 @@ def _build_profile_doc(meta: Dict[str, str], stocks: List[Dict[str, Any]],
     if len(members) < MIN_STOCKS:
         return None
 
-    # No 1-day return in the base table — breadth is measured on the 5-day move.
-    adv = sum(1 for s in members if (s["return_5d_pct"] or 0) > 0)
-    dec = sum(1 for s in members if (s["return_5d_pct"] or 0) < 0)
+    # The screener exposes a 1-year return (return_252d_pct) — breadth and the
+    # headline move are measured on that.
+    adv = sum(1 for s in members if (s["return_1y_pct"] or 0) > 0)
+    dec = sum(1 for s in members if (s["return_1y_pct"] or 0) < 0)
     mcap = sum(s["market_cap_cr"] for s in members if s["market_cap_cr"] is not None)
     pes = [s["pe_ttm"] for s in members if s["pe_ttm"] is not None and 0 < s["pe_ttm"] <= 200]
     idx = index_eod.get(meta["benchmark"], {})
@@ -309,9 +337,7 @@ def _build_profile_doc(meta: Dict[str, str], stocks: List[Dict[str, Any]],
         "median_pe":        _median(pes),
         "median_pb":        _median([s["pb"] for s in members]),
         "median_roe":       _median([s["roe_pct"] for s in members]),
-        "avg_return_5d":    _mean([s["return_5d_pct"] for s in members]),
-        "avg_return_20d":   _mean([s["return_20d_pct"] for s in members]),
-        "avg_return_60d":   _mean([s["return_60d_pct"] for s in members]),
+        "avg_return_1y":    _mean([s["return_1y_pct"] for s in members]),
         "index_pct_change": idx.get("pct_change"),
         "index_pe":         idx.get("pe_ratio"),
     }
@@ -324,7 +350,7 @@ def _build_profile_doc(meta: Dict[str, str], stocks: List[Dict[str, Any]],
         "symbol":        s["symbol"],
         "name":          s["name"],
         "market_cap_cr": s["market_cap_cr"],
-        "return_5d_pct": s["return_5d_pct"],
+        "return_1y_pct": s["return_1y_pct"],
         "pe_ttm":        s["pe_ttm"],
     } for s in top]
 
@@ -335,7 +361,7 @@ def _build_profile_doc(meta: Dict[str, str], stocks: List[Dict[str, Any]],
         "icon":            meta["icon"],
         "blurb":           meta["blurb"],
         "benchmark_index": meta["benchmark"],
-        "as_of_date":      as_of.isoformat() if as_of else None,
+        "as_of_date":      (as_of.isoformat() if hasattr(as_of, "isoformat") else as_of) or None,
         "generated_at":    generated_at,
         "metrics":         metrics,
         "top_companies":   top_companies,
@@ -353,6 +379,18 @@ async def diagnose(pool) -> Dict[str, Any]:
     vs empty/NULL-sector data) without needing DB/log access. Each probe is
     isolated so one failure (e.g. a missing table) still reports the rest."""
     out: Dict[str, Any] = {}
+
+    # DaaS is the primary path (Cloud Run has no local nidp.* rows) — probe it first.
+    try:
+        from services.copilot_tools import daas_client
+        out["daas_configured"] = daas_client.is_configured()
+        if out["daas_configured"]:
+            sample = await daas_client.get_stock_screener(limit=5)
+            out["daas_screener_rows"] = len(sample)
+            if sample:
+                out["daas_screener_keys"] = sorted(sample[0].keys())
+    except Exception as e:  # noqa: BLE001
+        out["daas_error"] = str(e)[:200]
 
     async def _val(key: str, sql: str) -> None:
         try:
@@ -418,8 +456,7 @@ def _facts_block(doc: Dict[str, Any]) -> str:
         f"Stocks covered: {m.get('stock_count')} ({m.get('advancing')} advancing, {m.get('declining')} declining today)",
         f"Aggregate market cap: ₹{m['market_cap_cr']:,.0f} Cr" if m.get("market_cap_cr") else "Aggregate market cap: n/a",
         f"Median P/E: {m.get('median_pe')}, median P/B: {m.get('median_pb')}, median ROE: {m.get('median_roe')}%",
-        f"Avg returns — 1w: {m.get('avg_return_5d')}%, "
-        f"1m: {m.get('avg_return_20d')}%, 3m: {m.get('avg_return_60d')}%",
+        f"Avg 1-year return: {m.get('avg_return_1y')}%",
         f"{doc['benchmark_index']} index: {m.get('index_pct_change')}% today, P/E {m.get('index_pe')}",
     ]
     top = ", ".join(f"{c['name']} (₹{c['market_cap_cr']:,.0f} Cr)" for c in doc.get("top_companies", [])[:5]

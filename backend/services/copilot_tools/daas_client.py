@@ -221,6 +221,36 @@ async def list_stock_universe(limit: int = 800) -> List[Dict[str, Any]]:
     return rows if isinstance(rows, list) else []
 
 
+async def get_stock_screener(
+    limit: int = 2000,
+    sort_by: str = "market_cap_cr",
+    sort_desc: bool = True,
+    sector: Optional[str] = None,
+    market_cap: Optional[str] = None,
+    timeout: float = 15.0,
+) -> List[Dict[str, Any]]:
+    """Per-stock V3 primitive rows from the NIDP feature store.
+
+    Calls GET /v1/stocks/screener (nidp.stock_features_daily, latest date). Each
+    row carries symbol, sector, industry, market_cap_bucket, market_cap_cr,
+    pe_ttm, pb, roe_pct, return_252d_pct, momentum_score, etc. Used to build the
+    Sector Analysis aggregates over DaaS when the app has no direct nidp.* rows.
+    Returns [] on any failure so the caller can fall back to a direct PG read.
+    """
+    params: Dict[str, Any] = {"limit": limit, "sort_by": sort_by, "sort_desc": str(sort_desc).lower()}
+    if sector:
+        params["sector"] = sector
+    if market_cap:
+        params["market_cap"] = market_cap
+    try:
+        data = await _get("/stocks/screener", params=params, timeout=timeout)
+    except DaasError as exc:
+        logger.debug("get_stock_screener: %s", exc)
+        return []
+    rows = data.get("data") if isinstance(data, dict) else None
+    return rows if isinstance(rows, list) else []
+
+
 async def get_corporate_actions(symbol: str, limit: int = 8) -> List[Dict[str, Any]]:
     """Recent corporate actions (dividends, splits, bonuses) for one symbol.
 

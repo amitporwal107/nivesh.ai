@@ -94,10 +94,10 @@ function SectorGridCard({ s }: { s: SectorCard }) {
         <div className="flex items-start justify-between gap-2">
           <span className="text-2xl leading-none">{s.icon ?? "📊"}</span>
           <span
-            title="Average 1-week return"
-            className={cn("font-mono text-[13px]", tone(s.metrics.avg_return_5d))}
+            title="Average 1-year return"
+            className={cn("font-mono text-[13px]", tone(s.metrics.avg_return_1y))}
           >
-            {fmtPct(s.metrics.avg_return_5d)}
+            {fmtPct(s.metrics.avg_return_1y)}
           </span>
         </div>
         <h3 className="mt-2 font-display text-lg leading-tight text-ink">{s.name}</h3>
