@@ -43,6 +43,73 @@ logger = logging.getLogger(__name__)
 AdapterFn = Callable[[aiohttp.ClientSession, date], Awaitable[list[dict]]]
 
 
+# ---------------------------------------------------------------------------
+# Scheme-name → AMFI scheme_code resolution
+# ---------------------------------------------------------------------------
+# Excel portfolio files name a fund once (no plan/option suffix); the AMFI master
+# has one row per plan variant (Regular/Direct × Growth/IDCW/…). We must map the
+# Excel name to ALL its plan-variant codes, and ONLY those.
+#
+# The previous heuristic ("split at the first '(' or '-'") collapsed distinct
+# funds that share a prefix before a parenthetical — e.g. every "SBI Fixed
+# Maturity Plan (FMP) - Series N" became base "sbi fixed maturity plan", so 20
+# FMP series' holdings were written to ALL FMP codes (per-scheme weight summed to
+# >1000%). The fix derives a "fund identity" by stripping only the *plan suffix*,
+# then matches in precision order (exact → identity → boundary-prefix → space-
+# insensitive) so e.g. Series 1 never matches Series 14.
+_PLAN_SUFFIX_RE = re.compile(r"\s*-\s*(regular|direct|institutional|retail)\b.*$", re.I)
+_ERSTWHILE_RE = re.compile(r"\s*\(erstwhile[^)]*\)", re.I)
+
+
+def _norm_scheme_name(s: str) -> str:
+    """Lowercase + normalise punctuation/spacing for robust matching."""
+    s = _ERSTWHILE_RE.sub("", s.lower())   # drop "(Erstwhile known as …)" descriptors
+    s = s.replace("&", " and ")            # "Banking & Financial" == "Banking And Financial"
+    s = re.sub(r"[:/]", " ", s)            # "50:50" == "50 50"
+    s = re.sub(r"\s*-\s*", "-", s)         # normalise hyphen spacing
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _scheme_identity(name: str) -> str:
+    """Fund identity = scheme name with the '- <Regular|Direct> Plan - <Option>'
+    tail removed. Distinguishes FMP Series 1 from Series 14, which a naive split
+    collapsed."""
+    return _norm_scheme_name(_PLAN_SUFFIX_RE.sub("", name.strip()))
+
+
+def _build_scheme_index(db_schemes) -> dict:
+    """Index AMFI master rows (need .scheme_code, .scheme_name) for resolution."""
+    name_to_codes: dict[str, list[str]] = {}
+    ident_to_codes: dict[str, list[str]] = {}
+    sp_to_codes: dict[str, list[str]] = {}     # space/punct-insensitive (last resort)
+    for r in db_schemes:
+        name_to_codes.setdefault(_norm_scheme_name(r["scheme_name"]), []).append(r["scheme_code"])
+        ident = _scheme_identity(r["scheme_name"])
+        ident_to_codes.setdefault(ident, []).append(r["scheme_code"])
+        sp_to_codes.setdefault(re.sub(r"[^a-z0-9]", "", ident), []).append(r["scheme_code"])
+    return {"name": name_to_codes, "ident": ident_to_codes, "sp": sp_to_codes}
+
+
+def _resolve_scheme_codes(raw_name: str, index: dict) -> list[str]:
+    """Resolve an Excel fund name to AMFI codes, most-precise tier first."""
+    nm = _norm_scheme_name(raw_name)
+    if nm in index["name"]:
+        return index["name"][nm]
+    ident = _scheme_identity(raw_name)
+    if ident in index["ident"]:
+        return index["ident"][ident]
+    # Boundary-prefix: Excel "…Series 1" is a prefix of DB "…Series 1 (3668 Days)".
+    # Require a non-alphanumeric boundary so "Series 1" never matches "Series 14".
+    out = [c for di, codes in index["ident"].items()
+           if di.startswith(ident) and (len(di) == len(ident) or not di[len(ident)].isalnum())
+           for c in codes]
+    if out:
+        return out
+    # Last resort: ignore all spacing/punctuation ("Smallcap" == "Small Cap").
+    return list(index["sp"].get(re.sub(r"[^a-z0-9]", "", ident), []))
+
+
 async def _sbi_multisheet_adapter(
     http: aiohttp.ClientSession,
     as_of_month: date,
@@ -74,31 +141,12 @@ async def _sbi_multisheet_adapter(
             amc_id,
         )
 
-    import re as _re
-    name_to_codes: dict[str, list[str]] = {}
-    base_to_codes: dict[str, list[str]] = {}
-    for r in db_schemes:
-        nm = r["scheme_name"].lower().strip()
-        name_to_codes.setdefault(nm, []).append(r["scheme_code"])
-        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
-        if len(base) >= 10:
-            base_to_codes.setdefault(base, []).append(r["scheme_code"])
-
-    def _resolve_codes(raw_name: str) -> list[str]:
-        nm = raw_name.lower().strip()
-        if nm in name_to_codes:
-            return name_to_codes[nm]
-        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
-        if base in base_to_codes:
-            return base_to_codes[base]
-        return [c for n, codes in base_to_codes.items()
-                if len(n) >= 10 and (n in base or base in n)
-                for c in codes][:1]
+    index = _build_scheme_index(db_schemes)
 
     resolved: list[dict] = []
     unmapped: set[str] = set()
     for row in raw_rows:
-        codes = _resolve_codes(row["scheme_code"] or "")
+        codes = _resolve_scheme_codes(row["scheme_code"] or "", index)
         if not codes:
             unmapped.add(row["scheme_code"])
         else:
@@ -549,45 +597,18 @@ async def _amfi_holdings_adapter(
         )
     # Build two lookup maps:
     #  1. exact:  DB name (lower) → [scheme_code, ...]   (fast path)
-    #  2. prefix: DB name base (before " - " plan suffix) → [scheme_code, ...]
+    #  2. identity: DB name with plan suffix stripped → [scheme_code, ...]
     #
     # AMC Excel files emit ONE holding block per fund family (covering all
     # plan variants: Regular/Direct × Growth/IDCW). We expand each Excel
-    # block to ALL plan-level scheme_codes sharing the same base fund name.
-    import re as _re
-
-    name_to_codes: dict[str, list[str]] = {}
-    base_to_codes: dict[str, list[str]] = {}
-    for r in db_schemes:
-        nm = r["scheme_name"].lower().strip()
-        name_to_codes.setdefault(nm, []).append(r["scheme_code"])
-        # Strip parenthetical descriptions in Excel names, e.g.:
-        #   "Nippon India Growth Mid Cap Fund (Mid cap fund-...)" → base
-        # Strip plan suffixes in DB names, e.g.:
-        #   "Nippon India Growth Mid Cap Fund - Regular Plan - Growth Option" → base
-        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
-        if len(base) >= 10:  # guard against over-stripping
-            base_to_codes.setdefault(base, []).append(r["scheme_code"])
-
-    def _resolve_codes(raw_scheme_name: str) -> list[str]:
-        nm = raw_scheme_name.lower().strip()
-        # 1. Exact match
-        if nm in name_to_codes:
-            return name_to_codes[nm]
-        # 2. Strip parenthetical/descriptor from Excel name, match as prefix
-        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
-        if base in base_to_codes:
-            return base_to_codes[base]
-        # 3. Substring containment (fallback)
-        matches = [c for n, codes in base_to_codes.items()
-                   if len(n) >= 10 and (n in base or base in n)
-                   for c in codes]
-        return matches[:1]  # take first match only to avoid over-expansion
+    # block to ALL plan-level scheme_codes sharing the same fund identity
+    # (see _resolve_scheme_codes — precision-ordered, collision-free).
+    index = _build_scheme_index(db_schemes)
 
     resolved: list[dict] = []
     unmapped: set[str] = set()
     for row in raw_rows:
-        codes = _resolve_codes(row["scheme_code"] or "")
+        codes = _resolve_scheme_codes(row["scheme_code"] or "", index)
         if not codes:
             unmapped.add(row["scheme_code"])
             continue
