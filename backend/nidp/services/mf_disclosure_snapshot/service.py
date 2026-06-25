@@ -62,6 +62,7 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
         adapters_failed = 0
         ter_central = 0
         aaum_central = 0
+        factsheet_aum = 0
 
         with time_ingester(SERVICE_NAME):
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
@@ -138,6 +139,31 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
                     logger.warning("mf_disclosure_snapshot: central AAUM pass failed: %s: %s",
                                    type(e).__name__, e)
 
+                # Per-AMC factsheet AAUM pass — the AMFI schemewise AAUM API
+                # only resolves a fraction of the universe, so each AMC's
+                # monthly factsheet PDF backfills the AUM it misses. Fund-level
+                # AAUM is written to every plan variant (see factsheet.py).
+                # Fills only where the authoritative central pass had nothing,
+                # so it never overrides a real AMFI AAUM value.
+                try:
+                    from .factsheet import FACTSHEET_SOURCES, fetch_factsheet_aum
+                    for amc_id in FACTSHEET_SOURCES:
+                        fs_rows = await fetch_factsheet_aum(amc_id, session, snapshot_date)
+                        for r in fs_rows:
+                            row = merged.setdefault(r["scheme_code"], {
+                                "scheme_code": r["scheme_code"],
+                                "source_url": r.get("source_url"),
+                            })
+                            if row.get("aum_inr_crore") is None:
+                                row["aum_inr_crore"] = r["aum_inr_crore"]
+                                if not row.get("source_url"):
+                                    row["source_url"] = r.get("source_url")
+                                factsheet_aum += 1
+                    logger.info("mf_disclosure_snapshot: factsheet AAUM pass filled %d schemes", factsheet_aum)
+                except Exception as e:                                  # noqa: BLE001
+                    logger.warning("mf_disclosure_snapshot: factsheet AAUM pass failed: %s: %s",
+                                   type(e).__name__, e)
+
             all_rows = list(merged.values())
             n_rows = await upsert_snapshot(all_rows, snapshot_date, run.run_id)
             n_events = await emit_events_from_snapshot(snapshot_date, run.run_id)
@@ -149,6 +175,7 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
             run.metadata["adapters_failed"] = adapters_failed
             run.metadata["ter_central"] = ter_central
             run.metadata["aaum_central"] = aaum_central
+            run.metadata["factsheet_aum"] = factsheet_aum
 
             INGESTER_ROWS.labels(service=SERVICE_NAME, kind="fetched").inc(len(all_rows))
             INGESTER_ROWS.labels(service=SERVICE_NAME, kind="inserted").inc(n_rows)
