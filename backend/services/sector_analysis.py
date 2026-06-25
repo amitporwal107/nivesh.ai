@@ -204,7 +204,9 @@ async def _fetch_stocks_daas() -> List[Dict[str, Any]]:
         return []
     out: List[Dict[str, Any]] = []
     for r in rows:
-        if not r.get("sector"):
+        # Classify on sector OR industry — _classify falls back to industry, so a
+        # null-sector-but-populated-industry universe still buckets correctly.
+        if not (r.get("sector") or r.get("industry")):
             continue
         out.append({
             "symbol":        r.get("symbol"),
@@ -240,7 +242,7 @@ async def _fetch_stocks_pg(pool) -> List[Dict[str, Any]]:
           LEFT JOIN ref.security_master sm
                  ON sm.entity_type = 'EQUITY' AND sm.symbol = sfd.symbol
          WHERE sfd.as_of_date = (SELECT max(as_of_date) FROM nidp.stock_features_daily)
-           AND sfd.sector IS NOT NULL
+           AND (sfd.sector IS NOT NULL OR sfd.industry IS NOT NULL)
          ORDER BY sfd.symbol, sfd.market_cap_cr DESC NULLS LAST
     """
     try:
