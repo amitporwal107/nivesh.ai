@@ -238,6 +238,66 @@ async def get_corporate_actions(symbol: str, limit: int = 8) -> List[Dict[str, A
     return rows if isinstance(rows, list) else []
 
 
+# ── Market Pulse feeds — read the populated NIDP DB via DaaS ──────────────
+# The Nivesh app's own Postgres carries the nidp.* schema but none of the
+# ingested rows on some environments (staging), so the Market Pulse tabs must
+# source these over DaaS rather than the app's direct pool. Each returns the
+# dict the app's /api/markets/* endpoint forwards verbatim, or None on failure.
+
+async def get_market_pulse_fii_dii(days: int = 90) -> Optional[Dict[str, Any]]:
+    try:
+        data = await _get("/market-pulse/fii-dii", params={"days": days})
+    except DaasError as exc:
+        logger.debug("get_market_pulse_fii_dii: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def get_market_pulse_corporate_actions(
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
+    action_type: Optional[str] = None, q: Optional[str] = None,
+    limit: int = 200, offset: int = 0,
+) -> Optional[Dict[str, Any]]:
+    params: Dict[str, Any] = {"limit": limit, "offset": offset}
+    if date_from:   params["date_from"] = date_from
+    if date_to:     params["date_to"] = date_to
+    if action_type: params["action_type"] = action_type
+    if q:           params["q"] = q
+    try:
+        data = await _get("/market-pulse/corporate-actions", params=params)
+    except DaasError as exc:
+        logger.debug("get_market_pulse_corporate_actions: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def get_market_pulse_articles(
+    days: int = 7, category: Optional[str] = None, impact: Optional[str] = None,
+    sentiment: Optional[str] = None, q: Optional[str] = None,
+    limit: int = 60, offset: int = 0,
+) -> Optional[Dict[str, Any]]:
+    params: Dict[str, Any] = {"days": days, "limit": limit, "offset": offset}
+    if category:  params["category"] = category
+    if impact:    params["impact"] = impact
+    if sentiment: params["sentiment"] = sentiment
+    if q:         params["q"] = q
+    try:
+        data = await _get("/market-pulse/articles", params=params)
+    except DaasError as exc:
+        logger.debug("get_market_pulse_articles: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def get_market_pulse_movers(cap: str = "large") -> Optional[Dict[str, Any]]:
+    try:
+        data = await _get("/market-pulse/movers", params={"cap": cap})
+    except DaasError as exc:
+        logger.debug("get_market_pulse_movers: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
 async def get_quarterly_financials(
     symbol: str,
     limit: int = 8,

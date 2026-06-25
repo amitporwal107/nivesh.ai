@@ -398,6 +398,27 @@ async def _aux_cached(key: str, builder) -> Any:
     return data
 
 
+async def _daas_first(daas_method: str, daas_kwargs: Dict[str, Any],
+                      pg_builder, empty: Dict[str, Any]) -> Dict[str, Any]:
+    """Prefer DaaS (which reads the populated NIDP data lake); fall back to the
+    app's direct PG pool. On some environments (staging) the app's own Postgres
+    carries the nidp.* schema but no rows, so DaaS is the real source there; on
+    prod either path has data. Returns `empty` only if both are unavailable."""
+    from services.copilot_tools import daas_client
+    if daas_client.is_configured():
+        try:
+            data = await getattr(daas_client, daas_method)(**daas_kwargs)
+            if data is not None:
+                return data
+        except Exception as e:  # noqa: BLE001
+            logger.warning("markets %s via DaaS failed: %s", daas_method, e)
+    from services import pg_client
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return empty
+    return await pg_builder(pool)
+
+
 # SEBI-style cap buckets as stored by NIDP (migration 053, stock_features_daily).
 _CAP_BUCKET = {"large": "LARGE_CAP", "mid": "MID_CAP", "small": "SMALL_CAP"}
 
@@ -463,11 +484,11 @@ async def markets_movers(request: Request, cap: str = "large"):
     cap = (cap or "large").lower()
     if cap not in _CAP_BUCKET:
         cap = "large"
-    from services import pg_client
-    pool = await pg_client.get_pool()
-    if pool is None:
-        return {"ok": False, "error": "no_pg_pool", "cap": cap, "gainers": [], "losers": []}
-    data = await _aux_cached(f"movers:{cap}", lambda: _movers_by_cap(pool, cap))
+    data = await _aux_cached(f"movers:{cap}", lambda: _daas_first(
+        "get_market_pulse_movers", {"cap": cap},
+        lambda pool: _movers_by_cap(pool, cap),
+        {"as_of": None, "cap": cap, "gainers": [], "losers": []},
+    ))
     return {"ok": True, **data}
 
 
@@ -535,11 +556,11 @@ async def markets_fii_dii(request: Request, days: int = 90):
     """
     await get_current_user(request)
     days = max(7, min(int(days or 90), 365))
-    from services import pg_client
-    pool = await pg_client.get_pool()
-    if pool is None:
-        return {"ok": False, "error": "no_pg_pool", "daily": [], "monthly": []}
-    data = await _aux_cached(f"fii_dii:{days}", lambda: _fii_dii_series(pool, days))
+    data = await _aux_cached(f"fii_dii:{days}", lambda: _daas_first(
+        "get_market_pulse_fii_dii", {"days": days},
+        lambda pool: _fii_dii_series(pool, days),
+        {"as_of": None, "daily": [], "monthly": []},
+    ))
     return {"ok": True, **data}
 
 
@@ -639,12 +660,13 @@ async def markets_corporate_actions(
         a_type = None
     limit = max(1, min(int(limit or 200), 500))
     offset = max(0, int(offset or 0))
-    from services import pg_client
-    pool = await pg_client.get_pool()
-    if pool is None:
-        return {"ok": False, "error": "no_pg_pool", "actions": [], "type_counts": {}}
     key = f"ca:{d_from}:{d_to}:{a_type}:{q}:{limit}:{offset}"
-    data = await _aux_cached(key, lambda: _corporate_actions(pool, d_from, d_to, a_type, q, limit, offset))
+    data = await _aux_cached(key, lambda: _daas_first(
+        "get_market_pulse_corporate_actions",
+        {"date_from": d_from, "date_to": d_to, "action_type": a_type, "q": q, "limit": limit, "offset": offset},
+        lambda pool: _corporate_actions(pool, d_from, d_to, a_type, q, limit, offset),
+        {"from": d_from, "to": d_to, "actions": [], "type_counts": {}},
+    ))
     return {"ok": True, "types": _CA_TYPES, **data}
 
 
@@ -741,12 +763,13 @@ async def markets_articles(
     impact = impact.lower() if impact else None
     sentiment = sentiment.lower() if sentiment else None
     category = category.lower() if category else None
-    from services import pg_client
-    pool = await pg_client.get_pool()
-    if pool is None:
-        return {"ok": False, "error": "no_pg_pool", "articles": [], "categories": {}}
     key = f"articles:{days}:{category}:{impact}:{sentiment}:{q}:{limit}:{offset}"
-    data = await _aux_cached(key, lambda: _articles(pool, days, category, impact, sentiment, q, limit, offset))
+    data = await _aux_cached(key, lambda: _daas_first(
+        "get_market_pulse_articles",
+        {"days": days, "category": category, "impact": impact, "sentiment": sentiment, "q": q, "limit": limit, "offset": offset},
+        lambda pool: _articles(pool, days, category, impact, sentiment, q, limit, offset),
+        {"articles": [], "categories": {}},
+    ))
     return {"ok": True, **data}
 
 
