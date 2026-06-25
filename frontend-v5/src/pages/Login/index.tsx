@@ -11,6 +11,7 @@ import { usePortfolioSummary } from "@/hooks/use-portfolio";
 import { useHealthAnalysis } from "@/hooks/use-insights";
 import { authService } from "@/services";
 import { useToastStore } from "@/stores/toast.store";
+import { useImpersonationStore } from "@/stores/impersonation.store";
 import { ALLOWED_DOMAINS } from "@/types/user";
 
 /** Decode a JWT's `aud` claim (for diagnostics only — no verification). */
@@ -54,15 +55,26 @@ export default function LoginPage() {
         email: user.email,
         onboardingCompleted: user.onboardingCompleted,
       });
-      // Diagnostic: confirm the session cookie is actually re-sent on the NEXT
-      // request (this is what RequireAuth + every data call depends on).
+      // Confirm the session cookie is re-sent on the NEXT request (RequireAuth +
+      // every data call depend on it), AND read workspace_type — it only comes
+      // back on /auth/me, not the google exchange, and decides the landing page.
+      let meCheck: Awaited<ReturnType<typeof authService.me>> | null = null;
       try {
-        const meCheck = await authService.me();
+        meCheck = await authService.me();
         dlog("auth/me probe OK (session cookie works)", { email: meCheck.email });
       } catch (probeErr) {
         dlog("auth/me probe FAILED (cookie not sent on next request)", probeErr);
       }
-      navigate(user.onboardingCompleted ? "/dashboard" : "/onboarding");
+      // Fresh login starts at the workspace root — drop any impersonation left
+      // in the persisted store from a previous session so the advisor doesn't
+      // land inside a stale client view (full nav + banner).
+      useImpersonationStore.getState().clear();
+      // Advisors land on their workspace (reduced advisor nav), not their own
+      // portfolio dashboard. To view their own book they open the SELF profile.
+      const dest = !user.onboardingCompleted ? "/onboarding"
+        : (meCheck?.workspaceType || "").toUpperCase() === "ADVISORY" ? "/advisor"
+        : "/dashboard";
+      navigate(dest);
     } catch (err) {
       // Log the REAL backend rejection (status, code, message) — this is the
       // line that tells us whitelist vs audience vs network, etc.
