@@ -227,6 +227,7 @@ async def get_stock_screener(
     sort_desc: bool = True,
     sector: Optional[str] = None,
     market_cap: Optional[str] = None,
+    offset: int = 0,
     timeout: float = 15.0,
 ) -> List[Dict[str, Any]]:
     """Per-stock V3 primitive rows from the NIDP feature store.
@@ -237,7 +238,10 @@ async def get_stock_screener(
     Sector Analysis aggregates over DaaS when the app has no direct nidp.* rows.
     Returns [] on any failure so the caller can fall back to a direct PG read.
     """
-    params: Dict[str, Any] = {"limit": limit, "sort_by": sort_by, "sort_desc": str(sort_desc).lower()}
+    params: Dict[str, Any] = {
+        "limit": limit, "offset": offset,
+        "sort_by": sort_by, "sort_desc": str(sort_desc).lower(),
+    }
     if sector:
         params["sector"] = sector
     if market_cap:

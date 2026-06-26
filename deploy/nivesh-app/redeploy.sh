@@ -130,10 +130,18 @@ else
 
   # Self-update: also replace this script with the repo version so the VM
   # always runs the latest redeploy.sh without a manual copy step.
+  #
+  # ATOMIC replace (write temp + mv), NOT in-place cp. `cp -f` truncates and
+  # rewrites the SAME inode this bash process is still reading from; when the
+  # new file differs in length, our read offset shifts mid-run and the script
+  # dies with garbage like "line N: x: command not found" (status 127). `mv`
+  # is a rename to a NEW inode, so the running shell keeps reading the original
+  # (now-unlinked but still-open) inode and is never corrupted.
   if [[ -f "$REPO_DEPLOY/redeploy.sh" ]]; then
-    cp -f "$REPO_DEPLOY/redeploy.sh" "$DEPLOY_DIR/redeploy.sh"
-    chmod +x "$DEPLOY_DIR/redeploy.sh"
-    ok "  synced: redeploy.sh (self-updated)"
+    cp -f "$REPO_DEPLOY/redeploy.sh" "$DEPLOY_DIR/redeploy.sh.tmp"
+    chmod +x "$DEPLOY_DIR/redeploy.sh.tmp"
+    mv -f "$DEPLOY_DIR/redeploy.sh.tmp" "$DEPLOY_DIR/redeploy.sh"
+    ok "  synced: redeploy.sh (self-updated, atomic)"
   fi
 
   ok "Deploy files synced."
