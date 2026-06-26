@@ -565,6 +565,78 @@
   color: var(--text);
 }
 
+/* 90-second promo video modal */
+.nvx-home .demo-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(3, 5, 8, 0.86);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 4vw, 40px);
+  animation: nvx-fade 0.2s ease-out;
+}
+@keyframes nvx-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.nvx-home .demo-modal {
+  position: relative;
+  width: 100%;
+  max-width: 1040px;
+  aspect-ratio: 16 / 9;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.6);
+  background: #05080a;
+}
+.nvx-home .demo-modal video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  background: #05080a;
+}
+.nvx-home .demo-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text);
+  background: rgba(8, 13, 11, 0.7);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--line-strong);
+  transition: background 0.2s, border-color 0.2s;
+}
+.nvx-home .demo-close:hover {
+  background: rgba(16, 28, 22, 0.92);
+  border-color: rgba(95, 231, 166, 0.45);
+}
+.nvx-home .demo-close:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nvx-home .demo-overlay {
+    animation: none;
+  }
+}
+
 /* reveal */
 .nvx-home .rv {
   opacity: 0;
