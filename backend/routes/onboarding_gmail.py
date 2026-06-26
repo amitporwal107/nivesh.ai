@@ -328,6 +328,7 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         nsdl_stmt_date: Optional[str] = None
         nsdl_monthly: List[Dict[str, Any]] = []
         defer_nsdl_txns = False
+        cams_kfin_won = False
         try:
             from services import nsdl_cas_extractor as _nsdl
             ext = _nsdl.extract_nsdl_cas(content, pan)
@@ -381,6 +382,7 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
                     holdings = [h.as_holding_dict() for h in ckext.holdings]
                     nsdl_grand_total = ckext.grand_total
                     nsdl_stmt_date = ckext.statement_date or None
+                    cams_kfin_won = True                     # no monthly table → skip Vision
                     logger.info(
                         "auto-import: CAMS/KFIN custom extractor reconciled %d holdings (₹%s, %s) for %s",
                         len(holdings), ckext.grand_total, ckext.layout, user_id,
@@ -439,18 +441,18 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         cas_total_value    = _extract_portfolio_value(raw_data)
         cas_statement_date = _extract_statement_date(raw_data)
         # Portfolio-value trend: the reconciled NSDL path parses it in the same
-        # pdfplumber pass (nsdl_monthly), so skip the ~7s OpenAI Vision call there.
-        # Vision stays the trend source for the non-NSDL layouts (CDSL/CAMS-KFin/
-        # casparser), which don't print a parseable monthly table.
+        # pdfplumber pass (nsdl_monthly), and CAMS/KFintech statements carry no monthly
+        # table at all — so skip the ~7s OpenAI Vision call for both. Vision stays the
+        # trend source only for the CDSL / casparser fallback layouts.
         cas_monthly = nsdl_monthly
-        if not nsdl_monthly:
+        if not nsdl_monthly and not cams_kfin_won:
             vision = _extract_vision_summary(content, password=pan)
             if vision:
                 if vision.get("current_value_rs"):
                     cas_total_value = float(vision["current_value_rs"])
                 if vision.get("statement_date"):
                     cas_statement_date = vision["statement_date"]
-                cas_monthly = vision.get("monthly_values")
+                cas_monthly = vision.get("monthly_values") or []
         # The NSDL custom extractor's grand total / statement date are read
         # straight from the statement and reconcile to the paisa — prefer them
         # over the casparser summary and the Vision LLM estimate when present.
@@ -539,17 +541,18 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             profile_update["cas_portfolio_value_rs"] = cas_portfolio_value
         if cas_statement_date:
             profile_update["cas_statement_date"] = cas_statement_date
+        # Always write the trend (even empty) so a statement with no monthly table
+        # clears any stale series from a prior import instead of showing it.
+        profile_update["cas_monthly_values"] = monthly_values or []
         if monthly_values:
-            profile_update["cas_monthly_values"] = monthly_values
             logger.info(
                 "gmail-import: persisting %d monthly portfolio values to MongoDB for user=%s",
                 len(monthly_values), user_id,
             )
         else:
-            logger.warning(
-                "gmail-import: cas_monthly_values is empty/null — Vision API "
-                "did not extract monthly values for user=%s (check cas_summary_vision logs)",
-                user_id,
+            logger.info(
+                "gmail-import: no monthly trend for this statement (NSDL is deterministic, "
+                "CAMS/KFin has none) — cleared cas_monthly_values for user=%s", user_id,
             )
         await db.user_profiles.update_one(
             {"user_id": user_id},
@@ -652,6 +655,7 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
     nsdl_stmt_date: Optional[str] = None
     nsdl_monthly: List[Dict[str, Any]] = []
     defer_nsdl_txns = False
+    cams_kfin_won = False
     try:
         from services import nsdl_cas_extractor as _nsdl
         ext = _nsdl.extract_nsdl_cas(content, pan)
@@ -688,6 +692,7 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
                 holdings = [h.as_holding_dict() for h in ckext.holdings]
                 nsdl_grand_total = ckext.grand_total
                 nsdl_stmt_date = ckext.statement_date or None
+                cams_kfin_won = True                     # no monthly table → skip Vision
                 logger.info("upload_cas_pdf: CAMS/KFIN custom extractor reconciled %d holdings (₹%s, %s layout)",
                             len(holdings), ckext.grand_total, ckext.layout)
             else:
@@ -714,18 +719,18 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
     cas_portfolio_value = _extract_portfolio_value(raw_data)
     cas_statement_date  = _extract_statement_date(raw_data)
     # Portfolio-value trend: the reconciled NSDL path parses it deterministically in
-    # the same pdfplumber pass (nsdl_monthly), so skip the ~7s OpenAI Vision call
-    # there. Vision stays the trend source for the non-NSDL layouts (CDSL/CAMS-KFin/
-    # casparser), which don't print a parseable monthly table.
+    # the same pdfplumber pass (nsdl_monthly), and CAMS/KFintech statements carry no
+    # monthly table at all — so skip the ~7s OpenAI Vision call for both. Vision stays
+    # the trend source only for the CDSL / casparser fallback layouts.
     cas_monthly = nsdl_monthly
-    if not nsdl_monthly:
+    if not nsdl_monthly and not cams_kfin_won:
         vision = _extract_vision_summary(content, password=pan)
         if vision:
             if vision.get("current_value_rs"):
                 cas_portfolio_value = float(vision["current_value_rs"])
             if vision.get("statement_date"):
                 cas_statement_date = vision["statement_date"]
-            cas_monthly = vision.get("monthly_values")
+            cas_monthly = vision.get("monthly_values") or []
     # Authoritative reconciled figures win over casparser summary / Vision LLM.
     if nsdl_grand_total is not None:
         cas_portfolio_value = nsdl_grand_total
@@ -746,8 +751,9 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
         profile_update["cas_portfolio_value_rs"] = cas_portfolio_value
     if cas_statement_date:
         profile_update["cas_statement_date"] = cas_statement_date
-    if cas_monthly:
-        profile_update["cas_monthly_values"] = cas_monthly
+    # Always write the trend (even empty) so a statement with no monthly table
+    # clears any stale series from a prior import instead of showing it.
+    profile_update["cas_monthly_values"] = cas_monthly or []
     await db.user_profiles.update_one(
         {"user_id": user_id},
         {"$set": profile_update, "$setOnInsert": {"user_id": user_id, "created_at": now}},
