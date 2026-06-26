@@ -16,16 +16,19 @@ test.describe("Login page", () => {
   });
 
   test("renders sign-in heading", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: /Sign in with Google/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /Read your inbox/i, level: 2 }),
+    ).toBeVisible();
   });
 
   test("renders editorial left panel with brand", async ({ page }) => {
-    await expect(page.locator(".nv-mark").first()).toBeVisible();
+    await expect(page.locator(".nvx-mark").first()).toBeVisible();
     await expect(page.getByText("Nivesh", { exact: true }).first()).toBeVisible();
   });
 
-  test("renders security footer text", async ({ page }) => {
-    await expect(page.getByText("ENCRYPTED · NEVER STORED · ARN-128459")).toBeVisible();
+  test("renders security trust copy", async ({ page }) => {
+    await expect(page.getByText(/statements never stored/i)).toBeVisible();
+    await expect(page.getByText(/Read-only Gmail access/i)).toBeVisible();
   });
 
   test.describe("magic link email validation", () => {

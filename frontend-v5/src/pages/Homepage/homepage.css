@@ -1,0 +1,654 @@
+/* ─────────────────────────────────────────────────────────────
+   Homepage — public landing. Sticky nav, hero with a live health
+   card, an on-page product tour, the "how it works" steps, the
+   scored-domains grid, a CTA band and footer. Scoped under
+   `.nvx` / `.nvx-home`. Source: niveshhome mockup.
+   ───────────────────────────────────────────────────────────── */
+.nvx-home {
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+.nvx-home .wrap {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 clamp(20px, 4vw, 56px);
+}
+.nvx-home .eyebrow {
+  font-family: var(--nvx-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.nvx-home .eyebrow b {
+  color: var(--mint);
+  font-weight: 500;
+}
+
+/* nav */
+.nvx-home .nav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: rgba(7, 11, 10, 0.72);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.nvx-home .nav-inner {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 64px;
+}
+.nvx-home .nav-links {
+  display: flex;
+  gap: 26px;
+  margin-left: 18px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.nvx-home .nav-links a {
+  cursor: pointer;
+}
+.nvx-home .nav-links a:hover {
+  color: var(--text);
+}
+.nvx-home .nav-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.nvx-home .nav-right .signin {
+  font-size: 0.9rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.nvx-home .nav-right .signin:hover {
+  color: var(--text);
+}
+.nvx-home .btn-primary {
+  background: linear-gradient(180deg, #71eeb2, var(--mint));
+  color: #06150e;
+  font-weight: 600;
+  border: none;
+  border-radius: 11px;
+  padding: 11px 18px;
+  cursor: pointer;
+  font-family: var(--nvx-sans);
+  font-size: 0.92rem;
+  box-shadow: 0 10px 28px -12px rgba(95, 231, 166, 0.7);
+  transition: transform 0.18s, filter 0.18s;
+  display: inline-block;
+}
+.nvx-home .btn-primary:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+}
+.nvx-home .btn-primary:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* hero */
+.nvx-home .hero {
+  display: grid;
+  grid-template-columns: 1fr 1.05fr;
+  gap: clamp(28px, 4vw, 64px);
+  align-items: center;
+  padding: clamp(40px, 6vw, 88px) 0 clamp(40px, 5vw, 64px);
+}
+.nvx-home .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 6px 14px 6px 6px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.015);
+}
+.nvx-home .pill .tag {
+  font-family: var(--nvx-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  color: var(--mint);
+  background: rgba(95, 231, 166, 0.12);
+  border: 1px solid rgba(95, 231, 166, 0.3);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+.nvx-home .pill .chev {
+  color: var(--faint);
+}
+.nvx-home h1.head {
+  font-family: var(--nvx-display);
+  font-weight: 400;
+  font-size: clamp(2.7rem, 5.4vw, 4.5rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  margin: 24px 0 22px;
+}
+.nvx-home h1.head em {
+  font-style: italic;
+}
+.nvx-home h1.head .dot {
+  color: var(--mint);
+}
+.nvx-home .sub {
+  max-width: 40ch;
+  color: var(--muted);
+  font-size: clamp(1rem, 1.3vw, 1.12rem);
+  line-height: 1.55;
+}
+.nvx-home .cta-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 34px 0 22px;
+}
+.nvx-home .btn-lg {
+  padding: 15px 26px;
+  font-size: 1rem;
+  border-radius: 13px;
+}
+.nvx-home .btn-ghost {
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font-weight: 500;
+  font-family: var(--nvx-sans);
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s;
+  display: inline-block;
+}
+.nvx-home .btn-ghost:hover {
+  border-color: rgba(95, 231, 166, 0.4);
+  background: var(--surface-2);
+}
+.nvx-home .btn-ghost:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+.nvx-home .trust {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  font-family: var(--nvx-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.nvx-home .trust span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nvx-home .trust span::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mint);
+}
+
+/* health card (hero right) */
+.nvx-home .health {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 44px 100px -44px rgba(0, 0, 0, 0.85);
+}
+.nvx-home .hc-chrome {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.nvx-home .hc-chrome .d {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--faint-2);
+}
+.nvx-home .hc-url {
+  font-family: var(--nvx-mono);
+  font-size: 13px;
+  color: var(--muted);
+  margin-left: 8px;
+}
+.nvx-home .hc-live {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--nvx-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--mint);
+  border: 1px solid rgba(95, 231, 166, 0.4);
+  border-radius: 999px;
+  padding: 4px 11px;
+}
+.nvx-home .hc-live::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mint);
+  box-shadow: 0 0 8px var(--mint);
+  animation: nvx-pulse 2.2s infinite;
+}
+.nvx-home .hc-body {
+  padding: clamp(20px, 2.4vw, 28px) clamp(18px, 2.2vw, 24px) 22px;
+}
+.nvx-home .hc-label {
+  font-family: var(--nvx-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.nvx-home .hc-score {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 6px 0 24px;
+}
+.nvx-home .hc-num {
+  font-family: var(--nvx-display);
+  font-weight: 400;
+  font-size: clamp(4rem, 7vw, 5.6rem);
+  line-height: 0.85;
+  color: var(--text);
+}
+.nvx-home .hc-den {
+  font-family: var(--nvx-mono);
+  font-size: 1.1rem;
+  color: var(--muted);
+}
+.nvx-home .hc-grade {
+  font-family: var(--nvx-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--mint);
+  border: 1px solid rgba(95, 231, 166, 0.35);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+.nvx-home .hc-yp {
+  margin-left: auto;
+  font-family: var(--nvx-mono);
+  font-size: 12px;
+  color: var(--faint);
+}
+.nvx-home .hc-tiles {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 9px;
+  margin-bottom: 22px;
+}
+.nvx-home .hc-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+.nvx-home .hc-tile b {
+  font-family: var(--nvx-display);
+  font-weight: 500;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+.nvx-home .hc-tile .trk {
+  width: 100%;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  position: relative;
+  overflow: hidden;
+  display: block;
+}
+.nvx-home .hc-tile .trk s {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  border-radius: 99px;
+  display: block;
+  transform-origin: left;
+  transform: scaleX(var(--v, 0));
+  animation: nvx-fillin 1s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes nvx-fillin {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(var(--v, 0));
+  }
+}
+.nvx-home .hc-tile label {
+  font-family: var(--nvx-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  text-align: center;
+}
+.nvx-home .c-g {
+  color: var(--mint);
+}
+.nvx-home .c-a {
+  color: var(--amber);
+}
+.nvx-home .c-r {
+  color: var(--danger);
+}
+.nvx-home .f-g {
+  background: var(--mint);
+}
+.nvx-home .f-a {
+  background: var(--amber);
+}
+.nvx-home .f-r {
+  background: var(--danger);
+}
+.nvx-home .hc-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-family: var(--nvx-mono);
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+.nvx-home .hc-foot .acts {
+  color: var(--mint);
+}
+
+/* section scaffolding */
+.nvx-home .section {
+  padding: clamp(40px, 6vw, 90px) 0;
+}
+.nvx-home .section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: clamp(22px, 3vw, 38px);
+}
+.nvx-home .section-head h2 {
+  font-family: var(--nvx-display);
+  font-weight: 400;
+  font-size: clamp(1.9rem, 3.4vw, 2.9rem);
+  line-height: 1.04;
+  letter-spacing: -0.015em;
+  max-width: 18ch;
+}
+.nvx-home .section-head h2 em {
+  font-style: italic;
+  color: var(--mint);
+}
+.nvx-home .section-head p {
+  color: var(--muted);
+  max-width: 34ch;
+  font-size: 0.98rem;
+}
+
+/* tour wrapper — rounded browser card */
+.nvx-home .tour {
+  display: flex;
+  height: clamp(460px, 52vw, 640px);
+}
+.nvx-home .tour .showcase {
+  height: 100%;
+}
+.nvx-home .tour .frame {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 44px 100px -44px rgba(0, 0, 0, 0.85);
+}
+.nvx-home .tour .chrome {
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+}
+.nvx-home .tour .caption {
+  padding-inline: 2px;
+}
+
+/* steps */
+.nvx-home .steps-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+.nvx-home .step {
+  padding: clamp(26px, 3vw, 44px);
+  border-left: 1px solid var(--line);
+}
+.nvx-home .step:first-child {
+  border-left: none;
+}
+.nvx-home .step .num {
+  font-family: var(--nvx-mono);
+  font-size: 13px;
+  color: var(--mint);
+  letter-spacing: 0.1em;
+  margin-bottom: clamp(24px, 4vw, 56px);
+}
+.nvx-home .step h3 {
+  font-family: var(--nvx-display);
+  font-weight: 400;
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+  margin-bottom: 14px;
+}
+.nvx-home .step p {
+  color: var(--muted);
+  font-size: 0.97rem;
+  line-height: 1.6;
+  max-width: 34ch;
+}
+
+/* scored grid */
+.nvx-home .scored {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.nvx-home .dom {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px 22px 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent);
+  transition: border-color 0.2s, transform 0.2s;
+}
+.nvx-home .dom:hover {
+  border-color: rgba(95, 231, 166, 0.3);
+  transform: translateY(-2px);
+}
+.nvx-home .dom .dh {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.nvx-home .dom .dh b {
+  font-family: var(--nvx-display);
+  font-weight: 500;
+  font-size: 1.18rem;
+}
+.nvx-home .dom .dh span {
+  font-family: var(--nvx-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--mint);
+}
+.nvx-home .dom p {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* CTA band */
+.nvx-home .cta-band {
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: clamp(36px, 5vw, 64px);
+  text-align: center;
+  background: radial-gradient(120% 140% at 50% 0%, rgba(95, 231, 166, 0.07), transparent 60%),
+    var(--ink-2);
+}
+.nvx-home .cta-band h2 {
+  font-family: var(--nvx-display);
+  font-weight: 400;
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  margin-bottom: 14px;
+}
+.nvx-home .cta-band h2 em {
+  font-style: italic;
+  color: var(--mint);
+}
+.nvx-home .cta-band p {
+  color: var(--muted);
+  max-width: 46ch;
+  margin: 0 auto 28px;
+}
+.nvx-home .cta-band .cta-row {
+  justify-content: center;
+}
+
+/* footer */
+.nvx-home .foot {
+  border-top: 1px solid var(--line);
+  padding: 34px 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.nvx-home .foot .nvx-brand b {
+  font-size: 18px;
+}
+.nvx-home .foot .meta {
+  font-family: var(--nvx-mono);
+  font-size: 11px;
+  color: var(--faint);
+  letter-spacing: 0.04em;
+}
+.nvx-home .foot .flinks {
+  margin-left: auto;
+  display: flex;
+  gap: 22px;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.nvx-home .foot .flinks a {
+  cursor: pointer;
+}
+.nvx-home .foot .flinks a:hover {
+  color: var(--text);
+}
+
+/* reveal */
+.nvx-home .rv {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.7s cubic-bezier(0.2, 0.7, 0.2, 1), transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.nvx-home .rv.in {
+  opacity: 1;
+  transform: none;
+}
+.nvx-home .h-rv {
+  opacity: 0;
+  transform: translateY(12px);
+  animation: nvx-rise2 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+}
+.nvx-home .d1 {
+  animation-delay: 0.05s;
+}
+.nvx-home .d2 {
+  animation-delay: 0.13s;
+}
+.nvx-home .d3 {
+  animation-delay: 0.22s;
+}
+.nvx-home .d4 {
+  animation-delay: 0.32s;
+}
+@keyframes nvx-rise2 {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 920px) {
+  .nvx-home .hero {
+    grid-template-columns: 1fr;
+    gap: 34px;
+  }
+  .nvx-home .nav-links {
+    display: none;
+  }
+  .nvx-home .tour {
+    height: 64vh;
+    min-height: 440px;
+  }
+  .nvx-home .steps-card,
+  .nvx-home .scored {
+    grid-template-columns: 1fr;
+  }
+  .nvx-home .step {
+    border-left: none;
+    border-top: 1px solid var(--line);
+  }
+  .nvx-home .step:first-child {
+    border-top: none;
+  }
+  .nvx-home .step .num {
+    margin-bottom: 18px;
+  }
+  .nvx-home .hc-num {
+    font-size: 4rem;
+  }
+  .nvx-home .hc-tile b {
+    font-size: 1.05rem;
+  }
+  .nvx-home .section-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nvx-home .rv {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .nvx-home .h-rv {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .nvx-home .hc-live::before,
+  .nvx-home .hc-tile .trk s {
+    animation: none;
+  }
+}
