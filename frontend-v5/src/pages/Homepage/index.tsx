@@ -58,6 +58,8 @@ export default function HomepagePage() {
   const rootRef = useRef<HTMLDivElement>(null);
   const { data: health } = useHealthAnalysis();
   const { data: summary } = usePortfolioSummary();
+  const [showDemo, setShowDemo] = useState(false);
+  const assetBase = import.meta.env.BASE_URL; // respects the staging "/v5/" base path
 
   // Real scores when available, otherwise the sample portfolio.
   const h = health as any;
@@ -115,6 +117,16 @@ export default function HomepagePage() {
     return () => io.disconnect();
   }, []);
 
+  // Close the promo video on Escape.
+  useEffect(() => {
+    if (!showDemo) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowDemo(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [showDemo]);
+
   const scrollTo = (id: string) => {
     rootRef.current?.querySelector(`#${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -165,7 +177,7 @@ export default function HomepagePage() {
               <button className="btn-primary btn-lg" onClick={() => navigate("/login")}>
                 Check my portfolio free
               </button>
-              <button className="btn-ghost btn-lg" onClick={() => scrollTo("tour")}>
+              <button className="btn-ghost btn-lg" onClick={() => setShowDemo(true)}>
                 Watch the 90-second tour
               </button>
             </div>
@@ -291,8 +303,8 @@ export default function HomepagePage() {
               <button className="btn-primary btn-lg" onClick={() => navigate("/login")}>
                 Check my portfolio free
               </button>
-              <button className="btn-ghost btn-lg" onClick={() => scrollTo("tour")}>
-                Replay the tour
+              <button className="btn-ghost btn-lg" onClick={() => setShowDemo(true)}>
+                Watch the 90-second tour
               </button>
             </div>
           </div>
@@ -312,6 +324,38 @@ export default function HomepagePage() {
           </nav>
         </footer>
       </main>
+
+      {/* 90-second investor promo video */}
+      {showDemo && (
+        <div
+          className="demo-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Nivesh 90-second promo"
+          onClick={() => setShowDemo(false)}
+        >
+          <div className="demo-modal" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="demo-close"
+              aria-label="Close video"
+              onClick={() => setShowDemo(false)}
+            >
+              ×
+            </button>
+            <video
+              poster={`${assetBase}nivesh-demo-poster.jpg`}
+              controls
+              autoPlay
+              playsInline
+              style={{ width: "100%", height: "100%" }}
+            >
+              <source src={`${assetBase}nivesh-demo-90s.webm`} type="video/webm" />
+              <source src={`${assetBase}nivesh-demo-90s.mp4`} type="video/mp4" />
+            </video>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
