@@ -105,8 +105,27 @@ jobs:
             frontend-v5/nivesh-v5-prod-release.aab
 
       # ── Publish the APK to data.niveshcopilot.com ───────────────────────────
-      # SCP to the devops user's home, then sudo-install into the root-owned
-      # webroot (same "stage then install" pattern as the deploy workflows).
+      # SCP into a staging dir, then sudo-install into the root-owned webroot
+      # (same "stage then install" pattern as the deploy workflows).
+
+      # scp-action (drone-scp) uploads the tarball straight to `target` and does
+      # NOT create it — scp never mkdir's. If /tmp/android-release is missing the
+      # remote scp sink exits status 1 ("error copy file to dest … Process exited
+      # with status 1"). Create the staging dir up front so the upload lands.
+      - name: Ensure staging dir on nidp-stack-vm
+        if: ${{ inputs.publish }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:            ${{ secrets.NIDP_VM_HOST }}
+          username:        ${{ secrets.DEVOPS_SSH_USER }}
+          key:             ${{ secrets.DEVOPS_SSH_KEY }}
+          port:            22
+          timeout:         5m
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            mkdir -p /tmp/android-release
+
       - name: Upload APK to nidp-stack-vm
         if: ${{ inputs.publish }}
         uses: appleboy/scp-action@v0.1.7
