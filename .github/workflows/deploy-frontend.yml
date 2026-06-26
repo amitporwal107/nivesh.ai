@@ -50,7 +50,22 @@ jobs:
             echo "    Branch : ${{ steps.config.outputs.branch }}"
             echo "    Commit : ${{ github.sha }}"
 
-            sudo BRANCH="${{ steps.config.outputs.branch }}" \
+            BRANCH="${{ steps.config.outputs.branch }}"
+
+            # Refresh the deploy script from the repo BEFORE running it. redeploy.sh
+            # re-syncs itself into /opt/nivesh/deploy on every run; older copies did
+            # an in-place `cp` over the file bash was still executing, shifting the
+            # running shell's read offset and killing the deploy with
+            # "line N: ...: command not found" (status 127). Pull + atomically
+            # install the latest script first, so the version we execute is already
+            # current and never rewrites itself underfoot.
+            sudo git config --global --add safe.directory /opt/nivesh/repo 2>/dev/null || true
+            sudo git -C /opt/nivesh/repo fetch --quiet origin "$BRANCH"
+            sudo git -C /opt/nivesh/repo reset --hard "origin/$BRANCH"
+            sudo install -m 755 /opt/nivesh/repo/deploy/nivesh-app/redeploy.sh \
+              /opt/nivesh/deploy/redeploy.sh
+
+            sudo BRANCH="$BRANCH" \
               bash /opt/nivesh/deploy/redeploy.sh --frontend-only
 
       - name: Health check [prod]
