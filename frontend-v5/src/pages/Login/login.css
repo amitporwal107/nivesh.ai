@@ -1,0 +1,434 @@
+/* ─────────────────────────────────────────────────────────────
+   Login — two-column sign-in: a product showcase on the left, the
+   real auth panel on the right. Scoped under `.nvx` / `.nvx-login`.
+   Source: niveshlogin mockup.
+   ───────────────────────────────────────────────────────────── */
+.nvx-login {
+  --ink: #090d0b;
+  --ink-2: #0c1210;
+  --surface: #101714;
+  --surface-2: #131d18;
+  min-height: 100vh;
+}
+
+.nvx-login .shell {
+  display: grid;
+  grid-template-columns: 1.08fr 0.92fr;
+  min-height: calc(100vh - 3px);
+}
+
+/* ---------- LEFT : the legibility thesis ---------- */
+.nvx-login .stage {
+  --gut: clamp(20px, 2.8vw, 40px);
+  position: relative;
+  padding: clamp(20px, 2.8vw, 36px) 0 clamp(14px, 2vw, 22px) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  border-right: 1px solid var(--line);
+  background: radial-gradient(120% 90% at 0% 0%, rgba(95, 231, 166, 0.05), transparent 55%), var(--ink-2);
+  overflow: hidden;
+}
+.nvx-login .stage .nvx-brand,
+.nvx-login .stage .lede,
+.nvx-login .stage .showcase {
+  padding-inline: var(--gut);
+}
+.nvx-login .stage .nvx-mark {
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+}
+.nvx-login .stage .nvx-brand b {
+  font-size: 23px;
+}
+
+.nvx-login .eyebrow {
+  font-family: var(--nvx-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--faint);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.nvx-login .eyebrow .star {
+  color: var(--mint);
+}
+.nvx-login .lede h1 {
+  font-family: var(--nvx-display);
+  font-weight: 400;
+  font-size: clamp(1.45rem, 2.4vw, 1.95rem);
+  line-height: 1.06;
+  letter-spacing: -0.01em;
+  margin: 8px 0 7px;
+}
+.nvx-login .lede h1 em {
+  font-style: italic;
+  color: var(--mint);
+}
+.nvx-login .lede p {
+  max-width: 60ch;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+/* showcase sits flush with the stage edges on this page */
+.nvx-login .stage .showcase {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------- RIGHT : sign in ---------- */
+.nvx-login .auth {
+  padding: clamp(28px, 4vw, 64px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: var(--surface);
+}
+.nvx-login .auth-inner {
+  width: 100%;
+  max-width: 392px;
+  margin-inline: auto;
+}
+
+.nvx-login .live {
+  font-family: var(--nvx-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--mint);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 14px;
+}
+.nvx-login .live .pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mint);
+  animation: nvx-loginpulse 2.2s ease-in-out infinite;
+}
+@keyframes nvx-loginpulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(95, 231, 166, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(95, 231, 166, 0);
+  }
+}
+
+.nvx-login .auth h2 {
+  font-family: var(--nvx-display);
+  font-weight: 400;
+  font-size: 2rem;
+  letter-spacing: -0.01em;
+  margin-bottom: 12px;
+  line-height: 1.08;
+}
+.nvx-login .auth .why {
+  color: var(--muted);
+  font-size: 0.95rem;
+  max-width: 40ch;
+  margin-bottom: 26px;
+}
+.nvx-login .auth .why b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* host for the real Google Identity Services button / native button */
+.nvx-login .gbox {
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nvx-login .gbox-center {
+  display: flex;
+  justify-content: center;
+}
+.nvx-login .gbtn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  color: var(--text);
+  font-family: var(--nvx-sans);
+  font-weight: 600;
+  font-size: 0.95rem;
+  transition: border-color 0.18s, transform 0.18s, background 0.18s;
+}
+.nvx-login .gbtn:hover {
+  border-color: rgba(95, 231, 166, 0.4);
+  background: #16221c;
+  transform: translateY(-1px);
+}
+.nvx-login .gbtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+}
+.nvx-login .gbtn:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+.nvx-login .glogo {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+.nvx-login .gskeleton {
+  height: 44px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  animation: nvx-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes nvx-shimmer {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+.nvx-login .gnote {
+  font-family: var(--nvx-mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+.nvx-login .gnote.err {
+  color: var(--danger);
+}
+
+.nvx-login .divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 26px 0 18px;
+}
+.nvx-login .divider span {
+  font-family: var(--nvx-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.nvx-login .divider .ln {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.nvx-login label.fl {
+  font-family: var(--nvx-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 9px;
+}
+.nvx-login .field-wrap {
+  position: relative;
+}
+.nvx-login .field {
+  width: 100%;
+  background: var(--ink-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 14px 15px;
+  color: var(--text);
+  font-family: var(--nvx-mono);
+  font-size: 0.92rem;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.nvx-login .field::placeholder {
+  color: var(--faint);
+}
+.nvx-login .field:focus {
+  outline: none;
+  border-color: var(--mint);
+  box-shadow: 0 0 0 3px rgba(95, 231, 166, 0.13);
+}
+.nvx-login .field.bad {
+  border-color: rgba(237, 106, 94, 0.5);
+}
+.nvx-login .field-badge {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--nvx-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 999px;
+}
+.nvx-login .field-badge.ok {
+  color: var(--mint);
+  border: 1px solid rgba(95, 231, 166, 0.3);
+  background: rgba(95, 231, 166, 0.1);
+}
+.nvx-login .field-badge.no {
+  color: var(--danger);
+  border: 1px solid rgba(237, 106, 94, 0.3);
+  background: rgba(237, 106, 94, 0.1);
+}
+.nvx-login .allow {
+  font-family: var(--nvx-mono);
+  font-size: 11px;
+  color: var(--faint);
+  margin-top: 9px;
+}
+.nvx-login .allow b {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.nvx-login .submit {
+  width: 100%;
+  margin-top: 18px;
+  border: none;
+  cursor: pointer;
+  border-radius: 12px;
+  padding: 15px;
+  font-family: var(--nvx-sans);
+  font-weight: 600;
+  font-size: 0.98rem;
+  color: #06150e;
+  background: linear-gradient(180deg, #71eeb2, var(--mint));
+  box-shadow: 0 10px 30px -12px rgba(95, 231, 166, 0.7);
+  transition: transform 0.18s, box-shadow 0.18s, filter 0.18s;
+}
+.nvx-login .submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+  box-shadow: 0 14px 36px -12px rgba(95, 231, 166, 0.8);
+}
+.nvx-login .submit:active:not(:disabled) {
+  transform: translateY(0);
+}
+.nvx-login .submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.nvx-login .submit:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.nvx-login .trust {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.nvx-login .trust .row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--nvx-mono);
+  font-size: 11px;
+  color: var(--faint);
+  letter-spacing: 0.04em;
+}
+.nvx-login .trust .row svg {
+  flex: none;
+  color: var(--mint-deep);
+}
+.nvx-login .legal {
+  margin-top: 14px;
+  font-size: 11.5px;
+  color: var(--faint);
+  line-height: 1.6;
+}
+.nvx-login .legal a {
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line-strong);
+}
+.nvx-login .legal a:hover {
+  color: var(--mint);
+}
+.nvx-login .debug-link {
+  display: block;
+  text-align: center;
+  margin-top: 16px;
+  font-family: var(--nvx-mono);
+  font-size: 10px;
+  color: var(--faint-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+}
+
+/* reveal */
+.nvx-login .reveal {
+  opacity: 0;
+  transform: translateY(10px);
+  animation: nvx-rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+}
+.nvx-login .d1 {
+  animation-delay: 0.05s;
+}
+.nvx-login .d2 {
+  animation-delay: 0.14s;
+}
+.nvx-login .d3 {
+  animation-delay: 0.24s;
+}
+.nvx-login .d4 {
+  animation-delay: 0.36s;
+}
+.nvx-login .d5 {
+  animation-delay: 0.5s;
+}
+.nvx-login .d6 {
+  animation-delay: 0.62s;
+}
+@keyframes nvx-rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .nvx-login .shell {
+    grid-template-columns: 1fr;
+  }
+  .nvx-login .stage {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nvx-login .reveal {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .nvx-login .live .pulse {
+    animation: none;
+  }
+}

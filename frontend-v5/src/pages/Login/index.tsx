@@ -3,16 +3,16 @@ import { useNavigate } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
 import { dlog } from "@/lib/device-log";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { useGoogleSignIn, useMagicLink, useMe } from "@/hooks/use-auth";
+import { useGoogleSignIn, useMagicLink } from "@/hooks/use-auth";
 import { useGoogleIdentity } from "@/hooks/use-google-identity";
-import { usePortfolioSummary } from "@/hooks/use-portfolio";
-import { useHealthAnalysis } from "@/hooks/use-insights";
 import { authService } from "@/services";
 import { useToastStore } from "@/stores/toast.store";
 import { useImpersonationStore } from "@/stores/impersonation.store";
 import { ALLOWED_DOMAINS } from "@/types/user";
+import ProductTour from "@/components/marketing/ProductTour";
+import CopilotDemo from "@/components/marketing/CopilotDemo";
+import "@/components/marketing/nvx-theme.css";
+import "./login.css";
 
 /** Decode a JWT's `aud` claim (for diagnostics only — no verification). */
 function jwtAud(token?: string): string {
@@ -25,25 +25,12 @@ function jwtAud(token?: string): string {
   }
 }
 
-function formatRs(paise: number) {
-  const rs = Math.abs(paise) / 100;
-  if (rs >= 1_00_00_000) return `₹${(rs / 1_00_00_000).toFixed(1)} Cr`;
-  if (rs >= 1_00_000) return `₹${(rs / 1_00_000).toFixed(1)}L`;
-  if (rs >= 1_000) return `₹${(rs / 1_000).toFixed(1)}k`;
-  return `₹${rs.toLocaleString("en-IN")}`;
-}
-
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const navigate = useNavigate();
   const google = useGoogleSignIn();
   const magic = useMagicLink();
   const pushToast = useToastStore((s) => s.push);
-
-  // Fetch user context for returning users (may be null if not logged in)
-  const { data: me } = useMe();
-  const { data: summary } = usePortfolioSummary();
-  const { data: health } = useHealthAnalysis();
 
   const googleBtnRef = useRef<HTMLDivElement>(null);
 
@@ -132,9 +119,6 @@ export default function LoginPage() {
   }, [handleCredential, pushToast]);
 
   const isAllowed = email ? authService.isAllowedDomain(email) : true;
-  const userName = me?.name?.split(" ")[0] ?? null;
-  const healthScore = (health as any)?.health_score ?? (summary as any)?.healthScore ?? null;
-  const aum = summary?.totalValue ? formatRs(summary.totalValue) : null;
 
   // Render Google's web sign-in button (browser only — not in the native app)
   useEffect(() => {
@@ -153,154 +137,154 @@ export default function LoginPage() {
     }
   };
 
+  const allowList = ALLOWED_DOMAINS.slice(0, 2).map((d) => `@${d}`).join(" · ");
+
   return (
-    <div className="min-h-screen grid lg:grid-cols-[1.2fr_1fr]">
-      {/* left — editorial */}
-      <section className="px-8 sm:px-14 py-12 flex flex-col">
-        <div className="flex items-center gap-3">
-          <span className="nv-mark" style={{ width: 32, height: 32, fontSize: 19 }}>न</span>
-          <span className="nv-serif" style={{ fontSize: 22 }}>Nivesh</span>
-        </div>
+    <div className="nvx nvx-login">
+      <div className="nvx-topline" />
+      <main className="shell">
+        {/* LEFT — the legibility thesis + live product tour */}
+        <section className="stage">
+          <header className="nvx-brand reveal d1">
+            <span className="nvx-mark">न</span>
+            <b>Nivesh</b>
+          </header>
 
-        <div className="mt-auto max-w-[540px]">
-          <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3 mb-5">
-            ★ Verified · SEBI-aligned
+          <div className="lede">
+            <p className="eyebrow reveal d2">
+              <span className="star">★</span> Verified · SEBI-aligned · ARN-128459
+            </p>
+            <h1 className="reveal d2">
+              Your portfolio,<br />
+              <em>finally</em> legible.
+            </h1>
+            <p className="reveal d3">
+              Nivesh reads every CAS statement in your inbox, scores each holding, and rewrites the
+              report in plain language — so you know exactly what to fix, and why.
+            </p>
           </div>
-          <h1 className="font-display text-5xl sm:text-6xl tracking-tightish leading-[1.02]">
-            {userName
-              ? <>Welcome back, <em className="italic">{userName}</em>.</>
-              : <>Your portfolio, <em className="italic">finally</em> legible.</>
-            }
-          </h1>
-          <p className="text-[16px] sm:text-[17px] text-ink-2 mt-5 leading-relaxed">
-            {userName
-              ? "Sign in to pick up where you left off — your dashboards, plan, and copilot are waiting."
-              : "Nivesh reads every holding, scores its health and rewrites the report in plain language — so you know exactly what to fix and why."
-            }
-          </p>
-        </div>
 
-        {/* KPI cards — only shown if we have data from a previous session */}
-        {(healthScore != null || aum != null) && (
-          <div className="grid grid-cols-3 gap-3 mt-10">
-            {healthScore != null && (
-              <div className="rounded-md bg-surface-1 border border-hairline p-4">
-                <div className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">HEALTH</div>
-                <div className="font-display num text-3xl tracking-tightish mt-1 text-pos">{healthScore}</div>
-                <div className="font-mono text-[10px] text-ink-3 mt-1">/ 100</div>
+          <div className="reveal d4" style={{ flex: 1, minHeight: 0, display: "flex" }}>
+            <ProductTour host="app.nivesh.in" />
+          </div>
+        </section>
+
+        {/* RIGHT — real sign-in */}
+        <section className="auth">
+          <div className="auth-inner">
+            <p className="live reveal d2">
+              <span className="pulse" /> Sign in
+            </p>
+            <h2 className="reveal d3">
+              Read your inbox,<br />
+              not your statements.
+            </h2>
+            <p className="why reveal d3">
+              Connect Gmail so Nivesh can find your CAS statements. <b>Read-only</b> — we never send
+              mail or open anything else.
+            </p>
+
+            {/* Google Sign-In — native plugin in the app, web GIS button in browsers */}
+            <div className="gbox reveal d4">
+              {isNative ? (
+                <button
+                  type="button"
+                  className="gbtn"
+                  disabled={nativePending || google.isPending}
+                  onClick={handleNativeGoogle}
+                >
+                  <svg className="glogo" viewBox="0 0 48 48" aria-hidden="true">
+                    <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.1 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.3-.4-3.5z" />
+                    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.1 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+                    <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.3 26.7 36 24 36c-5.3 0-9.7-3.1-11.3-7.6l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+                    <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.6l6.2 5.2C41.4 35.7 44 30.3 44 24c0-1.3-.1-2.3-.4-3.5z" />
+                  </svg>
+                  {nativePending ? "Opening Google…" : "Continue with Google"}
+                </button>
+              ) : gis.ready ? (
+                <div ref={googleBtnRef} className="gbox-center" />
+              ) : gis.loadError ? (
+                <div className="gnote err">
+                  Google Sign-In failed to load. Check your browser's popup / cookie settings.
+                </div>
+              ) : (
+                <div className="gskeleton" />
+              )}
+              {google.isPending && <div className="gnote">Signing in…</div>}
+            </div>
+
+            <div className="divider reveal d5">
+              <span className="ln" />
+              <span>or a whitelisted email</span>
+              <span className="ln" />
+            </div>
+
+            <div className="reveal d5">
+              <label className="fl" htmlFor="email">
+                Work email
+              </label>
+              <div className="field-wrap">
+                <input
+                  className={`field${email && !isAllowed ? " bad" : ""}`}
+                  id="email"
+                  type="email"
+                  inputMode="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                />
+                {email && (
+                  <span className={`field-badge ${isAllowed ? "ok" : "no"}`}>
+                    {isAllowed ? "Allowed" : "Blocked"}
+                  </span>
+                )}
               </div>
-            )}
-            {aum != null && (
-              <div className="rounded-md bg-surface-1 border border-hairline p-4">
-                <div className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">AUM</div>
-                <div className="font-display num text-3xl tracking-tightish mt-1 text-pos">{aum}</div>
-                <div className="font-mono text-[10px] text-ink-3 mt-1">total value</div>
+              <p className="allow">
+                Allowed: <b>{allowList}</b>
+                {ALLOWED_DOMAINS.length > 2 ? ` + ${ALLOWED_DOMAINS.length - 2} more` : ""}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="submit reveal d5"
+              disabled={!email || !isAllowed || magic.isPending}
+              onClick={handleMagic}
+            >
+              {magic.isPending ? "Sending…" : "Send magic link →"}
+            </button>
+
+            <div className="trust reveal d6">
+              <div className="row">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                  <rect x="4" y="11" width="16" height="9" rx="2" />
+                  <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+                </svg>
+                Read-only Gmail access · revoke anytime
               </div>
-            )}
-            {summary?.topInsights != null && (
-              <div className="rounded-md bg-surface-1 border border-hairline p-4">
-                <div className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">OPEN</div>
-                <div className="font-display num text-3xl tracking-tightish mt-1 text-warm">{summary.topInsights.length}</div>
-                <div className="font-mono text-[10px] text-ink-3 mt-1">actionable</div>
+              <div className="row">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                  <path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z" />
+                </svg>
+                Encrypted in transit · statements never stored
               </div>
-            )}
-          </div>
-        )}
-      </section>
+              <p className="legal">
+                By continuing you agree to the <a href="/disclosure">Investment Policy Statement</a> and{" "}
+                <a href="/disclosure">risk disclosure</a>.
+              </p>
+            </div>
 
-      {/* right — auth */}
-      <section className="px-8 sm:px-14 py-12 flex flex-col justify-center bg-surface-1 border-l border-hairline">
-        <div className="w-full max-w-[400px] self-center">
-          <div className="font-mono text-[11px] uppercase tracking-[.16em] text-accent">● Sign in</div>
-          <h2 className="font-display text-[28px] sm:text-[30px] tracking-tightish mt-2 leading-snug">
-            Sign in with Google.
-          </h2>
-          <p className="text-[13.5px] text-ink-2 mt-3 leading-relaxed">
-            Nivesh works with your Gmail so we can read CAS statements from your
-            inbox. Read-only — we never send mail or read anything else.
-          </p>
-
-          {/* Google Sign-In — native plugin in the app, web GIS button in browsers */}
-          <div className="mt-6">
-            {isNative ? (
-              <Button
-                variant="accent"
-                size="lg"
-                className="w-full"
-                disabled={nativePending || google.isPending}
-                onClick={handleNativeGoogle}
-              >
-                {nativePending ? "Opening Google…" : "Continue with Google"}
-              </Button>
-            ) : gis.ready ? (
-              <div ref={googleBtnRef} className="flex justify-center" />
-            ) : gis.loadError ? (
-              <div className="font-mono text-[11px] text-neg mt-2">Google Sign-In failed to load. Check your browser's popup/cookie settings.</div>
-            ) : (
-              <div className="h-12 rounded-md bg-surface-2 animate-pulse" />
-            )}
-            {google.isPending && (
-              <div className="font-mono text-[11px] text-ink-3 mt-2 text-center">Signing in…</div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3 my-6 text-ink-4">
-            <div className="flex-1 h-px bg-[rgb(var(--line)/0.10)]" />
-            <span className="font-mono text-[10px] tracking-[.16em]">WHITELISTED EMAIL</span>
-            <div className="flex-1 h-px bg-[rgb(var(--line)/0.10)]" />
-          </div>
-
-          {/* magic link */}
-          <label htmlFor="email" className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">
-            Work email
-          </label>
-          <div className="relative mt-1.5">
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              className={`w-full px-4 h-12 rounded-md bg-bg border ${email && !isAllowed ? "border-neg/30" : "border-hairline-2"} text-[14px] outline-none focus:border-accent`}
-            />
-            {email && (
-              <Badge tone={isAllowed ? "good" : "neg"} className="absolute right-2 top-1/2 -translate-y-1/2">
-                {isAllowed ? "ALLOWED" : "BLOCKED"}
-              </Badge>
-            )}
-          </div>
-          <div className="font-mono text-[10px] text-ink-3 mt-2">
-            Allowed: {ALLOWED_DOMAINS.slice(0, 3).map((d) => `@${d}`).join(" · ")} + {Math.max(0, ALLOWED_DOMAINS.length - 3)} more
-          </div>
-
-          <Button
-            variant="accent"
-            size="lg"
-            className="w-full mt-3"
-            disabled={!email || !isAllowed || magic.isPending}
-            onClick={handleMagic}
-          >
-            {magic.isPending ? "Sending…" : "Send magic link →"}
-          </Button>
-
-          <div className="font-mono text-[10px] text-ink-3 text-center mt-7 leading-relaxed">
-            ENCRYPTED · NEVER STORED · ARN-128459<br />
-            <span className="text-ink-4">By continuing you agree to the IPS and risk disclosure.</span>
-          </div>
-
-          {isNative && (
-            <div className="text-center mt-4">
-              <button
-                type="button"
-                onClick={() => navigate("/debug-logs")}
-                className="font-mono text-[10px] text-ink-4 underline underline-offset-2"
-              >
+            {isNative && (
+              <button type="button" className="debug-link" onClick={() => navigate("/debug-logs")}>
                 Debug logs
               </button>
-            </div>
-          )}
-        </div>
-      </section>
+            )}
+          </div>
+        </section>
+      </main>
+
+      {/* Scripted "ask the copilot" demo — front-end only, no real holdings */}
+      <CopilotDemo />
     </div>
   );
 }
