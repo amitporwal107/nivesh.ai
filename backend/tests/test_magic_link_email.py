@@ -43,6 +43,12 @@ def test_send_email_raises_when_not_configured():
         asyncio.run(email_service.send_email("a@gmail.com", "s", "t", "<p>t</p>"))
 
 
+def test_test_connection_reports_not_configured():
+    res = asyncio.run(email_service.test_connection())
+    assert res["ok"] is False
+    assert "not configured" in res["error"].lower()
+
+
 def test_from_address_falls_back_to_username():
     secrets.set_override("SMTP_USERNAME", "no-reply@nivesh.ai")
     assert email_service._from_address() == "no-reply@nivesh.ai"

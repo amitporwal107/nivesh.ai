@@ -583,6 +583,10 @@ async def test_secret(key: str, request: Request):
             return {"ok": True, "detail": f"Connected — redis {res.get('version', '')}"}
         return {"ok": False, "error": res.get("reason", "unknown")}
 
+    if test_fn == "smtp":
+        from services import email_service
+        return await email_service.test_connection()
+
     return {"ok": False, "error": f"Unknown test_fn: {test_fn}"}
 
 

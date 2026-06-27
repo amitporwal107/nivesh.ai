@@ -87,6 +87,42 @@ def _send_sync(msg: EmailMessage) -> None:
             server.send_message(msg)
 
 
+def _test_sync() -> dict:
+    """Open a connection, do the TLS upgrade if configured, and authenticate —
+    without sending a message. Mirrors _send_sync's connection logic so a green
+    test means a real send would also connect + auth."""
+    host = _cfg("SMTP_HOST")
+    port = int(_cfg("SMTP_PORT", "587") or "587")
+    username = _cfg("SMTP_USERNAME")
+    password = _cfg("SMTP_PASSWORD")
+    use_starttls = _cfg("SMTP_STARTTLS", "true").lower() != "false"
+
+    context = ssl.create_default_context()
+    if port == 465:
+        with smtplib.SMTP_SSL(host, port, context=context, timeout=15) as server:
+            server.login(username, password)
+    else:
+        with smtplib.SMTP(host, port, timeout=15) as server:
+            server.ehlo()
+            if use_starttls:
+                server.starttls(context=context)
+                server.ehlo()
+            server.login(username, password)
+    tls = "implicit-SSL" if port == 465 else ("STARTTLS" if use_starttls else "plaintext")
+    return {"ok": True, "detail": f"Connected & authenticated to {host}:{port} ({tls})"}
+
+
+async def test_connection() -> dict:
+    """Admin 'Test' handler — verify SMTP host/port/creds/TLS without sending.
+    Returns the {ok, detail|error} shape the admin secrets endpoint expects."""
+    if not is_configured():
+        return {"ok": False, "error": "SMTP not configured (need SMTP_HOST / SMTP_USERNAME / SMTP_PASSWORD)"}
+    try:
+        return await asyncio.to_thread(_test_sync)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}
+
+
 async def send_email(to_email: str, subject: str, text_body: str, html_body: str) -> None:
     """Send one email. Raises RuntimeError if SMTP isn't configured, and lets
     smtplib exceptions propagate so the caller can report a real failure."""

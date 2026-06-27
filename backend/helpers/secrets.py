@@ -119,8 +119,8 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
     # promise — so a dedicated relay is required to send anything.
     "SMTP_HOST": {
         "display_name": "SMTP · Host",
-        "description": "Outbound SMTP relay hostname (e.g. smtp.sendgrid.net, email-smtp.<region>.amazonaws.com). Unset = magic-link email is disabled.",
-        "test_fn": None,
+        "description": "Outbound SMTP relay hostname (e.g. smtp.sendgrid.net, email-smtp.<region>.amazonaws.com). Unset = magic-link email is disabled. Use the Test button to verify host/port/credentials.",
+        "test_fn": "smtp",
         "category": "email",
     },
     "SMTP_PORT": {
