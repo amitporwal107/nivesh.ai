@@ -105,58 +105,47 @@ jobs:
             frontend-v5/nivesh-v5-prod-release.aab
 
       # ── Publish the APK to data.niveshcopilot.com ───────────────────────────
-      # SCP into a staging dir, then sudo-install into the root-owned webroot
-      # (same "stage then install" pattern as the deploy workflows).
-
-      # scp-action (drone-scp) uploads the tarball straight to `target` and does
-      # NOT create it — scp never mkdir's. If /tmp/android-release is missing the
-      # remote scp sink exits status 1 ("error copy file to dest … Process exited
-      # with status 1"). Create the staging dir up front so the upload lands.
-      - name: Ensure staging dir on nidp-stack-vm
+      # Stream the APK over the ssh exec channel (`ssh … 'cat > file'`) instead of
+      # scp/sftp. appleboy/scp-action (drone-scp) fails here with "error copy file
+      # to dest … Process exited with status 1" — and it still failed after the
+      # /tmp/android-release staging dir was pre-created, so the cause is drone-scp's
+      # transfer itself, not a missing target. The plain ssh *exec* channel works
+      # (the mkdir step using it succeeded, as do the NIDP deploy workflows), so we
+      # pipe the bytes through it and sudo-install into the root-owned webroot. An
+      # end-to-end sha256 check guards against a truncated transfer.
+      - name: Publish APK to data.niveshcopilot.com
         if: ${{ inputs.publish }}
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host:            ${{ secrets.NIDP_VM_HOST }}
-          username:        ${{ secrets.DEVOPS_SSH_USER }}
-          key:             ${{ secrets.DEVOPS_SSH_KEY }}
-          port:            22
-          timeout:         5m
-          command_timeout: 5m
-          script: |
-            set -euo pipefail
-            mkdir -p /tmp/android-release
+        env:
+          SSH_KEY:  ${{ secrets.DEVOPS_SSH_KEY }}
+          SSH_USER: ${{ secrets.DEVOPS_SSH_USER }}
+          SSH_HOST: ${{ secrets.NIDP_VM_HOST }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
 
-      - name: Upload APK to nidp-stack-vm
-        if: ${{ inputs.publish }}
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host:     ${{ secrets.NIDP_VM_HOST }}
-          username: ${{ secrets.DEVOPS_SSH_USER }}
-          key:      ${{ secrets.DEVOPS_SSH_KEY }}
-          port:     22
-          source:   frontend-v5/nivesh-v5-prod-release.apk
-          target:   /tmp/android-release
-          strip_components: 1
+          APK="nivesh-v5-prod-release.apk"   # cwd is frontend-v5 (job default)
+          SSH="ssh -i $HOME/.ssh/id_deploy -p 22 -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
 
-      - name: Install APK into webroot + verify
-        if: ${{ inputs.publish }}
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host:            ${{ secrets.NIDP_VM_HOST }}
-          username:        ${{ secrets.DEVOPS_SSH_USER }}
-          key:             ${{ secrets.DEVOPS_SSH_KEY }}
-          port:            22
-          timeout:         5m
-          command_timeout: 10m
-          script: |
-            set -euo pipefail
-            SRC="/tmp/android-release/nivesh-v5-prod-release.apk"
-            DEST="/var/www/nidp-downloads/nivesh-v5-prod-release.apk"
-            sudo mkdir -p /var/www/nidp-downloads
-            sudo install -m 644 "$SRC" "$DEST"
-            rm -f "$SRC"
-            echo "Installed $DEST ($(stat -c%s "$DEST") bytes)"
-            echo "sha256: $(sha256sum "$DEST" | cut -d' ' -f1)"
+          echo "▸ streaming $APK ($(stat -c%s "$APK") bytes) over ssh → /tmp/$APK"
+          $SSH "$SSH_USER@$SSH_HOST" "cat > /tmp/$APK" < "$APK"
+
+          echo "▸ installing into /var/www/nidp-downloads (sudo)"
+          REMOTE="set -e; \
+            test -s /tmp/$APK; \
+            sudo mkdir -p /var/www/nidp-downloads; \
+            sudo install -m 644 /tmp/$APK /var/www/nidp-downloads/$APK; \
+            rm -f /tmp/$APK; \
+            ls -l /var/www/nidp-downloads/$APK; \
+            sha256sum /var/www/nidp-downloads/$APK"
+          REMOTE_SHA="$($SSH "$SSH_USER@$SSH_HOST" "$REMOTE" | awk 'END{print $1}')"
+          LOCAL_SHA="$(sha256sum "$APK" | cut -d' ' -f1)"
+
+          echo "local  sha256: $LOCAL_SHA"
+          echo "remote sha256: $REMOTE_SHA"
+          [ "$LOCAL_SHA" = "$REMOTE_SHA" ] || { echo "::error::sha256 mismatch after upload"; exit 1; }
+          echo "✓ published & verified"
 
       - name: Confirm public download URL
         if: ${{ inputs.publish }}
