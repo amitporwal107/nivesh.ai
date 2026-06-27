@@ -105,39 +105,38 @@ jobs:
             frontend-v5/nivesh-v5-prod-release.aab
 
       # ── Publish the APK to data.niveshcopilot.com ───────────────────────────
-      # SCP to the devops user's home, then sudo-install into the root-owned
-      # webroot (same "stage then install" pattern as the deploy workflows).
-      - name: Upload APK to nidp-stack-vm
+      # Drive scp + ssh directly rather than appleboy/scp-action: that action's
+      # drone-scp tar/untar copy failed with "Process exited with status 1" even
+      # though SSH auth itself succeeded. The devops user has passwordless sudo on
+      # the VM (the NIDP deploy workflows rely on it), so we scp to /tmp then
+      # sudo-install into the root-owned webroot.
+      - name: Publish APK to data.niveshcopilot.com
         if: ${{ inputs.publish }}
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host:     ${{ secrets.NIDP_VM_HOST }}
-          username: ${{ secrets.DEVOPS_SSH_USER }}
-          key:      ${{ secrets.DEVOPS_SSH_KEY }}
-          port:     22
-          source:   frontend-v5/nivesh-v5-prod-release.apk
-          target:   /tmp/android-release
-          strip_components: 1
+        env:
+          SSH_KEY:  ${{ secrets.DEVOPS_SSH_KEY }}
+          SSH_USER: ${{ secrets.DEVOPS_SSH_USER }}
+          SSH_HOST: ${{ secrets.NIDP_VM_HOST }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
 
-      - name: Install APK into webroot + verify
-        if: ${{ inputs.publish }}
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host:            ${{ secrets.NIDP_VM_HOST }}
-          username:        ${{ secrets.DEVOPS_SSH_USER }}
-          key:             ${{ secrets.DEVOPS_SSH_KEY }}
-          port:            22
-          timeout:         5m
-          command_timeout: 10m
-          script: |
-            set -euo pipefail
-            SRC="/tmp/android-release/nivesh-v5-prod-release.apk"
-            DEST="/var/www/nidp-downloads/nivesh-v5-prod-release.apk"
-            sudo mkdir -p /var/www/nidp-downloads
-            sudo install -m 644 "$SRC" "$DEST"
-            rm -f "$SRC"
-            echo "Installed $DEST ($(stat -c%s "$DEST") bytes)"
-            echo "sha256: $(sha256sum "$DEST" | cut -d' ' -f1)"
+          APK="nivesh-v5-prod-release.apk"   # cwd is frontend-v5 (job default)
+          KEY="$HOME/.ssh/id_deploy"
+
+          echo "▸ scp $APK → $SSH_USER@$SSH_HOST:/tmp/$APK"
+          scp -i "$KEY" -P 22 -o StrictHostKeyChecking=accept-new \
+            "$APK" "$SSH_USER@$SSH_HOST:/tmp/$APK"
+
+          echo "▸ install into /var/www/nidp-downloads"
+          REMOTE="sudo mkdir -p /var/www/nidp-downloads \
+            && sudo install -m 644 /tmp/$APK /var/www/nidp-downloads/$APK \
+            && rm -f /tmp/$APK \
+            && ls -l /var/www/nidp-downloads/$APK \
+            && sha256sum /var/www/nidp-downloads/$APK"
+          ssh -i "$KEY" -p 22 -o StrictHostKeyChecking=accept-new \
+            "$SSH_USER@$SSH_HOST" "$REMOTE"
 
       - name: Confirm public download URL
         if: ${{ inputs.publish }}
