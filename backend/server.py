@@ -337,6 +337,12 @@ async def startup_seed():
         await _db.idempotency_keys.create_index("key", unique=True, background=True)
     except Exception as e:
         logger.warning("idempotency TTL index ensure failed: %s", e)
+    # Magic-link whitelist-validation tokens — unique token lookup.
+    try:
+        from deps import db as _db
+        await _db.magic_link_tokens.create_index("token", unique=True, background=True)
+    except Exception as e:
+        logger.warning("magic_link_tokens index ensure failed: %s", e)
     # Datastore isolation — refuse to start production when Postgres /
     # Redis / Mongo are shared with the preview environment. Preview
     # deploys log a warning and continue.

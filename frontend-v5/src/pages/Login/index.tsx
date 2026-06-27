@@ -118,6 +118,36 @@ export default function LoginPage() {
     }
   }, [handleCredential, pushToast]);
 
+  // Surface the outcome of a magic-link email click. The backend validates
+  // the token then redirects here with ?validated=1 or ?magic_error=<reason>.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("validated") === "1") {
+      pushToast({
+        kind: "success",
+        title: "Email verified",
+        description: "You're on the list — sign in to continue.",
+      });
+    }
+    const err = params.get("magic_error");
+    if (err) {
+      const messages: Record<string, string> = {
+        expired: "That validation link has expired. Request a new magic link below.",
+        used: "That link was already used. Sign in, or request a new one below.",
+        invalid: "That validation link is invalid. Request a new magic link below.",
+      };
+      pushToast({
+        kind: "error",
+        title: "Couldn't verify email",
+        description: messages[err] ?? "Please request a new magic link below.",
+      });
+    }
+    if (params.has("validated") || params.has("magic_error")) {
+      // Strip the one-shot params so a refresh doesn't re-toast.
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [pushToast]);
+
   const isAllowed = email ? authService.isAllowedDomain(email) : true;
 
   // Render Google's web sign-in button (browser only — not in the native app)
@@ -130,8 +160,15 @@ export default function LoginPage() {
 
   const handleMagic = async () => {
     try {
-      await magic.mutateAsync(email);
-      pushToast({ kind: "success", title: "Magic link sent", description: `Check ${email}` });
+      // The backend returns a context-aware message — "check your email" for a
+      // new address, or "already approved" when it's whitelisted already — so
+      // surface that rather than a hardcoded line.
+      const res = await magic.mutateAsync(email);
+      pushToast({
+        kind: "success",
+        title: "Magic link sent",
+        description: res.message ?? `Check ${email}`,
+      });
     } catch {
       /* mutation error toaster handles this globally */
     }
