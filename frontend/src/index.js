@@ -3,8 +3,13 @@ import ReactDOM from "react-dom/client";
 import "@/index.css";
 import App from "@/App";
 import { bootstrapNative } from "@/native/bootstrap";
+import { installContentProtection } from "@/security/contentProtection";
 
 bootstrapNative();
+
+// Copy/screenshot deterrents for prod (see module header for honest scope —
+// this raises friction, it does not truly prevent capture).
+installContentProtection();
 
 // Suppress uninformative cross-origin "Script error." events that trigger the
 // CRA dev-overlay on some mobile browsers (Samsung Internet, older Chrome).
