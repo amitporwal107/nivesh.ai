@@ -1,0 +1,213 @@
+# Firebase App Distribution — App Testing agent test cases for Nivesh (ai.nivesh.app)
+# ============================================================================
+# Complete suite covering the app's screens, derived from the real navigation
+# (frontend-v5/src/routes.tsx + src/components/layout/nav-items.tsx +
+# MobileBottomNav.tsx) and the product docs under /docs.
+#
+# Import:  App Distribution → Test cases → Import test cases → Browse → this file.
+# CLI run: firebase apptesting:execute \
+#            --app=<FIREBASE_ANDROID_APP_ID> --test-dir=frontend-v5/firebase-tests \
+#            ./nivesh-v5-prod-release.apk
+#
+# Schema (App Testing agent):
+#   tests:
+#     - displayName: <human name>
+#       id: <unique id>
+#       prerequisiteTestCaseId: <id>     # optional: resume from that test's end state
+#       steps:
+#         - goal: <what the agent should do>
+#           hint: <optional navigation help>
+#           finalScreenAssertion: <success condition — ONLY what's visible on screen>
+#
+# AUTH NOTE: every screen except the sign-in surface is behind Google sign-in.
+#   * Tests in section A run with no credentials.
+#   * Tests in B–E require a logged-in session — they chain off `login`, which
+#     needs a Google test account configured for the app in the Firebase console.
+#     They will FAIL until the Google `code 10` sign-in issue is resolved.
+# DATA NOTE: portfolio screens (dashboard/risk/performance/etc.) need holdings.
+#   A fresh test account has none, so assertions accept either the data view OR
+#   the "import a portfolio / onboarding" prompt.
+
+tests:
+  # ── A. Pre-login surface (no credentials needed) ───────────────────────────
+  - displayName: App launches to the sign-in screen
+    id: app-launch
+    steps:
+      - goal: Wait for the app to finish loading after launch, and reach the sign-in screen (navigate there if a marketing/home screen shows first).
+        hint: A "Sign in" or "Get started" action leads to the sign-in screen.
+        finalScreenAssertion: The Nivesh sign-in screen is visible with a "Continue with Google" button.
+
+  - displayName: Sign-in screen shows the expected options
+    id: signin-screen-elements
+    prerequisiteTestCaseId: app-launch
+    steps:
+      - goal: Observe the sign-in screen without signing in.
+        finalScreenAssertion: A "Continue with Google" button, an email input field, and a "Send magic link" button are all visible.
+
+  - displayName: Email field accepts input for the magic link
+    id: magic-link-email-entry
+    prerequisiteTestCaseId: app-launch
+    steps:
+      - goal: Type "tester@gmail.com" into the work-email field.
+        hint: The email field is below the "or a whitelisted email" divider.
+        finalScreenAssertion: The email field shows "tester@gmail.com" and a "Send magic link" button is visible.
+
+  - displayName: Google sign-in can be started
+    id: google-signin-opens
+    prerequisiteTestCaseId: app-launch
+    steps:
+      - goal: Tap "Continue with Google".
+        hint: This opens Google's account chooser; if sign-in is misconfigured the app shows a "Sign-in failed" message instead — either outcome ends the step.
+        finalScreenAssertion: Either a Google account chooser / Google sign-in screen appears, or a "Sign-in failed" message is shown on the Nivesh screen.
+
+  - displayName: Risk disclosure link opens
+    id: legal-disclosure-link
+    prerequisiteTestCaseId: app-launch
+    steps:
+      - goal: Tap the "risk disclosure" link near the bottom of the sign-in screen.
+        finalScreenAssertion: A disclosure or investment policy page is shown.
+
+  # ── B. Authentication + onboarding ─────────────────────────────────────────
+  - displayName: Sign in and reach the app
+    id: login
+    steps:
+      - goal: Sign in using the configured Google test account.
+        hint: Tap "Continue with Google" and complete sign-in with the app's configured test account.
+        finalScreenAssertion: The app's main area is visible — either the onboarding "connect investments" screen or the portfolio Home/Overview.
+
+  - displayName: Onboarding shows the three CAS import options
+    id: onboarding-cas-options
+    prerequisiteTestCaseId: login
+    steps:
+      - goal: Reach the "connect investments" / onboarding step (new accounts land here automatically).
+        finalScreenAssertion: Three ways to import holdings are visible — "Gmail CAS Import", "CAS Upload" (NSDL / CDSL), and "CDSL OTP".
+
+  - displayName: CAS PDF upload screen is reachable (no Gmail needed)
+    id: cas-upload-screen
+    prerequisiteTestCaseId: onboarding-cas-options
+    steps:
+      - goal: Select the "CAS Upload" method.
+        hint: This is the manual NSDL/CDSL PDF path; it needs no Gmail access.
+        finalScreenAssertion: A screen to drag or choose a CAS PDF (NSDL / CDSL) is visible.
+
+  - displayName: CDSL OTP import screen is reachable (no Gmail needed)
+    id: cdsl-otp-screen
+    prerequisiteTestCaseId: onboarding-cas-options
+    steps:
+      - goal: Select the "CDSL OTP" method.
+        finalScreenAssertion: A screen to fetch live holdings via CDSL OTP is visible (asks for an identifier and/or to send an OTP).
+
+  # ── C. Primary tabs (mobile bottom bar: Home / Portfolio / Tips / Chat) ─────
+  - displayName: Home / Overview dashboard
+    id: dashboard-overview
+    prerequisiteTestCaseId: login
+    steps:
+      - goal: Open the "Home" tab in the bottom navigation.
+        hint: Bottom bar tabs are Home, Portfolio, Tips, Chat.
+        finalScreenAssertion: A portfolio overview / dashboard is shown (holdings, allocation or value cards), OR a prompt to import a portfolio if none exists.
+
+  - displayName: Recommendations (Tips)
+    id: recommendations
+    prerequisiteTestCaseId: login
+    steps:
+      - goal: Open the "Tips" tab in the bottom navigation.
+        hint: The "Tips" tab maps to the Recommendations screen.
+        finalScreenAssertion: A recommendations / suggested actions screen is shown (a list of recommended actions, or an empty state when there are none).
+
+  - displayName: Chat copilot answers a question
+    id: chat-copilot
+    prerequisiteTestCaseId: login
+    steps:
+      - goal: Open the "Chat" tab, type "How is my portfolio doing?" and send it.
+        hint: There is a text input at the bottom of the chat screen with a send button.
+        finalScreenAssertion: The typed question appears in the conversation and the assistant returns a text reply below it.
+
+  # ── D. Section nav (Markets / AI Insights / Risk / Performance / Goals / Tax
+  #      / Plan board / Pro Trader) — reached via the section menu ─────────────
+  - displayName: Markets — Market Pulse
+    id: markets
+    prerequisiteTestCaseId: login
+    steps:
+      - goal: Navigate to "Markets" using the app's section navigation.
+        hint: Open the navigation menu (or section tabs) and choose "Markets".
+        finalScreenAssertion: A markets / Market Pulse screen is shown with sub-sections such as Earnings, FII/DII, Corporate Actions, Articles, Daily Brief, or Sectors.
+
+  - displayName: Markets — Sectors sub-tab
+    id: markets-sectors
+    prerequisiteTestCaseId: markets
+    steps:
+      - goal: Open the "Sectors" sub-section within Markets.
+        finalScreenAssertion: A sector analysis screen listing market sectors (with performance figures) is visible.
+
+  - displayName: AI Insights (concentration / diversification)
+    id: ai-insights
+    prerequisiteTestCaseId: login
+    steps:
+      - goal: Navigate to "AI Insights" via the section navigation.
+        finalScreenAssertion: An AI Insights screen is shown (concentration / diversification analysis), OR a prompt to import a portfolio first.
+
+  - displayName: Risk analysis
+    id: risk
+    prerequisiteTestCaseId: login
+    steps:
+      - goal: Navigate to "Risk" via the section navigation.
+        finalScreenAssertion: A risk analysis screen is shown (risk metrics or charts), OR a prompt to import a portfolio first.
+
+  - displayName: Performance
+    id: performance
+    prerequisiteTestCaseId: login
+    steps:
+      - goal: Navigate to "Performance" via the section navigation.
+        finalScreenAssertion: A performance screen is shown (returns / performance charts or figures), OR a prompt to import a portfolio first.
+
+  - displayName: Goals
+    id: goals
+    prerequisiteTestCaseId: login
+    steps:
+      - goal: Navigate to "Goals" via the section navigation.
+        finalScreenAssertion: A goals screen is shown (a list of financial goals or a control to create one).
+
+  - displayName: Tax
+    id: tax
+    prerequisiteTestCaseId: login
+    steps:
+      - goal: Navigate to "Tax" via the section navigation.
+        finalScreenAssertion: A tax screen is shown (capital gains / tax summary), OR a prompt to import a portfolio first.
+
+  - displayName: Plan board
+    id: plan-board
+    prerequisiteTestCaseId: login
+    steps:
+      - goal: Navigate to "Plan board" via the section navigation.
+        finalScreenAssertion: A plan board screen is shown (planned actions / tasks, or an empty plan state).
+
+  - displayName: Pro Trader
+    id: pro-trader
+    prerequisiteTestCaseId: login
+    steps:
+      - goal: Navigate to "Pro Trader" via the section navigation.
+        finalScreenAssertion: A Pro Trader screen is shown (positional / trading analytics), OR an empty / connect-broker state.
+
+  - displayName: Fund details from a holding
+    id: fund-details
+    prerequisiteTestCaseId: dashboard-overview
+    steps:
+      - goal: From the Home/Overview, tap the first holding or fund in the portfolio list.
+        hint: Skip/observe only if the portfolio is empty.
+        finalScreenAssertion: A fund details screen is shown (the fund's name plus scores or holding details), OR — if there are no holdings — the empty portfolio state remains.
+
+  # ── E. Account ─────────────────────────────────────────────────────────────
+  - displayName: Settings
+    id: settings
+    prerequisiteTestCaseId: login
+    steps:
+      - goal: Open the account / user menu and choose "Settings".
+        hint: Settings and Sign out live in the account menu, not the primary tabs.
+        finalScreenAssertion: A settings screen is shown (account / profile options).
+
+  - displayName: Sign out
+    id: sign-out
+    prerequisiteTestCaseId: settings
+    steps:
+      - goal: Find and tap "Sign out" in the account menu or settings.
+        finalScreenAssertion: The app returns to the sign-in screen with the "Continue with Google" button.
