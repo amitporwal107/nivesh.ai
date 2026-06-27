@@ -212,3 +212,7 @@ kiteconnect==5.2.0  # Zerodha Kite Connect — read-only holdings/positions/fund
 
 # Malware scanning
 pyclamd==0.4.0      # ClamAV client — talks to clamd daemon over Unix/TCP socket
+
+# Firebase email/password beta login — verifies Firebase ID tokens at
+# /api/auth/firebase (see backend/services/firebase_auth.py)
+firebase-admin==6.5.0

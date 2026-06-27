@@ -20,6 +20,7 @@ const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export const mockAuthAdapter: AuthAdapter = {
   async me() { await delay(180); return { ...mockUser }; },
   async googleSignIn() { await delay(420); return { ...mockUser }; },
+  async firebaseEmailSignIn(email) { await delay(420); return { ...mockUser, email }; },
   async logout() { await delay(120); },
   async googleClientId() { await delay(80); return "mock-client-id.apps.googleusercontent.com"; },
   async magicLink(email) { await delay(320); return { message: `Magic link sent to ${email}` }; },

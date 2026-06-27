@@ -34,6 +34,10 @@ on:
         description: 'Publish the APK to data.niveshcopilot.com'
         type: boolean
         default: true
+      distribute:
+        description: 'Distribute the APK to testers via Firebase App Distribution'
+        type: boolean
+        default: true
 
 concurrency:
   group: android-release
@@ -93,6 +97,14 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_VERSION_NAME: ${{ inputs.version_name }}
           ANDROID_VERSION_CODE: ${{ inputs.version_code }}
+          # Firebase web config for the email/password beta login — baked into the
+          # web bundle at build time. NOT secret (these values ship in every client),
+          # so they live in repo Variables. If unset, the email/password block is
+          # simply hidden and the build still succeeds.
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
         run: bash scripts/build-android-release.sh
 
       - name: Upload build artifacts
@@ -167,3 +179,19 @@ jobs:
           if [ "$CODE" != "200" ]; then
             echo "::warning::Public URL returned $CODE — check nginx /downloads location and Cloudflare cache."
           fi
+
+      # ── Distribute to beta testers via Firebase App Distribution ────────────
+      # Needs (see frontend-v5/docs/firebase-beta.md):
+      #   secret FIREBASE_ANDROID_APP_ID    the Android app id, e.g. 1:616586328496:android:abcdef
+      #   secret FIREBASE_SERVICE_ACCOUNT   service-account JSON with the
+      #                                     "Firebase App Distribution Admin" role
+      #   var    FIREBASE_TESTER_GROUPS     comma-separated tester group aliases (default: beta)
+      - name: Distribute to Firebase App Distribution
+        if: ${{ inputs.distribute }}
+        uses: wzieba/Firebase-Distribution-Github-Action@v1.7.0
+        with:
+          appId: ${{ secrets.FIREBASE_ANDROID_APP_ID }}
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          groups: ${{ vars.FIREBASE_TESTER_GROUPS || 'beta' }}
+          file: frontend-v5/nivesh-v5-prod-release.apk
+          releaseNotes: "Nivesh v${{ inputs.version_name }} (build ${{ inputs.version_code }})"

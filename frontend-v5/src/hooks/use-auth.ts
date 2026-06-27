@@ -40,6 +40,19 @@ export function useGoogleSignIn() {
   });
 }
 
+export function useFirebaseSignIn() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { email: string; password: string }) =>
+      authService.firebaseEmailSignIn(v.email, v.password),
+    onSuccess: (user) => {
+      // Same cache-seeding as Google sign-in — clears the pre-login /auth/me 401
+      // synchronously so RequireAuth doesn't bounce before the refetch lands.
+      qc.setQueryData(["auth", "me"], user);
+    },
+  });
+}
+
 export function useLogout() {
   const qc = useQueryClient();
   const navigate = useNavigate();

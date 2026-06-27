@@ -124,6 +124,107 @@ async def google_auth(request: Request, response: Response):
     return user_doc
 
 
+@router.post("/auth/firebase")
+async def firebase_auth(request: Request, response: Response):
+    """Exchange a Firebase ID token (email/password beta login) for a session.
+
+    Mirrors /auth/google exactly — same whitelist gate, user upsert, session
+    cookie + Bearer token — only the token verification differs. Used by the
+    Android beta build so testers can sign in with email/password instead of
+    Google OAuth. Testers' emails must still be whitelisted, like Google users.
+    """
+    from services import firebase_auth as fb
+
+    if not fb.is_configured():
+        raise SystemException("Firebase auth not configured", code="SYS-003")
+
+    body = await request.json()
+    id_token = (body.get("id_token") or body.get("credential") or "").strip()
+    if not id_token:
+        raise ValidationException("Firebase id_token required", code="VAL-002")
+
+    try:
+        decoded = fb.verify_id_token(id_token)
+    except (AuthenticationException, ValidationException):
+        raise
+    except Exception as e:
+        logger.error("Firebase token verification failed: %s", type(e).__name__)
+        raise AuthenticationException("Failed to verify Firebase token", code="AUTH-003", cause=e)
+
+    email = (decoded.get("email") or "").strip().lower()
+    name = decoded.get("name") or (email.split("@")[0] if email else "")
+    picture = decoded.get("picture", "")
+    if not email:
+        raise AuthenticationException("No email in Firebase token", code="AUTH-003")
+
+    # Whitelist Check — identical gate to /auth/google.
+    whitelist_entry = await check_whitelist(email)
+    if not whitelist_entry:
+        logger.warning("Access denied — email not whitelisted: %s", mask_email(email))
+        raise AuthorizationException(
+            "Access is currently restricted. Your email is not on the invite list. Please request an invite from the admin.",
+            code="AUTHZ-001",
+        )
+
+    await db.whitelisted_users.update_one(
+        {"email": email},
+        {"$set": {"status": "active", "registered_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    is_admin = whitelist_entry.get("is_admin", False)
+
+    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing_user:
+        user_id = existing_user["user_id"]
+        await db.users.update_one({"email": email}, {"$set": {"name": name, "picture": picture, "is_admin": is_admin}})
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        await db.users.insert_one({
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "picture": picture,
+            "is_admin": is_admin,
+            "auth_provider": "firebase",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+
+    session_token = str(uuid.uuid4())
+    await db.user_sessions.insert_one({
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        path="/",
+        max_age=7 * 24 * 3600
+    )
+
+    try:
+        from services import audit
+        await audit.record(
+            user_id=user_id, action="login",
+            ip=request.client.host if request.client else "",
+            ua=request.headers.get("user-agent", ""),
+            details={"email": email, "new_user": not existing_user, "provider": "firebase"},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    user_doc["onboarding_completed"] = bool(profile.get("onboarding_completed", False))
+    # Mobile WebViews don't reliably keep the cross-site session cookie — return
+    # the token so the client can send it as Authorization: Bearer (same as Google).
+    user_doc["session_token"] = session_token
+    return user_doc
+
+
 @router.post("/auth/session")
 async def exchange_session(request: Request, response: Response):
     """Legacy session exchange — removed."""

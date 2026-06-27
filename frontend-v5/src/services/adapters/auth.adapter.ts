@@ -20,6 +20,8 @@ import type { User } from "@/types/user";
 export interface AuthAdapter {
   me(): Promise<User>;
   googleSignIn(credential: string): Promise<User>;
+  /** Email/password beta login via Firebase → /api/auth/firebase session. */
+  firebaseEmailSignIn(email: string, password: string): Promise<User>;
   logout(): Promise<void>;
   googleClientId(): Promise<string>;
   magicLink(email: string): Promise<{ message: string }>;
@@ -47,6 +49,26 @@ export const realAuthAdapter: AuthAdapter = {
     const token = (res.data as { session_token?: string })?.session_token;
     if (token) saveAuthToken(token);
     return mapUser(parse(UserProfileC, res.data, "auth.googleSignIn"));
+  },
+
+  async firebaseEmailSignIn(email, password) {
+    // Lazy-load Firebase so the SDK isn't pulled into the bundle for users who
+    // never touch the beta email/password path.
+    const { signInWithEmailAndPassword } = await import("firebase/auth");
+    const { firebaseAuth } = await import("@/lib/firebase");
+    const cred = await signInWithEmailAndPassword(firebaseAuth(), email.trim(), password);
+    const idToken = await cred.user.getIdToken();
+    const res = await http({
+      method: "POST",
+      path: "/api/auth/firebase",
+      body: { id_token: idToken },
+      noRetry: true,                  // never retry login
+    });
+    // Persist the session token for the native app (WebView cookies don't hold
+    // the cross-site session). Sent back as Authorization: Bearer on requests.
+    const token = (res.data as { session_token?: string })?.session_token;
+    if (token) saveAuthToken(token);
+    return mapUser(parse(UserProfileC, res.data, "auth.firebaseEmailSignIn"));
   },
 
   async logout() {

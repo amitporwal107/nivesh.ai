@@ -3,12 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
 import { dlog } from "@/lib/device-log";
-import { useGoogleSignIn, useMagicLink } from "@/hooks/use-auth";
+import { useGoogleSignIn, useMagicLink, useFirebaseSignIn } from "@/hooks/use-auth";
 import { useGoogleIdentity } from "@/hooks/use-google-identity";
 import { authService } from "@/services";
+import { firebaseConfigured } from "@/lib/firebase";
 import { useToastStore } from "@/stores/toast.store";
 import { useImpersonationStore } from "@/stores/impersonation.store";
-import { ALLOWED_DOMAINS } from "@/types/user";
+import { ALLOWED_DOMAINS, type User } from "@/types/user";
 import ProductTour from "@/components/marketing/ProductTour";
 import CopilotDemo from "@/components/marketing/CopilotDemo";
 import "@/components/marketing/nvx-theme.css";
@@ -29,10 +30,40 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const navigate = useNavigate();
   const google = useGoogleSignIn();
+  const firebase = useFirebaseSignIn();
   const magic = useMagicLink();
   const pushToast = useToastStore((s) => s.push);
 
+  // Beta email/password (Firebase) login state — separate from the magic-link
+  // `email` field above (which is gated on the domain allow-list).
+  const [pwEmail, setPwEmail] = useState("");
+  const [pw, setPw] = useState("");
+
   const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  // Shared post-login routing for ALL sign-in methods (Google + Firebase).
+  const landAfterLogin = useCallback(async (user: User) => {
+    // Confirm the session cookie is re-sent on the NEXT request (RequireAuth +
+    // every data call depend on it), AND read workspace_type — it only comes
+    // back on /auth/me, not the login exchange, and decides the landing page.
+    let meCheck: Awaited<ReturnType<typeof authService.me>> | null = null;
+    try {
+      meCheck = await authService.me();
+      dlog("auth/me probe OK (session cookie works)", { email: meCheck.email });
+    } catch (probeErr) {
+      dlog("auth/me probe FAILED (cookie not sent on next request)", probeErr);
+    }
+    // Fresh login starts at the workspace root — drop any impersonation left in
+    // the persisted store from a previous session so the advisor doesn't land
+    // inside a stale client view (full nav + banner).
+    useImpersonationStore.getState().clear();
+    // Advisors land on their workspace (reduced advisor nav), not their own
+    // portfolio dashboard. To view their own book they open the SELF profile.
+    const dest = !user.onboardingCompleted ? "/onboarding"
+      : (meCheck?.workspaceType || "").toUpperCase() === "ADVISORY" ? "/advisor"
+      : "/dashboard";
+    navigate(dest);
+  }, [navigate]);
 
   // When Google returns a credential (via renderButton click), complete the sign-in
   const handleCredential = useCallback(async (credential: string) => {
@@ -42,26 +73,7 @@ export default function LoginPage() {
         email: user.email,
         onboardingCompleted: user.onboardingCompleted,
       });
-      // Confirm the session cookie is re-sent on the NEXT request (RequireAuth +
-      // every data call depend on it), AND read workspace_type — it only comes
-      // back on /auth/me, not the google exchange, and decides the landing page.
-      let meCheck: Awaited<ReturnType<typeof authService.me>> | null = null;
-      try {
-        meCheck = await authService.me();
-        dlog("auth/me probe OK (session cookie works)", { email: meCheck.email });
-      } catch (probeErr) {
-        dlog("auth/me probe FAILED (cookie not sent on next request)", probeErr);
-      }
-      // Fresh login starts at the workspace root — drop any impersonation left
-      // in the persisted store from a previous session so the advisor doesn't
-      // land inside a stale client view (full nav + banner).
-      useImpersonationStore.getState().clear();
-      // Advisors land on their workspace (reduced advisor nav), not their own
-      // portfolio dashboard. To view their own book they open the SELF profile.
-      const dest = !user.onboardingCompleted ? "/onboarding"
-        : (meCheck?.workspaceType || "").toUpperCase() === "ADVISORY" ? "/advisor"
-        : "/dashboard";
-      navigate(dest);
+      await landAfterLogin(user);
     } catch (err) {
       // Log the REAL backend rejection (status, code, message) — this is the
       // line that tells us whitelist vs audience vs network, etc.
@@ -72,7 +84,23 @@ export default function LoginPage() {
         description: err instanceof Error ? err.message : "Try again",
       });
     }
-  }, [google, navigate, pushToast]);
+  }, [google, landAfterLogin, pushToast]);
+
+  // Beta email/password sign-in via Firebase → backend session.
+  const handleEmailPassword = useCallback(async () => {
+    try {
+      const user = await firebase.mutateAsync({ email: pwEmail, password: pw });
+      dlog("firebase email sign-in ACCEPTED", { email: user.email });
+      await landAfterLogin(user);
+    } catch (err) {
+      dlog("firebase email sign-in REJECTED", err);
+      pushToast({
+        kind: "error",
+        title: "Sign-in failed",
+        description: err instanceof Error ? err.message : "Check your email and password",
+      });
+    }
+  }, [firebase, pwEmail, pw, landAfterLogin, pushToast]);
 
   const gis = useGoogleIdentity(handleCredential);
 
@@ -253,6 +281,58 @@ export default function LoginPage() {
             >
               {magic.isPending ? "Sending…" : "Send magic link →"}
             </button>
+
+            {/* Beta email/password sign-in (Firebase). Only shown when the build
+                was given a Firebase web config (VITE_FIREBASE_*). Testers' emails
+                must be whitelisted, same as Google users. */}
+            {firebaseConfigured() && (
+              <div className="reveal d5" style={{ marginTop: 18 }}>
+                <div className="divider">
+                  <span className="ln" />
+                  <span>or beta sign-in</span>
+                  <span className="ln" />
+                </div>
+                <label className="fl" htmlFor="pw-email">Email</label>
+                <div className="field-wrap">
+                  <input
+                    className="field"
+                    id="pw-email"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="username"
+                    value={pwEmail}
+                    onChange={(e) => setPwEmail(e.target.value)}
+                    placeholder="tester@example.com"
+                  />
+                </div>
+                <label className="fl" htmlFor="pw" style={{ marginTop: 10 }}>
+                  Password
+                </label>
+                <div className="field-wrap">
+                  <input
+                    className="field"
+                    id="pw"
+                    type="password"
+                    autoComplete="current-password"
+                    value={pw}
+                    onChange={(e) => setPw(e.target.value)}
+                    placeholder="••••••••"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && pwEmail && pw && !firebase.isPending) handleEmailPassword();
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="submit"
+                  style={{ marginTop: 12 }}
+                  disabled={!pwEmail || !pw || firebase.isPending}
+                  onClick={handleEmailPassword}
+                >
+                  {firebase.isPending ? "Signing in…" : "Sign in →"}
+                </button>
+              </div>
+            )}
 
             <div className="trust reveal d6">
               <div className="row">
