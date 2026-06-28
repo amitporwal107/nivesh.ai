@@ -790,6 +790,24 @@ async def get_v3_stock_primitives_bulk(
 # nidp.* over a direct PG pool. Raise on failure (no silent []) so the engine can
 # surface a real error rather than a falsely-empty screen.
 
+async def _retry(make_coro, attempts: int = 3, delay: float = 0.6):
+    """Retry a DaaS call on transient connectivity errors (e.g. Cloudflare's
+    intermittent 'incomplete chunked read'). A backtest fires many bulk calls,
+    so one flaky read shouldn't sink the whole run. Real HTTP status errors
+    (4xx/5xx) are NOT retried — only connection-level failures (status_code None)."""
+    import asyncio
+    last: Optional[DaasError] = None
+    for i in range(attempts):
+        try:
+            return await make_coro()
+        except DaasError as exc:
+            if exc.status_code is not None:
+                raise
+            last = exc
+            if i < attempts - 1:
+                await asyncio.sleep(delay * (i + 1))
+    raise last  # type: ignore[misc]
+
 async def get_trading_calendar(
     start: Optional[str] = None, end: Optional[str] = None, timeout: float = 15.0,
 ) -> List[str]:
@@ -799,7 +817,7 @@ async def get_trading_calendar(
         params["start"] = start
     if end:
         params["end"] = end
-    data = await _get("/features/calendar", params=params, timeout=timeout)
+    data = await _retry(lambda: _get("/features/calendar", params=params, timeout=timeout))
     if not data:
         return []
     dates = data.get("dates") if isinstance(data, dict) else None
@@ -813,11 +831,11 @@ async def get_features_bulk(
     """Bulk engineered features keyed by symbol → date-ascending rows."""
     if not symbols:
         return {}
-    payload = await _post(
+    payload = await _retry(lambda: _post(
         "/features/bulk",
         {"symbols": symbols, "start": start, "end": end},
         timeout=timeout,
-    )
+    ))
     data = (payload or {}).get("data") or {}
     return data if isinstance(data, dict) else {}
 
@@ -829,11 +847,11 @@ async def get_adjusted_prices_bulk(
     """Bulk split/bonus-adjusted OHLC keyed by symbol → date-ascending rows."""
     if not symbols:
         return {}
-    payload = await _post(
+    payload = await _retry(lambda: _post(
         "/prices/adjusted/bulk",
         {"symbols": symbols, "start": start, "end": end},
         timeout=timeout,
-    )
+    ))
     data = (payload or {}).get("data") or {}
     return data if isinstance(data, dict) else {}
 
@@ -848,7 +866,7 @@ async def get_index_constituents(
     params: Dict[str, Any] = {"limit": 1000}
     if on:
         params["on"] = on
-    data = await _get(path, params=params, timeout=timeout)
+    data = await _retry(lambda: _get(path, params=params, timeout=timeout))
     rows = (data or {}).get("data") if isinstance(data, dict) else None
     if not isinstance(rows, list):
         return []
