@@ -20,14 +20,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 # ── Magic-link whitelist validation ──────────────────────────────────────
-# Self-serve flow behind the "or a whitelisted email" box on the login page.
-# A visitor submits an allowed-domain email; if it isn't already whitelisted
-# we email them a one-time validation link valid for 24h. Opening the link
-# adds the address to the whitelist so they can then sign in.
+# Self-serve flow behind the "or sign in with email" box on the login page.
+# A visitor submits any valid email; if it isn't already whitelisted we email
+# them a one-time validation link valid for 24h. Opening the link adds the
+# address to the whitelist so they can then sign in. Any email domain may
+# self-serve (Gmail included) — actual sign-in still goes through Google OAuth.
 MAGIC_LINK_TTL_HOURS = 24
-# Mirror frontend ALLOWED_DOMAINS (frontend-v5/src/types/user.ts). Only these
-# domains may self-serve a magic link; everything else is rejected up front.
-ALLOWED_MAGIC_LINK_DOMAINS = {"gmail.com", "googlemail.com"}
 
 
 def _iso_is_expired(iso_str: str) -> bool:
@@ -349,16 +347,10 @@ async def request_magic_link(request: Request):
     body = await request.json()
     email = (body.get("email") or "").strip().lower()
 
-    # Format + domain gate — mirrors the frontend's isAllowedDomain check so
-    # the API is safe even if called directly.
+    # Format gate — mirrors the frontend's isValidEmail check so the API is
+    # safe even if called directly. Any valid email domain may self-serve.
     if not email or "@" not in email or "." not in email.split("@")[-1]:
         raise ValidationException("A valid email address is required", code="VAL-003")
-    domain = email.split("@")[-1]
-    if domain not in ALLOWED_MAGIC_LINK_DOMAINS:
-        allowed = " or ".join(f"@{d}" for d in sorted(ALLOWED_MAGIC_LINK_DOMAINS))
-        raise ValidationException(
-            f"Only {allowed} addresses can request access this way.", code="VAL-003",
-        )
 
     # Already on the list → ignore (do not re-add, do not send a link).
     if await check_whitelist(email):
@@ -366,6 +358,21 @@ async def request_magic_link(request: Request):
         return {
             "message": "This email is already approved — you can sign in above.",
             "already_whitelisted": True,
+        }
+
+    # Per-email cooldown — if a still-valid, unopened link is already
+    # outstanding for this address, don't mint or re-send another. The
+    # endpoint is open to any domain now, so without this an attacker could
+    # use it to spam validation mail at arbitrary addresses via our SMTP relay
+    # (the existing rate limit is per-IP, not per-recipient).
+    outstanding = await db.magic_link_tokens.find_one(
+        {"email": email, "used": False}, {"_id": 0, "expires_at": 1}
+    )
+    if outstanding and not _iso_is_expired(outstanding.get("expires_at", "")):
+        logger.info("Magic-link re-requested while a valid link is outstanding: %s", mask_email(email))
+        return {
+            "message": f"A validation link was already sent to {email}. Please check your inbox — it expires in {MAGIC_LINK_TTL_HOURS} hours.",
+            "already_whitelisted": False,
         }
 
     # Fail loud if we can't actually send mail — never pretend a link went out.
