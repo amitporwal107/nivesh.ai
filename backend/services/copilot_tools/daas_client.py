@@ -785,6 +785,76 @@ async def get_v3_stock_primitives_bulk(
     return data if isinstance(data, dict) else {}
 
 
+# ── Strategy engine market data (calendar + bulk features/prices + constituents) ──
+# These back DaasMarketDataProvider so the strategy screen/backtest never read
+# nidp.* over a direct PG pool. Raise on failure (no silent []) so the engine can
+# surface a real error rather than a falsely-empty screen.
+
+async def get_trading_calendar(
+    start: Optional[str] = None, end: Optional[str] = None, timeout: float = 15.0,
+) -> List[str]:
+    """Distinct trading dates (YYYY-MM-DD, ascending) from NIDP feature snapshots."""
+    params: Dict[str, Any] = {}
+    if start:
+        params["start"] = start
+    if end:
+        params["end"] = end
+    data = await _get("/features/calendar", params=params, timeout=timeout)
+    if not data:
+        return []
+    dates = data.get("dates") if isinstance(data, dict) else None
+    return dates if isinstance(dates, list) else []
+
+
+async def get_features_bulk(
+    symbols: List[str], start: Optional[str] = None, end: Optional[str] = None,
+    timeout: float = 30.0,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Bulk engineered features keyed by symbol → date-ascending rows."""
+    if not symbols:
+        return {}
+    payload = await _post(
+        "/features/bulk",
+        {"symbols": symbols, "start": start, "end": end},
+        timeout=timeout,
+    )
+    data = (payload or {}).get("data") or {}
+    return data if isinstance(data, dict) else {}
+
+
+async def get_adjusted_prices_bulk(
+    symbols: List[str], start: Optional[str] = None, end: Optional[str] = None,
+    timeout: float = 30.0,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Bulk split/bonus-adjusted OHLC keyed by symbol → date-ascending rows."""
+    if not symbols:
+        return {}
+    payload = await _post(
+        "/prices/adjusted/bulk",
+        {"symbols": symbols, "start": start, "end": end},
+        timeout=timeout,
+    )
+    data = (payload or {}).get("data") or {}
+    return data if isinstance(data, dict) else {}
+
+
+async def get_index_constituents(
+    index_name: str, on: Optional[str] = None, timeout: float = 15.0,
+) -> List[str]:
+    """Point-in-time constituent symbols for an index ('Nifty 50' … 'Nifty 500')
+    as of `on` (defaults to most recent snapshot). [] if no snapshot."""
+    import urllib.parse
+    path = f"/indices/{urllib.parse.quote(index_name)}/constituents"
+    params: Dict[str, Any] = {"limit": 1000}
+    if on:
+        params["on"] = on
+    data = await _get(path, params=params, timeout=timeout)
+    rows = (data or {}).get("data") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return []
+    return [r["symbol"] for r in rows if isinstance(r, dict) and r.get("symbol")]
+
+
 async def get_portfolio_risk(
     external_user_id: str,
     timeout: float = 10.0,

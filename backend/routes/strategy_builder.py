@@ -36,6 +36,8 @@ from services import pg_client
 from services.strategy_engine import dsl as dsl_mod
 from services.strategy_engine import backtest as bt
 from services.strategy_engine.compiler_stock import compile_stock_query, to_asyncpg, CompileError
+from services.strategy_engine.market_data import get_provider
+from services.strategy_engine.evaluator import EvalError
 
 logger = logging.getLogger(__name__)
 
@@ -366,27 +368,18 @@ async def screen_strategy(request: Request, body: ScreenRequest):
         if not owns:
             raise HTTPException(status_code=403, detail="universe not found or not authorised")
 
-    # Compile once; bind as_of_date into the trailing positional slot exactly
-    # as the backtest runner does (compiler emits ":as_of_date", not a pN).
+    # Screen via the market-data provider (direct SQL on co-located dev; NIDP
+    # DaaS API on staging/prod). Same compiler/evaluator semantics as the
+    # backtest, so Screen and Backtest stay consistent for a spec + as_of_date.
+    provider = get_provider(pool)
     try:
-        sql, params = compile_stock_query(spec)
-    except CompileError as e:
+        asof = _parse_iso_date(body.as_of_date) if body.as_of_date else await provider.latest_date()
+        if asof is None:
+            raise HTTPException(status_code=503, detail="no feature snapshots available")
+        await provider.prepare(spec, asof, asof)
+        rows = await provider.screen(spec, asof)
+    except (CompileError, EvalError) as e:
         raise HTTPException(status_code=400, detail=str(e))
-    sql_pg, base_args = to_asyncpg(sql, params)
-    next_slot = len(base_args) + 1
-    sql_pg = sql_pg.replace(":as_of_date", f"${next_slot}")
-
-    async with pool.acquire() as conn:
-        if body.as_of_date:
-            asof = _parse_iso_date(body.as_of_date)
-        else:
-            row = await conn.fetchrow(
-                "SELECT MAX(as_of_date) AS d FROM nidp.stock_features_daily"
-            )
-            asof = row["d"] if row and row["d"] else None
-            if asof is None:
-                raise HTTPException(status_code=503, detail="no feature snapshots available")
-        rows = await conn.fetch(sql_pg, *(list(base_args) + [asof]))
 
     ranked_by = spec["ranking"]["by"]
     # Honesty (CONTEXT §1): `score`/`composite_score` are Phase-1 proxies that
