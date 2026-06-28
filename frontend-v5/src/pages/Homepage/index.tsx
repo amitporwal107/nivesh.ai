@@ -28,7 +28,7 @@ function bucket(v: number): "g" | "a" | "r" {
 }
 
 // Sample portfolio shown when no live data is available (PREVIEW state).
-const SAMPLE_SCORE = 67;
+const SAMPLE_SCORE = 68;
 const SAMPLE_TILES: Array<{ label: string; v: number }> = [
   { label: "Risk", v: 77 },
   { label: "Concen", v: 58 },
@@ -62,15 +62,19 @@ export default function HomepagePage() {
   const assetBase = import.meta.env.BASE_URL; // respects the staging "/v5/" base path
 
   // Real scores when available, otherwise the sample portfolio.
+  // useHealthAnalysis() nests the payload under `health: { health_score, breakdown }`,
+  // so the score and dimensions live one level under `health` (not on the root).
   const h = health as any;
-  const liveScore: number | null = h?.health_score ?? (summary as any)?.healthScore ?? null;
+  const liveScore: number | null =
+    h?.health?.health_score ?? h?.health?.score ?? (summary as any)?.healthScore ?? null;
   const isLive = liveScore != null;
   const targetScore = liveScore ?? SAMPLE_SCORE;
 
-  const liveDims: Array<{ label: string; v: number }> | null = h?.dimensions
-    ? Object.entries(h.dimensions as Record<string, number>)
+  const liveBreakdown = h?.health?.breakdown as Record<string, number> | undefined;
+  const liveDims: Array<{ label: string; v: number }> | null = liveBreakdown
+    ? Object.entries(liveBreakdown)
         .slice(0, 6)
-        .map(([k, v]) => ({ label: k.replace(/_/g, " ").slice(0, 7), v: Math.round(v as number) }))
+        .map(([k, v]) => ({ label: k.replace(/_/g, " ").slice(0, 7), v: Math.round(Number(v)) }))
     : null;
   const tiles = liveDims && liveDims.length > 0 ? liveDims : SAMPLE_TILES;
 

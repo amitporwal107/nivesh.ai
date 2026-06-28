@@ -50,6 +50,14 @@ _DATE = re.compile(r"\d{1,2}-[A-Za-z]{3}-\d{4}")
 _SECTION = re.compile(r"^[A-Za-z][A-Za-z &/]*\(([A-Z]{1,3})\)$")
 # Composition row: "Equities (E) 17,67,935.64 14.60%"
 _COMPOSITION = re.compile(r"^[A-Za-z][A-Za-z &/]*\(([A-Z]{1,3})\)\s+([\d,]+\.\d{2})\b")
+# "Monthly movement of your Consolidated Portfolio Value" table row, e.g.
+# "MAY 2025 1,11,35,534.55 NA NA" / "JUN 2025 1,13,59,376.19 +223841.64 +2.01".
+# Only this table has a 3-letter month + 4-digit year + rupee value at line start,
+# so it's captured deterministically here — no OpenAI Vision call needed. Mirrors
+# the {month, value_rs} shape services.cas_summary_vision used to return.
+_MONTH_ROW = re.compile(
+    r"^(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+(\d{4})\s+([\d,]+\.\d{2})\b"
+)
 # A line that signals the holdings region has ended and the per-account
 # Transactions statement has begun. Detected at LINE granularity (not page):
 # on the last holdings page the folio "Total" row, the folio tail rows, and
@@ -114,6 +122,7 @@ class ExtractResult:
     grand_total: Optional[float] = None
     investor_name: str = ""
     statement_date: str = ""
+    monthly_values: list = field(default_factory=list)   # [{month, value_rs}] portfolio-value trend
     reconciliation: dict = field(default_factory=dict)
 
     @property
@@ -279,6 +288,16 @@ def extract_nsdl_cas(pdf_bytes: bytes, password: str = "") -> ExtractResult:
                 if in_holdings and _is_txn_start(line):
                     stop = True
                     break  # reached the Transactions section — holdings are done
+
+                # Portfolio-value trend table (captured in this same pass — replaces
+                # the OpenAI Vision summary call on the NSDL path).
+                mrow = _MONTH_ROW.match(line)
+                if mrow:
+                    res.monthly_values.append({
+                        "month": f"{mrow.group(1).title()} {mrow.group(2)}",
+                        "value_rs": _f(mrow.group(3)),
+                    })
+                    continue
 
                 # Grand total (summary page). Statement vintages label it either
                 # "YOUR CONSOLIDATED PORTFOLIO VALUE ` ..." or "Grand Total ...".

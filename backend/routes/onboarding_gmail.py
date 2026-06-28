@@ -69,6 +69,27 @@ def _extract_vision_summary(pdf_bytes: bytes, password: str = "") -> Optional[di
         return None
 
 
+async def _persist_nsdl_transactions_background(user_id: str, pdf_bytes: bytes, password: str) -> None:
+    """Extract + persist NSDL MF transactions OFF the request path.
+
+    The MF-transaction pdfplumber pass (~6s) is the single slowest step of an NSDL
+    CAS import, but the transaction history only feeds later screens (XIRR /
+    Performance), not the import response. So it runs after the response returns;
+    the blocking parse is offloaded to a thread so it never stalls the event loop.
+    """
+    import asyncio
+    try:
+        from services import nsdl_cas_transactions as _nsdltx
+        from services import cas_transactions as _ct
+        txr = await asyncio.to_thread(_nsdltx.extract_mf_transactions, pdf_bytes, password)
+        docs = _nsdltx.to_cas_transaction_docs(txr.txns)
+        if docs:
+            await _ct.persist_flat_transactions(db, user_id, docs, source="NSDL_CAS")
+            logger.info("bg NSDL txns: persisted %d transactions for %s", len(docs), user_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("bg NSDL txn extract/persist failed for %s: %s", user_id, e)
+
+
 def _extract_portfolio_value(raw_data: Optional[dict]) -> Optional[float]:
     """Extract total portfolio value (rupees) from casparser SDK response summary."""
     if not raw_data:
@@ -264,10 +285,10 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
     )
 
     all_holdings: List[Dict[str, Any]] = []
-    all_txn_docs: List[Dict[str, Any]] = []
     per_file: List[Dict[str, Any]] = []
     parse_errors = 0
     used_email: Optional[Dict[str, Any]] = None
+    defer_txns_for: Optional[tuple] = None   # (pdf_bytes, password) of the winning NSDL file
 
     for email in emails:
         msg_id = email.get("message_id")
@@ -305,23 +326,21 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         holdings, raw_data, parse_err = [], None, None
         nsdl_grand_total: Optional[float] = None
         nsdl_stmt_date: Optional[str] = None
-        nsdl_txn_docs: List[Dict[str, Any]] = []
+        nsdl_monthly: List[Dict[str, Any]] = []
+        defer_nsdl_txns = False
+        cams_kfin_won = False
         try:
             from services import nsdl_cas_extractor as _nsdl
-            from services import nsdl_cas_transactions as _nsdltx
             ext = _nsdl.extract_nsdl_cas(content, pan)
             if ext.reconciled and ext.holdings:
                 holdings = [h.as_holding_dict() for h in ext.holdings]
                 nsdl_grand_total = ext.grand_total
                 nsdl_stmt_date = ext.statement_date or None
-                try:
-                    txr = _nsdltx.extract_mf_transactions(content, pan)
-                    nsdl_txn_docs = _nsdltx.to_cas_transaction_docs(txr.txns)
-                except Exception as te:  # noqa: BLE001
-                    logger.warning("auto-import: NSDL txn extract failed for %s: %s", filename, te)
+                nsdl_monthly = ext.monthly_values          # value trend (no Vision call)
+                defer_nsdl_txns = True                      # heavy txn pass deferred post-response
                 logger.info(
-                    "auto-import: NSDL custom extractor reconciled %d holdings, %d txns for %s",
-                    len(holdings), len(nsdl_txn_docs), user_id,
+                    "auto-import: NSDL custom extractor reconciled %d holdings for %s",
+                    len(holdings), user_id,
                 )
             else:
                 logger.info(
@@ -350,6 +369,30 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
                     )
             except Exception as e:  # noqa: BLE001
                 logger.warning("auto-import: CDSL extractor error for %s, using casparser: %s", filename, e)
+
+        # CAMS/KFintech consolidated MF CAS — reconciling extractor (gates against
+        # the printed Total + per-holding units×NAV). The email-delivered CAS is the
+        # Detailed layout; the Summary layout is also handled. Only wins if it ties
+        # out to the paisa, else falls through to the ungated casparser path below.
+        if not holdings:
+            try:
+                from services import cams_kfin_cas_extractor as _ck
+                ckext = _ck.extract_cams_kfin_cas(content, pan)
+                if ckext.reconciled and ckext.holdings:
+                    holdings = [h.as_holding_dict() for h in ckext.holdings]
+                    nsdl_grand_total = ckext.grand_total
+                    nsdl_stmt_date = ckext.statement_date or None
+                    cams_kfin_won = True                     # no monthly table → skip Vision
+                    logger.info(
+                        "auto-import: CAMS/KFIN custom extractor reconciled %d holdings (₹%s, %s) for %s",
+                        len(holdings), ckext.grand_total, ckext.layout, user_id,
+                    )
+                else:
+                    logger.info(
+                        "auto-import: CAMS/KFIN extractor did not reconcile %s — using casparser", filename,
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("auto-import: CAMS/KFIN extractor error for %s, using casparser: %s", filename, e)
 
         if not holdings:
             # Fall back to the OFFLINE casparser library (pinned dependency, no
@@ -397,14 +440,19 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         statement_period   = cas_api_client.extract_statement_period(raw_data) if raw_data else None
         cas_total_value    = _extract_portfolio_value(raw_data)
         cas_statement_date = _extract_statement_date(raw_data)
-        # Vision API: extract monthly portfolio values from the CAS Summary page
-        # Pass PAN as PDF password (NSDL/CAMS CAS PDFs are PAN-locked)
-        vision = _extract_vision_summary(content, password=pan)
-        if vision:
-            if vision.get("current_value_rs"):
-                cas_total_value = float(vision["current_value_rs"])
-            if vision.get("statement_date"):
-                cas_statement_date = vision["statement_date"]
+        # Portfolio-value trend: the reconciled NSDL path parses it in the same
+        # pdfplumber pass (nsdl_monthly), and CAMS/KFintech statements carry no monthly
+        # table at all — so skip the ~7s OpenAI Vision call for both. Vision stays the
+        # trend source only for the CDSL / casparser fallback layouts.
+        cas_monthly = nsdl_monthly
+        if not nsdl_monthly and not cams_kfin_won:
+            vision = _extract_vision_summary(content, password=pan)
+            if vision:
+                if vision.get("current_value_rs"):
+                    cas_total_value = float(vision["current_value_rs"])
+                if vision.get("statement_date"):
+                    cas_statement_date = vision["statement_date"]
+                cas_monthly = vision.get("monthly_values") or []
         # The NSDL custom extractor's grand total / statement date are read
         # straight from the statement and reconcile to the paisa — prefer them
         # over the casparser summary and the Vision LLM estimate when present.
@@ -413,7 +461,6 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         if nsdl_stmt_date:
             cas_statement_date = nsdl_stmt_date
         all_holdings.extend(holdings)
-        all_txn_docs.extend(nsdl_txn_docs)
         used_email = email
         # Per-asset-class breakdown for reconciliation against the CAS summary.
         breakdown: Dict[str, Dict[str, float]] = {}
@@ -436,8 +483,10 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             "portfolio_value_rs": cas_total_value,
             "statement_date": cas_statement_date,
             "breakdown": breakdown,
-            "monthly_values": vision.get("monthly_values") if vision else None,
+            "monthly_values": cas_monthly,
         })
+        # Remember the winning file's bytes for the deferred NSDL transaction pass.
+        defer_txns_for = (content, pan) if defer_nsdl_txns else None
         break  # first source that parses wins — don't burn the others
 
     # ── Step 4: persist ──────────────────────────────────────────────
@@ -445,24 +494,15 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         task_id = f"onboard_gmail_{uuid.uuid4().hex[:10]}"
         await save_holdings(user_id, all_holdings, file_type="gmail_cas", task_id=task_id)
 
-    # Persist the MF transaction ledger (NSDL custom path) to db.cas_transactions
-    # via the shared idempotent upsert — feeds XIRR / behavioural signals / SIP
-    # detection. Best-effort: a failure here never fails the holdings import.
+    # NSDL MF transactions (the ~6s pdfplumber pass) feed XIRR / behavioural signals
+    # / SIP detection — later screens, not this response. Extract + persist them in
+    # the background for the winning file once holdings are saved. txn_persisted stays
+    # 0 here because the count is genuinely not known until the async pass completes.
     txn_persisted = 0
-    if all_txn_docs:
-        try:
-            from services import cas_transactions as _ct
-            tx_summary = await _ct.persist_flat_transactions(
-                db, user_id, all_txn_docs, source="NSDL_CAS",
-            )
-            txn_persisted = tx_summary.get("transactions", 0)
-            logger.info(
-                "auto-import: persisted %s transactions (%s new, %s sips) for %s",
-                tx_summary.get("transactions"), tx_summary.get("transactions_new"),
-                tx_summary.get("sips"), user_id,
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("auto-import: transaction persist failed for %s: %s", user_id, e)
+    if defer_txns_for:
+        import asyncio as _aio
+        _txn_bytes, _txn_pw = defer_txns_for
+        _aio.create_task(_persist_nsdl_transactions_background(user_id, _txn_bytes, _txn_pw))
 
     # ── Step 5: log imports ──────────────────────────────────────────
     now = _now_iso()
@@ -501,17 +541,18 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             profile_update["cas_portfolio_value_rs"] = cas_portfolio_value
         if cas_statement_date:
             profile_update["cas_statement_date"] = cas_statement_date
+        # Always write the trend (even empty) so a statement with no monthly table
+        # clears any stale series from a prior import instead of showing it.
+        profile_update["cas_monthly_values"] = monthly_values or []
         if monthly_values:
-            profile_update["cas_monthly_values"] = monthly_values
             logger.info(
                 "gmail-import: persisting %d monthly portfolio values to MongoDB for user=%s",
                 len(monthly_values), user_id,
             )
         else:
-            logger.warning(
-                "gmail-import: cas_monthly_values is empty/null — Vision API "
-                "did not extract monthly values for user=%s (check cas_summary_vision logs)",
-                user_id,
+            logger.info(
+                "gmail-import: no monthly trend for this statement (NSDL is deterministic, "
+                "CAMS/KFin has none) — cleared cas_monthly_values for user=%s", user_id,
             )
         await db.user_profiles.update_one(
             {"user_id": user_id},
@@ -612,21 +653,18 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
     holdings, raw_data = [], None
     nsdl_grand_total: Optional[float] = None
     nsdl_stmt_date: Optional[str] = None
-    nsdl_txn_docs: List[Dict[str, Any]] = []
+    nsdl_monthly: List[Dict[str, Any]] = []
+    defer_nsdl_txns = False
+    cams_kfin_won = False
     try:
         from services import nsdl_cas_extractor as _nsdl
-        from services import nsdl_cas_transactions as _nsdltx
         ext = _nsdl.extract_nsdl_cas(content, pan)
         if ext.reconciled and ext.holdings:
             holdings = [h.as_holding_dict() for h in ext.holdings]
             nsdl_grand_total = ext.grand_total
             nsdl_stmt_date = ext.statement_date or None
-            try:
-                nsdl_txn_docs = _nsdltx.to_cas_transaction_docs(
-                    _nsdltx.extract_mf_transactions(content, pan).txns
-                )
-            except Exception as te:  # noqa: BLE001
-                logger.warning("upload_cas_pdf: NSDL txn extract failed: %s", te)
+            nsdl_monthly = ext.monthly_values          # value trend, parsed in this pass
+            defer_nsdl_txns = True                      # heavy txn pass deferred post-response
     except Exception as e:  # noqa: BLE001
         logger.warning("upload_cas_pdf: NSDL extractor error, using offline casparser: %s", e)
 
@@ -643,6 +681,26 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
         except Exception as e:  # noqa: BLE001
             logger.warning("upload_cas_pdf: CDSL extractor error, using offline casparser: %s", e)
 
+    # CAMS/KFintech consolidated MF CAS — reconciling extractor (gates against the
+    # printed Total + per-holding units×NAV) so a bad parse falls through instead
+    # of silently importing a short portfolio the way the ungated casparser path can.
+    if not holdings:
+        try:
+            from services import cams_kfin_cas_extractor as _ck
+            ckext = _ck.extract_cams_kfin_cas(content, pan)
+            if ckext.reconciled and ckext.holdings:
+                holdings = [h.as_holding_dict() for h in ckext.holdings]
+                nsdl_grand_total = ckext.grand_total
+                nsdl_stmt_date = ckext.statement_date or None
+                cams_kfin_won = True                     # no monthly table → skip Vision
+                logger.info("upload_cas_pdf: CAMS/KFIN custom extractor reconciled %d holdings (₹%s, %s layout)",
+                            len(holdings), ckext.grand_total, ckext.layout)
+            else:
+                logger.info("upload_cas_pdf: CAMS/KFIN extractor did not reconcile (%s) — using casparser",
+                            (ckext.reconciliation or {}).get("reason") or ckext.reconciliation)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("upload_cas_pdf: CAMS/KFIN extractor error, using offline casparser: %s", e)
+
     if not holdings:
         try:
             holdings, raw_data, _ = cas_api_client.parse_cas_offline(content, password=pan)
@@ -657,22 +715,22 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
             "is a recent CAMS / KFintech / NSDL / CDSL statement.",
         )
 
-    if nsdl_txn_docs:
-        try:
-            from services import cas_transactions as _ct
-            await _ct.persist_flat_transactions(db, user_id, nsdl_txn_docs, source="NSDL_CAS")
-        except Exception as e:  # noqa: BLE001
-            logger.warning("upload_cas_pdf: txn persist failed: %s", e)
-
     statement_period    = cas_api_client.extract_statement_period(raw_data) if raw_data else None
     cas_portfolio_value = _extract_portfolio_value(raw_data)
     cas_statement_date  = _extract_statement_date(raw_data)
-    vision              = _extract_vision_summary(content, password=pan)
-    if vision:
-        if vision.get("current_value_rs"):
-            cas_portfolio_value = float(vision["current_value_rs"])
-        if vision.get("statement_date"):
-            cas_statement_date = vision["statement_date"]
+    # Portfolio-value trend: the reconciled NSDL path parses it deterministically in
+    # the same pdfplumber pass (nsdl_monthly), and CAMS/KFintech statements carry no
+    # monthly table at all — so skip the ~7s OpenAI Vision call for both. Vision stays
+    # the trend source only for the CDSL / casparser fallback layouts.
+    cas_monthly = nsdl_monthly
+    if not nsdl_monthly and not cams_kfin_won:
+        vision = _extract_vision_summary(content, password=pan)
+        if vision:
+            if vision.get("current_value_rs"):
+                cas_portfolio_value = float(vision["current_value_rs"])
+            if vision.get("statement_date"):
+                cas_statement_date = vision["statement_date"]
+            cas_monthly = vision.get("monthly_values") or []
     # Authoritative reconciled figures win over casparser summary / Vision LLM.
     if nsdl_grand_total is not None:
         cas_portfolio_value = nsdl_grand_total
@@ -693,8 +751,9 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
         profile_update["cas_portfolio_value_rs"] = cas_portfolio_value
     if cas_statement_date:
         profile_update["cas_statement_date"] = cas_statement_date
-    if vision and vision.get("monthly_values"):
-        profile_update["cas_monthly_values"] = vision["monthly_values"]
+    # Always write the trend (even empty) so a statement with no monthly table
+    # clears any stale series from a prior import instead of showing it.
+    profile_update["cas_monthly_values"] = cas_monthly or []
     await db.user_profiles.update_one(
         {"user_id": user_id},
         {"$set": profile_update, "$setOnInsert": {"user_id": user_id, "created_at": now}},
@@ -707,6 +766,10 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
     import asyncio as _aio
     from routes.upload import _trigger_nidp_pipeline_background
     _aio.create_task(_trigger_nidp_pipeline_background(user_id))
+    # Deferred: NSDL MF-transaction extraction + persist (~6s) runs after the
+    # response so the import returns as soon as holdings + value are saved.
+    if defer_nsdl_txns:
+        _aio.create_task(_persist_nsdl_transactions_background(user_id, content, pan))
 
     return {
         "ok": True,
