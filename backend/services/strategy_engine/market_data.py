@@ -176,11 +176,15 @@ class DaasMarketDataProvider(MarketDataProvider):
             index_name = _PIT_INDEX_NAME.get(str(uni.get("ref", "")).upper())
             if not index_name:
                 raise ValueError(f"unknown index ref {uni.get('ref')!r}")
-            for snap in self._membership_sample_dates(from_date, to_date):
-                syms = await dc.get_index_constituents(index_name, on=_iso(snap))
-                self._snapshots.append((snap, set(syms)))
-                symbols.update(syms)
-            self.basis["universe_basis"] = "point_in_time"
+            # Constituent snapshots are periodic, and the DaaS `on` lookup matches
+            # an EXACT snapshot date — passing an arbitrary bar/sample date returns
+            # nothing. So resolve to the most-recent available snapshot (on=None)
+            # and apply it across the window. Honest label: latest_snapshot (true
+            # per-bar point-in-time needs snapshot-history the API doesn't expose).
+            syms = await dc.get_index_constituents(index_name, on=None)
+            self._snapshots.append((from_date, set(syms)))
+            symbols.update(syms)
+            self.basis["universe_basis"] = "latest_snapshot"
         elif uni.get("type") == "custom":
             syms = await self._custom_symbols(str(uni.get("ref", "")))
             self._snapshots.append((from_date, set(syms)))
