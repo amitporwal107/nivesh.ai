@@ -9,7 +9,18 @@ Pulls directly from Postgres (mutual_fund_metadata + instrument_master).
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
-from services import pg_client, v3_weights
+from services import pg_client, selection, v3_weights
+
+
+# bucket -> selection.evaluate_gates asset_class (equity|debt|gold|liquid). The
+# selection framework has no "hybrid" class; hybrids hold equity, so they take the
+# equity gate floor. Unknown buckets fall back to equity inside selection anyway.
+_SELECTION_ASSET_CLASS = {
+    "equity": "equity",
+    "debt":   "debt",
+    "hybrid": "equity",
+    "liquid": "liquid",
+}
 
 
 # Plain-English labels that map to v3_weights.classify_fund_category()
@@ -112,6 +123,14 @@ async def pick_funds_for_bucket(
         if len(candidates) >= n * 5:       # pick top pool, trim below
             break
 
+    # Hard gates (Step 1 unify): apply the SAME selection eligibility gates both
+    # builder paths use. These queries don't select age/tenure, so those gates
+    # degrade to not_evaluated (never a silent pass) — only a populated, failing
+    # field (e.g. aum below floor) rejects a candidate here.
+    eligible, _rejected = selection.filter_eligible(
+        candidates, asset_class=_SELECTION_ASSET_CLASS.get(bucket, "equity"))
+    candidates = eligible
+
     # Prefer Direct plans when tied on quality
     direct = [c for c in candidates if c.get("plan_type") == "direct"]
     if len(direct) >= n:
@@ -181,6 +200,12 @@ async def _pick_gold_funds(
             "add_score": fd.get("add_score"),
             "plan_type": "direct" if "direct" in scheme.lower() else "regular",
         })
+
+    # Hard gates (Step 1 unify): apply the same selection eligibility gates as the
+    # main pool. Gold uses the relaxed gold AUM floor; age/tenure are not selected
+    # here so they degrade to not_evaluated, never a silent pass.
+    eligible, _rejected = selection.filter_eligible(candidates, asset_class="gold")
+    candidates = eligible
 
     direct = [c for c in candidates if c.get("plan_type") == "direct"]
     if len(direct) >= n:

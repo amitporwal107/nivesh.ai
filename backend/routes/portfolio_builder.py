@@ -115,13 +115,24 @@ async def generate_sleeves(payload: SleeveBuilderRequest, request: Request):
         profile = ((doc or {}).get("risk_profile") or {}).get("category") or "moderate"
 
     from services import sleeve_builder as _sb
-    return await _sb.build_sleeve_portfolio(
+    result = await _sb.build_sleeve_portfolio(
         profile,
         horizon_years=payload.horizon_years,
         monthly_sip_rs=payload.monthly_sip_rs,
         lumpsum_rs=payload.lumpsum_rs,
         n_per_sleeve=payload.n_per_sleeve,
     )
+    # Attach chat-renderable insight-card envelopes so the copilot chat surface can
+    # render the result via the existing InsightCardWidget path (the non-chat wizard
+    # ignores this extra field). Additive + best-effort: a transformer error must
+    # never break the builder response. UNVERIFIED: the React render itself (no
+    # browser/yarn in CI here) — see diagnostics/verify_selection_framework.sh.
+    try:
+        from services.copilot_tools.portfolio_result_transformer import portfolio_result_to_cards
+        result["cards"] = portfolio_result_to_cards(result)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("portfolio result transformer failed: %s", e)
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────
