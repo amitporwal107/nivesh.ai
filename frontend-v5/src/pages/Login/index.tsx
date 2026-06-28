@@ -8,7 +8,6 @@ import { useGoogleIdentity } from "@/hooks/use-google-identity";
 import { authService } from "@/services";
 import { useToastStore } from "@/stores/toast.store";
 import { useImpersonationStore } from "@/stores/impersonation.store";
-import { ALLOWED_DOMAINS } from "@/types/user";
 import ProductTour from "@/components/marketing/ProductTour";
 import CopilotDemo from "@/components/marketing/CopilotDemo";
 import "@/components/marketing/nvx-theme.css";
@@ -174,8 +173,6 @@ export default function LoginPage() {
     }
   };
 
-  const allowList = ALLOWED_DOMAINS.slice(0, 2).map((d) => `@${d}`).join(" · ");
-
   return (
     <div className="nvx nvx-login">
       <div className="nvx-topline" />
@@ -252,7 +249,7 @@ export default function LoginPage() {
 
             <div className="divider reveal d5">
               <span className="ln" />
-              <span>or a whitelisted email</span>
+              <span>or sign in with email</span>
               <span className="ln" />
             </div>
 
@@ -277,8 +274,7 @@ export default function LoginPage() {
                 )}
               </div>
               <p className="allow">
-                Allowed: <b>{allowList}</b>
-                {ALLOWED_DOMAINS.length > 2 ? ` + ${ALLOWED_DOMAINS.length - 2} more` : ""}
+                Any email works — we'll send a one-time sign-in link.
               </p>
             </div>
 

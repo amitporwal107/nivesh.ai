@@ -3,7 +3,7 @@
  */
 import type { AuthAdapter } from "../adapters/auth.adapter";
 import type { User } from "@/types/user";
-import { ALLOWED_DOMAINS } from "@/types/user";
+import { isValidEmail } from "@/types/user";
 
 const mockUser: User = {
   id: "u_mock_1",
@@ -24,7 +24,6 @@ export const mockAuthAdapter: AuthAdapter = {
   async googleClientId() { await delay(80); return "mock-client-id.apps.googleusercontent.com"; },
   async magicLink(email) { await delay(320); return { message: `Magic link sent to ${email}` }; },
   isAllowedDomain(email) {
-    const domain = email.split("@")[1] ?? "";
-    return ALLOWED_DOMAINS.includes(domain);
+    return isValidEmail(email);
   },
 };

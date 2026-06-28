@@ -15,7 +15,8 @@ export interface User {
   activeProfileId?: string | null;
 }
 
-export const ALLOWED_DOMAINS = [
-  "gmail.com",
-  "googlemail.com",
-];
+/** Basic email-shape check. Magic-link login accepts any valid email domain
+ *  (Gmail included); Gmail users may also use the "Continue with Google" button. */
+export function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
