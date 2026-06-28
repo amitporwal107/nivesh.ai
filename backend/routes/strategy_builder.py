@@ -9,6 +9,7 @@ Public (auth-required):
   GET    /api/strategy-builder/strategies/{id}          — fetch active version
   PATCH  /api/strategy-builder/strategies/{id}          — save new version
   DELETE /api/strategy-builder/strategies/{id}          — archive
+  POST   /api/strategy-builder/screen                   — run entry rules vs latest snapshot → ranked list
   POST   /api/strategy-builder/strategies/{id}/backtest — run backtest, returns run_id
   GET    /api/strategy-builder/runs/{run_id}            — fetch backtest result + trades
   POST   /api/strategy-builder/validate                 — validate a DSL doc (no save)
@@ -67,6 +68,11 @@ class BacktestRequest(BaseModel):
     to_date: str
     starting_capital: float = 1_000_000.0
     max_positions: int = 10
+
+
+class ScreenRequest(BaseModel):
+    definition: Dict[str, Any]
+    as_of_date: Optional[str] = None   # ISO YYYY-MM-DD; default = latest snapshot
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
@@ -318,6 +324,84 @@ async def archive_strategy(request: Request, strategy_id: str):
             strategy_id, uid,
         )
     return {"ok": True, "id": strategy_id, "archived": True}
+
+
+# ── Screen (live ranked candidate list) ─────────────────────────────
+@router.post("/screen")
+async def screen_strategy(request: Request, body: ScreenRequest):
+    """Run a strategy's entry rules against the latest feature snapshot and
+    return the ranked candidate list — the Phase-1 "Screen" step.
+
+    Unlike /backtest this evaluates a *single* as_of_date (the latest
+    snapshot by default) and does not simulate trades. It reuses the same
+    compiler as the backtest, so the candidate set is exactly what a
+    backtest would enter on that date — keeping Screen and Backtest
+    consistent for a given spec + as_of_date.
+    """
+    user = await get_current_user(request)
+    uid = _user_id(user)
+
+    spec = body.definition
+    errs = dsl_mod.validate_strategy(spec)
+    if errs:
+        raise HTTPException(status_code=400, detail={
+            "message": "invalid strategy spec",
+            "errors": dsl_mod.errors_as_strings(errs),
+        })
+
+    pool = await pg_client.get_pool()
+
+    # Custom universes: compile_stock_query expands `type:custom` to a
+    # subselect on user_universes WITHOUT an owner check — its documented
+    # contract leaves that to the route layer. Enforce owner-or-public here
+    # so a caller can't screen another user's private universe by guessing
+    # its UUID.
+    uni = spec.get("universe") or {}
+    if uni.get("type") == "custom":
+        async with pool.acquire() as conn:
+            owns = await conn.fetchrow(
+                "SELECT 1 FROM user_universes WHERE id = $1 AND (owner_id = $2 OR is_public)",
+                uni.get("ref"), uid,
+            )
+        if not owns:
+            raise HTTPException(status_code=403, detail="universe not found or not authorised")
+
+    # Compile once; bind as_of_date into the trailing positional slot exactly
+    # as the backtest runner does (compiler emits ":as_of_date", not a pN).
+    try:
+        sql, params = compile_stock_query(spec)
+    except CompileError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    sql_pg, base_args = to_asyncpg(sql, params)
+    next_slot = len(base_args) + 1
+    sql_pg = sql_pg.replace(":as_of_date", f"${next_slot}")
+
+    async with pool.acquire() as conn:
+        if body.as_of_date:
+            asof = _parse_iso_date(body.as_of_date)
+        else:
+            row = await conn.fetchrow(
+                "SELECT MAX(as_of_date) AS d FROM nidp.stock_features_daily"
+            )
+            asof = row["d"] if row and row["d"] else None
+            if asof is None:
+                raise HTTPException(status_code=503, detail="no feature snapshots available")
+        rows = await conn.fetch(sql_pg, *(list(base_args) + [asof]))
+
+    ranked_by = spec["ranking"]["by"]
+    # Honesty (CONTEXT §1): `score`/`composite_score` are Phase-1 proxies that
+    # the compiler maps to accumulation_score. Surface the real basis so the
+    # UI can label the score column truthfully rather than implying a
+    # fundamentals composite that doesn't exist yet.
+    score_basis = "accumulation_score" if ranked_by in {"score", "composite_score"} else ranked_by
+
+    return {
+        "candidates": [_serialise(r) for r in rows],
+        "count": len(rows),
+        "as_of_date": asof.isoformat(),
+        "ranked_by": ranked_by,
+        "score_basis": score_basis,
+    }
 
 
 # ── Backtest ────────────────────────────────────────────────────────

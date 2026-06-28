@@ -1,15 +1,25 @@
 """Strategy backtest runner.
 
 Sweeps a date range, runs the compiled entry rule once per trading
-day, simulates entries with the spec's exit plan against forward bars
-from nidp.prices_eod_adjusted (Phase 2 — falls back to prices_eod in
-Phase 1), and records every simulated trade in strategy_trades.
+day, simulates entries with the spec's exit plan against forward bars,
+and records every simulated trade in strategy_trades.
 
-Design rules:
+Data basis (Tier-2 / R1 applied — see metrics["price_basis"] /
+metrics["universe_basis"] which the run records for audit):
 
-  • Survivorship-bias-free — universe is point-in-time, gated through
-    the same WHERE clause the live runner uses (compiler emits the
-    correct in_nifty50/100/500 / index_constituents check).
+  • Corp-action-adjusted prices. Entry uses nidp.prices_eod_adjusted
+    .adj_close (falling back to f.close only where the adjusted row is
+    missing); exits use adj_high/adj_low/adj_close from the same table.
+    Entry and exit share one adjusted basis, so a split/bonus during the
+    hold no longer fabricates a gain/loss. The features-derived ATR is
+    rescaled by cumulative_adj_factor onto that basis.
+
+  • Universe membership is point-in-time when nidp.index_constituents is
+    populated for the chosen index (survivorship-correct; real Nifty
+    50/100/200/500 distinction). When that table is empty for the index
+    the runner falls back to the legacy present-day `sm.is_nifty_100`
+    set and LOGS it — never silently empty, but that fallback path does
+    carry survivorship bias (recorded as universe_basis="present_day_fallback").
 
   • One trade per (symbol, entry_date) — once we open a position we
     don't re-enter on the next bar even if the rule still fires. Live
@@ -33,10 +43,46 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from .compiler_stock import compile_stock_query, to_asyncpg
+from .compiler_stock import compile_stock_query, to_asyncpg, _PIT_INDEX_NAME
 from .dsl import validate_strategy
 
 logger = logging.getLogger(__name__)
+
+
+# Exit bars come from the corp-action-adjusted series (Tier-2 / R1) so a
+# split or bonus during the hold doesn't fabricate a gain or loss. adj_high
+# /adj_low/adj_close are on the same basis as the adjusted entry close.
+_EXIT_BARS_SQL = """
+SELECT p.symbol      AS symbol,
+       p.adj_close   AS close,
+       p.adj_high    AS high,
+       p.adj_low     AS low
+  FROM nidp.prices_eod_adjusted p
+ WHERE p.symbol = ANY($1::text[])
+   AND p.as_of_date = $2
+"""
+
+
+async def _use_point_in_time(pool, spec: Dict[str, Any]) -> bool:
+    """Use survivorship-correct index_constituents membership when that table
+    is populated for the chosen index; otherwise fall back to the legacy
+    present-day flag (logged) so a backtest never silently returns zero rows."""
+    uni = spec.get("universe") or {}
+    if uni.get("type") != "index":
+        return False
+    index_name = _PIT_INDEX_NAME.get(str(uni.get("ref", "")).upper())
+    if not index_name:
+        return False
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT 1 FROM nidp.index_constituents WHERE index_name = $1 LIMIT 1",
+            index_name,
+        )
+    if not row:
+        logger.warning(
+            "backtest: index_constituents empty for %s — falling back to legacy "
+            "present-day membership (carries survivorship bias)", index_name)
+    return bool(row)
 
 
 # ── Cost defaults ───────────────────────────────────────────────────
@@ -86,7 +132,8 @@ async def run_backtest(
     if errs:
         raise ValueError("invalid spec: " + "; ".join(str(e) for e in errs))
 
-    sql, params = compile_stock_query(spec)
+    pit = await _use_point_in_time(pool, spec)
+    sql, params = compile_stock_query(spec, point_in_time_universe=pit)
     sql_pg, base_args_template = to_asyncpg(sql, params)
     # `to_asyncpg` will leave `:as_of_date` unmapped because it's not in
     # params; convert manually to the next positional slot.
@@ -151,8 +198,17 @@ async def run_backtest(
                     continue
                 # Entry at next-bar open is more realistic; Phase-1 simplifies
                 # to same-bar close + slippage. Document this in the readout.
-                entry_price = float(r["close"]) * (1.0 + slippage_pct)
-                atr = float(r["atr14"] or 0.0) or (entry_price * 0.02)
+                # Trade on the corp-action-adjusted close (Tier-2); fall back
+                # to raw close only where the adjusted series is missing.
+                adj_close = r["adj_close"]
+                base_px = float(adj_close) if adj_close is not None else float(r["close"])
+                entry_price = base_px * (1.0 + slippage_pct)
+                # features.atr14 is on a RAW-price basis; rescale to the
+                # adjusted basis (adj_close = raw_close / cumulative_adj_factor)
+                # so the trailing-stop distance is in the same units as price.
+                adj_factor = float(r["adj_factor"]) if r["adj_factor"] else 1.0
+                raw_atr = float(r["atr14"] or 0.0)
+                atr = (raw_atr / adj_factor) if raw_atr else (entry_price * 0.02)
                 stoploss = entry_price * (1.0 - sl_pct)
                 target = entry_price + (entry_price - stoploss) * target_rr
 
@@ -194,6 +250,10 @@ async def run_backtest(
         open_trades.clear()
 
     metrics = _compute_metrics(closed_trades, starting_capital, equity)
+    # Self-describe the data basis so the readout / AC-7 data test can assert
+    # what actually ran rather than trust a static claim (CONTEXT §1).
+    metrics["price_basis"] = "corp_action_adjusted"
+    metrics["universe_basis"] = "point_in_time" if pit else "present_day_fallback"
     equity_curve = _build_equity_curve(closed_trades, starting_capital, trading_dates)
 
     return BacktestResult(trades=closed_trades, equity_curve=equity_curve, metrics=metrics)
@@ -201,28 +261,12 @@ async def run_backtest(
 
 # ── Internals ───────────────────────────────────────────────────────
 async def _fetch_exit_bars(conn, symbols: List[str], on_date: date) -> List[Any]:
-    """Fetch (high, low, close, atr14) for symbols on `on_date`.
-
-    Sources high/low/close from this env's stock_ohlcv; ATR comes from
-    the features snapshot. Features may be absent for symbols/dates
-    outside the snapshotter run window — we LEFT JOIN so the trade can
-    still exit on the OHLC bar (ATR-based trailing stop just won't
-    update that day, which is conservative)."""
-    return await conn.fetch(
-        """
-        SELECT o.nse_symbol AS symbol,
-               o.close_price AS close,
-               o.high_price AS high,
-               o.low_price AS low,
-               f.atr14
-          FROM stock_ohlcv o
-          LEFT JOIN nidp.stock_features_daily f
-            ON f.symbol = o.nse_symbol AND f.as_of_date = o.bar_date
-         WHERE o.nse_symbol = ANY($1::text[])
-           AND o.bar_date = $2
-        """,
-        symbols, on_date,
-    )
+    """Fetch adjusted (high, low, close) for symbols on `on_date` from
+    nidp.prices_eod_adjusted (Tier-2). Keeping entries and exits on the same
+    corp-action-adjusted basis is what prevents a split/bonus during the hold
+    from fabricating a return. The trailing-stop ATR is set at entry from the
+    (rescaled) features ATR, so exit bars don't need to carry it."""
+    return await conn.fetch(_EXIT_BARS_SQL, symbols, on_date)
 
 
 def _maybe_close_trade(trade, on_date, row, *,
