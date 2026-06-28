@@ -50,6 +50,19 @@ _TAIL = re.compile(
     r"compared\b|for\s+a\b|in\s+detail\b|across\s+periods\b).*$",
     re.IGNORECASE,
 )
+# A view/metric clause TRAILING the fund name ("{fund} top holdings", "{fund}
+# latest NAV", "{fund} expense ratio"). Anchored to the END and the view noun
+# must sit at the tail, so the leading "holdings of {fund}" order (handled below)
+# and real names ending in "Fund"/"Index"/"Top 100" are never touched.
+_TRAIL_VIEW = re.compile(
+    r"\s+(?:(?:top|latest|current|recent|best|worst)\s+|\d+[\s-]?(?:year|yr|y)s?\s+)?"
+    r"(?:overview|returns?|holdings?|ratios?|peers?|performance|summary|"
+    r"allocation|sector\s+allocation|cap\s+split|portfolio\s+turnover|"
+    r"\bnav\b|expense\s+ratio|\baum\b|rating|riskometer|sharpe|sortino|"
+    r"\bcagr\b|exit\s+load|top\s+holdings?)"
+    r"(?:\s+(?:today|now|please|breakdown|ratio|details?))?\s*$",
+    re.IGNORECASE,
+)
 # Plan/option suffixes that aren't part of the searchable canonical name.
 _PLAN_SUFFIX = re.compile(
     r"\s+(?:-\s+)?(?:growth|regular|direct|idcw|dividend|payout|reinvest\w*|"
@@ -112,6 +125,11 @@ def extract_scheme_query(text: str) -> str:
     while prev != s:
         prev = s
         s = _FILLER_LEAD.sub("", s).strip()
+
+    # Drop a TRAILING view/metric clause ("{fund} top holdings", "{fund} latest
+    # NAV") that the leading-oriented logic below would otherwise miss — the MF
+    # node resolves on the whole message, so these intent words ride along.
+    s = _TRAIL_VIEW.sub("", s).strip()
 
     # If a view noun remains (e.g. "the returns of HDFC …"), keep what follows
     # the last "of"; else strip a leading view noun.
