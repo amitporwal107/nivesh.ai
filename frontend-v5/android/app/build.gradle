@@ -1,14 +1,30 @@
 apply plugin: 'com.android.application'
 
+// ── Build identity & signing are env-driven so one native project produces
+//    both the staging and the production app (see capacitor.config.ts header).
+//      CAP_APP_ID              applicationId        (default: ai.nivesh.staging)
+//      ANDROID_VERSION_CODE    integer build number (default: 1)
+//      ANDROID_VERSION_NAME    user-facing version  (default: 1.0)
+//    Release signing is enabled only when a keystore is provided via env;
+//    otherwise `assembleRelease` produces an unsigned build. CI always supplies
+//    the keystore — see scripts/build-android-release.sh.
+//      ANDROID_KEYSTORE_FILE      path to the .jks/.keystore
+//      ANDROID_KEYSTORE_PASSWORD  store password
+//      ANDROID_KEY_ALIAS          key alias
+//      ANDROID_KEY_PASSWORD       key password (defaults to store password)
+def envOr = { String name, String fallback -> System.getenv(name) ?: fallback }
+def keystorePath = System.getenv("ANDROID_KEYSTORE_FILE")
+def hasReleaseSigning = keystorePath != null && !keystorePath.trim().isEmpty()
+
 android {
     namespace "ai.nivesh.staging"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "ai.nivesh.staging"
+        applicationId envOr("CAP_APP_ID", "ai.nivesh.staging")
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode envOr("ANDROID_VERSION_CODE", "1").toInteger()
+        versionName envOr("ANDROID_VERSION_NAME", "1.0")
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +32,23 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(keystorePath)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

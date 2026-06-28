@@ -55,17 +55,17 @@ test.describe("Login page — new user (unauthenticated)", () => {
     await expect(page.getByText(/Welcome back/i)).not.toBeVisible();
   });
 
-  test("renders '● Sign in' label in auth section", async ({ page }) => {
+  test("renders 'Sign in' label in auth section", async ({ page }) => {
     await page.goto("/v5/login");
     await page.waitForLoadState("networkidle");
-    await expect(page.getByText("● Sign in")).toBeVisible();
+    await expect(page.locator(".live").getByText("Sign in")).toBeVisible();
   });
 
-  test("renders h2 'Sign in with Google.'", async ({ page }) => {
+  test("renders h2 'Read your inbox, not your statements.'", async ({ page }) => {
     await page.goto("/v5/login");
     await page.waitForLoadState("networkidle");
     await expect(
-      page.getByRole("heading", { name: "Sign in with Google.", level: 2 })
+      page.getByRole("heading", { name: /Read your inbox/i, level: 2 })
     ).toBeVisible();
   });
 
@@ -75,8 +75,8 @@ test.describe("Login page — new user (unauthenticated)", () => {
     await page.goto("/v5/login");
     await page.waitForLoadState("networkidle");
     // One of these three states must be visible: skeleton pulse, rendered button div, or error message
-    const skeleton = page.locator(".animate-pulse");
-    const googleBtnDiv = page.locator("div[class*='flex justify-center']");
+    const skeleton = page.locator(".gskeleton");
+    const googleBtnDiv = page.locator(".gbox-center");
     const loadError = page.getByText(/Google Sign-In failed to load/i);
     const anyVisible =
       (await skeleton.count()) > 0 ||
@@ -114,14 +114,14 @@ test.describe("Login page — new user (unauthenticated)", () => {
     // Type a gmail address (common allowed domain for test)
     await page.locator("#email").fill("test@gmail.com");
     // Either ALLOWED or BLOCKED badge appears (domain list determines which)
-    const badge = page.locator(".absolute").filter({ hasText: /ALLOWED|BLOCKED/ });
+    const badge = page.locator(".field-badge").filter({ hasText: /ALLOWED|BLOCKED/i });
     await expect(badge).toBeVisible();
   });
 
   test("footer shows compliance copy", async ({ page }) => {
     await page.goto("/v5/login");
     await page.waitForLoadState("networkidle");
-    await expect(page.getByText(/ENCRYPTED · NEVER STORED · ARN-128459/i)).toBeVisible();
+    await expect(page.getByText(/statements never stored/i)).toBeVisible();
   });
 
   test("no KPI cards shown when no prior session data", async ({ page }) => {
@@ -136,12 +136,15 @@ test.describe("Login page — new user (unauthenticated)", () => {
 // ─── Suite 2: Login page — returning user ──────────────────────────────────
 
 test.describe("Login page — returning user (authenticated)", () => {
-  test("renders 'Welcome back' heading when user is signed in", async ({ page }) => {
+  test("shows the static editorial headline (redesign drops the greeting)", async ({ page }) => {
     await mockApi(page, "populated");
     await page.goto("/v5/login");
     await page.waitForLoadState("networkidle");
-    // user-profile-onboarded.json has a name — greeting uses first name
-    await expect(page.getByText(/Welcome back/i)).toBeVisible();
+    // The redesigned login is a fixed editorial page — no per-user greeting.
+    await expect(
+      page.getByRole("heading", { name: /finally legible/i, level: 1 })
+    ).toBeVisible();
+    await expect(page.getByText(/Welcome back/i)).not.toBeVisible();
   });
 });
 

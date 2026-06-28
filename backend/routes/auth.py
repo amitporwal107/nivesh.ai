@@ -8,6 +8,8 @@ import httpx
 import logging
 
 from deps import db, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, get_current_user, check_whitelist, COOKIE_SECURE, COOKIE_SAMESITE
+from helpers import secrets
+from services import email_service
 from core.logging_config import mask_email
 from core.exceptions import (
     AuthenticationException, AuthorizationException, ValidationException,
@@ -16,6 +18,48 @@ from core.exceptions import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
+
+# ── Magic-link whitelist validation ──────────────────────────────────────
+# Self-serve flow behind the "or a whitelisted email" box on the login page.
+# A visitor submits an allowed-domain email; if it isn't already whitelisted
+# we email them a one-time validation link valid for 24h. Opening the link
+# adds the address to the whitelist so they can then sign in.
+MAGIC_LINK_TTL_HOURS = 24
+# Mirror frontend ALLOWED_DOMAINS (frontend-v5/src/types/user.ts). Only these
+# domains may self-serve a magic link; everything else is rejected up front.
+ALLOWED_MAGIC_LINK_DOMAINS = {"gmail.com", "googlemail.com"}
+
+
+def _iso_is_expired(iso_str: str) -> bool:
+    """True if the given ISO-8601 timestamp is in the past (UTC). Pure helper
+    so the expiry rule is unit-testable without a DB."""
+    if not iso_str:
+        return False
+    try:
+        dt = datetime.fromisoformat(iso_str)
+    except ValueError:
+        return True
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) > dt
+
+
+def _resolve_public_base(request: Request) -> str:
+    """Externally-reachable base URL for links sent in email.
+
+    Precedence mirrors client_cas_invite._resolve_redirect_uri:
+      1. PUBLIC_APP_URL secret/env override
+      2. X-Forwarded-Host (public hostname set by ingress) + proto
+      3. request.base_url (cluster-internal — local dev only)
+    """
+    override = secrets.get("PUBLIC_APP_URL")
+    if override:
+        return override.rstrip("/")
+    fwd_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    fwd_proto = request.headers.get("x-forwarded-proto", "https")
+    if fwd_host:
+        return f"{fwd_proto}://{fwd_host}"
+    return str(request.base_url).rstrip("/")
 
 
 @router.post("/auth/google")
@@ -290,6 +334,120 @@ async def gmail_exchange(code: str, return_to: str = "/v2/app"):
         max_age=7 * 24 * 3600,
     )
     return redirect_resp
+
+
+@router.post("/auth/magic-link")
+async def request_magic_link(request: Request):
+    """Self-serve whitelist request.
+
+    Body: {"email": "..."}.
+      * Already whitelisted  → no-op, friendly message (we "ignore" it).
+      * Not whitelisted      → create a 24h one-time token + email a
+                               validation link. The address is NOT added to
+                               the whitelist until the link is opened.
+    """
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+
+    # Format + domain gate — mirrors the frontend's isAllowedDomain check so
+    # the API is safe even if called directly.
+    if not email or "@" not in email or "." not in email.split("@")[-1]:
+        raise ValidationException("A valid email address is required", code="VAL-003")
+    domain = email.split("@")[-1]
+    if domain not in ALLOWED_MAGIC_LINK_DOMAINS:
+        allowed = " or ".join(f"@{d}" for d in sorted(ALLOWED_MAGIC_LINK_DOMAINS))
+        raise ValidationException(
+            f"Only {allowed} addresses can request access this way.", code="VAL-003",
+        )
+
+    # Already on the list → ignore (do not re-add, do not send a link).
+    if await check_whitelist(email):
+        logger.info("Magic-link requested for already-whitelisted email: %s", mask_email(email))
+        return {
+            "message": "This email is already approved — you can sign in above.",
+            "already_whitelisted": True,
+        }
+
+    # Fail loud if we can't actually send mail — never pretend a link went out.
+    if not email_service.is_configured():
+        logger.error("Magic-link requested but SMTP is not configured")
+        raise SystemException(
+            "Email delivery is not configured on the server. Please contact the admin.",
+            code="SYS-003",
+        )
+
+    token = uuid.uuid4().hex
+    now = datetime.now(timezone.utc)
+    await db.magic_link_tokens.insert_one({
+        "token": token,
+        "email": email,
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(hours=MAGIC_LINK_TTL_HOURS)).isoformat(),
+        "used": False,
+        "used_at": None,
+    })
+
+    base = _resolve_public_base(request)
+    validation_url = f"{base}/api/auth/magic-link/validate?token={token}"
+
+    try:
+        await email_service.send_validation_email(email, validation_url, MAGIC_LINK_TTL_HOURS)
+    except Exception as e:  # noqa: BLE001
+        # Drop the just-created token so a failed send can't leave a usable
+        # link the user never received, and surface the real failure.
+        await db.magic_link_tokens.delete_one({"token": token})
+        logger.error("Failed to send magic-link email: %s", type(e).__name__)
+        raise SystemException(
+            "We couldn't send the validation email right now. Please try again later.",
+            code="SYS-003", cause=e,
+        )
+
+    return {
+        "message": f"Validation link sent to {email}. It expires in {MAGIC_LINK_TTL_HOURS} hours.",
+        "already_whitelisted": False,
+    }
+
+
+@router.get("/auth/magic-link/validate")
+async def validate_magic_link(token: str):
+    """Open a magic-link validation token. On success the email is added to
+    the whitelist and the user is bounced to /login to sign in. All outcomes
+    redirect to the login page with a status query param so the SPA can show
+    an appropriate message."""
+    doc = await db.magic_link_tokens.find_one({"token": token}, {"_id": 0})
+    if not doc:
+        return _RedirectResponse(url="/login?magic_error=invalid", status_code=302)
+
+    if doc.get("used"):
+        return _RedirectResponse(url="/login?magic_error=used", status_code=302)
+
+    if _iso_is_expired(doc.get("expires_at", "")):
+        # Expire it: a stale token is removed so it can never be reused.
+        await db.magic_link_tokens.delete_one({"token": token})
+        return _RedirectResponse(url="/login?magic_error=expired", status_code=302)
+
+    email = doc["email"]
+    # Add to the whitelist — idempotent, so a double-click can't error out and
+    # an already-whitelisted address is left untouched.
+    await db.whitelisted_users.update_one(
+        {"email": email},
+        {"$setOnInsert": {
+            "email": email,
+            "status": "invited",
+            "is_admin": False,
+            "invited_at": datetime.now(timezone.utc).isoformat(),
+            "registered_at": None,
+            "invited_by": "magic-link",
+        }},
+        upsert=True,
+    )
+    # Burn the token (single use).
+    await db.magic_link_tokens.update_one(
+        {"token": token},
+        {"$set": {"used": True, "used_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    logger.info("Magic-link validated, email added to whitelist: %s", mask_email(email))
+    return _RedirectResponse(url="/login?validated=1", status_code=302)
 
 
 @router.get("/auth/dev-set-cookie")

@@ -1,0 +1,158 @@
+name: Build & publish Android app [prod]
+
+# Builds the PRODUCTION v5 Android app with Capacitor and publishes the signed
+# APK to https://data.niveshcopilot.com/downloads/ (the NIDP VM webroot
+# /var/www/nidp-downloads). The AAB (Play Store upload format) is attached as a
+# workflow artifact only — it is never served publicly.
+#
+# Manual-only: a prod app release is a deliberate act, not something every push
+# should trigger. Run from the Actions tab → "Build & publish Android app
+# [prod]" → Run workflow, bumping version_code each time.
+#
+# Required GitHub secrets (see frontend-v5/docs/android-release.md for setup):
+#   ANDROID_KEYSTORE_BASE64        base64 of the release keystore (.jks)
+#   ANDROID_KEYSTORE_PASSWORD      keystore store password
+#   ANDROID_KEY_ALIAS              signing key alias
+#   ANDROID_KEY_PASSWORD           signing key password (optional; defaults to store pw)
+#   PROD_GOOGLE_SERVER_CLIENT_ID   prod web OAuth client id (aud the prod backend trusts)
+#   NIDP_VM_HOST                   IP of nidp-stack-vm (serves data.niveshcopilot.com)
+#   DEVOPS_SSH_USER                CI/CD Linux user on the VM
+#   DEVOPS_SSH_KEY                 Ed25519 private key for that user
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'User-facing version (e.g. 1.0.3)'
+        type: string
+        default: '1.0'
+      version_code:
+        description: 'Integer build number — must increase every release'
+        type: string
+        default: '1'
+      publish:
+        description: 'Publish the APK to data.niveshcopilot.com'
+        type: boolean
+        default: true
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build signed APK + AAB
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-v5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend-v5/package-lock.json
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Decode release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 secret is not set — cannot sign the release." >&2
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "Keystore decoded to $RUNNER_TEMP/release.jks ($(stat -c%s "$RUNNER_TEMP/release.jks") bytes)"
+
+      - name: Build production Android app (signed APK + AAB)
+        env:
+          CAP_GOOGLE_SERVER_CLIENT_ID: ${{ secrets.PROD_GOOGLE_SERVER_CLIENT_ID }}
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_VERSION_NAME: ${{ inputs.version_name }}
+          ANDROID_VERSION_CODE: ${{ inputs.version_code }}
+        run: bash scripts/build-android-release.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nivesh-v5-prod-${{ inputs.version_name }}-${{ inputs.version_code }}
+          if-no-files-found: error
+          path: |
+            frontend-v5/nivesh-v5-prod-release.apk
+            frontend-v5/nivesh-v5-prod-release.aab
+
+      # ── Publish the APK to data.niveshcopilot.com ───────────────────────────
+      # Stream the APK over the ssh exec channel (`ssh … 'cat > file'`) instead of
+      # scp/sftp. appleboy/scp-action (drone-scp) fails here with "error copy file
+      # to dest … Process exited with status 1" — and it still failed after the
+      # /tmp/android-release staging dir was pre-created, so the cause is drone-scp's
+      # transfer itself, not a missing target. The plain ssh *exec* channel works
+      # (the mkdir step using it succeeded, as do the NIDP deploy workflows), so we
+      # pipe the bytes through it and sudo-install into the root-owned webroot. An
+      # end-to-end sha256 check guards against a truncated transfer.
+      - name: Publish APK to data.niveshcopilot.com
+        if: ${{ inputs.publish }}
+        env:
+          SSH_KEY:  ${{ secrets.DEVOPS_SSH_KEY }}
+          SSH_USER: ${{ secrets.DEVOPS_SSH_USER }}
+          SSH_HOST: ${{ secrets.NIDP_VM_HOST }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+
+          APK="nivesh-v5-prod-release.apk"   # cwd is frontend-v5 (job default)
+          SSH="ssh -i $HOME/.ssh/id_deploy -p 22 -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
+
+          echo "▸ streaming $APK ($(stat -c%s "$APK") bytes) over ssh → /tmp/$APK"
+          $SSH "$SSH_USER@$SSH_HOST" "cat > /tmp/$APK" < "$APK"
+
+          echo "▸ installing into /var/www/nidp-downloads (sudo)"
+          REMOTE="set -e; \
+            test -s /tmp/$APK; \
+            sudo mkdir -p /var/www/nidp-downloads; \
+            sudo install -m 644 /tmp/$APK /var/www/nidp-downloads/$APK; \
+            rm -f /tmp/$APK; \
+            ls -l /var/www/nidp-downloads/$APK; \
+            sha256sum /var/www/nidp-downloads/$APK"
+          REMOTE_SHA="$($SSH "$SSH_USER@$SSH_HOST" "$REMOTE" | awk 'END{print $1}')"
+          LOCAL_SHA="$(sha256sum "$APK" | cut -d' ' -f1)"
+
+          echo "local  sha256: $LOCAL_SHA"
+          echo "remote sha256: $REMOTE_SHA"
+          [ "$LOCAL_SHA" = "$REMOTE_SHA" ] || { echo "::error::sha256 mismatch after upload"; exit 1; }
+          echo "✓ published & verified"
+
+      - name: Confirm public download URL
+        if: ${{ inputs.publish }}
+        run: |
+          URL="https://data.niveshcopilot.com/downloads/nivesh-v5-prod-release.apk"
+          CODE=$(curl -sS -o /dev/null -w "%{http_code}" -I --max-time 20 "$URL" || echo "000")
+          echo "GET (HEAD) $URL → HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::warning::Public URL returned $CODE — check nginx /downloads location and Cloudflare cache."
+          fi

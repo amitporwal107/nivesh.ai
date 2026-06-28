@@ -1,0 +1,320 @@
+/* ─────────────────────────────────────────────────────────────
+   ProductTour — stories-style product slideshow used on both the
+   Homepage hero tour and the Login left rail. All selectors are
+   scoped under `.nvx` (see nvx-theme.css).
+   ───────────────────────────────────────────────────────────── */
+.nvx .showcase {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+.nvx .frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  overflow: hidden;
+  background: #05080a;
+  box-shadow: 0 36px 80px -34px rgba(0, 0, 0, 0.8), inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+  outline: none;
+}
+.nvx .chrome {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 34px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  background: rgba(8, 13, 11, 0.9);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.nvx .chrome .dotc {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.nvx .chrome .url {
+  margin-left: 10px;
+  font-family: var(--nvx-mono);
+  font-size: 10.5px;
+  color: var(--faint);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.3s;
+}
+.nvx .chrome .live-pill {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--nvx-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--mint);
+  border: 1px solid rgba(95, 231, 166, 0.4);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+.nvx .chrome .live-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mint);
+  box-shadow: 0 0 8px var(--mint);
+  animation: nvx-pulse 2.2s infinite;
+}
+
+/* stories-style progress bar */
+.nvx .stories {
+  position: absolute;
+  top: 34px;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  background: linear-gradient(180deg, rgba(8, 13, 11, 0.85), transparent);
+}
+.nvx .seg {
+  flex: 1;
+  height: 2.5px;
+  border-radius: 99px;
+  background: rgba(168, 201, 184, 0.18);
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+  border: none;
+}
+.nvx .seg i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--mint);
+  border-radius: 99px;
+}
+.nvx .seg.done i {
+  width: 100%;
+}
+.nvx .seg.now i {
+  width: 100%;
+  transition: width var(--dwell, 4200ms) linear;
+}
+.nvx .seg:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 3px;
+}
+
+.nvx .viewport {
+  position: absolute;
+  inset: 34px 0 0 0;
+  overflow: hidden;
+  background: #05080a;
+}
+.nvx .slide {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.65s ease;
+  pointer-events: none;
+}
+.nvx .slide.active {
+  opacity: 1;
+}
+.nvx .slide img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center top;
+  display: block;
+  background: #090e0c;
+}
+.nvx .slide.active img {
+  animation: nvx-driftIn 0.9s ease-out;
+}
+@keyframes nvx-driftIn {
+  from {
+    transform: scale(1.03);
+    opacity: 0.4;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.nvx .navarrow {
+  position: absolute;
+  top: 54%;
+  transform: translateY(-50%);
+  z-index: 5;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 1px solid var(--line-strong);
+  background: rgba(8, 13, 11, 0.7);
+  backdrop-filter: blur(6px);
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.2s, border-color 0.2s;
+}
+.nvx .frame:hover .navarrow {
+  opacity: 1;
+}
+.nvx .navarrow:hover {
+  background: rgba(16, 28, 22, 0.92);
+  border-color: rgba(95, 231, 166, 0.45);
+}
+.nvx .navarrow:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+.nvx .navarrow.prev {
+  left: 12px;
+}
+.nvx .navarrow.next {
+  right: 12px;
+}
+
+/* zoom lens */
+.nvx .lens {
+  position: absolute;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.14s;
+  z-index: 6;
+  background-repeat: no-repeat;
+  background-color: #05080a;
+  border: 2px solid rgba(95, 231, 166, 0.6);
+  box-shadow: 0 20px 54px -14px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(0, 0, 0, 0.55),
+    inset 0 0 22px rgba(0, 0, 0, 0.45);
+  cursor: none;
+}
+.nvx .lens::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(95, 231, 166, 0.55);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.nvx .zoom-hint {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  font-family: var(--nvx-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: rgba(8, 13, 11, 0.72);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 6px 11px;
+  pointer-events: none;
+  transition: opacity 0.35s;
+}
+.nvx .zoom-hint.gone {
+  opacity: 0;
+}
+.nvx .viewport:hover {
+  cursor: crosshair;
+}
+
+.nvx .caption {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+.nvx .ctxt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.nvx .cttl {
+  font-family: var(--nvx-display);
+  font-size: 1.16rem;
+  line-height: 1.1;
+  color: var(--text);
+}
+.nvx .csub {
+  font-family: var(--nvx-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nvx .counter {
+  font-family: var(--nvx-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--faint);
+  flex: none;
+}
+.nvx .counter b {
+  color: var(--mint);
+  font-weight: 500;
+}
+
+@keyframes nvx-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(95, 231, 166, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(95, 231, 166, 0);
+  }
+}
+
+@media (max-width: 900px) {
+  .nvx .showcase {
+    min-height: 62vh;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nvx .slide,
+  .nvx .slide.active img {
+    transition: none;
+    animation: none;
+  }
+  .nvx .seg.now i {
+    transition: none;
+  }
+  .nvx .navarrow {
+    opacity: 1;
+  }
+  .nvx .chrome .live-pill::before {
+    animation: none;
+  }
+}

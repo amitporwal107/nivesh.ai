@@ -112,6 +112,53 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
         "test_fn": None,
         "category": "parsing",
     },
+    # ── Outbound email (SMTP) — magic-link whitelist validation ──────────
+    # The only outbound-mail path in the app. Used by services/email_service.py
+    # to send the email-confirmation link in the self-serve whitelist flow
+    # (routes/auth.py). Never uses the signed-in user's Gmail — read-only
+    # promise — so a dedicated relay is required to send anything.
+    "SMTP_HOST": {
+        "display_name": "SMTP · Host",
+        "description": "Outbound SMTP relay hostname (e.g. smtp.sendgrid.net, email-smtp.<region>.amazonaws.com). Unset = magic-link email is disabled. Use the Test button to verify host/port/credentials.",
+        "test_fn": "smtp",
+        "category": "email",
+    },
+    "SMTP_PORT": {
+        "display_name": "SMTP · Port",
+        "description": "SMTP port. 587 = STARTTLS (default), 465 = implicit SSL.",
+        "test_fn": None,
+        "category": "email",
+    },
+    "SMTP_USERNAME": {
+        "display_name": "SMTP · Username",
+        "description": "SMTP relay login (for SendGrid this is the literal 'apikey'; for SES it's the SMTP user).",
+        "test_fn": None,
+        "category": "email",
+    },
+    "SMTP_PASSWORD": {
+        "display_name": "SMTP · Password",
+        "description": "SMTP relay password / API key.",
+        "test_fn": None,
+        "category": "email",
+    },
+    "SMTP_FROM": {
+        "display_name": "SMTP · From address",
+        "description": "From header on outbound mail, e.g. 'Nivesh <no-reply@nivesh.ai>'. Falls back to SMTP_USERNAME when empty. Must be a verified sender on your relay.",
+        "test_fn": None,
+        "category": "email",
+    },
+    "SMTP_STARTTLS": {
+        "display_name": "SMTP · Use STARTTLS",
+        "description": "'true' (default) to upgrade the connection with STARTTLS on port 587. Ignored on port 465 (implicit SSL).",
+        "test_fn": None,
+        "category": "email",
+    },
+    "PUBLIC_APP_URL": {
+        "display_name": "Public App URL",
+        "description": "Externally-reachable base URL of the app (e.g. https://app.niveshcopilot.com). Used to build absolute links in outbound email (magic-link validation). Falls back to the request's forwarded host when unset.",
+        "test_fn": None,
+        "category": "email",
+    },
     "OPENALGO_BASE_URL": {
         "display_name": "OpenAlgo · Base URL",
         "description": "Internal URL of the Nivesh-hosted OpenAlgo instance the backend calls for holdings/positions/funds. Example: https://openalgo-internal.nivesh.svc.cluster.local. When set, the user-facing Broker Connect form drops the URL field.",

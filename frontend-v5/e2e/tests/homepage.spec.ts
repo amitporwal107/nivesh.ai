@@ -17,7 +17,7 @@ test.describe("Homepage", () => {
   });
 
   test("renders nav bar with brand and CTA", async ({ page }) => {
-    await expect(page.locator(".nv-mark").first()).toBeVisible();
+    await expect(page.locator(".nvx-mark").first()).toBeVisible();
     await expect(page.getByText("Nivesh", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /Check my portfolio/i }).first()).toBeVisible();
   });
@@ -29,18 +29,23 @@ test.describe("Homepage", () => {
   });
 
   test("renders trust badges", async ({ page }) => {
-    await expect(page.getByText("SEBI-aligned")).toBeVisible();
-    await expect(page.getByText("Read-only access")).toBeVisible();
-    await expect(page.getByText("No card needed")).toBeVisible();
+    const trust = page.locator(".trust");
+    await expect(trust.getByText("SEBI-aligned")).toBeVisible();
+    await expect(trust.getByText("Read-only access")).toBeVisible();
+    await expect(trust.getByText("No card needed")).toBeVisible();
   });
 
-  test("health preview card shows placeholder when logged out", async ({ page }) => {
+  test("health card shows the sample portfolio (PREVIEW) when logged out", async ({ page }) => {
     await expect(page.getByText("Portfolio health", { exact: false })).toBeVisible();
-    await expect(page.getByText("Sign in to see your insights")).toBeVisible();
-    // Bars should be present but empty (no scores)
-    const barLabels = ["risk", "concen", "diverse", "cost", "tax", "goals"];
-    for (const label of barLabels) {
-      await expect(page.getByText(label, { exact: true })).toBeVisible();
+    // Logged out → no live data → the card advertises the sample portfolio.
+    await expect(page.getByText("PREVIEW")).toBeVisible();
+    await expect(page.getByText("sample portfolio")).toBeVisible();
+    // The six scored-domain tiles are labelled (scoped to the card — some of
+    // these words also appear in the "what we score" grid lower down).
+    const tiles = page.locator(".hc-tiles");
+    const tileLabels = ["Risk", "Concen", "Diverse", "Cost", "Tax", "Goals"];
+    for (const label of tileLabels) {
+      await expect(tiles.getByText(label, { exact: true })).toBeVisible();
     }
   });
 
@@ -49,20 +54,21 @@ test.describe("Homepage", () => {
     await expect(page).toHaveURL(/\/v5\/login/);
   });
 
-  test("'Check my portfolio →' nav CTA navigates to /login", async ({ page }) => {
-    await page.getByRole("button", { name: "Check my portfolio →" }).click();
+  test("'Check my portfolio' nav CTA navigates to /login", async ({ page }) => {
+    await page.getByRole("button", { name: "Check my portfolio", exact: true }).click();
     await expect(page).toHaveURL(/\/v5\/login/);
   });
 
   test("'Sign in' text navigates to /login", async ({ page }) => {
-    await page.getByText("Sign in", { exact: true }).click();
+    // Both the nav and the footer carry a "Sign in" link — use the nav one.
+    await page.getByText("Sign in", { exact: true }).first().click();
     await expect(page).toHaveURL(/\/v5\/login/);
   });
 
-  test("'Watch 90-second tour' does NOT navigate", async ({ page }) => {
+  test("'Watch the 90-second tour' does NOT navigate", async ({ page }) => {
     const url = page.url();
-    await page.getByRole("button", { name: /Watch 90-second tour/i }).click();
-    // Should stay on same page
+    await page.getByRole("button", { name: /Watch the 90-second tour/i }).click();
+    // Scrolls to the on-page tour — should stay on the same page (no nav).
     expect(page.url()).toBe(url);
   });
 
@@ -71,7 +77,7 @@ test.describe("Homepage", () => {
     expect(theme).toBe("dark");
   });
 
-  test("page has .nv-frame wrapper with radial gradient", async ({ page }) => {
-    await expect(page.locator(".nv-frame")).toBeVisible();
+  test("page has .nvx-home wrapper", async ({ page }) => {
+    await expect(page.locator(".nvx-home")).toBeVisible();
   });
 });

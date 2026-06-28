@@ -1,0 +1,88 @@
+/* ─────────────────────────────────────────────────────────────
+   nvx — scoped design tokens for the redesigned public surface
+   (Login + Homepage). Everything lives under the `.nvx` class so
+   the dark-green marketing palette never leaks into the rest of
+   the app, which keeps its own light/dark token set on :root.
+
+   Source: niveshhome / niveshlogin static mockups.
+   ───────────────────────────────────────────────────────────── */
+.nvx {
+  --ink: #070b0a;
+  --ink-2: #0b100e;
+  --surface: #0e1512;
+  --surface-2: #121c17;
+  --line: rgba(168, 201, 184, 0.11);
+  --line-strong: rgba(168, 201, 184, 0.2);
+  --mint: #5fe7a6;
+  --mint-deep: #2e815f;
+  --amber: #e6a552;
+  --danger: #ed6a5e;
+  --text: #e9efea;
+  --muted: #8a978f;
+  --faint: #56625b;
+  --faint-2: #3c463f;
+  --nvx-display: "Newsreader", Georgia, serif;
+  --nvx-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --nvx-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--nvx-sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Scoped reset — the mockups assume a zeroed box model. Kept inside
+   `.nvx` so it can't touch the authenticated app shell. */
+.nvx *,
+.nvx *::before,
+.nvx *::after {
+  box-sizing: border-box;
+}
+.nvx :where(h1, h2, h3, h4, p, figure, ul, ol, li, blockquote) {
+  margin: 0;
+  padding: 0;
+}
+.nvx ::selection {
+  background: rgba(95, 231, 166, 0.22);
+  color: #fff;
+}
+.nvx a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* top hairline accent shared by both pages */
+.nvx .nvx-topline {
+  height: 3px;
+  width: 100%;
+  background: linear-gradient(90deg, var(--mint-deep), var(--mint) 50%, transparent);
+}
+
+/* brand mark + wordmark */
+.nvx .nvx-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.nvx .nvx-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #37d89a;
+  color: #08160f;
+  font-family: var(--nvx-sans);
+  font-weight: 600;
+  font-size: 17px;
+  line-height: 1;
+  box-shadow: 0 4px 14px -6px rgba(55, 216, 154, 0.5);
+}
+.nvx .nvx-brand b {
+  font-family: var(--nvx-display);
+  font-weight: 500;
+  font-size: 20px;
+  letter-spacing: 0.2px;
+}
