@@ -28,7 +28,7 @@ function bucket(v: number): "g" | "a" | "r" {
 }
 
 // Sample portfolio shown when no live data is available (PREVIEW state).
-const SAMPLE_SCORE = 67;
+const SAMPLE_SCORE = 68;
 const SAMPLE_TILES: Array<{ label: string; v: number }> = [
   { label: "Risk", v: 77 },
   { label: "Concen", v: 58 },
