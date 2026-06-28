@@ -24,10 +24,20 @@ RECOMMENDATION = "recommendation"
 
 
 _P_MARKET = re.compile(
-    r"\b(market|nifty|sensex|nse|bse|fii|dii|macro|rbi|inflation|gdp|"
+    r"\b(market|nifty|sensex|nse|bse|fiis?|diis?|macro|rbi|inflation|gdp|"
     r"index|sectoral|sector\s+performance|breadth|advance.decline|vix|"
-    r"flows?|fii.dii|foreign\s+inflow|domestic\s+flow|today.s\s+market|"
-    r"market\s+(?:outlook|update|summary|today|open|close|movement))\b",
+    r"flows?|fiis?.diis?|foreign\s+inflow|domestic\s+flow|today.s\s+market|"
+    r"market\s+(?:outlook|update|summary|today|open|close|movement)|"
+    # commodities / FX
+    r"gold\s+(?:price|outlook)|silver\s+price|crude|brent|"
+    r"dollar\s+index|\bdxy\b|usd[\s-]?inr|rupee|"
+    # global markets
+    r"us\s+markets?|global\s+(?:markets?|cues)|asian\s+markets?|european\s+markets?|"
+    r"dow|nasdaq|s&p|gift\s+nifty|"
+    # macro events / calendar / themes
+    r"repo\s+rate|g[\s-]?sec|10[\s-]?year\s+yield|\bcpi\b|\biip\b|\bpmi\b|\bfed\b|budget\s+impact|"
+    r"economic\s+(?:events|calendar)|what\s+should\s+i\s+watch|watch\s+tomorrow|"
+    r"market\s+summary|hot\s+theme|greedy\s+or\s+fearful)\b",
     re.IGNORECASE,
 )
 
@@ -195,17 +205,104 @@ _P_BUILDER = re.compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# Entity-aware stock-lookup gate
+# ---------------------------------------------------------------------------
+# Routine single-stock lookups (price, P/E, ROE, RSI, dividend, returns, beta …)
+# share metric words with the market/risk/MF nodes, so a flat keyword regex can't
+# place them. This gate routes to the stock analyst when a stock metric/analysis
+# cue is present AND the subject is a stock — excluding fund/portfolio phrasings
+# and index subjects, so "{fund} returns", "my portfolio beta" and "Nifty
+# support/resistance" are NOT captured. It runs after the high-priority specific
+# patterns but before RISK/PORTFOLIO/MF/MARKET (whose shared words would
+# otherwise mis-grab a stock query, e.g. "{stock} beta" → risk, "market cap" →
+# market).
+
+_FUND_HINT = re.compile(
+    r"\b(mutual\s+funds?|funds?|scheme|\bnav\b|\bamc\b|elss|\betf\b|\bsip\b|"
+    r"expense\s+ratio|\w+\s+cap\s+fund|index\s+fund|debt\s+fund|liquid\s+fund)\b",
+    re.IGNORECASE,
+)
+_PORT_HINT = re.compile(r"\b(my|our)\b|portfolio|holdings", re.IGNORECASE)
+_INDEX_SUBJECT = re.compile(
+    r"\b(nifty|sensex|bank\s*nifty|india\s+vix|\bvix\b|midcap|smallcap|"
+    r"sector(?:al)?\s+index)\b",
+    re.IGNORECASE,
+)
+
+# Stock metric / analysis vocabulary (broad — only ever consulted inside the
+# gate, so breadth is safe). Slash-tolerant so "P/E" matches a typed "pe".
+_STOCK_CUE = re.compile(
+    r"\bp\s*/?\s*e\b|\bp\s*/?\s*b\b|\bp\s*/?\s*s\b|\bpeg\b|ev\s*/?\s*ebitda|"
+    r"enterprise\s+value|market\s+cap|price[\s-]*to[\s-]*(?:book|sales|earnings)|"
+    r"intrinsic\s+value|fair\s+value|over\s*valued|under\s*valued|"
+    r"\broe\b|\broce\b|\broic\b|return\s+on\s+(?:equity|capital)|"
+    r"(?:operating|ebitda|net|gross|profit)\s+margins?|\bmargins?\b|asset\s+turnover|"
+    r"revenue\s+growth|profit\s+growth|earnings\s+growth|\beps\b|"
+    r"income\s+statement|balance\s+sheet|cash\s*flow|\bfcf\b|quarterly\s+results|"
+    r"debt[\s-]*to[\s-]*equity|\bd\s*/?\s*e\b|net\s+debt|total\s+debt|debt[\s-]?free|"
+    r"interest\s+coverage|current\s+ratio|quick\s+ratio|cash\s+reserves|"
+    r"dividend|payout|buyback|ex[\s-]?date|"
+    r"support|resistance|moving\s+average|\bdma\b|\brsi\b|\bmacd\b|bollinger|"
+    r"pivot|chart\s+pattern|52[\s-]?week|all[\s-]?time\s+(?:high|low)|\bohlc\b|"
+    r"circuit|face\s+value|lot\s+size|delivery\s*%|short\s+interest|"
+    r"\bbeta\b|volatil|drawdown|\bcagr\b|\breturns?\b|performance|"
+    r"\bvs\b|versus|compared\s+to|\btrend\b|bullish|bearish|"
+    r"price\s+target|target\s+price|analyst|consensus|upgrade|downgrade|"
+    r"business\s+model|competitors?|market\s+share|\bmoat\b|management|segments?|"
+    r"\besg\b|governance|auditor|stock\s+split|bonus\s+issue|rights\s+issue|"
+    r"demerger|spin[\s-]?off|promoter|\bprice\b|today.s\s+(?:open|high|low)|volume",
+    re.IGNORECASE,
+)
+
+# The subset that is stock-ONLY (never applies to indices/portfolio), so it can
+# fire even when no symbol resolves and there's no index subject — covers real
+# tickers outside the curated resolver universe (e.g. "PERSISTENT P/E").
+_STOCK_ONLY_CUE = re.compile(
+    r"\bp\s*/?\s*e\b|\bp\s*/?\s*b\b|\bpeg\b|ev\s*/?\s*ebitda|enterprise\s+value|"
+    r"market\s+cap|\broe\b|\broce\b|\beps\b|dividend\s+yield|payout\s+ratio|"
+    r"interest\s+coverage|debt[\s-]*to[\s-]*equity|promoter|buyback|"
+    r"income\s+statement|balance\s+sheet|\bfcf\b|free\s+cash\s+flow|"
+    r"business\s+model|competitors?|\bmoat\b|stock\s+split|bonus\s+issue",
+    re.IGNORECASE,
+)
+
+
+def _is_stock_lookup(text: str) -> bool:
+    """True when the query is a single-stock metric/analysis lookup that should
+    route to the stock analyst (see module note above)."""
+    if _FUND_HINT.search(text) or _PORT_HINT.search(text):
+        return False
+    if not _STOCK_CUE.search(text):
+        return False
+    # Subject must be a stock, not an index — resolve the named entity.
+    try:
+        from services.copilot_tools.symbol_resolver import resolve_symbol
+        resolved = bool(resolve_symbol(text).symbol)
+    except Exception:  # noqa: BLE001 — never let resolution break routing
+        resolved = False
+    if resolved:
+        return True
+    # No resolvable stock: fire only for stock-ONLY vocab with no index subject.
+    if _INDEX_SUBJECT.search(text):
+        return False
+    return bool(_STOCK_ONLY_CUE.search(text))
+
+
 # Pattern → agent mapping (priority order — first match wins).
 # BUILDER before PORTFOLIO so "build me a portfolio" → builder (not portfolio_analyst)
 # STOCK_OWNERSHIP before MARKET so "FII/DII holding in <stock>" → stock_analyst
 # RISK before PORTFOLIO so "portfolio risk" → risk_analyst
 # MARKET before STOCK so "What is Nifty?" → market_analyst (not stock_analyst)
-PATTERNS: List[Tuple[re.Pattern, str]] = [
+_PRE_PATTERNS: List[Tuple[re.Pattern, str]] = [
     (_P_BUILDER,          RECOMMENDATION),  # "build me a portfolio" → builder wizard (before PORTFOLIO grabs "portfolio")
     (_P_SCREENER,         RECOMMENDATION),  # "Screen [bucket] stocks where …" → screener (before STOCK grabs "roe")
     (_P_CAP,              MF),       # cap-category education → mf (cap_education widget) before others
     (_P_FUND_OVERLAP,     MF),       # fund overlap/consolidation → mf (widgets) before PORTFOLIO grabs "overlap"
     (_P_STOCK_OWNERSHIP,  STOCK),    # per-stock FII/DII/promoter holding → stock (before MARKET grabs "fii"/"dii")
+]
+# The entity-aware stock-lookup gate runs HERE — between _PRE and _POST.
+_POST_PATTERNS: List[Tuple[re.Pattern, str]] = [
     (_P_RISK,             RISK),
     (_P_GOAL,             GOAL),
     (_P_PORTFOLIO,        PORTFOLIO),
@@ -214,14 +311,21 @@ PATTERNS: List[Tuple[re.Pattern, str]] = [
     (_P_MARKET,           MARKET),
     (_P_STOCK,            STOCK),
 ]
+# Full table (PRE + POST) for reference/introspection.
+PATTERNS: List[Tuple[re.Pattern, str]] = _PRE_PATTERNS + _POST_PATTERNS
 
 
 def match_agent(text: str) -> Optional[str]:
-    """Return the agent key for the first matching pattern, or None if no regex
+    """Return the agent key for the first matching rule, or None if nothing
     matches (the caller then falls back to the LLM classifier)."""
     if not text:
         return None
-    for pattern, agent in PATTERNS:
+    for pattern, agent in _PRE_PATTERNS:
+        if pattern.search(text):
+            return agent
+    if _is_stock_lookup(text):
+        return STOCK
+    for pattern, agent in _POST_PATTERNS:
         if pattern.search(text):
             return agent
     return None
