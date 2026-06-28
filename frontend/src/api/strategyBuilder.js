@@ -47,6 +47,12 @@ export const updateStrategy = (id, definition) =>
 export const archiveStrategy = (id) =>
   axios.delete(`${API}/strategies/${id}`, cfg).then((r) => r.data);
 
+// ── Screen ──────────────────────────────────────────────────────────
+// Run the entry rules against the latest feature snapshot → ranked
+// candidate list. `asOfDate` optional (defaults to latest snapshot).
+export const screenStrategy = (definition, asOfDate = null) =>
+  axios.post(`${API}/screen`, { definition, as_of_date: asOfDate }, cfg).then((r) => r.data);
+
 // ── Backtest ────────────────────────────────────────────────────────
 export const runBacktest = (id, body) =>
   axios.post(`${API}/strategies/${id}/backtest`, body, cfg).then((r) => r.data);
