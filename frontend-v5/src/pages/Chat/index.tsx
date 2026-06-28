@@ -20,6 +20,7 @@ import { Markdown, prefetchStreamdown } from "@/components/chat/Markdown";
 import { useTypewriterReveal, remainingRevealMs } from "@/components/chat/useTypewriter";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useInstrumentSearch, type StockHit, type FundHit } from "@/hooks/use-instrument-search";
+import { useQuerySuggestions, type QuerySuggestion } from "@/hooks/use-query-suggestions";
 
 // `buffer` is everything received from the stream; `content` is the paced,
 // typed-out slice the user sees (see useTypewriterReveal).
@@ -268,6 +269,36 @@ export default function ChatPage() {
     });
   };
 
+  // ── Suggested questions (the curated question bank) ──
+  // Only when the composer isn't already in research (instrument) or screener
+  // mode, so the three typeaheads never compete — at most one shows at a time.
+  const genActive = !eq.active && !sq.active && composer.trim().length >= 2;
+  const debouncedGenTerm = useDebounce(genActive ? composer.trim() : "", 220);
+  const genSearch = useQuerySuggestions(debouncedGenTerm);
+  const genSuggestions = genSearch.data?.suggestions ?? [];
+  const showGenSuggest =
+    suggestOpen && genActive && !isBusy && !showSuggest && !showScreenSuggest &&
+    (genSuggestions.length > 0 || genSearch.isFetching);
+
+  // Pick a suggestion → fill the composer so the user can complete it (NOT
+  // submit). If the template has a {placeholder}, select it so the next
+  // keystroke replaces it (e.g. "{stock} P/E ratio" → type the ticker over
+  // "{stock}"); otherwise drop the cursor at the end.
+  const pickQuery = (s: QuerySuggestion) => {
+    const next = s.query;
+    setSuggestOpen(false);
+    setActiveIdx(-1);
+    setComposer(next);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      const m = next.match(/\{[^}]+\}/);
+      if (m && m.index != null) el.setSelectionRange(m.index, m.index + m[0].length);
+      else el.setSelectionRange(next.length, next.length);
+    });
+  };
+
   const onComposerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (showSuggest) {
       if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(suggestions.length - 1, i + 1)); return; }
@@ -279,6 +310,13 @@ export default function ChatPage() {
       if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(screenSuggestions.length - 1, i + 1)); return; }
       if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); return; }
       if (e.key === "Enter" && activeIdx >= 0 && screenSuggestions[activeIdx]) { e.preventDefault(); pickPrimitive(screenSuggestions[activeIdx]); return; }
+      if (e.key === "Escape")    { e.preventDefault(); setSuggestOpen(false); return; }
+    }
+    if (showGenSuggest) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(genSuggestions.length - 1, i + 1)); return; }
+      if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); return; }
+      // Enter on a highlighted suggestion fills it; Enter with none highlighted falls through to send.
+      if (e.key === "Enter" && activeIdx >= 0 && genSuggestions[activeIdx]) { e.preventDefault(); pickQuery(genSuggestions[activeIdx]); return; }
       if (e.key === "Escape")    { e.preventDefault(); setSuggestOpen(false); return; }
     }
     if (e.key === "Enter") handleSend();
@@ -689,6 +727,37 @@ export default function ChatPage() {
                         </span>
                         <span className="shrink-0 rounded-full px-2 py-0.5 text-[9.5px] font-semibold tracking-wide" style={{ background: "#E7EEF9", color: "#3E6CA8" }}>
                           {s.kind === "stock" ? "STOCK" : "FUND"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {/* suggested-question autocomplete — opens upward above the input */}
+          {showGenSuggest && (
+            <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg bg-surface-1 border border-hairline-2 shadow-card overflow-hidden z-20">
+              <div className="px-3.5 pt-2.5 pb-1 font-mono text-[10px] uppercase tracking-[.18em] text-ink-3">Suggested questions</div>
+              {genSearch.isFetching && genSuggestions.length === 0 ? (
+                <div className="px-4 py-3 text-[13px] text-ink-3">Searching…</div>
+              ) : (
+                <ul className="max-h-72 overflow-y-auto py-1">
+                  {genSuggestions.map((s, i) => (
+                    <li key={s.query + i}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); pickQuery(s); }}
+                        onMouseEnter={() => setActiveIdx(i)}
+                        className={cn(
+                          "w-full flex items-center gap-2.5 px-3.5 py-2 text-left transition-colors",
+                          i === activeIdx ? "bg-surface-2" : "hover:bg-surface-2/60",
+                        )}
+                      >
+                        <Sparkles className="h-3.5 w-3.5 text-accent shrink-0" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13.5px] text-ink truncate">{s.query}</span>
+                          <span className="block text-[11.5px] text-ink-3 truncate">{[s.section, s.category].filter(Boolean).join(" · ")}</span>
                         </span>
                       </button>
                     </li>
