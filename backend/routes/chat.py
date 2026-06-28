@@ -787,6 +787,16 @@ async def chat_instrument_search(q: str = "", limit: int = 6):
     return {"stocks": stocks, "funds": funds}
 
 
+@router.get("/chat/suggest-queries")
+async def chat_suggest_queries(q: str = "", limit: int = 5):
+    """Typeahead of curated question-bank templates for the chat composer. As the
+    user types, returns the top matching example queries to pick and complete
+    (many carry {placeholder} slots). Pure/deterministic — no LLM; unauthenticated,
+    mirroring /chat/instrument-search."""
+    from services.query_suggestions import suggest_queries
+    return {"suggestions": suggest_queries(q, limit)}
+
+
 @router.get("/chat/sessions")
 async def list_chat_sessions(request: Request):
     user = await get_current_user(request)
