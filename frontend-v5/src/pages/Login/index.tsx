@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
 import { dlog } from "@/lib/device-log";
-import { useGoogleSignIn, useMagicLink } from "@/hooks/use-auth";
+import { useGoogleSignIn, useMagicLink, useOtpRequest, useOtpVerify } from "@/hooks/use-auth";
 import { useGoogleIdentity } from "@/hooks/use-google-identity";
 import { authService } from "@/services";
 import { useToastStore } from "@/stores/toast.store";
@@ -26,12 +26,39 @@ function jwtAud(token?: string): string {
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
   const navigate = useNavigate();
   const google = useGoogleSignIn();
   const magic = useMagicLink();
+  const otpReq = useOtpRequest();
+  const otpVerify = useOtpVerify();
   const pushToast = useToastStore((s) => s.push);
 
   const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  // Shared post-login step for every auth method (Google + email OTP): confirm
+  // the session cookie is re-sent on the NEXT request (RequireAuth + every data
+  // call depend on it), read workspace_type (only on /auth/me) to pick the
+  // landing page, and clear any stale impersonation.
+  const completeLogin = useCallback(async (user: Awaited<ReturnType<typeof authService.me>>) => {
+    let meCheck: Awaited<ReturnType<typeof authService.me>> | null = null;
+    try {
+      meCheck = await authService.me();
+      dlog("auth/me probe OK (session cookie works)", { email: meCheck.email });
+    } catch (probeErr) {
+      dlog("auth/me probe FAILED (cookie not sent on next request)", probeErr);
+    }
+    // Fresh login starts at the workspace root — drop any impersonation left in
+    // the persisted store so an advisor doesn't land inside a stale client view.
+    useImpersonationStore.getState().clear();
+    // Advisors land on their workspace (reduced advisor nav), not their own
+    // portfolio dashboard. To view their own book they open the SELF profile.
+    const dest = !user.onboardingCompleted ? "/onboarding"
+      : (meCheck?.workspaceType || "").toUpperCase() === "ADVISORY" ? "/advisor"
+      : "/dashboard";
+    navigate(dest);
+  }, [navigate]);
 
   // When Google returns a credential (via renderButton click), complete the sign-in
   const handleCredential = useCallback(async (credential: string) => {
@@ -41,26 +68,7 @@ export default function LoginPage() {
         email: user.email,
         onboardingCompleted: user.onboardingCompleted,
       });
-      // Confirm the session cookie is re-sent on the NEXT request (RequireAuth +
-      // every data call depend on it), AND read workspace_type — it only comes
-      // back on /auth/me, not the google exchange, and decides the landing page.
-      let meCheck: Awaited<ReturnType<typeof authService.me>> | null = null;
-      try {
-        meCheck = await authService.me();
-        dlog("auth/me probe OK (session cookie works)", { email: meCheck.email });
-      } catch (probeErr) {
-        dlog("auth/me probe FAILED (cookie not sent on next request)", probeErr);
-      }
-      // Fresh login starts at the workspace root — drop any impersonation left
-      // in the persisted store from a previous session so the advisor doesn't
-      // land inside a stale client view (full nav + banner).
-      useImpersonationStore.getState().clear();
-      // Advisors land on their workspace (reduced advisor nav), not their own
-      // portfolio dashboard. To view their own book they open the SELF profile.
-      const dest = !user.onboardingCompleted ? "/onboarding"
-        : (meCheck?.workspaceType || "").toUpperCase() === "ADVISORY" ? "/advisor"
-        : "/dashboard";
-      navigate(dest);
+      await completeLogin(user);
     } catch (err) {
       // Log the REAL backend rejection (status, code, message) — this is the
       // line that tells us whitelist vs audience vs network, etc.
@@ -71,7 +79,7 @@ export default function LoginPage() {
         description: err instanceof Error ? err.message : "Try again",
       });
     }
-  }, [google, navigate, pushToast]);
+  }, [google, completeLogin, pushToast]);
 
   const gis = useGoogleIdentity(handleCredential);
 
@@ -173,6 +181,28 @@ export default function LoginPage() {
     }
   };
 
+  // Email-OTP sign-in (works for any whitelisted email, incl. non-Google).
+  const handleOtpRequest = async () => {
+    try {
+      const res = await otpReq.mutateAsync(email);
+      setCode("");
+      setOtpSent(true);
+      pushToast({ kind: "success", title: "Code sent", description: res.message ?? `Check ${email}` });
+    } catch {
+      // Global mutation-error toaster shows the reason (e.g. "not on the invite
+      // list" → use Request access below, or "please wait" on the cooldown).
+    }
+  };
+
+  const handleOtpVerify = async () => {
+    try {
+      const user = await otpVerify.mutateAsync({ email, code });
+      await completeLogin(user);
+    } catch {
+      /* wrong/expired code — global mutation error toaster handles the message */
+    }
+  };
+
   return (
     <div className="nvx nvx-login">
       <div className="nvx-topline" />
@@ -266,6 +296,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@company.com"
+                  disabled={otpSent}
                 />
                 {email && (
                   <span className={`field-badge ${isAllowed ? "ok" : "no"}`}>
@@ -273,19 +304,83 @@ export default function LoginPage() {
                   </span>
                 )}
               </div>
-              <p className="allow">
-                Any email works — we'll send a one-time sign-in link.
-              </p>
+
+              {!otpSent ? (
+                <p className="allow">
+                  We'll email a 6-digit sign-in code. Invited emails only.
+                </p>
+              ) : (
+                <>
+                  <label className="fl" htmlFor="otp" style={{ marginTop: 14, display: "block" }}>
+                    Enter the 6-digit code
+                  </label>
+                  <div className="field-wrap">
+                    <input
+                      className="field"
+                      id="otp"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      value={code}
+                      onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="123456"
+                      autoFocus
+                    />
+                  </div>
+                  <p className="allow">
+                    Sent to {email} — the code expires in 10 minutes.
+                  </p>
+                </>
+              )}
             </div>
 
-            <button
-              type="button"
-              className="submit reveal d5"
-              disabled={!email || !isAllowed || magic.isPending}
-              onClick={handleMagic}
-            >
-              {magic.isPending ? "Sending…" : "Send magic link →"}
-            </button>
+            {!otpSent ? (
+              <>
+                <button
+                  type="button"
+                  className="submit reveal d5"
+                  disabled={!email || !isAllowed || otpReq.isPending}
+                  onClick={handleOtpRequest}
+                >
+                  {otpReq.isPending ? "Sending…" : "Email me a code →"}
+                </button>
+                <button
+                  type="button"
+                  className="debug-link"
+                  disabled={!email || !isAllowed || magic.isPending}
+                  onClick={handleMagic}
+                >
+                  {magic.isPending ? "Sending…" : "Not invited yet? Request access"}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="submit reveal d5"
+                  disabled={code.length < 6 || otpVerify.isPending}
+                  onClick={handleOtpVerify}
+                >
+                  {otpVerify.isPending ? "Signing in…" : "Verify & sign in →"}
+                </button>
+                <button
+                  type="button"
+                  className="debug-link"
+                  disabled={otpReq.isPending}
+                  onClick={handleOtpRequest}
+                >
+                  {otpReq.isPending ? "Sending…" : "Resend code"}
+                </button>
+                <button
+                  type="button"
+                  className="debug-link"
+                  onClick={() => { setOtpSent(false); setCode(""); }}
+                >
+                  Use a different email
+                </button>
+              </>
+            )}
 
             <div className="trust reveal d6">
               <div className="row">
