@@ -30,12 +30,34 @@ export default function HomepagePage() {
   const { data: health } = useHealthAnalysis();
   const { data: summary } = usePortfolioSummary();
 
-  // Extract real scores if available
+  // Real score, when an authenticated portfolio is loaded.
+  // The analysis hook returns { health: { health_score, breakdown }, ... },
+  // so the score/dimensions live one level under `health` (not on the root).
   const h = health as any;
-  const healthScore: number | null = h?.health_score ?? (summary as any)?.healthScore ?? null;
-  const dimensions: Array<{ k: string; v: number }> | null = h?.dimensions
-    ? Object.entries(h.dimensions as Record<string, number>).map(([k, v]) => ({ k, v: v as number }))
+  const realScore: number | null =
+    h?.health?.health_score ?? h?.health?.score ?? (summary as any)?.healthScore ?? null;
+  const realBreakdown = h?.health?.breakdown as Record<string, number> | undefined;
+  const realDimensions: Array<{ k: string; v: number }> | null = realBreakdown
+    ? Object.entries(realBreakdown).map(([k, v]) => ({ k, v: Number(v) }))
     : null;
+
+  // Marketing sample shown to logged-out visitors (the public hero card).
+  // Labeled PREVIEW below, so it's an honest illustration — not real data.
+  const SAMPLE_SCORE = 68;
+  const SAMPLE_DIMENSIONS: Array<{ k: string; v: number }> = [
+    { k: "risk", v: 77 },
+    { k: "concen", v: 58 },
+    { k: "diverse", v: 31 },
+    { k: "cost", v: 78 },
+    { k: "tax", v: 64 },
+    { k: "goals", v: 42 },
+  ];
+
+  // `isLive` drives the PREVIEW/LIVE badge; fall back to the sample otherwise.
+  const isLive = realScore != null;
+  const healthScore: number = isLive ? (realScore as number) : SAMPLE_SCORE;
+  const dimensions: Array<{ k: string; v: number }> =
+    isLive && realDimensions && realDimensions.length > 0 ? realDimensions : SAMPLE_DIMENSIONS;
   const insights: Array<{ title: string; source: string; severity: string }> | null =
     summary?.topInsights?.map((i: any) => ({
       title: i.title ?? i.headline ?? "",
@@ -90,7 +112,7 @@ export default function HomepagePage() {
             <span className="nv-mono" style={{ fontSize: 11, color: "var(--ink-3)", letterSpacing: ".08em" }}>nivesh.app/health</span>
             <span className="nv-pill nv-pill-mint" style={{ marginLeft: "auto" }}>
               <span className="nv-dot" style={{ background: "var(--mint)" }} />
-              {healthScore != null ? "LIVE" : "PREVIEW"}
+              {isLive ? "LIVE" : "PREVIEW"}
             </span>
           </div>
           <div style={{ padding: "28px 24px 24px" }}>
@@ -99,43 +121,30 @@ export default function HomepagePage() {
                 <div className="nv-mono" style={{ fontSize: 10, letterSpacing: ".16em", color: "var(--ink-3)", textTransform: "uppercase" as const }}>Portfolio health</div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 6 }}>
                   <span className="nv-serif" style={{ fontSize: isMobile ? 56 : 78, lineHeight: 0.9, letterSpacing: "-0.04em" }}>
-                    {healthScore ?? "—"}
+                    {healthScore}
                   </span>
                   <span className="nv-mono" style={{ fontSize: 14, color: "var(--ink-3)" }}>/ 100</span>
-                  {healthScore != null && (
-                    <span className="nv-pill nv-pill-mint" style={{ marginLeft: 8 }}>{gradeLabel(healthScore)}</span>
-                  )}
+                  <span className="nv-pill nv-pill-mint" style={{ marginLeft: 8 }}>{gradeLabel(healthScore)}</span>
                 </div>
               </div>
-              {healthScore != null && (
-                <span className="nv-mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>your portfolio</span>
-              )}
+              <span className="nv-mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
+                {isLive ? "your portfolio" : "sample portfolio"}
+              </span>
             </div>
 
-            {/* segmented bar — from dimensions or placeholder */}
-            {dimensions && dimensions.length > 0 ? (
-              <div style={{ display: "flex", gap: 3, marginBottom: 22 }}>
-                {dimensions.map(({ k, v }) => (
-                  <div key={k} style={{ flex: 1 }}>
-                    <div style={{ height: 36, background: "var(--bg-2)", borderRadius: 6, position: "relative" as const, overflow: "hidden" as const }}>
-                      <div style={{ position: "absolute" as const, bottom: 0, left: 0, right: 0, height: `${v}%`, background: barColor(v), opacity: 0.9 }} />
-                    </div>
-                    <div className="nv-mono" style={{ fontSize: 9, color: "var(--ink-3)", marginTop: 6, textAlign: "center" as const, textTransform: "uppercase" as const, letterSpacing: ".06em" }}>
-                      {k.replace(/_/g, " ").slice(0, 7)}
-                    </div>
+            {/* segmented bar — real breakdown when live, sample otherwise */}
+            <div style={{ display: "flex", gap: 3, marginBottom: 22 }}>
+              {dimensions.map(({ k, v }) => (
+                <div key={k} style={{ flex: 1 }}>
+                  <div style={{ height: 36, background: "var(--bg-2)", borderRadius: 6, position: "relative" as const, overflow: "hidden" as const }}>
+                    <div style={{ position: "absolute" as const, bottom: 0, left: 0, right: 0, height: `${v}%`, background: barColor(v), opacity: 0.9 }} />
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ display: "flex", gap: 3, marginBottom: 22 }}>
-                {["risk", "concen", "diverse", "cost", "tax", "goals"].map((k) => (
-                  <div key={k} style={{ flex: 1 }}>
-                    <div style={{ height: 36, background: "var(--bg-2)", borderRadius: 6 }} />
-                    <div className="nv-mono" style={{ fontSize: 9, color: "var(--ink-3)", marginTop: 6, textAlign: "center" as const, textTransform: "uppercase" as const, letterSpacing: ".06em" }}>{k}</div>
+                  <div className="nv-mono" style={{ fontSize: 9, color: "var(--ink-3)", marginTop: 6, textAlign: "center" as const, textTransform: "uppercase" as const, letterSpacing: ".06em" }}>
+                    {k.replace(/_/g, " ").slice(0, 7)}
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              ))}
+            </div>
 
             {/* insight rows — from API or empty */}
             <div style={{ borderTop: "1px solid rgb(var(--line) / 0.06)" }}>
