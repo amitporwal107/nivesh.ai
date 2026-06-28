@@ -23,6 +23,10 @@ export interface AuthAdapter {
   logout(): Promise<void>;
   googleClientId(): Promise<string>;
   magicLink(email: string): Promise<{ message: string }>;
+  /** Email a one-time sign-in code to a whitelisted address. */
+  otpRequest(email: string): Promise<{ message: string }>;
+  /** Exchange an emailed code for a session (resolves to the signed-in user). */
+  otpVerify(email: string, code: string): Promise<User>;
   isAllowedDomain(email: string): boolean;
 }
 
@@ -63,6 +67,21 @@ export const realAuthAdapter: AuthAdapter = {
     const res = await http({ method: "POST", path: "/api/auth/magic-link", body: { email }, noRetry: true });
     const obj = res.data as { message?: string };
     return { message: obj.message ?? "Magic link sent" };
+  },
+
+  async otpRequest(email) {
+    const res = await http({ method: "POST", path: "/api/auth/otp/request", body: { email }, noRetry: true });
+    const obj = res.data as { message?: string };
+    return { message: obj.message ?? "Code sent" };
+  },
+
+  async otpVerify(email, code) {
+    const res = await http({ method: "POST", path: "/api/auth/otp/verify", body: { email, code }, noRetry: true });
+    // Persist the session token for the native app (same as googleSignIn — the
+    // WebView won't hold the cross-site session cookie).
+    const token = (res.data as { session_token?: string })?.session_token;
+    if (token) saveAuthToken(token);
+    return mapUser(parse(UserProfileC, res.data, "auth.otpVerify"));
   },
 
   isAllowedDomain(email) {

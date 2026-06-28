@@ -70,3 +70,22 @@ export function useMagicLink() {
     mutationFn: (email: string) => authService.magicLink(email),
   });
 }
+
+export function useOtpRequest() {
+  return useMutation({
+    mutationFn: (email: string) => authService.otpRequest(email),
+  });
+}
+
+export function useOtpVerify() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ email, code }: { email: string; code: string }) =>
+      authService.otpVerify(email, code),
+    onSuccess: (user) => {
+      // Seed the `me` cache synchronously (same reasoning as useGoogleSignIn):
+      // clears the pre-login 401 error so RequireAuth doesn't bounce mid-refetch.
+      qc.setQueryData(["auth", "me"], user);
+    },
+  });
+}

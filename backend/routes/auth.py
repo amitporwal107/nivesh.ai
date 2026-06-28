@@ -4,6 +4,9 @@ from fastapi.responses import RedirectResponse as _RedirectResponse
 from datetime import datetime, timezone, timedelta
 import urllib.parse
 import uuid
+import hashlib
+import hmac
+import secrets as _stdlib_secrets   # stdlib CSPRNG — distinct from helpers.secrets below
 import httpx
 import logging
 
@@ -26,6 +29,24 @@ router = APIRouter(prefix="/api")
 # address to the whitelist so they can then sign in. Any email domain may
 # self-serve (Gmail included) — actual sign-in still goes through Google OAuth.
 MAGIC_LINK_TTL_HOURS = 24
+
+# ── Email OTP sign-in ─────────────────────────────────────────────────────
+# Passwordless login for whitelisted users whose email is NOT a Google account
+# (Google OAuth is the other path). A short numeric code is emailed and then
+# exchanged for the same 7-day session a Google sign-in issues. Invite-gated:
+# the email must already be whitelisted (admin invite, or the magic-link
+# request-access flow) — verifying a code never adds anyone to the whitelist.
+OTP_TTL_MINUTES = 10
+OTP_LENGTH = 6
+OTP_MAX_ATTEMPTS = 5          # wrong tries before the code is burned
+OTP_RESEND_COOLDOWN_SECONDS = 30
+
+
+def _hash_otp(email: str, code: str) -> str:
+    """SHA-256 of the code, salted by email, so a DB read never exposes a live
+    code. The threat model is online guessing (bounded by OTP_MAX_ATTEMPTS +
+    the short TTL + the per-IP auth-strict rate limit), not offline cracking."""
+    return hashlib.sha256(f"{email}:{code}".encode("utf-8")).hexdigest()
 
 
 def _iso_is_expired(iso_str: str) -> bool:
@@ -60,52 +81,19 @@ def _resolve_public_base(request: Request) -> str:
     return str(request.base_url).rstrip("/")
 
 
-@router.post("/auth/google")
-async def google_auth(request: Request, response: Response):
-    """Exchange Google OAuth credential (id_token) for a session."""
-    body = await request.json()
-    credential = body.get("credential")
-    if not credential:
-        raise ValidationException("Google credential required", code="VAL-002")
-
-    try:
-        async with httpx.AsyncClient() as http_client:
-            resp = await http_client.get(
-                f"https://oauth2.googleapis.com/tokeninfo?id_token={credential}"
-            )
-            if resp.status_code != 200:
-                raise AuthenticationException("Invalid Google token", code="AUTH-003")
-
-            token_data = resp.json()
-
-            if GOOGLE_CLIENT_ID and token_data.get("aud") != GOOGLE_CLIENT_ID:
-                raise AuthenticationException("Token audience mismatch", code="AUTH-003")
-
-            email = token_data.get("email", "").strip().lower()
-            name = token_data.get("name", "")
-            picture = token_data.get("picture", "")
-
-            if not email:
-                raise AuthenticationException("No email in Google token", code="AUTH-003")
-    except (AuthenticationException, ValidationException):
-        raise
-    except Exception as e:
-        logger.error("Google token verification failed: %s", type(e).__name__)
-        raise AuthenticationException("Failed to verify Google token", code="AUTH-003", cause=e)
-
-    # Whitelist Check
-    whitelist_entry = await check_whitelist(email)
-    if not whitelist_entry:
-        logger.warning("Access denied — email not whitelisted: %s", mask_email(email))
-        raise AuthorizationException(
-            "Access is currently restricted. Your email is not on the invite list. Please request an invite from the admin.",
-            code="AUTHZ-001",
-        )
-
-    update_fields = {"status": "active", "registered_at": datetime.now(timezone.utc).isoformat()}
-    await db.whitelisted_users.update_one({"email": email}, {"$set": update_fields})
-
-    is_admin = whitelist_entry.get("is_admin", False)
+async def _establish_session(
+    request: Request, response: Response, *,
+    email: str, name: str, picture: str, is_admin: bool,
+) -> dict:
+    """Mark the (already-whitelisted) email active, upsert the user, mint a
+    7-day session + cookie, audit the login, and return the user_doc the SPA
+    expects (with session_token + onboarding_completed). Shared by Google OAuth
+    (/auth/google) and email-OTP (/auth/otp/verify) so both issue identical
+    sessions. Callers MUST verify access (whitelist) before calling this."""
+    await db.whitelisted_users.update_one(
+        {"email": email},
+        {"$set": {"status": "active", "registered_at": datetime.now(timezone.utc).isoformat()}},
+    )
 
     existing_user = await db.users.find_one({"email": email}, {"_id": 0})
     if existing_user:
@@ -164,6 +152,54 @@ async def google_auth(request: Request, response: Response):
     # session cookie. get_current_user already accepts this header.
     user_doc["session_token"] = session_token
     return user_doc
+
+
+@router.post("/auth/google")
+async def google_auth(request: Request, response: Response):
+    """Exchange Google OAuth credential (id_token) for a session."""
+    body = await request.json()
+    credential = body.get("credential")
+    if not credential:
+        raise ValidationException("Google credential required", code="VAL-002")
+
+    try:
+        async with httpx.AsyncClient() as http_client:
+            resp = await http_client.get(
+                f"https://oauth2.googleapis.com/tokeninfo?id_token={credential}"
+            )
+            if resp.status_code != 200:
+                raise AuthenticationException("Invalid Google token", code="AUTH-003")
+
+            token_data = resp.json()
+
+            if GOOGLE_CLIENT_ID and token_data.get("aud") != GOOGLE_CLIENT_ID:
+                raise AuthenticationException("Token audience mismatch", code="AUTH-003")
+
+            email = token_data.get("email", "").strip().lower()
+            name = token_data.get("name", "")
+            picture = token_data.get("picture", "")
+
+            if not email:
+                raise AuthenticationException("No email in Google token", code="AUTH-003")
+    except (AuthenticationException, ValidationException):
+        raise
+    except Exception as e:
+        logger.error("Google token verification failed: %s", type(e).__name__)
+        raise AuthenticationException("Failed to verify Google token", code="AUTH-003", cause=e)
+
+    # Whitelist Check
+    whitelist_entry = await check_whitelist(email)
+    if not whitelist_entry:
+        logger.warning("Access denied — email not whitelisted: %s", mask_email(email))
+        raise AuthorizationException(
+            "Access is currently restricted. Your email is not on the invite list. Please request an invite from the admin.",
+            code="AUTHZ-001",
+        )
+
+    is_admin = whitelist_entry.get("is_admin", False)
+    return await _establish_session(
+        request, response, email=email, name=name, picture=picture, is_admin=is_admin,
+    )
 
 
 @router.post("/auth/session")
@@ -455,6 +491,153 @@ async def validate_magic_link(token: str):
     )
     logger.info("Magic-link validated, email added to whitelist: %s", mask_email(email))
     return _RedirectResponse(url="/login?validated=1", status_code=302)
+
+
+@router.post("/auth/otp/request")
+async def request_otp(request: Request):
+    """Email a one-time sign-in code to an already-whitelisted address.
+
+    Body: {"email": "..."}.
+      * Not whitelisted → 403 (use the magic-link request-access flow first).
+      * Whitelisted     → email a 6-digit code (valid OTP_TTL_MINUTES) and store
+                          only its salted hash. A still-fresh code is rate-limited
+                          by a short resend cooldown. Verifying happens at
+                          /auth/otp/verify. Never adds anyone to the whitelist.
+    """
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+
+    if not email or "@" not in email or "." not in email.split("@")[-1]:
+        raise ValidationException("A valid email address is required", code="VAL-003")
+
+    # Invite-gate — OTP is a login mechanism for whitelisted users only. Do not
+    # leak whether the address exists beyond the standard access message.
+    if not await check_whitelist(email):
+        logger.info("OTP requested for non-whitelisted email: %s", mask_email(email))
+        raise AuthorizationException(
+            "This email isn't on the invite list yet. Request access first, then sign in.",
+            code="AUTHZ-001",
+        )
+
+    # Fail loud if we can't actually send mail — never pretend a code went out.
+    if not email_service.is_configured():
+        logger.error("OTP requested but SMTP is not configured")
+        raise SystemException(
+            "Email delivery is not configured on the server. Please contact the admin.",
+            code="SYS-003",
+        )
+
+    now = datetime.now(timezone.utc)
+
+    # Resend cooldown — don't mint/send another code while a very fresh one is
+    # outstanding (caps using the endpoint as a mail relay; complements the
+    # per-IP auth-strict rate limit, which is not per-recipient).
+    existing = await db.otp_codes.find_one({"email": email}, {"_id": 0, "created_at": 1})
+    if existing:
+        try:
+            created = datetime.fromisoformat(existing["created_at"])
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            wait = OTP_RESEND_COOLDOWN_SECONDS - (now - created).total_seconds()
+            if wait > 0:
+                raise ValidationException(
+                    f"Please wait {int(wait) + 1}s before requesting another code.",
+                    code="VAL-003",
+                )
+        except (ValueError, KeyError):
+            pass  # malformed/absent timestamp — treat as no active code
+
+    # Cryptographically-random zero-padded numeric code; store only the hash.
+    code = f"{_stdlib_secrets.randbelow(10 ** OTP_LENGTH):0{OTP_LENGTH}d}"
+    await db.otp_codes.update_one(
+        {"email": email},
+        {"$set": {
+            "email": email,
+            "code_hash": _hash_otp(email, code),
+            "created_at": now.isoformat(),
+            "expires_at": (now + timedelta(minutes=OTP_TTL_MINUTES)).isoformat(),
+            "attempts": 0,
+        }},
+        upsert=True,
+    )
+
+    try:
+        await email_service.send_otp_email(email, code, OTP_TTL_MINUTES)
+    except Exception as e:  # noqa: BLE001
+        # Drop the just-stored code so a failed send can't leave a usable code
+        # the user never received, and surface the real failure.
+        await db.otp_codes.delete_one({"email": email})
+        logger.error("Failed to send OTP email: %s", type(e).__name__)
+        raise SystemException(
+            "We couldn't send the code right now. Please try again later.",
+            code="SYS-003", cause=e,
+        )
+
+    logger.info("OTP sign-in code sent: %s", mask_email(email))
+    return {
+        "message": f"We sent a {OTP_LENGTH}-digit code to {email}. It expires in {OTP_TTL_MINUTES} minutes.",
+        "expires_in_minutes": OTP_TTL_MINUTES,
+    }
+
+
+@router.post("/auth/otp/verify")
+async def verify_otp(request: Request, response: Response):
+    """Exchange a valid OTP code for a session (same session a Google sign-in
+    issues). Body: {"email": "...", "code": "123456"}."""
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    code = (body.get("code") or "").strip()
+
+    if not email or not code:
+        raise ValidationException("Email and code are required", code="VAL-003")
+
+    doc = await db.otp_codes.find_one({"email": email}, {"_id": 0})
+    if not doc:
+        raise AuthenticationException(
+            "That code is invalid or has expired. Request a new one.", code="AUTH-003",
+        )
+
+    if _iso_is_expired(doc.get("expires_at", "")):
+        await db.otp_codes.delete_one({"email": email})
+        raise AuthenticationException(
+            "That code has expired. Request a new one.", code="AUTH-003",
+        )
+
+    if doc.get("attempts", 0) >= OTP_MAX_ATTEMPTS:
+        await db.otp_codes.delete_one({"email": email})
+        raise AuthenticationException(
+            "Too many incorrect attempts. Request a new code.", code="AUTH-003",
+        )
+
+    # Constant-time compare; count the failure and bail without burning the code
+    # so a typo is recoverable up to the attempt cap.
+    if not hmac.compare_digest(doc.get("code_hash", ""), _hash_otp(email, code)):
+        await db.otp_codes.update_one({"email": email}, {"$inc": {"attempts": 1}})
+        raise AuthenticationException(
+            "That code is incorrect. Please try again.", code="AUTH-003",
+        )
+
+    # Re-check the whitelist at redemption time — access could have been revoked
+    # between request and verify. Burn the code regardless (single use).
+    await db.otp_codes.delete_one({"email": email})
+    whitelist_entry = await check_whitelist(email)
+    if not whitelist_entry:
+        logger.warning("OTP verified but email no longer whitelisted: %s", mask_email(email))
+        raise AuthorizationException(
+            "Access is currently restricted. Your email is not on the invite list.",
+            code="AUTHZ-001",
+        )
+
+    existing_user = await db.users.find_one({"email": email}, {"_id": 0}) or {}
+    # No display name from email login — keep the existing one, else the local-part.
+    name = existing_user.get("name") or email.split("@")[0]
+    picture = existing_user.get("picture", "")
+    is_admin = whitelist_entry.get("is_admin", False)
+
+    logger.info("OTP sign-in succeeded: %s", mask_email(email))
+    return await _establish_session(
+        request, response, email=email, name=name, picture=picture, is_admin=is_admin,
+    )
 
 
 @router.get("/auth/dev-set-cookie")
