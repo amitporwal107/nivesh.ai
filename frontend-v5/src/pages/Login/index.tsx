@@ -12,7 +12,6 @@ import { useHealthAnalysis } from "@/hooks/use-insights";
 import { authService } from "@/services";
 import { useToastStore } from "@/stores/toast.store";
 import { useImpersonationStore } from "@/stores/impersonation.store";
-import { ALLOWED_DOMAINS } from "@/types/user";
 
 /** Decode a JWT's `aud` claim (for diagnostics only — no verification). */
 function jwtAud(token?: string): string {
@@ -246,7 +245,7 @@ export default function LoginPage() {
 
           <div className="flex items-center gap-3 my-6 text-ink-4">
             <div className="flex-1 h-px bg-[rgb(var(--line)/0.10)]" />
-            <span className="font-mono text-[10px] tracking-[.16em]">WHITELISTED EMAIL</span>
+            <span className="font-mono text-[10px] tracking-[.16em]">OR SIGN IN WITH EMAIL</span>
             <div className="flex-1 h-px bg-[rgb(var(--line)/0.10)]" />
           </div>
 
@@ -270,7 +269,7 @@ export default function LoginPage() {
             )}
           </div>
           <div className="font-mono text-[10px] text-ink-3 mt-2">
-            Allowed: {ALLOWED_DOMAINS.slice(0, 3).map((d) => `@${d}`).join(" · ")} + {Math.max(0, ALLOWED_DOMAINS.length - 3)} more
+            Any email works — we'll send a one-time sign-in link.
           </div>
 
           <Button

@@ -26,7 +26,7 @@ export interface AuthAdapter {
   isAllowedDomain(email: string): boolean;
 }
 
-import { ALLOWED_DOMAINS } from "@/types/user";
+import { isValidEmail } from "@/types/user";
 
 export const realAuthAdapter: AuthAdapter = {
   async me() {
@@ -66,8 +66,7 @@ export const realAuthAdapter: AuthAdapter = {
   },
 
   isAllowedDomain(email) {
-    const domain = email.split("@")[1] ?? "";
-    return ALLOWED_DOMAINS.includes(domain);
+    return isValidEmail(email);
   },
 };
 
