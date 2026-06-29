@@ -245,17 +245,21 @@ async def scheme_holdings(
     """Per-security portfolio holdings. Sorted by weight descending."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        if not as_of_month:
-            latest = await conn.fetchval(
+        # Bind a date OBJECT (not a string). asyncpg infers the parameter type
+        # from `as_of_month = $2::date` as `date` and cannot encode a Python str
+        # ("'str' object has no attribute 'toordinal'") — that raised a 500 on
+        # every default-month holdings request. Pass the date and drop the cast.
+        month = parse_date(as_of_month, field="as_of_month")
+        if month is None:
+            month = await conn.fetchval(
                 "SELECT MAX(as_of_month) FROM nidp.mf_holdings_monthly WHERE scheme_code = $1",
                 scheme_code,
             )
-            if not latest:
+            if not month:
                 raise HTTPException(status_code=404, detail=f"no holdings for {scheme_code!r}")
-            as_of_month = latest.isoformat()
 
-        conditions = ["scheme_code = $1", "as_of_month = $2::date"]
-        params: List[Any] = [scheme_code, as_of_month]
+        conditions = ["scheme_code = $1", "as_of_month = $2"]
+        params: List[Any] = [scheme_code, month]
         if instrument_type:
             params.append(instrument_type.upper())
             conditions.append(f"instrument_type = ${len(params)}")
@@ -284,7 +288,7 @@ async def scheme_holdings(
             *params,
         )
     return envelope([row_to_dict(r) for r in rows], total=total, **page,
-                    extra={"scheme_code": scheme_code, "as_of_month": as_of_month})
+                    extra={"scheme_code": scheme_code, "as_of_month": month.isoformat()})
 
 
 @router.get("/holdings/overlap", summary="Equity holding overlap between two schemes")
@@ -296,8 +300,10 @@ async def holdings_overlap(
     """Intersection of equity holdings by ISIN. Returns overlap_pct = sum of min(w_a, w_b)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # Bind date OBJECTS (not strings) — see scheme_holdings: a str bound to a
+        # `$N::date` asyncpg param raises DataError → 500.
         if as_of_month:
-            month_a = month_b = as_of_month
+            month_a = month_b = parse_date(as_of_month, field="as_of_month")
         else:
             row = await conn.fetchrow(
                 """
@@ -311,8 +317,8 @@ async def holdings_overlap(
             )
             if not row["m_a"] or not row["m_b"]:
                 raise HTTPException(status_code=404, detail="holdings not available for one or both schemes")
-            month_a = row["m_a"].isoformat()
-            month_b = row["m_b"].isoformat()
+            month_a = row["m_a"]
+            month_b = row["m_b"]
 
         rows = await conn.fetch(
             """
@@ -326,9 +332,9 @@ async def holdings_overlap(
             FROM nidp.mf_holdings_monthly a
             JOIN nidp.mf_holdings_monthly b ON a.security_isin = b.security_isin
             WHERE a.scheme_code    = $1
-              AND a.as_of_month    = $2::date
+              AND a.as_of_month    = $2
               AND b.scheme_code    = $3
-              AND b.as_of_month    = $4::date
+              AND b.as_of_month    = $4
               AND a.security_isin  IS NOT NULL
               AND a.instrument_type = 'EQUITY'
             ORDER BY overlap_weight DESC NULLS LAST
@@ -343,8 +349,8 @@ async def holdings_overlap(
         "count": len(data),
         "scheme_a": scheme_a,
         "scheme_b": scheme_b,
-        "as_of_month_a": month_a,
-        "as_of_month_b": month_b,
+        "as_of_month_a": month_a.isoformat(),
+        "as_of_month_b": month_b.isoformat(),
         "overlap_pct": overlap_pct,
     }
 
