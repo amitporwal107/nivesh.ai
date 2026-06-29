@@ -2517,6 +2517,123 @@ function StockScreenerWidget({ data, onAction }: { data: any; onAction?: (a: Wid
 // `onAction` lets a widget's action chips drive a follow-up — the host passes a
 // handler that submits a chat query (or prefills the composer).
 export type WidgetAction = { intent?: string; label?: string; query?: string };
+// ── backtest_comparison ──────────────────────────────────────────────────────
+// Historical "what-if": a fixed ₹amount notionally invested across the named
+// stocks/funds N years ago, valued today. Per period: portfolio lump-sum value +
+// CAGR and monthly-SIP XIRR, the same vs a benchmark index, and a per-instrument
+// comparison table. Insufficient-history instruments are shown, never hidden.
+// Data: services.copilot_tools.backtest.get_historical_backtest (widget_data).
+function _btInr(v: number | null | undefined): string {
+  if (v == null || isNaN(v as number)) return "—";
+  const n = v as number;
+  if (Math.abs(n) >= 1e7) return `₹${(n / 1e7).toFixed(2)}Cr`;
+  if (Math.abs(n) >= 1e5) return `₹${(n / 1e5).toFixed(2)}L`;
+  return `₹${Math.round(n).toLocaleString("en-IN")}`;
+}
+function BtPct({ v }: { v: number | null | undefined }) {
+  if (v == null || isNaN(v as number)) return <span className="text-ink-3">—</span>;
+  const n = v as number;
+  return <span className={n >= 0 ? "text-accent" : "text-neg"}>{n >= 0 ? "+" : ""}{n.toFixed(1)}%</span>;
+}
+
+function BacktestComparisonWidget({ data }: { data: any }) {
+  if (!data) return null;
+  const periods: number[] = Array.isArray(data.periods) ? data.periods : [];
+  const rows: any[] = Array.isArray(data.rows) ? data.rows : [];
+  const bench = data.benchmark;
+  const benchName: string | undefined = bench?.index;
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      <div className="rounded-lg border border-hairline p-5" style={{ background: "rgb(var(--accent) / 0.08)" }}>
+        <div className="font-display text-[17px] text-ink tracking-tightish leading-snug">
+          {_btInr(data.amount)} what-if backtest
+        </div>
+        <p className="text-[12.5px] text-ink-3 leading-relaxed mt-1.5">
+          {(data.instruments?.length ?? 0)} instrument(s) · {data.weighting === "explicit" ? "your weights" : "equal weight"}
+          {data.as_of ? ` · as of ${data.as_of}` : ""} · historical illustration, not a prediction
+        </p>
+        {data.unresolved?.length > 0 && (
+          <p className="text-[12px] text-warm leading-relaxed mt-1.5">Couldn’t resolve: {data.unresolved.join(", ")}</p>
+        )}
+      </div>
+
+      {periods.map((n) => {
+        const pf = data.portfolio?.[String(n)];
+        const bp = bench?.[String(n)];
+        const prows = rows.filter((r) => r.period_years === n);
+        const ok = pf && pf.status === "ok";
+        return (
+          <Card key={n}>
+            <div className="flex items-center justify-between gap-3">
+              <Heading>{n}-year lookback</Heading>
+              {ok && <ToneBadge text={`${pf.instruments_covered}/${pf.instruments_total} covered`} tone="accent" />}
+            </div>
+
+            {!ok ? (
+              <p className="text-[13.5px] text-ink-3 leading-relaxed mt-3">
+                Insufficient price/NAV history to backtest {n} year(s) for the named instruments.
+              </p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2.5 mt-4">
+                  <KpiTile label="Lump-sum today" value={_btInr(pf.lump_sum.current_value)}
+                           sub={`from ${_btInr(pf.lump_sum.invested)}`} />
+                  <KpiTile label="Lump-sum CAGR" value={`${pf.lump_sum.cagr_pct?.toFixed?.(1) ?? pf.lump_sum.cagr_pct}%`} />
+                  <KpiTile label="SIP XIRR" value={pf.sip?.xirr_pct != null ? `${pf.sip.xirr_pct.toFixed(1)}%` : "—"} />
+                  {bp?.status === "ok" && benchName && (
+                    <KpiTile label={`${benchName} CAGR`} value={`${bp.lump_sum.cagr_pct?.toFixed?.(1) ?? bp.lump_sum.cagr_pct}%`}
+                             sub="same amount, lump-sum" />
+                  )}
+                </div>
+
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-[13px]">
+                    <thead>
+                      <tr className="text-ink-3 text-[11px] uppercase tracking-wide text-left">
+                        <th className="font-medium py-1.5 pr-3">Instrument</th>
+                        <th className="font-medium py-1.5 px-2 text-right">Wt</th>
+                        <th className="font-medium py-1.5 px-2 text-right">Now</th>
+                        <th className="font-medium py-1.5 px-2 text-right">CAGR</th>
+                        <th className="font-medium py-1.5 pl-2 text-right">SIP XIRR</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {prows.map((r, i) => (
+                        <tr key={i} className="border-t border-hairline">
+                          <td className="py-2 pr-3">
+                            <span className="text-ink">{r.name}</span>
+                            <span className="text-ink-3 text-[11px] ml-1.5 uppercase">{r.kind}</span>
+                          </td>
+                          {r.status === "ok" ? (
+                            <>
+                              <td className="py-2 px-2 text-right text-ink-2">{r.weight_pct}%</td>
+                              <td className="py-2 px-2 text-right text-ink">{_btInr(r.current_value)}</td>
+                              <td className="py-2 px-2 text-right font-display"><BtPct v={r.cagr_pct} /></td>
+                              <td className="py-2 pl-2 text-right font-display"><BtPct v={r.sip_xirr_pct} /></td>
+                            </>
+                          ) : (
+                            <td className="py-2 px-2 text-ink-3 text-[12px]" colSpan={4}>
+                              insufficient history{r.data_since ? ` · data since ${r.data_since}` : ""}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </Card>
+        );
+      })}
+
+      {bench?.status === "unavailable" && benchName && (
+        <p className="text-[12px] text-ink-3 leading-relaxed px-1">{benchName} benchmark unavailable for this run.</p>
+      )}
+    </div>
+  );
+}
+
 export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: string; data?: any }; onAction?: (a: WidgetAction) => void }) {
   if (!widget?.widget_type) return null;
   try {
@@ -2541,6 +2658,7 @@ export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: stri
       case "goal_simulation":    return <GoalSimulationWidget data={widget.data} onAction={onAction} />;
       case "stock_screener":     return <StockScreenerWidget data={widget.data} onAction={onAction} />;
       case "portfolio_builder":  return <PortfolioBuilderWidget data={widget.data} onAction={onAction} />;
+      case "backtest_comparison": return <BacktestComparisonWidget data={widget.data} />;
     }
   } catch {
     return null;
