@@ -52,6 +52,12 @@ type Suggestion =
   | { kind: "stock"; symbol: string; name: string; sub?: string }
   | { kind: "fund"; name: string; sub?: string };
 
+// Question-bank placeholders that name an instrument — filling one switches the
+// composer to canonical stock/fund-name autocomplete.
+const _ENTITY_PH = /\{(stocks?|peer|funds?2?|etf)\}/i;
+const _entityKind = (inner: string): "stock" | "fund" =>
+  /stock|peer/i.test(inner) ? "stock" : "fund";
+
 /** Extract the entity-name query from the composer, or inactive if no starter matched.
  *  `mode: "funds"` when the user explicitly said "mutual fund" (else both kinds shown). */
 function entityQuery(text: string): { term: string; mode: "funds" | "all"; active: boolean } {
@@ -110,6 +116,10 @@ export default function ChatPage() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [analyseOpen, setAnalyseOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
+  // When a picked question template has a {stock}/{fund} placeholder, we enter
+  // "entity fill" mode: instrument autocomplete suggests canonical names and a
+  // pick substitutes into the template. before/after bracket the placeholder.
+  const [entityFill, setEntityFill] = useState<{ before: string; after: string; kind: "stock" | "fund" } | null>(null);
   // `?q=` deep-link (e.g. Markets "Explore" chips) → auto-send once on mount.
   const [searchParams, setSearchParams] = useSearchParams();
   const autoSentRef = useRef(false);
@@ -151,8 +161,11 @@ export default function ChatPage() {
   // and AI messages, so when the stream ends we just refetch history and drop
   // the local streaming/optimistic state.
   const submitMessage = async (text: string) => {
-    const t = text.trim();
+    // Strip any unfilled template placeholders so "{fund} …" never reaches the
+    // backend (the user may send before filling the slot).
+    const t = text.replace(/\{[^}]*\}/g, " ").replace(/\s+/g, " ").trim();
     if (!t || isBusy) return;
+    setEntityFill(null);
     let sid = sessionId;
     if (!sid) {
       const created = await createSession.mutateAsync(undefined);
@@ -231,7 +244,7 @@ export default function ChatPage() {
     }
     return out.slice(0, 8);
   }, [instrSearch.data, eq.mode]);
-  const showSuggest = suggestOpen && eq.active && !isBusy && (suggestions.length > 0 || instrSearch.isFetching);
+  const showSuggest = suggestOpen && eq.active && !isBusy && !entityFill && (suggestions.length > 0 || instrSearch.isFetching);
 
   // Pick a suggestion → send a routing-safe research prompt for that instrument.
   const pickSuggestion = (s: Suggestion) => {
@@ -254,7 +267,7 @@ export default function ChatPage() {
       (p) => p.label.toLowerCase().includes(f) || p.qlabel.toLowerCase().includes(f) || p.key.includes(f),
     );
   }, [sq.active, sq.fragment]);
-  const showScreenSuggest = suggestOpen && sq.active && !isBusy && screenSuggestions.length > 0;
+  const showScreenSuggest = suggestOpen && sq.active && !isBusy && !entityFill && screenSuggestions.length > 0;
 
   // Insert the primitive's clause in place of the current fragment, keep focus
   // so the user types the threshold next. Does NOT submit.
@@ -272,7 +285,7 @@ export default function ChatPage() {
   // ── Suggested questions (the curated question bank) ──
   // Only when the composer isn't already in research (instrument) or screener
   // mode, so the three typeaheads never compete — at most one shows at a time.
-  const genActive = !eq.active && !sq.active && composer.trim().length >= 2;
+  const genActive = !entityFill && !eq.active && !sq.active && composer.trim().length >= 2;
   const debouncedGenTerm = useDebounce(genActive ? composer.trim() : "", 220);
   const genSearch = useQuerySuggestions(debouncedGenTerm);
   const genSuggestions = genSearch.data?.suggestions ?? [];
@@ -280,26 +293,94 @@ export default function ChatPage() {
     suggestOpen && genActive && !isBusy && !showSuggest && !showScreenSuggest &&
     (genSuggestions.length > 0 || genSearch.isFetching);
 
-  // Pick a suggestion → fill the composer so the user can complete it (NOT
-  // submit). If the template has a {placeholder}, select it so the next
-  // keystroke replaces it (e.g. "{stock} P/E ratio" → type the ticker over
-  // "{stock}"); otherwise drop the cursor at the end.
+  // Pick a question suggestion. If it has an instrument placeholder ({stock}/
+  // {fund}/…), enter entity-fill mode so canonical names autocomplete; for any
+  // other placeholder ({amount}/{n}) just fill and select it; otherwise fill and
+  // drop the cursor at the end. Never auto-submits.
   const pickQuery = (s: QuerySuggestion) => {
-    const next = s.query;
-    setSuggestOpen(false);
     setActiveIdx(-1);
-    setComposer(next);
+    const ent = s.query.match(_ENTITY_PH);
+    if (ent && ent.index != null) {
+      const before = s.query.slice(0, ent.index);
+      const after = s.query.slice(ent.index + ent[0].length);
+      setEntityFill({ before, after, kind: _entityKind(ent[1]) });
+      setSuggestOpen(true);
+      setComposer(before);
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (el) { el.focus(); el.setSelectionRange(before.length, before.length); }
+      });
+      return;
+    }
+    setSuggestOpen(false);
+    setEntityFill(null);
+    setComposer(s.query);
     requestAnimationFrame(() => {
       const el = inputRef.current;
       if (!el) return;
       el.focus();
-      const m = next.match(/\{[^}]+\}/);
+      const m = s.query.match(/\{[^}]+\}/);
       if (m && m.index != null) el.setSelectionRange(m.index, m.index + m[0].length);
-      else el.setSelectionRange(next.length, next.length);
+      else el.setSelectionRange(s.query.length, s.query.length);
+    });
+  };
+
+  // ── Entity-fill autocomplete (canonical stock / fund names) ──
+  // Active only while filling a {stock}/{fund} slot of a picked template. The
+  // term is whatever the user typed after the template's `before` prefix.
+  const entityTerm = entityFill ? composer.slice(entityFill.before.length) : "";
+  const debouncedEntityTerm = useDebounce(entityFill ? entityTerm.trim() : "", 220);
+  const entityInstr = useInstrumentSearch(debouncedEntityTerm);
+  const entitySuggestions = useMemo<Suggestion[]>(() => {
+    if (!entityFill) return [];
+    const data = entityInstr.data;
+    if (!data) return [];
+    const out: Suggestion[] = [];
+    if (entityFill.kind === "stock") {
+      for (const s of data.stocks as StockHit[]) out.push({ kind: "stock", symbol: s.symbol, name: s.name, sub: s.sector ?? undefined });
+    } else {
+      for (const f of data.funds as FundHit[]) out.push({ kind: "fund", name: f.name, sub: [f.amc, f.category].filter(Boolean).join(" · ") || undefined });
+    }
+    return out.slice(0, 8);
+  }, [entityFill, entityInstr.data]);
+  const showEntityFill = !!entityFill && suggestOpen && !isBusy;
+
+  // Pick a canonical name → substitute it into the template. If another
+  // instrument placeholder remains (e.g. "{fund} vs {fund2}"), chain to it;
+  // otherwise fill the completed query and let the user review/send.
+  const pickEntity = (s: Suggestion) => {
+    if (!entityFill) return;
+    const filled = entityFill.before + s.name + entityFill.after;
+    setActiveIdx(-1);
+    const nextPh = filled.match(_ENTITY_PH);
+    if (nextPh && nextPh.index != null) {
+      const before = filled.slice(0, nextPh.index);
+      const after = filled.slice(nextPh.index + nextPh[0].length);
+      setEntityFill({ before, after, kind: _entityKind(nextPh[1]) });
+      setComposer(before);
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (el) { el.focus(); el.setSelectionRange(before.length, before.length); }
+      });
+      return;
+    }
+    setEntityFill(null);
+    setSuggestOpen(false);
+    setComposer(filled);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (el) { el.focus(); el.setSelectionRange(filled.length, filled.length); }
     });
   };
 
   const onComposerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (showEntityFill) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(entitySuggestions.length - 1, i + 1)); return; }
+      if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); return; }
+      if (e.key === "Enter" && activeIdx >= 0 && entitySuggestions[activeIdx]) { e.preventDefault(); pickEntity(entitySuggestions[activeIdx]); return; }
+      // Escape exits fill mode but keeps what's typed so the user can finish manually.
+      if (e.key === "Escape")    { e.preventDefault(); setEntityFill(null); setSuggestOpen(false); return; }
+    }
     if (showSuggest) {
       if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(suggestions.length - 1, i + 1)); return; }
       if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); return; }
@@ -698,6 +779,47 @@ export default function ChatPage() {
                   </Fragment>
                 ))}
               </ul>
+            </div>
+          )}
+          {/* entity-fill autocomplete — canonical stock/fund names for a picked
+              template's {stock}/{fund} slot. Opens upward above the input. */}
+          {showEntityFill && (
+            <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg bg-surface-1 border border-hairline-2 shadow-card overflow-hidden z-20">
+              <div className="px-3.5 pt-2.5 pb-1 font-mono text-[10px] uppercase tracking-[.18em] text-ink-3">
+                Pick a {entityFill?.kind === "stock" ? "stock" : "fund"} to fill in
+              </div>
+              {entitySuggestions.length === 0 ? (
+                <div className="px-4 py-3 text-[13px] text-ink-3">
+                  {entityInstr.isFetching ? "Searching…" : `Type a ${entityFill?.kind === "stock" ? "stock" : "fund"} name…`}
+                </div>
+              ) : (
+                <ul className="max-h-72 overflow-y-auto py-1">
+                  {entitySuggestions.map((s, i) => (
+                    <li key={(s.kind === "stock" ? s.symbol : s.name) + i}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); pickEntity(s); }}
+                        onMouseEnter={() => setActiveIdx(i)}
+                        className={cn(
+                          "w-full flex items-center gap-2.5 px-3.5 py-2 text-left transition-colors",
+                          i === activeIdx ? "bg-surface-2" : "hover:bg-surface-2/60",
+                        )}
+                      >
+                        {s.kind === "stock"
+                          ? <LineChart className="h-3.5 w-3.5 text-accent shrink-0" />
+                          : <PieChart className="h-3.5 w-3.5 text-accent shrink-0" />}
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13.5px] text-ink truncate">{s.name}</span>
+                          {s.sub && <span className="block text-[11.5px] text-ink-3 truncate">{s.sub}</span>}
+                        </span>
+                        <span className="shrink-0 rounded-full px-2 py-0.5 text-[9.5px] font-semibold tracking-wide" style={{ background: "#E7EEF9", color: "#3E6CA8" }}>
+                          {s.kind === "stock" ? "STOCK" : "FUND"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
           {/* instrument autocomplete — opens upward above the input */}
