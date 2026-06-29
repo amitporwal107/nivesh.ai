@@ -248,5 +248,10 @@ networks:
   nivesh-staging:
     name: nivesh-staging
     driver: bridge
+    driver_opts:
+      # GCP VPC path MTU is 1460; the docker bridge defaults to 1500, which
+      # blackholes large responses (PMTUD) — DaaS bulk reads truncated at ~32KB.
+      # Pin to 1460 so cross-VM / egress responses come through intact.
+      com.docker.network.driver.mtu: "1460"
   nidp-bridge:
     external: true   # created by the prod stack; staging backend joins it to reach NIDP Query API
