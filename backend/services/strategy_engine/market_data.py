@@ -22,6 +22,7 @@ entries/exits, point-in-time membership) are preserved by both.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from abc import ABC, abstractmethod
@@ -128,7 +129,8 @@ class SqlMarketDataProvider(MarketDataProvider):
 
 # ── DaaS backend (staging / prod) ───────────────────────────────────────────
 class DaasMarketDataProvider(MarketDataProvider):
-    _CHUNK = 250  # symbols per bulk call (< NIDP _BULK_MAX_SYMBOLS)
+    _CHUNK = 250        # symbols per bulk call (< NIDP _BULK_MAX_SYMBOLS)
+    _CONCURRENCY = 16   # max in-flight per-date bulk calls
 
     def __init__(self, app_pool=None):
         self._app_pool = app_pool  # for custom universes (user_universes lives app-side)
@@ -195,15 +197,36 @@ class DaasMarketDataProvider(MarketDataProvider):
 
         self._snapshots.sort(key=lambda t: t[0])
         sym_list = sorted(symbols)
-        start_iso, end_iso = _iso(from_date), _iso(to_date)
-        for i in range(0, len(sym_list), self._CHUNK):
-            chunk = sym_list[i:i + self._CHUNK]
-            feats = await dc.get_features_bulk(chunk, start_iso, end_iso)
-            for sym, rows in feats.items():
-                self._feat[sym] = {_iso(r["as_of_date"]): r for r in rows}
-            adj = await dc.get_adjusted_prices_bulk(chunk, start_iso, end_iso)
-            for sym, rows in adj.items():
-                self._adj[sym] = {_iso(r["as_of_date"]): r for r in rows}
+        sym_chunks = [sym_list[i:i + self._CHUNK] for i in range(0, len(sym_list), self._CHUNK)]
+
+        # Fetch PER DATE, not per range. Multi-month range queries hold the
+        # connection long enough for the container→edge path to drop it
+        # (intermittent "incomplete chunked read"); single-date bulk calls are
+        # reliable. So fan out one call per (date, symbol-chunk, kind) with
+        # bounded concurrency. Cost: more calls — acceptable for Phase A; the
+        # fast fix is internal VM networking that survives range queries.
+        if from_date == to_date:
+            dates = [_iso(from_date)]
+        else:
+            dates = await dc.get_trading_calendar(_iso(from_date), _iso(to_date))
+
+        sem = asyncio.Semaphore(self._CONCURRENCY)
+
+        async def _load(kind: str, diso: str, chunk: List[str]) -> None:
+            async with sem:
+                if kind == "feat":
+                    res = await dc.get_features_bulk(chunk, diso, diso)
+                    target = self._feat
+                else:
+                    res = await dc.get_adjusted_prices_bulk(chunk, diso, diso)
+                    target = self._adj
+                for sym, rows in res.items():
+                    if rows:
+                        target.setdefault(sym, {})[diso] = rows[0]
+
+        tasks = [_load(kind, diso, chunk)
+                 for diso in dates for chunk in sym_chunks for kind in ("feat", "adj")]
+        await asyncio.gather(*tasks)
 
     def _membership(self, as_of: date) -> set:
         """Symbols in the universe as of `as_of` — most recent snapshot <= as_of
