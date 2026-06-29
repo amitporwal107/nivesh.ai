@@ -46,6 +46,7 @@ from .nodes.portfolio import portfolio_node
 from .nodes.risk import risk_node
 from .nodes.goal import goal_node
 from .nodes.recommendation import recommendation_node
+from .nodes.backtest import backtest_node
 from .nodes.compliance import compliance_node
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ def _route_after_intent(state: CopilotState) -> str:
         AgentName.RISK:            "risk_node",
         AgentName.GOAL:            "goal_node",
         AgentName.RECOMMENDATION:  "recommendation_node",
+        AgentName.BACKTEST:        "backtest_node",
     }
     destination = _MAP.get(agent, "market_node")
     logger.debug("routing intent=%s → %s", agent, destination)
@@ -97,6 +99,7 @@ def build_graph(*, use_memory: bool = True) -> "CompiledStateGraph":
     builder.add_node("risk_node",           risk_node)
     builder.add_node("goal_node",           goal_node)
     builder.add_node("recommendation_node", recommendation_node)
+    builder.add_node("backtest_node",       backtest_node)
     builder.add_node("compliance_node",     compliance_node)
 
     # ── edges ───────────────────────────────────────────────────────────────
@@ -113,13 +116,14 @@ def build_graph(*, use_memory: bool = True) -> "CompiledStateGraph":
             "risk_node":           "risk_node",
             "goal_node":           "goal_node",
             "recommendation_node": "recommendation_node",
+            "backtest_node":       "backtest_node",
         },
     )
 
     # all specialist nodes converge to compliance then END
     for node in (
         "market_node", "stock_node", "mf_node", "portfolio_node",
-        "risk_node", "goal_node", "recommendation_node",
+        "risk_node", "goal_node", "recommendation_node", "backtest_node",
     ):
         builder.add_edge(node, "compliance_node")
 
