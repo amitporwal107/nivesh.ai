@@ -629,6 +629,14 @@ export default function ChatPage() {
               <Wand2 className="h-3.5 w-3.5 text-accent" /> Build a portfolio
             </button>
             <button
+              onClick={() => startResearch("If I had invested 10L in ")}
+              disabled={isBusy}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 disabled:opacity-50 transition-colors"
+              title="Backtest a basket — name the stocks/funds; see what a lump-sum & SIP would be worth today (1y & 3y)"
+            >
+              <HistoryIcon className="h-3.5 w-3.5 text-accent" /> Backtest a basket
+            </button>
+            <button
               onClick={() => setBuilderOpen((v) => !v)}
               disabled={isBusy}
               className={cn(
