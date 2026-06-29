@@ -40,6 +40,13 @@ _MIN_ACTION_RS = 5_000       # don't emit micro-actions below ₹5k
 _MAX_TRIMS_PER_BUCKET = 2    # at most N trim suggestions per asset bucket
                              # (otherwise 5 SGBs in gold burn the action cap)
 
+# Composite trim-ranking weights (user-confirmed): when an asset bucket is
+# over-weight, *which* holding to trim first is decided by a blend of real
+# per-fund signals rather than raw size. Higher composite ⇒ trim first.
+_TRIM_W_QUALITY = 0.40       # exit/quality score (weak-vs-peers) — 0-10, higher worse
+_TRIM_W_OVERLAP = 0.30       # max overlap with a sibling fund — 0-100, higher worse
+_TRIM_W_TAX     = 0.30       # tax cost to exit — % of proceeds, lower = trim first
+
 
 @dataclass
 class ProposedAction:
@@ -77,6 +84,153 @@ class ProposedAction:
             "rule": self.rule,
             "source": "decision_engine",  # marker for telemetry
         }
+
+
+# ── Composite trim-ranking (which holding to trim first, and why) ──────
+def _minmax_norm(vals: List[float]) -> List[float]:
+    """Min-max normalise to 0..1. Flat input → all zeros (no signal)."""
+    lo, hi = min(vals), max(vals)
+    span = hi - lo
+    if span <= 0:
+        return [0.0 for _ in vals]
+    return [(v - lo) / span for v in vals]
+
+
+def _composite_trim_order(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Order trim candidates worst-first by a composite of whatever signals
+    are present on each dict: ``exit_score`` (0-10, higher worse),
+    ``overlap_pct`` (0-100, higher worse), ``tax_pct`` (% of proceeds, lower =
+    trim first). Each signal is min-max normalised across the candidate set;
+    missing signals are dropped and the remaining weights renormalised so a
+    fund with partial data is judged only on what it has. Falls back to pure
+    size ordering when no candidate carries any signal (so behaviour is
+    unchanged — and the reason stays the plain drift sentence — when the
+    enrichment couldn't run). Annotates ``_decider`` on each returned dict."""
+    if not candidates:
+        return []
+
+    def norm_for(key: str, invert: bool) -> Dict[int, float]:
+        present = [(i, c[key]) for i, c in enumerate(candidates) if c.get(key) is not None]
+        if not present:
+            return {}
+        normed = _minmax_norm([v for _, v in present])
+        return {i: (1.0 - nv if invert else nv) for (i, _), nv in zip(present, normed)}
+
+    q = norm_for("exit_score", invert=False)   # higher exit_score → trim first
+    o = norm_for("overlap_pct", invert=False)  # higher overlap   → trim first
+    t = norm_for("tax_pct", invert=True)        # lower tax cost   → trim first
+
+    scored: List[Dict[str, Any]] = []
+    for i, c in enumerate(candidates):
+        parts = []  # (weight, normval, label)
+        if i in q:
+            parts.append((_TRIM_W_QUALITY, q[i], "quality"))
+        if i in o:
+            parts.append((_TRIM_W_OVERLAP, o[i], "overlap"))
+        if i in t:
+            parts.append((_TRIM_W_TAX, t[i], "tax"))
+        if parts:
+            wsum = sum(w for w, _, _ in parts)
+            composite = sum(w * nv for w, nv, _ in parts) / wsum
+            decider = max(parts, key=lambda p: p[0] * p[1])[2]
+        else:
+            composite, decider = None, None
+        c["_decider"] = decider
+        scored.append({"c": c, "composite": composite})
+
+    if all(s["composite"] is None for s in scored):
+        # No real signals anywhere — preserve legacy size ordering.
+        for c in candidates:
+            c["_decider"] = None
+        return sorted(candidates, key=lambda x: x["value"], reverse=True)
+
+    # Worst composite first; tie-break by larger value so the cut is absorbable.
+    scored.sort(key=lambda s: (-(s["composite"] if s["composite"] is not None else -1.0),
+                               -s["c"]["value"]))
+    return [s["c"] for s in scored]
+
+
+def _trim_reason_suffix(h: Dict[str, Any]) -> str:
+    """One sentence naming the signal that flagged this fund for trimming.
+    Empty when no deciding signal (keeps the plain drift reason)."""
+    d = h.get("_decider")
+    if d == "quality" and h.get("exit_score") is not None:
+        return (f" Trimming {h['name']} first — it's the weakest on quality in this"
+                f" bucket (exit score {h['exit_score']:.1f}/10).")
+    if d == "overlap" and h.get("overlap_pct"):
+        sib = h.get("overlap_with")
+        if sib:
+            return (f" Trimming {h['name']} first — it overlaps {h['overlap_pct']:.0f}%"
+                    f" with {sib}, so you lose the least diversification.")
+        return (f" Trimming {h['name']} first — it's the most duplicated holding here"
+                f" ({h['overlap_pct']:.0f}% overlap).")
+    if d == "tax" and h.get("tax_pct") is not None:
+        return (f" Trimming {h['name']} first — it's the cheapest to exit on tax"
+                f" ({h['tax_pct']:.1f}% of proceeds).")
+    return ""
+
+
+async def _attach_trim_signals(
+    user_id: str,
+    bucket_holdings: List[Dict[str, Any]],
+    raw_holdings: List[Dict[str, Any]],
+) -> None:
+    """Best-effort: populate ``exit_score`` / ``overlap_pct`` / ``overlap_with``
+    / ``tax_pct`` on each holding in ``bucket_holdings`` from real engine
+    signals. Mutates in place. Any signal that can't be computed is left unset
+    (None) so the composite simply ignores it — nothing is fabricated."""
+    from services.recommendation_engine.helpers import normalize_fund_name
+    from services import portfolio_intelligence as _pi
+
+    intel = await _pi.compute_portfolio_intelligence(user_id) or {}
+    mfs = intel.get("mf_investments") or []
+    pairs = intel.get("pairwise_overlap") or []
+
+    mf_by_name: Dict[str, Dict[str, Any]] = {}
+    name_by_id: Dict[Any, str] = {}
+    for m in mfs:
+        nm = normalize_fund_name(m.get("name") or "")
+        if nm:
+            mf_by_name[nm] = m
+        iid = m.get("instrument_id")
+        if iid:
+            name_by_id[iid] = m.get("name") or ""
+
+    # instrument_id → (best overlap %, the sibling it overlaps with)
+    best_ov: Dict[Any, tuple] = {}
+    for p in pairs:
+        pct = float(p.get("overlap_pct") or 0)
+        a, b = p.get("a"), p.get("b")
+        for x, y in ((a, b), (b, a)):
+            if x is None:
+                continue
+            if x not in best_ov or pct > best_ov[x][0]:
+                best_ov[x] = (pct, name_by_id.get(y, ""))
+
+    raw_by_name = {normalize_fund_name(h.get("name") or ""): h for h in raw_holdings}
+
+    from services.decision_engine import calculate_mf_exit_score
+
+    for h in bucket_holdings:
+        nm = normalize_fund_name(h.get("name") or "")
+        m = mf_by_name.get(nm)
+        if m and m.get("instrument_id") in best_ov:
+            ov_pct, ov_name = best_ov[m["instrument_id"]]
+            h["overlap_pct"] = ov_pct
+            h["overlap_with"] = ov_name
+        raw = raw_by_name.get(nm)
+        if m and raw is not None:
+            try:
+                res = await calculate_mf_exit_score(m, intel, raw)
+                if res:
+                    es = res.get("exit_score")
+                    if es is not None:
+                        h["exit_score"] = float(es)
+                    tp = (res.get("tax_impact") or {}).get("tax_pct_of_exit")
+                    if tp is not None:
+                        h["tax_pct"] = float(tp)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("rule6 exit-score for %s failed: %s", h.get("name"), e)
 
 
 # ── Rule 6: asset-class drift → TRIM / ADD ─────────────────────────────
@@ -129,33 +283,46 @@ async def _rule6_asset_class_drift(user_id: str) -> List[ProposedAction]:
             prio, score = "low", 4.5
 
         if row.direction == "overweight":
-            in_bucket = sorted(
-                [h for h in enriched if h["bucket"] == bucket],
-                key=lambda x: x["value"], reverse=True,
-            )
-            # Cap to top-N largest so we don't emit 5 SGB rows when one
-            # "trim gold" idea is enough. Larger holdings absorb most of
-            # the cut anyway.
-            in_bucket = in_bucket[:_MAX_TRIMS_PER_BUCKET]
+            bucket_holdings = [h for h in enriched if h["bucket"] == bucket]
+            # Augment: decide *which* holding to trim first by a composite of
+            # real per-fund signals (quality/exit score, sibling overlap, tax
+            # cheapness) instead of raw size, and surface the deciding signal
+            # in the reason so the card explains *why this fund*. Best-effort —
+            # if the signals can't be computed we fall back to size ordering
+            # and the plain drift reason (no fabricated justification).
+            try:
+                await _attach_trim_signals(user_id, bucket_holdings, holdings)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("rule6 trim-signal enrichment failed (%s); size order", e)
+            # Cap to top-N ranked so we don't emit 5 SGB rows when one trim
+            # idea is enough; the largest absorb most of the cut anyway.
+            in_bucket = _composite_trim_order(bucket_holdings)[:_MAX_TRIMS_PER_BUCKET]
             remaining = delta_rs
             n = len(in_bucket)
-            for h in in_bucket:
+            for idx, h in enumerate(in_bucket):
                 if remaining <= _MIN_ACTION_RS:
                     break
-                # Distribute the cut across the top-N holdings —
+                # Distribute the cut across the ranked holdings —
                 # ~delta/n each, capped at 50% of the holding's value.
                 fair_share = remaining / max(1, n)
                 cut = min(h["value"] * 0.5, fair_share, remaining)
                 if cut < _MIN_ACTION_RS:
                     continue
+                codes = ["ASSET_CLASS_DRIFT", f"{bucket.upper()}_OVERWEIGHT"]
+                # Only the top-ranked (worst) holding carries the "why this
+                # fund" rationale; siblings just share the drift sentence.
+                suffix = _trim_reason_suffix(h) if idx == 0 else ""
+                if idx == 0 and h.get("_decider"):
+                    codes.append(f"TRIM_RANK_{h['_decider'].upper()}")
                 actions.append(ProposedAction(
                     type="TRIM",
                     asset_name=h["name"],
                     amount_rs=cut,
-                    reason_codes=["ASSET_CLASS_DRIFT", f"{bucket.upper()}_OVERWEIGHT"],
+                    reason_codes=codes,
                     reason_text=(
                         f"{bucket.title()} is {row.deviation_pp:+.1f}pp above target "
                         f"({row.current_pct:.0f}% vs {row.target_pct:.0f}%); trim to free ₹{cut:,.0f}."
+                        f"{suffix}"
                     ),
                     bucket=bucket,
                     rule="Rule 6",
