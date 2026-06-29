@@ -48,16 +48,36 @@ def _creds() -> tuple[str, str]:
     return base, key
 
 
-async def _get(path: str, params: Optional[Dict[str, Any]] = None, timeout: float = _DEFAULT_TIMEOUT) -> Any:
+def strategy_creds() -> tuple[str, str, Optional[str], bool]:
+    """(base, key, host_header, verify) for strategy-engine calls.
+
+    The strategy screen/backtest fire many/large bulk reads; the PUBLIC edge
+    (Cloudflare) intermittently drops large or concurrent responses from inside
+    the app container. When NIDP_DAAS_INTERNAL_URL is set (e.g. the NIDP VM's
+    internal VPC address), route there instead — it bypasses the edge and is
+    reliable. verify=False because we connect by internal IP (cert is for the
+    public host, passed via the Host header so nginx still routes correctly).
+    Falls back to the public base when the internal URL isn't configured.
+    """
+    key = _secrets_get("NIDP_DAAS_INTERNAL_TOKEN") or _secrets_get("NIDP_DAAS_API_KEY")
+    internal = _secrets_get("NIDP_DAAS_INTERNAL_URL").rstrip("/")
+    if internal and key:
+        host = _secrets_get("NIDP_DAAS_HOST") or None
+        return internal, key, host, False
     base, key = _creds()
+    return base, key, None, True
+
+
+async def _get(path: str, params: Optional[Dict[str, Any]] = None, timeout: float = _DEFAULT_TIMEOUT,
+               *, creds: Optional[tuple] = None) -> Any:
+    base, key, host, verify = creds if creds else (*_creds(), None, True)
     url = f"{base}/v1{path}"
+    headers = {"X-API-Key": key, "Accept": "application/json"}
+    if host:
+        headers["Host"] = host
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.get(
-                url,
-                params=params,
-                headers={"X-API-Key": key, "Accept": "application/json"},
-            )
+        async with httpx.AsyncClient(timeout=timeout, verify=verify) as client:
+            resp = await client.get(url, params=params, headers=headers)
         if resp.status_code == 404:
             return None
         if resp.status_code != 200:
@@ -72,20 +92,16 @@ async def _get(path: str, params: Optional[Dict[str, Any]] = None, timeout: floa
         raise DaasError(f"DAAS connectivity error on {path}: {exc}")
 
 
-async def _post(path: str, body: Dict[str, Any], timeout: float = _DEFAULT_TIMEOUT) -> Any:
-    base, key = _creds()
+async def _post(path: str, body: Dict[str, Any], timeout: float = _DEFAULT_TIMEOUT,
+                *, creds: Optional[tuple] = None) -> Any:
+    base, key, host, verify = creds if creds else (*_creds(), None, True)
     url = f"{base}/v1{path}"
+    headers = {"X-API-Key": key, "Accept": "application/json", "Content-Type": "application/json"}
+    if host:
+        headers["Host"] = host
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                url,
-                json=body,
-                headers={
-                    "X-API-Key": key,
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-            )
+        async with httpx.AsyncClient(timeout=timeout, verify=verify) as client:
+            resp = await client.post(url, json=body, headers=headers)
         if resp.status_code == 404:
             return None
         if resp.status_code != 200:
@@ -817,7 +833,8 @@ async def get_trading_calendar(
         params["start"] = start
     if end:
         params["end"] = end
-    data = await _retry(lambda: _get("/features/calendar", params=params, timeout=timeout))
+    sc = strategy_creds()
+    data = await _retry(lambda: _get("/features/calendar", params=params, timeout=timeout, creds=sc))
     if not data:
         return []
     dates = data.get("dates") if isinstance(data, dict) else None
@@ -831,10 +848,11 @@ async def get_features_bulk(
     """Bulk engineered features keyed by symbol → date-ascending rows."""
     if not symbols:
         return {}
+    sc = strategy_creds()
     payload = await _retry(lambda: _post(
         "/features/bulk",
         {"symbols": symbols, "start": start, "end": end},
-        timeout=timeout,
+        timeout=timeout, creds=sc,
     ))
     data = (payload or {}).get("data") or {}
     return data if isinstance(data, dict) else {}
@@ -847,10 +865,11 @@ async def get_adjusted_prices_bulk(
     """Bulk split/bonus-adjusted OHLC keyed by symbol → date-ascending rows."""
     if not symbols:
         return {}
+    sc = strategy_creds()
     payload = await _retry(lambda: _post(
         "/prices/adjusted/bulk",
         {"symbols": symbols, "start": start, "end": end},
-        timeout=timeout,
+        timeout=timeout, creds=sc,
     ))
     data = (payload or {}).get("data") or {}
     return data if isinstance(data, dict) else {}
@@ -866,7 +885,8 @@ async def get_index_constituents(
     params: Dict[str, Any] = {"limit": 1000}
     if on:
         params["on"] = on
-    data = await _retry(lambda: _get(path, params=params, timeout=timeout))
+    sc = strategy_creds()
+    data = await _retry(lambda: _get(path, params=params, timeout=timeout, creds=sc))
     rows = (data or {}).get("data") if isinstance(data, dict) else None
     if not isinstance(rows, list):
         return []
