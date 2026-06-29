@@ -13,6 +13,8 @@ from services.decision_engine_actions import (  # noqa: E402
     _composite_trim_order,
     _trim_reason_suffix,
     _minmax_norm,
+    _isin_of,
+    _build_signal_index,
 )
 
 
@@ -112,3 +114,52 @@ def test_composite_order_differs_from_both_single_signal_orders():
 
 def test_empty_input():
     assert _composite_trim_order([]) == []
+
+
+# ── ISIN join (the staging-surfaced bug: name-matching never worked) ──────
+def test_isin_of_reads_holding_ticker_and_intel_isin():
+    # Holdings keep the ISIN in `ticker`; intelligence entries in `isin`.
+    assert _isin_of({"ticker": "INF179K01830"}) == "INF179K01830"
+    assert _isin_of({"isin": "inf179k01830"}) == "INF179K01830"  # upper-cased
+    assert _isin_of({"ticker": "GROWTH"}) is None                # not 12-char alnum
+    assert _isin_of({"ticker": ""}) is None
+    assert _isin_of({}) is None
+
+
+def test_build_signal_index_joins_by_isin_not_name():
+    # Mirrors the real staging shapes: scheme_name differs from the holding
+    # name ("… - Growth Plan" vs "… Growth"), so only ISIN can join. The user
+    # holds the same scheme as Regular + Direct → ~100% overlap with its twin.
+    mfs = [
+        {"instrument_id": "iid-reg", "isin": "INF179K01830",
+         "scheme_name": "HDFC Balanced Advantage Fund Growth"},
+        {"instrument_id": "iid-dir", "isin": "INF179K01WA6",
+         "scheme_name": "HDFC Balanced Advantage Fund Direct Growth"},
+    ]
+    pairs = [{
+        "a": "iid-reg", "a_name": "HDFC Balanced Advantage Fund Growth",
+        "b": "iid-dir", "b_name": "HDFC Balanced Advantage Fund Direct Growth",
+        "overlap_pct": 99.86,
+    }]
+    mf_by_isin, best_ov = _build_signal_index(mfs, pairs)
+
+    # The holding name would never match by normalisation — ISIN does.
+    holding = {"ticker": "INF179K01830", "name": "HDFC Balanced Advantage Fund - Growth Plan"}
+    m = mf_by_isin.get(_isin_of(holding))
+    assert m is not None
+    assert m["scheme_name"] == "HDFC Balanced Advantage Fund Growth"
+
+    pct, sib = best_ov[m["instrument_id"]]
+    assert pct == 99.86
+    assert sib == "HDFC Balanced Advantage Fund Direct Growth"
+
+
+def test_build_signal_index_keeps_highest_overlap_per_instrument():
+    mfs = [{"instrument_id": "x", "isin": "INF000000001", "scheme_name": "X"}]
+    pairs = [
+        {"a": "x", "a_name": "X", "b": "y", "b_name": "Y-low", "overlap_pct": 40.0},
+        {"a": "z", "a_name": "Z", "b": "x", "b_name": "X", "overlap_pct": 88.0},
+    ]
+    _, best_ov = _build_signal_index(mfs, pairs)
+    pct, sib = best_ov["x"]
+    assert pct == 88.0 and sib == "Z"  # highest wins, sibling taken from the pair

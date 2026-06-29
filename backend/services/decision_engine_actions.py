@@ -170,6 +170,40 @@ def _trim_reason_suffix(h: Dict[str, Any]) -> str:
     return ""
 
 
+def _isin_of(d: Dict[str, Any]) -> Optional[str]:
+    """Normalised ISIN from an mf_investment / holding dict. Holdings keep the
+    ISIN in ``ticker`` (12-char alnum); intelligence entries in ``isin``."""
+    for key in ("isin", "ticker"):
+        v = (d.get(key) or "").strip().upper()
+        if len(v) == 12 and v.isalnum():
+            return v
+    return None
+
+
+def _build_signal_index(mfs: List[Dict[str, Any]], pairs: List[Dict[str, Any]]):
+    """Pure: index portfolio_intelligence output for ISIN-keyed lookup.
+
+    Returns ``(mf_by_isin, best_ov)`` where ``best_ov`` maps an instrument_id to
+    ``(best_overlap_pct, sibling_scheme_name)``. Joining on ISIN — not name —
+    because the holding name ("HDFC … - Growth Plan") and the intelligence
+    ``scheme_name`` ("HDFC … Growth") never normalise to the same string."""
+    mf_by_isin: Dict[str, Dict[str, Any]] = {}
+    for m in mfs or []:
+        isin = _isin_of(m)
+        if isin:
+            mf_by_isin[isin] = m
+    # pairwise_overlap pairs carry a/b (instrument_ids) + a_name/b_name.
+    best_ov: Dict[Any, tuple] = {}
+    for p in pairs or []:
+        pct = float(p.get("overlap_pct") or 0)
+        for x, sib in ((p.get("a"), p.get("b_name")), (p.get("b"), p.get("a_name"))):
+            if x is None:
+                continue
+            if x not in best_ov or pct > best_ov[x][0]:
+                best_ov[x] = (pct, sib or "")
+    return mf_by_isin, best_ov
+
+
 async def _attach_trim_signals(
     user_id: str,
     bucket_holdings: List[Dict[str, Any]],
@@ -177,49 +211,28 @@ async def _attach_trim_signals(
 ) -> None:
     """Best-effort: populate ``exit_score`` / ``overlap_pct`` / ``overlap_with``
     / ``tax_pct`` on each holding in ``bucket_holdings`` from real engine
-    signals. Mutates in place. Any signal that can't be computed is left unset
-    (None) so the composite simply ignores it — nothing is fabricated."""
-    from services.recommendation_engine.helpers import normalize_fund_name
+    signals, joining holdings → intelligence by ISIN. Mutates in place. Any
+    signal that can't be computed is left unset (None) so the composite simply
+    ignores it — nothing is fabricated."""
     from services import portfolio_intelligence as _pi
-
-    intel = await _pi.compute_portfolio_intelligence(user_id) or {}
-    mfs = intel.get("mf_investments") or []
-    pairs = intel.get("pairwise_overlap") or []
-
-    mf_by_name: Dict[str, Dict[str, Any]] = {}
-    name_by_id: Dict[Any, str] = {}
-    for m in mfs:
-        nm = normalize_fund_name(m.get("name") or "")
-        if nm:
-            mf_by_name[nm] = m
-        iid = m.get("instrument_id")
-        if iid:
-            name_by_id[iid] = m.get("name") or ""
-
-    # instrument_id → (best overlap %, the sibling it overlaps with)
-    best_ov: Dict[Any, tuple] = {}
-    for p in pairs:
-        pct = float(p.get("overlap_pct") or 0)
-        a, b = p.get("a"), p.get("b")
-        for x, y in ((a, b), (b, a)):
-            if x is None:
-                continue
-            if x not in best_ov or pct > best_ov[x][0]:
-                best_ov[x] = (pct, name_by_id.get(y, ""))
-
-    raw_by_name = {normalize_fund_name(h.get("name") or ""): h for h in raw_holdings}
-
     from services.decision_engine import calculate_mf_exit_score
 
+    intel = await _pi.compute_portfolio_intelligence(user_id) or {}
+    mf_by_isin, best_ov = _build_signal_index(
+        intel.get("mf_investments") or [], intel.get("pairwise_overlap") or []
+    )
+    raw_by_isin = {iv: h for h in raw_holdings if (iv := _isin_of(h))}
+
     for h in bucket_holdings:
-        nm = normalize_fund_name(h.get("name") or "")
-        m = mf_by_name.get(nm)
-        if m and m.get("instrument_id") in best_ov:
-            ov_pct, ov_name = best_ov[m["instrument_id"]]
-            h["overlap_pct"] = ov_pct
-            h["overlap_with"] = ov_name
-        raw = raw_by_name.get(nm)
-        if m and raw is not None:
+        isin = _isin_of(h)
+        m = mf_by_isin.get(isin) if isin else None
+        if not m:
+            continue  # no ISIN match → no signals; composite falls back to size
+        ov = best_ov.get(m.get("instrument_id"))
+        if ov and ov[0]:
+            h["overlap_pct"], h["overlap_with"] = ov
+        raw = raw_by_isin.get(isin)
+        if raw is not None:
             try:
                 res = await calculate_mf_exit_score(m, intel, raw)
                 if res:
@@ -255,11 +268,17 @@ async def _rule6_asset_class_drift(user_id: str) -> List[ProposedAction]:
         v = qty * cp
         if v <= 0:
             continue
+        # Holdings store the ISIN in `ticker` (12-char alphanumeric) — carry it
+        # so trim-signal enrichment can join to portfolio_intelligence by ISIN
+        # (fund names differ between sources: "… - Growth Plan" vs "… Growth").
+        tk = (h.get("ticker") or "").strip().upper()
+        isin = tk if len(tk) == 12 and tk.isalnum() else None
         enriched.append({
             "name": h.get("name") or "Unknown",
             "type": (h.get("asset_type") or "").lower(),
             "value": v,
             "bucket": _bucket_for_holding(h),
+            "isin": isin,
         })
 
     actions: List[ProposedAction] = []
