@@ -826,31 +826,21 @@ async def _hdfc_multi_file_adapter(
             amc_id,
         )
 
-    import re as _re
-    name_to_codes: dict[str, list[str]] = {}
-    base_to_codes: dict[str, list[str]] = {}
-    for r in db_schemes:
-        nm = r["scheme_name"].lower().strip()
-        name_to_codes.setdefault(nm, []).append(r["scheme_code"])
-        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
-        if len(base) >= 10:
-            base_to_codes.setdefault(base, []).append(r["scheme_code"])
-
-    def _resolve_codes(raw_name: str) -> list[str]:
-        nm = raw_name.lower().strip()
-        if nm in name_to_codes:
-            return name_to_codes[nm]
-        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
-        if base in base_to_codes:
-            return base_to_codes[base]
-        return [c for n, codes in base_to_codes.items()
-                if len(n) >= 10 and (n in base or base in n)
-                for c in codes][:1]
+    # Use the shared, precision-tiered resolver (the same one SBI and the other
+    # AMCs use) instead of a weaker local base-split. The bespoke version did only
+    # lower()/strip() + "split at first '(' or '-'" with a [:1] last-resort pick,
+    # so merged/"&" funds whose Excel name carries an "(erstwhile …)" descriptor —
+    # e.g. HDFC Balanced Advantage Fund (erstwhile HDFC Prudence Fund) — failed to
+    # match the AMFI master and were dropped, or landed on a single arbitrary code
+    # the copilot doesn't resolve to → empty holdings. _resolve_scheme_codes is
+    # erstwhile-aware, normalises "&"→"and", and matches on fund identity across
+    # all plan variants.
+    index = _build_scheme_index(db_schemes)
 
     resolved: list[dict] = []
     unmapped: set[str] = set()
     for row in all_raw_rows:
-        codes = _resolve_codes(row["scheme_code"] or "")
+        codes = _resolve_scheme_codes(row["scheme_code"] or "", index)
         if not codes:
             unmapped.add(row["scheme_code"])
         else:
