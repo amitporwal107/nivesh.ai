@@ -37,6 +37,7 @@ class AgentName(str, Enum):
     RISK = "risk_analyst"
     GOAL = "goal_planner"
     RECOMMENDATION = "recommendation"
+    BACKTEST = "backtest_analyst"
     COMPLIANCE = "compliance"
 
 
@@ -63,6 +64,7 @@ class WidgetType(str, Enum):
     MF_DETAIL = "mf_detail"
     GOAL_SIMULATION = "goal_simulation"
     PORTFOLIO_BUILDER = "portfolio_builder"   # in-chat multi-step builder wizard
+    BACKTEST_COMPARISON = "backtest_comparison"  # historical what-if backtest table
     NONE = "none"
 
 

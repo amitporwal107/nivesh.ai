@@ -515,6 +515,51 @@ async def get_mf_nav_series(scheme_code: str, limit: int = 2) -> list[Dict[str, 
     return rows if isinstance(rows, list) else []
 
 
+async def get_mf_nav_history(
+    scheme_code: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    page_size: int = 500,
+    max_rows: int = 5000,
+    timeout: float = 20.0,
+) -> list[Dict[str, Any]]:
+    """Full daily NAV history for a scheme over [start, end], date-ASCENDING.
+
+    Calls GET /mf/nav/{scheme_code}?start=&end= (nidp.mf_nav_daily) and pages
+    through the newest-first envelope until the window is exhausted, then sorts
+    ascending so the backtest can snap an entry date and walk forward. Returns []
+    on 404 / connectivity failure so the caller degrades rather than fabricates.
+    """
+    code = (scheme_code or "").strip()
+    if not code:
+        return []
+    rows: list[Dict[str, Any]] = []
+    offset = 0
+    while len(rows) < max_rows:
+        params: Dict[str, Any] = {"limit": page_size, "offset": offset}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        try:
+            data = await _get(f"/mf/nav/{code}", params=params, timeout=timeout)
+        except DaasError as exc:
+            logger.debug("get_mf_nav_history(%s): %s", code, exc)
+            break
+        page = (data.get("data") or data.get("rows") or []) if isinstance(data, dict) else []
+        if not page:
+            break
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+
+    def _d(r: Dict[str, Any]) -> str:
+        return str(r.get("nav_date") or "")
+    rows.sort(key=_d)
+    return rows
+
+
 async def get_mf_holdings(
     scheme_code: str,
     instrument_type: Optional[str] = None,
@@ -891,6 +936,50 @@ async def get_index_constituents(
     if not isinstance(rows, list):
         return []
     return [r["symbol"] for r in rows if isinstance(r, dict) and r.get("symbol")]
+
+
+async def get_index_eod_history(
+    index_name: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    page_size: int = 500,
+    max_rows: int = 5000,
+    timeout: float = 20.0,
+) -> list[Dict[str, Any]]:
+    """Full daily index-level history over [start, end], date-ASCENDING.
+
+    Calls GET /indices/{index_name}/eod (nidp.index_eod) and pages through the
+    newest-first envelope, then sorts ascending so the backtest can snap an entry
+    date. Each row carries as_of_date + close_price. Returns [] on failure so the
+    caller degrades (benchmark omitted) rather than fabricates.
+    """
+    import urllib.parse
+    name = (index_name or "").strip()
+    if not name:
+        return []
+    path = f"/indices/{urllib.parse.quote(name)}/eod"
+    rows: list[Dict[str, Any]] = []
+    offset = 0
+    while len(rows) < max_rows:
+        params: Dict[str, Any] = {"limit": page_size, "offset": offset}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        try:
+            data = await _get(path, params=params, timeout=timeout)
+        except DaasError as exc:
+            logger.debug("get_index_eod_history(%s): %s", name, exc)
+            break
+        page = (data.get("data") or data.get("rows") or []) if isinstance(data, dict) else []
+        if not page:
+            break
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+    rows.sort(key=lambda r: str(r.get("as_of_date") or ""))
+    return rows
 
 
 async def get_portfolio_risk(
