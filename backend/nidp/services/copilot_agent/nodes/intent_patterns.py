@@ -21,7 +21,28 @@ PORTFOLIO = "portfolio_analyst"
 RISK = "risk_analyst"
 GOAL = "goal_planner"
 RECOMMENDATION = "recommendation"
+BACKTEST = "backtest_analyst"
 
+
+# Historical "what-if" backtest — "if I'd invested ₹10L in X and Y 3 years ago,
+# what's it worth today?". Must be checked FIRST: it shares vocabulary with
+# PORTFOLIO ("invested", "returns") and the stock-lookup gate ("returns",
+# "cagr", "performance"), all of which would otherwise grab these queries.
+# Anchored on a counterfactual-investment cue + a past-horizon / value-today cue
+# so plain "my portfolio returns" (no "X years ago" / "if I'd invested") still
+# falls through to PORTFOLIO.
+_P_BACKTEST = re.compile(
+    r"\bback[\s-]?test\b|"
+    r"\bif\s+i\s*(?:'d|\s+had|\s+have|\s+would\s+have)?\s+(?:invested|put|bought|started)\b|"
+    r"\bwhat\s+if\s+i\s+(?:had\s+)?(?:invested|put|bought)\b|"
+    r"\bhad\s+i\s+(?:invested|bought|put)\b|"
+    r"\b(?:invest(?:ed|ing)?|put|bought)\b[^.?!]{0,60}\b\d+\s*(?:year|yr|y)s?\s+(?:ago|back|earlier)\b|"
+    r"\b\d+\s*(?:year|yr|y)s?\s+(?:ago|back|earlier)\b[^.?!]{0,60}\b(?:invest|worth|return|grown)\b|"
+    r"\bwould\s+(?:it|that|this|they|my\s+\w+)\s+(?:be\s+worth|have\s+(?:grown|given|returned|made))\b|"
+    r"\bhow\s+much\s+would[^.?!]{0,40}(?:be\s+worth|have\s+(?:grown|returned|made))\b|"
+    r"\bgrown\s+to\s+(?:today|now)\b",
+    re.IGNORECASE,
+)
 
 _P_MARKET = re.compile(
     r"\b(market|nifty|sensex|nse|bse|fiis?|diis?|macro|rbi|inflation|gdp|"
@@ -295,6 +316,7 @@ def _is_stock_lookup(text: str) -> bool:
 # RISK before PORTFOLIO so "portfolio risk" → risk_analyst
 # MARKET before STOCK so "What is Nifty?" → market_analyst (not stock_analyst)
 _PRE_PATTERNS: List[Tuple[re.Pattern, str]] = [
+    (_P_BACKTEST,         BACKTEST),        # "if I'd invested … N years ago" → backtest (before PORTFOLIO/STOCK grab "invested"/"returns")
     (_P_BUILDER,          RECOMMENDATION),  # "build me a portfolio" → builder wizard (before PORTFOLIO grabs "portfolio")
     (_P_SCREENER,         RECOMMENDATION),  # "Screen [bucket] stocks where …" → screener (before STOCK grabs "roe")
     (_P_CAP,              MF),       # cap-category education → mf (cap_education widget) before others
