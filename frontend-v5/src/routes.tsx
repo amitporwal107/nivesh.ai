@@ -18,6 +18,7 @@ import ConcentrationPage from "./pages/Concentration";
 import RecommendationsPage from "./pages/Recommendations";
 import RiskPage from "./pages/Risk";
 import FundDetailsPage from "./pages/FundDetails";
+import InternationalFundsPage from "./pages/InternationalFunds";
 import SettingsPage from "./pages/Settings";
 import ChatPage from "./pages/Chat";
 import LoginPage from "./pages/Login";
@@ -100,6 +101,7 @@ export function AppRoutes() {
         <Route path="/client-360"       element={<RouteErrorBoundary pageName="Client 360"><Client360Page /></RouteErrorBoundary>} />
         {/* Portfolio view now lives on the Dashboard; keep the path as a redirect for old links. */}
         <Route path="/portfolio"        element={<Navigate to="/dashboard" replace />} />
+        <Route path="/funds/international" element={<RouteErrorBoundary pageName="International Funds"><InternationalFundsPage /></RouteErrorBoundary>} />
         <Route path="/funds/:id"        element={<RouteErrorBoundary pageName="Fund Details"><FundDetailsPage /></RouteErrorBoundary>} />
         <Route path="/ai-insights"      element={<RouteErrorBoundary pageName="AI Insights"><ConcentrationPage /></RouteErrorBoundary>} />
         <Route path="/concentration"    element={<Navigate to="/ai-insights" replace />} />

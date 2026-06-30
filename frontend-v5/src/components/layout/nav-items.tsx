@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Sparkles, MessageSquare, Shield,
   Layers, TrendingUp, Target, Receipt, ClipboardList,
-  ShieldCheck, Server, BarChart2, Bug, LineChart, Users, Contact,
+  ShieldCheck, Server, BarChart2, Bug, LineChart, Users, Contact, Globe,
 } from "lucide-react";
 
 /**
@@ -25,6 +25,7 @@ export interface NavItem {
 export const SECTION_NAV: NavItem[] = [
   { to: "/dashboard",       label: "Overview",        icon: LayoutDashboard, group: "Dashboards" },
   { to: "/markets",         label: "Markets",         icon: LineChart,       group: "Dashboards" },
+  { to: "/funds/international", label: "Intl Funds",   icon: Globe,           group: "Dashboards" },
   { to: "/ai-insights",     label: "AI Insights",     icon: Layers,          group: "Dashboards" },
   { to: "/risk",            label: "Risk",            icon: Shield,          group: "Dashboards" },
   { to: "/performance",     label: "Performance",     icon: TrendingUp,      group: "Dashboards" },
