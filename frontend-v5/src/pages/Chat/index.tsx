@@ -78,6 +78,21 @@ function entityQuery(text: string): { term: string; mode: "funds" | "all"; activ
 // the backend NL parser) — see components/chat/screenerPrimitives.ts.
 const SCREEN_STARTERS = ["screen stocks where ", "screen stocks ", "screen for ", "screen "];
 
+// Predefined backtest baskets shown when "Backtest a basket" is clicked. Each
+// `query` is a ready-to-send backtest prompt (routes to the backtest analyst via
+// "if I had invested …"); instrument names are chosen to resolve cleanly via the
+// stock symbol / MF scheme resolvers. Users can also free-type their own basket.
+const BACKTEST_BASKETS: { label: string; sub: string; query: string }[] = [
+  { label: "Large-cap leaders", sub: "5 index heavyweights",
+    query: "If I had invested 10L equally in HDFC Bank, Reliance, ICICI Bank, Infosys and TCS 1 year and 3 years ago, what's it worth today?" },
+  { label: "Top IT", sub: "5 IT majors",
+    query: "If I had invested 10L equally in TCS, Infosys, Wipro, HCL Technologies and Tech Mahindra 1 year and 3 years ago, what's it worth today?" },
+  { label: "Banking & financials", sub: "5 private + PSU banks",
+    query: "If I had invested 10L equally in HDFC Bank, ICICI Bank, SBI, Kotak Mahindra Bank and Axis Bank 1 year and 3 years ago, what's it worth today?" },
+  { label: "Popular flexi-cap funds", sub: "3 flexi-cap MFs",
+    query: "If I had invested 10L equally in Parag Parikh Flexi Cap, HDFC Flexi Cap and Quant Flexi Cap 1 year and 3 years ago, what's it worth today?" },
+];
+
 /** Screener mode + the clause currently being typed (text after the last comma).
  *  `base` is everything to keep when a primitive is inserted in place of `fragment`. */
 function screenQuery(text: string): { active: boolean; fragment: string; base: string } {
@@ -115,6 +130,7 @@ export default function ChatPage() {
   // Visual screener query-builder panel.
   const [builderOpen, setBuilderOpen] = useState(false);
   const [analyseOpen, setAnalyseOpen] = useState(false);
+  const [backtestOpen, setBacktestOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
   // When a picked question template has a {stock}/{fund} placeholder, we enter
   // "entity fill" mode: instrument autocomplete suggests canonical names and a
@@ -629,10 +645,15 @@ export default function ChatPage() {
               <Wand2 className="h-3.5 w-3.5 text-accent" /> Build a portfolio
             </button>
             <button
-              onClick={() => startResearch("If I had invested 10L in ")}
+              onClick={() => setBacktestOpen((v) => !v)}
               disabled={isBusy}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 disabled:opacity-50 transition-colors"
-              title="Backtest a basket — name the stocks/funds; see what a lump-sum & SIP would be worth today (1y & 3y)"
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-[12.5px] transition-colors disabled:opacity-50",
+                backtestOpen
+                  ? "border-accent bg-[rgb(var(--accent)/0.10)] text-accent"
+                  : "bg-surface-1 border-hairline-2 text-ink hover:bg-surface-2",
+              )}
+              title="Backtest a basket — pick a ready-made basket or build your own; see what a lump-sum & SIP would be worth today (1y & 3y)"
             >
               <HistoryIcon className="h-3.5 w-3.5 text-accent" /> Backtest a basket
             </button>
@@ -670,6 +691,39 @@ export default function ChatPage() {
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Backtest a basket — predefined baskets (one-click, ready to send)
+              plus a "create your own" entry that focuses the composer with
+              instrument autocomplete. Revealed by the launcher chip above. */}
+          {backtestOpen && (
+            <div className="mt-6">
+              <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">Backtest a basket</div>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {BACKTEST_BASKETS.map((b) => (
+                  <button
+                    key={b.label}
+                    onClick={() => { setBacktestOpen(false); setComposer(b.query); }}
+                    disabled={isBusy}
+                    title={b.query}
+                    className="flex flex-col items-start px-3.5 py-2 rounded-2xl bg-surface-2 border border-hairline text-left hover:bg-surface-3 disabled:opacity-50 transition-colors"
+                  >
+                    <span className="text-[12.5px] text-ink">{b.label}</span>
+                    <span className="text-[11px] text-ink-3">{b.sub}</span>
+                  </button>
+                ))}
+                <button
+                  onClick={() => { setBacktestOpen(false); startResearch("If I had invested 10L in "); }}
+                  disabled={isBusy}
+                  title="Create your own — name the stocks/funds to backtest"
+                  className="flex flex-col items-start px-3.5 py-2 rounded-2xl bg-surface-1 border border-dashed border-hairline-2 text-left hover:bg-surface-2 disabled:opacity-50 transition-colors"
+                >
+                  <span className="text-[12.5px] text-accent">+ Create your own</span>
+                  <span className="text-[11px] text-ink-3">type stocks / funds</span>
+                </button>
+              </div>
+              <p className="text-[11px] text-ink-3 mt-2.5">Edit the amount or period before sending. Historical illustration, not a prediction.</p>
             </div>
           )}
         </div>
