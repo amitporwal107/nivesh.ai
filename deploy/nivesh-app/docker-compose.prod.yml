@@ -74,6 +74,9 @@ services:
     image: nivesh/backend:prod
     container_name: nivesh-backend
     restart: unless-stopped
+    # Outbound SMTP for magic-link email (SMTP_HOST/PORT/USERNAME/PASSWORD/FROM/
+    # STARTTLS) lives in this env_file — same relay as staging. See
+    # deploy/nivesh-staging/.env.staging.example for the canonical block.
     env_file: /opt/nivesh/.env.prod
     volumes:
       - /opt/nivesh/repo/backend:/app/backend
