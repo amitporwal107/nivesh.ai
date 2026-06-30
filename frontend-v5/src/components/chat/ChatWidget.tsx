@@ -2634,6 +2634,118 @@ function BacktestComparisonWidget({ data }: { data: any }) {
   );
 }
 
+// ── market_detail (market research hub) ────────────────────────────────────
+// Indices + India VIX, breadth, FII/DII, G-Sec yields, top movers — built by
+// copilot_tools.market_research from /v1/snapshots/market + /market-pulse/movers.
+// Suggested chips drive follow-up market questions via onAction({ query }).
+function MarketDetailWidget({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
+  if (!data) return null;
+  const { indices, vix, vix_tone, breadth, flows, yields, movers, suggestions, as_of, caveat } = data;
+  const fmt = (n: any) => (typeof n === "number" ? n.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : n);
+  const advPct = breadth && (breadth.advances + breadth.declines) > 0
+    ? (breadth.advances / (breadth.advances + breadth.declines)) * 100 : 0;
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      {(indices?.length > 0 || vix != null) && (
+        <div className="flex flex-wrap gap-2.5">
+          {(indices ?? []).map((i: any, idx: number) => (
+            <div key={idx} className="rounded-lg bg-surface-1 border border-hairline px-4 py-3 flex-1 min-w-[120px]">
+              <div className="text-[12.5px] text-ink-3 leading-tight">{i.label}</div>
+              <div className="font-display text-[24px] text-ink tracking-tightish mt-1 leading-none">{fmt(i.value)}</div>
+              {i.change_pct != null && (
+                <div className={`text-[12.5px] font-medium mt-1 ${i.change_pct < 0 ? "text-neg" : "text-pos"}`}>
+                  {i.change_pct >= 0 ? "+" : ""}{i.change_pct}%
+                </div>
+              )}
+            </div>
+          ))}
+          {vix != null && (
+            <div className="rounded-lg bg-surface-1 border border-hairline px-4 py-3 flex-1 min-w-[120px]">
+              <div className="text-[12.5px] text-ink-3 leading-tight">India VIX</div>
+              <div className="font-display text-[24px] text-ink tracking-tightish mt-1 leading-none">{fmt(vix)}</div>
+              {vix_tone && <div className="text-[12px] text-ink-3 mt-1 capitalize">{vix_tone}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {(breadth || flows || yields) && (
+        <Card>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {breadth && (
+              <div>
+                <div className="text-[11px] text-ink-3 uppercase tracking-wide">Breadth</div>
+                <div className="text-[14px] text-ink mt-1">
+                  <span className="text-pos">{breadth.advances} adv</span> · <span className="text-neg">{breadth.declines} decl</span>
+                </div>
+                <div className="mt-2"><Bar pct={advPct} color="green" /></div>
+              </div>
+            )}
+            {flows && (
+              <div>
+                <div className="text-[11px] text-ink-3 uppercase tracking-wide">FII / DII (cash)</div>
+                {flows.fii_cr != null && <div className="text-[14px] text-ink mt-1">FII <span className={flows.fii_cr < 0 ? "text-neg" : "text-pos"}>₹{fmt(flows.fii_cr)} cr</span></div>}
+                {flows.dii_cr != null && <div className="text-[14px] text-ink">DII <span className={flows.dii_cr < 0 ? "text-neg" : "text-pos"}>₹{fmt(flows.dii_cr)} cr</span></div>}
+              </div>
+            )}
+            {yields && (
+              <div>
+                <div className="text-[11px] text-ink-3 uppercase tracking-wide">G-Sec yields</div>
+                <div className="text-[14px] text-ink mt-1">10Y {yields.g10y}%</div>
+                {yields.g91d != null && <div className="text-[14px] text-ink">91D {yields.g91d}%</div>}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {movers && (movers.gainers?.length || movers.losers?.length) && (
+        <Card>
+          <Heading>Top movers</Heading>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+            <div>
+              <div className="text-[11px] text-pos uppercase tracking-wide mb-1">Gainers</div>
+              {(movers.gainers ?? []).map((m: any, i: number) => (
+                <div key={i} className="flex justify-between text-[13px] py-0.5">
+                  <span className="text-ink truncate mr-2">{m.symbol}</span>
+                  <span className="text-pos shrink-0">{m.change_pct >= 0 ? "+" : ""}{m.change_pct}%</span>
+                </div>
+              ))}
+            </div>
+            <div>
+              <div className="text-[11px] text-neg uppercase tracking-wide mb-1">Losers</div>
+              {(movers.losers ?? []).map((m: any, i: number) => (
+                <div key={i} className="flex justify-between text-[13px] py-0.5">
+                  <span className="text-ink truncate mr-2">{m.symbol}</span>
+                  <span className="text-neg shrink-0">{m.change_pct}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {suggestions?.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {suggestions.map((s: string, i: number) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => onAction?.({ query: s })}
+              disabled={!onAction}
+              className="px-3 py-1.5 rounded-full bg-surface-2 border border-hairline text-[12.5px] text-ink-2 hover:bg-surface-3 transition-colors disabled:opacity-60"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {caveat && <p className="text-[11.5px] text-ink-3 leading-relaxed px-1">{caveat}{as_of ? ` · as of ${as_of}` : ""}</p>}
+    </div>
+  );
+}
+
 export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: string; data?: any }; onAction?: (a: WidgetAction) => void }) {
   if (!widget?.widget_type) return null;
   try {
@@ -2654,6 +2766,7 @@ export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: stri
                                    ? <MfSummaryWidget data={widget.data} onAction={onAction} />
                                    : <InstrumentDetailWidget data={widget.data} />;
       case "mf_detail":          return <MfCard data={widget.data} onAction={onAction} />;
+      case "market_detail":      return <MarketDetailWidget data={widget.data} onAction={onAction} />;
       case "risk_assessment":    return <RiskAssessmentWidget data={widget.data} />;
       case "goal_simulation":    return <GoalSimulationWidget data={widget.data} onAction={onAction} />;
       case "stock_screener":     return <StockScreenerWidget data={widget.data} onAction={onAction} />;
