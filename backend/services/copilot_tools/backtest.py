@@ -370,7 +370,14 @@ async def _fetch_series(
     stock_syms = [i.ident for i in instruments if i.kind == "stock"]
     if stock_syms:
         try:
-            bulk = await daas_client.get_adjusted_prices_bulk(stock_syms, start_s, end_s)
+            # Hard wall-clock ceiling so a slow/dropped edge response degrades to
+            # "no data" rather than hanging until the chat stream is cancelled
+            # (asyncio.TimeoutError is an Exception, so it's caught here — a bare
+            # cancellation would otherwise crash the whole stream).
+            bulk = await asyncio.wait_for(
+                daas_client.get_adjusted_prices_bulk(stock_syms, start_s, end_s, timeout=12.0),
+                timeout=15.0,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("backtest: adjusted price bulk failed: %s", exc)
             bulk = {}
@@ -394,7 +401,10 @@ async def _fetch_series(
 
     async def _one_mf(inst: Instrument) -> None:
         try:
-            rows = await daas_client.get_mf_nav_history(inst.ident, start_s, end_s)
+            rows = await asyncio.wait_for(
+                daas_client.get_mf_nav_history(inst.ident, start_s, end_s, timeout=12.0),
+                timeout=15.0,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("backtest: nav history failed for %s: %s", inst.ident, exc)
             return
@@ -434,8 +444,11 @@ async def _compute_benchmark(
     """
     from services.copilot_tools import daas_client
     try:
-        rows = await daas_client.get_index_eod_history(
-            index_name, window_start.isoformat(), today.isoformat())
+        rows = await asyncio.wait_for(
+            daas_client.get_index_eod_history(
+                index_name, window_start.isoformat(), today.isoformat(), timeout=8.0),
+            timeout=10.0,
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("backtest: benchmark series failed for %s: %s", index_name, exc)
         rows = []
@@ -557,6 +570,18 @@ async def get_historical_backtest(
             agg[n]["ls_current"] += ls["current_value"]
             agg[n]["covered"] += 1
         per_instrument.append(row)
+
+    # If NOT ONE instrument returned a usable price/NAV series, the data layer is
+    # unreachable right now — say so explicitly so the node answers "couldn't load
+    # data, try again" instead of rendering an empty widget (or the stream dying).
+    if all(r.get("error") == "no_data" for r in per_instrument):
+        return BacktestResult(
+            ok=False,
+            summary="Couldn't load price/NAV history for the named instruments right now.",
+            error="no_price_data",
+            data={"instruments": [{"name": i.name, "identifier": i.ident, "kind": i.kind}
+                                  for i in instruments], "unresolved": unresolved},
+        )
 
     # Portfolio-level rollup per period.
     portfolio: Dict[str, Any] = {}
