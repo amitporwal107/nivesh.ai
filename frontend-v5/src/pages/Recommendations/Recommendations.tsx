@@ -48,16 +48,17 @@ export function Recommendations({ recs, filter, onFilter, onApply, onRefresh, is
           aria-label="Regenerate recommendations"
           title="Regenerate — re-run the recommendation engine against your latest portfolio"
           className={cn(
-            "mt-1 shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-hairline",
-            "text-[12px] text-ink-2 hover:text-ink hover:border-ink-3 transition-colors",
+            "mt-1 shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-lg",
+            "bg-surface-2 border border-hairline text-[13px] font-medium text-ink",
+            "hover:bg-surface-1 hover:border-ink-3 transition-colors",
             "disabled:opacity-40 disabled:cursor-not-allowed",
           )}
         >
           <RefreshCw
-            className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")}
+            className={cn("h-4 w-4", isRefreshing && "animate-spin")}
             aria-hidden
           />
-          {isRefreshing ? "Regenerating…" : "Regenerate"}
+          {isRefreshing ? "Regenerating…" : "Regenerate recommendations"}
         </button>
       </div>
 
