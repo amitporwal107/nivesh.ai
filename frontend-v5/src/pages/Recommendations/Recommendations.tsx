@@ -45,8 +45,8 @@ export function Recommendations({ recs, filter, onFilter, onApply, onRefresh, is
           type="button"
           onClick={onRefresh}
           disabled={isRefreshing}
-          aria-label="Refresh recommendations"
-          title="Re-run the recommendation engine against your latest portfolio"
+          aria-label="Regenerate recommendations"
+          title="Regenerate — re-run the recommendation engine against your latest portfolio"
           className={cn(
             "mt-1 shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-hairline",
             "text-[12px] text-ink-2 hover:text-ink hover:border-ink-3 transition-colors",
@@ -57,7 +57,7 @@ export function Recommendations({ recs, filter, onFilter, onApply, onRefresh, is
             className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")}
             aria-hidden
           />
-          {isRefreshing ? "Refreshing…" : "Refresh"}
+          {isRefreshing ? "Regenerating…" : "Regenerate"}
         </button>
       </div>
 
