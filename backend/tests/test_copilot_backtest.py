@@ -188,7 +188,7 @@ async def test_engine_end_to_end_stock_and_fund():
     nav = [{"nav_date": r["as_of_date"], "nav": r["tret_close"]}
            for r in _growing_bulk_rows(date(2022, 1, 3), AS_OF, 200.0, 1.12)]
 
-    async def fake_bulk(symbols, start, end):
+    async def fake_bulk(symbols, start, end, **kw):
         return {"STK": stk} if "STK" in symbols else {}
 
     async def fake_nav(code, start=None, end=None, **kw):
@@ -245,7 +245,7 @@ async def test_engine_end_to_end_stock_and_fund():
 async def test_benchmark_unavailable_degrades():
     stk = _growing_bulk_rows(date(2023, 1, 2), AS_OF, 100.0, 1.20)
 
-    async def fake_bulk(symbols, start, end):
+    async def fake_bulk(symbols, start, end, **kw):
         return {"STK": stk} if "STK" in symbols else {}
 
     async def fake_index(name, start=None, end=None, **kw):
@@ -274,7 +274,7 @@ async def test_engine_flags_insufficient_history():
     # series only since mid-2025 → 3y lookback (2023-06) is impossible
     young = _growing_bulk_rows(date(2025, 6, 2), AS_OF, 50.0, 1.40)
 
-    async def fake_bulk(symbols, start, end):
+    async def fake_bulk(symbols, start, end, **kw):
         return {"NEWSTK": young} if "NEWSTK" in symbols else {}
 
     async def fake_nav(code, start=None, end=None, **kw):
@@ -304,6 +304,57 @@ async def test_engine_no_instruments():
     res = await bt.get_historical_backtest("what would my money have done", as_of=AS_OF)
     assert not res.ok
     assert res.error in ("no_instruments", "unresolved")
+
+
+@pytest.mark.asyncio
+async def test_engine_no_price_data_returns_error():
+    """Resolves instruments but the data layer returns nothing → explicit
+    no_price_data error (so the node says 'couldn't load', not an empty widget)."""
+    async def empty_bulk(symbols, start, end, **kw):
+        return {}
+
+    async def empty_index(name, start=None, end=None, **kw):
+        return []
+
+    def fake_symbol(text):
+        return Resolution(symbol="STK", display_name="STK", source="name") if "reliance" in text.lower() else Resolution()
+
+    async def fake_scheme(text):
+        return None
+
+    with patch("services.copilot_tools.daas_client.get_adjusted_prices_bulk", empty_bulk), \
+         patch("services.copilot_tools.daas_client.get_index_eod_history", empty_index), \
+         patch("services.copilot_tools.symbol_resolver.resolve_symbol", fake_symbol), \
+         patch("services.copilot_tools.scheme_resolver.resolve_scheme", fake_scheme):
+        res = await bt.get_historical_backtest("backtest 10L in Reliance 1 year ago", as_of=AS_OF)
+
+    assert not res.ok
+    assert res.error == "no_price_data"
+
+
+@pytest.mark.asyncio
+async def test_engine_data_call_failure_degrades_not_crashes():
+    """A failing/slow DaaS call must not propagate — it degrades to no_price_data."""
+    async def boom_bulk(symbols, start, end, **kw):
+        raise TimeoutError("simulated slow edge")
+
+    async def empty_index(name, start=None, end=None, **kw):
+        return []
+
+    def fake_symbol(text):
+        return Resolution(symbol="STK", display_name="STK", source="name") if "reliance" in text.lower() else Resolution()
+
+    async def fake_scheme(text):
+        return None
+
+    with patch("services.copilot_tools.daas_client.get_adjusted_prices_bulk", boom_bulk), \
+         patch("services.copilot_tools.daas_client.get_index_eod_history", empty_index), \
+         patch("services.copilot_tools.symbol_resolver.resolve_symbol", fake_symbol), \
+         patch("services.copilot_tools.scheme_resolver.resolve_scheme", fake_scheme):
+        res = await bt.get_historical_backtest("backtest 10L in Reliance 1 year ago", as_of=AS_OF)
+
+    assert not res.ok
+    assert res.error == "no_price_data"
 
 
 # ── intent routing ───────────────────────────────────────────────────────────

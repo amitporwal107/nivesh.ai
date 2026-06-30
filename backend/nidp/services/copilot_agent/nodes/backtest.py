@@ -87,16 +87,36 @@ async def backtest_node(state: CopilotState) -> dict:
     from .._stream import emit_widget
     await emit_widget(widget_type, widget_data)
 
-    llm = ChatOpenAI(
-        model=COPILOT_LLM_MODEL,
-        temperature=temperature_for(0.1),
-        api_key=get_openai_api_key(),
-    )
-    resp = await llm.ainvoke([
-        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
-        {"role": "user", "content": user_msg or "Run the backtest."},
-    ])
-    answer_text = resp.content
+    # The LLM only writes the narrative; the widget (above) is already the answer.
+    # Never let an LLM hiccup crash the chat stream — fall back to a deterministic
+    # summary built from the tool result so the user still gets a usable reply.
+    primary = tool_results[0] if tool_results else None
+    answer_text = ""
+    try:
+        llm = ChatOpenAI(
+            model=COPILOT_LLM_MODEL,
+            temperature=temperature_for(0.1),
+            api_key=get_openai_api_key(),
+        )
+        resp = await llm.ainvoke([
+            {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
+            {"role": "user", "content": user_msg or "Run the backtest."},
+        ])
+        answer_text = (resp.content or "").strip()
+    except Exception as exc:  # noqa: BLE001 — never crash the stream on the narrative
+        logger.warning("backtest node LLM narrative failed: %s", exc)
+
+    if not answer_text:
+        if primary and primary.ok:
+            answer_text = (
+                f"Here's the historical backtest — {primary.summary}. "
+                "This is a historical illustration, not a prediction."
+            )
+        else:
+            answer_text = (
+                "I couldn't run the backtest just now — the price/NAV data didn't load. "
+                "Please try again in a moment."
+            )
 
     response = AgentResponse(
         agent=AgentName.BACKTEST,
