@@ -15,6 +15,7 @@ from services.decision_engine_actions import (  # noqa: E402
     _minmax_norm,
     _isin_of,
     _build_signal_index,
+    _sector_lookthrough,
 )
 
 
@@ -114,6 +115,39 @@ def test_composite_order_differs_from_both_single_signal_orders():
 
 def test_empty_input():
     assert _composite_trim_order([]) == []
+
+
+# ── Sector look-through attribution (which funds/stocks drive a sector) ────
+def test_sector_lookthrough_attributes_funds_and_stocks():
+    intel = {
+        "mf_investments": [
+            {"instrument_id": "f1", "scheme_name": "Fund A", "amount_rs": 100_000, "resolved": True},
+            {"instrument_id": "f2", "scheme_name": "Fund B", "amount_rs": 50_000, "resolved": True},
+            {"instrument_id": "f3", "scheme_name": "Skip", "amount_rs": 99_999, "resolved": False},
+        ],
+        "catalog": {
+            "f1": {"scheme_name": "Fund A", "holdings": [
+                {"holding_name": "HDFC Bank", "holding_sector": "Financial", "weight_percent": 30},
+                {"holding_name": "Infosys", "holding_sector": "Technology", "weight_percent": 10}]},
+            "f2": {"scheme_name": "Fund B", "holdings": [
+                {"holding_name": "ICICI Bank", "holding_sector": "Financial", "weight_percent": 20},
+                {"holding_name": "HDFC Bank", "holding_sector": "Financial", "weight_percent": 10}]},
+        },
+    }
+    funds, stocks = _sector_lookthrough(intel, "Financial")
+    # Fund A: 30% × 100k = 30k ; Fund B: (20%+10%) × 50k = 15k
+    assert funds == [("Fund A", 30_000.0), ("Fund B", 15_000.0)]
+    # HDFC Bank: 30k (A) + 5k (B) = 35k ; ICICI Bank: 10k. Unresolved fund excluded.
+    assert stocks[0] == ("HDFC Bank", 35_000.0)
+    assert dict(stocks)["ICICI Bank"] == 10_000.0
+    assert "Infosys" not in dict(stocks)  # wrong sector excluded
+
+
+def test_sector_lookthrough_empty_when_no_match():
+    intel = {"mf_investments": [{"instrument_id": "f1", "amount_rs": 1, "resolved": True}],
+             "catalog": {"f1": {"holdings": [{"holding_sector": "Energy", "weight_percent": 50}]}}}
+    funds, stocks = _sector_lookthrough(intel, "Financial")
+    assert funds == [] and stocks == []
 
 
 # ── ISIN join (the staging-surfaced bug: name-matching never worked) ──────
