@@ -47,6 +47,11 @@ _TRIM_W_QUALITY = 0.40       # exit/quality score (weak-vs-peers) — 0-10, high
 _TRIM_W_OVERLAP = 0.30       # max overlap with a sibling fund — 0-100, higher worse
 _TRIM_W_TAX     = 0.30       # tax cost to exit — % of proceeds, lower = trim first
 
+# Appended to any card that names a specific instrument to buy/sell. Naming
+# specific funds/stocks is investment advice (RIA-regulated in India), so each
+# such card carries this educational-only qualifier.
+_ADVICE_DISCLAIMER = " ⓘ Educational only — not investment advice."
+
 
 @dataclass
 class ProposedAction:
@@ -351,19 +356,40 @@ async def _rule6_asset_class_drift(user_id: str) -> List[ProposedAction]:
                 remaining -= cut
                 n -= 1
         elif row.direction == "underweight":
-            placeholder = {
+            asset_name = {
                 "equity": "Diversified large/flexi-cap fund",
                 "debt": "Investment-grade corporate bond fund",
                 "gold": "Sovereign Gold Bond / Gold ETF",
             }.get(bucket, f"{bucket} allocation top-up")
+            codes = ["ASSET_CLASS_DRIFT", f"{bucket.upper()}_UNDERWEIGHT"]
+            extra = ""
+            disclaimer = ""
+            # Debt: name a specific top-ranked fund (live DaaS, static fallback)
+            # instead of a generic category placeholder.
+            if bucket == "debt":
+                fund = await _suggest_debt_add_fund(delta_rs)
+                if fund:
+                    asset_name = fund.get("fund_name") or asset_name
+                    bits = [b for b in (
+                        fund.get("rating"),
+                        (f"3Y {fund.get('returns_3y')}" if fund.get("returns_3y") else None),
+                        (f"{fund.get('fund_type')}" if fund.get("fund_type") else None),
+                        (f"expense {fund.get('expense_ratio')}%"
+                         if fund.get("expense_ratio") is not None else None),
+                    ) if b]
+                    extra = f" {asset_name} is a top-ranked option" + (
+                        f" ({', '.join(str(b) for b in bits)})" if bits else "") + "."
+                    codes.append("DEBT_ADD_NAMED")
+                    disclaimer = _ADVICE_DISCLAIMER
             actions.append(ProposedAction(
                 type="ADD",
-                asset_name=placeholder,
+                asset_name=asset_name,
                 amount_rs=delta_rs,
-                reason_codes=["ASSET_CLASS_DRIFT", f"{bucket.upper()}_UNDERWEIGHT"],
+                reason_codes=codes,
                 reason_text=(
                     f"{bucket.title()} is {row.deviation_pp:+.1f}pp below target "
                     f"({row.current_pct:.0f}% vs {row.target_pct:.0f}%); top up by ₹{delta_rs:,.0f}."
+                    f"{extra}{disclaimer}"
                 ),
                 bucket=bucket,
                 rule="Rule 6",
@@ -371,6 +397,54 @@ async def _rule6_asset_class_drift(user_id: str) -> List[ProposedAction]:
                 score=score,
             ))
     return actions
+
+
+async def _suggest_debt_add_fund(amount_rs: float) -> Optional[Dict[str, Any]]:
+    """Top debt-fund candidate for an ADD: live NIDP DaaS screener when up,
+    static fallback otherwise (reuses allocation_engine._suggest_debt_funds, the
+    same mechanism the reinvest card uses). Best-effort — returns None on error."""
+    live: List[Dict[str, Any]] = []
+    try:
+        from services.copilot_tools import daas_client as _daas
+        live = await _daas.get_top_add_funds_by_category("debt", n=3)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("rule6 debt DaaS fetch failed: %s", e)
+    try:
+        from services.recommendation_engine.engines.allocation_engine import _suggest_debt_funds
+        opts = _suggest_debt_funds(amount_rs, [], live, top_n=1)
+        return opts[0] if opts else None
+    except Exception as e:  # noqa: BLE001
+        logger.debug("rule6 _suggest_debt_funds failed: %s", e)
+        return None
+
+
+def _sector_lookthrough(intel: Dict[str, Any], sector: str):
+    """Per-fund and per-stock ₹ attribution for one look-through sector, from
+    the user's OWN portfolio (catalog holdings × fund amount). Returns
+    ``(top_funds, top_stocks)`` — each a list of ``(name, rs)`` sorted desc.
+    Lets a sector-cap card say *which* of your funds/stocks drive the exposure
+    rather than the generic "funds with high X exposure"."""
+    mfs = (intel or {}).get("mf_investments") or []
+    catalog = (intel or {}).get("catalog") or {}
+    fund_rs: List[tuple] = []
+    stock_rs: Dict[str, float] = {}
+    for inv in mfs:
+        if not inv.get("resolved"):
+            continue
+        cat = catalog.get(inv.get("instrument_id"), {})
+        amt = float(inv.get("amount_rs") or 0)
+        f_rs = 0.0
+        for h in cat.get("holdings", []):
+            if (h.get("holding_sector") or "") == sector:
+                contrib = amt * (float(h.get("weight_percent") or 0) / 100.0)
+                f_rs += contrib
+                nm = h.get("holding_name") or "Unknown"
+                stock_rs[nm] = stock_rs.get(nm, 0.0) + contrib
+        if f_rs > 0:
+            fund_rs.append((cat.get("scheme_name") or inv.get("scheme_name") or "a fund", f_rs))
+    fund_rs.sort(key=lambda x: x[1], reverse=True)
+    top_stocks = sorted(stock_rs.items(), key=lambda x: x[1], reverse=True)
+    return fund_rs, top_stocks
 
 
 # ── Rule 7: sector cap (>30% of equity exposure) ───────────────────────
@@ -401,16 +475,33 @@ async def _rule7_sector_cap(user_id: str) -> List[ProposedAction]:
         if excess_rs < _MIN_ACTION_RS:
             continue
         prio = "high" if excess_pp >= 5 else "medium"
+        sector = s.get("sector")
+        # Name which of the user's own funds (and the underlying stocks) drive
+        # this sector, so the card says *what to reduce* — not just "funds with
+        # high X exposure". This is the user's own portfolio data, not a buy rec.
+        top_funds, top_stocks = _sector_lookthrough(m, sector)
+        codes = ["SECTOR_CAP_BREACH", f"SECTOR_{(sector or '').upper()}"]
+        attribution = ""
+        disclaimer = ""
+        if top_funds:
+            fund_bits = "; ".join(f"{n} (₹{rs:,.0f})" for n, rs in top_funds[:2])
+            attribution = f" Most of it comes from {fund_bits}"
+            if top_stocks:
+                attribution += f" — concentrated in {', '.join(n for n, _ in top_stocks[:3])}"
+            attribution += ". Trimming these brings it under the cap."
+            codes.append("SECTOR_LOOKTHROUGH")
+            disclaimer = _ADVICE_DISCLAIMER
         actions.append(ProposedAction(
             type="TRIM",
-            asset_name=f"Funds with high {s.get('sector')} exposure",
+            asset_name=f"Funds with high {sector} exposure",
             amount_rs=excess_rs,
-            reason_codes=["SECTOR_CAP_BREACH", f"SECTOR_{(s.get('sector') or '').upper()}"],
+            reason_codes=codes,
             reason_text=(
-                f"{s.get('sector')} exposure is {pct:.1f}% (cap {_SECTOR_CAP_PCT:.0f}%); "
+                f"{sector} exposure is {pct:.1f}% (cap {_SECTOR_CAP_PCT:.0f}%); "
                 f"trim ₹{excess_rs:,.0f} to bring it under the cap."
+                f"{attribution}{disclaimer}"
             ),
-            bucket=s.get("sector"),
+            bucket=sector,
             rule="Rule 7",
             priority=prio,
             score=7.0 if prio == "high" else 5.5,
