@@ -62,6 +62,7 @@ class WidgetType(str, Enum):
     RISK_ASSESSMENT = "risk_assessment"
     INSTRUMENT_DETAIL = "instrument_detail"
     MF_DETAIL = "mf_detail"
+    MARKET_DETAIL = "market_detail"   # market research hub (indices/breadth/flows/movers)
     GOAL_SIMULATION = "goal_simulation"
     PORTFOLIO_BUILDER = "portfolio_builder"   # in-chat multi-step builder wizard
     BACKTEST_COMPARISON = "backtest_comparison"  # historical what-if backtest table
