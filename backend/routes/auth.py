@@ -21,13 +21,10 @@ router = APIRouter(prefix="/api")
 
 # ── Magic-link whitelist validation ──────────────────────────────────────
 # Self-serve flow behind the "or a whitelisted email" box on the login page.
-# A visitor submits an allowed-domain email; if it isn't already whitelisted
-# we email them a one-time validation link valid for 24h. Opening the link
-# adds the address to the whitelist so they can then sign in.
+# A visitor submits any valid email; if it isn't already whitelisted we email
+# them a one-time validation link valid for 24h. Opening the link adds the
+# address to the whitelist so they can then sign in.
 MAGIC_LINK_TTL_HOURS = 24
-# Mirror frontend ALLOWED_DOMAINS (frontend-v5/src/types/user.ts). Only these
-# domains may self-serve a magic link; everything else is rejected up front.
-ALLOWED_MAGIC_LINK_DOMAINS = {"gmail.com", "googlemail.com"}
 
 
 def _iso_is_expired(iso_str: str) -> bool:
@@ -349,16 +346,10 @@ async def request_magic_link(request: Request):
     body = await request.json()
     email = (body.get("email") or "").strip().lower()
 
-    # Format + domain gate — mirrors the frontend's isAllowedDomain check so
-    # the API is safe even if called directly.
+    # Format gate only — any valid email may self-serve a magic link. The
+    # address is not whitelisted until the emailed link is actually opened.
     if not email or "@" not in email or "." not in email.split("@")[-1]:
         raise ValidationException("A valid email address is required", code="VAL-003")
-    domain = email.split("@")[-1]
-    if domain not in ALLOWED_MAGIC_LINK_DOMAINS:
-        allowed = " or ".join(f"@{d}" for d in sorted(ALLOWED_MAGIC_LINK_DOMAINS))
-        raise ValidationException(
-            f"Only {allowed} addresses can request access this way.", code="VAL-003",
-        )
 
     # Already on the list → ignore (do not re-add, do not send a link).
     if await check_whitelist(email):
