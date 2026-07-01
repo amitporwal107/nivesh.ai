@@ -2,23 +2,21 @@
  * CAS Connect adapter — matches the V4 frontend pattern in
  * `frontend/src/v4/api/portfolioIngestion.js`.
  *
- * Real endpoints (login-onboarding.yaml + V4 frontend code):
- *   POST /api/casparser/access-token   → mint widget token
- *   POST /api/cas/sdk-callback         → ingest widget output (the ACTUAL endpoint
- *                                         used by V4, supersedes /import-connect)
+ * Real endpoints:
+ *   POST /api/onboarding/upload-cas    → CAS *PDF* import. In-house server-side
+ *                                         parser (our own wrapper over the
+ *                                         open-source `casparser` lib +
+ *                                         reconciling NSDL/CDSL/CAMS-KFin
+ *                                         extractors). Synchronous — returns the
+ *                                         imported-holdings summary directly.
  *   POST /api/portfolio/upload         → CSV/Excel synchronous import only
- *   GET  /api/portfolio/upload-status/{task_id}
- *   GET  /api/portfolio/upload-latest-task
  *   GET  /api/portfolio/me             → active portfolio + snapshot
  *
- * Three onboarding modes — same surface area as V4:
- *   "cas"   – PDF via CAS Connect widget (file upload)
- *   "gmail" – Gmail inbox scan via CAS Connect widget (OAuth popup)
- *   "cdsl"  – CDSL OTP fetch via CAS Connect widget
- *
- * The widget is `@cas-parser/connect`, lazy-loaded and configured with the
- * minted token. The widget posts its parsed JSON to `/api/cas/sdk-callback`,
- * NOT to `/api/portfolio/import-connect` (which exists for raw-JSON re-imports).
+ * Note: this app does NOT use the hosted `@cas-parser/connect` SDK/widget.
+ * CAS PDFs are parsed entirely server-side; there is no browser widget, no
+ * minted access token, and no `/api/cas/sdk-callback` round-trip. The
+ * getConnectToken/sdkCallback/importConnect methods below are legacy stubs
+ * kept only for interface compatibility and are not used by the live app.
  */
 import { apiConfig } from "@/services/api/config";
 import { http } from "@/services/api/http";
@@ -29,6 +27,14 @@ import { correlationId, getObserver } from "@/lib/observability";
 export type CasMode = "cas" | "gmail" | "cdsl";
 
 export type UploadTaskStatus = "processing" | "completed" | "failed" | string;
+
+/** Synchronous result of the in-house CAS PDF import (/api/onboarding/upload-cas). */
+export interface CasUploadResult {
+  ok: boolean;
+  imported_holdings: number;
+  statement_period?: string | null;
+  filename?: string;
+}
 
 export interface ActivePortfolioRes {
   snapshot?: {
@@ -68,8 +74,10 @@ export interface CasUploadAdapter {
 
   status(taskId: string): Promise<{ task_id: string; status: UploadTaskStatus; count?: number; holdings?: unknown[]; message?: string; parser_source?: string }>;
   latestTask(): Promise<{ task_id?: string; status?: UploadTaskStatus } | null>;
-  /** Convenience wrapper used by useCasUpload hook. Submits file + optional password, returns task_id. */
-  upload(file: File, options?: { password?: string; portfolioId?: string }): Promise<{ task_id: string }>;
+  /** CAS PDF import used by the useCasUpload hook. Submits the PDF + optional
+   *  unlock secret (PAN or statement password) to the in-house server-side
+   *  parser and returns the imported-holdings summary synchronously. */
+  upload(file: File, options?: { password?: string; portfolioId?: string }): Promise<CasUploadResult>;
 }
 
 export const realCasUploadAdapter: CasUploadAdapter = {
@@ -163,35 +171,43 @@ export const realCasUploadAdapter: CasUploadAdapter = {
   },
 
   async upload(file, options) {
+    // CAS PDF import via the in-house server-side parser. Synchronous: the
+    // endpoint parses (reconciling NSDL/CDSL/CAMS-KFin extractors → offline
+    // casparser) and returns the imported-holdings summary in the response.
+    const path = "/api/onboarding/upload-cas";
     const id = correlationId();
     const form = new FormData();
     form.append("file", file);
-    if (options?.portfolioId) form.append("portfolio_id", options.portfolioId);
-    if (options?.password)   form.append("password",     options.password);
+    if (options?.password) form.append("password", options.password);
 
     const startedAt = performance.now();
     const obs = getObserver();
-    obs.onRequestStart({ correlationId: id, method: "POST", url: "/api/portfolio/upload", startedAt });
+    obs.onRequestStart({ correlationId: id, method: "POST", url: path, startedAt });
 
     let res: Response;
     try {
-      res = await apiFetch("/api/portfolio/upload", {
+      res = await apiFetch(path, {
         method: "POST",
         body: form,
         credentials: "include",
         headers: { "X-Correlation-Id": id, "X-Client-Version": apiConfig.appVersion },
       });
     } catch (err) {
-      obs.onRequestError({ correlationId: id, method: "POST", url: "/api/portfolio/upload", startedAt, durationMs: performance.now() - startedAt, error: err });
+      obs.onRequestError({ correlationId: id, method: "POST", url: path, startedAt, durationMs: performance.now() - startedAt, error: err });
       throw ApiError.network(err, id);
     }
-    obs.onRequestEnd({ correlationId: id, method: "POST", url: "/api/portfolio/upload", startedAt, durationMs: performance.now() - startedAt, status: res.status });
+    obs.onRequestEnd({ correlationId: id, method: "POST", url: path, startedAt, durationMs: performance.now() - startedAt, status: res.status });
 
     if (!res.ok) {
       const body = await res.json().catch(() => undefined);
       throw ApiError.fromResponse(res, body, id);
     }
-    const json = await res.json() as { task_id?: string };
-    return { task_id: json.task_id ?? id };
+    const json = await res.json() as Partial<CasUploadResult>;
+    return {
+      ok: json.ok ?? true,
+      imported_holdings: json.imported_holdings ?? 0,
+      statement_period: json.statement_period ?? null,
+      filename: json.filename,
+    };
   },
 };
