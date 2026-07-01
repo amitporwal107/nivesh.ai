@@ -151,7 +151,10 @@ async def validate_upload_async(
             "Malware scan skipped — ClamAV unavailable",
             extra={
                 "eventType": "MALWARE_SCAN_SKIP",
-                "filename": filename,
+                # NB: key must not be "filename" — that's a reserved LogRecord
+                # attribute and passing it in extra raises KeyError, which turned
+                # this benign warning into an unhandled 500 on every upload.
+                "upload_filename": filename,
                 "bytes": len(content),
             },
         )
@@ -161,7 +164,7 @@ async def validate_upload_async(
             result.threat, filename,
             extra={
                 "eventType": "MALWARE_REJECTED",
-                "filename": filename,
+                "upload_filename": filename,
                 "threat": result.threat,
                 "bytes": len(content),
             },
@@ -175,7 +178,7 @@ async def validate_upload_async(
         logger.info(
             "Malware scan clean: %s (%d bytes)",
             filename, len(content),
-            extra={"eventType": "MALWARE_SCAN_CLEAN", "filename": filename, "bytes": len(content)},
+            extra={"eventType": "MALWARE_SCAN_CLEAN", "upload_filename": filename, "bytes": len(content)},
         )
 
     return ext, mime
