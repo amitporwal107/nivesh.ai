@@ -35,3 +35,11 @@ export const GoogleClientIdRes = z.object({
   client_id: z.string(),
 });
 export type GoogleClientIdRes = z.infer<typeof GoogleClientIdRes>;
+
+// Email OTP sign-in. `otp/request` returns a human message + validity window;
+// `otp/verify` returns the same UserProfile shape as the Google exchange.
+export const OtpRequestRes = z.object({
+  message: z.string(),
+  expires_in_minutes: z.number().optional(),
+});
+export type OtpRequestRes = z.infer<typeof OtpRequestRes>;

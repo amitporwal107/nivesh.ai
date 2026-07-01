@@ -432,3 +432,23 @@
     animation: none;
   }
 }
+
+/* Inline text buttons in the OTP step (Resend code / Change email). */
+.nvx-login .linklike {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent, #46e3a0);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.nvx-login .linklike:hover {
+  opacity: 0.85;
+}
+.nvx-login .linklike:disabled {
+  opacity: 0.5;
+  cursor: default;
+  text-decoration: none;
+}

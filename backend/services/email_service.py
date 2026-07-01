@@ -188,3 +188,55 @@ async def send_validation_email(to_email: str, validation_url: str, expiry_hours
     subject, text_body, html_body = build_validation_email(to_email, validation_url, expiry_hours)
     await send_email(to_email, subject, text_body, html_body)
     logger.info("Sent whitelist-validation email")
+
+
+def build_otp_email(to_email: str, code: str, expiry_minutes: int) -> tuple[str, str, str]:
+    """Return (subject, text_body, html_body) for a 6-digit sign-in code.
+
+    Pure function (no I/O) so it is unit-testable without SMTP or a database.
+    The code is never logged; only this rendered body carries it.
+    """
+    subject = f"Your Nivesh sign-in code: {code}"
+    text_body = (
+        f"Hi,\n\n"
+        f"Your one-time sign-in code for Nivesh is:\n\n"
+        f"    {code}\n\n"
+        f"Enter it on the login screen to sign in as {to_email}. "
+        f"It expires in {expiry_minutes} minutes.\n\n"
+        f"If you didn't request this, you can safely ignore this email — "
+        f"the code is useless without access to the login screen.\n\n"
+        f"— Nivesh\n"
+    )
+    html_body = f"""\
+<!doctype html>
+<html>
+  <body style="margin:0;background:#0b0f0e;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#e7ece9;">
+    <div style="max-width:520px;margin:0 auto;padding:40px 28px;">
+      <p style="font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:#46e3a0;margin:0 0 18px;">Nivesh</p>
+      <h1 style="font-size:24px;line-height:1.25;margin:0 0 14px;color:#ffffff;">Your sign-in code</h1>
+      <p style="font-size:15px;line-height:1.6;color:#aab4af;margin:0 0 24px;">
+        Enter this code to sign in as <strong style="color:#e7ece9;">{to_email}</strong>.
+        It expires in {expiry_minutes} minutes.
+      </p>
+      <p style="margin:0 0 28px;">
+        <span style="display:inline-block;background:#0f1613;border:1px solid #1b231f;border-radius:12px;
+                     padding:18px 30px;font-size:34px;font-weight:700;letter-spacing:.32em;
+                     color:#ffffff;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">
+          {code}
+        </span>
+      </p>
+      <p style="font-size:12px;line-height:1.6;color:#6b746d;margin:0;border-top:1px solid #1b231f;padding-top:18px;">
+        If you didn't request this, you can ignore this email — the code is
+        useless without access to the login screen.
+      </p>
+    </div>
+  </body>
+</html>
+"""
+    return subject, text_body, html_body
+
+
+async def send_otp_email(to_email: str, code: str, expiry_minutes: int) -> None:
+    subject, text_body, html_body = build_otp_email(to_email, code, expiry_minutes)
+    await send_email(to_email, subject, text_body, html_body)
+    logger.info("Sent sign-in OTP email")

@@ -23,6 +23,8 @@ export const mockAuthAdapter: AuthAdapter = {
   async logout() { await delay(120); },
   async googleClientId() { await delay(80); return "mock-client-id.apps.googleusercontent.com"; },
   async magicLink(email) { await delay(320); return { message: `Magic link sent to ${email}` }; },
+  async requestOtp(email) { await delay(320); return { message: `Code sent to ${email}`, expiresInMinutes: 30 }; },
+  async verifyOtp(email) { await delay(320); return { ...mockUser, email }; },
   isAllowedDomain(email) {
     return isValidEmail(email);
   },

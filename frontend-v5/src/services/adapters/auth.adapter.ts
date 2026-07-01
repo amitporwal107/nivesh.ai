@@ -14,6 +14,7 @@ import {
   UserProfileC,
   GoogleSignInReq,
   GoogleClientIdRes,
+  OtpRequestRes,
 } from "@/services/contracts/auth.contract";
 import type { User } from "@/types/user";
 
@@ -23,6 +24,10 @@ export interface AuthAdapter {
   logout(): Promise<void>;
   googleClientId(): Promise<string>;
   magicLink(email: string): Promise<{ message: string }>;
+  /** Request a 6-digit sign-in code to be emailed to `email`. */
+  requestOtp(email: string): Promise<{ message: string; expiresInMinutes?: number }>;
+  /** Verify a 6-digit code and complete sign-in (sets the session cookie). */
+  verifyOtp(email: string, code: string): Promise<User>;
   isAllowedDomain(email: string): boolean;
 }
 
@@ -63,6 +68,26 @@ export const realAuthAdapter: AuthAdapter = {
     const res = await http({ method: "POST", path: "/api/auth/magic-link", body: { email }, noRetry: true });
     const obj = res.data as { message?: string };
     return { message: obj.message ?? "Magic link sent" };
+  },
+
+  async requestOtp(email) {
+    const res = await http({ method: "POST", path: "/api/auth/otp/request", body: { email }, noRetry: true });
+    const r = parse(OtpRequestRes, res.data, "auth.requestOtp");
+    return { message: r.message, expiresInMinutes: r.expires_in_minutes };
+  },
+
+  async verifyOtp(email, code) {
+    const res = await http({
+      method: "POST",
+      path: "/api/auth/otp/verify",
+      body: { email, code },
+      noRetry: true,                  // never retry login
+    });
+    // Persist the session token for the native app (WebView cookies don't hold
+    // the cross-site session), same as the Google exchange.
+    const token = (res.data as { session_token?: string })?.session_token;
+    if (token) saveAuthToken(token);
+    return mapUser(parse(UserProfileC, res.data, "auth.verifyOtp"));
   },
 
   isAllowedDomain(email) {
