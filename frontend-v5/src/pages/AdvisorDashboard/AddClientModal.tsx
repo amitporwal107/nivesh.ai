@@ -7,6 +7,7 @@
  * (fixed overlay + backdrop) with token-styled raw inputs.
  */
 import { useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { FileText, UserPlus, X } from "lucide-react";
 import { useCreateClient } from "@/hooks/use-advisor";
 import { advisorService } from "@/services";
@@ -22,6 +23,7 @@ const inputCls =
 export function AddClientModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated?: () => void }) {
   const push = useToastStore((s) => s.push);
   const create = useCreateClient();
+  const qc = useQueryClient();
 
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
@@ -90,22 +92,39 @@ export function AddClientModal({ open, onClose, onCreated }: { open: boolean; on
       });
 
       if (casFile) {
-        try {
-          const r = await advisorService.uploadClientCas(res.profile_id, casFile, casPassword.trim() || undefined);
-          push({
-            kind: r.imported_holdings > 0 ? "success" : "warn",
-            title: r.imported_holdings > 0
-              ? `${res.name} added — ${r.imported_holdings} holdings imported`
-              : `${res.name} added — no holdings found in CAS`,
-            description: r.statement_period ? `Statement period: ${r.statement_period}` : undefined,
+        // Hand the CAS parse off to the background: the advisor's client is
+        // already created, so we close the modal immediately and let the
+        // upload + server-side parse (~several seconds) finish on its own.
+        // A toast reports the outcome; on success we refresh the book so the
+        // imported holdings surface.
+        const file = casFile;
+        const pw = casPassword.trim() || undefined;
+        const clientName = res.name;
+        const profileId = res.profile_id;
+        push({
+          kind: "info",
+          title: `${clientName} added — importing their CAS in the background…`,
+          description: "You can keep working; we'll let you know when the holdings are in.",
+        });
+        void advisorService.uploadClientCas(profileId, file, pw)
+          .then((r) => {
+            push({
+              kind: r.imported_holdings > 0 ? "success" : "warn",
+              title: r.imported_holdings > 0
+                ? `${clientName}: ${r.imported_holdings} holdings imported from CAS`
+                : `${clientName}: no holdings found in the CAS`,
+              description: r.statement_period ? `Statement period: ${r.statement_period}` : undefined,
+            });
+            qc.invalidateQueries({ queryKey: ["advisor"] });
+            qc.invalidateQueries({ queryKey: ["mfd"] });
+          })
+          .catch((e) => {
+            push({
+              kind: "warn",
+              title: `${clientName}: CAS import failed`,
+              description: (e instanceof Error ? e.message : "Retry the upload from the client's portfolio view."),
+            });
           });
-        } catch (e) {
-          push({
-            kind: "warn",
-            title: `${res.name} added — CAS import failed`,
-            description: (e instanceof Error ? e.message : "You can retry the upload from the client's view."),
-          });
-        }
       } else {
         push({ kind: "success", title: `${res.name} added to your client book` });
       }
@@ -244,7 +263,7 @@ export function AddClientModal({ open, onClose, onCreated }: { open: boolean; on
             Cancel
           </button>
           <button onClick={submit} disabled={busy || !name.trim()} data-testid="add-client-submit" className="px-3 py-1.5 rounded-md bg-accent text-accent-fg text-sm font-medium hover:opacity-90 disabled:opacity-60">
-            {busy ? (casFile ? "Importing CAS…" : "Adding…") : (casFile ? "Add client & import CAS" : "Add client")}
+            {busy ? "Adding…" : (casFile ? "Add client & import CAS" : "Add client")}
           </button>
         </div>
       </div>
