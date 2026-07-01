@@ -475,7 +475,7 @@ function UploadPanel() {
         onChange={(e) => handleFile(e.target.files?.[0])}
       />
 
-      {!upload.taskId && (
+      {!upload.started && (
         <div
           className="mt-5 rounded-md border border-dashed border-hairline-2 bg-bg p-8 text-center"
           onDragOver={(e) => e.preventDefault()}
@@ -492,19 +492,22 @@ function UploadPanel() {
           </Button>
 
           <div className="mt-4 text-left">
-            <label className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">PDF password (optional)</label>
+            <label className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">PAN / PDF password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="leave blank if none"
+              placeholder="PAN (e.g. ABCDE1234F) or statement password"
               className="mt-1.5 w-full px-3 h-10 rounded-md bg-surface-1 border border-hairline-2 text-[13px] outline-none focus:border-accent"
             />
+            <div className="font-mono text-[10px] text-ink-3 mt-1.5">
+              NSDL / CDSL eCAS are locked with your PAN. Leave blank only if you already added your PAN.
+            </div>
           </div>
         </div>
       )}
 
-      {upload.taskId && !done && !failed && (
+      {upload.started && !done && !failed && (
         <div className="mt-5 rounded-md bg-bg border border-hairline p-5">
           <div className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">
             Parsing your statement…
@@ -527,7 +530,9 @@ function UploadPanel() {
           <div>
             <div className="font-medium text-[14px]">Parsed successfully</div>
             <div className="text-[12.5px] text-ink-2 mt-1">
-              Your holdings are now in Nivesh. Continue to set your goals.
+              {upload.result?.imported_holdings
+                ? `${upload.result.imported_holdings} holdings imported into Nivesh. Continue to set your goals.`
+                : "Your holdings are now in Nivesh. Continue to set your goals."}
             </div>
           </div>
         </div>
