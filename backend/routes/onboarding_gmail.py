@@ -648,6 +648,21 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
     if not pan:
         raise HTTPException(400, "PAN missing — submit /api/onboarding/pan first.")
 
+    return await import_cas_pdf_for_user(user_id, content, pan, filename)
+
+
+async def import_cas_pdf_for_user(
+    user_id: str, content: bytes, pan: str, filename: str,
+) -> Dict[str, Any]:
+    """Parse a CAS PDF (NSDL → CDSL → CAMS/KFintech → offline casparser) and
+    persist the reconciled holdings + portfolio-value trend for ``user_id``.
+
+    Shared by the retail self-upload endpoint (``POST /api/onboarding/upload-cas``,
+    where ``user_id`` is the logged-in user) and the advisor client-upload
+    endpoint (``POST /api/mfd/profiles/{id}/upload-cas``, where ``user_id`` is
+    the client profile's shadow user). Raises 422 when no extractor can read
+    the statement so the caller can prompt for a different PAN/password.
+    """
     # NSDL-first (custom reconciling extractor), offline casparser fallback —
     # no hosted casparser.in SDK / API key. Mirrors the Gmail auto-import path.
     holdings, raw_data = [], None

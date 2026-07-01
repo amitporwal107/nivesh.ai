@@ -6,9 +6,10 @@
  * V5 has no Dialog primitive, so this uses the project's modal pattern
  * (fixed overlay + backdrop) with token-styled raw inputs.
  */
-import { useState } from "react";
-import { UserPlus, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { FileText, UserPlus, X } from "lucide-react";
 import { useCreateClient } from "@/hooks/use-advisor";
+import { advisorService } from "@/services";
 import { useToastStore } from "@/stores/toast.store";
 import { ApiError } from "@/services/api/errors";
 import { fmtRs } from "./derive";
@@ -25,16 +26,24 @@ export function AddClientModal({ open, onClose, onCreated }: { open: boolean; on
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [email, setEmail] = useState("");
+  const [pan, setPan] = useState("");
   const [aum, setAum] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [notes, setNotes] = useState("");
+  // Optional CAS upload, done inline right after the client is created.
+  const [casFile, setCasFile] = useState<File | null>(null);
+  const [casPassword, setCasPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   if (!open) return null;
 
   const reset = () => {
-    setName(""); setMobile(""); setEmail(""); setAum("");
+    setName(""); setMobile(""); setEmail(""); setPan(""); setAum("");
     setTags([]); setTagInput(""); setNotes("");
+    setCasFile(null); setCasPassword("");
+    if (fileRef.current) fileRef.current.value = "";
   };
   const close = () => { reset(); onClose(); };
 
@@ -46,7 +55,7 @@ export function AddClientModal({ open, onClose, onCreated }: { open: boolean; on
   };
   const removeTag = (t: string) => setTags(tags.filter((x) => x !== t));
 
-  const submit = () => {
+  const submit = async () => {
     if (!name.trim()) { push({ kind: "warn", title: "Client name is required" }); return; }
     if (!/^\d{10,}$/.test(mobile.replace(/\D/g, ""))) {
       push({ kind: "warn", title: "Mobile is required", description: "≥10 digits — used to send the CAS invite link." });
@@ -56,32 +65,63 @@ export function AddClientModal({ open, onClose, onCreated }: { open: boolean; on
       push({ kind: "warn", title: "Email is required", description: "We'll send a backup link there." });
       return;
     }
-    create.mutate(
-      {
+    const panClean = pan.trim().toUpperCase();
+    if (panClean && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(panClean)) {
+      push({ kind: "warn", title: "PAN looks invalid", description: "Expected format ABCDE1234F. Leave blank if you don't have it." });
+      return;
+    }
+    // A CAS PDF is almost always locked; without a PAN or an explicit
+    // password the server can't unlock it — catch it before the round-trip.
+    if (casFile && !panClean && !casPassword.trim()) {
+      push({ kind: "warn", title: "CAS is password-protected", description: "Add the client's PAN (default unlock) or enter the statement password." });
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await create.mutateAsync({
         name: name.trim(),
         mobile: mobile.trim(),
         email: email.trim(),
+        pan: panClean || undefined,
         aum_rs: aum ? Number(aum) : null,
         tags: tags.length ? tags : null,
         notes: notes.trim() || null,
-      },
-      {
-        onSuccess: (res) => {
-          push({ kind: "success", title: `${res.name} added to your client book` });
-          reset();
-          onCreated?.();
-          onClose();
-        },
-        onError: (e) => {
-          const conflict = e instanceof ApiError && e.kind === "conflict";
+      });
+
+      if (casFile) {
+        try {
+          const r = await advisorService.uploadClientCas(res.profile_id, casFile, casPassword.trim() || undefined);
           push({
-            kind: conflict ? "warn" : "error",
-            title: conflict ? "Client already exists" : "Could not add client",
-            description: e instanceof Error ? e.message : undefined,
+            kind: r.imported_holdings > 0 ? "success" : "warn",
+            title: r.imported_holdings > 0
+              ? `${res.name} added — ${r.imported_holdings} holdings imported`
+              : `${res.name} added — no holdings found in CAS`,
+            description: r.statement_period ? `Statement period: ${r.statement_period}` : undefined,
           });
-        },
-      },
-    );
+        } catch (e) {
+          push({
+            kind: "warn",
+            title: `${res.name} added — CAS import failed`,
+            description: (e instanceof Error ? e.message : "You can retry the upload from the client's view."),
+          });
+        }
+      } else {
+        push({ kind: "success", title: `${res.name} added to your client book` });
+      }
+      reset();
+      onCreated?.();
+      onClose();
+    } catch (e) {
+      const conflict = e instanceof ApiError && e.kind === "conflict";
+      push({
+        kind: conflict ? "warn" : "error",
+        title: conflict ? "Client already exists" : "Could not add client",
+        description: e instanceof Error ? e.message : undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -100,7 +140,7 @@ export function AddClientModal({ open, onClose, onCreated }: { open: boolean; on
           <h2 className="font-display text-lg tracking-tightish text-ink">Add client</h2>
         </div>
         <p className="text-xs text-ink-3 mt-1">
-          Create a client profile. You can upload their CAS statement right after, from inside their portfolio view.
+          Create a client profile. Optionally attach their CAS statement now to import holdings straight into their portfolio.
         </p>
 
         <div className="space-y-4 mt-4">
@@ -121,10 +161,16 @@ export function AddClientModal({ open, onClose, onCreated }: { open: boolean; on
           </div>
           <div className="text-[10px] text-ink-4 -mt-2">Used for the secure CAS invite — WhatsApp first, email as backup.</div>
 
-          <div>
-            <label htmlFor="ac-aum" className="text-xs text-ink-2">AUM (₹) <span className="text-ink-4">· optional, used for priority</span></label>
-            <input id="ac-aum" data-testid="add-client-aum" type="number" value={aum} onChange={(e) => setAum(e.target.value)} placeholder="2500000" className={`${inputCls} font-mono tabular-nums`} />
-            {aum && Number(aum) > 0 && <div className="text-[10px] text-ink-4 mt-1">≈ {fmtRs(Number(aum))}</div>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="ac-pan" className="text-xs text-ink-2">PAN <span className="text-ink-4">· optional, unlocks CAS</span></label>
+              <input id="ac-pan" data-testid="add-client-pan" value={pan} onChange={(e) => setPan(e.target.value.toUpperCase())} placeholder="ABCDE1234F" maxLength={10} className={`${inputCls} font-mono uppercase tracking-wide`} />
+            </div>
+            <div>
+              <label htmlFor="ac-aum" className="text-xs text-ink-2">AUM (₹) <span className="text-ink-4">· optional</span></label>
+              <input id="ac-aum" data-testid="add-client-aum" type="number" value={aum} onChange={(e) => setAum(e.target.value)} placeholder="2500000" className={`${inputCls} font-mono tabular-nums`} />
+              {aum && Number(aum) > 0 && <div className="text-[10px] text-ink-4 mt-1">≈ {fmtRs(Number(aum))}</div>}
+            </div>
           </div>
 
           <div>
@@ -158,14 +204,48 @@ export function AddClientModal({ open, onClose, onCreated }: { open: boolean; on
             <label htmlFor="ac-notes" className="text-xs text-ink-2">Notes <span className="text-ink-4">· optional</span></label>
             <textarea id="ac-notes" data-testid="add-client-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="E.g. SIP of ₹25k/mo, wife is co-client, next review due Aug…" className={`${inputCls} min-h-[60px] text-xs`} />
           </div>
+
+          {/* Optional CAS upload — parsed server-side and attached to this client's portfolio on create. */}
+          <div className="rounded-md border border-dashed border-hairline p-3">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-accent" />
+              <span className="text-xs font-medium text-ink-2">Attach CAS statement <span className="text-ink-4 font-normal">· optional</span></span>
+            </div>
+            <p className="text-[10px] text-ink-4 mt-1">
+              CAMS / KFintech / NSDL / CDSL PDF. We import the holdings straight into this client's portfolio.
+            </p>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              data-testid="add-client-cas-file"
+              onChange={(e) => setCasFile(e.target.files?.[0] ?? null)}
+              className="mt-2 block w-full text-xs text-ink-3 file:mr-3 file:rounded-md file:border file:border-hairline file:bg-surface-2 file:px-2 file:py-1 file:text-xs file:text-ink-2 hover:file:bg-surface-3"
+            />
+            {casFile && (
+              <div className="mt-2">
+                <label htmlFor="ac-cas-pw" className="text-[10px] text-ink-3">
+                  Statement password <span className="text-ink-4">· defaults to the PAN above</span>
+                </label>
+                <input
+                  id="ac-cas-pw"
+                  data-testid="add-client-cas-password"
+                  value={casPassword}
+                  onChange={(e) => setCasPassword(e.target.value)}
+                  placeholder="Leave blank to use PAN"
+                  className={`${inputCls} text-xs`}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 mt-6">
-          <button onClick={close} disabled={create.isPending} className="px-3 py-1.5 rounded-md border border-hairline text-sm text-ink-2 hover:bg-surface-2 disabled:opacity-60">
+          <button onClick={close} disabled={busy} className="px-3 py-1.5 rounded-md border border-hairline text-sm text-ink-2 hover:bg-surface-2 disabled:opacity-60">
             Cancel
           </button>
-          <button onClick={submit} disabled={create.isPending || !name.trim()} data-testid="add-client-submit" className="px-3 py-1.5 rounded-md bg-accent text-accent-fg text-sm font-medium hover:opacity-90 disabled:opacity-60">
-            {create.isPending ? "Adding…" : "Add client"}
+          <button onClick={submit} disabled={busy || !name.trim()} data-testid="add-client-submit" className="px-3 py-1.5 rounded-md bg-accent text-accent-fg text-sm font-medium hover:opacity-90 disabled:opacity-60">
+            {busy ? (casFile ? "Importing CAS…" : "Adding…") : (casFile ? "Add client & import CAS" : "Add client")}
           </button>
         </div>
       </div>

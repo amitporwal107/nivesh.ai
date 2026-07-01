@@ -22,6 +22,7 @@ export const mockAdvisorAdapter: AdvisorAdapter = {
   async deleteProfile()   { await delay(140); return { ok: true }; },
   async activate(profileId) { await delay(140); return { ok: true, profile_id: profileId, name: "Mock" }; },
   async deactivate()      { await delay(120); return { ok: true }; },
+  async uploadClientCas() { await delay(420); return { ok: true, imported_holdings: 12, statement_period: "Mar/2026", filename: "cas.pdf" }; },
   async refreshIndex()    { await delay(220); return { ok: true }; },
   async summary() {
     await delay(220);
