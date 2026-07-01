@@ -222,21 +222,20 @@ export function AddClientModal({ open, onClose, onCreated }: { open: boolean; on
               onChange={(e) => setCasFile(e.target.files?.[0] ?? null)}
               className="mt-2 block w-full text-xs text-ink-3 file:mr-3 file:rounded-md file:border file:border-hairline file:bg-surface-2 file:px-2 file:py-1 file:text-xs file:text-ink-2 hover:file:bg-surface-3"
             />
-            {casFile && (
-              <div className="mt-2">
-                <label htmlFor="ac-cas-pw" className="text-[10px] text-ink-3">
-                  Statement password <span className="text-ink-4">· defaults to the PAN above</span>
-                </label>
-                <input
-                  id="ac-cas-pw"
-                  data-testid="add-client-cas-password"
-                  value={casPassword}
-                  onChange={(e) => setCasPassword(e.target.value)}
-                  placeholder="Leave blank to use PAN"
-                  className={`${inputCls} text-xs`}
-                />
-              </div>
-            )}
+            <div className="mt-3">
+              <label htmlFor="ac-cas-pw" className="text-[10px] text-ink-3">
+                PDF password <span className="text-ink-4">· optional, defaults to the PAN above</span>
+              </label>
+              <input
+                id="ac-cas-pw"
+                type="password"
+                data-testid="add-client-cas-password"
+                value={casPassword}
+                onChange={(e) => setCasPassword(e.target.value)}
+                placeholder="Leave blank if none — we'll use the PAN"
+                className={`${inputCls} text-xs`}
+              />
+            </div>
           </div>
         </div>
 
