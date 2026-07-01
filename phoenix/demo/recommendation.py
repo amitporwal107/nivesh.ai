@@ -15,5 +15,5 @@ def recommend_allocation(holdings):
     """
     total = 0.0
     for h in holdings:
-        total += h["weight"]  # BUG: a None weight raises TypeError
+        total += h["weight"] or 0.0
     return total
