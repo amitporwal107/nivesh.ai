@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
 import { dlog } from "@/lib/device-log";
-import { useGoogleSignIn, useMagicLink } from "@/hooks/use-auth";
+import { useGoogleSignIn, useRequestOtp, useVerifyOtp } from "@/hooks/use-auth";
 import { useGoogleIdentity } from "@/hooks/use-google-identity";
 import { authService } from "@/services";
 import { useToastStore } from "@/stores/toast.store";
@@ -26,12 +26,38 @@ function jwtAud(token?: string): string {
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState("");
   const navigate = useNavigate();
   const google = useGoogleSignIn();
-  const magic = useMagicLink();
+  const requestOtp = useRequestOtp();
+  const verifyOtp = useVerifyOtp();
   const pushToast = useToastStore((s) => s.push);
 
   const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  // Shared post-login step for BOTH Google and email-OTP: confirm the session
+  // cookie is re-sent on the next request, read workspace_type (only on
+  // /auth/me, decides the landing page), then route.
+  const finishLogin = useCallback(async (user: Awaited<ReturnType<typeof authService.me>>) => {
+    let meCheck: Awaited<ReturnType<typeof authService.me>> | null = null;
+    try {
+      meCheck = await authService.me();
+      dlog("auth/me probe OK (session cookie works)", { email: meCheck.email });
+    } catch (probeErr) {
+      dlog("auth/me probe FAILED (cookie not sent on next request)", probeErr);
+    }
+    // Fresh login starts at the workspace root — drop any impersonation left
+    // in the persisted store from a previous session so the advisor doesn't
+    // land inside a stale client view (full nav + banner).
+    useImpersonationStore.getState().clear();
+    // Advisors land on their workspace (reduced advisor nav), not their own
+    // portfolio dashboard. To view their own book they open the SELF profile.
+    const dest = !user.onboardingCompleted ? "/onboarding"
+      : (meCheck?.workspaceType || "").toUpperCase() === "ADVISORY" ? "/advisor"
+      : "/dashboard";
+    navigate(dest);
+  }, [navigate]);
 
   // When Google returns a credential (via renderButton click), complete the sign-in
   const handleCredential = useCallback(async (credential: string) => {
@@ -41,26 +67,7 @@ export default function LoginPage() {
         email: user.email,
         onboardingCompleted: user.onboardingCompleted,
       });
-      // Confirm the session cookie is re-sent on the NEXT request (RequireAuth +
-      // every data call depend on it), AND read workspace_type — it only comes
-      // back on /auth/me, not the google exchange, and decides the landing page.
-      let meCheck: Awaited<ReturnType<typeof authService.me>> | null = null;
-      try {
-        meCheck = await authService.me();
-        dlog("auth/me probe OK (session cookie works)", { email: meCheck.email });
-      } catch (probeErr) {
-        dlog("auth/me probe FAILED (cookie not sent on next request)", probeErr);
-      }
-      // Fresh login starts at the workspace root — drop any impersonation left
-      // in the persisted store from a previous session so the advisor doesn't
-      // land inside a stale client view (full nav + banner).
-      useImpersonationStore.getState().clear();
-      // Advisors land on their workspace (reduced advisor nav), not their own
-      // portfolio dashboard. To view their own book they open the SELF profile.
-      const dest = !user.onboardingCompleted ? "/onboarding"
-        : (meCheck?.workspaceType || "").toUpperCase() === "ADVISORY" ? "/advisor"
-        : "/dashboard";
-      navigate(dest);
+      await finishLogin(user);
     } catch (err) {
       // Log the REAL backend rejection (status, code, message) — this is the
       // line that tells us whitelist vs audience vs network, etc.
@@ -71,7 +78,7 @@ export default function LoginPage() {
         description: err instanceof Error ? err.message : "Try again",
       });
     }
-  }, [google, navigate, pushToast]);
+  }, [google, finishLogin, pushToast]);
 
   const gis = useGoogleIdentity(handleCredential);
 
@@ -157,19 +164,28 @@ export default function LoginPage() {
     }
   }, [isNative, gis.ready, gis.renderButton]);
 
-  const handleMagic = async () => {
+  const handleSendCode = async () => {
     try {
-      // The backend returns a context-aware message — "check your email" for a
-      // new address, or "already approved" when it's whitelisted already — so
-      // surface that rather than a hardcoded line.
-      const res = await magic.mutateAsync(email);
+      const res = await requestOtp.mutateAsync(email);
+      setCodeSent(true);
+      setCode("");
       pushToast({
         kind: "success",
-        title: "Magic link sent",
-        description: res.message ?? `Check ${email}`,
+        title: "Code sent",
+        description: res.message ?? `Check ${email} for your 6-digit code.`,
       });
     } catch {
-      /* mutation error toaster handles this globally */
+      /* mutation error toaster handles this globally (incl. SMTP-not-configured) */
+    }
+  };
+
+  const handleVerify = async () => {
+    try {
+      const user = await verifyOtp.mutateAsync({ email, code });
+      dlog("otp verify ACCEPTED", { email: user.email, onboardingCompleted: user.onboardingCompleted });
+      await finishLogin(user);
+    } catch {
+      /* mutation error toaster handles this globally (wrong/expired code) */
     }
   };
 
@@ -253,39 +269,95 @@ export default function LoginPage() {
               <span className="ln" />
             </div>
 
-            <div className="reveal d5">
-              <label className="fl" htmlFor="email">
-                Work email
-              </label>
-              <div className="field-wrap">
-                <input
-                  className={`field${email && !isAllowed ? " bad" : ""}`}
-                  id="email"
-                  type="email"
-                  inputMode="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@company.com"
-                />
-                {email && (
-                  <span className={`field-badge ${isAllowed ? "ok" : "no"}`}>
-                    {isAllowed ? "Allowed" : "Blocked"}
-                  </span>
-                )}
-              </div>
-              <p className="allow">
-                Any email works — we'll send a one-time sign-in link.
-              </p>
-            </div>
+            {!codeSent ? (
+              <>
+                <div className="reveal d5">
+                  <label className="fl" htmlFor="email">
+                    Work email
+                  </label>
+                  <div className="field-wrap">
+                    <input
+                      className={`field${email && !isAllowed ? " bad" : ""}`}
+                      id="email"
+                      type="email"
+                      inputMode="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && email && isAllowed && !requestOtp.isPending) handleSendCode(); }}
+                      placeholder="you@company.com"
+                    />
+                    {email && (
+                      <span className={`field-badge ${isAllowed ? "ok" : "no"}`}>
+                        {isAllowed ? "Allowed" : "Blocked"}
+                      </span>
+                    )}
+                  </div>
+                  <p className="allow">
+                    Any email works — we'll send a 6-digit sign-in code.
+                  </p>
+                </div>
 
-            <button
-              type="button"
-              className="submit reveal d5"
-              disabled={!email || !isAllowed || magic.isPending}
-              onClick={handleMagic}
-            >
-              {magic.isPending ? "Sending…" : "Send magic link →"}
-            </button>
+                <button
+                  type="button"
+                  className="submit reveal d5"
+                  disabled={!email || !isAllowed || requestOtp.isPending}
+                  onClick={handleSendCode}
+                >
+                  {requestOtp.isPending ? "Sending…" : "Send code →"}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="reveal d5">
+                  <label className="fl" htmlFor="otp">
+                    Enter the 6-digit code sent to {email}
+                  </label>
+                  <div className="field-wrap">
+                    <input
+                      className="field"
+                      id="otp"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      value={code}
+                      onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      onKeyDown={(e) => { if (e.key === "Enter" && code.length === 6 && !verifyOtp.isPending) handleVerify(); }}
+                      placeholder="123456"
+                      autoFocus
+                    />
+                  </div>
+                  <p className="allow">
+                    Valid for 30 minutes.{" "}
+                    <button
+                      type="button"
+                      className="linklike"
+                      disabled={requestOtp.isPending}
+                      onClick={handleSendCode}
+                    >
+                      Resend code
+                    </button>{" "}
+                    ·{" "}
+                    <button
+                      type="button"
+                      className="linklike"
+                      onClick={() => { setCodeSent(false); setCode(""); }}
+                    >
+                      Change email
+                    </button>
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="submit reveal d5"
+                  disabled={code.length !== 6 || verifyOtp.isPending}
+                  onClick={handleVerify}
+                >
+                  {verifyOtp.isPending ? "Verifying…" : "Verify & sign in →"}
+                </button>
+              </>
+            )}
 
             <div className="trust reveal d6">
               <div className="row">
