@@ -18,7 +18,9 @@ import ConcentrationPage from "./pages/Concentration";
 import RecommendationsPage from "./pages/Recommendations";
 import RiskPage from "./pages/Risk";
 import FundDetailsPage from "./pages/FundDetails";
+import InternationalFundsPage from "./pages/InternationalFunds";
 import SettingsPage from "./pages/Settings";
+import LogsPage from "./pages/Logs";
 import ChatPage from "./pages/Chat";
 import LoginPage from "./pages/Login";
 import OnboardingPage from "./pages/Onboarding";
@@ -35,6 +37,7 @@ import WorkPage from "./pages/Work";
 import TestDiagnosticToolPage from "./pages/TestDiagnosticTool";
 import NidpConsolePage from "./pages/NidpConsole";
 import ProTraderPage from "./pages/ProTrader";
+import StrategyBuilderPage from "./pages/StrategyBuilder";
 import MarketsPage from "./pages/Markets";
 import MarketPulseLayout from "./pages/Markets/MarketPulseLayout";
 import EarningsPage from "./pages/Markets/Earnings";
@@ -100,6 +103,7 @@ export function AppRoutes() {
         <Route path="/client-360"       element={<RouteErrorBoundary pageName="Client 360"><Client360Page /></RouteErrorBoundary>} />
         {/* Portfolio view now lives on the Dashboard; keep the path as a redirect for old links. */}
         <Route path="/portfolio"        element={<Navigate to="/dashboard" replace />} />
+        <Route path="/funds/international" element={<RouteErrorBoundary pageName="International Funds"><InternationalFundsPage /></RouteErrorBoundary>} />
         <Route path="/funds/:id"        element={<RouteErrorBoundary pageName="Fund Details"><FundDetailsPage /></RouteErrorBoundary>} />
         <Route path="/ai-insights"      element={<RouteErrorBoundary pageName="AI Insights"><ConcentrationPage /></RouteErrorBoundary>} />
         <Route path="/concentration"    element={<Navigate to="/ai-insights" replace />} />
@@ -113,7 +117,9 @@ export function AppRoutes() {
         <Route path="/tax"              element={<RouteErrorBoundary pageName="Tax"><TaxPage /></RouteErrorBoundary>} />
         <Route path="/plan"             element={<RouteErrorBoundary pageName="Plan"><PlanPage /></RouteErrorBoundary>} />
         <Route path="/settings"         element={<RouteErrorBoundary pageName="Settings"><SettingsPage /></RouteErrorBoundary>} />
+        <Route path="/settings/logs"    element={<RouteErrorBoundary pageName="Session Logs"><LogsPage /></RouteErrorBoundary>} />
         <Route path="/pro-trader"       element={<RouteErrorBoundary pageName="Pro Trader"><ProTraderPage /></RouteErrorBoundary>} />
+        <Route path="/strategy-builder" element={<RouteErrorBoundary pageName="Strategy Builder"><StrategyBuilderPage /></RouteErrorBoundary>} />
         {/* Admin-only routes — RequireAdmin redirects non-admins to /dashboard */}
         <Route path="/admin"            element={<RequireAdmin><RouteErrorBoundary pageName="Admin"><AdminPage /></RouteErrorBoundary></RequireAdmin>} />
         <Route path="/nidp"             element={<RequireAdmin><RouteErrorBoundary pageName="NIDP Console"><NidpConsolePage /></RouteErrorBoundary></RequireAdmin>} />
