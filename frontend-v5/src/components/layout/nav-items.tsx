@@ -2,6 +2,7 @@ import {
   LayoutDashboard, Sparkles, MessageSquare, Shield,
   Layers, TrendingUp, Target, Receipt, ClipboardList,
   ShieldCheck, Server, BarChart2, Bug, LineChart, Users, Contact,
+  FlaskConical,
 } from "lucide-react";
 
 /**
@@ -35,6 +36,7 @@ export const SECTION_NAV: NavItem[] = [
   { to: "/chat",            label: "Chat copilot",    icon: MessageSquare,   group: "Workspace"  },
   { to: "/recommendations", label: "Recommendations", icon: Sparkles,        group: "Workspace"  },
   { to: "/pro-trader",      label: "Pro Trader",      icon: BarChart2,       group: "Workspace"  },
+  { to: "/strategy-builder", label: "Strategy Builder", icon: FlaskConical,  group: "Workspace"  },
 ];
 
 /** Reduced nav for an advisor at the workspace root (NOT impersonating a

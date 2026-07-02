@@ -38,6 +38,7 @@ import WorkPage from "./pages/Work";
 import TestDiagnosticToolPage from "./pages/TestDiagnosticTool";
 import NidpConsolePage from "./pages/NidpConsole";
 import ProTraderPage from "./pages/ProTrader";
+import StrategyBuilderPage from "./pages/StrategyBuilder";
 import MarketsPage from "./pages/Markets";
 import MarketPulseLayout from "./pages/Markets/MarketPulseLayout";
 import EarningsPage from "./pages/Markets/Earnings";
@@ -120,6 +121,7 @@ export function AppRoutes() {
         <Route path="/settings/releases"     element={<RequireAdmin><RouteErrorBoundary pageName="Release Management"><ReleasesPage /></RouteErrorBoundary></RequireAdmin>} />
         <Route path="/settings/releases/:id" element={<RequireAdmin><RouteErrorBoundary pageName="Release Document"><ReleaseDetailPage /></RouteErrorBoundary></RequireAdmin>} />
         <Route path="/pro-trader"       element={<RouteErrorBoundary pageName="Pro Trader"><ProTraderPage /></RouteErrorBoundary>} />
+        <Route path="/strategy-builder" element={<RouteErrorBoundary pageName="Strategy Builder"><StrategyBuilderPage /></RouteErrorBoundary>} />
         {/* Admin-only routes — RequireAdmin redirects non-admins to /dashboard */}
         <Route path="/admin"            element={<RequireAdmin><RouteErrorBoundary pageName="Admin"><AdminPage /></RouteErrorBoundary></RequireAdmin>} />
         <Route path="/nidp"             element={<RequireAdmin><RouteErrorBoundary pageName="NIDP Console"><NidpConsolePage /></RouteErrorBoundary></RequireAdmin>} />
