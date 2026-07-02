@@ -216,7 +216,7 @@ def monte_carlo_success(
             corpus = corpus * (1.0 + shocks[:, m]) + monthly_sip_rs
         success_mask = corpus >= future_target_rs
         prob = float(success_mask.mean())
-        p5, p50, p95 = np.percentile(corpus, [5, 50, 95]).tolist()
+        p5, p10, p50, p90, p95 = np.percentile(corpus, [5, 10, 50, 90, 95]).tolist()
         worst = float(corpus.min())
         shortfall_pct = float(np.mean(np.clip(1.0 - corpus / future_target_rs, 0, None)) * 100)
     else:
