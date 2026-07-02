@@ -44,6 +44,50 @@ def _current_fy_label(today: Optional[date] = None) -> str:
     return f"FY {today.year}-{str(today.year + 1)[2:]}"
 
 
+def _fy_bounds(fy: Optional[str], today: Optional[date] = None) -> tuple[date, date, str]:
+    """(start, end, label) for an Indian FY. Accepts 'FY 2025-26' / '2025-26' /
+    '2025'; defaults to the current FY (Apr 1 – Mar 31)."""
+    import re
+    today = today or date.today()
+    start_year = today.year if today.month >= 4 else today.year - 1
+    if fy:
+        m = re.search(r"(20\d{2})", fy)
+        if m:
+            start_year = int(m.group(1))
+    return date(start_year, 4, 1), date(start_year + 1, 3, 31), f"FY {start_year}-{str(start_year + 1)[2:]}"
+
+
+@router.get("/capital-gains-statement")
+async def capital_gains_statement(request: Request, fy: Optional[str] = Query(None)) -> dict[str, Any]:
+    """Scheme-wise realised capital-gains statement (FIFO) in the broker/depository
+    layout — Sections A (STCG Sec-111A) / B (LTCG Sec-112A) / C summary. Epic 0.12."""
+    user = await get_current_user(request)
+    user_id = user.get("user_id") or str(user.get("_id") or "")
+    start, end, fy_label = _fy_bounds(fy)
+
+    from dataclasses import asdict
+    from services import tax_engine_fifo, cg_statement
+    events: list[dict[str, Any]] = []
+    try:
+        state = await tax_engine_fifo.build_user_tax_state(user_id)
+        for e in state.calculator.events:
+            d = asdict(e)
+            sd = d.get("sell_date")
+            sdate = sd.date() if isinstance(sd, datetime) else sd
+            if sdate is None or (start <= sdate <= end):
+                events.append(d)
+    except Exception as exc:  # noqa: BLE001 — no realised events / no CAS is a valid empty statement
+        logger.warning("CG statement: FIFO build failed for %s: %s", user_id, exc)
+
+    return cg_statement.build_statement(
+        events, fy_label=fy_label,
+        holder=user.get("name") or user.get("full_name"),
+        pan=user.get("pan") or user.get("pan_number"),
+        period=f"{start.strftime('%d-%b-%Y')} to {end.strftime('%d-%b-%Y')}",
+        generated_on=date.today().isoformat(),
+    )
+
+
 @router.get("/tax-summary")
 async def get_tax_summary(request: Request, fy: Optional[str] = Query(None)) -> dict[str, Any]:
     """LTCG harvest candidates + tax structuring opportunities.

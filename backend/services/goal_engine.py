@@ -233,7 +233,9 @@ def monte_carlo_success(
         success = sum(1 for c in corpi if c >= future_target_rs)
         prob = success / max(1, len(corpi))
         p5 = corpi[int(0.05 * len(corpi))]
+        p10 = corpi[int(0.10 * len(corpi))]
         p50 = corpi[int(0.50 * len(corpi))]
+        p90 = corpi[int(0.90 * len(corpi))]
         p95 = corpi[int(0.95 * len(corpi))]
         worst = corpi[0]
         shortfalls = [max(0.0, 1.0 - c / future_target_rs) for c in corpi] if future_target_rs > 0 else [0.0]
@@ -243,6 +245,8 @@ def monte_carlo_success(
         "prob_success_pct": round(prob * 100, 1),
         "median_corpus_rs": round(p50, 2),
         "p5_corpus_rs": round(p5, 2),
+        "p10_corpus_rs": round(p10, 2),
+        "p90_corpus_rs": round(p90, 2),
         "p95_corpus_rs": round(p95, 2),
         "worst_corpus_rs": round(worst, 2),
         "expected_shortfall_pct": round(shortfall_pct, 2),
