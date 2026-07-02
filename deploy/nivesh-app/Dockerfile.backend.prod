@@ -9,11 +9,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app/backend
 
-# OS deps
+# OS deps  (git: auto-fix agent clone/push)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential gcc libpq-dev \
         libxml2-dev libxslt-dev \
-        curl jq tzdata \
+        curl jq git tzdata \
         libmagic1 poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
