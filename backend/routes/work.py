@@ -40,7 +40,7 @@ ALLOWED_CLASSIFICATIONS = {"unclassified", "valid", "business_validation", "tbd"
 # The dashboard doubles as a program tracker for planned work (source="manual"),
 # alongside the auto-filed error issues. These fields are additive and optional:
 # existing error issues default to issue_type="task" with no parent/phase.
-ALLOWED_ISSUE_TYPES = {"epic", "story", "task"}
+ALLOWED_ISSUE_TYPES = {"project", "epic", "story", "task"}
 ALLOWED_PHASES = {"phase-1", "phase-2", "phase-3"}
 ALLOWED_TRACKS = {"internal", "vendor-gated"}
 ALLOWED_ESTIMATES = {"S", "M", "L", "XL"}
@@ -74,13 +74,15 @@ class IssueCreate(BaseModel):
     applications: list[str] = Field(default_factory=list)
     rca: Optional[RcaBlock] = None
     labels: list[str] = Field(default_factory=list)
-    # ── program-tracker (epics → stories → tasks) — optional, additive ──
-    issue_type: str = "task"                  # epic | story | task
-    parent: Optional[str] = None              # parent issue_id (story→epic, task→story)
+    # ── program-tracker (project → epics → stories → tasks) — optional, additive ──
+    issue_type: str = "task"                  # project | epic | story | task
+    project: Optional[str] = None             # project key (e.g. "ADVW") — scopes an item to a project
+    parent: Optional[str] = None              # parent issue_id (epic→project, story→epic, task→story)
     phase: Optional[str] = None               # phase-1 | phase-2 | phase-3
     track: Optional[str] = None               # internal | vendor-gated
     workflow: list[str] = Field(default_factory=list)     # ["WF-01", ...]
     estimate: Optional[str] = None            # S | M | L | XL
+    assignee: Optional[str] = None            # owner (used for project rows)
     requirements_md: Optional[str] = None     # plain-English requirement + acceptance
     design_md: Optional[str] = None           # design elements + component list
     screens: list[dict] = Field(default_factory=list)     # [{"name","url"}]
@@ -101,6 +103,7 @@ class IssueUpdate(BaseModel):
     # ── program-tracker fields (all optional; used for grooming + migration) ──
     title: Optional[str] = None
     issue_type: Optional[str] = None
+    project: Optional[str] = None
     parent: Optional[str] = None
     phase: Optional[str] = None
     track: Optional[str] = None
@@ -182,7 +185,8 @@ async def list_issues(
     priority: Optional[str] = Query(None, description="P1|P2|P3"),
     source: Optional[str] = Query(None),
     label: Optional[str] = Query(None),
-    issue_type: Optional[str] = Query(None, description="epic|story|task"),
+    issue_type: Optional[str] = Query(None, description="project|epic|story|task"),
+    project: Optional[str] = Query(None, description="project key, e.g. ADVW"),
     phase: Optional[str] = Query(None, description="phase-1|phase-2|phase-3"),
     parent: Optional[str] = Query(None, description="parent issue_id"),
     track: Optional[str] = Query(None, description="internal|vendor-gated"),
@@ -201,6 +205,8 @@ async def list_issues(
         flt["labels"] = label
     if issue_type:
         flt["issue_type"] = issue_type
+    if project:
+        flt["project"] = project
     if phase:
         flt["phase"] = phase
     if parent:
@@ -273,7 +279,7 @@ async def create_issue(request: Request, body: IssueCreate):
         "applications": body.applications,
         "rca": body.rca.model_dump() if body.rca else None,
         "labels": body.labels,
-        "assignee": None,
+        "assignee": body.assignee,
         "comments": [],
         "recurrence_count": 1,
         "classification": "unclassified",
@@ -281,8 +287,9 @@ async def create_issue(request: Request, body: IssueCreate):
         "test_document": None,
         "screenshots": [],
         "remediation": None,
-        # ── program-tracker (epics → stories → tasks) ──
+        # ── program-tracker (project → epics → stories → tasks) ──
         "issue_type": body.issue_type or "task",
+        "project": body.project,
         "parent": body.parent,
         "phase": body.phase,
         "track": body.track,
@@ -334,7 +341,7 @@ async def update_issue(request: Request, issue_id: str, body: IssueUpdate):
 
     # ── program-tracker fields (grooming + migration) ──
     _validate_tracker_fields(body.issue_type, body.phase, body.track, body.estimate)
-    for _f in ("title", "issue_type", "parent", "phase", "track", "workflow", "estimate",
+    for _f in ("title", "issue_type", "project", "parent", "phase", "track", "workflow", "estimate",
                "requirements_md", "design_md", "screens", "implementation_md",
                "github", "test_doc_md", "artifacts"):
         _v = getattr(body, _f)
