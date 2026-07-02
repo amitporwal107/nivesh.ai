@@ -35,6 +35,12 @@ def test_validate_raises(args):
         store._validate(*args)
 
 
+def test_unreleased_version_is_valid_semver():
+    # The rolling auto-draft version must pass create_document's semver check,
+    # or the first hook ingest would 500.
+    assert store.SEMVER_RE.match(store.UNRELEASED_VERSION)
+
+
 def test_templates_shape():
     t = store.get_templates()
     types = {tpl["doc_type"] for tpl in t["templates"]}

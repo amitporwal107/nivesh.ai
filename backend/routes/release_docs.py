@@ -11,6 +11,7 @@ immutable revision snapshot and advances the head's current_revision.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -39,6 +40,15 @@ class UpdateBody(BaseModel):
     content: Dict[str, Any]
     status: Optional[Literal["draft", "in_review", "approved", "final"]] = None
     change_note: Optional[str] = Field(default=None, max_length=500)
+
+
+class IngestDraftBody(BaseModel):
+    """Payload from the post-verification Claude hook (machine-to-machine)."""
+    summary: str = Field(..., min_length=1, max_length=8000)
+    branch: Optional[str] = Field(default=None, max_length=200)
+    commit: Optional[str] = Field(default=None, max_length=64)
+    changed_areas: Optional[str] = Field(default=None, max_length=1000)
+    verified_at: Optional[str] = Field(default=None, max_length=40)
 
 
 @router.get("")
@@ -81,6 +91,39 @@ async def create_release_doc(request: Request, body: CreateBody) -> Dict[str, An
     except store.ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return doc
+
+
+@router.post("/ingest-draft")
+async def ingest_release_draft(request: Request, body: IngestDraftBody) -> Dict[str, Any]:
+    """Machine-to-machine: append a verified-session entry to the rolling
+    'Unreleased' release_notes draft. Auth is a shared secret (NOT an admin
+    session) so automation/CI can call it. Disabled (503) unless
+    RELEASE_INGEST_SECRET is configured; 401 on secret mismatch. The draft is
+    then visible in Settings → Release Management for an admin to review + finalise."""
+    secret = os.environ.get("RELEASE_INGEST_SECRET")
+    if not secret:
+        raise HTTPException(status_code=503, detail="release-draft ingest is disabled (RELEASE_INGEST_SECRET not set)")
+    provided = request.headers.get("X-Release-Ingest-Secret", "")
+    # constant-time-ish compare to avoid trivial timing leaks
+    import hmac
+    if not provided or not hmac.compare_digest(provided, secret):
+        raise HTTPException(status_code=401, detail="invalid ingest secret")
+    doc = await store.ingest_session_draft(
+        summary=body.summary,
+        branch=body.branch or "unknown",
+        commit=body.commit or "",
+        changed_areas=body.changed_areas or "",
+        verified_at=body.verified_at or "",
+    )
+    logger.info("release draft ingested via hook: rev %s", doc.get("current_revision"),
+                extra={"eventType": "BUSINESS_EVENT"})
+    return {
+        "ok": True,
+        "id": doc["id"],
+        "release_version": doc["release_version"],
+        "revision": doc["current_revision"],
+        "status": doc["status"],
+    }
 
 
 @router.get("/{doc_id}")

@@ -39,6 +39,11 @@ STATUSES = ("draft", "in_review", "approved", "final")
 FORMATS = ("structured", "markdown")
 ENVIRONMENTS = ("staging", "production")
 
+# Rolling "Unreleased" draft that the post-verification hook appends to (one
+# revision per verified session). Admin reviews it in the UI and, when a release
+# is cut, sets it approved/final. See routes/release_docs.py ingest-draft.
+UNRELEASED_VERSION = "0.0.0-unreleased"
+
 # MAJOR.MINOR.PATCH with an optional pre-release/build suffix (e.g. 4.2.0, 4.2.0-rc.1).
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-]+)?$")
 
@@ -364,3 +369,55 @@ async def get_revision(doc_id: str, revision: int) -> Optional[Dict[str, Any]]:
         "saved_at": r["saved_at"],
         "saved_by": r["saved_by"],
     }
+
+
+async def ingest_session_draft(
+    *,
+    summary: str,
+    branch: str = "unknown",
+    commit: str = "",
+    changed_areas: str = "",
+    verified_at: str = "",
+    author: str = "ci:auto-draft",
+) -> Dict[str, Any]:
+    """Append one verified-session entry to the rolling 'Unreleased' release_notes
+    draft (markdown), creating it on first call. Each call is a new immutable
+    revision, so the draft accumulates a changelog the admin can review and, at
+    release-cut time, approve/finalise. Powers the post-verification Claude hook."""
+    stamp = verified_at or _now()
+    ref = f"{branch}@{commit}" if commit else branch
+    entry_lines = [f"## {stamp} · {ref}", (summary or "").strip() or "_(no summary provided)_"]
+    if changed_areas:
+        entry_lines.append(f"\n_Changed:_ {changed_areas}")
+    entry = "\n".join(entry_lines) + "\n"
+
+    head = await db[DOCS_COL].find_one(
+        {"doc_type": "release_notes", "release_version": UNRELEASED_VERSION}
+    )
+    if head is None:
+        content = {"markdown": f"# Unreleased — release notes (auto-drafted)\n\n{entry}"}
+        return await create_document(
+            doc_type="release_notes",
+            release_version=UNRELEASED_VERSION,
+            title="Unreleased — auto-drafted release notes",
+            content=content,
+            fmt="markdown",
+            status="draft",
+            author=author,
+        )
+    existing = ""
+    if head.get("format") == "markdown":
+        existing = (head.get("content") or {}).get("markdown", "")
+    else:  # a structured doc was created/edited manually — flatten so we don't lose it
+        secs = (head.get("content") or {}).get("sections", [])
+        existing = "\n\n".join(f"## {s.get('title','')}\n{s.get('body','')}" for s in secs)
+    new_md = (existing.rstrip() + "\n\n" + entry) if existing else entry
+    updated = await update_document(
+        head["_id"],
+        content={"markdown": new_md},
+        status=None,  # keep whatever the admin has set (draft unless already promoted)
+        change_note=f"auto-draft: {ref}",
+        author=author,
+    )
+    # update_document returns None only if the doc vanished mid-call; refetch defensively
+    return updated if updated is not None else (await get_document(head["_id"]))  # type: ignore[return-value]
