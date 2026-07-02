@@ -379,6 +379,7 @@ async def list_secrets(request: Request, env: str = ""):
         "secrets": items,
         "updated_at": persisted.get("updated_at"),
         "updated_by": persisted.get("updated_by"),
+        "rotated": persisted.get("rotated", {}),   # per-key {at, by} rotation stamps
         "current_env": _secrets.current_env(),
         "viewing_env": target_env,
         "available_envs": ["staging", "production"],
@@ -583,10 +584,6 @@ async def test_secret(key: str, request: Request):
             return {"ok": True, "detail": f"Connected — redis {res.get('version', '')}"}
         return {"ok": False, "error": res.get("reason", "unknown")}
 
-    if test_fn == "smtp":
-        from services import email_service
-        return await email_service.test_connection()
-
     if test_fn == "github":
         # Validate the token against GitHub and surface its expiry (rotation signal).
         import urllib.request
@@ -644,6 +641,7 @@ async def rotate_secret(key: str, request: Request, env: str = ""):
     except Exception:  # noqa: BLE001
         logger.warning("secret rotate audit log failed", exc_info=True)
 
+    # Re-test the new value if the secret has a test handler (best-effort).
     test_result = None
     meta = _secrets.KNOWN_SECRETS.get(key)
     if meta and meta.get("test_fn") and target_env == _secrets.current_env():
@@ -668,8 +666,18 @@ async def list_feature_flags(request: Request):
     await require_admin(request)
     import feature_flags
     persisted = await db.system_config.find_one({"key": "feature_flags"}, {"_id": 0}) or {}
+    # Overlay the persisted (Mongo) mode/allowlist so the UI shows the true saved
+    # state, not this worker's process-local in-memory cache (which can be stale
+    # across uvicorn workers until they re-hydrate).
+    items = feature_flags.list_all()
+    pflags = persisted.get("flags") or {}
+    for it in items:
+        pv = pflags.get(it.get("key"))
+        if isinstance(pv, dict):
+            it["mode"] = pv.get("mode", it.get("mode"))
+            it["allowlist"] = pv.get("allowlist", it.get("allowlist", []))
     return {
-        "flags": feature_flags.list_all(),
+        "flags": items,
         "updated_at": persisted.get("updated_at"),
         "updated_by": persisted.get("updated_by"),
     }

@@ -60,16 +60,19 @@ def _auto_rca_enabled() -> bool:
     return _flag("AUTO_RCA_ENABLED", default_non_prod=True)
 
 
-def _auto_fix_enabled() -> bool:
+async def _auto_fix_enabled() -> bool:
     """Opt-in, default OFF. Toggled by admins via the `auto_fix_agent` feature flag
-    (Admin → Feature Flags, set mode = everyone). An AUTO_FIX_ENABLED env var, if set,
-    overrides the flag (ops kill-switch / force-enable)."""
+    (Admin → Feature Flags, set mode = everyone). Read straight from Mongo (the
+    persisted source of truth) rather than feature_flags' process-local in-memory
+    cache, which can be stale across uvicorn workers. An AUTO_FIX_ENABLED env var,
+    if set, overrides the flag (ops kill-switch / force-enable)."""
     v = os.environ.get("AUTO_FIX_ENABLED")
     if v not in (None, ""):
         return v.strip().lower() in ("1", "true", "yes", "on")
     try:
-        from feature_flags import mode_enabled
-        return mode_enabled("auto_fix_agent")
+        doc = await db.system_config.find_one({"key": "feature_flags"}, {"_id": 0, "flags": 1})
+        mode = (((doc or {}).get("flags") or {}).get("auto_fix_agent") or {}).get("mode", "off")
+        return mode == "everyone"
     except Exception:  # noqa: BLE001
         return False
 
@@ -139,6 +142,7 @@ async def _enrich(issue_id: str) -> None:
 
         text = f"{issue.get('exception_class','')} {issue.get('sample_message','')} {issue.get('sample_traceback','')}"
         heuristic_bv = _heuristic_business_validation(text, issue.get("http_status"))
+        auto_fix = await _auto_fix_enabled()
 
         try:
             j = await asyncio.get_event_loop().run_in_executor(None, _openai_triage, issue, key)
@@ -160,7 +164,7 @@ async def _enrich(issue_id: str) -> None:
         is_coding = bool(j.get("is_coding_bug"))
         if heuristic_bv or llm_class == "business_validation":
             classification = "business_validation"
-        elif _auto_fix_enabled() and llm_class == "valid" and is_coding and rca["confidence"] >= _FIX_CONFIDENCE:
+        elif auto_fix and llm_class == "valid" and is_coding and rca["confidence"] >= _FIX_CONFIDENCE:
             classification = "valid"
         elif llm_class == "tbd":
             classification = "tbd"
@@ -173,7 +177,7 @@ async def _enrich(issue_id: str) -> None:
         logger.info("auto_triage enriched %s (class=%s, conf=%.2f)", issue_id, classification, rca["confidence"])
 
         # Opt-in auto-fix: only for confidently-coding 'valid' issues.
-        if classification == "valid" and _auto_fix_enabled():
+        if classification == "valid" and auto_fix:
             now = datetime.now(timezone.utc)
             await db[_COLLECTION].update_one(
                 {"issue_id": issue_id},
