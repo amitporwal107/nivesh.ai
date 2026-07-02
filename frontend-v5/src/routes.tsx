@@ -19,6 +19,7 @@ import RecommendationsPage from "./pages/Recommendations";
 import RiskPage from "./pages/Risk";
 import FundDetailsPage from "./pages/FundDetails";
 import SettingsPage from "./pages/Settings";
+import LogsPage from "./pages/Logs";
 import ChatPage from "./pages/Chat";
 import LoginPage from "./pages/Login";
 import OnboardingPage from "./pages/Onboarding";
@@ -113,6 +114,7 @@ export function AppRoutes() {
         <Route path="/tax"              element={<RouteErrorBoundary pageName="Tax"><TaxPage /></RouteErrorBoundary>} />
         <Route path="/plan"             element={<RouteErrorBoundary pageName="Plan"><PlanPage /></RouteErrorBoundary>} />
         <Route path="/settings"         element={<RouteErrorBoundary pageName="Settings"><SettingsPage /></RouteErrorBoundary>} />
+        <Route path="/settings/logs"    element={<RouteErrorBoundary pageName="Session Logs"><LogsPage /></RouteErrorBoundary>} />
         <Route path="/pro-trader"       element={<RouteErrorBoundary pageName="Pro Trader"><ProTraderPage /></RouteErrorBoundary>} />
         {/* Admin-only routes — RequireAdmin redirects non-admins to /dashboard */}
         <Route path="/admin"            element={<RequireAdmin><RouteErrorBoundary pageName="Admin"><AdminPage /></RouteErrorBoundary></RequireAdmin>} />

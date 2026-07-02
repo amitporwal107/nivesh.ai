@@ -13,6 +13,7 @@ import { ApiError } from "./errors";
 import { getAuthToken } from "./auth-token";
 import { correlationId, getObserver } from "@/lib/observability";
 import { useImpersonationStore } from "@/stores/impersonation.store";
+import { useLoggingStore } from "@/stores/logging.store";
 
 export interface HttpRequest {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -48,6 +49,10 @@ export async function http<T = unknown>(req: HttpRequest): Promise<HttpResponse<
   // and resolves the effective user. Single source of truth = the store; no
   // session-token coupling.
   const activeProfileId = useImpersonationStore.getState().profileId;
+  // Session logging (Settings → Logs & Diagnostics): when the user has it on,
+  // echo the debug-session id so the backend buffers this session's server logs.
+  const logging = useLoggingStore.getState();
+  const debugSid = logging.enabled ? logging.sid : null;
   const headers: Record<string, string> = {
     Accept: "application/json",
     "X-Correlation-Id": id,
@@ -55,6 +60,7 @@ export async function http<T = unknown>(req: HttpRequest): Promise<HttpResponse<
     // Bearer fallback for native (WebView drops the cross-site session cookie).
     ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     ...(activeProfileId ? { "X-Active-Profile": activeProfileId } : {}),
+    ...(debugSid ? { "X-Nivesh-Debug-Session": debugSid } : {}),
     ...(req.body != null ? { "Content-Type": "application/json" } : {}),
     ...(req.ifNoneMatch ? { "If-None-Match": req.ifNoneMatch } : {}),
     ...(req.headers ?? {}),

@@ -68,6 +68,13 @@ _endpoint_var: contextvars.ContextVar[str] = contextvars.ContextVar(
     "endpoint", default=""
 )
 
+# Opt-in per-request log capture buffer. Normally None (near-zero cost); set to
+# a fresh list by RequestLoggingMiddleware only for requests that carry the
+# X-Nivesh-Debug-Session header (user turned on Settings → Logs & Diagnostics).
+_session_capture_var: contextvars.ContextVar["list | None"] = contextvars.ContextVar(
+    "session_capture", default=None
+)
+
 # ── Getters / setters ─────────────────────────────────────────────────────────
 
 def get_correlation_id() -> str:
@@ -111,6 +118,26 @@ def reset_request_context(tokens: list[contextvars.Token]) -> None:
     vars_ = [_correlation_id_var, _trace_id_var, _user_id_var, _application_var, _endpoint_var]
     for var, token in zip(vars_, tokens):
         var.reset(token)
+
+
+# ── Opt-in per-session log capture ─────────────────────────────────────────────
+# When a user enables "Logs & Diagnostics" in Settings, the frontend sends an
+# X-Nivesh-Debug-Session header on every request. RequestLoggingMiddleware installs
+# a fresh list here for the duration of that request; SessionCaptureHandler appends
+# each emitted log record to it, and the middleware flushes the batch to Redis
+# (services.session_log_store) so the user can watch their own session's server
+# logs. Disabled requests pay only one ContextVar read per log record.
+
+def set_session_capture(buffer: "list") -> contextvars.Token:
+    return _session_capture_var.set(buffer)
+
+
+def get_session_capture() -> "list | None":
+    return _session_capture_var.get()
+
+
+def reset_session_capture(token: contextvars.Token) -> None:
+    _session_capture_var.reset(token)
 
 
 # ── Sensitive field masking ───────────────────────────────────────────────────
@@ -263,6 +290,45 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str, separators=(",", ":"))
 
 
+# ── Session capture handler ─────────────────────────────────────────────────
+# Buffers each log record into the request-scoped capture list (if one is set)
+# so an opted-in user can review their own session's server logs. When no buffer
+# is set — the overwhelming common case — emit() returns immediately.
+
+_exc_formatter = logging.Formatter()
+_SESSION_CAPTURE_MAX = 500  # hard cap on records buffered within a single request
+
+
+class SessionCaptureHandler(logging.Handler):
+    """Append each log record to the request-scoped capture buffer, if present."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        buf = _session_capture_var.get()
+        if buf is None or len(buf) >= _SESSION_CAPTURE_MAX:
+            return
+        try:
+            ts = (
+                time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created))
+                + f".{int(record.msecs):03d}Z"
+            )
+            entry: dict[str, Any] = {
+                "ts": ts,
+                "severity": _SEVERITY_MAP.get(record.levelname, record.levelname),
+                "logger": record.name,
+                "msg": record.getMessage(),
+                "correlationId": getattr(record, "correlationId", None) or _correlation_id_var.get(),
+                "endpoint": getattr(record, "endpoint", None) or _endpoint_var.get(),
+            }
+            http_status = getattr(record, "httpStatus", None)
+            if http_status is not None:
+                entry["httpStatus"] = http_status
+            if record.exc_info:
+                entry["exc"] = _exc_formatter.formatException(record.exc_info)
+            buf.append(entry)
+        except Exception:  # never let capture break logging
+            pass
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def configure_logging(
@@ -293,7 +359,8 @@ def configure_logging(
     ))
 
     root = logging.getLogger()
-    root.handlers = [handler]
+    # SessionCaptureHandler is a no-op unless a request opted into log capture.
+    root.handlers = [handler, SessionCaptureHandler()]
     root.setLevel(resolved_level)
 
     # Suppress very chatty third-party loggers.
