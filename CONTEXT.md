@@ -175,6 +175,20 @@ To wire a new role's verify command in, add its pattern to that regex. Hooks blo
 **exit code 2 only** (exit 1 is ignored), and feedback to the agent is read from
 **stderr**. Keep that in mind if you extend them.
 
+### 4a. Functionality-verification gate (verify-before-complete)
+
+On top of the baseline gate, a **stronger, functionality-scoped** gate enforces
+`.claude/VERIFICATION_PROTOCOL.md`. When a session edits product code
+(`backend/routes|services|*routers`, or `frontend*/src`), a `Stop` hook
+(`require-functionality-verification.sh`) blocks the turn from ending until
+`test_reports/` holds a **fresh** report (newer than the last edit) that lists the test
+cases, shows **real staging API results** (backend) and **real Playwright output**
+(frontend), and ends with a line exactly `## Verdict: PASS` — or a loud
+`test_reports/OVERRIDE_<slug>.md` with a `REASON:` line (the only sanctioned, non-silent
+skip; used when blocked, e.g. awaiting a user-provided session token / CAS document).
+Test cases are authored **up front**, after API+UI design and before implementation.
+Use `test_reports/_TEMPLATE_functionality.md`.
+
 ---
 
 ## 5. When to ask vs. proceed
