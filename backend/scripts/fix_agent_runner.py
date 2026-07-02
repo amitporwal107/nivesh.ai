@@ -49,6 +49,7 @@ API_BASE = os.environ.get("WORK_API_BASE", "http://localhost:8001").rstrip("/")
 OPENAI_MODEL = os.environ.get("FIX_RUNNER_OPENAI_MODEL", "gpt-4o-mini")
 GH_TOKEN_FILE = "/opt/nivesh/.gh_pat"
 OPENAI_KEY_FILE = "/opt/nivesh/.openai_key"
+INGEST_SECRET_FILE = "/opt/nivesh/.work_ingest_secret"
 
 
 def _now() -> str:
@@ -69,7 +70,9 @@ def _read_secret(env_var: str, path: str) -> Optional[str]:
 
 
 def _ingest_secret() -> str:
-    return os.environ.get("WORK_INGEST_SECRET", "")
+    # env first, then /opt/nivesh/.work_ingest_secret (0600) — same convention as
+    # .gh_pat / .openai_key, so the cron file needs no secrets baked in.
+    return _read_secret("WORK_INGEST_SECRET", INGEST_SECRET_FILE) or ""
 
 
 # ── App API (ingest-secret auth) ──────────────────────────────────────────────
