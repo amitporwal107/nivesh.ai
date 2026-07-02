@@ -6,7 +6,7 @@ import { useGmailStatus, useGmailAutoImportToggle, useGmailConnect, useGmailDisc
 import { useRiskProfile } from "@/hooks/use-risk-profile";
 import { useGoals, useGoalsSnapshot, useGoalArchive, useSnapshotUpsert } from "@/hooks/use-goals";
 import { cn } from "@/lib/utils";
-import { Mail, RefreshCw, CheckCircle2, AlertCircle, ShieldCheck, Target, Pencil, Trash2, ScrollText, ChevronRight } from "lucide-react";
+import { Mail, RefreshCw, CheckCircle2, AlertCircle, ShieldCheck, Target, Pencil, Trash2, ScrollText, ChevronRight, FileText } from "lucide-react";
 import { useSessionLogging } from "@/hooks/use-session-logs";
 import { ProfileWizardModal } from "@/pages/Dashboard/ProfileWizardModal";
 import { useQueryClient } from "@tanstack/react-query";
@@ -446,6 +446,15 @@ export default function SettingsPage() {
               </Link>
             ))}
           </div>
+          <Link
+            to="/settings/releases"
+            data-testid="settings-release-mgmt"
+            className="mt-3 flex items-center gap-2.5 rounded-md border border-hairline bg-surface-1 px-3.5 py-3 text-[13px] text-ink-2 hover:bg-surface-2 transition-colors"
+          >
+            <FileText className="h-4 w-4 text-accent shrink-0" />
+            <span className="flex-1">Release Management</span>
+            <ChevronRight className="h-4 w-4 text-ink-4 shrink-0" />
+          </Link>
         </Card>
       )}
 

@@ -20,6 +20,8 @@ import RiskPage from "./pages/Risk";
 import FundDetailsPage from "./pages/FundDetails";
 import SettingsPage from "./pages/Settings";
 import LogsPage from "./pages/Logs";
+import ReleasesPage from "./pages/Releases";
+import ReleaseDetailPage from "./pages/Releases/ReleaseDetail";
 import ChatPage from "./pages/Chat";
 import LoginPage from "./pages/Login";
 import OnboardingPage from "./pages/Onboarding";
@@ -115,6 +117,8 @@ export function AppRoutes() {
         <Route path="/plan"             element={<RouteErrorBoundary pageName="Plan"><PlanPage /></RouteErrorBoundary>} />
         <Route path="/settings"         element={<RouteErrorBoundary pageName="Settings"><SettingsPage /></RouteErrorBoundary>} />
         <Route path="/settings/logs"    element={<RouteErrorBoundary pageName="Session Logs"><LogsPage /></RouteErrorBoundary>} />
+        <Route path="/settings/releases"     element={<RequireAdmin><RouteErrorBoundary pageName="Release Management"><ReleasesPage /></RouteErrorBoundary></RequireAdmin>} />
+        <Route path="/settings/releases/:id" element={<RequireAdmin><RouteErrorBoundary pageName="Release Document"><ReleaseDetailPage /></RouteErrorBoundary></RequireAdmin>} />
         <Route path="/pro-trader"       element={<RouteErrorBoundary pageName="Pro Trader"><ProTraderPage /></RouteErrorBoundary>} />
         {/* Admin-only routes — RequireAdmin redirects non-admins to /dashboard */}
         <Route path="/admin"            element={<RequireAdmin><RouteErrorBoundary pageName="Admin"><AdminPage /></RouteErrorBoundary></RequireAdmin>} />

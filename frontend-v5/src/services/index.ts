@@ -24,6 +24,7 @@ import { realIntelligenceAdapter } from "./adapters/intelligence.adapter";
 import { realPositionalAdapter } from "./adapters/positional.adapter";
 import { realMarketsAdapter } from "./adapters/markets.adapter";
 import { realLogsAdapter } from "./adapters/logs.adapter";
+import { realReleaseDocsAdapter } from "./adapters/release-docs.adapter";
 import { mockAuthAdapter } from "./mock/auth.mock";
 import { mockPortfolioAdapter } from "./mock/portfolio.mock";
 import { mockPlansAdapter } from "./mock/plans.mock";
@@ -61,6 +62,8 @@ export const positionalService = realPositionalAdapter;
 export const marketsService = realMarketsAdapter;
 // Session logs (diagnostics) — always real backend
 export const logsService = realLogsAdapter;
+// Release Management (admin) — always real backend
+export const releaseDocsService = realReleaseDocsAdapter;
 
 // Re-export the adapter interfaces so consumers can import types.
 export type { AuthAdapter }        from "./adapters/auth.adapter";
@@ -79,3 +82,8 @@ export type { IntelligenceAdapter } from "./adapters/intelligence.adapter";
 export type { PositionalAdapter, BasketParams } from "./adapters/positional.adapter";
 export type { MarketsAdapter }     from "./adapters/markets.adapter";
 export type { LogsAdapter, ServerLogEntry, EnableResult } from "./adapters/logs.adapter";
+export type {
+  ReleaseDocsAdapter, ReleaseDocSummary, ReleaseDoc, ReleaseDocContent, ReleaseDocSection,
+  ReleaseTemplate, RevisionMeta, RevisionSnapshot,
+  DocType, DocStatus, DocFormat, CreateReleaseDocInput, UpdateReleaseDocInput,
+} from "./adapters/release-docs.adapter";
