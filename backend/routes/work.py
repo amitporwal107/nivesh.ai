@@ -17,12 +17,33 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from deps import db, require_admin
+from deps import db, require_admin, get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/work", tags=["work"])
 
 _COLLECTION = "work_issues"
+
+# ── Lifecycle & triage vocab (matches the issue-lifecycle diagram) ────────────
+# open → in_progress → in_review → testing_qa → resolved ; wont_fix (from open).
+# The QA-failure path (testing_qa → in_progress) and regression/reopen
+# (resolved → open) are ordinary status writes — not special-cased, just allowed.
+ALLOWED_STATUSES = {"open", "in_progress", "in_review", "testing_qa", "resolved", "wont_fix"}
+
+# Triage classification, set by a human after the issue is auto-filed:
+#   valid                → a real defect
+#   business_validation  → expected validation error, not a code bug
+#   tbd                  → needs clarification
+ALLOWED_CLASSIFICATIONS = {"unclassified", "valid", "business_validation", "tbd"}
+
+# ── Program-tracker hierarchy (epics → stories → tasks) ───────────────────────
+# The dashboard doubles as a program tracker for planned work (source="manual"),
+# alongside the auto-filed error issues. These fields are additive and optional:
+# existing error issues default to issue_type="task" with no parent/phase.
+ALLOWED_ISSUE_TYPES = {"epic", "story", "task"}
+ALLOWED_PHASES = {"phase-1", "phase-2", "phase-3"}
+ALLOWED_TRACKS = {"internal", "vendor-gated"}
+ALLOWED_ESTIMATES = {"S", "M", "L", "XL"}
 
 # ── Pydantic models ──────────────────────────────────────────────────────────
 
@@ -53,21 +74,93 @@ class IssueCreate(BaseModel):
     applications: list[str] = Field(default_factory=list)
     rca: Optional[RcaBlock] = None
     labels: list[str] = Field(default_factory=list)
+    # ── program-tracker (epics → stories → tasks) — optional, additive ──
+    issue_type: str = "task"                  # epic | story | task
+    parent: Optional[str] = None              # parent issue_id (story→epic, task→story)
+    phase: Optional[str] = None               # phase-1 | phase-2 | phase-3
+    track: Optional[str] = None               # internal | vendor-gated
+    workflow: list[str] = Field(default_factory=list)     # ["WF-01", ...]
+    estimate: Optional[str] = None            # S | M | L | XL
+    requirements_md: Optional[str] = None     # plain-English requirement + acceptance
+    design_md: Optional[str] = None           # design elements + component list
+    screens: list[dict] = Field(default_factory=list)     # [{"name","url"}]
+    implementation_md: Optional[str] = None   # core implementation details
+    github: Optional[dict] = None             # {"commit","pr_url","branch"}
+    test_doc_md: Optional[str] = None         # test-cases document
+    artifacts: list[dict] = Field(default_factory=list)   # [{"kind","url"}] post-impl
 
 
 class IssueUpdate(BaseModel):
-    status: Optional[str] = None     # open | in_progress | resolved | wont_fix
+    status: Optional[str] = None     # see ALLOWED_STATUSES
+    classification: Optional[str] = None  # see ALLOWED_CLASSIFICATIONS
     priority: Optional[str] = None
     assignee: Optional[str] = None
     labels: Optional[list[str]] = None
     rca: Optional[RcaBlock] = None
     comment: Optional[str] = None    # appends to comments list
+    # ── program-tracker fields (all optional; used for grooming + migration) ──
+    title: Optional[str] = None
+    issue_type: Optional[str] = None
+    parent: Optional[str] = None
+    phase: Optional[str] = None
+    track: Optional[str] = None
+    workflow: Optional[list[str]] = None
+    estimate: Optional[str] = None
+    requirements_md: Optional[str] = None
+    design_md: Optional[str] = None
+    screens: Optional[list[dict]] = None
+    implementation_md: Optional[str] = None
+    github: Optional[dict] = None
+    test_doc_md: Optional[str] = None
+    artifacts: Optional[list[dict]] = None
+
+
+class Remediation(BaseModel):
+    """State of the auto-fix pipeline for an issue (PR-only; never auto-merged)."""
+    status: str = "none"             # none|queued|running|pr_open|failed|verified
+    branch: Optional[str] = None
+    pr_url: Optional[str] = None
+    run_id: Optional[str] = None
+    detail: Optional[str] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+
+class ArtifactsUpdate(BaseModel):
+    """Written by the remediation pipeline (fix agent / diagnostics), not humans."""
+    rca_document: Optional[str] = None      # full RCA markdown
+    test_document: Optional[str] = None     # test report markdown
+    screenshots: Optional[list[str]] = None # screenshot URLs / data refs
+    remediation: Optional[Remediation] = None
+    status: Optional[str] = None            # pipeline may advance the lifecycle
+    comment: Optional[str] = None
+
+
+class ClientErrorEntry(BaseModel):
+    message: str
+    correlation_id: Optional[str] = None
+
+
+class ClientErrorBatch(BaseModel):
+    entries: list[ClientErrorEntry] = Field(default_factory=list)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _severity_to_priority(severity: str) -> str:
     return {"CRITICAL": "P1", "ERROR": "P2", "WARNING": "P3"}.get(severity.upper(), "P2")
+
+
+def _validate_tracker_fields(issue_type=None, phase=None, track=None, estimate=None) -> None:
+    """Validate optional program-tracker enums; None values are skipped."""
+    if issue_type and issue_type not in ALLOWED_ISSUE_TYPES:
+        raise HTTPException(status_code=400, detail=f"invalid issue_type; allowed: {sorted(ALLOWED_ISSUE_TYPES)}")
+    if phase and phase not in ALLOWED_PHASES:
+        raise HTTPException(status_code=400, detail=f"invalid phase; allowed: {sorted(ALLOWED_PHASES)}")
+    if track and track not in ALLOWED_TRACKS:
+        raise HTTPException(status_code=400, detail=f"invalid track; allowed: {sorted(ALLOWED_TRACKS)}")
+    if estimate and estimate not in ALLOWED_ESTIMATES:
+        raise HTTPException(status_code=400, detail=f"invalid estimate; allowed: {sorted(ALLOWED_ESTIMATES)}")
 
 
 def _serialize(doc: dict) -> dict:
@@ -89,6 +182,10 @@ async def list_issues(
     priority: Optional[str] = Query(None, description="P1|P2|P3"),
     source: Optional[str] = Query(None),
     label: Optional[str] = Query(None),
+    issue_type: Optional[str] = Query(None, description="epic|story|task"),
+    phase: Optional[str] = Query(None, description="phase-1|phase-2|phase-3"),
+    parent: Optional[str] = Query(None, description="parent issue_id"),
+    track: Optional[str] = Query(None, description="internal|vendor-gated"),
     limit: int = Query(100, le=500),
     offset: int = Query(0, ge=0),
 ):
@@ -102,6 +199,14 @@ async def list_issues(
         flt["source"] = source
     if label:
         flt["labels"] = label
+    if issue_type:
+        flt["issue_type"] = issue_type
+    if phase:
+        flt["phase"] = phase
+    if parent:
+        flt["parent"] = parent
+    if track:
+        flt["track"] = track
 
     cursor = db[_COLLECTION].find(flt, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
     docs = await cursor.to_list(limit)
@@ -121,6 +226,7 @@ async def get_issue(request: Request, issue_id: str):
 @router.post("/issues", status_code=201)
 async def create_issue(request: Request, body: IssueCreate):
     await require_admin(request)
+    _validate_tracker_fields(body.issue_type, body.phase, body.track, body.estimate)
 
     # Dedupe by sig — update count if exists
     existing = await db[_COLLECTION].find_one({"sig": body.sig})
@@ -170,6 +276,25 @@ async def create_issue(request: Request, body: IssueCreate):
         "assignee": None,
         "comments": [],
         "recurrence_count": 1,
+        "classification": "unclassified",
+        "rca_document": None,
+        "test_document": None,
+        "screenshots": [],
+        "remediation": None,
+        # ── program-tracker (epics → stories → tasks) ──
+        "issue_type": body.issue_type or "task",
+        "parent": body.parent,
+        "phase": body.phase,
+        "track": body.track,
+        "workflow": body.workflow,
+        "estimate": body.estimate,
+        "requirements_md": body.requirements_md,
+        "design_md": body.design_md,
+        "screens": body.screens,
+        "implementation_md": body.implementation_md,
+        "github": body.github,
+        "test_doc_md": body.test_doc_md,
+        "artifacts": body.artifacts,
         "created_at": now,
         "updated_at": now,
         "resolved_at": None,
@@ -186,9 +311,18 @@ async def update_issue(request: Request, issue_id: str, body: IssueUpdate):
     update: dict[str, Any] = {"updated_at": now}
 
     if body.status is not None:
+        if body.status not in ALLOWED_STATUSES:
+            raise HTTPException(status_code=400, detail=f"invalid status; allowed: {sorted(ALLOWED_STATUSES)}")
         update["status"] = body.status
         if body.status == "resolved":
             update["resolved_at"] = now
+        elif body.status == "open":
+            # regression / reopen — clear the resolved timestamp
+            update["resolved_at"] = None
+    if body.classification is not None:
+        if body.classification not in ALLOWED_CLASSIFICATIONS:
+            raise HTTPException(status_code=400, detail=f"invalid classification; allowed: {sorted(ALLOWED_CLASSIFICATIONS)}")
+        update["classification"] = body.classification
     if body.priority is not None:
         update["priority"] = body.priority
     if body.assignee is not None:
@@ -197,6 +331,15 @@ async def update_issue(request: Request, issue_id: str, body: IssueUpdate):
         update["labels"] = body.labels
     if body.rca is not None:
         update["rca"] = body.rca.model_dump()
+
+    # ── program-tracker fields (grooming + migration) ──
+    _validate_tracker_fields(body.issue_type, body.phase, body.track, body.estimate)
+    for _f in ("title", "issue_type", "parent", "phase", "track", "workflow", "estimate",
+               "requirements_md", "design_md", "screens", "implementation_md",
+               "github", "test_doc_md", "artifacts"):
+        _v = getattr(body, _f)
+        if _v is not None:
+            update[_f] = _v
 
     ops: dict[str, Any] = {"$set": update}
     if body.comment:
@@ -226,7 +369,8 @@ async def get_stats(request: Request):
     buckets = await db[_COLLECTION].aggregate(pipeline).to_list(100)
     stats: dict[str, Any] = {
         "total": 0,
-        "by_status": {"open": 0, "in_progress": 0, "resolved": 0, "wont_fix": 0},
+        "by_status": {s: 0 for s in
+                      ("open", "in_progress", "in_review", "testing_qa", "resolved", "wont_fix")},
         "by_priority": {"P1": 0, "P2": 0, "P3": 0},
     }
     for b in buckets:
@@ -237,6 +381,28 @@ async def get_stats(request: Request):
         stats["by_status"][status] = stats["by_status"].get(status, 0) + count
         stats["by_priority"][priority] = stats["by_priority"].get(priority, 0) + count
     return stats
+
+
+@router.post("/issues/from-client-errors", status_code=202)
+async def intake_client_errors(request: Request, body: ClientErrorBatch):
+    """File work_issues for client-side (browser) errors captured while a user
+    has session logging on. Any authenticated user may report their OWN errors
+    (unlike the admin-only dashboard views). Deduped by sig; best-effort."""
+    user = await get_current_user(request)
+    from services import issue_intake
+    filed: list[str] = []
+    for e in body.entries[:50]:
+        iid = await issue_intake.intake_error(
+            severity="ERROR",
+            source="session_client",
+            message=e.message,
+            application="nivesh-web",
+            client=True,
+        )
+        if iid:
+            filed.append(iid)
+    logger.info("client-error intake by %s → %d issue(s)", user.get("user_id", "?"), len(set(filed)))
+    return {"filed": list(dict.fromkeys(filed))}
 
 
 @router.post("/issues/ingest", status_code=201)
@@ -317,6 +483,11 @@ async def ingest_cluster(request: Request, body: dict):
                 "assignee": None,
                 "comments": [],
                 "recurrence_count": 1,
+                "classification": "unclassified",
+                "rca_document": None,
+                "test_document": None,
+                "screenshots": [],
+                "remediation": None,
                 "created_at": now,
                 "updated_at": now,
                 "resolved_at": None,
@@ -326,3 +497,102 @@ async def ingest_cluster(request: Request, body: dict):
             created += 1
 
     return {"created": created, "updated": updated}
+
+
+# ── Remediation pipeline: fix trigger + artifact attach (Phases 2/3) ──────────
+
+_bg_tasks: set = set()
+
+
+def _schedule(coro) -> None:
+    """Fire-and-forget a background coroutine, keeping a ref so it isn't GC'd."""
+    import asyncio
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
+
+async def _require_admin_or_ingest_secret(request: Request) -> None:
+    import os
+    ingest_secret = os.getenv("WORK_INGEST_SECRET", "")
+    if ingest_secret and request.headers.get("X-Ingest-Secret", "") == ingest_secret:
+        return
+    await require_admin(request)
+
+
+@router.post("/issues/{issue_id}/fix", status_code=202)
+async def trigger_fix(request: Request, issue_id: str):
+    """Spawn the PR-only auto-fix agent for a VALID coding issue.
+
+    Safety: the agent works in an isolated clone and opens a PR for human
+    review — it never applies or merges changes to dev/main. The issue must be
+    triaged `classification=valid` first.
+    """
+    await require_admin(request)
+    doc = await db[_COLLECTION].find_one({"issue_id": issue_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    if doc.get("classification") != "valid":
+        raise HTTPException(status_code=409, detail="Issue must be classified 'valid' before requesting a fix")
+    rem = doc.get("remediation") or {}
+    if rem.get("status") in ("queued", "running"):
+        raise HTTPException(status_code=409, detail="A fix is already in progress for this issue")
+
+    now = datetime.now(timezone.utc)
+    await db[_COLLECTION].update_one(
+        {"issue_id": issue_id},
+        {"$set": {
+            "status": "in_progress",
+            "remediation": {
+                "status": "queued", "started_at": now, "finished_at": None,
+                "branch": None, "pr_url": None, "run_id": None, "detail": "Fix agent queued",
+            },
+            "updated_at": now,
+        }},
+    )
+    # Lazy import so a problem in the agent module can't break the whole router.
+    try:
+        from services import fix_agent
+    except Exception as e:  # noqa: BLE001
+        await db[_COLLECTION].update_one(
+            {"issue_id": issue_id},
+            {"$set": {"remediation.status": "failed",
+                      "remediation.detail": f"fix agent unavailable: {e}",
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        raise HTTPException(status_code=503, detail="Fix agent unavailable")
+    _schedule(fix_agent.run_fix(issue_id))
+    return {"issue_id": issue_id, "remediation": {"status": "queued"}}
+
+
+@router.post("/issues/{issue_id}/artifacts")
+async def attach_artifacts(request: Request, issue_id: str, body: ArtifactsUpdate):
+    """Attach RCA / test documents / screenshots and (optionally) advance the
+    lifecycle. Written by the remediation pipeline (admin OR X-Ingest-Secret)."""
+    await _require_admin_or_ingest_secret(request)
+    now = datetime.now(timezone.utc)
+    update: dict[str, Any] = {"updated_at": now}
+    if body.rca_document is not None:
+        update["rca_document"] = body.rca_document
+    if body.test_document is not None:
+        update["test_document"] = body.test_document
+    if body.screenshots is not None:
+        update["screenshots"] = body.screenshots
+    if body.remediation is not None:
+        update["remediation"] = body.remediation.model_dump()
+    if body.status is not None:
+        if body.status not in ALLOWED_STATUSES:
+            raise HTTPException(status_code=400, detail=f"invalid status; allowed: {sorted(ALLOWED_STATUSES)}")
+        update["status"] = body.status
+        if body.status == "resolved":
+            update["resolved_at"] = now
+
+    ops: dict[str, Any] = {"$set": update}
+    if body.comment:
+        ops["$push"] = {"comments": {"author": "pipeline", "body": body.comment,
+                                     "created_at": now.isoformat()}}
+    result = await db[_COLLECTION].update_one({"issue_id": issue_id}, ops)
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    doc = await db[_COLLECTION].find_one({"issue_id": issue_id}, {"_id": 0})
+    return _serialize(doc)

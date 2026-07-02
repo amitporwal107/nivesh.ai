@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, Download, Copy, Trash2, Pause, Play, Search } from "lucide-react";
+import { ArrowLeft, Download, Copy, Trash2, Pause, Play, Search, History } from "lucide-react";
 import {
   subscribe,
   getVersion,
@@ -12,7 +12,8 @@ import {
   type LogLevel,
   type LogSource,
 } from "@/lib/session-log";
-import { useSessionLogging, useServerLogs } from "@/hooks/use-session-logs";
+import { useSessionLogging, useServerLogs, useSessionHistory, useHistoryLogs } from "@/hooks/use-session-logs";
+import type { ServerLogEntry } from "@/services/adapters/logs.adapter";
 import { logsService } from "@/services";
 
 type ViewSource = LogSource | "server";
@@ -39,7 +40,7 @@ const LEVEL_STYLE: Record<LogLevel, string> = {
 const SOURCE_STYLE: Record<ViewSource, string> = {
   client: "bg-surface-3 text-ink-2",
   console: "bg-surface-3 text-ink-2",
-  network: "bg-accent-soft text-accent",
+  network: "bg-accent/15 text-accent",
   error: "bg-neg/15 text-neg",
   server: "bg-pos/15 text-pos",
 };
@@ -52,6 +53,20 @@ function sevToLevel(severity: string): LogLevel {
   return "info";
 }
 
+function mapServerLogs(arr: ServerLogEntry[], keyPrefix: string): ViewLog[] {
+  return arr.map((e, i) => ({
+    key: `${keyPrefix}${i}-${e.ts}`,
+    ts: e.ts,
+    level: sevToLevel(e.severity),
+    source: "server",
+    message:
+      `[${e.logger}] ${e.msg}` +
+      (e.httpStatus ? ` · ${e.httpStatus}` : "") +
+      (e.exc ? `\n${e.exc}` : ""),
+    correlationId: e.correlationId,
+  }));
+}
+
 function fmtTime(iso: string): string {
   // HH:MM:SS.mmm — enough to correlate client & server without date noise.
   const t = iso.includes("T") ? iso.split("T")[1] : iso;
@@ -59,15 +74,32 @@ function fmtTime(iso: string): string {
 }
 
 export default function LogsPage() {
-  const { enabled, sid, busy, error, enable, disable } = useSessionLogging();
+  const { enabled, sid, busy, error, enable, disable, roll } = useSessionLogging();
 
   // Live client-side buffer (console / network / errors).
   useSyncExternalStore(subscribe, getVersion, getVersion);
   const clientEntries = getEntries();
 
+  const [view, setView] = useState<"live" | "history">("live");
+  const [histSid, setHistSid] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
-  const serverQuery = useServerLogs(sid, enabled && !paused);
+
+  const serverQuery = useServerLogs(sid, view === "live" && enabled && !paused);
   const serverLogs = serverQuery.data ?? [];
+  const historyQ = useSessionHistory(true);
+  const histLogsQ = useHistoryLogs(view === "history" ? histSid : null);
+
+  // If the live session's server buffer has expired (a new login started), the
+  // backend has archived it — roll to a fresh session id. Guard to at most once
+  // per sid so a persistent 404 can't loop.
+  const rolledFor = useRef<string | null>(null);
+  useEffect(() => {
+    const kind = (serverQuery.error as { kind?: string } | undefined)?.kind;
+    if (view === "live" && enabled && sid && kind === "not_found" && rolledFor.current !== sid) {
+      rolledFor.current = sid;
+      void roll();
+    }
+  }, [serverQuery.error, view, enabled, sid, roll]);
 
   const [query, setQuery] = useState("");
   const [levelOn, setLevelOn] = useState<Record<LogLevel, boolean>>({
@@ -78,31 +110,22 @@ export default function LogsPage() {
   });
 
   const rows = useMemo<ViewLog[]>(() => {
-    const client: ViewLog[] = clientEntries.map((e) => ({
-      key: `c${e.id}`,
-      ts: e.ts,
-      level: e.level,
-      source: e.source,
-      message: e.message,
-      correlationId: e.correlationId,
-    }));
-    const server: ViewLog[] = serverLogs.map((e, i) => ({
-      key: `s${i}-${e.ts}`,
-      ts: e.ts,
-      level: sevToLevel(e.severity),
-      source: "server",
-      message:
-        `[${e.logger}] ${e.msg}` +
-        (e.httpStatus ? ` · ${e.httpStatus}` : "") +
-        (e.exc ? `\n${e.exc}` : ""),
-      correlationId: e.correlationId,
-    }));
+    let base: ViewLog[];
+    if (view === "history") {
+      base = mapServerLogs(histLogsQ.data ?? [], "h");
+    } else {
+      const client: ViewLog[] = clientEntries.map((e) => ({
+        key: `c${e.id}`, ts: e.ts, level: e.level, source: e.source,
+        message: e.message, correlationId: e.correlationId,
+      }));
+      base = [...client, ...mapServerLogs(serverLogs, "s")];
+    }
     const q = query.trim().toLowerCase();
-    return [...client, ...server]
+    return base
       .filter((r) => levelOn[r.level] && sourceOn[r.source])
       .filter((r) => !q || r.message.toLowerCase().includes(q) || (r.correlationId ?? "").includes(q))
       .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
-  }, [clientEntries, serverLogs, query, levelOn, sourceOn]);
+  }, [view, clientEntries, serverLogs, histLogsQ.data, query, levelOn, sourceOn]);
 
   // Auto-scroll to newest unless the user scrolled up.
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -215,6 +238,51 @@ export default function LogsPage() {
         )}
       </Card>
 
+      {/* Live / History switch */}
+      <div className="mt-4 flex items-center gap-2">
+        {(["live", "history"] as const).map((v) => (
+          <button
+            key={v}
+            onClick={() => { setView(v); if (v === "history") historyQ.refetch(); }}
+            className={cn(
+              "px-3 py-1.5 rounded-md text-[12px] border transition-colors flex items-center gap-1.5",
+              view === v ? "border-accent/50 bg-accent/15 text-accent" : "border-hairline text-ink-3 hover:text-ink",
+            )}
+          >
+            {v === "history" && <History className="h-3.5 w-3.5" />}
+            {v === "live" ? "Live" : "History"}
+          </button>
+        ))}
+      </div>
+
+      {/* History session picker */}
+      {view === "history" && (
+        <div className="mt-3">
+          <p className="text-[11px] text-ink-3 mb-2">
+            Last {(historyQ.data ?? []).length} archived session(s), newest first — a new session rolls
+            when you sign back in. Select one to view its logs.
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {(historyQ.data ?? []).length === 0 && (
+              <span className="text-[12px] text-ink-4">No archived sessions yet.</span>
+            )}
+            {(historyQ.data ?? []).map((s) => (
+              <button
+                key={s.sid}
+                onClick={() => setHistSid(s.sid)}
+                className={cn(
+                  "px-3 py-2 rounded-md border text-left transition-colors",
+                  histSid === s.sid ? "border-accent/50 bg-accent/10" : "border-hairline hover:bg-surface-2",
+                )}
+              >
+                <div className="text-[12px] text-ink font-mono">{new Date(s.archived_at).toLocaleString()}</div>
+                <div className="text-[11px] text-ink-4">{s.count} lines · {s.sid.slice(0, 8)}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="mt-4 flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[180px]">
@@ -243,7 +311,7 @@ export default function LogsPage() {
             onClick={() => setLevelOn((s) => ({ ...s, [lv]: !s[lv] }))}
             className={cn(
               "px-2 py-1 rounded-full border transition-colors font-mono uppercase",
-              levelOn[lv] ? "border-accent/40 bg-accent-soft text-accent" : "border-hairline text-ink-4",
+              levelOn[lv] ? "border-accent/50 bg-accent/15 text-accent" : "border-hairline text-ink-4",
             )}
           >
             {lv}
@@ -256,7 +324,7 @@ export default function LogsPage() {
             onClick={() => setSourceOn((s) => ({ ...s, [sc]: !s[sc] }))}
             className={cn(
               "px-2 py-1 rounded-full border transition-colors font-mono",
-              sourceOn[sc] ? "border-accent/40 bg-accent-soft text-accent" : "border-hairline text-ink-4",
+              sourceOn[sc] ? "border-accent/50 bg-accent/15 text-accent" : "border-hairline text-ink-4",
             )}
           >
             {sc}
@@ -273,7 +341,9 @@ export default function LogsPage() {
       >
         {rows.length === 0 ? (
           <div className="h-full flex items-center justify-center text-ink-4 text-[12px] px-6 text-center">
-            {enabled
+            {view === "history"
+              ? (histSid ? "No logs in this archived session." : "Select an archived session above to view its logs.")
+              : enabled
               ? "No logs yet — interact with the app to see console, network and server activity appear here."
               : "Logging is off. Turn it on above, then reproduce the issue."}
           </div>

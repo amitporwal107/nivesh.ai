@@ -15,7 +15,7 @@ from core.logging_config import (
     set_session_capture,
     reset_session_capture,
 )
-from services import session_log_store
+from services import session_log_store, issue_intake
 
 logger = logging.getLogger(__name__)
 _req_logger = logging.getLogger("nivesh.access")
@@ -315,6 +315,15 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 if capture_buf:
                     try:
                         await session_log_store.append(sid, capture_buf)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    # Auto-file a work issue for any server-side error/exception
+                    # captured this request (deduped by sig; best-effort).
+                    try:
+                        errs = [e for e in capture_buf
+                                if str(e.get("severity", "")).upper() in ("ERROR", "CRITICAL")]
+                        if errs:
+                            await issue_intake.intake_from_server_entries(errs, application=application)
                     except Exception:  # noqa: BLE001
                         pass
 

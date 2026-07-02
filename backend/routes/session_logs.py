@@ -31,16 +31,33 @@ class _DisableBody(BaseModel):
     sid: str | None = None
 
 
+class _EnableBody(BaseModel):
+    # When rolling over to a new session (e.g. after re-login), the client passes
+    # its previous sid so the server archives that session's logs to history first.
+    previous_sid: str | None = None
+
+
 @router.post("/session-logs/enable")
-async def enable_session_logs(request: Request):
+async def enable_session_logs(request: Request, body: _EnableBody | None = None):
     """Start capturing server logs for the caller's session. Returns a debug
-    session id the client must echo via the X-Nivesh-Debug-Session header."""
+    session id the client must echo via the X-Nivesh-Debug-Session header.
+
+    If `previous_sid` is supplied and owned by the caller, that session's logs are
+    archived to history (rolled) before a fresh session id is minted."""
     user = await get_current_user(request)
     if not await store.available():
         raise HTTPException(
             status_code=503,
             detail="Session logging is unavailable (log store not configured).",
         )
+    # Roll: archive the previous session's logs before starting a new one.
+    prev = (body.previous_sid if body else None)
+    if prev:
+        try:
+            if await store.get_owner(prev) == user["user_id"]:
+                await store.archive(prev, user["user_id"])
+        except Exception:  # noqa: BLE001 — archival must not block enabling
+            logger.warning("session log roll/archive failed", exc_info=True)
     sid = uuid.uuid4().hex
     if not await store.register_owner(sid, user["user_id"]):
         raise HTTPException(status_code=503, detail="Could not start session logging.")
@@ -50,13 +67,13 @@ async def enable_session_logs(request: Request):
 
 @router.post("/session-logs/disable")
 async def disable_session_logs(request: Request, body: _DisableBody):
-    """Stop capturing and purge the caller's buffered server logs."""
+    """Stop capturing. Archives the session's logs to history before clearing it."""
     user = await get_current_user(request)
     sid = body.sid
     if sid:
         owner = await store.get_owner(sid)
         if owner == user["user_id"]:
-            await store.clear(sid)
+            await store.archive(sid, user["user_id"])  # save to history, then clear
     return {"enabled": False}
 
 
@@ -91,3 +108,21 @@ async def clear_session_logs(
         raise HTTPException(status_code=403, detail="Not your session.")
     await store.clear(sid, keep_owner=True)
     return {"cleared": True}
+
+
+@router.get("/session-logs/history")
+async def list_session_history(request: Request):
+    """List the caller's last 10 archived sessions (newest first)."""
+    user = await get_current_user(request)
+    sessions = await store.list_history(user["user_id"])
+    return {"sessions": sessions, "count": len(sessions)}
+
+
+@router.get("/session-logs/history/{sid}")
+async def get_session_history(request: Request, sid: str):
+    """Return the archived server logs for one of the caller's past sessions."""
+    user = await get_current_user(request)
+    logs = await store.get_history(user["user_id"], sid)
+    if logs is None:
+        raise HTTPException(status_code=404, detail="Archived session not found.")
+    return {"sid": sid, "count": len(logs), "logs": logs}

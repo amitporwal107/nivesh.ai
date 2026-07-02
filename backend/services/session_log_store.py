@@ -20,11 +20,14 @@ import logging
 from typing import List, Optional
 
 from services.redis_client import get_client
+from deps import db
 
 logger = logging.getLogger(__name__)
 
-TTL_SECONDS = 2 * 3600   # debug sessions auto-expire after 2h of inactivity
+TTL_SECONDS = 24 * 3600  # debug sessions live 24h of inactivity (survive to be archived next login)
 MAX_ENTRIES = 2000       # ring-buffer cap per session (oldest lines trimmed)
+HISTORY_COLLECTION = "session_log_history"
+HISTORY_MAX = 10         # keep the last N archived sessions per user
 
 
 def _owner_key(sid: str) -> str:
@@ -124,3 +127,72 @@ async def clear(sid: str, *, keep_owner: bool = False) -> None:
 async def available() -> bool:
     """True if the store is usable (Redis configured & reachable)."""
     return (await get_client()) is not None
+
+
+# ── History: archive a finished session to Mongo, keep the last N per user ────
+
+async def archive(sid: str, user_id: str) -> bool:
+    """Move a session's buffered logs from Redis into the Mongo history
+    collection (kept to the last HISTORY_MAX per user), then clear Redis.
+    Called when a session rolls over (new login) or logging is turned off.
+    Best-effort — returns True if a history doc was written."""
+    from datetime import datetime, timezone
+    try:
+        logs = await read(sid, limit=MAX_ENTRIES)
+        wrote = False
+        if logs:
+            await db[HISTORY_COLLECTION].insert_one({
+                "user_id": user_id,
+                "sid": sid,
+                "archived_at": datetime.now(timezone.utc),
+                "count": len(logs),
+                "logs": logs,
+            })
+            wrote = True
+            # Trim to the last HISTORY_MAX for this user.
+            stale = await db[HISTORY_COLLECTION].find(
+                {"user_id": user_id}, {"_id": 1},
+            ).sort("archived_at", -1).skip(HISTORY_MAX).to_list(1000)
+            if stale:
+                await db[HISTORY_COLLECTION].delete_many(
+                    {"_id": {"$in": [d["_id"] for d in stale]}}
+                )
+        await clear(sid)  # remove the live Redis buffer + owner mapping
+        return wrote
+    except Exception as e:  # noqa: BLE001
+        logger.warning("session_log archive failed: %s", e)
+        return False
+
+
+async def list_history(user_id: str) -> List[dict]:
+    """Return metadata for the user's last HISTORY_MAX archived sessions
+    (newest first): sid, archived_at (ISO), count."""
+    try:
+        docs = await db[HISTORY_COLLECTION].find(
+            {"user_id": user_id}, {"_id": 0, "logs": 0},
+        ).sort("archived_at", -1).limit(HISTORY_MAX).to_list(HISTORY_MAX)
+        out = []
+        for d in docs:
+            at = d.get("archived_at")
+            out.append({
+                "sid": d.get("sid"),
+                "archived_at": at.isoformat() if hasattr(at, "isoformat") else at,
+                "count": d.get("count", 0),
+            })
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.warning("session_log list_history failed: %s", e)
+        return []
+
+
+async def get_history(user_id: str, sid: str) -> Optional[List[dict]]:
+    """Return the archived log lines for one of the user's past sessions,
+    or None if not found / not theirs."""
+    try:
+        doc = await db[HISTORY_COLLECTION].find_one(
+            {"user_id": user_id, "sid": sid}, {"_id": 0, "logs": 1},
+        )
+        return None if doc is None else (doc.get("logs") or [])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("session_log get_history failed: %s", e)
+        return None

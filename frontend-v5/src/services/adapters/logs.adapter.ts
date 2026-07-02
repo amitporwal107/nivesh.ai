@@ -27,21 +27,43 @@ export interface EnableResult {
   ttl_seconds: number;
 }
 
+/** One archived (past) session in the history view. */
+export interface SessionHistoryItem {
+  sid: string;
+  archived_at: string;
+  count: number;
+}
+
 export interface LogsAdapter {
-  enable(): Promise<EnableResult>;
+  enable(previousSid?: string | null): Promise<EnableResult>;
   disable(sid: string): Promise<void>;
   fetch(sid: string, limit?: number): Promise<ServerLogEntry[]>;
   clear(sid: string): Promise<void>;
+  history(): Promise<SessionHistoryItem[]>;
+  historyLogs(sid: string): Promise<ServerLogEntry[]>;
 }
 
 export const realLogsAdapter: LogsAdapter = {
-  async enable() {
+  async enable(previousSid?: string | null) {
     const res = await http<EnableResult>({
       method: "POST",
       path: "/api/session-logs/enable",
+      body: { previous_sid: previousSid ?? null },
       noRetry: true,
     });
     return res.data;
+  },
+
+  async history() {
+    const res = await http<{ sessions: SessionHistoryItem[] }>({ path: "/api/session-logs/history" });
+    return res.data?.sessions ?? [];
+  },
+
+  async historyLogs(sid) {
+    const res = await http<{ logs: ServerLogEntry[] }>({
+      path: `/api/session-logs/history/${encodeURIComponent(sid)}`,
+    });
+    return res.data?.logs ?? [];
   },
 
   async disable(sid) {

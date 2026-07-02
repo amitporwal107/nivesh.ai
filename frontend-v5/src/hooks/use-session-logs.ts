@@ -10,7 +10,7 @@
 import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { logsService } from "@/services";
-import type { ServerLogEntry } from "@/services/adapters/logs.adapter";
+import type { ServerLogEntry, SessionHistoryItem } from "@/services/adapters/logs.adapter";
 import { useLoggingStore } from "@/stores/logging.store";
 
 export function useSessionLogging() {
@@ -24,7 +24,8 @@ export function useSessionLogging() {
     setBusy(true);
     setError(null);
     try {
-      const res = await logsService.enable();
+      // Pass the current sid so the server archives (rolls) it into history first.
+      const res = await logsService.enable(sid);
       applySession(true, res.sid);
     } catch {
       // Server-side capture unavailable (e.g. log store not configured) — still
@@ -34,7 +35,18 @@ export function useSessionLogging() {
     } finally {
       setBusy(false);
     }
-  }, [applySession]);
+  }, [applySession, sid]);
+
+  /** Roll to a fresh session (archives the current one). Used when the live
+   *  session's server buffer has expired (a new login started). */
+  const roll = useCallback(async () => {
+    try {
+      const res = await logsService.enable(sid);
+      applySession(true, res.sid);
+    } catch {
+      /* best-effort */
+    }
+  }, [applySession, sid]);
 
   const disable = useCallback(async () => {
     setBusy(true);
@@ -51,7 +63,29 @@ export function useSessionLogging() {
     }
   }, [applySession, sid]);
 
-  return { enabled, sid, busy, error, enable, disable };
+  return { enabled, sid, busy, error, enable, disable, roll };
+}
+
+/** The caller's last 10 archived sessions (historical view). */
+export function useSessionHistory(enabled = true) {
+  return useQuery<SessionHistoryItem[]>({
+    queryKey: ["session-logs", "history"],
+    queryFn: () => logsService.history(),
+    enabled,
+    staleTime: 15_000,
+    retry: false,
+  });
+}
+
+/** Buffered server logs for one archived session (loaded on demand). */
+export function useHistoryLogs(sid: string | null) {
+  return useQuery<ServerLogEntry[]>({
+    queryKey: ["session-logs", "history", sid],
+    queryFn: () => logsService.historyLogs(sid as string),
+    enabled: Boolean(sid),
+    staleTime: 60_000,
+    retry: false,
+  });
 }
 
 /** Poll buffered server logs for a debug session (only while enabled). */

@@ -24,6 +24,8 @@ import {
   type RequestEndEvent,
   type RequestErrorEvent,
 } from "@/lib/observability";
+import { apiConfig } from "@/services/api/config";
+import { getAuthToken } from "@/services/api/auth-token";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogSource = "console" | "network" | "error" | "client";
@@ -109,6 +111,11 @@ export function record(
     });
     if (buffer.length > MAX_ENTRIES) buffer = buffer.slice(-MAX_ENTRIES);
     emitChange();
+    // Auto-file browser errors as work issues. Network errors are filed
+    // server-side already, so only console/runtime errors go here.
+    if (level === "error" && (source === "error" || source === "console")) {
+      queueErrorForIntake(message);
+    }
   } catch {
     /* logging must never break the app */
   }
@@ -131,6 +138,44 @@ function formatArgs(args: unknown[]): string {
 /** Record a global/runtime error (called from window.onerror & rejection handlers). */
 export function recordClientError(message: string): void {
   record("error", "error", message);
+}
+
+// ── Auto-file client errors as work issues (only while capturing) ─────────────
+// Batched + debounced; posts directly (no adapter import → no import cycle).
+// Server-side errors are filed by the backend; here we file browser-only errors.
+let pendingErrors: { message: string }[] = [];
+let errorFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function queueErrorForIntake(message: string): void {
+  pendingErrors.push({ message: message.slice(0, 2000) });
+  if (pendingErrors.length >= 10) {
+    void flushErrorIntake();
+  } else if (!errorFlushTimer) {
+    errorFlushTimer = setTimeout(() => void flushErrorIntake(), 5000);
+  }
+}
+
+async function flushErrorIntake(): Promise<void> {
+  if (errorFlushTimer) { clearTimeout(errorFlushTimer); errorFlushTimer = null; }
+  if (pendingErrors.length === 0) return;
+  const batch = pendingErrors;
+  pendingErrors = [];
+  try {
+    const token = getAuthToken();
+    await fetch(`${apiConfig.baseUrl}/api/work/issues/from-client-errors`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: "include",
+      body: JSON.stringify({ entries: batch }),
+      keepalive: true,
+    });
+  } catch {
+    // best-effort — re-queue (bounded) so a transient failure doesn't lose it
+    pendingErrors = batch.concat(pendingErrors).slice(-100);
+  }
 }
 
 // ── Network capture: an Observer that records API lifecycle events ────────────
@@ -219,6 +264,7 @@ export function startCapture(): void {
 export function stopCapture(): void {
   if (!capturing) return;
   record("info", "client", "Session logging stopped");
+  void flushErrorIntake();
   restoreConsole();
   if (previousObserver) {
     setObserver(previousObserver);

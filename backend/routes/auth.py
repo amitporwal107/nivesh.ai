@@ -21,6 +21,26 @@ from core.exceptions import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
+_DEFAULT_SESSION_DAYS = 7
+_LONG_SESSION_DAYS = 3650  # ~10y — effectively non-expiring
+
+
+async def _session_days(user_id: str) -> int:
+    """Session lifetime in days. Founder/admin accounts on NON-production get an
+    effectively non-expiring session (frictionless staging dev/verify); everyone
+    else — and ALL of production — keeps the standard 7-day window."""
+    try:
+        from helpers import secrets as _secrets
+        from deps import SEED_FOUNDER_EMAILS
+        if _secrets.current_env() == "production":
+            return _DEFAULT_SESSION_DAYS
+        u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1})
+        email = ((u or {}).get("email") or "").strip().lower()
+        founders = {e.strip().lower() for e in SEED_FOUNDER_EMAILS}
+        return _LONG_SESSION_DAYS if email in founders else _DEFAULT_SESSION_DAYS
+    except Exception:  # noqa: BLE001 — never block login on this
+        return _DEFAULT_SESSION_DAYS
+
 # ── Magic-link whitelist validation ──────────────────────────────────────
 # Self-serve flow behind the "or a whitelisted email" box on the login page.
 # A visitor submits any valid email; if it isn't already whitelisted we email
@@ -132,10 +152,11 @@ async def google_auth(request: Request, response: Response):
         })
 
     session_token = str(uuid.uuid4())
+    _days = await _session_days(user_id)
     await db.user_sessions.insert_one({
         "user_id": user_id,
         "session_token": session_token,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=_days)).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat()
     })
 
@@ -268,10 +289,11 @@ async def exchange_gmail_session(request: Request, response: Response):
 
     user_id = doc["user_id"]
     session_token = str(uuid.uuid4())
+    _days = await _session_days(user_id)
     await db.user_sessions.insert_one({
         "user_id": user_id,
         "session_token": session_token,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=_days)).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     response.set_cookie(
@@ -322,10 +344,11 @@ async def gmail_exchange(code: str, return_to: str = "/v2/app"):
 
     user_id = doc["user_id"]
     session_token = str(uuid.uuid4())
+    _days = await _session_days(user_id)
     await db.user_sessions.insert_one({
         "user_id": user_id,
         "session_token": session_token,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=_days)).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -441,9 +464,10 @@ async def _issue_email_session(request: Request, response: Response, email: str)
         })
 
     session_token = str(uuid.uuid4())
+    _days = await _session_days(user_id)
     await db.user_sessions.insert_one({
         "user_id": user_id, "session_token": session_token,
-        "expires_at": (now + timedelta(days=7)).isoformat(),
+        "expires_at": (now + timedelta(days=_days)).isoformat(),
         "created_at": now.isoformat(),
     })
     response.set_cookie(

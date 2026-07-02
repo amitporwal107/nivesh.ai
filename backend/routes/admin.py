@@ -587,7 +587,78 @@ async def test_secret(key: str, request: Request):
         from services import email_service
         return await email_service.test_connection()
 
+    if test_fn == "github":
+        # Validate the token against GitHub and surface its expiry (rotation signal).
+        import urllib.request
+        import json as _json
+        tok = _secrets.get("GH_TOKEN")
+        if not tok:
+            return {"ok": False, "error": "Token not configured"}
+        try:
+            req = urllib.request.Request(
+                "https://api.github.com/user",
+                headers={"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"},
+            )
+            with urllib.request.urlopen(req, timeout=15) as r:
+                login = _json.loads(r.read()).get("login", "?")
+                expiry = r.headers.get("github-authentication-token-expiration", "")
+            return {"ok": True, "detail": f"Valid — user {login}" + (f", expires {expiry}" if expiry else "")}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:120]}"}
+
     return {"ok": False, "error": f"Unknown test_fn: {test_fn}"}
+
+
+@router.post("/admin/secrets/{key}/rotate")
+async def rotate_secret(key: str, request: Request, env: str = ""):
+    """Rotate a secret to a new value + record when/who, then re-test it.
+
+    Externally-issued tokens (e.g. GH_TOKEN — a GitHub PAT) cannot be minted by
+    the app, so the operator supplies the new value in the body. Admin only.
+    """
+    user = await require_admin(request)
+    body = await request.json()
+    value = body.get("value")
+    if value is None or not str(value).strip():
+        raise ValidationException("value is required to rotate", code="VAL-002")
+    from helpers import secrets as _secrets
+    from datetime import datetime, timezone
+    target_env = env.strip().lower() or _secrets.current_env()
+    target_env = "production" if target_env == "production" else "staging"
+
+    await _secrets.persist_to_db(
+        db, key, str(value).strip(), updated_by=user.get("email", ""), env=target_env,
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    await db.system_config.update_one(
+        {"key": f"secrets:{target_env}"},
+        {"$set": {f"rotated.{key}": {"at": now, "by": user.get("email", "")}}},
+        upsert=True,
+    )
+    try:
+        from services import audit
+        await audit.record(
+            user_id=user.get("user_id", ""), action="secret_rotate",
+            metadata={"secret_key": key, "env": target_env, "actor_email": user.get("email")},
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("secret rotate audit log failed", exc_info=True)
+
+    test_result = None
+    meta = _secrets.KNOWN_SECRETS.get(key)
+    if meta and meta.get("test_fn") and target_env == _secrets.current_env():
+        try:
+            test_result = await test_secret(key, request)
+        except Exception as e:  # noqa: BLE001
+            test_result = {"ok": False, "error": str(e)[:120]}
+
+    return {
+        "status": "ok", "key": key,
+        "env": "production" if target_env == "production" else "staging",
+        "rotated_at": now,
+        "masked_value": _secrets.mask(str(value).strip()),
+        "test": test_result,
+    }
 
 
 # ═══ Feature Flags Management ════════════════════════════════════════════
