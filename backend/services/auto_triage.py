@@ -185,18 +185,15 @@ async def _enrich(issue_id: str) -> None:
                     "status": "in_progress",
                     "remediation": {"status": "queued", "started_at": now, "finished_at": None,
                                     "branch": None, "pr_url": None, "run_id": None,
-                                    "detail": "auto-triage queued the fix agent"},
+                                    "detail": "Queued for the VM fix-agent runner"},
                     "updated_at": now,
                 },
                  "$push": {"comments": {"author": "auto_triage",
-                                        "body": "Auto-classified valid (high-confidence coding bug) → fix agent queued.",
+                                        "body": "Auto-classified valid (high-confidence coding bug) → queued for the VM fix-agent runner.",
                                         "created_at": now.isoformat()}}},
             )
-            try:
-                from services import fix_agent
-                await fix_agent.run_fix(issue_id)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("auto_triage auto-fix failed to start for %s: %s", issue_id, e)
+            # The fix executes out-of-process on the VM (fix_agent_runner.py, cron),
+            # which polls the queue and reports back — the app container has no git.
     except Exception as e:  # noqa: BLE001 — background task must never raise
         logger.warning("auto_triage._enrich failed for %s: %s", issue_id, e)
 

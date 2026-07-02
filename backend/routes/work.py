@@ -552,24 +552,31 @@ async def trigger_fix(request: Request, issue_id: str):
             "status": "in_progress",
             "remediation": {
                 "status": "queued", "started_at": now, "finished_at": None,
-                "branch": None, "pr_url": None, "run_id": None, "detail": "Fix agent queued",
+                "branch": None, "pr_url": None, "run_id": None,
+                "detail": "Queued for the VM fix-agent runner",
             },
             "updated_at": now,
         }},
     )
-    # Lazy import so a problem in the agent module can't break the whole router.
-    try:
-        from services import fix_agent
-    except Exception as e:  # noqa: BLE001
-        await db[_COLLECTION].update_one(
-            {"issue_id": issue_id},
-            {"$set": {"remediation.status": "failed",
-                      "remediation.detail": f"fix agent unavailable: {e}",
-                      "updated_at": datetime.now(timezone.utc)}},
-        )
-        raise HTTPException(status_code=503, detail="Fix agent unavailable")
-    _schedule(fix_agent.run_fix(issue_id))
+    # The fix runs OUT-OF-PROCESS on the VM (which has git) — see
+    # backend/scripts/fix_agent_runner.py (cron). It polls GET /api/work/fix-queue,
+    # does the clone / LLM / push / PR, and reports back via /artifacts. The app
+    # container has no git, so we never run the fix in-process.
     return {"issue_id": issue_id, "remediation": {"status": "queued"}}
+
+
+@router.get("/fix-queue")
+async def fix_queue(request: Request, limit: int = Query(20, le=100)):
+    """Issues queued for the VM fix-agent runner (oldest first). Admin OR
+    X-Ingest-Secret. Returns just the fields the runner needs to clone + fix + PR."""
+    await _require_admin_or_ingest_secret(request)
+    cursor = db[_COLLECTION].find(
+        {"remediation.status": "queued", "classification": "valid"},
+        {"_id": 0, "issue_id": 1, "title": 1, "severity": 1, "exception_class": 1,
+         "endpoint": 1, "http_status": 1, "sample_message": 1, "sample_traceback": 1, "rca": 1},
+    ).sort("updated_at", 1).limit(limit)
+    docs = await cursor.to_list(limit)
+    return {"issues": docs, "count": len(docs)}
 
 
 @router.post("/issues/{issue_id}/artifacts")
