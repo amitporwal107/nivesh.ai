@@ -13,7 +13,8 @@ export interface IssuesFilter {
   priority?:   string;
   source?:     string;
   label?:      string;
-  issue_type?: string;   // epic | story | task
+  issue_type?: string;   // project | epic | story | task
+  project?:    string;   // project key, e.g. ADVW
   phase?:      string;   // phase-1 | phase-2 | phase-3
   parent?:     string;   // parent issue_id
   track?:      string;   // internal | vendor-gated
@@ -31,6 +32,7 @@ export interface IssueUpdate {
   // ── program-tracker grooming fields ──
   title?:             string;
   issue_type?:        string;
+  project?:           string;
   parent?:            string;
   phase?:             string;
   track?:             string;
@@ -53,6 +55,7 @@ export const workAdapter = {
     if (filter.source)     params.set("source",     filter.source);
     if (filter.label)      params.set("label",      filter.label);
     if (filter.issue_type) params.set("issue_type", filter.issue_type);
+    if (filter.project)    params.set("project",    filter.project);
     if (filter.phase)      params.set("phase",      filter.phase);
     if (filter.parent)     params.set("parent",     filter.parent);
     if (filter.track)      params.set("track",      filter.track);
@@ -64,6 +67,14 @@ export const workAdapter = {
     const parsed = IssuesListResC.safeParse(res.data);
     if (!parsed.success) throw ApiError.contractDrift(`work.list: ${parsed.error.message}`);
     return { issues: parsed.data.issues, total: parsed.data.total };
+  },
+
+  /** Create a work item (used by the Project Dashboard "New requirement" form). */
+  async create(body: Record<string, unknown>): Promise<WorkIssue> {
+    const res = await http({ path: "/api/work/issues", method: "POST", body, noRetry: true });
+    const parsed = WorkIssueC.safeParse(res.data);
+    if (!parsed.success) throw ApiError.contractDrift(`work.create: ${parsed.error.message}`);
+    return parsed.data;
   },
 
   async get(issueId: string): Promise<WorkIssue> {

@@ -13,7 +13,7 @@ import {
   Bug, Zap, AlertTriangle, CheckCircle2, Clock, RefreshCw, X, ChevronRight, ChevronDown,
   Code2, GitPullRequest, ExternalLink, MessageSquare, FlaskConical, Wrench, FileText,
   Camera, Layers, GitBranch, Circle, Calendar, ListTree, LayoutGrid, Palette, Paperclip,
-  GitCommit, Target,
+  GitCommit, Target, Plus, ArrowLeft, Folder,
 } from "lucide-react";
 import { workAdapter, type IssuesFilter, type IssueUpdate } from "@/services/adapters/work.adapter";
 import type { WorkIssue, WorkStats } from "@/services/contracts/work.contract";
@@ -526,6 +526,33 @@ function IssueDrawer({ issue, allById, onClose, onOpen }: {
                   ))}
                 </div>
               </div>
+              {issue.source !== "manual" && (
+              <div>
+                <p className="text-[11px] font-mono uppercase tracking-[.1em] text-ink-4 mb-2">Triage</p>
+                <div className="flex gap-2 flex-wrap">
+                  {(["valid", "business_validation", "tbd"] as const).map(c => {
+                    const cm = CLASSIFICATION_META[c];
+                    const active = issue.classification === c;
+                    return (
+                      <button
+                        key={c}
+                        onClick={() => updateMutation.mutate({ classification: c })}
+                        disabled={active || updateMutation.isPending}
+                        className={`text-[12px] px-3 py-1.5 rounded-lg border transition-colors ${
+                          active ? `${cm.bg} ${cm.text} border-current font-medium`
+                                 : "border-hairline text-ink-3 hover:text-ink hover:border-accent/40"}`}
+                      >
+                        {cm.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-ink-4 mt-2 leading-relaxed">
+                  Flag <b>Valid</b> for a real coding bug (enables the fix agent), <b>Business validation</b>
+                  {" "}for an expected / data error (e.g. a delisted symbol), or <b>TBD</b> if it needs clarification.
+                </p>
+              </div>
+              )}
               {issue.classification === "valid" && (
                 <div className="rounded-xl border border-accent/30 bg-[rgb(var(--accent)/0.04)] p-4 flex items-center gap-2">
                   <Wrench className="h-4 w-4 text-accent shrink-0" />
@@ -680,9 +707,11 @@ function FilterPanel({ facets, onChange }: { facets: Facets; onChange(f: Facets)
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Work Tracker (scoped to one project) ─────────────────────────────────────
 
-export default function WorkPage() {
+function WorkTracker({ projectKey, projectName, onBack }: {
+  projectKey: string | null; projectName: string; onBack(): void;
+}) {
   const [view, setView]     = useState<View>("roadmap");
   const [facets, setFacets] = useState<Facets>({});
   const [selected, setSelected] = useState<WorkIssue | null>(null);
@@ -694,10 +723,13 @@ export default function WorkPage() {
   });
   const { data: stats } = useQuery({ queryKey: ["work-stats"], queryFn: workAdapter.stats });
 
-  const all = useMemo(() => data?.issues ?? [], [data]);
-  const allById = useMemo(() => new Map(all.map(i => [i.issue_id, i])), [all]);
+  // full map (incl. project rows) for parent/breadcrumb resolution
+  const allById = useMemo(() => new Map((data?.issues ?? []).map(i => [i.issue_id, i])), [data]);
+  // scope to this project (or unassigned), excluding project-type rows
+  const all = useMemo(() => (data?.issues ?? []).filter(i =>
+    i.issue_type !== "project" && (projectKey ? i.project === projectKey : !i.project)
+  ), [data, projectKey]);
 
-  // Facet filter: keep an item if it matches OR is an ancestor/descendant on the kept path.
   const filtered = useMemo(() => {
     const active = Object.values(facets).some(Boolean);
     if (!active) return all;
@@ -718,15 +750,18 @@ export default function WorkPage() {
     stories: all.filter(i => i.issue_type === "story").length,
     tasks:   all.filter(i => i.issue_type === "task").length,
   }), [all]);
-
   const onOpen = useCallback((i: WorkIssue) => setSelected(i), []);
 
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="shrink-0 px-6 py-4 border-b border-hairline flex items-center gap-4 flex-wrap">
+        <button onClick={onBack} className="flex items-center gap-1.5 text-[12px] text-ink-3 hover:text-ink">
+          <ArrowLeft className="h-4 w-4" />Projects
+        </button>
+        <span className="text-ink-4">/</span>
         <div className="flex items-center gap-2">
           <Target className="h-5 w-5 text-accent" />
-          <h1 className="text-[16px] font-semibold text-ink">Work Tracker</h1>
+          <h1 className="text-[16px] font-semibold text-ink">{projectName}</h1>
         </div>
         {stats && <StatsBar stats={stats} counts={counts} />}
         <div className="ml-auto flex items-center gap-3">
@@ -757,4 +792,171 @@ export default function WorkPage() {
       {selected && <IssueDrawer issue={selected} allById={allById} onClose={() => setSelected(null)} onOpen={onOpen} />}
     </div>
   );
+}
+
+// ── Project Dashboard (landing) ──────────────────────────────────────────────
+
+interface ProjectRollup {
+  key: string; name: string; requirement: string; status: string; owner?: string | null;
+  epics: number; stories: number; tasks: number; done: number; pct: number;
+  phases: string[]; workflows: string[];
+}
+
+const inputCls = "w-full rounded-lg bg-surface-1 border border-hairline px-3 py-2 text-[13px] text-ink placeholder-ink-4 focus:outline-none focus:border-accent/50";
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div><p className="text-[11px] font-mono uppercase tracking-[.1em] text-ink-4 mb-1.5">{label}</p>{children}</div>;
+}
+
+function rollup(projectItems: WorkIssue[], key: string, name: string, requirement: string, status: string, owner?: string | null): ProjectRollup {
+  const tasks = projectItems.filter(i => i.issue_type === "task");
+  const done = tasks.filter(t => t.status === "resolved").length;
+  return {
+    key, name, requirement, status, owner,
+    epics: projectItems.filter(i => i.issue_type === "epic").length,
+    stories: projectItems.filter(i => i.issue_type === "story").length,
+    tasks: tasks.length, done, pct: tasks.length ? Math.round((done / tasks.length) * 100) : 0,
+    phases: PHASES.filter(ph => projectItems.some(i => i.phase === ph)),
+    workflows: WORKFLOWS.filter(w => projectItems.some(i => (i.workflow ?? []).includes(w))),
+  };
+}
+
+function ProjectCard({ p, onOpen }: { p: ProjectRollup; onOpen(): void }) {
+  const statusColor = p.status === "resolved" ? "bg-pos" : p.status === "wont_fix" ? "bg-ink-4" : p.status === "in_progress" ? "bg-warm" : "bg-accent";
+  return (
+    <button onClick={onOpen} className="text-left rounded-2xl border border-hairline p-4 hover:border-accent/40 hover:shadow-md transition-all bg-surface-1 flex flex-col gap-2 min-h-[160px]">
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">{p.key}</span>
+        <span className="ml-auto flex items-center gap-1 text-[10px] text-ink-3"><span className={`h-2 w-2 rounded-full ${statusColor}`} />{p.status}</span>
+      </div>
+      <p className="text-[14px] font-semibold text-ink leading-snug">{p.name}</p>
+      {p.requirement && <p className="text-[11px] text-ink-3 line-clamp-2">{p.requirement}</p>}
+      <div className="mt-auto">
+        <ProgressBar pct={p.pct} />
+        <p className="text-[10px] text-ink-4 font-mono mt-1">{p.pct}% · {p.done}/{p.tasks} tasks · {p.epics} epics · {p.stories} stories</p>
+        <div className="flex flex-wrap gap-1 mt-1.5">
+          {p.phases.map(ph => <span key={ph} className="font-mono text-[9px] text-ink-4 bg-surface-2 px-1 rounded">{PHASE_META[ph]?.label ?? ph}</span>)}
+          {p.workflows.slice(0, 4).map(w => <span key={w} className="font-mono text-[9px] text-ink-4 bg-surface-2 px-1 rounded">{w}</span>)}
+        </div>
+        {p.owner && <p className="text-[10px] text-ink-4 mt-1">owner: {p.owner}</p>}
+      </div>
+    </button>
+  );
+}
+
+function NewProjectDrawer({ onClose, onCreated }: { onClose(): void; onCreated(): void }) {
+  const [name, setName] = useState("");
+  const [key, setKey] = useState("");
+  const [requirement, setRequirement] = useState("");
+  const [owner, setOwner] = useState("");
+  const [status, setStatus] = useState("open");
+  const [err, setErr] = useState<string | null>(null);
+
+  const autoKey = (n: string) => n.replace(/[^A-Za-z0-9]+/g, " ").trim().split(" ").map(w => w[0] ?? "").join("").toUpperCase().slice(0, 6) || "PROJ";
+  const create = useMutation({
+    mutationFn: () => {
+      const k = (key.trim() || autoKey(name)).toUpperCase();
+      return workAdapter.create({
+        sig: `proj:${k}`, title: name.trim(), issue_type: "project", project: k,
+        requirements_md: requirement.trim(), assignee: owner.trim() || null, status,
+        priority: "P1", severity: "WARNING", source: "manual",
+        labels: ["project", `key:${k}`],
+      });
+    },
+    onSuccess: () => { onCreated(); onClose(); },
+    onError: (e: unknown) => setErr(e instanceof Error ? e.message : "Failed to create"),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      <div className="flex-1 bg-black/40" onClick={onClose} />
+      <aside className="w-full max-w-[480px] bg-bg border-l border-hairline flex flex-col h-full">
+        <div className="flex items-center gap-2 px-6 py-4 border-b border-hairline">
+          <Folder className="h-4 w-4 text-accent" />
+          <h2 className="text-[15px] font-semibold text-ink">New requirement / project</h2>
+          <button onClick={onClose} className="ml-auto text-ink-4 hover:text-ink"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          <Field label="Name"><input value={name} onChange={e => { setName(e.target.value); if (!key) setKey(autoKey(e.target.value)); }} placeholder="e.g. Advisory Workflows" className={inputCls} /></Field>
+          <Field label="Key"><input value={key} onChange={e => setKey(e.target.value.toUpperCase())} placeholder="ADVW" className={`${inputCls} font-mono`} /></Field>
+          <Field label="Requirement (plain English)"><textarea value={requirement} onChange={e => setRequirement(e.target.value)} rows={4} placeholder="What needs to be built and why…" className={`${inputCls} resize-none`} /></Field>
+          <Field label="Owner"><input value={owner} onChange={e => setOwner(e.target.value)} placeholder="name / email" className={inputCls} /></Field>
+          <Field label="Status">
+            <select value={status} onChange={e => setStatus(e.target.value)} className={inputCls}>
+              <option value="open">Planned / Open</option>
+              <option value="in_progress">Active</option>
+              <option value="testing_qa">In QA</option>
+              <option value="resolved">Done</option>
+              <option value="wont_fix">On hold</option>
+            </select>
+          </Field>
+          {err && <p className="text-[12px] text-neg">{err}</p>}
+        </div>
+        <div className="px-6 py-4 border-t border-hairline flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-1.5 rounded-lg border border-hairline text-[13px] text-ink-3 hover:text-ink">Cancel</button>
+          <button onClick={() => { setErr(null); if (name.trim()) create.mutate(); }} disabled={!name.trim() || create.isPending} className="px-4 py-1.5 rounded-lg bg-accent text-on-accent text-[13px] font-medium disabled:opacity-40">
+            {create.isPending ? "Creating…" : "Create project"}
+          </button>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function ProjectDashboard({ onOpen }: { onOpen(key: string | null, name: string): void }) {
+  const qc = useQueryClient();
+  const [creating, setCreating] = useState(false);
+  const filter: IssuesFilter = { limit: 500 };
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["work-issues", filter], queryFn: () => workAdapter.list(filter) });
+  const items = data?.issues ?? [];
+
+  const projects: ProjectRollup[] = useMemo(() => {
+    return items.filter(i => i.issue_type === "project").map(p => {
+      const key = p.project || p.issue_id;
+      const scoped = items.filter(i => i.issue_type !== "project" && i.project === key);
+      return rollup(scoped, key, p.title, p.requirements_md || p.sample_message || "", p.status, p.assignee);
+    });
+  }, [items]);
+  const unassigned = useMemo(() => items.filter(i => i.issue_type !== "project" && !i.project), [items]);
+
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      <div className="shrink-0 px-6 py-4 border-b border-hairline flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2"><Folder className="h-5 w-5 text-accent" /><h1 className="text-[16px] font-semibold text-ink">Projects</h1></div>
+        <span className="text-[12px] text-ink-4">Ongoing requirements</span>
+        <div className="ml-auto flex items-center gap-3">
+          <button onClick={() => setCreating(true)} className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg bg-accent text-on-accent font-medium"><Plus className="h-3.5 w-3.5" />New requirement</button>
+          <button onClick={() => refetch()} className="flex items-center gap-1.5 text-[12px] text-ink-3 hover:text-ink px-3 py-1.5 rounded-lg border border-hairline hover:border-accent/40"><RefreshCw className="h-3.5 w-3.5" />Refresh</button>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6">
+        {isLoading && <LoadingSkeleton variant="list" />}
+        {isError && <ErrorState title="Couldn't load projects" description="Check API auth or wait for backend to start." />}
+        {!isLoading && !isError && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {projects.map(p => <ProjectCard key={p.key} p={p} onOpen={() => onOpen(p.key, p.name)} />)}
+            {unassigned.length > 0 && (
+              <ProjectCard
+                p={rollup(unassigned, "—", "Unassigned items", "Work items not yet attached to a project (incl. auto-filed issues).", "open")}
+                onOpen={() => onOpen(null, "Unassigned")}
+              />
+            )}
+            <button onClick={() => setCreating(true)} className="rounded-2xl border border-dashed border-hairline p-4 flex flex-col items-center justify-center gap-2 text-ink-4 hover:text-ink hover:border-accent/40 min-h-[160px]">
+              <Plus className="h-6 w-6" />
+              <span className="text-[13px] font-medium">New requirement</span>
+              <span className="text-[11px] text-center">Define a project requirement to start tracking epics, stories and tasks.</span>
+            </button>
+          </div>
+        )}
+      </div>
+      {creating && <NewProjectDrawer onClose={() => setCreating(false)} onCreated={() => qc.invalidateQueries({ queryKey: ["work-issues"] })} />}
+    </div>
+  );
+}
+
+// ── Main page (Project Dashboard → Work Tracker) ──────────────────────────────
+
+export default function WorkPage() {
+  const [open, setOpen] = useState<{ key: string | null; name: string } | null>(null);
+  if (open) return <WorkTracker projectKey={open.key} projectName={open.name} onBack={() => setOpen(null)} />;
+  return <ProjectDashboard onOpen={(key, name) => setOpen({ key, name })} />;
 }

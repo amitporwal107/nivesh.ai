@@ -142,6 +142,13 @@ async def _upsert(
     }
     await db[_COLLECTION].insert_one(doc)
     logger.info("issue_intake filed %s (source=%s sig=%s)", issue_id, source, sig)
+    # Optional automation (auto-RCA + conservative classify, opt-in auto-fix).
+    # Fire-and-forget; no-op unless the flags are set. Never blocks intake.
+    try:
+        from services import auto_triage
+        auto_triage.schedule(issue_id)
+    except Exception:  # noqa: BLE001
+        pass
     return issue_id
 
 

@@ -23,7 +23,7 @@ export type Remediation = z.infer<typeof RemediationC>;
 
 export const WORK_STATUSES = ["open", "in_progress", "in_review", "testing_qa", "resolved", "wont_fix"] as const;
 export const WORK_CLASSIFICATIONS = ["unclassified", "valid", "business_validation", "tbd"] as const;
-export const WORK_ISSUE_TYPES = ["epic", "story", "task"] as const;
+export const WORK_ISSUE_TYPES = ["project", "epic", "story", "task"] as const;
 export const WORK_PHASES = ["phase-1", "phase-2", "phase-3"] as const;
 export const WORK_TRACKS = ["internal", "vendor-gated"] as const;
 
@@ -67,8 +67,9 @@ export const WorkIssueC = z.object({
     body:       z.string(),
     created_at: z.string(),
   })).default([]),
-  // ── program-tracker (epics → stories → tasks) — additive, lenient for old docs ──
+  // ── program-tracker (project → epics → stories → tasks) — additive, lenient for old docs ──
   issue_type:        z.enum(WORK_ISSUE_TYPES).default("task"),
+  project:           z.string().nullable().optional(),
   parent:            z.string().nullable().optional(),
   phase:             z.enum(WORK_PHASES).nullable().optional(),
   track:             z.enum(WORK_TRACKS).nullable().optional(),
