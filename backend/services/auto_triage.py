@@ -8,8 +8,9 @@ is first filed (services.issue_intake schedules it):
      and auto-classify OBVIOUS non-code errors (delisted symbol, upstream/data/
      timeout) as `business_validation` so they don't clutter the human queue.
 
-  2. AUTO-FIX HIGH-CONFIDENCE CODING BUGS  (flag: AUTO_FIX_ENABLED — default OFF,
-     opt-in): only when explicitly enabled, if the LLM is confident the issue is a
+  2. AUTO-FIX HIGH-CONFIDENCE CODING BUGS  (admin feature flag: `auto_fix_agent`,
+     default OFF; env AUTO_FIX_ENABLED overrides as an ops kill-switch):
+     only when explicitly enabled, if the LLM is confident the issue is a
      genuine CODING bug (not data/delisted/vendor), mark it `valid` and spawn the
      PR-only fix agent. Everything uncertain is left `unclassified` for a human.
 
@@ -60,7 +61,17 @@ def _auto_rca_enabled() -> bool:
 
 
 def _auto_fix_enabled() -> bool:
-    return _flag("AUTO_FIX_ENABLED", default_non_prod=False)  # opt-in everywhere
+    """Opt-in, default OFF. Toggled by admins via the `auto_fix_agent` feature flag
+    (Admin → Feature Flags, set mode = everyone). An AUTO_FIX_ENABLED env var, if set,
+    overrides the flag (ops kill-switch / force-enable)."""
+    v = os.environ.get("AUTO_FIX_ENABLED")
+    if v not in (None, ""):
+        return v.strip().lower() in ("1", "true", "yes", "on")
+    try:
+        from feature_flags import mode_enabled
+        return mode_enabled("auto_fix_agent")
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _llm_key() -> Optional[str]:
