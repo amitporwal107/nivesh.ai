@@ -139,7 +139,9 @@ function progressOf(tasks: WorkIssue[]): { done: number; total: number; pct: num
 
 // ── Filtering (keep ancestors of any surviving node) ──────────────────────────
 
-interface Facets { phase?: string; issue_type?: string; workflow?: string; track?: string; status?: string; priority?: string }
+interface Facets { phase?: string; issue_type?: string; workflow?: string; track?: string; status?: string; priority?: string; kind?: string }
+
+const isDesignTask = (i: WorkIssue) => i.issue_type === "task" && (i.labels ?? []).includes("design");
 
 function matches(i: WorkIssue, f: Facets): boolean {
   if (f.phase && i.phase !== f.phase) return false;
@@ -148,7 +150,13 @@ function matches(i: WorkIssue, f: Facets): boolean {
   if (f.track && i.track !== f.track) return false;
   if (f.status && i.status !== f.status) return false;
   if (f.priority && i.priority !== f.priority) return false;
+  if (f.kind === "design" && !isDesignTask(i)) return false;
+  if (f.kind === "impl" && isDesignTask(i)) return false;
   return true;
+}
+
+function DesignChip() {
+  return <span className="font-mono text-[9px] text-accent bg-accent/10 px-1 rounded shrink-0 flex items-center gap-0.5"><Palette className="h-2.5 w-2.5" />design</span>;
 }
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
@@ -166,12 +174,13 @@ function ProgressBar({ pct, hatched }: { pct: number; hatched?: boolean }) {
 
 // ── Stats bar ───────────────────────────────────────────────────────────────
 
-function StatsBar({ stats, counts }: { stats: WorkStats; counts: { epics: number; stories: number; tasks: number } }) {
+function StatsBar({ stats, counts }: { stats: WorkStats; counts: { epics: number; stories: number; tasks: number; design: number } }) {
   return (
     <div className="flex items-center gap-4 text-[12px] flex-wrap">
       <span className="text-accent font-semibold">{counts.epics} epics</span>
       <span className="text-pos font-semibold">{counts.stories} stories</span>
       <span className="text-ink-2">{counts.tasks} tasks</span>
+      <span className="text-accent flex items-center gap-1"><Palette className="h-3 w-3" />{counts.design} design</span>
       <span className="h-3 w-px bg-hairline mx-1" />
       <span className="text-neg font-semibold">{stats.by_priority["P1"] ?? 0} P1</span>
       <span className="text-warm">{stats.by_priority["P2"] ?? 0} P2</span>
@@ -277,6 +286,11 @@ function TypeGlyph({ type }: { type: string }) {
   return <span className={m.text}>{m.icon}</span>;
 }
 
+function ItemGlyph({ issue }: { issue: WorkIssue }) {
+  if (isDesignTask(issue)) return <Palette className="h-3.5 w-3.5 text-accent shrink-0" />;
+  return <TypeGlyph type={issue.issue_type} />;
+}
+
 function TaskRow({ issue, depth, onOpen }: { issue: WorkIssue; depth: number; onOpen(i: WorkIssue): void }) {
   const sm = STATUS_META[issue.status] ?? STATUS_META.open;
   const pm = PRIORITY_META[issue.priority] ?? PRIORITY_META.P2;
@@ -286,9 +300,10 @@ function TaskRow({ issue, depth, onOpen }: { issue: WorkIssue; depth: number; on
       className="w-full text-left flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-surface-2 transition-colors"
       style={{ paddingLeft: 8 + depth * 20 }}
     >
-      <TypeGlyph type={issue.issue_type} />
+      <ItemGlyph issue={issue} />
       <span className="font-mono text-[10px] text-ink-4 shrink-0">{issue.issue_id}</span>
       <span className="text-[12px] text-ink truncate">{issue.title}</span>
+      {isDesignTask(issue) && <DesignChip />}
       <span className={`ml-auto flex items-center gap-1 text-[10px] shrink-0 ${sm.text}`}>{sm.icon}{sm.label}</span>
       <span className={`h-2 w-2 rounded-full shrink-0 ${pm.dot}`} title={pm.label} />
     </button>
@@ -383,8 +398,9 @@ function BoardCard({ issue, onOpen }: { issue: WorkIssue; onOpen(i: WorkIssue): 
   return (
     <button onClick={() => onOpen(issue)} className={`w-full text-left rounded-lg border border-hairline p-2.5 hover:border-accent/40 transition-all ${pm.bg}`}>
       <div className="flex items-center gap-1.5 mb-1">
-        <TypeGlyph type={issue.issue_type} />
+        <ItemGlyph issue={issue} />
         <span className="font-mono text-[9px] text-ink-4">{issue.issue_id}</span>
+        {isDesignTask(issue) && <DesignChip />}
         <span className={`ml-auto h-1.5 w-1.5 rounded-full ${pm.dot}`} />
       </div>
       <p className="text-[11px] text-ink leading-snug line-clamp-3">{issue.title}</p>
@@ -471,8 +487,9 @@ function IssueDrawer({ issue, allById, onClose, onOpen }: {
         {/* header */}
         <div className="px-6 py-4 border-b border-hairline shrink-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={tm.text}>{tm.icon}</span>
+            {isDesignTask(issue) ? <Palette className="h-3.5 w-3.5 text-accent" /> : <span className={tm.text}>{tm.icon}</span>}
             <span className="font-mono text-[11px] text-ink-4">{issue.issue_id}</span>
+            {isDesignTask(issue) && <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent flex items-center gap-1"><Palette className="h-3 w-3" />Design task</span>}
             <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded uppercase ${pm.bg} ${pm.text}`}>{pm.label}</span>
             {issue.phase && <span className="text-[10px] text-ink-3">{PHASE_META[issue.phase]?.label}</span>}
             <TrackChip track={issue.track} />
@@ -699,6 +716,7 @@ function FilterPanel({ facets, onChange }: { facets: Facets; onChange(f: Facets)
     <aside className="space-y-5 text-[12px]">
       {grp("phase", [{ val: undefined, label: "All phases" }, ...PHASES.map(p => ({ val: p, label: PHASE_META[p].label }))], "Phase")}
       {grp("issue_type", [{ val: undefined, label: "All types" }, { val: "epic", label: "Epics" }, { val: "story", label: "Stories" }, { val: "task", label: "Tasks" }], "Type")}
+      {grp("kind", [{ val: undefined, label: "All work" }, { val: "design", label: "🎨 Design tasks" }, { val: "impl", label: "Implementation" }], "Work kind")}
       {grp("track", [{ val: undefined, label: "All tracks" }, { val: "internal", label: "Internal" }, { val: "vendor-gated", label: "Vendor-gated" }], "Track")}
       {grp("workflow", [{ val: undefined, label: "All workflows" }, ...WORKFLOWS.map(w => ({ val: w, label: w }))], "Workflow")}
       {grp("priority", [{ val: undefined, label: "All" }, { val: "P1", label: "P1" }, { val: "P2", label: "P2" }, { val: "P3", label: "P3" }], "Priority")}
@@ -748,7 +766,8 @@ function WorkTracker({ projectKey, projectName, onBack }: {
   const counts = useMemo(() => ({
     epics:   all.filter(i => i.issue_type === "epic").length,
     stories: all.filter(i => i.issue_type === "story").length,
-    tasks:   all.filter(i => i.issue_type === "task").length,
+    tasks:   all.filter(i => i.issue_type === "task" && !isDesignTask(i)).length,
+    design:  all.filter(i => isDesignTask(i)).length,
   }), [all]);
   const onOpen = useCallback((i: WorkIssue) => setSelected(i), []);
 
