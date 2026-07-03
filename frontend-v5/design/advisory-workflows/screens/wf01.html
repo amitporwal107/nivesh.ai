@@ -1,0 +1,520 @@
+<article class="screen" id="wf01-wizard">
+  <div class="cap">
+    <span class="nv-pill amber">Extend</span>
+    <h3>Onboarding Wizard Shell</h3>
+    <span class="route">/v5/onboarding</span>
+    <p class="desc">Resumable stage machine that sequences eKYC ▸ Risk ▸ eSign ▸ Mandate ▸ KYC-Verify ▸ Done and gates locked stages. FR-01.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/onboarding</span>
+      <span class="nv-pill amber st">Extend</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico on">◎</span><span class="ico">◧</span><span class="ico">⚑</span><span class="ico">₹</span>
+        <span class="sp"></span><span class="av">AP</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">Open your account</div><div class="vsub">Aarav P. Sharma · started 03 Jul 2026</div></div>
+          <div class="grow"></div>
+          <span class="chip ok">⤓ Progress saved</span>
+          <span class="chip info">Stage 3 of 6</span>
+        </div>
+        <div class="viewbody">
+          <!-- stage machine -->
+          <div class="nv-card pad" style="overflow-x:auto">
+            <div class="between" style="margin-bottom:16px">
+              <span class="lbl" style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink4)">Your onboarding journey</span>
+              <span class="chip neutral">~4 min left</span>
+            </div>
+            <div style="display:flex;align-items:center;min-width:660px">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:none;width:104px">
+                <span class="av sm" style="background:var(--mint);color:#06120B;font-weight:700">✓</span>
+                <span style="font-size:11.5px;font-weight:500">eKYC</span>
+              </div>
+              <div class="bar" style="flex:1;min-width:18px"><i style="width:100%"></i></div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:none;width:104px">
+                <span class="av sm" style="background:var(--mint);color:#06120B;font-weight:700">✓</span>
+                <span style="font-size:11.5px;font-weight:500">Risk</span>
+              </div>
+              <div class="bar" style="flex:1;min-width:18px"><i style="width:100%"></i></div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:none;width:104px">
+                <span class="av sm" style="background:var(--indigo-soft);color:var(--indigo);border:2px solid var(--indigo);font-weight:700">3</span>
+                <span style="font-size:11.5px;font-weight:600;color:var(--indigo)">eSign</span>
+              </div>
+              <div class="bar" style="flex:1;min-width:18px"></div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:none;width:104px">
+                <span class="av sm">4</span>
+                <span style="font-size:11.5px;color:var(--ink3)">Mandate</span>
+              </div>
+              <div class="bar" style="flex:1;min-width:18px"></div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:none;width:104px">
+                <span class="av sm" style="color:var(--ink4)">🔒</span>
+                <span style="font-size:11.5px;color:var(--ink4)">KYC-Verify</span>
+              </div>
+              <div class="bar" style="flex:1;min-width:18px"></div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:none;width:104px">
+                <span class="av sm" style="color:var(--ink4)">🏁</span>
+                <span style="font-size:11.5px;color:var(--ink4)">Done</span>
+              </div>
+            </div>
+          </div>
+          <div class="row" style="align-items:stretch">
+            <div class="nv-card pad" style="flex:1.4;min-width:300px">
+              <div class="ch"><span class="lbl">Current stage · eSign</span><span class="chip info">In progress</span></div>
+              <div class="serif" style="font-size:22px;letter-spacing:-.02em;margin-bottom:6px">Review &amp; eSign your account documents</div>
+              <p class="muted" style="font-size:13px;margin:0 0 14px">4 documents in the bundle — Account form, Risk acknowledgement, FATCA/CRS and Nominee — each signed with a fresh Aadhaar OTP.</p>
+              <div class="col" style="gap:8px">
+                <div class="check"><span class="bx on">✓</span> Identity verified via UIDAI eKYC</div>
+                <div class="check"><span class="bx on">✓</span> Risk profile captured — <b>Moderate · 58</b></div>
+                <div class="check"><span class="bx"></span> eSign document bundle</div>
+              </div>
+              <div class="between" style="margin-top:18px">
+                <button class="nv-btn sm ghost">Save &amp; exit</button>
+                <button class="nv-btn primary">Continue to eSign →</button>
+              </div>
+            </div>
+            <div class="nv-card-2 pad" style="flex:1;min-width:250px">
+              <div class="ch"><span class="lbl">What you'll need</span><span class="chip ok">2 ready</span></div>
+              <div class="col" style="gap:12px">
+                <div class="between"><span class="check"><span class="bx on">✓</span> PAN card</span><span class="tag">XXXXX1234F</span></div>
+                <div class="between"><span class="check"><span class="bx on">✓</span> Aadhaar (eKYC)</span><span class="chip ok">Verified</span></div>
+                <div class="between"><span class="check"><span class="bx"></span> Bank account + IFSC</span><span class="tag">for NACH</span></div>
+                <div class="between"><span class="check"><span class="bx"></span> Nominee details</span><span class="muted" style="font-size:12px">optional</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="banner info"><span class="bi">⤓</span><div><b>You can leave anytime.</b> Your progress is saved and your resume link stays active for <b>30 days</b> — pick up right where you left off.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf01-ekyc">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>Aadhaar eKYC</h3>
+    <span class="route">/v5/onboarding/ekyc</span>
+    <span class="nv-pill">⛓ UIDAI</span>
+    <p class="desc">Real-time UIDAI OTP verification auto-fills identity in under 3s; Aadhaar is masked and never stored. FR-01-01.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/onboarding/ekyc</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico on">◎</span><span class="ico">◧</span><span class="ico">⚑</span><span class="ico">₹</span>
+        <span class="sp"></span><span class="av">AP</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div class="vt">Verify your identity</div>
+          <div class="grow"></div>
+          <span class="chip bad">Attempt 3 of 3</span>
+          <span class="chip info">Stage 1 of 6</span>
+        </div>
+        <div class="viewbody pad-lg">
+          <div class="row" style="gap:22px;align-items:flex-start">
+            <div class="col" style="flex:1;min-width:270px;gap:16px">
+              <div class="field"><label>Aadhaar number</label><div class="input num">XXXX · XXXX · 1234</div></div>
+              <div class="field">
+                <label>UIDAI OTP</label>
+                <div class="row" style="gap:8px;flex-wrap:nowrap">
+                  <div class="input otp" style="width:46px;padding:11px 0">4</div>
+                  <div class="input otp" style="width:46px;padding:11px 0">8</div>
+                  <div class="input otp" style="width:46px;padding:11px 0">2</div>
+                  <div class="input otp" style="width:46px;padding:11px 0;color:var(--ink4)">●</div>
+                  <div class="input otp" style="width:46px;padding:11px 0;color:var(--ink4)">●</div>
+                  <div class="input otp" style="width:46px;padding:11px 0;color:var(--ink4)">●</div>
+                </div>
+                <span class="neg" style="font-size:12px;margin-top:6px">✕ OTP incorrect — please re-enter the code sent to ••••••3210</span>
+              </div>
+              <div class="between">
+                <span class="muted" style="font-size:12px">Resend OTP in <b class="num">0:27</b></span>
+                <button class="nv-btn primary">Verify identity</button>
+              </div>
+              <div class="banner ok"><span class="bi">✓</span><div>Aadhaar masked and <b>never stored</b> after verification · txn ref <span class="mono">UIDAI-8842A1</span></div></div>
+            </div>
+            <div class="nv-card-2 pad" style="flex:1;min-width:270px">
+              <div class="ch"><span class="lbl">Auto-populated from KYC</span><span class="chip ok">Verified</span></div>
+              <div class="col" style="gap:0">
+                <div class="between" style="padding:9px 0"><span class="muted">Name</span><b>Aarav P. Sharma</b></div>
+                <hr class="hair">
+                <div class="between" style="padding:9px 0"><span class="muted">DOB</span><b class="num">14 Aug 1989</b></div>
+                <hr class="hair">
+                <div class="between" style="padding:9px 0"><span class="muted">Gender</span><b>Male</b></div>
+                <hr class="hair">
+                <div class="between" style="padding:9px 0;align-items:flex-start"><span class="muted">Address</span><b style="text-align:right;max-width:60%">Lane 7, Koregaon Park,<br>Pune 411001, MH</b></div>
+              </div>
+            </div>
+          </div>
+          <div class="banner warn"><span class="bi">!</span><div><b>UIDAI not responding?</b> You've reached 3 failed attempts — switch to <b>manual KYC</b> (upload PAN + Aadhaar) in under 5s. No need to restart onboarding. <button class="nv-btn sm" style="margin-left:8px">Switch to manual KYC</button></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf01-esign">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>eSign Bundle (DigiLocker / ESP)</h3>
+    <span class="route">/v5/onboarding/esign</span>
+    <span class="nv-pill">⛓ ESP</span>
+    <p class="desc">Read-to-end enforcement then Aadhaar-eSign per document, with hash/timestamp/IP evidence on every signed PDF. FR-01-02.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/onboarding/esign</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico on">◎</span><span class="ico">◧</span><span class="ico">⚑</span><span class="ico">₹</span>
+        <span class="sp"></span><span class="av">AP</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div class="vt">Review &amp; eSign</div>
+          <div class="grow"></div>
+          <span class="chip info">Stage 3 of 6</span>
+          <span class="chip warn">1 of 4 signed</span>
+        </div>
+        <div class="viewbody">
+          <div class="row" style="align-items:stretch">
+            <div class="nv-card pad" style="flex:1.05;min-width:280px">
+              <div class="ch"><span class="lbl">Bundle · 4 documents</span></div>
+              <div class="tbl-wrap"><table class="tbl">
+                <thead><tr><th>Document</th><th class="r">Pages</th><th>Status</th></tr></thead>
+                <tbody>
+                  <tr><td><div class="nm">Account opening form</div><div class="sub">Reading now</div></td><td class="r num">6</td><td><span class="chip info">Reading…</span></td></tr>
+                  <tr><td><div class="nm">Risk profile acknowledgement</div><div class="sub">Aadhaar eSign · NSDL ESP</div></td><td class="r num">2</td><td><span class="chip ok">Signed</span></td></tr>
+                  <tr><td><div class="nm">FATCA / CRS declaration</div><div class="sub">Awaiting read</div></td><td class="r num">3</td><td><span class="chip neutral">Not read</span></td></tr>
+                  <tr><td><div class="nm">Nominee authorisation</div><div class="sub">Awaiting read</div></td><td class="r num">2</td><td><span class="chip neutral">Not read</span></td></tr>
+                </tbody>
+              </table></div>
+            </div>
+            <div class="nv-card pad" style="flex:1;min-width:260px">
+              <div class="ch"><span class="lbl">Now reading — Account opening form</span><span class="tag">page 4 / 6</span></div>
+              <div class="nv-card-2 pad-sm" style="color:var(--ink3);font-size:12px;line-height:1.7">
+                4.2 The applicant hereby confirms that the information furnished in this account opening form is true, correct and complete. Units shall be allotted at the applicable NAV subject to realisation of funds…<br>
+                4.3 The applicant authorises Nivesh (ARN-115287) to act as the distributor of record and to place, modify and redeem orders on the applicant's instruction…
+              </div>
+              <div style="margin-top:12px">
+                <div class="between" style="margin-bottom:6px"><span class="muted" style="font-size:11px">Scroll progress</span><span class="mono" style="font-size:11px">68%</span></div>
+                <div class="bar"><i class="amber" style="width:68%"></i></div>
+              </div>
+              <div class="between" style="margin-top:14px">
+                <span class="muted" style="font-size:12px">Scroll to the end to enable eSign</span>
+                <button class="nv-btn" style="opacity:.5;cursor:not-allowed">eSign document</button>
+              </div>
+            </div>
+          </div>
+          <div class="nv-card-2 pad">
+            <div class="between">
+              <div><b>Risk profile acknowledgement</b> <span class="chip ok" style="margin-left:6px">Signed</span><div class="muted" style="font-size:11px;margin-top:3px">Aadhaar eSign · NSDL ESP · document tamper-evident</div></div>
+              <button class="nv-btn sm ghost">Download signed PDF</button>
+            </div>
+            <hr class="hair" style="margin:11px 0">
+            <div class="grid3" style="gap:10px">
+              <div class="field"><label>SHA-256 hash</label><div class="mono" style="font-size:11px;word-break:break-all">9f2a4c8b1d…e7b1d0</div></div>
+              <div class="field"><label>Signed at (IST)</label><div class="mono" style="font-size:11px">03 Jul 2026 · 14:32:07</div></div>
+              <div class="field"><label>Signer IP</label><div class="mono" style="font-size:11px">103.21.244.18</div></div>
+            </div>
+          </div>
+          <div class="banner info"><span class="bi">ⓘ</span><div>Each document is eSigned with a <b>fresh Aadhaar OTP</b> (Aadhaar eSign via NSDL ESP). The signature, hash and timestamp are embedded into the PDF for audit.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf01-emandate">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>eMandate / NACH Setup</h3>
+    <span class="route">/v5/onboarding/mandate</span>
+    <span class="nv-pill">⛓ NPCI</span>
+    <p class="desc">Penny-drop bank verification then NPCI e-mandate registration for recurring auto-debit, with mandate lifecycle. FR-01-03.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/onboarding/mandate</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico on">◎</span><span class="ico">◧</span><span class="ico">⚑</span><span class="ico">₹</span>
+        <span class="sp"></span><span class="av">AP</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div class="vt">Set up auto-debit (NACH)</div>
+          <div class="grow"></div>
+          <span class="chip info">Stage 4 of 6</span>
+        </div>
+        <div class="viewbody">
+          <div class="row" style="align-items:stretch">
+            <div class="nv-card pad" style="flex:1.1;min-width:290px">
+              <div class="ch"><span class="lbl">Bank account for auto-debit</span></div>
+              <div class="grid2">
+                <div class="field"><label>Bank</label><div class="input">HDFC Bank ▾</div></div>
+                <div class="field"><label>Account type</label><div class="seg" style="align-self:flex-start"><span class="on">Savings</span><span>Current</span></div></div>
+                <div class="field"><label>Account number</label><div class="input num">5010 0••• •••4 821</div></div>
+                <div class="field"><label>IFSC</label><div class="input mono">HDFC0000123</div></div>
+              </div>
+              <div class="field" style="margin-top:14px"><label>Max debit per instalment</label><div class="input num">₹ 50,000</div></div>
+              <button class="nv-btn primary wfull" style="margin-top:14px;justify-content:center">Authorise on net-banking ↗</button>
+              <span class="muted" style="font-size:11px;display:block;text-align:center;margin-top:8px">You'll be redirected to HDFC NetBanking to approve the NPCI e-mandate.</span>
+            </div>
+            <div class="nv-card-2 pad" style="flex:1;min-width:250px">
+              <div class="ch"><span class="lbl">Account verification</span><span class="chip info">Verifying…</span></div>
+              <div class="row" style="align-items:center;gap:12px;flex-wrap:nowrap">
+                <div class="skel" style="width:42px;height:42px;border-radius:50%;flex:none"></div>
+                <div class="col" style="gap:4px">
+                  <b>HDFC Bank ••••4821</b>
+                  <span class="muted" style="font-size:12px">Penny-drop ₹1.00 sent · matching name…</span>
+                </div>
+              </div>
+              <div class="skel" style="height:8px;width:82%;margin-top:14px"></div>
+              <div class="skel" style="height:8px;width:64%;margin-top:8px"></div>
+              <div class="banner info" style="margin-top:14px"><span class="bi">ⓘ</span><div>We deposit <b>₹1</b> and match the account-holder name with your KYC. Usually confirmed in ~20s.</div></div>
+            </div>
+          </div>
+          <div class="nv-card pad">
+            <div class="ch"><span class="lbl">Your mandates</span><span class="chip bad">1 bounced</span></div>
+            <div class="tbl-wrap"><table class="tbl">
+              <thead><tr><th>UMRN / Bank</th><th class="r">Max debit</th><th>Frequency</th><th>Status</th><th class="r">Action</th></tr></thead>
+              <tbody>
+                <tr><td><div class="nm">HDFC Bank ••••4821</div><div class="sub">UMRN HDFC6f2a…9021</div></td><td class="r num">₹ 50,000</td><td>Monthly</td><td><span class="chip ok">Active · T+1</span></td><td class="r"><button class="nv-btn sm ghost">Amend</button></td></tr>
+                <tr><td><div class="nm">ICICI Bank ••••7733</div><div class="sub">UMRN pending registration</div></td><td class="r num">₹ 25,000</td><td>Monthly</td><td><span class="chip warn">Pending · bank approval</span></td><td class="r"><button class="nv-btn sm ghost">Cancel</button></td></tr>
+                <tr><td><div class="nm">Axis Bank ••••1290</div><div class="sub neg">ECS-02 · Insufficient funds · 28 Jun</div></td><td class="r num">₹ 15,000</td><td>Monthly</td><td><span class="chip bad">Bounced</span></td><td class="r"><button class="nv-btn sm">Retry</button></td></tr>
+                <tr><td><div class="nm">Kotak Bank ••••5567</div><div class="sub">UMRN KKBK1a03…7742</div></td><td class="r num">₹ 10,000</td><td>Monthly</td><td><span class="chip ok">Active · T+1</span></td><td class="r"><button class="nv-btn sm ghost">Amend</button></td></tr>
+              </tbody>
+            </table></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf01-risk">
+  <div class="cap">
+    <span class="nv-pill mint">Live</span>
+    <h3>Risk Profiling</h3>
+    <span class="route">/v5/risk</span>
+    <p class="desc">Adaptive questionnaire that scores risk appetite live and issues a SEBI-suitability profile valid for 12 months. FR-01-04.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/risk</span>
+      <span class="nv-pill mint st">Live</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico on">◎</span><span class="ico">◧</span><span class="ico">⚑</span><span class="ico">₹</span>
+        <span class="sp"></span><span class="av">AP</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div class="vt">Risk profile</div>
+          <div class="grow"></div>
+          <span class="chip mint" style="color:var(--pos);background:var(--mint-soft);border-color:transparent">● Live scoring</span>
+          <span class="chip info">Question 7 of 10</span>
+        </div>
+        <div class="viewbody">
+          <div class="row" style="align-items:stretch">
+            <div class="nv-card pad" style="flex:1.2;min-width:300px">
+              <div class="between" style="margin-bottom:12px">
+                <span class="lbl">Question 7 of 10</span>
+                <span class="tag">Adaptive</span>
+              </div>
+              <div class="bar" style="margin-bottom:16px"><i style="width:70%"></i></div>
+              <div class="serif" style="font-size:20px;line-height:1.28;margin-bottom:14px">If ₹1,00,000 you invested fell to ₹80,000 in a month, what would you do?</div>
+              <div class="col" style="gap:9px">
+                <label class="between nv-card-2 pad-sm" style="cursor:pointer"><span class="check"><span class="bx" style="border-radius:50%"></span> Sell everything to avoid further losses</span><span class="tag">Score 1</span></label>
+                <label class="between nv-card-2 pad-sm" style="cursor:pointer"><span class="check"><span class="bx" style="border-radius:50%"></span> Sell some to reduce risk</span><span class="tag">Score 2</span></label>
+                <label class="between nv-card-2 pad-sm" style="cursor:pointer;border-color:var(--mint);background:var(--mint-soft)"><span class="check"><span class="bx on" style="border-radius:50%">●</span> Hold and wait for recovery</span><span class="tag">Score 3</span></label>
+                <label class="between nv-card-2 pad-sm" style="cursor:pointer"><span class="check"><span class="bx" style="border-radius:50%"></span> Invest more at the lower price</span><span class="tag">Score 4</span></label>
+              </div>
+              <div class="between" style="margin-top:16px">
+                <button class="nv-btn sm ghost">← Back</button>
+                <button class="nv-btn primary">Next question →</button>
+              </div>
+            </div>
+            <div class="nv-card pad" style="flex:1;min-width:260px">
+              <div class="ch"><span class="lbl">Your risk profile</span><span class="chip neutral">Live preview</span></div>
+              <div class="row" style="align-items:center;gap:16px;flex-wrap:nowrap">
+                <div class="ring" style="--p:58;--sz:104px"><div class="hole"><span class="serif" style="font-size:26px">58</span></div></div>
+                <div class="col" style="gap:7px">
+                  <span class="chip warn">Moderate · 58</span>
+                  <span class="muted" style="font-size:12px">Band 3 of 5 · updates as you answer</span>
+                </div>
+              </div>
+              <p style="font-size:13px;color:var(--ink2);margin:14px 0 0">You're comfortable with <b>moderate ups and downs</b> for better long-term growth. We'll suggest a balanced mix around <b>60% equity · 40% debt</b>.</p>
+              <hr class="hair" style="margin:14px 0">
+              <div class="between"><span class="muted" style="font-size:12px">Profile validity</span><span class="chip neutral">Valid till 03 Jul 2027</span></div>
+              <label class="check" style="margin-top:12px;align-items:flex-start"><span class="bx on">✓</span> I confirm these answers reflect my current financial situation (SEBI suitability).</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf01-fatca">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>FATCA + Nominee</h3>
+    <span class="route">/v5/onboarding/declarations</span>
+    <p class="desc">Auto-filled FATCA/CRS with US-person branch, plus up to 3 nominees enforced to total 100% with minor→guardian capture. FR-01-08 / FR-01-06.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/onboarding/declarations</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico on">◎</span><span class="ico">◧</span><span class="ico">⚑</span><span class="ico">₹</span>
+        <span class="sp"></span><span class="av">AP</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div class="vt">Declarations</div>
+          <div class="grow"></div>
+          <span class="chip info">Stage 5 of 6</span>
+        </div>
+        <div class="viewbody">
+          <div class="nv-card pad">
+            <div class="ch"><span class="lbl">FATCA / CRS declaration</span><span class="chip ok">Auto-filled from KYC</span></div>
+            <div class="grid3">
+              <div class="field"><label>Tax residency</label><div class="input">India</div></div>
+              <div class="field"><label>Country of birth</label><div class="input">India</div></div>
+              <div class="field"><label>PAN</label><div class="input mono">XXXXX1234F</div></div>
+              <div class="field"><label>Occupation</label><div class="input">Salaried — Private sector</div></div>
+              <div class="field"><label>Source of wealth</label><div class="input">Salary &amp; savings</div></div>
+              <div class="field"><label>Gross annual income</label><div class="input">₹ 25 L – ₹ 1 Cr</div></div>
+            </div>
+            <hr class="hair" style="margin:14px 0">
+            <div class="between">
+              <div><b>Are you a US person or tax-resident outside India?</b><div class="muted" style="font-size:12px">Includes US citizen / green-card holder, or tax residency in another country.</div></div>
+              <span class="switch off"></span>
+            </div>
+            <div class="banner info" style="margin-top:12px"><span class="bi">ⓘ</span><div>If turned on, we'll reveal fields for your <b>country of tax residency</b> and <b>TIN</b>, as required under FATCA/CRS.</div></div>
+          </div>
+          <div class="nv-card pad">
+            <div class="ch"><span class="lbl">Nominees · 3 of 3 added</span><span class="chip bad">Total 90% — must equal 100%</span></div>
+            <div class="banner bad" style="margin-bottom:12px"><span class="bi">✕</span><div><b>Nominee shares must total 100%.</b> You've allocated <b>90%</b> — assign the remaining <b>10%</b> to continue.</div></div>
+            <div class="tbl-wrap"><table class="tbl">
+              <thead><tr><th>Nominee</th><th>Relationship</th><th class="r">Share</th><th class="r">Action</th></tr></thead>
+              <tbody>
+                <tr><td class="nm">Priya Sharma</td><td>Spouse</td><td class="r num">50%</td><td class="r"><button class="nv-btn sm ghost">Edit</button></td></tr>
+                <tr><td><div class="nm">Vivaan Sharma <span class="chip neutral" style="margin-left:4px">Minor</span></div></td><td>Son</td><td class="r num">25%</td><td class="r"><button class="nv-btn sm ghost">Edit</button></td></tr>
+                <tr><td colspan="4" style="padding:0 12px 12px">
+                  <div class="nv-card-2 pad-sm">
+                    <div class="lbl" style="margin-bottom:10px">Guardian (nominee is a minor)</div>
+                    <div class="grid3" style="gap:10px">
+                      <div class="field"><label>Guardian name</label><div class="input">Priya Sharma</div></div>
+                      <div class="field"><label>Relationship</label><div class="input">Mother</div></div>
+                      <div class="field"><label>Guardian PAN</label><div class="input mono">XXXXX7788K</div></div>
+                    </div>
+                  </div>
+                </td></tr>
+                <tr><td class="nm">Anaya Sharma</td><td>Daughter</td><td class="r num">15%</td><td class="r"><button class="nv-btn sm ghost">Edit</button></td></tr>
+                <tr><td><b>Total allocated</b></td><td></td><td class="r num neg" style="font-weight:600">90%</td><td class="r"><span class="chip bad">Short 10%</span></td></tr>
+              </tbody>
+            </table></div>
+          </div>
+          <div class="banner info"><span class="bi">ⓘ</span><div>You'll authorise these declarations with a <b>one-time Aadhaar OTP</b>. <button class="nv-btn sm" style="margin-left:8px;opacity:.5;cursor:not-allowed">Send OTP &amp; submit</button> <span class="muted" style="font-size:12px;margin-left:8px">Enabled once nominees total 100%.</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf01-tracker">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>MFD Onboarding Status Tracker</h3>
+    <span class="route">/v5/advisor/onboarding</span>
+    <p class="desc">Advisor pipeline board across the six onboarding stages with days-in-stage, campaign tags and auto-reminder nudges. FR-01-10.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/advisor/onboarding</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico on">◫</span><span class="ico">◎</span><span class="ico">◧</span><span class="ico">⚑</span><span class="ico">₹</span>
+        <span class="sp"></span><span class="av">AP</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">Onboarding pipeline</div><div class="vsub">ARN-115287 · 24 clients in flight</div></div>
+          <div class="grow"></div>
+          <span class="chip bad">1 stalled</span>
+          <button class="nv-btn sm">Export</button>
+        </div>
+        <div class="viewbody">
+          <div class="row" style="align-items:center">
+            <div class="seg"><span class="on">All</span><span>Active</span><span>Stalled</span></div>
+            <button class="nv-btn sm ghost">This month ▾</button>
+            <button class="nv-btn sm ghost">Campaign: All ▾</button>
+            <div class="grow"></div>
+            <span class="muted" style="font-size:12px">Auto-reminders</span>
+            <span class="chip info">T+1</span><span class="chip info">T+3</span><span class="chip warn">T+7</span>
+          </div>
+          <div style="overflow-x:auto">
+            <div class="kb" style="--n:6;min-width:820px">
+              <div class="colk">
+                <div class="kh"><span>Initiated</span><span>5</span></div>
+                <div class="kcard"><b>Rohan Mehta</b><div class="between"><span class="tag">Diwali-SIP</span><span class="chip neutral">1d</span></div></div>
+                <div class="kcard"><b>Sneha Iyer</b><div class="between"><span class="tag">Web-lead</span><span class="chip neutral">2d</span></div></div>
+              </div>
+              <div class="colk">
+                <div class="kh"><span>eKYC</span><span>4</span></div>
+                <div class="kcard"><b>Vikram Rao</b><div class="between"><span class="tag">Referral</span><span class="chip neutral">1d</span></div></div>
+                <div class="kcard"><b>Neha Kulkarni</b><div class="between"><span class="tag">Diwali-SIP</span><span class="chip neutral">2d</span></div></div>
+              </div>
+              <div class="colk">
+                <div class="kh"><span>eSign</span><span>3</span></div>
+                <div class="kcard"><b>Kavya Nair</b><div class="between"><span class="tag">Diwali-SIP</span><span class="chip neutral">2d</span></div></div>
+                <div class="kcard" style="border-color:rgba(197,48,62,.4)"><b>Arjun Das</b><div class="between"><span class="tag">Web-lead</span><span class="chip bad">Stalled 9d</span></div><button class="nv-btn sm" style="justify-content:center">Send reminder</button></div>
+              </div>
+              <div class="colk">
+                <div class="kh"><span>Mandate</span><span>4</span></div>
+                <div class="kcard"><b>Meera Joshi</b><div class="between"><span class="tag">Referral</span><span class="chip neutral">1d</span></div></div>
+                <div class="kcard"><b>Farhan Ali</b><div class="between"><span class="tag">Web-lead</span><span class="chip warn">4d</span></div></div>
+              </div>
+              <div class="colk">
+                <div class="kh"><span>KYC-Verify</span><span>2</span></div>
+                <div class="kcard"><b>Ishaan Gupta</b><div class="between"><span class="tag">Diwali-SIP</span><span class="chip neutral">3d</span></div></div>
+              </div>
+              <div class="colk">
+                <div class="kh"><span>Completed</span><span>10</span></div>
+                <div class="kcard"><b>Ananya Reddy</b><div class="between"><span class="tag">Referral</span><span class="chip ok">✓ Active</span></div></div>
+                <div class="kcard"><b>Karthik Menon</b><div class="between"><span class="tag">Diwali-SIP</span><span class="chip ok">✓ Active</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>

@@ -1,0 +1,915 @@
+<style>
+  /* ---------- Nivesh Advisory Workflows — Screen Design Catalogue ----------
+     Grounded in the product's real design tokens (frontend-v5/src/index.css):
+     warm-cream ground, green accent. Blueprint/schematic treatment.        */
+  :root{
+    --bg:#F6F4ED; --surface:#FFFFFF; --surface-2:#F1EEE3; --surface-3:#E7E3D4;
+    --ink:#12100A; --ink-2:#46412F; --ink-3:#7A745E; --ink-4:#A39B82;
+    --line:rgba(18,16,10,.12); --line-2:rgba(18,16,10,.07);
+    --live:#0E8A55; --extend:#B86A12; --new:#4F58D6; --neg:#C5303E;
+    --live-soft:rgba(14,138,85,.10); --extend-soft:rgba(184,106,18,.12); --new-soft:rgba(79,88,214,.11);
+    --shadow:0 1px 2px rgba(18,16,10,.05), 0 8px 24px -12px rgba(18,16,10,.14);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#06080F; --surface:#0A0E1A; --surface-2:#10162A; --surface-3:#181F38;
+      --ink:#F5F7FF; --ink-2:#BCC4DC; --ink-3:#7A839C; --ink-4:#4A526A;
+      --line:rgba(245,247,255,.14); --line-2:rgba(245,247,255,.07);
+      --live:#6AF0A8; --extend:#FFB547; --new:#8E97FF; --neg:#FF6B7A;
+      --live-soft:rgba(106,240,168,.13); --extend-soft:rgba(255,181,71,.14); --new-soft:rgba(142,151,255,.15);
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#06080F; --surface:#0A0E1A; --surface-2:#10162A; --surface-3:#181F38;
+    --ink:#F5F7FF; --ink-2:#BCC4DC; --ink-3:#7A839C; --ink-4:#4A526A;
+    --line:rgba(245,247,255,.14); --line-2:rgba(245,247,255,.07);
+    --live:#6AF0A8; --extend:#FFB547; --new:#8E97FF; --neg:#FF6B7A;
+    --live-soft:rgba(106,240,168,.13); --extend-soft:rgba(255,181,71,.14); --new-soft:rgba(142,151,255,.15);
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"]{
+    --bg:#F6F4ED; --surface:#FFFFFF; --surface-2:#F1EEE3; --surface-3:#E7E3D4;
+    --ink:#12100A; --ink-2:#46412F; --ink-3:#7A745E; --ink-4:#A39B82;
+    --line:rgba(18,16,10,.12); --line-2:rgba(18,16,10,.07);
+    --live:#0E8A55; --extend:#B86A12; --new:#4F58D6; --neg:#C5303E;
+    --live-soft:rgba(14,138,85,.10); --extend-soft:rgba(184,106,18,.12); --new-soft:rgba(79,88,214,.11);
+    --shadow:0 1px 2px rgba(18,16,10,.05), 0 8px 24px -12px rgba(18,16,10,.14);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace}
+
+  /* ---------- shell layout ---------- */
+  .shell{max-width:1240px; margin:0 auto; padding:0 24px}
+  .grid{display:grid; grid-template-columns:236px minmax(0,1fr); gap:40px; align-items:start}
+  @media (max-width:900px){ .grid{grid-template-columns:1fr; gap:0} }
+
+  /* ---------- masthead ---------- */
+  header.top{border-bottom:1px solid var(--line); background:var(--bg); position:sticky; top:0; z-index:40}
+  .top-inner{max-width:1240px; margin:0 auto; padding:16px 24px; display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap}
+  .brand{display:flex; align-items:baseline; gap:12px}
+  .brand .dot{width:9px; height:9px; border-radius:2px; background:var(--live); transform:translateY(-1px)}
+  .brand b{font-size:15px; letter-spacing:-.01em}
+  .brand span{color:var(--ink-3); font-size:12.5px}
+  .top .legend{display:flex; gap:14px; font-size:11.5px; color:var(--ink-3); flex-wrap:wrap}
+  .top .legend .lg{display:inline-flex; align-items:center; gap:6px}
+  .sw{width:9px;height:9px;border-radius:50%}
+  .sw.live{background:var(--live)} .sw.extend{background:var(--extend)} .sw.new{background:var(--new)}
+
+  /* ---------- hero band ---------- */
+  .hero{padding:44px 0 30px}
+  .eyebrow{font-family:ui-monospace,Menlo,monospace; font-size:11.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--live); margin:0 0 14px}
+  h1{font-size:clamp(28px,4vw,42px); line-height:1.08; letter-spacing:-.02em; margin:0 0 16px; text-wrap:balance; max-width:19ch}
+  .lede{font-size:16.5px; color:var(--ink-2); max-width:66ch; margin:0}
+  .stat-row{display:flex; gap:12px; flex-wrap:wrap; margin-top:26px}
+  .stat{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 18px; min-width:120px; box-shadow:var(--shadow)}
+  .stat .n{font-size:26px; font-weight:650; letter-spacing:-.02em; font-variant-numeric:tabular-nums}
+  .stat .n.live{color:var(--live)} .stat .n.extend{color:var(--extend)} .stat .n.new{color:var(--new)}
+  .stat .k{font-size:11.5px; color:var(--ink-3); text-transform:uppercase; letter-spacing:.08em; margin-top:3px}
+
+  /* ---------- side nav ---------- */
+  nav.side{position:sticky; top:70px; padding:24px 0 40px}
+  @media (max-width:900px){ nav.side{position:static; padding:8px 0 4px; border-bottom:1px solid var(--line); overflow-x:auto} nav.side ol{display:flex; gap:6px} }
+  nav.side .navtitle{font-family:ui-monospace,Menlo,monospace; font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-4); margin:0 0 12px}
+  @media (max-width:900px){ nav.side .navtitle{display:none} }
+  nav.side ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px}
+  nav.side a{display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:8px; text-decoration:none; color:var(--ink-2); font-size:13.5px; white-space:nowrap}
+  nav.side a:hover{background:var(--surface-2); color:var(--ink)}
+  nav.side a .wf{font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--ink-4)}
+  nav.side a .cnt{margin-left:auto; font-size:10.5px; color:var(--ink-4); font-variant-numeric:tabular-nums}
+  @media (max-width:900px){ nav.side a .cnt{display:none} }
+
+  /* ---------- foundations band ---------- */
+  .band{background:var(--surface-2); border:1px solid var(--line); border-radius:16px; padding:22px 24px; margin:0 0 8px}
+  .band h2{font-size:15px; margin:0 0 4px; letter-spacing:-.01em}
+  .band p{margin:0 0 16px; color:var(--ink-3); font-size:13.5px; max-width:70ch}
+  .foundries{display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:10px}
+  .fnd{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px 14px}
+  .fnd .fh{display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:4px}
+  .fnd small{color:var(--ink-3); font-size:11.5px; line-height:1.45; display:block}
+  .tag{font-family:ui-monospace,Menlo,monospace; font-size:9.5px; letter-spacing:.05em; text-transform:uppercase; padding:2px 6px; border-radius:5px; white-space:nowrap}
+  .tag.int{background:var(--live-soft); color:var(--live)}
+  .tag.ven{background:var(--new-soft); color:var(--new)}
+
+  /* ---------- workflow section ---------- */
+  section.wf{padding:40px 0 8px; border-top:1px solid var(--line); scroll-margin-top:78px}
+  section.wf:first-of-type{border-top:none}
+  .wf-head{margin-bottom:22px}
+  .wf-eyebrow{font-family:ui-monospace,Menlo,monospace; font-size:11.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-4)}
+  .wf-head h2{font-size:24px; letter-spacing:-.02em; margin:6px 0 8px}
+  .wf-head p{margin:0; color:var(--ink-2); font-size:14.5px; max-width:74ch}
+  .actors{margin-top:10px; font-size:12px; color:var(--ink-3)}
+  .actors b{color:var(--ink-2); font-weight:600}
+
+  /* flow strip */
+  .flow{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:16px 0 26px; padding:12px 14px; background:var(--surface-2); border:1px solid var(--line-2); border-radius:12px}
+  .flow .step{display:inline-flex; align-items:center; gap:7px; font-size:12px; padding:5px 10px; border-radius:999px; background:var(--surface); border:1px solid var(--line)}
+  .flow .step .sw{width:7px;height:7px}
+  .flow .arw{color:var(--ink-4); font-size:13px}
+
+  /* ---------- screen card ---------- */
+  .screens{display:flex; flex-direction:column; gap:16px}
+  .screen{display:grid; grid-template-columns:300px minmax(0,1fr); gap:20px; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:16px; box-shadow:var(--shadow)}
+  @media (max-width:640px){ .screen{grid-template-columns:1fr} }
+  .screen.hi{border-left:3px solid var(--accent-edge)}
+
+  /* wireframe */
+  .wire{--accent-edge:var(--ink-4); border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--surface-2); display:flex; flex-direction:column; min-height:186px}
+  .wire .chrome{display:flex; align-items:center; gap:6px; padding:7px 9px; border-bottom:1px solid var(--line-2); background:var(--surface-3)}
+  .wire .chrome i{width:7px; height:7px; border-radius:50%; background:var(--ink-4); opacity:.5}
+  .wire .chrome .url{font-family:ui-monospace,Menlo,monospace; font-size:10px; color:var(--ink-3); margin-left:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .wire .canvas{flex:1; padding:8px; display:grid; gap:6px}
+  .z{border:1px solid var(--line); border-radius:6px; background:var(--surface); position:relative; min-height:20px; display:flex; align-items:center; justify-content:center; padding:4px}
+  .z span{font-family:ui-monospace,Menlo,monospace; font-size:8.5px; letter-spacing:.03em; color:var(--ink-3); text-align:center; line-height:1.25}
+  .z.mut{background:var(--surface-2)}
+  .z.newz{border-style:dashed; border-color:var(--new); background:var(--new-soft)}
+  .z.newz span{color:var(--new)}
+  .z.livez{border-color:var(--live); background:var(--live-soft)}
+  .z.livez span{color:var(--live)}
+  .z.warmz{border-color:var(--extend); background:var(--extend-soft)}
+  .z.warmz span{color:var(--extend)}
+  .z.tall{min-height:44px}
+  .rows{display:flex; flex-direction:column; gap:4px; width:100%; padding:5px 6px}
+  .rows i{height:5px; border-radius:3px; background:var(--ink-4); opacity:.28; display:block}
+  .rows i:nth-child(2){width:82%} .rows i:nth-child(3){width:64%}
+  .chips{display:flex; gap:4px; flex-wrap:wrap; padding:5px}
+  .chips i{height:11px; width:26px; border-radius:5px; background:var(--ink-4); opacity:.22}
+
+  /* spec */
+  .spec{min-width:0}
+  .spec-head{display:flex; align-items:center; gap:10px; margin-bottom:3px; flex-wrap:wrap}
+  .spec-head h3{font-size:16px; letter-spacing:-.01em; margin:0}
+  .pill{font-family:ui-monospace,Menlo,monospace; font-size:10px; letter-spacing:.04em; text-transform:uppercase; padding:3px 8px; border-radius:6px; font-weight:600}
+  .pill.live{background:var(--live-soft); color:var(--live)}
+  .pill.extend{background:var(--extend-soft); color:var(--extend)}
+  .pill.new{background:var(--new-soft); color:var(--new)}
+  .vg{font-family:ui-monospace,Menlo,monospace; font-size:10px; color:var(--new); border:1px solid var(--new); border-radius:6px; padding:2px 6px; opacity:.85}
+  .route{font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--ink-3); margin:2px 0 8px}
+  .desc{margin:0 0 12px; font-size:13.5px; color:var(--ink-2)}
+  dl.meta{margin:0; display:grid; grid-template-columns:auto 1fr; gap:5px 12px; font-size:12.5px}
+  dl.meta dt{font-family:ui-monospace,Menlo,monospace; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-4); padding-top:1px}
+  dl.meta dd{margin:0; color:var(--ink-2)}
+  dl.meta dd .fr{font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--ink-3); background:var(--surface-2); border:1px solid var(--line-2); padding:1px 5px; border-radius:5px; margin-right:4px; display:inline-block; margin-bottom:3px}
+
+  /* more-screens compact list */
+  .more{margin-top:6px; border:1px dashed var(--line); border-radius:14px; padding:6px 4px}
+  .more summary{cursor:pointer; list-style:none; padding:10px 14px; font-size:13px; color:var(--ink-2); display:flex; align-items:center; gap:8px}
+  .more summary::-webkit-details-marker{display:none}
+  .more summary::before{content:"+"; font-family:ui-monospace,Menlo,monospace; color:var(--ink-4); font-size:14px}
+  .more[open] summary::before{content:"–"}
+  .minis{display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:8px; padding:6px 12px 12px}
+  .mini{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:11px 13px}
+  .mini .mh{display:flex; align-items:center; gap:8px; margin-bottom:4px}
+  .mini .mh .sw{flex:none}
+  .mini .mh b{font-size:13px}
+  .mini .mh .vgm{margin-left:auto; font-family:ui-monospace,Menlo,monospace; font-size:9px; color:var(--new); border:1px solid var(--new); border-radius:5px; padding:1px 4px}
+  .mini p{margin:0 0 6px; font-size:12px; color:var(--ink-3); line-height:1.45}
+  .mini .fr{font-family:ui-monospace,Menlo,monospace; font-size:10px; color:var(--ink-4)}
+
+  footer{border-top:1px solid var(--line); margin-top:48px; padding:26px 0 60px; color:var(--ink-3); font-size:12.5px}
+  footer .shell{display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap}
+  a.src{color:var(--live); text-decoration:none}
+  @media (prefers-reduced-motion:no-preference){ nav.side a, .fnd{transition:background .12s ease, color .12s ease} }
+</style>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <span class="dot"></span>
+      <b>Nivesh · Advisory Workflows</b>
+      <span class="mono">Screen Design Catalogue · WF-01 → WF-07</span>
+    </div>
+    <div class="legend">
+      <span class="lg"><span class="sw live"></span>Live — screen &amp; logic exist</span>
+      <span class="lg"><span class="sw extend"></span>Extend — engine exists, needs UI/wiring</span>
+      <span class="lg"><span class="sw new"></span>New — greenfield</span>
+      <span class="lg"><span class="vg">⛓ vendor-gated</span></span>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <div class="hero">
+    <p class="eyebrow">Design lead · screen inventory + wireframes</p>
+    <h1>Every screen the 7 advisory workflows need.</h1>
+    <p class="lede">A screen-by-screen design map for the Nivesh MFD/advisory platform, in the product's own visual language. Each card pairs a wireframe with its spec — route, components to reuse, required states, and the functional requirements it satisfies — and is colour-coded by how much already exists, straight from the implementation audit (1 fully / 23 partial / 4 stub / 33 not-built across 61 FRs).</p>
+    <div class="stat-row">
+      <div class="stat"><div class="n">46</div><div class="k">Screens mapped</div></div>
+      <div class="stat"><div class="n live">5</div><div class="k">Live today</div></div>
+      <div class="stat"><div class="n extend">19</div><div class="k">Extend existing</div></div>
+      <div class="stat"><div class="n new">22</div><div class="k">New to build</div></div>
+      <div class="stat"><div class="n">7</div><div class="k">Workflows</div></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <nav class="side">
+      <p class="navtitle">Workflows</p>
+      <ol>
+        <li><a href="#wf01"><span class="wf">01</span> Client Onboarding <span class="cnt">7</span></a></li>
+        <li><a href="#wf02"><span class="wf">02</span> Goal-Based Planning <span class="cnt">7</span></a></li>
+        <li><a href="#wf03"><span class="wf">03</span> Product Advisory <span class="cnt">4</span></a></li>
+        <li><a href="#wf04"><span class="wf">04</span> Monitoring &amp; Rebalancing <span class="cnt">6</span></a></li>
+        <li><a href="#wf05"><span class="wf">05</span> Transaction &amp; Reporting <span class="cnt">6</span></a></li>
+        <li><a href="#wf06"><span class="wf">06</span> Compliance Automation <span class="cnt">6</span></a></li>
+        <li><a href="#wf07"><span class="wf">07</span> Engagement &amp; Marketing <span class="cnt">10</span></a></li>
+        <li><a href="#foundations"><span class="wf">▚</span> Shared foundations</a></li>
+      </ol>
+    </nav>
+
+    <main>
+      <div class="band" id="foundations">
+        <h2>Seven foundations sit under these screens — build once, unblock many</h2>
+        <p>Most “New” screens can’t ship in isolation; they ride shared plumbing. Two are internal and de-risk the most work now (Scheduler, WORM audit); two are the big vendor-gated keystones (order gateway, KYC rail).</p>
+        <div class="foundries">
+          <div class="fnd"><div class="fh">Scheduler / Alert Dispatcher <span class="tag int">internal</span></div><small>Daily jobs + triggered notifications → drift, underperformer, SIP-bounce, review reminders.</small></div>
+          <div class="fnd"><div class="fh">Comms Dispatcher <span class="tag ven">email int · SMS/WA vendor</span></div><small>Email/SMS/WhatsApp/push, delivery status, TRAI-DND opt-out. Unblocks WF-07 + all alerts.</small></div>
+          <div class="fnd"><div class="fh">MF Order Gateway <span class="tag ven">BSE STAR / MFU</span></div><small>The transactional core — all order/SIP/redeem types, cut-off, MPIN/2FA, retry.</small></div>
+          <div class="fnd"><div class="fh">KYC / Onboarding Rail <span class="tag ven">UIDAI · ESP · NPCI · KRA</span></div><small>eKYC + eSign + eMandate + KRA/CKYC via an ESP. Feeds the whole onboarding pipeline.</small></div>
+          <div class="fnd"><div class="fh">WORM Audit + Fail-closed <span class="tag int">internal</span></div><small>Tamper-evident event log, holds txn on write-fail. Pattern already proven in ingestion.</small></div>
+          <div class="fnd"><div class="fh">Consent / Disclosure Layer <span class="tag int">internal</span></div><small>SEBI RDD/KIM/COI acknowledgements — extends the live DPDP consent ledger.</small></div>
+          <div class="fnd"><div class="fh">Branding / White-label Config <span class="tag int">internal</span></div><small>Logo/colour/tagline (custom domain later) — reused by reports, goal PDFs, comms.</small></div>
+        </div>
+      </div>
+
+      <!-- ============================= WF-01 ============================= -->
+      <section class="wf" id="wf01">
+        <div class="wf-head">
+          <div class="wf-eyebrow">Workflow · WF-01</div>
+          <h2>Client Onboarding</h2>
+          <p>Frictionless, digital-first account opening — turn a lead into a KYC-verified, mandate-active investor. Today only Risk Profiling is real end-to-end; the regulated rails (eKYC / eSign / eMandate / KRA-CKYC) are greenfield and vendor-gated.</p>
+          <div class="actors"><b>Actors:</b> New Investor (Retail/HNI) · MFD · Compliance Engine · KRA/CKYC Registry · BSE STAR MF / MFU</div>
+        </div>
+        <div class="flow">
+          <span class="step"><span class="sw extend"></span>Wizard shell</span><span class="arw">→</span>
+          <span class="step"><span class="sw new"></span>Aadhaar eKYC</span><span class="arw">→</span>
+          <span class="step"><span class="sw live"></span>Risk profile</span><span class="arw">→</span>
+          <span class="step"><span class="sw new"></span>eSign bundle</span><span class="arw">→</span>
+          <span class="step"><span class="sw new"></span>eMandate</span><span class="arw">→</span>
+          <span class="step"><span class="sw new"></span>MFD status tracker</span>
+        </div>
+
+        <div class="screens">
+          <!-- screen: wizard shell -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/onboarding</span></div>
+              <div class="canvas" style="grid-template-rows:auto 1fr auto">
+                <div class="z warmz"><span>STEPPER · eKYC ▸ Risk ▸ eSign ▸ Mandate ▸ Done</span></div>
+                <div class="z tall"><div class="rows"><i></i><i></i><i></i></div></div>
+                <div class="z"><span>BACK · CONTINUE →</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill extend">Extend</span><h3>Onboarding Wizard Shell</h3></div>
+              <div class="route">pages/Onboarding/index.tsx · /v5/onboarding</div>
+              <p class="desc">A stage-driven wizard that hosts each regulated step and reflects the true pipeline state. Exists today but the Demat panel is a dead stub — rebuild as a real stage machine.</p>
+              <dl class="meta">
+                <dt>Reuse</dt><dd>Onboarding shell · Stepper · save-and-resume</dd>
+                <dt>States</dt><dd>step active · locked (prereq unmet) · resume-in-progress · error banner</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-01 shell</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- screen: eKYC -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/onboarding/ekyc</span></div>
+              <div class="canvas" style="grid-template-rows:auto auto 1fr auto">
+                <div class="z mut"><span>Aadhaar · XXXX-XXXX-1234</span></div>
+                <div class="z newz"><span>UIDAI OTP · ●●●●●●  ⟳ resend 0:30</span></div>
+                <div class="z newz tall"><span>AUTO-POPULATED · name / DOB / address / photo</span></div>
+                <div class="z"><span>VERIFY IDENTITY</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill new">New</span><h3>Aadhaar eKYC</h3><span class="vg">⛓ UIDAI</span></div>
+              <div class="route">new · pages/Onboarding/EkycStep.tsx</div>
+              <p class="desc">Real-time UIDAI OTP identity check; auto-fills name/DOB/address/photo in &lt;3s. Aadhaar masked, never persisted post-verify; txn ref logged. Failure → manual-KYC fallback.</p>
+              <dl class="meta">
+                <dt>Build</dt><dd>OTP input · masked-Aadhaar field · 30s resend timer · fallback card</dd>
+                <dt>States</dt><dd>entry · OTP-sent · verifying · success · invalid-OTP (max 3 → lockout) · UIDAI-down → fallback</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-01-01</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- screen: MFD status tracker -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/advisor/onboarding</span></div>
+              <div class="canvas" style="grid-template-columns:repeat(3,1fr); grid-template-rows:auto 1fr">
+                <div class="z mut" style="grid-column:1/4"><span>FILTERS · status · date · campaign</span></div>
+                <div class="z newz"><span>eKYC (4)</span></div>
+                <div class="z newz"><span>eSign (2)</span></div>
+                <div class="z newz"><span>Mandate (3)</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill new">New</span><h3>MFD Onboarding Status Tracker</h3></div>
+              <div class="route">new · pages/AdvisorDashboard/OnboardingPipeline.tsx</div>
+              <p class="desc">Advisor pipeline board — Initiated → eKYC → eSign → Mandate → KYC-Verify → Completed — driven by real KRA/CKYC status. Extends the existing CAS-invite status view. Auto-reminders T+1/T+3/T+7.</p>
+              <dl class="meta">
+                <dt>Reuse</dt><dd>advisor client list · client_cas_invite status chips</dd>
+                <dt>States</dt><dd>per-stage counts · stalled (reminder due) · empty pipeline · reminder-sent toast</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-01-10</span> <span class="fr">FR-01-07 leads</span></dd>
+              </dl>
+            </div>
+          </article>
+        </div>
+
+        <details class="more">
+          <summary>3 more onboarding screens</summary>
+          <div class="minis">
+            <div class="mini"><div class="mh"><span class="sw new"></span><b>eSign Bundle (DigiLocker/ESP)</b><span class="vgm">⛓ ESP</span></div><p>Scroll-to-end gate unlocks eSign; one session signs account form + risk ack + FATCA + nominee; signed PDF with hash/ts/IP/device.</p><span class="fr">FR-01-02</span></div>
+            <div class="mini"><div class="mh"><span class="sw new"></span><b>eMandate / NACH Setup</b><span class="vgm">⛓ NPCI</span></div><p>Bank acct + IFSC capture, penny-drop validate, net-banking redirect + callback; status + email/SMS confirm; amend/cancel.</p><span class="fr">FR-01-03</span></div>
+            <div class="mini"><div class="mh"><span class="sw live"></span><b>Risk Profiling</b></div><p>Adaptive 8–12 Q → Conservative/Moderate/Aggressive band, plain-language output, 12-mo expiry. <b>Live</b> via RiskProfileModal.</p><span class="fr">FR-01-04</span></div>
+            <div class="mini"><div class="mh"><span class="sw new"></span><b>FATCA + Nominee</b></div><p>FATCA auto-populated from KYC (US-person → extra disclosures); up to 3 nominees / 100% split with OTP consent.</p><span class="fr">FR-01-08 · FR-01-06</span></div>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============================= WF-02 ============================= -->
+      <section class="wf" id="wf02">
+        <div class="wf-head">
+          <div class="wf-eyebrow">Workflow · WF-02</div>
+          <h2>Goal-Based Planning</h2>
+          <p>Turn analytics into “start this SIP”. The maths is already correct and DB-backed (required-SIP, inflation, scenarios, fund alignment); the gaps are the library, financial-picture capture, PDF export, and a FE↔BE contract fix (now shipped).</p>
+          <div class="actors"><b>Actors:</b> Investor · MFD/Advisor · Planning Engine · Fund Research Module</div>
+        </div>
+        <div class="flow">
+          <span class="step"><span class="sw extend"></span>Goal library</span><span class="arw">→</span>
+          <span class="step"><span class="sw extend"></span>Financial picture</span><span class="arw">→</span>
+          <span class="step"><span class="sw extend"></span>SIP &amp; return modeller</span><span class="arw">→</span>
+          <span class="step"><span class="sw extend"></span>Fund basket</span><span class="arw">→</span>
+          <span class="step"><span class="sw live"></span>Multi-goal dashboard</span><span class="arw">→</span>
+          <span class="step"><span class="sw extend"></span>Plan PDF</span>
+        </div>
+
+        <div class="screens">
+          <!-- Goal library -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/goals/library</span></div>
+              <div class="canvas" style="grid-template-columns:repeat(3,1fr); grid-template-rows:auto auto">
+                <div class="z mut" style="grid-column:1/4"><span>PICK A GOAL</span></div>
+                <div class="z warmz"><span>🎓 Education</span></div>
+                <div class="z warmz"><span>🏖 Retirement</span></div>
+                <div class="z warmz"><span>🏠 Home</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill extend">Extend</span><h3>Goal Library</h3></div>
+              <div class="route">new UI · pages/Goals · engine goal_engine.py</div>
+              <p class="desc">Pre-built templates (Retirement, Education, Marriage, Home, Vehicle, Vacation, Emergency, Wealth) each carrying default inflation, horizon allocation, min-SIP illustration. Versioned; firm can customise assumptions.</p>
+              <dl class="meta">
+                <dt>Reuse</dt><dd>goal engine (live) · card · badge</dd>
+                <dt>States</dt><dd>template grid · selected · illustrative projection preview · multi-goal add</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-02-01</span> <span class="fr">FR-02-02 custom</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- SIP & return modeller -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/goals/:id/plan</span></div>
+              <div class="canvas" style="grid-template-columns:1.3fr 1fr; grid-template-rows:auto 1fr auto">
+                <div class="z warmz" style="grid-column:1/3"><span>REQUIRED SIP ₹__ /mo · target ₹1cr · 15y</span></div>
+                <div class="z tall"><span>3 SCENARIOS 7/10/13% ▚▚▚</span></div>
+                <div class="z warmz tall"><span>SURPLUS slider · step-up 10%</span></div>
+                <div class="z mut" style="grid-column:1/3"><span>SENSITIVITY ±20% SIP · ±2% return</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill extend">Extend</span><h3>SIP &amp; Return Modeller</h3></div>
+              <div class="route">pages/Goals · goal_engine.py (live) · /simulate · /what-if</div>
+              <p class="desc">Required SIP = FV·r/[(1+r)ⁿ−1]; three CAGR scenarios in parallel; achievable-corpus slider, 10%/yr step-up, lumpsum booster, sensitivity table. Pre/post-tax estimates. Contract-drift on /what-if + /simulate fixed &amp; staging-verified.</p>
+              <dl class="meta">
+                <dt>Reuse</dt><dd>goal engine · Monte-Carlo p10/p50/p90 · sliders · area chart</dd>
+                <dt>States</dt><dd>computing · on-track / shortfall · scenario toggle · assumptions-edited</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-02-04</span> <span class="fr">FR-02-05</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- Multi-goal dashboard -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/goals</span></div>
+              <div class="canvas" style="grid-template-columns:1fr 1fr; grid-template-rows:auto auto">
+                <div class="z livez"><span>Retirement · 62% · on-track</span></div>
+                <div class="z livez"><span>Education · 38% · behind ▲SIP</span></div>
+                <div class="z livez"><span>Home · 80% · on-track</span></div>
+                <div class="z mut"><span>+ Add goal</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill live">Live</span><h3>Multi-Goal Dashboard</h3></div>
+              <div class="route">pages/Goals · dashboards.py:658</div>
+              <p class="desc">Goal cards — name / target / current / % / years left / on-off track (current ≥ expected schedule). Shortfall shows the extra SIP needed. Expand → chart, funds, schedule, history. Already live.</p>
+              <dl class="meta">
+                <dt>Reuse</dt><dd>goal cards · progress ring · expand drawer</dd>
+                <dt>States</dt><dd>on-track · behind (extra-SIP CTA) · no goals (empty) · loading skeleton</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-02-07</span></dd>
+              </dl>
+            </div>
+          </article>
+        </div>
+
+        <details class="more">
+          <summary>4 more planning screens</summary>
+          <div class="minis">
+            <div class="mini"><div class="mh"><span class="sw extend"></span><b>Custom Goal Creator</b></div><p>Name/target/date/priority; required SIP computed on save; up to 20 active goals; MFD-on-behalf.</p><span class="fr">FR-02-02</span></div>
+            <div class="mini"><div class="mh"><span class="sw extend"></span><b>Financial Picture Capture</b></div><p>Income/expenses/existing investments/liabilities → investable surplus + tax slab; CAS import auto-populates.</p><span class="fr">FR-02-03</span></div>
+            <div class="mini"><div class="mh"><span class="sw extend"></span><b>Goal-to-Fund Basket</b></div><p>Horizon → category → top funds by Nivesh score; basket table + one-click Start-SIP; MFD override.</p><span class="fr">FR-02-06</span></div>
+            <div class="mini"><div class="mh"><span class="sw extend"></span><b>Goal Plan PDF Export</b></div><p>Branded PDF — projection chart, SIP schedule, basket, assumptions, MFD branding — in &lt;5s to vault/email. Uses reportlab.</p><span class="fr">FR-02-09</span></div>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============================= WF-03 ============================= -->
+      <section class="wf" id="wf03">
+        <div class="wf-head">
+          <div class="wf-eyebrow">Workflow · WF-03</div>
+          <h2>Product Advisory</h2>
+          <p>One research language across products. MF universe, daily NAV, two scoring engines and suitability filtering are live; the buy path lives in WF-05, and the six non-MF shelves are each a partner-gated mini-project.</p>
+          <div class="actors"><b>Actors:</b> Investor · MFD/Advisor · Research Engine · AMC feeds · PMS/AIF/Insurance partners</div>
+        </div>
+        <div class="flow">
+          <span class="step"><span class="sw extend"></span>MF shelf + suitability</span><span class="arw">→</span>
+          <span class="step"><span class="sw live"></span>Fund research detail</span><span class="arw">→</span>
+          <span class="step"><span class="sw extend"></span>Compare ≤3</span><span class="arw">→</span>
+          <span class="step"><span class="sw new"></span>Non-MF shelves</span>
+        </div>
+
+        <div class="screens">
+          <!-- MF shelf -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/recommendations</span></div>
+              <div class="canvas" style="grid-template-columns:0.8fr 1.6fr; grid-template-rows:auto 1fr">
+                <div class="z warmz" style="grid-row:1/3"><span>SUITABILITY FILTER · risk · horizon · min ₹ · override⚠</span></div>
+                <div class="z mut"><span>Sort · score ▾</span></div>
+                <div class="z"><div class="rows"><i></i><i></i><i></i></div></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill extend">Extend</span><h3>MF Universe &amp; Suitability Shelf</h3></div>
+              <div class="route">pages/Recommendations · selection.py:207</div>
+              <p class="desc">All ~44 AMC schemes, Regular+Direct TER diff, daily NAV. Auto-filtered to risk/horizon/min-investment; explicit override with acknowledgement + audit log; non-blocking warning banner.</p>
+              <dl class="meta">
+                <dt>Reuse</dt><dd>recommendation list · research-score badge · suitability engine</dd>
+                <dt>States</dt><dd>filtered · override-ack modal · MFD session-disable w/ reason · empty match</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-03-01</span> <span class="fr">FR-03-03</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- Fund comparison -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/funds/compare</span></div>
+              <div class="canvas" style="grid-template-columns:0.6fr 1fr 1fr 1fr; grid-template-rows:auto repeat(3,1fr)">
+                <div class="z mut"></div><div class="z warmz"><span>Fund A</span></div><div class="z warmz"><span>Fund B</span></div><div class="z warmz"><span>Fund C</span></div>
+                <div class="z" style="grid-column:1/5"><span>trailing · rolling · SD/beta/Sharpe · TER · overlap%</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill extend">Extend</span><h3>Fund Comparison Tool (≤3)</h3></div>
+              <div class="route">new UI · copilot_tools/mf.py:300</div>
+              <p class="desc">Side-by-side of up to 3 funds: trailing + rolling returns, risk (SD/beta/Sharpe/Sortino/maxDD), Reg vs Direct TER, manager/tenure, AUM, holdings overlap %, top-5, research score. Shareable PDF/link (7-day expiry). Compare logic exists; missing columns + a dedicated screen.</p>
+              <dl class="meta">
+                <dt>Reuse</dt><dd>copilot compare tool · metric table · share-link</dd>
+                <dt>States</dt><dd>1–3 selected · add/remove fund · share generated · data-gap note</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-03-10</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- Non-MF shelf pattern -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/products/:shelf</span></div>
+              <div class="canvas" style="grid-template-columns:1fr 1fr; grid-template-rows:auto auto">
+                <div class="z newz" style="grid-column:1/3"><span>ELIGIBILITY GATE · net-worth / accredited</span></div>
+                <div class="z newz"><span>Strategy card · TWRR · min ₹</span></div>
+                <div class="z newz"><span>Request Info / EOI →</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill new">New</span><h3>Non-MF Product Shelf (reusable pattern)</h3><span class="vg">⛓ per-partner</span></div>
+              <div class="route">new · pages/Product · one shelf per partner</div>
+              <p class="desc">A single card/eligibility/factsheet/lead pattern reused across six shelves — PMS, AIF, Bonds &amp; MLDs, Insurance, NPS, Digital Gold — each gated on its own external partner feed and eligibility rules. Sequence per-partner after the core MF loop.</p>
+              <dl class="meta">
+                <dt>Build</dt><dd>product card · eligibility gate · factsheet viewer · Request-Info/EOI</dd>
+                <dt>States</dt><dd>eligible · gated (net-worth) · info-requested · partner-data stale</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-03-04..09</span></dd>
+              </dl>
+            </div>
+          </article>
+        </div>
+
+        <details class="more">
+          <summary>1 more advisory screen</summary>
+          <div class="minis">
+            <div class="mini"><div class="mh"><span class="sw live"></span><b>Fund Research &amp; Score Detail</b></div><p>Nivesh Research Score from weighted params → 1–5 stars, ≥70 “Recommended” badge, analyst ±10 override. Live via FundDetails + V3 scoring.</p><span class="fr">FR-03-02</span></div>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============================= WF-04 ============================= -->
+      <section class="wf" id="wf04">
+        <div class="wf-head">
+          <div class="wf-eyebrow">Workflow · WF-04</div>
+          <h2>Portfolio Monitoring &amp; Rebalancing</h2>
+          <p>The retention engine. Analytics are strong — real XIRR, look-through, drift/deviation, switch-decision with tax + exit-load, FIFO cap-gains — but nothing runs on a schedule or dispatches alerts yet. Wire the engines to the Scheduler + Dispatcher.</p>
+          <div class="actors"><b>Actors:</b> Investor · MFD/Advisor · Monitoring Engine (NP Orbit) · AMC feeds · Alert Dispatcher</div>
+        </div>
+        <div class="flow">
+          <span class="step"><span class="sw live"></span>Live portfolio</span><span class="arw">→</span>
+          <span class="step"><span class="sw extend"></span>Underperformer</span><span class="arw">→</span>
+          <span class="step"><span class="sw extend"></span>Drift alert</span><span class="arw">→</span>
+          <span class="step"><span class="sw extend"></span>Rebalance rec</span><span class="arw">→</span>
+          <span class="step"><span class="sw extend"></span>CG statement</span>
+        </div>
+
+        <div class="screens">
+          <!-- live portfolio dashboard -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/portfolio</span></div>
+              <div class="canvas" style="grid-template-columns:1fr 1fr; grid-template-rows:auto 1fr">
+                <div class="z livez" style="grid-column:1/3"><span>VALUE ₹ · gain± · XIRR · day-change</span></div>
+                <div class="z livez"><span>Allocation pie</span></div>
+                <div class="z"><div class="rows"><i></i><i></i><i></i></div></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill live">Live</span><h3>Live Portfolio Dashboard</h3></div>
+              <div class="route">pages/Portfolio · Performance · portfolio_enrichment.py</div>
+              <p class="desc">Consolidated holdings across CAMS/Karvy/BSE/self-declared — per holding NAV/units/value/invested/gain±/XIRR/day-change, summary + allocation pie with drill-down. Real XIRR + look-through already shipped.</p>
+              <dl class="meta">
+                <dt>Reuse</dt><dd>portfolio table · allocation donut · XIRR badge · date-range</dd>
+                <dt>States</dt><dd>loaded · refreshing on NAV · reconcile discrepancy &gt;0.1% · no holdings</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-04-01</span> <span class="fr">FR-04-02</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- rebalancing recommendation -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/portfolio/rebalance</span></div>
+              <div class="canvas" style="grid-template-rows:auto 1fr auto">
+                <div class="z warmz"><span>Sell 20% of A (₹Y) → Buy B · rationale</span></div>
+                <div class="z mut tall"><span>⚑ STCG &lt;1yr · exit-load ends 12d · repl. score 72</span></div>
+                <div class="z warmz"><span>ACCEPT · MODIFY · REJECT (note)</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill extend">Extend</span><h3>Rebalancing Recommendation</h3></div>
+              <div class="route">switch_decision_engine.py:175 · decisions.py:22 (TODO)</div>
+              <p class="desc">“Sell X of A, buy B” with rationale — accounts for LTCG/STCG, exit loads, replacement quality (score ≥60). MFD accept/modify/reject with note → pre-fills the order (via WF-05) + OTP; outcome tracked 3M/6M/1Y. Engine exists; the accept/reject route is a stub.</p>
+              <dl class="meta">
+                <dt>Reuse</dt><dd>switch-decision engine · tax flags · action buttons</dd>
+                <dt>States</dt><dd>proposed · STCG/exit-load warning · accepted (→order) · modified · rejected</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-04-05</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- CG statement -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/tax/capital-gains</span></div>
+              <div class="canvas" style="grid-template-rows:auto auto auto auto">
+                <div class="z mut"><span>FY 2025-26 ▾ · Export ⭳</span></div>
+                <div class="z livez"><span>A · STCG 111A</span></div>
+                <div class="z livez"><span>B · LTCG 112A — exempt ₹1.25L</span></div>
+                <div class="z warmz"><span>C · Summary · est. tax</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill extend">Extend</span><h3>Capital-Gains Statement</h3></div>
+              <div class="route">pages/Tax · GET /api/portfolio/capital-gains-statement</div>
+              <p class="desc">Scheme-wise FIFO realised gains in the depository A/B/C layout — STCG (111A) / LTCG (112A, ₹1.25L exempt) / summary + notes. Endpoint shipped &amp; staging-verified; remaining: Excel/PDF export, Expenses column from CAS, grandfathered FMV, debt-MF sections.</p>
+              <dl class="meta">
+                <dt>Reuse</dt><dd>tax_engine_fifo · cg_statement formatter · Tax page</dd>
+                <dt>States</dt><dd>FY selected · empty (zeroed) · data-gap banner · export Excel/PDF</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-04-07</span></dd>
+              </dl>
+            </div>
+          </article>
+        </div>
+
+        <details class="more">
+          <summary>3 more monitoring screens</summary>
+          <div class="minis">
+            <div class="mini"><div class="mh"><span class="sw extend"></span><b>Underperformer Detection</b></div><p>Daily post-NAV flag if 2 of 3 breaches (3M/6M/1Y vs peers/benchmark) → Watch/Underperform/Strong; MFD daily digest. Needs scheduler.</p><span class="fr">FR-04-03</span></div>
+            <div class="mini"><div class="mh"><span class="sw extend"></span><b>Asset-Allocation Drift Alert</b></div><p>Drift &gt;5pp (configurable) any class → current-vs-target + magnitude, drill-down, auto-rec on fire. Deviation engine live; needs dispatch.</p><span class="fr">FR-04-04</span></div>
+            <div class="mini"><div class="mh"><span class="sw extend"></span><b>SIP Status Monitor</b></div><p>Active/paused/cancelled SIPs, next-date, cumulative; ECS bounce → alert + retry suggestion; milestone notifications.</p><span class="fr">FR-04-06</span></div>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============================= WF-05 ============================= -->
+      <section class="wf" id="wf05">
+        <div class="wf-head">
+          <div class="wf-eyebrow">Workflow · WF-05</div>
+          <h2>Transaction &amp; Reporting</h2>
+          <p>The transactional core — and today there is <b>no MF execution at all</b> (no BSE STAR/MFU gateway). Reporting is proposal-only with a dead stub. Branded reports can ship internally; the order gateway is the big vendor-gated keystone.</p>
+          <div class="actors"><b>Actors:</b> Investor · MFD/Advisor · BSE STAR MF/MFU · AMC R&amp;T · Compliance Engine</div>
+        </div>
+        <div class="flow">
+          <span class="step"><span class="sw new"></span>Order console</span><span class="arw">→</span>
+          <span class="step"><span class="sw new"></span>SIP management</span><span class="arw">→</span>
+          <span class="step"><span class="sw new"></span>Bulk orders</span><span class="arw">→</span>
+          <span class="step"><span class="sw extend"></span>Branded report</span><span class="arw">→</span>
+          <span class="step"><span class="sw new"></span>Commission dash</span>
+        </div>
+
+        <div class="screens">
+          <!-- Order console -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/orders/new</span></div>
+              <div class="canvas" style="grid-template-rows:auto auto 1fr auto">
+                <div class="z newz"><span>Fund search · name/AMC/ISIN ⌕</span></div>
+                <div class="z mut"><span>Buy · SIP · Redeem · Switch · SWP · STP</span></div>
+                <div class="z newz tall"><span>Confirm summary · cut-off 3:00 PM ⏱</span></div>
+                <div class="z newz"><span>MPIN / biometric → PLACE</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill new">New</span><h3>Order Management Console</h3><span class="vg">⛓ BSE STAR/MFU</span></div>
+              <div class="route">new · pages/Orders · buyable_universe.py:4 (none yet)</div>
+              <p class="desc">All BSE STAR MF txn types; autocomplete fund search; pre-fill from goal/rebalance; confirmation summary with a live cut-off indicator (equity 3PM); MPIN/biometric; failed orders with reason + retry.</p>
+              <dl class="meta">
+                <dt>Build</dt><dd>order gateway client · fund autocomplete · cut-off timer · MPIN sheet</dd>
+                <dt>States</dt><dd>draft · pre-cutoff / post-cutoff · placing · confirmed · failed (retry)</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-05-01</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- Branded report -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/reports/statement</span></div>
+              <div class="canvas" style="grid-template-rows:auto 1fr auto">
+                <div class="z warmz"><span>◧ MFD logo · name · ARN</span></div>
+                <div class="z tall"><div class="rows"><i></i><i></i><i></i></div></div>
+                <div class="z warmz"><span>PDF ⭳ · web view · e-mail</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill extend">Extend</span><h3>Automated Branded Report</h3></div>
+              <div class="route">portfolio_builder_export.py (reportlab) · worker missing</div>
+              <p class="desc">Branded statement — MFD logo/name/ARN, summary, allocation pie, holdings, SIP, performance chart — reconciled with CAMS/Karvy, PDF + web. reportlab exists; needs a real dispatch worker so <span class="mono">result_url</span> is populated, plus a branding config store.</p>
+              <dl class="meta">
+                <dt>Reuse</dt><dd>reportlab export · branding config · review-pack scaffold</dd>
+                <dt>States</dt><dd>generating · ready (download) · dispatched · branding-not-set</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-05-06</span> <span class="fr">FR-05-07 scheduler</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- Commission dashboard -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/advisor/commission</span></div>
+              <div class="canvas" style="grid-template-columns:1fr 1fr; grid-template-rows:auto 1fr">
+                <div class="z newz"><span>Gross MTD/YTD</span></div>
+                <div class="z newz"><span>Trail by AMC ▚▚</span></div>
+                <div class="z newz" style="grid-column:1/3"><span>Top-10 clients · recon discrepancy report</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill new">New</span><h3>Commission &amp; Brokerage Reconciliation</h3><span class="vg">⛓ AMC feeds</span></div>
+              <div class="route">new · pages/AdvisorDashboard/Commission.tsx</div>
+              <p class="desc">Expected = AUM × trail rate, matched per AMC+scheme+month against commission files (SFTP/API); under/over/missing → dispute + rectification tracking. Gross/trail/upfront dashboard with AUM trend, top-10, TDS. Zero-code today, gated on AMC feeds.</p>
+              <dl class="meta">
+                <dt>Build</dt><dd>commission ingest · recon matcher · trail charts · CSV export</dd>
+                <dt>States</dt><dd>reconciled · discrepancy (dispute) · file-missing · projected trail</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-05-04</span> <span class="fr">FR-05-05</span></dd>
+              </dl>
+            </div>
+          </article>
+        </div>
+
+        <details class="more">
+          <summary>3 more transaction screens</summary>
+          <div class="minis">
+            <div class="mini"><div class="mh"><span class="sw new"></span><b>SIP Management</b><span class="vgm">⛓ BSE</span></div><p>New/modify/pause(1–6mo)/cancel/step-up executed at registrar; <span class="mono">db.sips</span> app-written for the first time. Multiple SIPs/fund/folio.</p><span class="fr">FR-05-02</span></div>
+            <div class="mini"><div class="mh"><span class="sw new"></span><b>Bulk Order Placement (MFD)</b><span class="vgm">⛓ BSE</span></div><p>Type → select clients (multi/by-fund/by-risk/CSV) → preview with warnings → up to 500/batch, status report &lt;30min. Blocked on gateway.</p><span class="fr">FR-05-03</span></div>
+            <div class="mini"><div class="mh"><span class="sw new"></span><b>Report Scheduler</b></div><p>Frequency/type/channel config → auto-generate + dispatch to all clients; delivery status, failure resend, opt-out. Needs scheduler + comms.</p><span class="fr">FR-05-07</span></div>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============================= WF-06 ============================= -->
+      <section class="wf" id="wf06">
+        <div class="wf-head">
+          <div class="wf-eyebrow">Workflow · WF-06</div>
+          <h2>Compliance Automation</h2>
+          <p>License-to-operate. Today only DPDP consent + an isolated CAS-only WORM log exist. Promote the main-app audit to tamper-evident, fail-closed WORM; add ARN validation, KYC monitoring, and SEBI disclosure acknowledgement (reusing the consent ledger).</p>
+          <div class="actors"><b>Actors:</b> MFD/Advisor · Compliance Engine · SEBI · AMFI · BSE · KRA/CKYC · Investor</div>
+        </div>
+        <div class="flow">
+          <span class="step"><span class="sw new"></span>ARN validation</span><span class="arw">→</span>
+          <span class="step"><span class="sw new"></span>KYC monitor</span><span class="arw">→</span>
+          <span class="step"><span class="sw extend"></span>Disclosure ack</span><span class="arw">→</span>
+          <span class="step"><span class="sw new"></span>Audit trail explorer</span>
+        </div>
+
+        <div class="screens">
+          <!-- audit trail explorer -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/admin/audit</span></div>
+              <div class="canvas" style="grid-template-columns:0.7fr 1.6fr; grid-template-rows:auto 1fr">
+                <div class="z mut" style="grid-row:1/3"><span>FILTER · investor / MFD / date / action</span></div>
+                <div class="z newz"><span>ts · actor · action · entity · IP · before→after</span></div>
+                <div class="z newz"><div class="rows"><i></i><i></i><i></i></div></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill new">New</span><h3>Audit Trail Explorer</h3></div>
+              <div class="route">new · pages/Admin/Audit.tsx · WORM store</div>
+              <p class="desc">Query every event (login/OTP/field-change/doc-view/eSign/order/alert/report) by investor/MFD/date/action, with CSV export. Backed by tamper-evident WORM storage that holds the txn if a write fails. 10-year retention.</p>
+              <dl class="meta">
+                <dt>Build</dt><dd>WORM writer (fail-closed) · query API · audit table · CSV export</dd>
+                <dt>States</dt><dd>filtered results · before/after diff · write-fail hold notice · empty</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-06-05</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- disclosure ack -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/disclosure</span></div>
+              <div class="canvas" style="grid-template-rows:auto 1fr auto">
+                <div class="z warmz"><span>RDD · KIM · commission · conflict-of-interest</span></div>
+                <div class="z mut tall"><span>scrollable disclosure text</span></div>
+                <div class="z warmz"><span>☐ I acknowledge · OTP → CONFIRM</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill extend">Extend</span><h3>Disclosure &amp; Consent Acknowledgement</h3></div>
+              <div class="route">pages/Disclosure · consents.py:32 (live ledger)</div>
+              <p class="desc">Capture ack for RDD/KIM/commission/conflict-of-interest at onboarding + first purchase of a new category — checkbox + OTP, versioned, with an MFD “X pending” view. Reuses the immutable DPDP consent ledger; today the page is static.</p>
+              <dl class="meta">
+                <dt>Reuse</dt><dd>DPDP consent ledger · versioned records · OTP</dd>
+                <dt>States</dt><dd>pending · acknowledged · re-consent (version bump) · MFD pending-count</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-06-04</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- KYC monitor -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/advisor/kyc-monitor</span></div>
+              <div class="canvas" style="grid-template-columns:1fr 1fr; grid-template-rows:auto 1fr">
+                <div class="z newz"><span>Verified 210</span></div>
+                <div class="z newz"><span>OnHold 6 ⚠ block buy</span></div>
+                <div class="z mut" style="grid-column:1/3"><span>Rejected · ModPending → guided update</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill new">New</span><h3>KYC Status Monitor</h3><span class="vg">⛓ KRA/CKYC</span></div>
+              <div class="route">new · pages/AdvisorDashboard/KycMonitor.tsx</div>
+              <p class="desc">Query KRAs every 24h by PAN → Verified/Registered/OnHold/Rejected/ModPending. OnHold/Rejected blocks purchases (redemptions still allowed) + notifies; guided update flow. Shares the KRA/CKYC rail with WF-01.</p>
+              <dl class="meta">
+                <dt>Build</dt><dd>KRA poll job · status chips · purchase-block guard · update wizard</dd>
+                <dt>States</dt><dd>verified · on-hold (blocked) · rejected · mod-pending · sync-stale</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-06-02</span></dd>
+              </dl>
+            </div>
+          </article>
+        </div>
+
+        <details class="more">
+          <summary>3 more compliance screens</summary>
+          <div class="minis">
+            <div class="mini"><div class="mh"><span class="sw new"></span><b>ARN / SEBI Validation State</b></div><p>Validate ARN vs AMFI each login; expired → warning banner + block new orders (view-only) + reminders 90/60/30/7d. EUIN management.</p><span class="fr">FR-06-01</span></div>
+            <div class="mini"><div class="mh"><span class="sw new"></span><b>AML / Re-KYC Triggers</b></div><p>Doc-expiry + periodic (High 2y/Med 8y/Low 10y) + unusual-activity flags → notify, 30-day grace, guided re-KYC.</p><span class="fr">FR-06-06</span></div>
+            <div class="mini"><div class="mh"><span class="sw new"></span><b>Regulatory Reporting Exports</b></div><p>AMFI monthly txn file, BSE EOD reconciliation, FATCA annual XML — digitally signed, scheduled, dashboard. (P2)</p><span class="fr">FR-06-07</span></div>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============================= WF-07 ============================= -->
+      <section class="wf" id="wf07">
+        <div class="wf-head">
+          <div class="wf-eyebrow">Workflow · WF-07</div>
+          <h2>Client Engagement &amp; Marketing</h2>
+          <p>Why an MFD chooses this platform. Today there’s a real live-data Business Dashboard and firm identity on the CAS-invite page — but no message sender, white-label, or growth tooling. The comms dispatcher is the foundation that unblocks most of this workflow.</p>
+          <div class="actors"><b>Actors:</b> MFD/Advisor · Client · Content Engine · Marketing Automation · CRM</div>
+        </div>
+        <div class="flow">
+          <span class="step"><span class="sw live"></span>Business dashboard</span><span class="arw">→</span>
+          <span class="step"><span class="sw new"></span>Comms composer</span><span class="arw">→</span>
+          <span class="step"><span class="sw new"></span>White-label config</span><span class="arw">→</span>
+          <span class="step"><span class="sw new"></span>Lead funnel</span>
+        </div>
+
+        <div class="screens">
+          <!-- business dashboard -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/advisor</span></div>
+              <div class="canvas" style="grid-template-columns:repeat(3,1fr); grid-template-rows:auto 1fr">
+                <div class="z livez"><span>AUM ₹ ·MoM</span></div><div class="z livez"><span>Clients</span></div><div class="z livez"><span>SIP book</span></div>
+                <div class="z" style="grid-column:1/4"><span>AUM / SIP trend · top-10 by AUM</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill live">Live</span><h3>Business Dashboard</h3></div>
+              <div class="route">pages/AdvisorDashboard · advisor.py:136 · advisor_v4.py:69</div>
+              <p class="desc">KPIs — AUM + MoM, client count, SIP book, trail, product mix — with AUM/SIP/new-client charts and top-10 by AUM, daily 8AM refresh. Live on real data (MoM null, never faked 0%). Extend with trail/commission + product-mix once WF-05 lands.</p>
+              <dl class="meta">
+                <dt>Reuse</dt><dd>advisor KPI cards · trend charts · top-10 list</dd>
+                <dt>States</dt><dd>loaded · MoM-null (first month) · drill-down · loading skeleton</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-07-07</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- comms composer -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/advisor/communicate</span></div>
+              <div class="canvas" style="grid-template-columns:1fr 1.4fr; grid-template-rows:auto 1fr auto">
+                <div class="z newz"><span>Audience · segment / all</span></div>
+                <div class="z newz tall"><span>Compose · {first_name} tokens</span></div>
+                <div class="z mut" style="grid-row:1/3"><span>Channel · email/SMS/WA/push · schedule</span></div>
+                <div class="z newz" style="grid-column:1/3"><span>Delivery status · TRAI/DND suppressed</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill new">New</span><h3>Client Communication Composer</h3><span class="vg">⛓ SMS/WA</span></div>
+              <div class="route">new · pages/AdvisorDashboard/Communicate.tsx</div>
+              <p class="desc">Compose to individual/segment/all; ad-hoc/scheduled/triggered; email/SMS/WhatsApp/push with personalisation tokens; per-recipient delivery status; TRAI/DND opt-out honoured (not enqueue-only). Email can start on internal SMTP; SMS/WhatsApp are vendor-gated.</p>
+              <dl class="meta">
+                <dt>Build</dt><dd>comms dispatcher · segment picker · token editor · delivery log</dd>
+                <dt>States</dt><dd>draft · scheduled · sending · delivered/bounced · DND-suppressed</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-07-02</span> <span class="fr">FR-07-03 dispatch</span></dd>
+              </dl>
+            </div>
+          </article>
+
+          <!-- white-label config -->
+          <article class="screen">
+            <div class="wire">
+              <div class="chrome"><i></i><i></i><i></i><span class="url">/v5/advisor/branding</span></div>
+              <div class="canvas" style="grid-template-columns:1fr 1fr; grid-template-rows:auto 1fr">
+                <div class="z newz"><span>Logo · colours · tagline</span></div>
+                <div class="z mut"><span>Live preview ◧</span></div>
+                <div class="z newz" style="grid-column:1/3"><span>Custom domain (CNAME) · support contact</span></div>
+              </div>
+            </div>
+            <div class="spec">
+              <div class="spec-head"><span class="pill new">New</span><h3>White-Label Branding Config</h3></div>
+              <div class="route">new · pages/AdvisorDashboard/Branding.tsx</div>
+              <p class="desc">MFD branding — name/logo/colours/tagline/custom domain/support contact — reflected across splash/login/nav/reports/push/email within 24h; client always sees the MFD’s name. The config store this writes is reused by reports, goal PDFs and comms.</p>
+              <dl class="meta">
+                <dt>Build</dt><dd>branding config store · asset upload · live preview · CNAME setup</dd>
+                <dt>States</dt><dd>unset (defaults) · editing · preview · propagating (&lt;24h) · domain-pending</dd>
+                <dt>FRs</dt><dd><span class="fr">FR-07-01</span></dd>
+              </dl>
+            </div>
+          </article>
+        </div>
+
+        <details class="more">
+          <summary>6 more engagement screens</summary>
+          <div class="minis">
+            <div class="mini"><div class="mh"><span class="sw new"></span><b>eVisiting Card</b></div><p>eCard (photo/firm/ARN/contact/onboarding link), 5 templates, image + VCF, QR → branded onboarding; share via WhatsApp/social.</p><span class="fr">FR-07-04</span></div>
+            <div class="mini"><div class="mh"><span class="sw new"></span><b>Social Media Content Pack</b></div><p>Weekly Monday pack (market/literacy/product) sized for IG/LinkedIn/WhatsApp, logo auto-applied, one-click publish, calendar.</p><span class="fr">FR-07-05</span></div>
+            <div class="mini"><div class="mh"><span class="sw new"></span><b>Lead Management Funnel</b></div><p>Prospect → Onboarding-Started → KYC → Mandate → First-Investment; source tracking, dropout analysis, re-engage reminders, conversion funnel.</p><span class="fr">FR-07-06</span></div>
+            <div class="mini"><div class="mh"><span class="sw extend"></span><b>HNI Analytics</b></div><p>HNI threshold (₹25L default) list by AUM with auto tags (PMS-Ready / Insurance-Gap / NPS-Not-Started) + one-click action. Tag scaffolding exists.</p><span class="fr">FR-07-08</span></div>
+            <div class="mini"><div class="mh"><span class="sw extend"></span><b>Client Segmentation</b></div><p>Auto-segment by AUM/risk/product/goal/SIP/engagement + custom AND/OR; dynamic membership feeds comms/orders/campaigns. Filters exist client-side.</p><span class="fr">FR-07-09</span></div>
+            <div class="mini"><div class="mh"><span class="sw new"></span><b>Engagement Score</b></div><p>Weekly 0–100 (login/report-open/goal-activity/txn-recency/comms-response) → bands + re-engage action, 3-mo trend. (P2)</p><span class="fr">FR-07-10</span></div>
+          </div>
+        </details>
+      </section>
+    </main>
+  </div>
+</div>
+
+<footer>
+  <div class="shell">
+    <div>Screen designs derived from <span class="mono">.claude/workspace/advisory-workflows/</span> — PRD.md · spec.md · implementation-validation.md. Status colours reflect the FR audit, not a claim that any “Extend/Live” screen is fully built. Wireframes are schematic, not pixel-final.</div>
+    <div class="mono">Nivesh · ARN-115287 · V5 surface</div>
+  </div>
+</footer>

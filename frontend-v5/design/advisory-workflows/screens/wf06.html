@@ -1,0 +1,550 @@
+<article class="screen" id="wf06-arn">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>ARN / SEBI Validation State</h3>
+    <span class="route">/v5/advisor</span>
+    <p class="desc">Validates the advisor's ARN-115287 against AMFI on login and gates order placement when the registration lapses — with a 90/60/30/7d reminder ladder, EUIN mapping and a full validity history. FR-06-01.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/advisor</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico">◎</span><span class="ico">₹</span><span class="ico">⚑</span><span class="ico on">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">ARN validation</div><div class="vsub">Rohan Kulkarni · ARN-115287 · EUIN E-284416</div></div>
+          <div class="grow"></div>
+          <span class="chip bad">Expired · 5 days ago</span>
+          <button class="nv-btn sm">Re-check with AMFI</button>
+        </div>
+        <div class="viewbody">
+          <div class="banner bad"><span class="bi">⛔</span><div><b>ARN-115287 expired on 28 Jun 2026 — new orders are blocked (view-only mode).</b> Purchases, switches and fresh SIP registrations are disabled across all 142 client accounts. Existing SIP debits and redemptions continue uninterrupted. Renew your registration with AMFI to restore order placement. <button class="nv-btn sm" style="margin-left:8px">Start ARN renewal ↗</button></div></div>
+          <div class="row" style="align-items:stretch">
+            <div class="nv-card pad" style="flex:1.05;min-width:280px">
+              <div class="ch"><span class="lbl">AMFI registration</span><span class="chip neutral">Synced 04:12 AM IST</span></div>
+              <div class="col" style="gap:0">
+                <div class="between" style="padding:8px 0"><span class="muted">ARN number</span><b class="mono">ARN-115287</b></div>
+                <hr class="hair">
+                <div class="between" style="padding:8px 0"><span class="muted">Holder</span><b>Rohan Kulkarni · Individual MFD</b></div>
+                <hr class="hair">
+                <div class="between" style="padding:8px 0"><span class="muted">NISM VA certificate</span><b class="chip ok">Valid till 14 Nov 2027</b></div>
+                <hr class="hair">
+                <div class="between" style="padding:8px 0"><span class="muted">KYD (Know Your Distributor)</span><b class="chip ok">Verified</b></div>
+                <hr class="hair">
+                <div class="between" style="padding:8px 0"><span class="muted">Current validity</span><b class="num" style="color:var(--neg)">22 Jun 2023 – 28 Jun 2026</b></div>
+                <hr class="hair">
+                <div class="between" style="padding:8px 0"><span class="muted">AMFI status</span><span class="chip" style="background:var(--danger);color:#fff;border-color:transparent">EXPIRED</span></div>
+              </div>
+            </div>
+            <div class="nv-card pad" style="flex:1;min-width:270px">
+              <div class="ch"><span class="lbl">Expiry reminders · 90/60/30/7d</span><span class="chip bad">Ladder lapsed</span></div>
+              <div class="col" style="gap:0">
+                <div class="lrow"><span class="av sm" style="background:var(--mint-soft);color:var(--mint)">✓</span><div style="flex:1"><b style="font-size:13px">T-90 notice</b><div class="sub muted" style="font-size:11px">Email + in-app · 30 Mar 2026</div></div><span class="chip ok">Sent</span></div>
+                <div class="lrow"><span class="av sm" style="background:var(--mint-soft);color:var(--mint)">✓</span><div style="flex:1"><b style="font-size:13px">T-60 notice</b><div class="sub muted" style="font-size:11px">Email + in-app · 29 Apr 2026</div></div><span class="chip ok">Sent</span></div>
+                <div class="lrow"><span class="av sm" style="background:var(--amber-soft);color:var(--amber)">!</span><div style="flex:1"><b style="font-size:13px">T-30 notice</b><div class="sub muted" style="font-size:11px">Email + SMS · 29 May 2026</div></div><span class="chip warn">Escalated</span></div>
+                <div class="lrow"><span class="av sm" style="background:var(--amber-soft);color:var(--amber)">!</span><div style="flex:1"><b style="font-size:13px">T-7 final notice</b><div class="sub muted" style="font-size:11px">Email + SMS + call task · 21 Jun 2026</div></div><span class="chip warn">Sent</span></div>
+                <div class="lrow"><span class="av sm" style="background:var(--danger-soft);color:var(--neg)">⛔</span><div style="flex:1"><b style="font-size:13px">Expiry · orders blocked</b><div class="sub muted" style="font-size:11px">28 Jun 2026 · view-only enforced</div></div><span class="chip bad">Reached</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="nv-card pad">
+            <div class="ch"><span class="lbl">EUIN mapping · orders attributed at execution</span><span class="chip warn">Inactive while ARN lapsed</span></div>
+            <div class="tbl-wrap"><table class="tbl">
+              <thead><tr><th>EUIN</th><th>Holder</th><th>Role</th><th>Valid till</th><th class="r">Mapped orders</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr><td class="mono">E-284416</td><td class="nm">Rohan Kulkarni</td><td>Principal MFD</td><td class="num">28 Jun 2026</td><td class="r num">— blocked —</td><td><span class="chip warn">Suspended w/ ARN</span></td></tr>
+                <tr><td class="mono">E-291105</td><td class="nm">Sana Kapoor</td><td>Attached RM</td><td class="num">14 Nov 2026</td><td class="r num">— blocked —</td><td><span class="chip warn">Suspended w/ ARN</span></td></tr>
+              </tbody>
+            </table></div>
+          </div>
+          <div class="nv-card pad">
+            <div class="ch"><span class="lbl">Validity history</span><span class="tag">3-year renewal cycle</span></div>
+            <div class="tbl-wrap"><table class="tbl">
+              <thead><tr><th>Event</th><th>Date</th><th>Valid from → to</th><th class="r">Certificate</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr><td class="nm">Registered</td><td class="num">29 Jun 2017</td><td class="num">29 Jun 2017 → 28 Jun 2020</td><td class="r mono">ARN-115287</td><td><span class="chip neutral">Superseded</span></td></tr>
+                <tr><td class="nm">Renewed</td><td class="num">18 Jun 2020</td><td class="num">29 Jun 2020 → 28 Jun 2023</td><td class="r mono">ARN-115287</td><td><span class="chip neutral">Superseded</span></td></tr>
+                <tr><td class="nm">Renewed</td><td class="num">22 Jun 2023</td><td class="num">22 Jun 2023 → 28 Jun 2026</td><td class="r mono">ARN-115287</td><td><span class="chip bad">Expired</span></td></tr>
+                <tr><td class="nm">Renewal</td><td class="muted">— pending —</td><td class="muted">awaiting AMFI approval</td><td class="r muted">—</td><td><span class="chip warn">Action required</span></td></tr>
+              </tbody>
+            </table></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf06-kyc">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>KYC Status Monitor</h3>
+    <span class="route">/v5/advisor/kyc-monitor</span>
+    <span class="nv-pill">⛓ KRA / CKYC</span>
+    <p class="desc">Re-queries every client's KYC against the KRAs & CKYC every 24h and auto-gates transactions — On Hold blocks purchases but allows redemptions, with a guided-update path back to Verified. FR-06-02.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/advisor/kyc-monitor</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico">◎</span><span class="ico">₹</span><span class="ico">⚑</span><span class="ico on">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">KYC monitor</div><div class="vsub">142 mapped clients · re-queried every 24h</div></div>
+          <div class="grow"></div>
+          <span class="chip neutral">Last sync 04:12 AM IST</span>
+          <button class="nv-btn sm">Re-query now</button>
+        </div>
+        <div class="viewbody">
+          <div class="grid4">
+            <div class="stat"><span class="k">Verified</span><span class="v num pos">128</span><span class="d muted">transacting freely</span></div>
+            <div class="stat"><span class="k">On hold</span><span class="v num" style="color:var(--amber)">6</span><span class="d" style="color:var(--amber)">purchases blocked</span></div>
+            <div class="stat"><span class="k">Rejected</span><span class="v num neg">3</span><span class="d neg">re-KYC required</span></div>
+            <div class="stat"><span class="k">Mod pending</span><span class="v num" style="color:var(--indigo)">5</span><span class="d" style="color:var(--indigo)">at KRA for review</span></div>
+          </div>
+          <div class="nv-card pad">
+            <div class="ch"><span class="lbl">Clients needing attention · 14 of 142</span><span class="chip warn">Sorted by risk to transaction</span></div>
+            <div class="tbl-wrap"><table class="tbl">
+              <thead><tr><th>Client</th><th>PAN</th><th>KRA</th><th>KYC status</th><th>Last checked</th><th class="r">Action</th></tr></thead>
+              <tbody>
+                <tr style="background:var(--amber-soft)">
+                  <td><div class="nm">Meera Iyer</div><div class="sub">Folio 91104421 · Moderate</div></td>
+                  <td class="mono">XXXXX4471K</td><td>CAMS KRA</td>
+                  <td><span class="chip warn">On Hold</span><div class="sub" style="font-size:11px;margin-top:3px">Purchases blocked · redemptions allowed</div></td>
+                  <td class="num">2h ago</td>
+                  <td class="r"><button class="nv-btn sm primary">Guide update</button></td>
+                </tr>
+                <tr>
+                  <td><div class="nm">Sneha Reddy</div><div class="sub">Folio 88213390 · Aggressive</div></td>
+                  <td class="mono">XXXXX3388M</td><td>CVL KRA</td>
+                  <td><span class="chip bad">Rejected</span><div class="sub" style="font-size:11px;margin-top:3px">Photo–PAN image mismatch</div></td>
+                  <td class="num">2h ago</td>
+                  <td class="r"><button class="nv-btn sm">Start re-KYC</button></td>
+                </tr>
+                <tr>
+                  <td><div class="nm">Vikram Desai</div><div class="sub">Folio 77120185 · Moderate</div></td>
+                  <td class="mono">XXXXX9920L</td><td>NDML KRA</td>
+                  <td><span class="chip info">Mod pending</span><div class="sub" style="font-size:11px;margin-top:3px">Address change under KRA review</div></td>
+                  <td class="num">2h ago</td>
+                  <td class="r"><button class="nv-btn sm ghost">Track</button></td>
+                </tr>
+                <tr>
+                  <td><div class="nm">Aarav P. Sharma</div><div class="sub">Folio 40218842 · Moderate</div></td>
+                  <td class="mono">XXXXX1234F</td><td>CVL KRA</td>
+                  <td><span class="chip ok">Verified</span></td>
+                  <td class="num">2h ago</td>
+                  <td class="r"><button class="nv-btn sm ghost">View</button></td>
+                </tr>
+                <tr>
+                  <td><div class="nm">Rahul Menon</div><div class="sub">Folio 66540127 · Conservative</div></td>
+                  <td class="mono">XXXXX7712P</td><td>Karvy KRA</td>
+                  <td><span class="chip ok">Verified</span></td>
+                  <td class="num">2h ago</td>
+                  <td class="r"><button class="nv-btn sm ghost">View</button></td>
+                </tr>
+                <tr>
+                  <td><div class="nm">Priya Nair</div><div class="sub">Folio 55401903 · Moderate</div></td>
+                  <td class="mono">XXXXX5540Q</td><td>CKYC</td>
+                  <td><span class="chip ok">Verified</span></td>
+                  <td class="num">2h ago</td>
+                  <td class="r"><button class="nv-btn sm ghost">View</button></td>
+                </tr>
+              </tbody>
+            </table></div>
+          </div>
+          <div class="banner info"><span class="bi">ⓘ</span><div><b>Re-queried every 24h</b> against CVL / CAMS / NDML / Karvy KRAs and the central CKYC registry. A drop to <b>On Hold</b> auto-blocks new purchases while leaving redemptions open; a return to <b>Verified</b> re-enables ordering within one sync cycle — no manual toggle.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf06-disclosure">
+  <div class="cap">
+    <span class="nv-pill amber">Extend</span>
+    <h3>Disclosure &amp; Consent Acknowledgement</h3>
+    <span class="route">/v5/disclosure</span>
+    <p class="desc">Versioned RDD / KIM / commission / conflict-of-interest disclosures with a scroll-to-end + OTP acknowledgement, and forced re-consent whenever a document version is bumped. FR-06-04.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/disclosure</span>
+      <span class="nv-pill amber st">Extend</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico">◎</span><span class="ico">₹</span><span class="ico">⚑</span><span class="ico on">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">Disclosures &amp; consent</div><div class="vsub">Aarav P. Sharma · PAN XXXXX1234F</div></div>
+          <div class="grow"></div>
+          <span class="chip warn">3 pending</span>
+        </div>
+        <div class="viewbody">
+          <div class="banner info"><span class="bi">↻</span><div><b>Re-consent triggered by a version bump.</b> The Risk Disclosure Document was revised <b>v3.0 → v3.2</b> (new small-cap liquidity clause). Prior consent is invalidated — the client must re-acknowledge before the next transaction can be placed.</div></div>
+          <div class="row" style="align-items:flex-start">
+            <div class="nv-card pad" style="flex:none;width:280px">
+              <div class="ch"><span class="lbl">Disclosure documents</span><span class="chip warn">3 pending</span></div>
+              <div class="col" style="gap:0">
+                <div class="lrow" style="cursor:pointer;background:var(--indigo-soft);border-radius:9px;padding-left:9px;padding-right:9px">
+                  <div style="flex:1"><b style="font-size:13px">Risk Disclosure (RDD)</b><div class="sub muted" style="font-size:11px">v3.2 · revised 28 Jun 2026</div></div>
+                  <span class="chip info">Re-consent</span>
+                </div>
+                <div class="lrow">
+                  <div style="flex:1"><b style="font-size:13px">Key Information Memo (KIM)</b><div class="sub muted" style="font-size:11px">v2.1 · acknowledged 12 Apr 2026</div></div>
+                  <span class="chip ok">Signed</span>
+                </div>
+                <div class="lrow">
+                  <div style="flex:1"><b style="font-size:13px">Commission &amp; Trail</b><div class="sub muted" style="font-size:11px">v1.4 · issued 01 Jun 2026</div></div>
+                  <span class="chip warn">Pending</span>
+                </div>
+                <div class="lrow">
+                  <div style="flex:1"><b style="font-size:13px">Conflict of Interest</b><div class="sub muted" style="font-size:11px">v1.2 · issued 01 Jun 2026</div></div>
+                  <span class="chip warn">Pending</span>
+                </div>
+              </div>
+            </div>
+            <div class="col" style="flex:1;min-width:320px;gap:14px">
+              <div class="nv-card pad">
+                <div class="ch"><span class="lbl">Risk Disclosure Document · v3.2</span><span class="chip info">Requires re-consent</span></div>
+                <div class="nv-card-2" style="padding:14px 15px;max-height:150px;overflow-y:auto;font-size:12.5px;line-height:1.65;color:var(--ink2)">
+                  <b style="color:var(--ink)">1. Market risk.</b> Mutual fund investments are subject to market risks. The NAV of the schemes may go up or down depending on factors affecting the securities market including fluctuations in interest rates, trading volumes and settlement periods.<br><br>
+                  <b style="color:var(--ink)">2. Small-cap liquidity (new in v3.2).</b> Schemes with material small-cap exposure may face impact cost and redemption-gating risk during stressed markets; the AMC may, in extraordinary circumstances, restrict or suspend redemptions per SEBI norms.<br><br>
+                  <b style="color:var(--ink)">3. No assured returns.</b> Past performance of the sponsor / AMC does not guarantee future performance. The distributor (ARN-115287) earns a trail commission disclosed separately and does not receive any performance-linked incentive.<br><br>
+                  <b style="color:var(--ink)">4. Suitability.</b> The recommendation is based on the risk profile recorded as <i>Moderate</i> on 12 Apr 2026. Any product above this band is placed only with an explicit override recorded on the audit trail.
+                </div>
+                <div class="between" style="margin-top:10px"><span class="muted" style="font-size:11px">You have scrolled to the end · document read</span><span class="chip ok">✓ Read</span></div>
+              </div>
+              <div class="nv-card pad">
+                <label class="check" style="margin-bottom:12px"><span class="bx on">✓</span> I have read and understood the Risk Disclosure Document (v3.2) and consent to it.</label>
+                <div class="row" style="align-items:flex-end;gap:14px;flex-wrap:nowrap">
+                  <div class="field" style="flex:1"><label>OTP sent to +91 ••••• 34210</label><div class="input otp">4 2 8 ● ● ●</div></div>
+                  <button class="nv-btn primary" style="flex:none">Acknowledge with OTP</button>
+                </div>
+                <div class="between" style="margin-top:10px"><span class="muted" style="font-size:12px">Resend OTP in <b class="num">0:23</b></span><span class="muted" style="font-size:11px">Consent + OTP hash written to the WORM audit trail</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf06-audit">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>Audit Trail Explorer</h3>
+    <span class="route">/v5/admin/audit</span>
+    <p class="desc">Append-only, tamper-evident event log across investors and MFDs — filterable by actor, date and action, with hash-chained before→after records and a signed CSV export. FR-06-05.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/admin/audit</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico">◎</span><span class="ico">₹</span><span class="ico">⚑</span><span class="ico on">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">Audit trail</div><div class="vsub">28,41,022 events · retained 8 years</div></div>
+          <div class="grow"></div>
+          <span class="chip ok">⛓ WORM · chain verified</span>
+          <button class="nv-btn sm">⤓ Export CSV</button>
+        </div>
+        <div class="viewbody">
+          <div class="row" style="align-items:flex-start">
+            <div class="nv-card pad" style="flex:none;width:220px">
+              <div class="ch"><span class="lbl">Filters</span><span class="chip info">3 on</span></div>
+              <div class="col" style="gap:14px">
+                <div class="field"><label>Investor</label><div class="input ph">PAN / name…</div></div>
+                <div class="field"><label>MFD / actor</label><div class="input num">ARN-115287</div></div>
+                <div class="field"><label>Date range</label><div class="seg" style="align-self:flex-start"><span class="on">24h</span><span>7d</span><span>30d</span></div></div>
+                <hr class="hair">
+                <div class="field"><label>Action</label>
+                  <div class="col" style="gap:9px;margin-top:3px">
+                    <label class="check"><span class="bx on">✓</span> ORDER</label>
+                    <label class="check"><span class="bx on">✓</span> CONSENT</label>
+                    <label class="check"><span class="bx on">✓</span> KYC</label>
+                    <label class="check"><span class="bx"></span> RECO</label>
+                    <label class="check"><span class="bx"></span> ROLE</label>
+                    <label class="check"><span class="bx"></span> BANK</label>
+                  </div>
+                </div>
+                <button class="nv-btn sm primary wfull" style="justify-content:center">Apply filters</button>
+              </div>
+            </div>
+            <div class="col" style="flex:1;min-width:340px;gap:12px">
+              <div class="nv-card pad">
+                <div class="ch"><span class="lbl">Events · newest first</span><span class="tag">timestamp UTC · ms precision</span></div>
+                <div class="tbl-wrap"><table class="tbl" style="min-width:820px">
+                  <thead><tr><th>Timestamp (UTC)</th><th>Actor</th><th>Action</th><th>Entity</th><th>IP · device</th><th>Before → After</th><th class="r">Hash</th></tr></thead>
+                  <tbody>
+                    <tr>
+                      <td class="mono" style="font-size:11px">2026-07-03T18:42:11.204Z</td>
+                      <td><div class="nm">rohan.k</div><div class="sub">ARN-115287</div></td>
+                      <td><span class="tag">ORDER.PLACE</span></td>
+                      <td class="mono" style="font-size:11px">order/ORD-88213</td>
+                      <td><div class="mono" style="font-size:11px">103.21.44.9</div><div class="sub">Chrome · macOS</div></td>
+                      <td class="muted" style="font-size:11px">— created —</td>
+                      <td class="r mono" style="font-size:10.5px">🔒 …a1f9</td>
+                    </tr>
+                    <tr>
+                      <td class="mono" style="font-size:11px">2026-07-03T18:39:52.881Z</td>
+                      <td><div class="nm">aarav.sharma</div><div class="sub">XXXXX1234F</div></td>
+                      <td><span class="tag">CONSENT.ACK</span></td>
+                      <td class="mono" style="font-size:11px">disclosure/RDD-v3.2</td>
+                      <td><div class="mono" style="font-size:11px">49.36.180.x</div><div class="sub">App · Android</div></td>
+                      <td class="mono" style="font-size:11px">pending → <span class="pos">acknowledged</span></td>
+                      <td class="r mono" style="font-size:10.5px">🔒 …7c02</td>
+                    </tr>
+                    <tr>
+                      <td class="mono" style="font-size:11px">2026-07-03T17:05:33.019Z</td>
+                      <td><div class="nm">system</div><div class="sub">kyc-cron</div></td>
+                      <td><span class="tag">KYC.SYNC</span></td>
+                      <td class="mono" style="font-size:11px">client/CL-4471</td>
+                      <td><div class="mono" style="font-size:11px">—</div><div class="sub">internal</div></td>
+                      <td class="mono" style="font-size:11px">verified → <span class="neg">on_hold</span></td>
+                      <td class="r mono" style="font-size:10.5px">🔒 …3e88</td>
+                    </tr>
+                    <tr>
+                      <td class="mono" style="font-size:11px">2026-07-03T16:22:09.550Z</td>
+                      <td><div class="nm">rohan.k</div><div class="sub">ARN-115287</div></td>
+                      <td><span class="tag">RECO.OVERRIDE</span></td>
+                      <td class="mono" style="font-size:11px">reco/RC-1182</td>
+                      <td><div class="mono" style="font-size:11px">103.21.44.9</div><div class="sub">Chrome · macOS</div></td>
+                      <td class="mono" style="font-size:11px">score 61 → 65</td>
+                      <td class="r mono" style="font-size:10.5px">🔒 …b410</td>
+                    </tr>
+                    <tr>
+                      <td class="mono" style="font-size:11px">2026-07-03T15:48:41.777Z</td>
+                      <td><div class="nm">admin.sr</div><div class="sub">compliance</div></td>
+                      <td><span class="tag">ROLE.GRANT</span></td>
+                      <td class="mono" style="font-size:11px">user/U-2290</td>
+                      <td><div class="mono" style="font-size:11px">103.21.44.2</div><div class="sub">Chrome · Win</div></td>
+                      <td class="mono" style="font-size:11px">viewer → <span class="pos">approver</span></td>
+                      <td class="r mono" style="font-size:10.5px">🔒 …9df1</td>
+                    </tr>
+                    <tr>
+                      <td class="mono" style="font-size:11px">2026-07-03T14:12:04.318Z</td>
+                      <td><div class="nm">aarav.sharma</div><div class="sub">XXXXX1234F</div></td>
+                      <td><span class="tag">BANK.UPDATE</span></td>
+                      <td class="mono" style="font-size:11px">mandate/UMRN-6f2a</td>
+                      <td><div class="mono" style="font-size:11px">49.36.180.x</div><div class="sub">App · iOS</div></td>
+                      <td class="mono" style="font-size:11px">a/c ••4821 → ••7756</td>
+                      <td class="r mono" style="font-size:10.5px">🔒 …ce55</td>
+                    </tr>
+                  </tbody>
+                </table></div>
+              </div>
+              <div class="banner info"><span class="bi">🔒</span><div><b>Fail-closed writes.</b> Every state change must commit its immutable log entry first — if the audit write fails, the originating transaction is rolled back and held. No order, consent or role change commits without a hash-chained record. Chain last verified <b>18:44 UTC</b>, 0 breaks.</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf06-aml">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>AML / Re-KYC Triggers</h3>
+    <span class="route">/v5/admin/aml</span>
+    <p class="desc">Fires re-KYC on document expiry and the periodic cycle (High 2y / Med 8y / Low 10y), plus AML flags on unusual activity (5× the 30-day baseline), with a 30-day grace countdown before auto-suspension. FR-06-06.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/admin/aml</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico">◎</span><span class="ico">₹</span><span class="ico">⚑</span><span class="ico on">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">AML &amp; re-KYC triggers</div><div class="vsub">142 clients · patterns reviewed &lt; 24h</div></div>
+          <div class="grow"></div>
+          <span class="chip bad">4 flagged</span>
+          <button class="nv-btn sm">Review queue</button>
+        </div>
+        <div class="viewbody">
+          <div class="grid4">
+            <div class="stat"><span class="k">Doc expiry</span><span class="v num neg">2</span><span class="d neg">1 suspends today</span></div>
+            <div class="stat"><span class="k">Periodic re-KYC due</span><span class="v num" style="color:var(--amber)">1</span><span class="d muted">High-risk 2y cycle</span></div>
+            <div class="stat"><span class="k">Unusual activity</span><span class="v num neg">1</span><span class="d neg">5×+ baseline</span></div>
+            <div class="stat"><span class="k">In grace period</span><span class="v num" style="color:var(--amber)">2</span><span class="d muted">before suspension</span></div>
+          </div>
+          <div class="nv-card pad" style="border-color:rgba(197,48,62,.32)">
+            <div class="between" style="align-items:flex-start;flex-wrap:nowrap;gap:16px">
+              <div style="flex:1;min-width:0">
+                <div class="between" style="justify-content:flex-start;gap:9px"><span class="chip bad">Doc expiry</span><b style="font-size:14.5px">Sneha Reddy</b><span class="mono muted" style="font-size:11px">XXXXX3388M</span></div>
+                <div class="muted" style="font-size:12.5px;margin-top:6px">PAN–Aadhaar KYC document expired <b style="color:var(--ink)">03 Jun 2026</b>. Purchases will <b style="color:var(--neg)">auto-suspend at EOD today</b> unless re-KYC completes.</div>
+                <div class="bar" style="height:9px;margin-top:12px"><i class="neg" style="width:100%"></i></div>
+                <div class="between" style="margin-top:7px"><span class="muted" style="font-size:11px">Grace: Day 30 of 30</span><span class="chip bad">Suspends at EOD</span></div>
+              </div>
+              <div class="col" style="align-items:center;gap:8px;flex:none">
+                <div class="ring" style="--p:100;--sz:72px"><div class="hole"><span class="serif" style="font-size:18px">0d</span></div></div>
+                <button class="nv-btn sm primary">Start re-KYC</button>
+              </div>
+            </div>
+          </div>
+          <div class="nv-card pad">
+            <div class="ch"><span class="lbl">Trigger queue</span><span class="tag">grace = 30 days from trigger</span></div>
+            <div class="tbl-wrap"><table class="tbl">
+              <thead><tr><th>Client</th><th>Trigger</th><th>Rule</th><th>Detected</th><th>Grace ends</th><th class="r">Action</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><div class="nm">Rahul Menon</div><div class="sub">XXXXX7712P · Conservative</div></td>
+                  <td><span class="chip bad">Unusual activity</span></td>
+                  <td><div class="sub">₹ 6.2 L in 30d · <b class="neg">5.4×</b> the ₹ 1.15 L baseline</div></td>
+                  <td class="num">01 Jul 2026</td>
+                  <td><span class="chip bad">Escalated to FIU</span></td>
+                  <td class="r"><button class="nv-btn sm">Review</button></td>
+                </tr>
+                <tr>
+                  <td><div class="nm">Sneha Reddy</div><div class="sub">XXXXX3388M · Aggressive</div></td>
+                  <td><span class="chip bad">Doc expiry</span></td>
+                  <td><div class="sub">KYC document expired · re-KYC required</div></td>
+                  <td class="num">03 Jun 2026</td>
+                  <td><span class="chip bad">Today</span></td>
+                  <td class="r"><button class="nv-btn sm primary">Re-KYC</button></td>
+                </tr>
+                <tr>
+                  <td><div class="nm">Vikram Desai</div><div class="sub">XXXXX9920L · Moderate</div></td>
+                  <td><span class="chip warn">Periodic re-KYC</span></td>
+                  <td><div class="sub">High risk · 2y cycle · last KYC 20 Jun 2024</div></td>
+                  <td class="num">20 Jun 2026</td>
+                  <td><span class="chip warn">17 days</span></td>
+                  <td class="r"><button class="nv-btn sm ghost">Notify</button></td>
+                </tr>
+                <tr>
+                  <td><div class="nm">Meera Iyer</div><div class="sub">XXXXX4471K · Moderate</div></td>
+                  <td><span class="chip warn">Periodic re-KYC</span></td>
+                  <td><div class="sub">Medium risk · 8y cycle · due 2026</div></td>
+                  <td class="num">28 Jun 2026</td>
+                  <td><span class="chip neutral">25 days</span></td>
+                  <td class="r"><button class="nv-btn sm ghost">Notify</button></td>
+                </tr>
+                <tr>
+                  <td><div class="nm">Aarav P. Sharma</div><div class="sub">XXXXX1234F · Moderate</div></td>
+                  <td><span class="chip neutral">Watch</span></td>
+                  <td><div class="sub">₹ 3.6 L in 30d · <b>3.1×</b> baseline · below 5× threshold</div></td>
+                  <td class="num">02 Jul 2026</td>
+                  <td class="muted">— not flagged —</td>
+                  <td class="r"><button class="nv-btn sm ghost">Dismiss</button></td>
+                </tr>
+              </tbody>
+            </table></div>
+          </div>
+          <div class="banner info"><span class="bi">ⓘ</span><div><b>Patterns reviewed &lt; 24h.</b> Transaction behaviour is re-scored every cycle; periodic re-KYC fires on the risk-band clock (<b>High 2y · Med 8y · Low 10y</b>) and an AML flag raises when 30-day volume crosses <b>5× the client's baseline</b>. Flagged clients get a <b>30-day grace</b> window before purchases auto-suspend.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf06-exports">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>Regulatory Reporting Exports</h3>
+    <span class="route">/v5/admin/reg-exports</span>
+    <p class="desc">Scheduled, digitally-signed regulatory files — AMFI monthly transactions, BSE STAR EOD reconciliation and the FATCA/CRS annual XML — each with last-run / next-run timestamps and a live generation state. FR-06-07.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/admin/reg-exports</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico">◎</span><span class="ico">₹</span><span class="ico">⚑</span><span class="ico on">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">Regulatory exports</div><div class="vsub">Digitally signed · scheduled · timestamps IST</div></div>
+          <div class="grow"></div>
+          <span class="chip ok">⛓ signed manifest → audit</span>
+          <button class="nv-btn sm">New export</button>
+        </div>
+        <div class="viewbody">
+          <div class="banner info"><span class="bi">🔏</span><div>Every file is signed with the firm DSC (<b>SHA-256</b>) and delivered over SFTP; a signed manifest is written to the WORM audit trail on each run. Failed signatures block delivery and page compliance.</div></div>
+
+          <div class="nv-card pad">
+            <div class="between" style="align-items:flex-start;flex-wrap:nowrap;gap:14px">
+              <div style="min-width:0"><b style="font-size:14.5px">AMFI Monthly Transaction Feed</b><div class="muted" style="font-size:12px;margin-top:3px">Pipe-delimited .txt · AMFI feed spec v4 · 4,182 transactions · ₹ 3.24 Cr</div></div>
+              <div class="col" style="align-items:flex-end;gap:6px;flex:none"><span class="chip ok">✓ Signed &amp; delivered</span><span class="tag">🔏 DSC · SHA-256</span></div>
+            </div>
+            <hr class="hair" style="margin:13px 0">
+            <div class="between" style="flex-wrap:wrap;gap:12px">
+              <div class="row" style="gap:26px">
+                <div class="col" style="gap:2px"><span class="mono" style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)">Schedule</span><b style="font-size:13px">Monthly · 1st · 02:00 IST</b></div>
+                <div class="col" style="gap:2px"><span class="mono" style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)">Last run</span><b class="num" style="font-size:13px">01 Jul 2026 02:00</b></div>
+                <div class="col" style="gap:2px"><span class="mono" style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)">Next run</span><b class="num" style="font-size:13px">01 Aug 2026 02:00</b></div>
+              </div>
+              <div class="row" style="gap:8px"><button class="nv-btn sm ghost">View log</button><button class="nv-btn sm">⤓ Download</button></div>
+            </div>
+          </div>
+
+          <div class="nv-card pad" style="border-color:rgba(79,88,214,.32)">
+            <div class="between" style="align-items:flex-start;flex-wrap:nowrap;gap:14px">
+              <div style="min-width:0"><b style="font-size:14.5px">BSE STAR MF · EOD Reconciliation</b><div class="muted" style="font-size:12px;margin-top:3px">CSV · order-vs-allotment match · 1,204 orders today</div></div>
+              <div class="col" style="align-items:flex-end;gap:6px;flex:none"><span class="chip info">◷ Generating</span><span class="tag">🔏 DSC · SHA-256</span></div>
+            </div>
+            <hr class="hair" style="margin:13px 0">
+            <div class="between" style="margin-bottom:8px"><span class="muted" style="font-size:12px">Reconciling orders against BSE STAR allotment file…</span><b class="num" style="font-size:12px">818 / 1,204 · 68%</b></div>
+            <div class="bar" style="height:8px"><i style="width:68%"></i></div>
+            <div class="between" style="flex-wrap:wrap;gap:12px;margin-top:13px">
+              <div class="row" style="gap:26px">
+                <div class="col" style="gap:2px"><span class="mono" style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)">Schedule</span><b style="font-size:13px">Daily · 21:30 IST</b></div>
+                <div class="col" style="gap:2px"><span class="mono" style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)">Last run</span><b class="num" style="font-size:13px">02 Jul 2026 21:30</b></div>
+                <div class="col" style="gap:2px"><span class="mono" style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)">This run</span><b class="num" style="font-size:13px">started 21:30:04</b></div>
+              </div>
+              <div class="row" style="gap:8px"><button class="nv-btn sm ghost">View progress</button><button class="nv-btn sm" style="opacity:.5;cursor:not-allowed">⤓ Download</button></div>
+            </div>
+          </div>
+
+          <div class="nv-card pad">
+            <div class="between" style="align-items:flex-start;flex-wrap:nowrap;gap:14px">
+              <div style="min-width:0"><b style="font-size:14.5px">FATCA / CRS Annual XML</b><div class="muted" style="font-size:12px;margin-top:3px">XML · CRS schema v2.0 · 38 reportable accounts</div></div>
+              <div class="col" style="align-items:flex-end;gap:6px;flex:none"><span class="chip warn">⚠ 2 accounts missing TIN</span><span class="tag">🔏 DSC · SHA-256</span></div>
+            </div>
+            <hr class="hair" style="margin:13px 0">
+            <div class="between" style="flex-wrap:wrap;gap:12px">
+              <div class="row" style="gap:26px">
+                <div class="col" style="gap:2px"><span class="mono" style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)">Schedule</span><b style="font-size:13px">Annual · 31 May IST</b></div>
+                <div class="col" style="gap:2px"><span class="mono" style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)">Last run</span><b class="num" style="font-size:13px">31 May 2026 · signed</b></div>
+                <div class="col" style="gap:2px"><span class="mono" style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)">Next run</span><b class="num" style="font-size:13px">31 May 2027</b></div>
+              </div>
+              <div class="row" style="gap:8px"><button class="nv-btn sm">Fix 2 TINs →</button><button class="nv-btn sm ghost">⤓ Download</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
