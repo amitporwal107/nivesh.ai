@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif" role="img" aria-label="Work by area: Data platform 47, Infra CI and deploy 29, App features 24, Auth 5, Admin 3, Marketing 2">
+  <rect x="0" y="0" width="720" height="400" rx="14" fill="#ffffff" stroke="#e5e7eb"/>
+  <text x="36" y="40" font-size="20" font-weight="700" fill="#0f172a">Where the work went</text>
+  <text x="36" y="60" font-size="13" fill="#64748b">By commit scope — one operator directing work across the whole stack</text>
+
+  <!-- Data platform & intelligence 47 -->
+  <text x="228" y="99" font-size="13" fill="#334155" text-anchor="end">Data platform &amp; intelligence</text>
+  <rect x="240" y="86" width="450" height="20" rx="5" fill="#eef2ff"/>
+  <rect x="240" y="86" width="450" height="20" rx="5" fill="#4f46e5"/>
+  <text x="700" y="101" font-size="13" font-weight="700" fill="#0f172a" text-anchor="end">47</text>
+
+  <!-- Infra, CI & deploy 29 -->
+  <text x="228" y="147" font-size="13" fill="#334155" text-anchor="end">Infra, CI &amp; deploy</text>
+  <rect x="240" y="134" width="450" height="20" rx="5" fill="#eef2ff"/>
+  <rect x="240" y="134" width="278" height="20" rx="5" fill="#4f46e5"/>
+  <text x="524" y="149" font-size="13" font-weight="700" fill="#0f172a">29</text>
+
+  <!-- App features 24 -->
+  <text x="228" y="195" font-size="13" fill="#334155" text-anchor="end">App features</text>
+  <rect x="240" y="182" width="450" height="20" rx="5" fill="#eef2ff"/>
+  <rect x="240" y="182" width="230" height="20" rx="5" fill="#4f46e5"/>
+  <text x="476" y="197" font-size="13" font-weight="700" fill="#0f172a">24</text>
+
+  <!-- Auth 5 -->
+  <text x="228" y="243" font-size="13" fill="#334155" text-anchor="end">Authentication</text>
+  <rect x="240" y="230" width="450" height="20" rx="5" fill="#eef2ff"/>
+  <rect x="240" y="230" width="48" height="20" rx="5" fill="#14b8a6"/>
+  <text x="294" y="245" font-size="13" font-weight="700" fill="#0f172a">5</text>
+
+  <!-- Admin 3 -->
+  <text x="228" y="291" font-size="13" fill="#334155" text-anchor="end">Admin console</text>
+  <rect x="240" y="278" width="450" height="20" rx="5" fill="#eef2ff"/>
+  <rect x="240" y="278" width="29" height="20" rx="5" fill="#14b8a6"/>
+  <text x="275" y="293" font-size="13" font-weight="700" fill="#0f172a">3</text>
+
+  <!-- Marketing 2 -->
+  <text x="228" y="339" font-size="13" fill="#334155" text-anchor="end">Marketing</text>
+  <rect x="240" y="326" width="450" height="20" rx="5" fill="#eef2ff"/>
+  <rect x="240" y="326" width="19" height="20" rx="5" fill="#14b8a6"/>
+  <text x="265" y="341" font-size="13" font-weight="700" fill="#0f172a">2</text>
+
+  <text x="36" y="384" font-size="11" fill="#94a3b8">Scoped conventional commits, grouped. Illustrates breadth, not a full census of all 201 commits.</text>
+</svg>

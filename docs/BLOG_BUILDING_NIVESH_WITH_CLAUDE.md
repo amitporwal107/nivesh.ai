@@ -15,6 +15,10 @@ That's a lot of surface area for a small team: React front-ends (three generatio
 
 That's where Claude came in.
 
+![Commit activity by month — May 82, June 115, July 5](assets/blog/activity-timeline.svg)
+
+*Six weeks, 201 commits, every task on its own branch and PR — a pace a small team shouldn't be able to sustain on a stack this wide.*
+
 ## Not "AI writes code" — AI works inside guardrails we designed
 
 The most important decision we made was to treat Claude less like an autocomplete and more like a team member who reports to a very strict process. We built that process directly into the repo, in a `.claude/` directory and a set of context files that load at the start of every session.
@@ -34,7 +38,11 @@ The lesson: an AI collaborator is only as good as the environment you put it in.
 
 ## What actually got shipped
 
-Over roughly six weeks and 200+ commits, Claude worked across nearly every layer of the stack. A representative slice, straight from the merge history:
+Over roughly six weeks and 200+ commits, Claude worked across nearly every layer of the stack.
+
+![Where the work went — data platform 47, infra/CI/deploy 29, app features 24, auth 5, admin 3, marketing 2](assets/blog/work-by-area.svg)
+
+A representative slice, straight from the merge history:
 
 - **Authentication end to end** — email OTP sign-in for whitelisted accounts, self-serve magic-link email validation, dropping a Gmail-only gate so any valid domain works, plus a local Mailpit dev-SMTP setup and staging provisioning so the flow was actually testable.
 - **A mobile app** — a production Capacitor 7 Android build wired into CI to publish the APK, including the unglamorous debugging of `scp` staging directories and streaming the artifact over an ssh exec channel when the off-the-shelf action failed.
@@ -42,6 +50,10 @@ Over roughly six weeks and 200+ commits, Claude worked across nearly every layer
 - **A document pipeline** — making CAS (Consolidated Account Statement) PDF upload work through an in-house server-side parser, and fixing a nasty 500 that hit *every* file upload because of a reserved `filename` key colliding with Python's `LogRecord`.
 - **A portfolio selection framework** — the instrument-selection engine behind the Portfolio Builder.
 - **A V5 redesign** — a reworked login and home experience.
+
+![Nivesh portfolio dashboard](../11_dashboard.png)
+
+*One of the dashboards — real market data flowing from NIDP into the user-facing app, not placeholder numbers.*
 
 Two things stand out about that list. First, the *range*: front-end redesigns, backend bug fixes, CI plumbing, mobile builds, and data-platform work, often in the same week. Second, the *nature of the wins* — a lot of it is exactly the tedious, high-context, easy-to-get-wrong work that eats a small team's time. The `filename`/`LogRecord` collision is the perfect example: a single reserved-key mistake breaking all uploads, the kind of bug that costs an afternoon of confused debugging and gets fixed in minutes once you know where to look.
 
