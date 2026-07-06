@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter, Sparkles, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,7 +26,7 @@ import { useQuerySuggestions, type QuerySuggestion } from "@/hooks/use-query-sug
 // typed-out slice the user sees (see useTypewriterReveal).
 type StreamState = { buffer: string; content: string; thinking?: string; widget?: { widget_type: string; data: unknown }; error?: string };
 
-const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "instrument_detail", "mf_detail", "market_detail", "risk_assessment", "goal_simulation", "stock_screener", "portfolio_builder"]);
+const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "instrument_detail", "mf_detail", "market_detail", "risk_assessment", "goal_simulation", "stock_screener", "portfolio_builder", "capital_gains", "goal_basket", "backtest_comparison"]);
 
 const FALLBACK_PROMPTS = [
   "Why is my score 74?",
@@ -449,8 +449,10 @@ export default function ChatPage() {
 
   // Widget action chips → drive a follow-up. Some send immediately; "recalc"
   // prefills the composer so the user can type their real SIP amount.
+  const navigate = useNavigate();
   const handleWidgetAction = (a: { intent?: string; query?: string; label?: string }) => {
-    if (a.intent === "review_overlap") void submitMessage("Which of my funds overlap the most?");
+    if (a.intent === "open" && a.query) navigate(a.query);        // widget deep-link → full dashboard
+    else if (a.intent === "review_overlap") void submitMessage("Which of my funds overlap the most?");
     else if (a.intent === "recalc_sip") setComposer("Recalculate my retirement plan with a monthly SIP of ₹");
     else if (a.query) void submitMessage(a.query);
     else if (a.label) void submitMessage(a.label);

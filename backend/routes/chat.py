@@ -1180,6 +1180,7 @@ def _widget_envelope(wt: Optional[str], wd: Optional[Dict[str, Any]],
         "sector_rotation": "Sector Rotation", "fund_comparison": "Fund Comparison",
         "portfolio_overview": "Portfolio Overview", "goal_tracker": "Goal Tracker",
         "stock_screener": "Stock Screener",
+        "capital_gains": "Capital Gains Statement", "goal_basket": "Goal Fund Basket",
     }
     title = title_map.get(wt, "Insight")
     freshness = {"state": "cached", "last_updated": datetime.now(timezone.utc).isoformat(),

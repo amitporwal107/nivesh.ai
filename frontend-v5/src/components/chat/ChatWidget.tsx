@@ -2746,6 +2746,148 @@ function MarketDetailWidget({ data, onAction }: { data: any; onAction?: (a: Widg
   );
 }
 
+// ── capital_gains (WF-04-07) ───────────────────────────────────────────────
+function cgINR(v: number | null | undefined): string {
+  const n = Number(v ?? 0);
+  if (Math.abs(n) >= 1e7) return `₹${(n / 1e7).toFixed(2)}Cr`;
+  if (Math.abs(n) >= 1e5) return `₹${(n / 1e5).toFixed(2)}L`;
+  return `₹${Math.round(n).toLocaleString("en-IN")}`;
+}
+
+function CgSection({ title, section, rows }: { title: string; section: string; rows: any[] }) {
+  if (!rows?.length) return null;
+  return (
+    <Card>
+      <div className="flex items-baseline justify-between">
+        <Heading>{title}</Heading>
+        <span className="text-[11px] text-ink-3 nv-mono">Sec {section}</span>
+      </div>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-[12.5px]">
+          <thead><tr className="text-ink-4 text-[10px] uppercase tracking-wide">
+            <th className="text-left font-medium pb-2">Scheme</th>
+            <th className="text-right font-medium pb-2">Qty</th>
+            <th className="text-right font-medium pb-2">Days</th>
+            <th className="text-right font-medium pb-2">Gain</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r: any, i: number) => (
+              <tr key={i} className="border-t border-hairline">
+                <td className="py-2 text-ink">{r.scheme_name}</td>
+                <td className="py-2 text-right num text-ink-3">{r.qty}</td>
+                <td className="py-2 text-right num text-ink-3">{r.days_held ?? "—"}</td>
+                <td className={`py-2 text-right num ${Number(r.gain_rs) < 0 ? "text-neg" : "text-ink"}`}>{cgINR(r.gain_rs)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function CapitalGainsWidget({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
+  if (!data) return null;
+  const header = data.header || {};
+  const A = data.sections?.A_stcg_equity || { rows: [], total: {} };
+  const B = data.sections?.B_ltcg_equity || { rows: [], total: {} };
+  const stcg = A.total?.gain_rs ?? 0;
+  const ltcg = B.total?.gain_rs ?? 0;
+  const exemption = (data.summary || []).find((r: any) => /exemption/i.test(r.particulars || ""))?.amount_rs ?? 0;
+  const estTax = data.estimated_tax_rs ?? 0;
+  const empty = ((A.rows?.length || 0) + (B.rows?.length || 0)) === 0;
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      <div className="rounded-lg bg-surface-2 border border-hairline p-5">
+        <div className="flex items-baseline justify-between gap-2">
+          <Heading>Capital Gains — {header.fy || "this FY"}</Heading>
+          <span className="text-[11px] text-ink-3">{header.period}</span>
+        </div>
+        {empty ? (
+          <p className="text-[14px] text-ink-2 leading-relaxed mt-2">No realised gains recorded for this FY — no sell/redeem transactions. This covers <b>booked</b> gains, not unrealised.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2.5 mt-3.5">
+            <Tile label="STCG · 111A" value={cgINR(stcg)} />
+            <Tile label="LTCG · 112A" value={cgINR(ltcg)} />
+            <Tile label="LTCG exempt" value={cgINR(exemption)} />
+            <Tile label="Est. tax" value={cgINR(estTax)} />
+          </div>
+        )}
+      </div>
+      <CgSection title="Short-Term — Equity" section="111A" rows={A.rows} />
+      <CgSection title="Long-Term — Equity" section="112A" rows={B.rows} />
+      {(data.notes?.length || data.data_gaps?.length) ? (
+        <p className="text-[11.5px] text-ink-4 leading-relaxed">
+          {(data.notes || [])[0]}{data.data_gaps?.length ? ` · ${data.data_gaps[0]}` : ""}
+        </p>
+      ) : null}
+      {onAction && (
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => onAction({ query: "any tax-loss harvesting opportunities?" })} className="rounded-full border border-hairline bg-surface-1 px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2">Tax-loss harvest?</button>
+          <button onClick={() => onAction({ intent: "open", query: "/tax" })} className="rounded-full border border-hairline bg-surface-1 px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2">Open full statement →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── goal_basket (WF-02-06 / WF-03 suitability) ─────────────────────────────
+function GoalBasketWidget({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
+  if (!data) return null;
+  const alloc = data.allocation || {};
+  const exp = data.expected || {};
+  const rows: any[] = data.rows || [];
+  const prof = String(data.risk_profile || "").replace(/^\w/, (c: string) => c.toUpperCase());
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      <div className="rounded-lg bg-surface-2 border border-hairline p-5">
+        <Heading>Fund basket · {prof} · {data.horizon_years}y</Heading>
+        <div className="flex flex-wrap gap-2.5 mt-3.5">
+          {["equity", "debt", "hybrid"].filter((k) => alloc[k]).map((k) => (
+            <Tile key={k} label={k[0].toUpperCase() + k.slice(1)} value={`${alloc[k]}%`} />
+          ))}
+          {exp.annual_return_pct != null && <Tile label="Exp. return" value={`${exp.annual_return_pct}%`} />}
+        </div>
+      </div>
+      {rows.length ? (
+        <Card>
+          <Heading>Suitability-matched funds</Heading>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-[12.5px]">
+              <thead><tr className="text-ink-4 text-[10px] uppercase tracking-wide">
+                <th className="text-left font-medium pb-2">Fund</th>
+                <th className="text-left font-medium pb-2">Bucket</th>
+                <th className="text-right font-medium pb-2">Weight</th>
+                <th className="text-right font-medium pb-2">TER</th>
+                <th className="text-right font-medium pb-2">Quality</th>
+              </tr></thead>
+              <tbody>
+                {rows.map((r: any, i: number) => (
+                  <tr key={i} className="border-t border-hairline">
+                    <td className="py-2 text-ink">{r.scheme_name}</td>
+                    <td className="py-2 text-ink-3 capitalize">{r.bucket}</td>
+                    <td className="py-2 text-right num">{r.weight_pct}%</td>
+                    <td className="py-2 text-right num text-ink-3">{r.expense_ratio != null ? `${r.expense_ratio}%` : "—"}</td>
+                    <td className="py-2 text-right num">{r.quality_score != null ? Math.round(r.quality_score) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      ) : (
+        <p className="text-[14px] text-ink-2">No funds cleared the suitability gates just now — try again shortly.</p>
+      )}
+      {onAction && rows.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => onAction({ query: `compare ${rows.slice(0, 3).map((r: any) => r.scheme_name).join(", ")}` })} className="rounded-full border border-hairline bg-surface-1 px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2">Compare these funds</button>
+          <button onClick={() => onAction({ intent: "open", query: "/recommendations" })} className="rounded-full border border-hairline bg-surface-1 px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2">Open recommendations →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: string; data?: any }; onAction?: (a: WidgetAction) => void }) {
   if (!widget?.widget_type) return null;
   try {
@@ -2772,6 +2914,8 @@ export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: stri
       case "stock_screener":     return <StockScreenerWidget data={widget.data} onAction={onAction} />;
       case "portfolio_builder":  return <PortfolioBuilderWidget data={widget.data} onAction={onAction} />;
       case "backtest_comparison": return <BacktestComparisonWidget data={widget.data} />;
+      case "capital_gains":      return <CapitalGainsWidget data={widget.data} onAction={onAction} />;
+      case "goal_basket":        return <GoalBasketWidget data={widget.data} onAction={onAction} />;
     }
   } catch {
     return null;

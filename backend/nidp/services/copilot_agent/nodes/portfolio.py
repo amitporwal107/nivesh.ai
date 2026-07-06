@@ -217,15 +217,95 @@ async def _fetch_portfolio_data(state: CopilotState) -> list:
         return [ToolResult(ok=False, tool_name="portfolio_tools", summary="Portfolio data unavailable", error=str(exc))]
 
 
-async def portfolio_node(state: CopilotState) -> dict:
-    tool_results = await _fetch_portfolio_data(state)
-    tool_context = "TOOL_DATA:\n" + "\n".join(
-        f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results
-    )
+# ── Capital-Gains STATEMENT sub-intent (WF-04-07) ────────────────────────────
+# _P_PORTFOLIO already routes "capital gains / stcg / ltcg" here; this guard picks
+# the STATEMENT (realised/booked gains) and renders the capital_gains widget,
+# distinct from tax-LOSS-harvest (which keeps the tax_harvest widget).
+_CG_CUE = re.compile(
+    r"\bcapital\s+gains?\b|\bcg\s+statement\b|\breali[sz]ed?\s+(?:capital\s+)?gains?\b|"
+    r"\bstcg\b|\bltcg\b|\btax\s+(?:if|when)\s+i\s+(?:book|sell|redeem)\b|"
+    r"\bbook(?:ed|ing)?\s+(?:my\s+)?(?:gains?|profits?)\b",
+    re.IGNORECASE,
+)
+_CG_EXCLUDE = re.compile(r"harvest|tax[\s-]?loss|loss[\s-]?harvest", re.IGNORECASE)
 
+_CG_SYSTEM = """You are the Tax Analyst for Nivesh AI.
+
+TOOL_DATA holds the user's REALISED capital-gains statement for a financial year,
+computed FIFO: Section A short-term (Sec 111A), Section B long-term (Sec 112A,
+first Rs 1.25L exempt), plus a summary and estimated tax. Ground EVERY number in
+TOOL_DATA — never invent gains or tax.
+
+Style:
+- <= 180 words, plain text (no markdown headings), Indian numbering (lakh/crore).
+- Lead with the FY, total STCG and LTCG, the Rs 1.25L LTCG exemption, and the
+  estimated tax. Then one line on the biggest contributor if useful.
+- If there are NO realised gains, say so plainly (no sell/redeem transactions in
+  the FY) and note this covers realised (booked) gains only, not unrealised.
+- Indicative planning statement, not a tax-filing document — say so in one line.
+  Do NOT append any SEBI disclaimer — the UI renders one below the chat input.
+""" + ANTI_HALLUCINATION_RULES
+
+
+async def _capital_gains_turn(state: CopilotState, user_msg: str) -> dict:
+    """Realised capital-gains statement turn — emits the capital_gains widget."""
+    import importlib
+    cg_mod = importlib.import_module("services.copilot_tools.cg")
+    fy = cg_mod.parse_fy(user_msg)
+    try:
+        res = await cg_mod.get_capital_gains(state.user_id, fy=fy)
+    except Exception as exc:  # noqa: BLE001 — never crash the stream
+        logger.warning("cg turn failed: %s", exc)
+        res = None
+
+    if res is not None and res.ok:
+        tr = ToolResult(ok=True, tool_name="get_capital_gains", summary=res.summary,
+                        data=res.data, rows=res.rows, widget_type=WidgetType.CAPITAL_GAINS)
+        widget_type, widget_data = WidgetType.CAPITAL_GAINS, {"rows": res.rows, **res.data}
+    else:
+        tr = ToolResult(ok=False, tool_name="get_capital_gains",
+                        summary="Capital-gains statement unavailable",
+                        error=(res.error if res is not None else "unavailable"))
+        widget_type, widget_data = WidgetType.NONE, {}
+
+    from .._stream import emit_widget
+    await emit_widget(widget_type, widget_data)
+
+    tool_context = "TOOL_DATA:\n  [get_capital_gains] " + tr.as_llm_context()
+    answer_text = ""
+    try:
+        llm = ChatOpenAI(model=COPILOT_LLM_MODEL, temperature=temperature_for(0.1),
+                         api_key=get_openai_api_key())
+        resp = await llm.ainvoke([
+            {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _CG_SYSTEM + "\n\n" + tool_context},
+            {"role": "user", "content": user_msg},
+        ])
+        answer_text = (resp.content or "").strip()
+    except Exception as exc:  # noqa: BLE001 — never crash the stream on the narrative
+        logger.warning("cg narrative failed: %s", exc)
+    if not answer_text:
+        answer_text = (f"Here's your realised capital-gains statement — {tr.summary}"
+                       if tr.ok else
+                       "I couldn't pull your capital-gains statement just now — please try again in a moment.")
+
+    response = AgentResponse(agent=AgentName.PORTFOLIO, text=answer_text,
+                             widget_type=widget_type, widget_data=widget_data, tool_results=[tr])
+    return {"tool_results": [tr], "response": response, "messages": [AIMessage(content=answer_text)]}
+
+
+async def portfolio_node(state: CopilotState) -> dict:
     user_msg = next(
         (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
         "How is my portfolio doing?",
+    )
+    # Capital-gains STATEMENT (realised STCG/LTCG A/B/C) short-circuits the general
+    # portfolio fetch — distinct from tax-loss-harvest.
+    if _CG_CUE.search(user_msg) and not _CG_EXCLUDE.search(user_msg):
+        return await _capital_gains_turn(state, user_msg)
+
+    tool_results = await _fetch_portfolio_data(state)
+    tool_context = "TOOL_DATA:\n" + "\n".join(
+        f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results
     )
 
     _msg = user_msg.lower()
