@@ -145,6 +145,24 @@ export async function createStrategy(body: {
   return data;
 }
 
+/** Create a strategy directly from the copilot-chat stock-screener widget state.
+ *  `filters` are the widget's `{<key>_min|_max: number}`; `sector` its selected
+ *  sectors. The backend maps these to feature.* predicates + default
+ *  exit/ranking/rebalance and returns the created strategy (+ any dropped filters). */
+export async function createStrategyFromScreen(body: {
+  name: string;
+  description?: string | null;
+  filters: Record<string, number>;
+  sector?: string[];
+}): Promise<StrategyRef & { dropped_filters?: string[] }> {
+  const { data } = await http<StrategyRef & { dropped_filters?: string[] }>({
+    method: "POST",
+    path: `${BASE}/from-screen`,
+    body,
+  });
+  return data;
+}
+
 export async function updateStrategy(id: string, definition: unknown): Promise<unknown> {
   const { data } = await http({
     method: "PATCH",

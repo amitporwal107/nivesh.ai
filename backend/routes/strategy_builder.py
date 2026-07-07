@@ -38,6 +38,7 @@ from services.strategy_engine import backtest as bt
 from services.strategy_engine.compiler_stock import compile_stock_query, to_asyncpg, CompileError
 from services.strategy_engine.market_data import get_provider
 from services.strategy_engine.evaluator import EvalError
+from services.strategy_engine.screen_bridge import build_definition_from_screen, ScreenBridgeError
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,16 @@ class BacktestRequest(BaseModel):
 class ScreenRequest(BaseModel):
     definition: Dict[str, Any]
     as_of_date: Optional[str] = None   # ISO YYYY-MM-DD; default = latest snapshot
+
+
+class FromScreenRequest(BaseModel):
+    """Create a strategy from the copilot-chat stock-screener widget state."""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    # widget filters: {"<primitiveKey>_min"|"_max": number}
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    sector: Optional[List[str]] = None
+    universe: Optional[Dict[str, Any]] = None
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
@@ -210,6 +221,63 @@ async def create_strategy(request: Request, body: StrategyCreate):
     return {
         **_serialise(srow),
         "active_version": _serialise(vrow),
+    }
+
+
+@router.post("/from-screen")
+async def create_strategy_from_screen(request: Request, body: FromScreenRequest):
+    """Turn the copilot-chat stock screener's current filters into a saved
+    STOCK strategy. Maps each screener primitive to its stock_features_daily
+    column (feature.* predicate), applies default exit/ranking/rebalance, then
+    validates + persists exactly like POST /strategies. Unmappable filters are
+    returned in `dropped_filters` (never silently ignored)."""
+    user = await get_current_user(request)
+    uid = _user_id(user)
+    try:
+        definition, dropped = build_definition_from_screen(
+            name=body.name, filters=body.filters, sector=body.sector,
+            universe=body.universe, description=body.description,
+        )
+    except ScreenBridgeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    errs = dsl_mod.validate_strategy(definition)
+    if errs:
+        raise HTTPException(status_code=400, detail={
+            "message": "could not build a valid strategy from this screen",
+            "errors": dsl_mod.errors_as_strings(errs),
+        })
+
+    pool = await pg_client.get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            srow = await conn.fetchrow(
+                """INSERT INTO strategies
+                       (owner_id, name, description, asset_class)
+                   VALUES ($1, $2, $3, 'STOCK')
+                   RETURNING id, owner_id, name, description, asset_class,
+                             is_public_template, is_archived, created_at, updated_at""",
+                uid, body.name, definition.get("description"),
+            )
+            sid = srow["id"]
+            vrow = await conn.fetchrow(
+                """INSERT INTO strategy_versions
+                       (strategy_id, version_no, definition, dsl_version, is_active, created_by)
+                   VALUES ($1, 1, $2::jsonb, $3, TRUE, $4)
+                   RETURNING id, version_no, created_at""",
+                sid, json.dumps(definition), dsl_mod.DSL_VERSION, uid,
+            )
+            await conn.execute(
+                """INSERT INTO strategy_audit
+                       (strategy_id, actor_id, action, new_definition, note)
+                   VALUES ($1, $2, 'CREATE', $3::jsonb, 'from stock screener')""",
+                sid, uid, json.dumps(definition),
+            )
+    return {
+        **_serialise(srow),
+        "active_version": _serialise(vrow),
+        "definition": definition,
+        "dropped_filters": dropped,
     }
 
 
