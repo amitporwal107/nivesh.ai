@@ -724,3 +724,59 @@
     animation: none;
   }
 }
+
+/* from the blog — homepage insights section (mirrors the .scored/.dom card look) */
+.nvx-home .blog-grid {
+  display: grid;
+  gap: 14px;
+}
+.nvx-home .blog-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 24px 22px 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent);
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.nvx-home .blog-card:hover {
+  border-color: rgba(95, 231, 166, 0.3);
+  transform: translateY(-2px);
+}
+.nvx-home .blog-card .bc-kicker {
+  font-family: var(--nvx-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mint);
+}
+.nvx-home .blog-card h3 {
+  font-family: var(--nvx-display);
+  font-weight: 500;
+  font-size: 1.3rem;
+  line-height: 1.16;
+  letter-spacing: -0.01em;
+  margin: 12px 0 0;
+}
+.nvx-home .blog-card p {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  margin: 12px 0 0;
+  flex: 1;
+}
+.nvx-home .blog-card .bc-read {
+  color: var(--mint);
+  font-size: 0.88rem;
+  margin-top: 16px;
+}
+.nvx-home .blog-more {
+  font-size: 0.9rem;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.nvx-home .blog-more:hover {
+  color: var(--text);
+}

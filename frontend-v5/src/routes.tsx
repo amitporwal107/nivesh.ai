@@ -14,6 +14,8 @@ import ContactPage from "./pages/Contact";
 import PrivacyPage from "./pages/Privacy";
 import TermsPage from "./pages/Terms";
 import DisclosurePage from "./pages/Disclosure";
+import BlogIndexPage from "./pages/Blog";
+import BlogArticlePage from "./pages/Blog/Article";
 import DashboardPage from "./pages/Dashboard";
 import ConcentrationPage from "./pages/Concentration";
 import RecommendationsPage from "./pages/Recommendations";
@@ -70,6 +72,8 @@ export function AppRoutes() {
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/disclosure" element={<DisclosurePage />} />
+      <Route path="/blog" element={<BlogIndexPage />} />
+      <Route path="/blog/:slug" element={<BlogArticlePage />} />
 
       {/* Auth screens — full-bleed */}
       <Route path="/login" element={<LoginPage />} />
