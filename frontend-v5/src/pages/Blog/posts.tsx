@@ -5,6 +5,7 @@
  */
 import type { ComponentType } from "react";
 import RetailLossesArticle from "./RetailLossesArticle";
+import MFBestPracticesArticle from "./MFBestPracticesArticle";
 
 export type BlogPost = {
   slug: string;
@@ -17,6 +18,16 @@ export type BlogPost = {
 };
 
 export const POSTS: BlogPost[] = [
+  {
+    slug: "mutual-fund-investing-best-practices",
+    title: "Mutual fund investing: 7 best practices that actually build wealth",
+    excerpt:
+      "SIPs you don't stop, the right asset allocation, Direct plans over Regular, and the discipline to stay put — the handful of habits that separate investors who compound from those who leak returns.",
+    category: "Investor education",
+    readMins: 6,
+    dateLabel: "July 2026",
+    Body: MFBestPracticesArticle,
+  },
   {
     slug: "why-indian-retail-investors-lose-money",
     title: "Why Indian retail investors lose money — and how Nivesh Copilot helps",
