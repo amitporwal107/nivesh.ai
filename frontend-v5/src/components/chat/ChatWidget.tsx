@@ -11,6 +11,7 @@ import { Fragment, useState } from "react";
 import { cn } from "@/lib/utils";
 import { TypedText } from "@/components/chat/TypedHeadline";
 import { PortfolioBuilderWidget } from "@/components/chat/PortfolioBuilderWidget";
+import { createStrategyFromScreen } from "@/services/strategyBuilder";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 const BAR: Record<string, string> = {
@@ -2249,6 +2250,8 @@ function StockScreenerWidget({ data, onAction }: { data: any; onAction?: (a: Wid
     data?.sort || { key: cols.find((c) => c.kind !== "text")?.key || cols[0]?.key || "", dir: "desc" },
   );
   const [showFilters, setShowFilters] = useState(false);
+  const [createState, setCreateState] =
+    useState<{ status: "idle" | "loading" | "done" | "error"; msg?: string }>({ status: "idle" });
 
   if (!cols.length || !universe.length) {
     return data?.note ? <p className="text-[13.5px] text-ink-2 leading-relaxed mt-1 px-1">{data.note}</p> : null;
@@ -2314,6 +2317,23 @@ function StockScreenerWidget({ data, onAction }: { data: any; onAction?: (a: Wid
     setSort((p) => (p.key === key ? { key, dir: p.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
   const activeCount = Object.keys(filters).length + sector.length;
 
+  // Turn the current screen into a saved STOCK strategy (POST /from-screen).
+  // The backend maps these widget filters + sector to feature.* predicates.
+  const createStrategy = async () => {
+    if (createState.status === "loading") return;
+    const name = (query ? `Screen: ${query}` : "Stock screen strategy").slice(0, 100);
+    setCreateState({ status: "loading" });
+    try {
+      const res = await createStrategyFromScreen({ name, filters, sector });
+      const dropped = res?.dropped_filters?.length
+        ? ` · ${res.dropped_filters.length} filter(s) not yet supported`
+        : "";
+      setCreateState({ status: "done", msg: `Strategy created — open it in Strategy Builder${dropped}` });
+    } catch (e: any) {
+      setCreateState({ status: "error", msg: e?.message || "Could not create strategy" });
+    }
+  };
+
   const nameKey = data?.name_key || "name";
   const tickerKey = data?.ticker_key || "ticker";
   const askPrompt = (s: any) =>
@@ -2353,6 +2373,24 @@ function StockScreenerWidget({ data, onAction }: { data: any; onAction?: (a: Wid
                 Reset
               </button>
             )}
+            {activeCount > 0 && createState.status !== "done" && (
+              <button
+                data-testid="screener-create-strategy"
+                onClick={createStrategy}
+                disabled={createState.status === "loading"}
+                className="ml-auto text-[12.5px] font-medium text-accent hover:opacity-80 transition-opacity disabled:opacity-50"
+              >
+                {createState.status === "loading" ? "Creating…" : "＋ Create strategy"}
+              </button>
+            )}
+          </div>
+        )}
+        {createState.msg && (
+          <div
+            data-testid="screener-create-status"
+            className={cn("mt-2.5 text-[12.5px]", createState.status === "error" ? "text-neg" : "text-pos")}
+          >
+            {createState.status === "done" ? "✓ " : "⚠ "}{createState.msg}
           </div>
         )}
       </div>

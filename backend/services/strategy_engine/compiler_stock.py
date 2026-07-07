@@ -219,9 +219,29 @@ def _compile_universe(uni: Dict[str, Any], add_param,
 
 
 def _compile_predicate(p: Dict[str, Any], add_param) -> str:
-    """Phase-1 only handles `feature.*` predicates."""
+    """Compile a single predicate.
+
+    Handles `feature.*` (numeric/boolean columns on stock_features_daily) and
+    `sector` set membership (against f.sector). The `fundamental.*`/
+    `shareholding.*`/`institutional.*`/`mf` namespaces remain Phase-2 and reject
+    here — fundamentals are reachable today via `feature.*` because the feature
+    store already carries those columns.
+    """
     ns = next(k for k in ("feature", "fundamental", "shareholding",
                           "institutional", "mf", "sector") if k in p)
+
+    if ns == "sector":
+        # {"sector": "in"|"not_in", "value": ["Banking", "IT", …]}.
+        # Sector strings flow through params (never interpolated); f.sector is
+        # the NSE-industry column on stock_features_daily.
+        op = p["op"]
+        vals = p.get("value") or []
+        if not isinstance(vals, list) or not vals:
+            raise CompileError("sector predicate requires a non-empty value list")
+        placeholders = ", ".join(add_param(str(v)) for v in vals)
+        neg = "NOT " if op == "not_in" else ""
+        return f"{neg}f.sector IN ({placeholders})"
+
     if ns != "feature":
         raise CompileError(
             f"namespace {ns!r} not yet supported in Phase 1 "

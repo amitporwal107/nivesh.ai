@@ -69,7 +69,16 @@ OPS_SET = {"in", "not_in"}
 
 # Subset of nidp.stock_features_daily columns exposed via DSL.
 # Anything not in this list is rejected at compile time with a clear error.
+#
+# The `feature.*` namespace resolves against nidp.stock_features_daily. That
+# feature store denormalises the fundamentals/ownership columns the copilot
+# stock-screener already filters on (see _PRIMITIVE_COLS in
+# nidp/services/daas_api/routers/stock_scores.py — the exact same table), so
+# exposing them here lets a screen become a runnable strategy without the
+# Phase-2 `fundamental.*`/`shareholding.*` namespaces (which stay unwired and
+# still reject at compile time — kept for a future dedicated-table impl).
 STOCK_FEATURE_COLS = {
+    # ── Technical (Phase 1) ──
     "close",
     "sma20", "sma50", "sma100", "sma200", "sma50_slope",
     "dist_200dma_pct", "dist_52w_high_pct", "dist_52w_low_pct",
@@ -79,6 +88,26 @@ STOCK_FEATURE_COLS = {
     "avg_volume_20", "vol_z20", "deliv_pct_avg_20", "deliv_trend10",
     "swing_high_20", "swing_low_20", "pivot_breakout_flag",
     "accumulation_score",
+    # ── Fundamentals / ownership / risk (already on stock_features_daily) ──
+    # Valuation
+    "pe_ttm", "pb", "ev_ebitda", "pe_vs_sector_pct", "dividend_yield_pct",
+    # Profitability / quality
+    "roe_pct", "roce_pct", "profit_margin_pct", "interest_coverage",
+    "earnings_consistency_score",
+    # Growth
+    "revenue_growth_3y_cagr_pct", "eps_growth_3y_cagr_pct",
+    "revenue_growth_yoy_pct", "pat_growth_yoy_pct", "eps_growth_yoy_pct",
+    "profit_margin_trend_pct",
+    # Financial health
+    "debt_to_equity", "debt_trend_pct", "liquidity_score",
+    # Size
+    "market_cap_cr",
+    # Price / technical (1Y)
+    "return_252d_pct", "volatility_1y_pct", "beta_1y", "max_drawdown_1y_pct",
+    "momentum_score",
+    # Ownership / smart money
+    "promoter_pct", "promoter_pledged_pct", "fii_pct", "dii_pct",
+    "fii_pct_change_qoq", "promoter_pct_change_qoq",
 }
 
 REBALANCE_VALUES = {"daily", "weekly", "monthly"}
@@ -87,6 +116,9 @@ RANKING_FIELDS = {
     # Phase 1 — backed by stock_features_daily columns
     "composite_score", "score", "rsi14", "vol_z20",
     "return_20d_pct", "accumulation_score", "atr_pct",
+    # Fundamentals/technical rank fields (columns on stock_features_daily)
+    "momentum_score", "roe_pct", "roce_pct", "return_252d_pct",
+    "market_cap_cr", "eps_growth_3y_cagr_pct", "revenue_growth_3y_cagr_pct",
 }
 
 
