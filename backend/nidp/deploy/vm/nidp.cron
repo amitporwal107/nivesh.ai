@@ -1,13 +1,13 @@
-# /etc/cron.d/nidp — schedules for the 28 NIDP services.
+# /etc/cron.d/nidp — the AUTHORITATIVE scheduler for all NIDP services.
 #
-# Schedules ported 1:1 from
-#   backend/nidp/deploy/gcp/setup_schedules.sh
-# (same cron strings, same Asia/Kolkata semantics — TZ is set for the
-# whole file below). When you change a schedule, change it in BOTH
-# files until the Cloud Run path is fully decommissioned.
+# VM cron is the single source of truth for feed scheduling (WORK-0145).
+# The legacy GCP Cloud Scheduler path (deploy/gcp/setup_schedules.sh) is
+# DEPRECATED — do NOT add schedules there. To fully decommission it: delete
+# the `nidp-cron-*` Cloud Scheduler jobs and drop the gcloud fallback in
+# routes/admin_nidp.py::execute_job (needs GCP compute perms).
 #
-# Cron under Debian's vixie-cron honours `CRON_TZ=` so all schedules
-# below run in IST.
+# Cron under Debian's vixie-cron honours `CRON_TZ=` so all schedules below
+# run in IST.
 
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
