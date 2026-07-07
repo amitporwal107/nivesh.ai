@@ -97,6 +97,10 @@ NIDP_INGESTERS: List[Dict[str, str]] = [
     {"ingester": "portfolio_intelligence_sync", "cadence": "daily"},
     # Portfolio Risk Analytics — nightly at 23:45 IST weekdays (VM cron, not Cloud Run)
     {"ingester": "pra_engine", "cadence": "daily", "runner": "vm"},
+    # Feed reliability — auto-recovery + monitoring (VM cron, not Cloud Run)
+    {"ingester": "feed_reconciler", "cadence": "daily",     "runner": "vm"},
+    {"ingester": "dlq_redrive",     "cadence": "daily",     "runner": "vm"},
+    {"ingester": "disk_monitor",    "cadence": "high-freq", "runner": "vm"},
 ]
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "niveshdataintelligence")
@@ -1049,7 +1053,15 @@ async def regenerate_nidp_api_key(key: str, request: Request):
 # Works for any ingester in NIDP_INGESTERS. Routes through the NIDP
 # Query API (same as the session-auth /jobs/{ingester}/execute endpoint).
 
-_STATIC_KEY = "niv3sh-reset-2026"
+# Prefer the env/secret (set NIDP_ADMIN_STATIC_KEY via Admin → Secrets). The
+# hardcoded fallback is retained ONLY for backward-compat and logs a warning so
+# it can be rotated out — remove it once all callers use the configured value.
+_STATIC_KEY = os.environ.get("NIDP_ADMIN_STATIC_KEY") or "niv3sh-reset-2026"
+if not os.environ.get("NIDP_ADMIN_STATIC_KEY"):
+    logger.warning(
+        "admin_nidp: NIDP_ADMIN_STATIC_KEY not set — /run-job is using the "
+        "hardcoded fallback admin key. Set the secret and rotate."
+    )
 
 router_static = APIRouter(prefix="/api/admin/nidp", tags=["admin-nidp-static"])
 
