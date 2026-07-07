@@ -50,6 +50,37 @@ _BINARY_MAGIC: tuple[bytes, ...] = (
 )
 
 
+# Magic-byte → content type. An error page is never binary, so these also let
+# the content sniffer distinguish real binary payloads from text/HTML.
+_MAGIC_TYPES: list[tuple[bytes, str]] = [
+    (b"PK\x03\x04",                 "application/zip"),            # zip / xlsx
+    (b"PK\x05\x06",                 "application/zip"),            # empty zip
+    (b"\x1f\x8b",                   "application/gzip"),
+    (b"%PDF",                       "application/pdf"),
+    (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1", "application/vnd.ms-excel"),  # OLE2 .xls
+]
+
+
+def sniff_content_type(body: bytes) -> Optional[str]:
+    """Best-effort content type from the actual bytes (magic + leading chars).
+    Returns None for plain CSV/text (no reliable magic) — callers treat None as
+    'unknown, don't flag'. Used to detect source format drift vs the URL-guessed
+    type (a `.csv` URL that actually returned zip/HTML/pdf)."""
+    if not body:
+        return None
+    for magic, mime in _MAGIC_TYPES:
+        if body.startswith(magic):
+            return mime
+    head = body[:512].lstrip()[:200].lower()
+    if head[:1] in (b"[", b"{"):
+        return "application/json"
+    if head.startswith(b"<!doctype html") or head.startswith(b"<html") or b"<html" in head:
+        return "text/html"
+    if head.startswith(b"<?xml"):
+        return "application/xml"
+    return None
+
+
 def detect_unsupported_content(body: bytes, *, sample_bytes: int = 8192) -> Optional[str]:
     """Return a reason string if `body` looks like an error/bot-block page,
     else None. Never raises. Empty bodies return None (handled upstream as

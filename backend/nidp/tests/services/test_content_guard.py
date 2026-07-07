@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from nidp.shared.sources.content_guard import detect_unsupported_content
+from nidp.shared.sources.content_guard import detect_unsupported_content, sniff_content_type
+from nidp.shared.ingester_base import _content_type_conflict
 
 
 # ── real payloads that MUST NOT be flagged ──────────────────────────────────
@@ -65,3 +66,30 @@ def test_signature_only_scanned_in_head():
     # A benign body with the phrase far past the sample window is not flagged.
     body = b"x" * 20000 + b"access denied"
     assert detect_unsupported_content(body, sample_bytes=8192) is None
+
+
+# ── WORK-0140: content-type sniff + conflict ────────────────────────────────
+def test_sniff_binary_and_structured():
+    assert sniff_content_type(b"PK\x03\x04....") == "application/zip"
+    assert sniff_content_type(b"\x1f\x8b\x08rest") == "application/gzip"
+    assert sniff_content_type(b"%PDF-1.7") == "application/pdf"
+    assert sniff_content_type(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1xls") == "application/vnd.ms-excel"
+    assert sniff_content_type(b'  [{"a":1}]') == "application/json"
+    assert sniff_content_type(b"<!DOCTYPE html><html>..") == "text/html"
+    assert sniff_content_type(b"<?xml version='1.0'?>") == "application/xml"
+
+
+def test_sniff_plain_csv_is_none():
+    assert sniff_content_type(b"SYMBOL,SERIES,CLOSE\nRELIANCE,EQ,2900\n") is None
+    assert sniff_content_type(b"") is None
+
+
+def test_content_type_conflict_flags_text_url_binary_body():
+    assert _content_type_conflict("text/csv", "application/gzip") is True
+    assert _content_type_conflict("application/json", "text/html") is True
+
+
+def test_content_type_conflict_ignores_benign():
+    assert _content_type_conflict("text/csv", None) is False           # unknown/plain
+    assert _content_type_conflict("text/csv", "text/csv") is False     # match
+    assert _content_type_conflict("application/zip", "application/zip") is False  # not text-expected

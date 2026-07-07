@@ -44,7 +44,9 @@ from nidp.shared.storage.parsed_archive import (
 )
 from nidp.shared.storage.raw_archive import store as store_raw
 from nidp.shared.trading_day import bump_market_session as _bump_market_session
-from nidp.shared.sources.content_guard import detect_unsupported_content
+from nidp.shared.sources.content_guard import (
+    detect_unsupported_content, sniff_content_type,
+)
 from nidp.shared.validation import run_validation as _run_validation
 from nidp.shared.validation.rules import FailureClass
 from nidp.shared.dq.gate1_ingestion import IngestionGate, write_dlq
@@ -157,6 +159,23 @@ class BaseIngester(abc.ABC):
                             service=self.SERVICE_NAME, status="FAILED",
                         ).inc()
                         return run
+
+                    # 2c. Content-type sniff (observability) — record the actual
+                    # type from magic bytes and warn if it conflicts with the
+                    # URL-guessed type (source may have switched format, e.g. a
+                    # .csv URL now returning zip/pdf). Does NOT fail the run —
+                    # some feeds legitimately serve compressed payloads.
+                    _sniffed = sniff_content_type(body)
+                    if _sniffed:
+                        run.metadata["sniffed_content_type"] = _sniffed
+                        _guessed = _guess_content_type(source_url)
+                        if _content_type_conflict(_guessed, _sniffed):
+                            logger.warning(
+                                "ingester %s: content-type conflict — URL suggests %s but "
+                                "body is %s (source format drift?)",
+                                self.SERVICE_NAME, _guessed, _sniffed,
+                            )
+                            run.metadata["content_type_conflict"] = f"{_guessed}!={_sniffed}"
 
                     # 3. Parse
                     parsed_rows = self.parse(body, target_date)
@@ -376,3 +395,17 @@ def _guess_content_type(url: str) -> str:
     if p.endswith(".json"): return "application/json"
     if p.endswith(".xml"):  return "application/xml"
     return "application/octet-stream"
+
+
+# Types we expect to be text-shaped (CSV/JSON/XML). A binary/HTML body for one
+# of these is a genuine format conflict worth warning about.
+_TEXT_EXPECTED = {"text/csv", "application/json", "application/xml"}
+_BINARY_OR_HTML = {"application/zip", "application/gzip", "application/pdf",
+                   "application/vnd.ms-excel", "text/html"}
+
+
+def _content_type_conflict(guessed: str, sniffed: Optional[str]) -> bool:
+    """True if the URL-guessed type expects text but the body is binary/HTML."""
+    if not sniffed or sniffed == guessed:
+        return False
+    return guessed in _TEXT_EXPECTED and sniffed in _BINARY_OR_HTML
