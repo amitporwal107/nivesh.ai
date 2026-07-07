@@ -74,6 +74,22 @@ elif [[ "${BUILD_FRONTEND}" == "true" ]]; then
     docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --force-recreate --remove-orphans app-frontend app-frontend-v5
 fi
 
+# ── Reclaim Docker build cache ───────────────────────────────────────────────
+# `build --pull` above accumulates BuildKit cache on every deploy and never
+# frees it. On this 79G disk (SHARED with the prod stack) it grew unbounded to
+# ~34G and pushed the root fs to 97%, which made the staging mongo container
+# flap during a redeploy and left app-backend stuck in "Created" (2026-07-07
+# incident). Cap the cache at 10G so it can't fill the disk again; recent layers
+# are kept so the next build stays fast. `|| true` — a prune failure must never
+# fail the deploy.
+log "Pruning Docker build cache (keep 10G)..."
+docker builder prune -f --keep-storage 10GB > /dev/null 2>&1 || true
+DISK_USE=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+log "Root fs now ${DISK_USE}% used."
+if [[ -n "${DISK_USE}" && "${DISK_USE}" -ge 90 ]]; then
+    log "WARNING: root fs still >=90% after prune — investigate images/volumes/logs."
+fi
+
 # ── Backend health check (skip for frontend-only deploys) ────────────────────
 if [[ "${BUILD_BACKEND}" == "true" ]]; then
     log "Waiting for nivesh-staging-app-backend to report healthy..."
