@@ -251,6 +251,11 @@ export default function HomepagePage() {
           <div className="tour rv">
             <ProductTour host="nivesh.app" showLive />
           </div>
+          <div className="cta-row" style={{ justifyContent: "center", marginTop: 28 }}>
+            <button className="btn-primary btn-lg" onClick={() => navigate("/copilot")}>
+              Explore the full Copilot tour →
+            </button>
+          </div>
         </section>
 
         {/* how it works */}
