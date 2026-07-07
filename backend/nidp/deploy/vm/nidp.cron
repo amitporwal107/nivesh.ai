@@ -146,6 +146,17 @@ MAILTO=""
 # Requires NIDP_MINIO_ENDPOINT / NIDP_MINIO_ACCESS_KEY / NIDP_S3_BUCKET in nidp.env.
 30 0 * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh parquet_exporter
 
+# ── Feed reliability: auto-recovery + monitoring ──────────────────
+# Self-healing gap catch-up (next morning, after overnight ingest + any DB
+# recovery). Idempotent — heals only missing (feed, trading-day) via backfill.
+30 6  * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh feed_reconciler
+# DLQ redrive — reprocess PENDING dq.dlq_findings (daily, after reconciler).
+0  7  * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh dlq_redrive
+# Off-DB disk alarm — every 10 min (MAX_ATTEMPTS=1: never retry a monitor).
+*/10 * * * *   nidp  NIDP_MAX_ATTEMPTS=1 /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh disk_monitor
+# Feed-freshness detector — every 30 min; emails on ERROR gaps.
+*/30 * * * *   nidp  NIDP_MAX_ATTEMPTS=1 /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh feed_health_check
+
 # ── Container health collector (infra monitoring dashboard) ───────
 # Writes docker ps + cpu/mem stats to monitoring.container_health every minute.
 # Prereq: nidp user must be in the docker group:

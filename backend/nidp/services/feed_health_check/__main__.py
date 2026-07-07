@@ -246,6 +246,19 @@ async def check() -> dict:
     elif depth_gaps:
         logger.warning("FEED HEALTH: %d depth gaps (informational)", len(depth_gaps))
 
+    # Alert a human on ERROR-level gaps (feed stale / insufficient history).
+    # Off-band via nidp.shared.notify (email/Telegram) — this detector was
+    # previously unscheduled and reached no notifier (see HANDOFF §B7).
+    if error_gaps or depth_error_gaps:
+        from nidp.shared import notify as _notify
+        body_lines = [f"{g['ingester']}: {g['reason']} (last_ok={g['last_ok']})"
+                      for g in error_gaps]
+        body_lines += [f"depth {g['table']}: {g['reason']}" for g in depth_error_gaps]
+        _notify.notify(
+            f"🔴 NIDP feed health: {len(error_gaps) + len(depth_error_gaps)} ERROR gap(s)",
+            "\n".join(body_lines),
+        )
+
     if fail_on_gaps and (error_gaps or depth_error_gaps):
         sys.exit(1)
 
