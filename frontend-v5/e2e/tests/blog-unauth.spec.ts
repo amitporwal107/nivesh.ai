@@ -8,6 +8,8 @@ import { test, expect } from "@playwright/test";
 
 const SLUG = "why-indian-retail-investors-lose-money";
 const TITLE_RE = /Why Indian retail investors lose money/i;
+const MF_SLUG = "mutual-fund-investing-best-practices";
+const MF_TITLE_RE = /Mutual fund investing/i;
 
 test.describe("Blog", () => {
   // The homepage fires /api/insights/analysis + portfolio-summary on load. With no backend
@@ -67,5 +69,21 @@ test.describe("Blog", () => {
     await page.getByTestId("blog-article").waitFor({ state: "attached", timeout: 90000 });
     await page.getByRole("button", { name: "Check my portfolio free" }).click();
     await expect(page).toHaveURL(/\/v5\/login/);
+  });
+
+  test("TC-6: MF best-practices article renders its guidance + Copilot mapping", async ({ page }) => {
+    await page.goto(`/v5/blog/${MF_SLUG}`);
+    await page.getByTestId("blog-article").waitFor({ state: "attached", timeout: 90000 });
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(MF_TITLE_RE);
+    await expect(page.getByText(/Direct plans over Regular/i).first()).toBeVisible();
+    await expect(page.getByText(/asset allocation/i).first()).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: /How Nivesh Copilot helps/i })).toBeVisible();
+  });
+
+  test("TC-7: /blog index lists the MF best-practices article", async ({ page }) => {
+    await page.goto("/v5/blog");
+    await page.getByTestId(`blog-card-${MF_SLUG}`).waitFor({ state: "attached", timeout: 90000 });
+    await expect(page.getByTestId(`blog-card-${MF_SLUG}`)).toBeVisible();
+    await expect(page.getByText(MF_TITLE_RE).first()).toBeVisible();
   });
 });
