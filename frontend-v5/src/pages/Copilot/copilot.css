@@ -1,0 +1,716 @@
+/* ============================================================
+   Copilot tour — scoped styles.
+
+   The tour is a dark-first marketing showcase (ported from the
+   "Nivesh Copilot — Complete" design reference). Everything is
+   scoped under `.copilot-tour` so it never leaks into the app.
+
+   The wrapper hard-pins the DARK palette (redefining the prototype
+   tokens for its subtree) so the tour always renders as designed,
+   regardless of the visitor's light/dark preference.
+
+   IMPORTANT token note: the app maps --indigo / --danger to rgb
+   TRIPLETS (used as rgb(var(--x)/a) by nv-pill-*). Bare colors must
+   use --indigo-hex / --danger-hex. This file follows that rule.
+   ============================================================ */
+
+.copilot-tour {
+  /* rgb triplets (dark) — consumed as rgb(var(--x)) / rgb(var(--x)/a) */
+  --bg: 6 8 15;
+  --surface-1: 10 14 26;
+  --surface-2: 16 22 42;
+  --surface-3: 24 31 56;
+  --ink: 245 247 255;
+  --ink-2: 188 196 220;
+  --ink-3: 122 131 156;
+  --ink-4: 74 82 106;
+  --accent: 106 240 168;
+  --accent-fg: 6 18 11;
+  --pos: 106 240 168;
+  --neg: 255 107 122;
+  --warm: 255 181 71;
+  --indigo: 142 151 255;
+  --danger: 255 107 122;
+  --line: 255 255 255;
+
+  /* hex / rgba (dark) — consumed as bare var(--x) */
+  --bg-0: #06080f;
+  --bg-1: #0a0e1a;
+  --bg-2: #10162a;
+  --bg-3: #181f38;
+  --bg-4: #232b48;
+  --bg-glass: rgba(18, 26, 50, 0.55);
+  --mint: #6af0a8;
+  --mint-2: #36c57e;
+  --mint-soft: rgba(106, 240, 168, 0.12);
+  --amber: #ffb547;
+  --amber-2: #e68e1a;
+  --amber-soft: rgba(255, 181, 71, 0.12);
+  --indigo-hex: #8e97ff;
+  --indigo-soft: rgba(142, 151, 255, 0.13);
+  --danger-hex: #ff6b7a;
+  --danger-soft: rgba(255, 107, 122, 0.12);
+  --ink-5: #2e3550;
+  --line-2: rgba(255, 255, 255, 0.1);
+  --line-3: rgba(255, 255, 255, 0.18);
+
+  width: 100%;
+  min-height: 100vh;
+  background: var(--bg-0);
+  color: rgb(var(--ink));
+}
+
+/* ── type helpers not already in index.css ── */
+.copilot-tour .nv-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3, rgb(var(--ink-3)));
+}
+.copilot-tour .nv-body {
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgb(var(--ink-2));
+}
+.copilot-tour .nv-prose {
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.6;
+  color: rgb(var(--ink-2));
+}
+.copilot-tour .nv-metric {
+  font-family: var(--display);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.copilot-tour .nv-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+.copilot-tour .nv-glass {
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+}
+.copilot-tour .nv-hr {
+  height: 1px;
+  background: rgb(var(--line) / 0.08);
+  border: 0;
+}
+
+/* ── section sub-nav (sticky) ── */
+.ct-subnav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 10px clamp(14px, 3vw, 40px);
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border-bottom: 1px solid var(--line-2);
+  overflow-x: auto;
+}
+.ct-subnav a {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgb(var(--ink-2));
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+}
+.ct-subnav a:hover {
+  color: var(--mint);
+  border-color: rgb(var(--pos) / 0.28);
+  background: var(--mint-soft);
+}
+.copilot-tour [id^="ct-"] {
+  scroll-margin-top: 56px;
+}
+
+.ct-wrap {
+  max-width: 1340px;
+  margin: 0 auto;
+}
+
+/* The shared marketing .nv-frame is overflow:hidden, which would make it the
+   (non-scrolling) sticky container and break the sub-nav. Let the tour frame
+   scroll against the window so `position: sticky` pins correctly. */
+.copilot-tour .nv-frame {
+  overflow: visible;
+}
+
+/* Two-column section layouts — collapse to a single column on narrow screens. */
+.ct-2col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(340px, 1fr);
+  gap: 30px;
+  align-items: start;
+}
+.ct-2col-adv {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.15fr) minmax(0, 2fr);
+  gap: 18px;
+}
+@media (max-width: 960px) {
+  .ct-2col,
+  .ct-2col-adv {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── overview pipeline ── */
+.ct-pipe {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  gap: 0;
+  padding-bottom: 8px;
+}
+.ct-node {
+  min-width: 190px;
+  flex: 1;
+  padding: 15px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.ct-arw {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  color: rgb(var(--ink-4));
+  font-size: 18px;
+  font-family: var(--mono);
+}
+
+/* ── tour stops / workflow cards ── */
+.ct-cardgrid {
+  display: grid;
+  gap: 18px;
+}
+.ct-stop {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  height: 100%;
+  transition: border-color 0.15s ease;
+  text-decoration: none;
+  color: inherit;
+}
+.ct-stop:hover {
+  border-color: var(--line-3);
+}
+.ct-bignum {
+  font-family: var(--display);
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--mint);
+}
+.ct-open {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--mint);
+  margin-top: auto;
+}
+.ct-wl {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: rgb(var(--ink-2));
+  border-bottom: 1px solid rgb(var(--line) / 0.06);
+  padding: 8px 2px;
+}
+.ct-wl:last-child {
+  border-bottom: 0;
+}
+
+/* ── generic rows / bars / chips ── */
+.ct-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgb(var(--ink-2));
+  border: 1px solid rgb(var(--line) / 0.06);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+.ct-bar {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--bg-3);
+  overflow: hidden;
+}
+.ct-bar > span {
+  display: block;
+  height: 100%;
+}
+.ct-chip {
+  font-family: var(--sans);
+  font-size: 12px;
+  color: rgb(var(--ink));
+  border: 1px solid var(--line-3);
+  border-radius: 999px;
+  padding: 6px 12px;
+}
+.ct-chip.sel {
+  border-color: rgb(var(--pos) / 0.28);
+  background: var(--mint-soft);
+  color: var(--mint);
+}
+
+/* ── app-shell mockups (screens + paradigms) ── */
+.ct-appwrap {
+  overflow-x: auto;
+}
+.ct-appwin {
+  min-width: 1040px;
+  overflow: hidden;
+}
+.ct-appgrid {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr) 280px;
+  min-height: 500px;
+}
+.ct-side-item {
+  padding: 8px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: rgb(var(--ink-3));
+}
+.ct-side-item.on {
+  background: var(--bg-3);
+  color: rgb(var(--ink));
+}
+.ct-step {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.13em;
+  color: rgb(var(--ink-4));
+  white-space: nowrap;
+}
+.ct-step.done {
+  color: rgb(var(--ink-2));
+}
+.ct-step.on {
+  color: var(--mint);
+}
+.ct-seg {
+  flex: 1;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--bg-3);
+  min-width: 14px;
+}
+.ct-seg.done {
+  background: var(--mint);
+}
+.ct-krow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: rgb(var(--ink-2));
+  border: 1px solid rgb(var(--line) / 0.06);
+  border-radius: 8px;
+  padding: 7px 9px;
+}
+
+/* ── paradigm annotation pins ── */
+.ct-pin {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--mint);
+  color: #06120b;
+  box-shadow: 0 0 0 4px rgba(106, 240, 168, 0.18), 0 6px 14px -4px rgba(0, 0, 0, 0.6);
+  z-index: 5;
+}
+.ct-keynum {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--mint-soft);
+  color: var(--mint);
+  border: 1px solid rgb(var(--pos) / 0.28);
+}
+.ct-gl {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 2px 0;
+}
+.ct-gl .tick {
+  color: var(--mint);
+  font-size: 13px;
+  line-height: 1.5;
+  flex: 0 0 auto;
+}
+
+/* ── workflow cards ── */
+.ct-wf {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+.ct-prompt {
+  align-self: flex-start;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  border-radius: 12px 12px 12px 4px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: rgb(var(--ink));
+}
+.ct-synth {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 18px;
+  line-height: 1.22;
+  letter-spacing: -0.01em;
+}
+.ct-agentline {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+.ct-wrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgb(var(--ink-2));
+  border: 1px solid rgb(var(--line) / 0.06);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+.ct-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid rgb(var(--line) / 0.06);
+}
+.ct-cta {
+  font-family: var(--sans);
+  font-size: 12px;
+  color: rgb(var(--ink));
+  border: 1px solid var(--line-3);
+  border-radius: 9px;
+  padding: 6px 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  background: transparent;
+}
+.ct-grade {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-size: 17px;
+  border: 1px solid var(--line-2);
+}
+
+/* ── all-flows filmstrip ── */
+.ct-flowrow {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  padding-bottom: 10px;
+}
+.ct-fc {
+  min-width: 268px;
+  width: 268px;
+  flex: 0 0 auto;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ct-fcarw {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  color: rgb(var(--ink-4));
+  font-size: 18px;
+  font-family: var(--mono);
+}
+.ct-sc {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  color: rgb(var(--ink-2));
+}
+.ct-sc.on {
+  color: var(--mint);
+  border-color: rgb(var(--pos) / 0.28);
+  background: var(--mint-soft);
+}
+.ct-dots {
+  display: flex;
+  gap: 4px;
+}
+.ct-d4 {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--bg-4);
+}
+.ct-d4.on {
+  background: var(--mint);
+}
+.ct-pb {
+  align-self: flex-start;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  border-radius: 11px 11px 11px 3px;
+  padding: 7px 11px;
+  font-size: 12px;
+  color: rgb(var(--ink));
+}
+.ct-syn {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 15.5px;
+  line-height: 1.26;
+  letter-spacing: -0.01em;
+}
+.ct-frow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: rgb(var(--ink-2));
+  border: 1px solid rgb(var(--line) / 0.06);
+  border-radius: 7px;
+  padding: 6px 9px;
+}
+.ct-pbtn {
+  width: 100%;
+  justify-content: center;
+  padding: 8px;
+  font-size: 11px;
+  margin-top: auto;
+}
+
+/* ── advisor table ── */
+.ct-tbl {
+  width: 100%;
+  min-width: 820px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.ct-tbl th {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: rgb(var(--ink-3));
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgb(var(--line) / 0.06);
+  font-weight: 400;
+}
+.ct-tbl td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgb(var(--line) / 0.06);
+  font-size: 13px;
+  color: rgb(var(--ink-2));
+}
+.ct-tbl tr:last-child td {
+  border-bottom: 0;
+}
+.ct-hp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+}
+.ct-stat {
+  padding: 15px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* ── mobile phone rail ── */
+.ct-rail {
+  display: flex;
+  gap: 34px;
+  overflow-x: auto;
+  padding: 8px 4px 20px;
+  align-items: flex-start;
+}
+.ct-cap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.ct-device {
+  width: 340px;
+  height: 720px;
+  border-radius: 44px;
+  background: #000;
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 auto;
+  box-shadow: 0 40px 80px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.ct-island {
+  position: absolute;
+  top: 11px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 108px;
+  height: 30px;
+  border-radius: 20px;
+  background: #000;
+  z-index: 50;
+}
+.ct-status {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px 0;
+  z-index: 20;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  color: #fff;
+}
+.ct-home {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 120px;
+  height: 5px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.65);
+  z-index: 60;
+}
+.ct-scroll {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+}
+.ct-ph {
+  min-height: 100%;
+  padding: 56px 14px 42px;
+  font-family: var(--sans);
+  color: rgb(var(--ink));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-0);
+}
+.ct-mcard {
+  background: var(--bg-1);
+  border: 1px solid rgb(var(--line) / 0.06);
+  border-radius: 16px;
+  padding: 14px;
+}
+.ct-mrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: rgb(var(--ink-2));
+  border: 1px solid rgb(var(--line) / 0.06);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.ct-mchip {
+  font-size: 13px;
+  color: rgb(var(--ink));
+  border: 1px solid var(--line-3);
+  border-radius: 999px;
+  padding: 8px 14px;
+}
+.ct-mchip.sel {
+  border-color: rgb(var(--pos) / 0.28);
+  background: var(--mint-soft);
+  color: var(--mint);
+}
+.ct-mbubble {
+  align-self: flex-end;
+  max-width: 82%;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  border-radius: 16px 16px 5px 16px;
+  padding: 10px 13px;
+  font-size: 14px;
+  color: rgb(var(--ink));
+}
+.ct-mcomp {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+  border-radius: 999px;
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--line-2);
+}
+.ct-mbtn {
+  width: 100%;
+  justify-content: center;
+  padding: 13px;
+  font-size: 14px;
+  border-radius: 14px;
+}

@@ -5,6 +5,7 @@ import { RequireAdmin } from "./components/layout/RequireAdmin";
 import { RouteErrorBoundary } from "./components/shared/RouteErrorBoundary";
 import HomepagePage from "./pages/Homepage";
 import ProductPage from "./pages/Product";
+import CopilotPage from "./pages/Copilot";
 import AdvisorsPage from "./pages/Advisors";
 import PricingPage from "./pages/Pricing";
 import AboutPage from "./pages/About";
@@ -57,6 +58,7 @@ export function AppRoutes() {
 
       {/* Public marketing pages — full-bleed, no sidebar */}
       <Route path="/product" element={<ProductPage />} />
+      <Route path="/copilot" element={<CopilotPage />} />
       <Route path="/for-advisors" element={<AdvisorsPage />} />
       <Route path="/pricing" element={<PricingPage />} />
       <Route path="/about" element={<AboutPage />} />
