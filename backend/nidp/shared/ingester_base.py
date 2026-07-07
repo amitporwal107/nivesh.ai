@@ -44,6 +44,7 @@ from nidp.shared.storage.parsed_archive import (
 )
 from nidp.shared.storage.raw_archive import store as store_raw
 from nidp.shared.trading_day import bump_market_session as _bump_market_session
+from nidp.shared.sources.content_guard import detect_unsupported_content
 from nidp.shared.validation import run_validation as _run_validation
 from nidp.shared.validation.rules import FailureClass
 from nidp.shared.dq.gate1_ingestion import IngestionGate, write_dlq
@@ -134,6 +135,28 @@ class BaseIngester(abc.ABC):
                     )
                     run.artifact_path = str(abs_path)
                     raw_archive_id = archive_id
+
+                    # 2b. Content guard — reject known bot-block / error /
+                    # maintenance pages served with HTTP 200. These are never
+                    # valid data for ANY feed, so a lenient parser would
+                    # otherwise reduce them to 0 rows and SKIP silently
+                    # (indistinguishable from a holiday). Fail LOUD instead.
+                    _bad_content = detect_unsupported_content(body)
+                    if _bad_content:
+                        logger.error(
+                            "ingester %s: source returned unsupported content "
+                            "(%s) under HTTP %s — failing run",
+                            self.SERVICE_NAME, _bad_content, http_status,
+                        )
+                        await run.finalize(
+                            "FAILED",
+                            error_message=f"unsupported content: {_bad_content}",
+                            error_class="CONTENT",
+                        )
+                        INGESTER_RUNS.labels(
+                            service=self.SERVICE_NAME, status="FAILED",
+                        ).inc()
+                        return run
 
                     # 3. Parse
                     parsed_rows = self.parse(body, target_date)

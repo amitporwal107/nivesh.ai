@@ -130,9 +130,15 @@ class JobRun:
                        last_failure_at      = CASE WHEN $3 = 'FAILED'
                                                    THEN NOW()
                                                    ELSE nidp.source_registry.last_failure_at END,
-                       consecutive_failures = CASE WHEN $3 = 'FAILED'
-                                                   THEN nidp.source_registry.consecutive_failures + 1
-                                                   ELSE 0 END,
+                       consecutive_failures = CASE
+                           WHEN $3 = 'FAILED'          THEN nidp.source_registry.consecutive_failures + 1
+                           WHEN $3 IN ('OK','PARTIAL') THEN 0
+                           -- SKIPPED (empty body / 0 rows) must NOT reset the
+                           -- counter: a feed stuck returning SKIPPED is broken,
+                           -- and resetting made it look healthier than a
+                           -- FAILED feed. Only real success clears it.
+                           ELSE nidp.source_registry.consecutive_failures
+                       END,
                        next_run_at          = CASE nidp.source_registry.expected_freq
                            WHEN 'daily'     THEN NOW() + INTERVAL '1 day'
                            WHEN 'monthly'   THEN NOW() + INTERVAL '1 month'

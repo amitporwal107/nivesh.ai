@@ -15,7 +15,7 @@
 
 set -uo pipefail
 
-NIDP_HOME=/opt/nidp
+NIDP_HOME="${NIDP_HOME:-/opt/nidp}"
 set -a; source "$NIDP_HOME/nidp.env"; set +a
 
 PSQL=(psql "$NIDP_POSTGRES_URL" -At -F'|' -v ON_ERROR_STOP=1)
@@ -62,13 +62,24 @@ done <<<"$SLO"
 
 # Pull last successful run per service.
 ROWS=$("${PSQL[@]}" -c "
-    select service,
+    select ingester,
            extract(epoch from (now() - max(finished_at))) / 3600
       from nidp.job_log
      where status = 'OK'
-     group by service
+     group by ingester
 " 2>/dev/null) || {
-    echo "health_check: cannot connect to postgres" >&2
+    # A DB-connect failure IS the alert: disk-full / crash-loop takes
+    # Postgres down, which is the dominant outage. Do NOT swallow it and
+    # exit silently (the old bug) — page first, then exit non-zero.
+    DBDOWN_MSG="🔴 NIDP health check: CANNOT connect to Postgres — the DB may be DOWN (disk-full / crash-loop). Investigate now."
+    echo "$DBDOWN_MSG" >&2
+    if [[ -n "${NIDP_TELEGRAM_BOT_TOKEN:-}" && -n "${NIDP_TELEGRAM_CHAT_ID:-}" ]]; then
+        curl -fsS -X POST \
+            "https://api.telegram.org/bot${NIDP_TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${NIDP_TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${DBDOWN_MSG}" > /dev/null \
+            || echo "health_check: telegram POST failed" >&2
+    fi
     exit 1
 }
 
