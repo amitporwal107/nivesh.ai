@@ -9,7 +9,9 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useHealthAnalysis } from "@/hooks/use-insights";
 import { usePortfolioSummary } from "@/hooks/use-portfolio";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import ProductTour from "@/components/marketing/ProductTour";
+import { POSTS } from "@/pages/Blog/posts";
 import "@/components/marketing/nvx-theme.css";
 import "./homepage.css";
 
@@ -58,7 +60,9 @@ export default function HomepagePage() {
   const rootRef = useRef<HTMLDivElement>(null);
   const { data: health } = useHealthAnalysis();
   const { data: summary } = usePortfolioSummary();
+  const isMobile = useIsMobile();
   const [showDemo, setShowDemo] = useState(false);
+  const blogPosts = POSTS.slice(0, 3);
   const assetBase = import.meta.env.BASE_URL; // respects the staging "/v5/" base path
 
   // Real scores when available, otherwise the sample portfolio.
@@ -295,6 +299,48 @@ export default function HomepagePage() {
           </div>
         </section>
 
+        {/* from the blog */}
+        {blogPosts.length > 0 && (
+          <section className="wrap section" id="blog" data-testid="home-blog-section" style={{ paddingTop: 0 }}>
+            <div className="section-head">
+              <h2>
+                From the <em>blog</em>.
+              </h2>
+              <span className="blog-more" onClick={() => navigate("/blog")}>
+                Read the blog →
+              </span>
+            </div>
+            <div
+              className="blog-grid"
+              style={{ gridTemplateColumns: isMobile ? "1fr" : `repeat(${Math.min(blogPosts.length, 3)}, 1fr)` }}
+            >
+              {blogPosts.map((post) => (
+                <div
+                  key={post.slug}
+                  className="blog-card rv"
+                  data-testid={`blog-card-${post.slug}`}
+                  role="link"
+                  tabIndex={0}
+                  onClick={() => navigate(`/blog/${post.slug}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      navigate(`/blog/${post.slug}`);
+                    }
+                  }}
+                >
+                  <span className="bc-kicker">
+                    {post.category} · {post.readMins} min read
+                  </span>
+                  <h3>{post.title}</h3>
+                  <p>{post.excerpt}</p>
+                  <span className="bc-read">Read the article →</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* CTA band */}
         <section className="wrap section" style={{ paddingTop: 0 }}>
           <div className="cta-band rv">
@@ -326,6 +372,7 @@ export default function HomepagePage() {
           </a>
           <span className="meta">SEBI-aligned · ARN-128459 · India-hosted (Bangalore)</span>
           <nav className="flinks">
+            <a onClick={() => navigate("/blog")}>Blog</a>
             <a onClick={() => navigate("/login")}>Sign in</a>
             <a onClick={() => navigate("/security")}>Security</a>
             <a onClick={() => navigate("/privacy")}>Privacy</a>
