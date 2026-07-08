@@ -1,29 +1,40 @@
 # OVERRIDE — In-chat Strategy Lab (5-step equity workbench)
 
-REASON: This is a large new full-stack feature (a `strategy_lab` chat widget + a copilot intent trigger). The backend trigger + widget are verified locally, and the step-execution APIs it drives were already verified on real staging earlier this session. But the **end-to-end in-chat UI flow** can only be verified after (a) this branch deploys to dev/staging, (b) the V5 PWA service-worker cache is cleared so the new bundle loads, and (c) a session token to drive the chat. The widget is also LLM-surfaced (user types "build a strategy"), which makes a deterministic Playwright run flaky. Per `.claude/VERIFICATION_PROTOCOL.md` this is the sanctioned loud, recorded skip — the UI flow is **NOT** claimed verified yet.
+REASON: The backend path is VERIFIED on real staging (below). The one remaining check — the **browser render** of the widget via Playwright — is not run: the widget is LLM-surfaced ("build a strategy" in chat), which makes a deterministic Playwright run flaky, and the V5 PWA service-worker cache masks the new bundle until the user clears it. Per `.claude/VERIFICATION_PROTOCOL.md` this is the sanctioned loud, recorded skip — the **browser UI** is NOT claimed verified; the backend IS.
 
 - **Slug:** strategy_lab
 - **Branch:** feat/copilot-backtest
+- **On origin/dev:** `1720b6dc` (Strategy Lab feature) + `9ca99e94` (advisor-mode routing fix)
 - **Changed areas:** backend routes/services (yes) · frontend src (yes)
 
 ## What was built
-- **Frontend:** `frontend-v5/src/components/chat/StrategyLabWidget.tsx` — an in-chat 5-step workbench (Universe → Strategy → Screen → Backtest → Execute) with an "AI QuantAssist" guidance line per step. Ports the verified `StrategyBuilderPage` logic (same `/api/strategy-builder/*` calls). Registered in `ChatWidget.tsx` dispatch (`case "strategy_lab"`).
-- **Backend:** `WidgetType.STRATEGY_LAB` (schemas.py); `_P_STRATEGY_LAB` intent pattern + routing to the recommendation node (intent_patterns.py); a short-circuit in `recommendation.py` that emits the `strategy_lab` seed widget on "build a strategy"; `strategy_lab` added to both widget allow-lists in `chat.py`.
-- **"Execute" step is honest:** it saves the strategy + exports an equal-weight target-portfolio CSV. No order routing (brokers are read-only; live execution is a compliance-gated later phase) — nothing is faked.
+- **Frontend:** `StrategyLabWidget.tsx` — in-chat 5-step workbench (Universe → Strategy → Screen → Backtest → Execute), AI-QuantAssist guidance per step; ports the verified `StrategyBuilderPage` logic. Registered in `ChatWidget.tsx` dispatch.
+- **Backend:** `WidgetType.STRATEGY_LAB`; `_P_STRATEGY_LAB` intent pattern + routing; recommendation-node short-circuit emitting the seed widget; `strategy_lab` added to `chat.py` allow-lists; `_RESEARCH_INTENT_RE` (copilot.py) extended so advisor-mode "build a strategy" reaches the investor engine.
+- **"Execute" is advisory-only:** saves the strategy + exports an equal-weight target-portfolio CSV. No order routing.
 
-## Test cases + local evidence (real output this session)
+## Test cases + evidence
 | TC | Scenario | Type | Result |
 |----|----------|------|--------|
-| TC-1 | Intent pattern matches "build a strategy", "build a quality strategy", "strategy lab/builder"; does NOT match "build a portfolio"/"screen stocks"/"markets" | unit | **PASS** (printed match table) |
-| TC-2 | `WidgetType.STRATEGY_LAB` exists; all 4 backend files compile | unit | **PASS** (`py_compile OK`) |
-| TC-3 | Frontend typechecks with the new widget + dispatch | build | **PASS** (`tsc --noEmit` exit 0) |
-| TC-4 | The step APIs the widget calls (screen / create / backtest) work on real staging | api (staging) | **PASS earlier this session** — fundamental screen (roe≥15 → 6 stocks), sector in/not_in, create+persist all green |
-| TC-5 | Chat: "build a strategy" → `strategy_lab` widget renders → walk all 5 steps | e2e (staging UI) | **PENDING** — needs deploy + PWA cache clear + session (this OVERRIDE) |
+| TC-1 | Intent + research-gate patterns match "build a strategy"/"strategy lab", not portfolio/screen/book | unit | PASS (printed match tables) |
+| TC-2 | All backend files compile; `WidgetType.STRATEGY_LAB` exists | unit | PASS (`py_compile OK`) |
+| TC-3 | Frontend typechecks with new widget + dispatch | build | PASS (`tsc --noEmit` exit 0) |
+| TC-4 | Step APIs (screen fundamental+sector, create/persist, backtest) work on real staging | api (staging) | PASS earlier this session |
+| TC-5 | **Chat: "build a strategy" → `strategy_lab` widget emitted on staging** | api (staging) | **PASS** — real output below |
+| TC-6 | Widget renders in browser + walk all 5 steps | e2e (Playwright) | **PENDING** (this OVERRIDE) |
+
+### TC-5 real staging output (this session)
+```
+POST /api/chat/send  {"message":"build a strategy"}  (session: aporwal107@gmail.com, advisor mode)
+backend healthy (attempt 1, ~20s elapsed)
+attempt 1 -> strategy_lab | "Opening the Strategy Lab. Pick a universe, choose a factor
+             template, then screen and backtest it on live, corp-action-ad…"
+Strategy Lab widget surfaced
+```
+Control earlier same session: `screen stocks where roe over 15` → `ai_message.widget.widget_type = stock_screener` (confirms the widget-in-response path + advisor-mode research routing).
 
 ## To clear this OVERRIDE
-1. Deploy this branch to dev (app + frontend staging redeploy automatically).
-2. Clear the V5 service-worker cache (Application → Unregister SW → Clear site data) so the new bundle loads.
-3. In the copilot chat, send "build a strategy" → confirm the Strategy Lab widget appears → select a universe → pick a template → Run screen → Run backtest → Execute (export). Paste results into `test_reports/strategy_lab.md`, end with `## Verdict: PASS`.
+1. Clear the V5 service-worker cache (incognito, or Application → Unregister SW + Clear site data) so the new bundle loads.
+2. In chat send "build a strategy" → confirm the Strategy Lab widget renders → select universe → pick template → Run screen → Run backtest → Execute (export). Capture into `test_reports/strategy_lab.md`, end with `## Verdict: PASS`.
 
 ## Status
-IN PROGRESS — backend trigger + widget built and locally verified; step-execution backend staging-verified; in-chat UI flow pending deploy + verification. Not done, not claimed done.
+IN PROGRESS — backend trigger + step APIs VERIFIED on staging; frontend browser render pending Playwright (+ PWA cache clear). Not done, not claimed done.
