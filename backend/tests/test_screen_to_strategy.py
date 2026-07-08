@@ -18,6 +18,7 @@ from services.strategy_engine.compiler_stock import (
 from services.strategy_engine.screen_bridge import (
     SCREENER_KEY_TO_FEATURE, build_definition_from_screen, ScreenBridgeError,
 )
+from services.strategy_engine.evaluator import screen_rows
 
 
 def _base_stock_spec(entry_preds):
@@ -147,3 +148,48 @@ def test_screener_map_columns_all_whitelisted():
     missing = {k: c for k, c in SCREENER_KEY_TO_FEATURE.items()
                if c not in dsl.STOCK_FEATURE_COLS}
     assert not missing, f"mapped columns missing from STOCK_FEATURE_COLS: {missing}"
+
+
+# ── Evaluator (DaaS/staging path) — sector + fundamentals ───────────
+# The DaasMarketDataProvider screens in Python via evaluator.screen_rows, so
+# the compiler-only sector support wasn't enough — these lock the evaluator
+# to the same semantics (the gap staging verification caught).
+_RANK = {"by": "accumulation_score", "limit": 10, "order": "desc"}
+
+
+def test_evaluator_sector_in_matches():
+    rows = [
+        {"symbol": "HDFCBANK", "sector": "Banking", "accumulation_score": 80},
+        {"symbol": "INFY", "sector": "IT", "accumulation_score": 90},
+        {"symbol": "SBIN", "sector": "Banking", "accumulation_score": 70},
+    ]
+    spec = {"entry": {"all_of": [{"sector": "sector", "op": "in", "value": ["Banking"]}]}, "ranking": _RANK}
+    assert [r["symbol"] for r in screen_rows(spec, rows)] == ["HDFCBANK", "SBIN"]
+
+
+def test_evaluator_sector_not_in_excludes():
+    rows = [
+        {"symbol": "HDFCBANK", "sector": "Banking", "accumulation_score": 80},
+        {"symbol": "INFY", "sector": "IT", "accumulation_score": 90},
+    ]
+    spec = {"entry": {"all_of": [{"sector": "sector", "op": "not_in", "value": ["Banking"]}]}, "ranking": _RANK}
+    assert [r["symbol"] for r in screen_rows(spec, rows)] == ["INFY"]
+
+
+def test_evaluator_sector_null_never_matches():
+    # NULL sector excluded for both in and not_in (SQL three-valued logic).
+    rows = [{"symbol": "X", "sector": None, "accumulation_score": 50}]
+    for op in ("in", "not_in"):
+        spec = {"entry": {"all_of": [{"sector": "sector", "op": op, "value": ["Banking"]}]}, "ranking": _RANK}
+        assert screen_rows(spec, rows) == []
+
+
+def test_evaluator_handles_fundamental_feature():
+    # feature.roe_pct must screen in the evaluator too; NULL excluded.
+    rows = [
+        {"symbol": "A", "roe_pct": 20, "accumulation_score": 50},
+        {"symbol": "B", "roe_pct": 10, "accumulation_score": 60},
+        {"symbol": "C", "roe_pct": None, "accumulation_score": 70},
+    ]
+    spec = {"entry": {"all_of": [{"feature": "roe_pct", "op": ">=", "value": 15}]}, "ranking": _RANK}
+    assert [r["symbol"] for r in screen_rows(spec, rows)] == ["A"]
