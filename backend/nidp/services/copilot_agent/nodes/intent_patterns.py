@@ -226,6 +226,18 @@ _P_BUILDER = re.compile(
 )
 
 
+# "Build a (quality) strategy" / "strategy lab" → the in-chat Strategy Lab
+# workbench (recommendation node short-circuits to a strategy_lab seed widget).
+# Checked BEFORE _P_BUILDER/_P_SCREENER so "build a strategy" doesn't fall through.
+_P_STRATEGY_LAB = re.compile(
+    r"\b(?:build|create|design|make|start|open|launch)\s+(?:me\s+)?(?:a\s+|an?\s+|my\s+)?"
+    r"(?:[a-z]+\s+){0,2}strateg(?:y|ies)\b"
+    r"|\bstrateg(?:y|ies)\s+(?:lab|builder|workbench)\b"
+    r"|\bstrategy\s+lab\b",
+    re.IGNORECASE,
+)
+
+
 # ---------------------------------------------------------------------------
 # Entity-aware stock-lookup gate
 # ---------------------------------------------------------------------------
@@ -317,6 +329,7 @@ def _is_stock_lookup(text: str) -> bool:
 # MARKET before STOCK so "What is Nifty?" → market_analyst (not stock_analyst)
 _PRE_PATTERNS: List[Tuple[re.Pattern, str]] = [
     (_P_BACKTEST,         BACKTEST),        # "if I'd invested … N years ago" → backtest (before PORTFOLIO/STOCK grab "invested"/"returns")
+    (_P_STRATEGY_LAB,     RECOMMENDATION),  # "build a strategy" / "strategy lab" → Strategy Lab workbench (before BUILDER/SCREENER)
     (_P_BUILDER,          RECOMMENDATION),  # "build me a portfolio" → builder wizard (before PORTFOLIO grabs "portfolio")
     (_P_SCREENER,         RECOMMENDATION),  # "Screen [bucket] stocks where …" → screener (before STOCK grabs "roe")
     (_P_CAP,              MF),       # cap-category education → mf (cap_education widget) before others

@@ -66,6 +66,7 @@ class WidgetType(str, Enum):
     MARKET_DETAIL = "market_detail"   # market research hub (indices/breadth/flows/movers)
     GOAL_SIMULATION = "goal_simulation"
     PORTFOLIO_BUILDER = "portfolio_builder"   # in-chat multi-step builder wizard
+    STRATEGY_LAB = "strategy_lab"             # in-chat 5-step equity strategy workbench
     BACKTEST_COMPARISON = "backtest_comparison"  # historical what-if backtest table
     # ── Tier-A conversational advisory tools (WF-02/03/04 investor + WF-07 advisor) ──
     GOAL_BASKET = "goal_basket"            # goal→fund basket (WF-02-06 / WF-03 suitability)
