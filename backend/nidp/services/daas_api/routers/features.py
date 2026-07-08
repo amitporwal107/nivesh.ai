@@ -15,8 +15,11 @@ router = APIRouter(prefix="/features", tags=["features"], dependencies=[Depends(
 # Columns the strategy engine's evaluator needs — the DSL feature whitelist
 # (STOCK_FEATURE_COLS) plus identifiers. Kept in sync with the per-symbol
 # endpoint below so the bulk path returns the same shape.
+# `sector` + the fundamental/ownership/risk columns are required so a strategy
+# built from the copilot stock-screener (fundamental predicates + sector) can
+# actually screen/backtest on the DaaS path — the evaluator reads these keys.
 _FEATURE_COLS = """
-    symbol, as_of_date, close,
+    symbol, as_of_date, close, sector,
     sma20, sma50, sma100, sma200, sma50_slope,
     dist_200dma_pct, dist_52w_high_pct, dist_52w_low_pct,
     rsi14, macd, macd_signal, macd_hist,
@@ -24,7 +27,16 @@ _FEATURE_COLS = """
     atr14, atr_pct, bb_width, bb_pos,
     avg_volume_20, vol_z20, deliv_pct_avg_20, deliv_trend10,
     swing_high_20, swing_low_20, pivot_breakout_flag,
-    accumulation_score
+    accumulation_score,
+    pe_ttm, pb, ev_ebitda, pe_vs_sector_pct, dividend_yield_pct,
+    roe_pct, roce_pct, profit_margin_pct, interest_coverage, earnings_consistency_score,
+    revenue_growth_3y_cagr_pct, eps_growth_3y_cagr_pct,
+    revenue_growth_yoy_pct, pat_growth_yoy_pct, eps_growth_yoy_pct, profit_margin_trend_pct,
+    debt_to_equity, debt_trend_pct, liquidity_score,
+    market_cap_cr,
+    return_252d_pct, volatility_1y_pct, beta_1y, max_drawdown_1y_pct, momentum_score,
+    promoter_pct, promoter_pledged_pct, fii_pct, dii_pct,
+    fii_pct_change_qoq, promoter_pct_change_qoq
 """
 # Hard caps so a single call can't ask for an unbounded scan.
 _BULK_MAX_SYMBOLS = 300
@@ -45,7 +57,7 @@ async def stock_features(
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT symbol, as_of_date, close,
+            SELECT symbol, as_of_date, close, sector,
                    sma20, sma50, sma100, sma200, sma50_slope,
                    dist_200dma_pct, dist_52w_high_pct, dist_52w_low_pct,
                    rsi14, macd, macd_signal, macd_hist,
@@ -54,7 +66,16 @@ async def stock_features(
                    avg_volume_20, vol_z20,
                    deliv_pct_avg_20, deliv_trend10,
                    swing_high_20, swing_low_20, pivot_breakout_flag,
-                   accumulation_score, accumulation_signals
+                   accumulation_score, accumulation_signals,
+                   pe_ttm, pb, ev_ebitda, pe_vs_sector_pct, dividend_yield_pct,
+                   roe_pct, roce_pct, profit_margin_pct, interest_coverage, earnings_consistency_score,
+                   revenue_growth_3y_cagr_pct, eps_growth_3y_cagr_pct,
+                   revenue_growth_yoy_pct, pat_growth_yoy_pct, eps_growth_yoy_pct, profit_margin_trend_pct,
+                   debt_to_equity, debt_trend_pct, liquidity_score,
+                   market_cap_cr,
+                   return_252d_pct, volatility_1y_pct, beta_1y, max_drawdown_1y_pct, momentum_score,
+                   promoter_pct, promoter_pledged_pct, fii_pct, dii_pct,
+                   fii_pct_change_qoq, promoter_pct_change_qoq
               FROM nidp.stock_features_daily
              WHERE symbol = $1
                AND ($2::date IS NULL OR as_of_date >= $2)

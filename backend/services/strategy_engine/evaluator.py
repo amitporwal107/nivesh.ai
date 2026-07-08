@@ -50,6 +50,19 @@ def _num(v: Any) -> Optional[float]:
 def _match_predicate(p: Dict[str, Any], row: Dict[str, Any]) -> bool:
     ns = next((k for k in ("feature", "fundamental", "shareholding",
                            "institutional", "mf", "sector") if k in p), None)
+
+    if ns == "sector":
+        # {"sector": <field>, "op": "in"|"not_in", "value": [...]}. Mirrors the
+        # compiler's `f.sector IN (...)` / `NOT f.sector IN (...)`. A NULL sector
+        # never matches either op (SQL three-valued logic → exclude).
+        op = p["op"]
+        vals = {str(v) for v in (p.get("value") or [])}
+        sec = row.get("sector")
+        if sec is None:
+            return False
+        in_set = str(sec) in vals
+        return in_set if op == "in" else not in_set
+
     if ns != "feature":
         raise EvalError(f"namespace {ns!r} not supported (Phase-1 = feature.* only)")
     field = p["feature"]
