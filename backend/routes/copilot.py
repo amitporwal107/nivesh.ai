@@ -283,7 +283,14 @@ _RESEARCH_INTENT_RE = re.compile(
     r"\bresearch\s+(?:the\s+)?(?:stock|fund|mutual\s+fund|company|scheme)\b|"
     r"\banalys[ez]e?\s+(?:the\s+)?(?:stock|fund|mutual\s+fund|scheme)\b|"
     r"\bbuild\s+(?:me\s+)?(?:a\s+|my\s+)?portfolio\b|"         # "Build a portfolio" chip
-    r"\bscreen\s+(?:stocks?|for|where)\b|\bstocks?\s+screener\b"  # "Stocks Screener" chip
+    r"\bscreen\s+(?:stocks?|for|where)\b|\bstocks?\s+screener\b|"  # "Stocks Screener" chip
+    # Strategy Lab — mode-agnostic equity workbench, same as the screener/builder.
+    r"\bbuild\s+(?:me\s+)?(?:a\s+|an?\s+|my\s+)?(?:[a-z]+\s+){0,2}strateg(?:y|ies)\b|"
+    r"\bstrateg(?:y|ies)\s+(?:lab|builder|workbench)\b|\bstrategy\s+lab\b|"
+    # Tier-A conversational tools — render the investor widget even in advisor mode
+    # (they are mode-agnostic tools, not cross-client book questions).
+    r"\bcapital\s+gains?\b|\bcg\s+statement\b|\breali[sz]ed?\s+(?:capital\s+)?gains?\b|\b(?:stcg|ltcg)\b|"
+    r"\bwhich\s+funds?\b|\bfund\s+basket\b|\bfunds?\s+for\s+(?:this|my|the)\s+goal\b"
     r")",
     re.IGNORECASE,
 )
