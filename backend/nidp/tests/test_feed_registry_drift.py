@@ -48,3 +48,22 @@ def test_recovery_and_monitoring_jobs_are_scheduled():
     cron = _cron_feeds()
     for f in ("feed_reconciler", "dlq_redrive", "disk_monitor", "feed_health_check"):
         assert f in cron, f"{f} is not scheduled in nidp.cron"
+
+
+# ── WORK-0144: canonical registry is the single source of truth ────────────
+def test_expected_feeds_derives_from_registry():
+    from nidp.shared.feed_registry import expected_feeds
+    assert EXPECTED_FEEDS == expected_feeds()   # detector reads the manifest
+
+
+def test_registry_has_no_duplicates_and_valid_severity():
+    from nidp.shared.feed_registry import FEEDS
+    names = [f.name for f in FEEDS]
+    assert len(names) == len(set(names)), "duplicate feed in registry"
+    assert all(f.severity in ("ERROR", "WARN") for f in FEEDS)
+    assert all(f.slo_hours > 0 for f in FEEDS if f.monitored)
+
+
+def test_registry_preserves_the_19_monitored_feeds():
+    from nidp.shared.feed_registry import expected_feeds
+    assert len(expected_feeds()) == 19          # no accidental add/drop

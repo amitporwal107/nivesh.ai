@@ -43,7 +43,10 @@ from nidp.shared.storage.parsed_archive import (
     upsert_feed_snapshot as _upsert_feed_snapshot,
 )
 from nidp.shared.storage.raw_archive import store as store_raw
-from nidp.shared.trading_day import bump_market_session as _bump_market_session
+from nidp.shared.trading_day import (
+    bump_market_session as _bump_market_session,
+    is_trading_day as _is_trading_day,
+)
 from nidp.shared.sources.content_guard import (
     detect_unsupported_content, sniff_content_type,
 )
@@ -119,7 +122,14 @@ class BaseIngester(abc.ABC):
                     body, source_url, http_status = await self.fetch(target_date)
                     run.source_url = source_url
                     if not body:
-                        await run.finalize("SKIPPED", error_message="empty body")
+                        _ec = _empty_skip_class(target_date)
+                        if _ec:
+                            logger.warning(
+                                "ingester %s: empty body on trading day %s — SUSPECT "
+                                "(not a holiday)", self.SERVICE_NAME, target_date,
+                            )
+                        await run.finalize("SKIPPED", error_message="empty body",
+                                           error_class=_ec)
                         INGESTER_RUNS.labels(
                             service=self.SERVICE_NAME, status="SKIPPED",
                         ).inc()
@@ -185,7 +195,15 @@ class BaseIngester(abc.ABC):
                     ).inc(len(parsed_rows))
 
                     if not parsed_rows:
-                        await run.finalize("SKIPPED", error_message="no rows in source")
+                        _ec = _empty_skip_class(target_date)
+                        if _ec:
+                            logger.warning(
+                                "ingester %s: 0 rows on trading day %s — SUSPECT "
+                                "(source may have silently broken)",
+                                self.SERVICE_NAME, target_date,
+                            )
+                        await run.finalize("SKIPPED", error_message="no rows in source",
+                                           error_class=_ec)
                         INGESTER_RUNS.labels(
                             service=self.SERVICE_NAME, status="SKIPPED",
                         ).inc()
@@ -409,3 +427,12 @@ def _content_type_conflict(guessed: str, sniffed: Optional[str]) -> bool:
     if not sniffed or sniffed == guessed:
         return False
     return guessed in _TEXT_EXPECTED and sniffed in _BINARY_OR_HTML
+
+
+def _empty_skip_class(target_date) -> Optional[str]:
+    """Classify an empty / 0-row result (WORK-0138). Returns 'SUSPECT_EMPTY'
+    when target_date is a TRADING DAY (0 rows is suspicious — a likely silent
+    break) and None for a holiday/weekend/no-date (a benign no-work SKIP). A
+    SUSPECT run is still SKIPPED but carries this error_class so it is
+    distinguishable in job_log and doesn't read as healthy."""
+    return "SUSPECT_EMPTY" if (target_date and _is_trading_day(target_date)) else None

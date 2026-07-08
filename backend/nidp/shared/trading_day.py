@@ -40,6 +40,18 @@ def today_ist() -> date:
     return datetime.now(IST).date()
 
 
+def is_trading_day(d: date, holidays: Optional[set] = None) -> bool:
+    """True if `d` is a weekday (Mon–Fri) and not in `holidays`. Sync, no DB —
+    weekday is the dominant signal (NSE holidays are rare); pass a holidays set
+    for exactness. Used to tell a SUSPECT empty feed (0 rows on a trading day)
+    apart from a benign holiday SKIP."""
+    if d.weekday() >= 5:            # 5=Sat, 6=Sun
+        return False
+    if holidays and d in holidays:
+        return False
+    return True
+
+
 def default_target_date() -> date:
     """Sync fallback: cutoff-aware "last close" without DB / holidays.
 

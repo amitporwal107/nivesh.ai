@@ -29,36 +29,13 @@ from nidp.shared.storage.pg import get_pool
 
 logger = logging.getLogger(__name__)
 
-# Feeds expected to land at least once per WINDOW_HOURS.
-# (ingester_name, max_age_hours, severity)
-# severity: ERROR = page on miss; WARN = log only.
-EXPECTED_FEEDS: list[tuple[str, int, str]] = [
-    # Daily NSE feeds (run every weekday)
-    ("bhavcopy",                  30, "ERROR"),
-    ("delivery",                  30, "ERROR"),
-    ("index_close",               30, "ERROR"),
-    ("fno_bhavcopy",              30, "ERROR"),
-    ("fii_dii",                   30, "ERROR"),
-    ("bulk_deals",                30, "WARN"),
-    ("block_deals",               30, "WARN"),
-    ("corporate_actions",         30, "WARN"),
-    # Daily AMFI feeds
-    ("amfi_nav",                  30, "ERROR"),
-    ("amfi_nav_history",          30, "WARN"),
-    # Macro / weekly
-    ("rbi_yields",                72, "WARN"),
-    ("fred_macro",                30, "WARN"),
-    # Master refresh (less frequent)
-    ("nse_calendar",             168, "WARN"),
-    ("nse_equity_master",        168, "WARN"),
-    ("index_constituents",       168, "WARN"),
-    # Derivatives
-    ("price_adjuster",            30, "ERROR"),
-    # Derived analytics engines (feed Action Matrix scoring inputs)
-    ("mf_analytics_engine",        30, "ERROR"),
-    ("technical_indicator_engine", 30, "ERROR"),
-    ("fundamental_engine",         30, "ERROR"),
-]
+# Feeds expected to land at least once per WINDOW_HOURS — DERIVED from the
+# canonical registry (WORK-0144), so the monitored set, the cron, and the drift
+# test all flow from ONE source. Add/change a feed in nidp.shared.feed_registry.
+# (ingester_name, max_age_hours, severity); severity ERROR = page, WARN = log.
+from nidp.shared.feed_registry import expected_feeds as _expected_feeds
+
+EXPECTED_FEEDS: list[tuple[str, int, str]] = _expected_feeds()
 
 
 # History depth check — tables/columns the scoring engine relies on.
