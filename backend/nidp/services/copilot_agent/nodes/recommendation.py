@@ -177,6 +177,22 @@ _BUILDER_INTRO = (
     "to your risk profile — every fund scored on live V3 quality, not samples."
 )
 
+# "Build a strategy" / "strategy lab" launches the in-chat Strategy Lab — an
+# interactive 5-step equity workbench (universe → screen → backtest → export).
+# Kept independent of intent._P_STRATEGY_LAB to avoid a cross-node import.
+_P_STRATEGY_LAB = re.compile(
+    r"\b(?:build|create|design|make|start|open|launch)\s+(?:me\s+)?(?:a\s+|an?\s+|my\s+)?"
+    r"(?:[a-z]+\s+){0,2}strateg(?:y|ies)\b"
+    r"|\bstrateg(?:y|ies)\s+(?:lab|builder|workbench)\b"
+    r"|\bstrategy\s+lab\b",
+    re.IGNORECASE,
+)
+
+_STRATEGY_LAB_INTRO = (
+    "Opening the Strategy Lab. Pick a universe, choose a factor template, then "
+    "screen and backtest it on live, corp-action-adjusted data — right here in chat."
+)
+
 
 def _infer_risk_band(user_msg: str) -> str:
     msg = user_msg.lower()
@@ -372,6 +388,26 @@ async def recommendation_node(state: CopilotState) -> dict:
         (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
         "",
     )
+    # Strategy Lab short-circuit — checked before the portfolio builder so
+    # "build a strategy" opens the equity workbench (the widget self-drives the
+    # /strategy-builder endpoints). Static intro, no LLM call.
+    if _P_STRATEGY_LAB.search(_builder_msg or ""):
+        from .._stream import emit_widget
+        seed = {"universe": {"type": "index", "ref": "NIFTY500"}}
+        await emit_widget(WidgetType.STRATEGY_LAB, seed)
+        response = AgentResponse(
+            agent=AgentName.RECOMMENDATION,
+            text=_STRATEGY_LAB_INTRO,
+            widget_type=WidgetType.STRATEGY_LAB,
+            widget_data=seed,
+            tool_results=[],
+        )
+        return {
+            "tool_results": [],
+            "response":     response,
+            "messages":     [AIMessage(content=_STRATEGY_LAB_INTRO)],
+        }
+
     if _P_BUILD_PORTFOLIO.search(_builder_msg or ""):
         from .._stream import emit_widget
         seed = {"has_risk_profile": False}

@@ -38,6 +38,7 @@ class AgentName(str, Enum):
     GOAL = "goal_planner"
     RECOMMENDATION = "recommendation"
     BACKTEST = "backtest_analyst"
+    ADVISOR = "advisor"
     COMPLIANCE = "compliance"
 
 
@@ -65,7 +66,15 @@ class WidgetType(str, Enum):
     MARKET_DETAIL = "market_detail"   # market research hub (indices/breadth/flows/movers)
     GOAL_SIMULATION = "goal_simulation"
     PORTFOLIO_BUILDER = "portfolio_builder"   # in-chat multi-step builder wizard
+    STRATEGY_LAB = "strategy_lab"             # in-chat 5-step equity strategy workbench
     BACKTEST_COMPARISON = "backtest_comparison"  # historical what-if backtest table
+    # ── Tier-A conversational advisory tools (WF-02/03/04 investor + WF-07 advisor) ──
+    GOAL_BASKET = "goal_basket"            # goal→fund basket (WF-02-06 / WF-03 suitability)
+    UNDERPERFORMER = "underperformer"      # 2-of-3 underperformer detection (WF-04-03)
+    CAPITAL_GAINS = "capital_gains"        # realised CG statement A/B/C (WF-04-07)
+    ADVISOR_BOOK = "advisor_book"          # advisor business dashboard (WF-07-07)
+    HNI_SEGMENT = "hni_segment"            # HNI / segmentation (WF-07-08/09)
+    REPORT_DOWNLOAD = "report_download"    # branded review pack / report (WF-05-06 / WF-07-03)
     NONE = "none"
 
 
