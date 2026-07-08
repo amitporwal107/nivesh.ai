@@ -58,7 +58,30 @@
   min-height: 100vh;
   background: var(--bg-0);
   color: rgb(var(--ink));
+  /* Wide mockups live in their own inner horizontal scrollers; clip any stray
+     leak so the page never scrolls sideways on mobile. `clip` (not hidden)
+     keeps the sticky sub-nav pinned to the viewport. */
+  overflow-x: clip;
 }
+
+/* ── live-copilot controls ──────────────────────────────────────────────
+   The tour's mockups route into the real copilot (see useEnterCopilot).
+   Real text inputs for the "ask" composers, and a pointer on every control
+   that now opens the copilot. */
+.copilot-tour .ct-ask-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: rgb(var(--ink));
+  font-family: var(--sans);
+}
+.copilot-tour .ct-ask-input::placeholder { color: rgb(var(--ink-3)); opacity: 1; }
+.copilot-tour .ct-chip,
+.copilot-tour .ct-mchip,
+.copilot-tour .ct-wf,
+.copilot-tour .ct-side-item,
+.copilot-tour .ct-pb,
+.copilot-tour .ct-pbtn { cursor: pointer; }
 
 /* ── type helpers not already in index.css ── */
 .copilot-tour .nv-eyebrow {

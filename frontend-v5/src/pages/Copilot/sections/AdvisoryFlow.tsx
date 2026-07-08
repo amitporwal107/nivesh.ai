@@ -3,8 +3,9 @@
  * end across six stages: Intake → Analysis → Options → Recommendation →
  * Action → Human handoff, each in the desktop copilot shell.
  */
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { Mark, ScoreRing, SectionHead } from "../parts";
+import { askText, useEnterCopilot } from "../useEnterCopilot";
 
 const STAGES = ["INTAKE", "ANALYSIS", "OPTIONS", "RECOMMEND", "ACTION"];
 
@@ -32,6 +33,13 @@ function Shell({
   thread: ReactNode;
   workspace: ReactNode;
 }) {
+  const enter = useEnterCopilot();
+  const openProps = (q?: string) => ({
+    role: "button" as const,
+    tabIndex: 0,
+    onClick: () => enter(q),
+    onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); enter(q); } },
+  });
   return (
     <div className="ct-appwrap">
       <div className="nv-card ct-appwin">
@@ -49,15 +57,15 @@ function Shell({
               {danger ? "OUT OF SCOPE · TAX LAW" : "47 HOLDINGS"}
             </span>
           </div>
-          <span className="nv-btn" style={{ padding: "6px 12px", fontSize: 12, borderColor: "rgb(var(--warm) / 0.30)", color: "var(--amber)", background: "var(--amber-soft)" }}>Talk to an advisor ▸</span>
+          <span className="nv-btn" {...openProps("I'd like to talk to a human advisor")} style={{ padding: "6px 12px", fontSize: 12, borderColor: "rgb(var(--warm) / 0.30)", color: "var(--amber)", background: "var(--amber-soft)" }}>Talk to an advisor ▸</span>
         </div>
         <div className="ct-appgrid">
           {/* sidebar */}
           <aside style={{ borderRight: "1px solid rgb(var(--line) / 0.06)", padding: "16px 13px", background: "var(--bg-1)" }}>
-            <div className="nv-btn nv-btn-primary" style={{ width: "100%", justifyContent: "center", padding: 9, fontSize: 12, marginBottom: 16 }}>＋ New review</div>
+            <div className="nv-btn nv-btn-primary" {...openProps("Start a new portfolio review")} style={{ width: "100%", justifyContent: "center", padding: 9, fontSize: 12, marginBottom: 16 }}>＋ New review</div>
             <div className="nv-eyebrow" style={{ fontSize: 9, marginBottom: 9 }}>HISTORY</div>
             {["Reduce my risk", "Tax before Mar 31", "Retirement on track?"].map((h, i) => (
-              <div key={h} className={"ct-side-item" + (i === 0 ? " on" : "")}>{h}</div>
+              <div key={h} className={"ct-side-item" + (i === 0 ? " on" : "")} {...openProps(askText(h))}>{h}</div>
             ))}
           </aside>
           {/* thread */}
@@ -83,18 +91,55 @@ const AGENT_LINE = (children: ReactNode) => (
 );
 
 function Composer({ placeholder }: { placeholder: string }) {
+  const enter = useEnterCopilot();
+  const [q, setQ] = useState("");
   return (
     <div style={{ marginTop: "auto" }}>
       <div className="nv-glass" style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px" }}>
-        <span style={{ flex: 1, fontSize: 13, color: "rgb(var(--ink-3))" }}>{placeholder}</span>
-        <span className="nv-btn nv-btn-primary" style={{ padding: "7px 14px", fontSize: 12 }}>↑</span>
+        <input
+          className="ct-ask-input"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); enter(q); } }}
+          placeholder={placeholder}
+          aria-label="Ask the copilot"
+          style={{ flex: 1, minWidth: 0, fontSize: 13 }}
+        />
+        <span
+          className="nv-btn nv-btn-primary" role="button" tabIndex={0} aria-label="Ask"
+          onClick={() => enter(q)}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); enter(q); } }}
+          style={{ padding: "7px 14px", fontSize: 12 }}
+        >↑</span>
       </div>
     </div>
   );
 }
 
 function Chip({ children, sel }: { children: ReactNode; sel?: boolean }) {
-  return <span className={"ct-chip" + (sel ? " sel" : "")}>{children}</span>;
+  const enter = useEnterCopilot();
+  const q = typeof children === "string" ? askText(children) : undefined;
+  return (
+    <span
+      className={"ct-chip" + (sel ? " sel" : "")}
+      role="button" tabIndex={0}
+      onClick={() => enter(q)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); enter(q); } }}
+    >{children}</span>
+  );
+}
+
+/** A mockup action button (nv-btn) that routes into the real copilot on click. */
+function CtaBtn({ children, className, style, q }: { children: ReactNode; className?: string; style?: React.CSSProperties; q?: string }) {
+  const enter = useEnterCopilot();
+  return (
+    <span
+      className={className} style={style}
+      role="button" tabIndex={0}
+      onClick={() => enter(q)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); enter(q); } }}
+    >{children}</span>
+  );
 }
 
 const SCREENS = [
@@ -210,7 +255,7 @@ const SCREENS = [
               <div style={{ display: "flex", flexDirection: "column", gap: 4, fontFamily: "var(--mono)", fontSize: 10, color: "rgb(var(--ink-2))", letterSpacing: ".04em" }}>
                 {o.rows.map(([k, v]) => (<div key={k} style={{ display: "flex", justifyContent: "space-between" }}><span>{k}</span><span>{v}</span></div>))}
               </div>
-              <div className={"nv-btn" + (o.primary ? " nv-btn-primary" : "")} style={{ justifyContent: "center", padding: 7, fontSize: 11, marginTop: 2 }}>Choose {o.tag.split(" ")[1]}</div>
+              <CtaBtn className={"nv-btn" + (o.primary ? " nv-btn-primary" : "")} q={`Walk me through the "${o.t}" option`} style={{ justifyContent: "center", padding: 7, fontSize: 11, marginTop: 2 }}>Choose {o.tag.split(" ")[1]}</CtaBtn>
             </div>
           ))}
         </div>
@@ -263,7 +308,7 @@ const SCREENS = [
               <span className="nv-mono" style={{ fontSize: 11, color: a.c }}>{a.n}</span><span className="nv-dot" style={{ background: a.c }} />
               <span style={{ flex: 1, fontSize: 13, color: "rgb(var(--ink))" }}>{a.t}</span>
               <span className="nv-serif nv-num" style={{ fontSize: 15, color: "var(--mint)" }}>{a.v}</span>
-              {a.cta ? <span className="nv-btn nv-btn-primary" style={{ padding: "5px 11px", fontSize: 11 }}>Do it ↓</span> : <span className="nv-mono" style={{ fontSize: 10, color: "rgb(var(--ink-3))" }}>QUEUE</span>}
+              {a.cta ? <CtaBtn className="nv-btn nv-btn-primary" q={a.t} style={{ padding: "5px 11px", fontSize: 11 }}>Do it ↓</CtaBtn> : <span className="nv-mono" style={{ fontSize: 10, color: "rgb(var(--ink-3))" }}>QUEUE</span>}
             </div>
           ))}
         </div>
@@ -281,7 +326,7 @@ const SCREENS = [
             <div className="ct-bar"><span style={{ width: `${w}%`, background: c as string }} /></div>
           </div>
         ))}
-        <div style={{ marginTop: "auto" }}><div className="nv-btn nv-btn-primary" style={{ justifyContent: "center", padding: 9, fontSize: 12 }}>Review &amp; apply →</div></div>
+        <div style={{ marginTop: "auto" }}><CtaBtn className="nv-btn nv-btn-primary" q="Review and apply the rebalancing plan" style={{ justifyContent: "center", padding: 9, fontSize: 12 }}>Review &amp; apply →</CtaBtn></div>
       </>
     ),
   },
@@ -310,8 +355,8 @@ const SCREENS = [
           <span className="nv-body" style={{ fontSize: 12 }}>I understand this is educational, not investment advice.</span>
         </div>
         <div style={{ marginTop: "auto", display: "flex", gap: 9 }}>
-          <span className="nv-btn nv-btn-primary" style={{ flex: 1, justifyContent: "center", padding: 11, fontSize: 13 }}>Approve &amp; apply</span>
-          <span className="nv-btn" style={{ justifyContent: "center", padding: "11px 16px", fontSize: 13, borderColor: "rgb(var(--warm) / 0.30)", color: "var(--amber)" }}>Review with advisor</span>
+          <CtaBtn className="nv-btn nv-btn-primary" q="Apply action 01 — trim financials from 32% to 24%" style={{ flex: 1, justifyContent: "center", padding: 11, fontSize: 13 }}>Approve &amp; apply</CtaBtn>
+          <CtaBtn className="nv-btn" q="I'd like to review this with a human advisor" style={{ justifyContent: "center", padding: "11px 16px", fontSize: 13, borderColor: "rgb(var(--warm) / 0.30)", color: "var(--amber)" }}>Review with advisor</CtaBtn>
         </div>
       </>
     ),
@@ -325,7 +370,7 @@ const SCREENS = [
         <div className="nv-eyebrow" style={{ fontSize: 9 }}>EXECUTES AT</div>
         <div className="nv-body" style={{ fontSize: 12 }}>Orders route to your broker after approval. You can cancel until 3:30pm IST.</div>
         <div style={{ marginTop: "auto" }}>
-          <div className="nv-btn" style={{ justifyContent: "center", padding: 8, fontSize: 11 }}>Export summary · PDF</div>
+          <CtaBtn className="nv-btn" q="Export a summary of my plan" style={{ justifyContent: "center", padding: 8, fontSize: 11 }}>Export summary · PDF</CtaBtn>
           <div className="nv-mono" style={{ fontSize: 9, color: "rgb(var(--ink-4))", letterSpacing: ".04em", lineHeight: 1.6, marginTop: 8 }}>EVERY STEP IS LOGGED &amp; EXPORTABLE.</div>
         </div>
       </>
@@ -359,8 +404,8 @@ const SCREENS = [
             ))}
           </div>
           <div style={{ display: "flex", gap: 9 }}>
-            <span className="nv-btn nv-btn-primary" style={{ flex: 1, justifyContent: "center", padding: 10, fontSize: 12 }}>Schedule a call</span>
-            <span className="nv-btn" style={{ justifyContent: "center", padding: "10px 15px", fontSize: 12 }}>Chat now</span>
+            <CtaBtn className="nv-btn nv-btn-primary" q="Schedule a call with a human advisor" style={{ flex: 1, justifyContent: "center", padding: 10, fontSize: 12 }}>Schedule a call</CtaBtn>
+            <CtaBtn className="nv-btn" q="Connect me with a human advisor now" style={{ justifyContent: "center", padding: "10px 15px", fontSize: 12 }}>Chat now</CtaBtn>
           </div>
         </div>
         <Composer placeholder="Add a note for the advisor…" />

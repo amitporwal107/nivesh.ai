@@ -5,6 +5,7 @@
  */
 import { ReactNode } from "react";
 import { Mark, ScoreRing } from "../parts";
+import { useAskProps } from "../useEnterCopilot";
 
 function Row({ left, right, lc, rc }: { left: ReactNode; right: ReactNode; lc?: string; rc?: string }) {
   return (
@@ -206,6 +207,7 @@ const CARDS: Card[] = [
 ];
 
 export default function Workflows() {
+  const askProps = useAskProps();
   return (
     <section id="ct-workflows" style={{ padding: "38px clamp(18px,3vw,52px) 60px" }}>
       <div className="ct-wrap" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
@@ -222,7 +224,7 @@ export default function Workflows() {
 
       <div className="ct-wrap ct-cardgrid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(400px,1fr))", gap: 20 }}>
         {CARDS.map((c) => (
-          <div key={c.title} className="nv-card ct-wf">
+          <div key={c.title} className="nv-card ct-wf" {...askProps(c.prompt)}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <span className="nv-eyebrow" style={{ fontSize: 9 }}>{c.eyebrow}</span>
               {c.flagship && <span className="nv-pill nv-pill-mint" style={{ fontSize: 9 }}>FLAGSHIP</span>}

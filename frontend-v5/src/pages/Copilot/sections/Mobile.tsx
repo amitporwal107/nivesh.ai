@@ -2,8 +2,36 @@
  * Mobile (#ct-mobile) — the same advisory loop on an iPhone, plus the
  * advisor's book triaged on the go.
  */
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { Mark, ScoreRing } from "../parts";
+import { askText, useAskProps, useEnterCopilot } from "../useEnterCopilot";
+
+/** Mobile "Ask" composer — a real input that opens the copilot with the typed question. */
+function MComposer({ placeholder }: { placeholder: string }) {
+  const enter = useEnterCopilot();
+  const [q, setQ] = useState("");
+  return (
+    <div style={{ marginTop: "auto" }}>
+      <div className="ct-mcomp">
+        <input
+          className="ct-ask-input"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); enter(q); } }}
+          placeholder={placeholder}
+          aria-label="Ask the copilot"
+          style={{ flex: 1, minWidth: 0, fontSize: 14 }}
+        />
+        <span
+          className="nv-btn nv-btn-primary" role="button" tabIndex={0} aria-label="Ask"
+          onClick={() => enter(q)}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); enter(q); } }}
+          style={{ padding: "8px 13px", borderRadius: 999 }}
+        >↑</span>
+      </div>
+    </div>
+  );
+}
 
 function Phone({ label, labelColor, children }: { label: string; labelColor?: string; children: ReactNode }) {
   return (
@@ -22,6 +50,7 @@ function Phone({ label, labelColor, children }: { label: string; labelColor?: st
 }
 
 export default function Mobile() {
+  const askProps = useAskProps();
   return (
     <section id="ct-mobile" style={{ padding: "38px clamp(18px,3vw,52px) 60px" }}>
       <div className="ct-wrap" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
@@ -50,11 +79,11 @@ export default function Mobile() {
           <div className="nv-eyebrow" style={{ fontSize: 9 }}>LAST SYNC · JUST NOW · 47 HOLDINGS</div>
           <div className="nv-serif" style={{ fontSize: 22, lineHeight: 1.2 }}>I've read all <span style={{ color: "var(--mint)" }}>47 holdings</span>. What matters most today?</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <span className="ct-mchip sel">Reduce risk ✓</span><span className="ct-mchip">Grow wealth</span><span className="ct-mchip">Save tax</span><span className="ct-mchip">Retire early</span>
+            {["Reduce risk ✓", "Grow wealth", "Save tax", "Retire early"].map((c, i) => (
+              <span key={c} className={"ct-mchip" + (i === 0 ? " sel" : "")} {...askProps(askText(c))}>{c}</span>
+            ))}
           </div>
-          <div style={{ marginTop: "auto" }}>
-            <div className="ct-mcomp"><span style={{ flex: 1, fontSize: 14, color: "rgb(var(--ink-3))" }}>Ask anything…</span><span className="nv-btn nv-btn-primary" style={{ padding: "8px 13px", borderRadius: 999 }}>↑</span></div>
-          </div>
+          <MComposer placeholder="Ask anything…" />
         </Phone>
 
         {/* 02 ANSWER */}
@@ -74,7 +103,7 @@ export default function Mobile() {
               ))}
             </div>
           </div>
-          <div style={{ marginTop: "auto" }}><div className="ct-mcomp"><span style={{ flex: 1, fontSize: 14, color: "rgb(var(--ink-3))" }}>Follow up…</span><span className="nv-btn nv-btn-primary" style={{ padding: "8px 13px", borderRadius: 999 }}>↑</span></div></div>
+          <MComposer placeholder="Follow up…" />
         </Phone>
 
         {/* 03 RECOMMEND */}
@@ -86,7 +115,7 @@ export default function Mobile() {
           </div>
           <div className="ct-mrow"><span><span className="nv-mono" style={{ color: "var(--danger-hex)" }}>02</span> Harvest losses · Mar 31</span><span className="nv-serif nv-num" style={{ color: "var(--mint)" }}>₹11.5k</span></div>
           <div className="ct-mrow"><span><span className="nv-mono" style={{ color: "var(--indigo-hex)" }}>03</span> Consolidate 3 funds</span><span className="nv-serif nv-num" style={{ color: "var(--mint)" }}>-2.3pt</span></div>
-          <div style={{ marginTop: "auto" }}><div className="nv-btn nv-btn-primary ct-mbtn">Review &amp; apply →</div></div>
+          <div style={{ marginTop: "auto" }}><div className="nv-btn nv-btn-primary ct-mbtn" {...askProps("Review and apply my top 3 actions")}>Review &amp; apply →</div></div>
         </Phone>
 
         {/* 04 APPROVE */}
@@ -104,8 +133,8 @@ export default function Mobile() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 9 }}><span style={{ width: 18, height: 18, borderRadius: 5, border: "1px solid var(--mint)", background: "var(--mint-soft)", display: "grid", placeItems: "center", color: "var(--mint)", fontSize: 12 }}>✓</span><span style={{ fontSize: 12.5, color: "rgb(var(--ink-2))" }}>I understand this is educational, not advice.</span></div>
           <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 9 }}>
-            <div className="nv-btn nv-btn-primary ct-mbtn">Approve &amp; apply</div>
-            <div className="nv-btn ct-mbtn" style={{ borderColor: "rgb(var(--warm) / 0.30)", color: "var(--amber)" }}>Talk to an advisor</div>
+            <div className="nv-btn nv-btn-primary ct-mbtn" {...askProps("Apply action 01 — trim financials from 32% to 24%")}>Approve &amp; apply</div>
+            <div className="nv-btn ct-mbtn" {...askProps("I'd like to talk to a human advisor")} style={{ borderColor: "rgb(var(--warm) / 0.30)", color: "var(--amber)" }}>Talk to an advisor</div>
           </div>
         </Phone>
 
@@ -123,7 +152,7 @@ export default function Mobile() {
           <div className="ct-mrow"><span style={{ color: "rgb(var(--ink))" }}>Rohan Shah · churn</span><span className="nv-num" style={{ color: "var(--danger-hex)" }}>₹1.8Cr</span></div>
           <div className="ct-mrow"><span style={{ color: "rgb(var(--ink))" }}>Vikram · idle cash</span><span className="nv-num" style={{ color: "var(--mint)" }}>+₹1.6L</span></div>
           <div className="ct-mrow"><span style={{ color: "rgb(var(--ink))" }}>Priya · review 92d</span><span className="nv-mono" style={{ fontSize: 11, color: "var(--amber)" }}>DUE</span></div>
-          <div style={{ marginTop: "auto" }}><div className="nv-btn nv-btn-primary ct-mbtn">Open call list</div></div>
+          <div style={{ marginTop: "auto" }}><div className="nv-btn nv-btn-primary ct-mbtn" {...askProps("Who should I call first in my book?")}>Open call list</div></div>
         </Phone>
       </div>
     </section>
