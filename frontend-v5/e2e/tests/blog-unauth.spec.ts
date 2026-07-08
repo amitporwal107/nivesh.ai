@@ -10,6 +10,11 @@ const SLUG = "why-indian-retail-investors-lose-money";
 const TITLE_RE = /Why Indian retail investors lose money/i;
 const MF_SLUG = "mutual-fund-investing-best-practices";
 const MF_TITLE_RE = /Mutual fund investing/i;
+// Newest posts (top of POSTS → shown in the homepage's top-3 slice).
+const HEAL_SLUG = "self-healing-software-autonomous-fixes";
+const HEAL_TITLE_RE = /Self-healing software/i;
+const CLAUDE_SLUG = "how-we-build-with-claude";
+const CLAUDE_TITLE_RE = /How we build with Claude/i;
 
 test.describe("Blog", () => {
   // The homepage fires /api/insights/analysis + portfolio-summary on load. With no backend
@@ -26,24 +31,25 @@ test.describe("Blog", () => {
     );
   });
 
-  test("TC-1: homepage renders the 'From the blog' section with the article card", async ({ page }) => {
+  // Homepage shows POSTS.slice(0,3); the newest post (self-healing) is the top card.
+  test("TC-1: homepage renders the 'From the blog' section with the newest article card", async ({ page }) => {
     await page.goto("/v5/");
     // Wait for the card (auto-waits through the homepage's reveal-on-scroll animation),
     // then assert the section + heading. Targeting the card mirrors TC-2, which is stable.
-    const card = page.getByTestId(`blog-card-${SLUG}`);
+    const card = page.getByTestId(`blog-card-${HEAL_SLUG}`);
     await card.waitFor({ state: "attached", timeout: 90000 });
     await card.scrollIntoViewIfNeeded();
     await expect(page.getByTestId("home-blog-section")).toBeVisible();
     await expect(page.getByRole("heading", { name: /From the blog/i })).toBeVisible();
     await expect(card).toBeVisible();
-    await expect(page.getByText(TITLE_RE).first()).toBeVisible();
+    await expect(page.getByText(HEAL_TITLE_RE).first()).toBeVisible();
   });
 
   test("TC-2: clicking the homepage blog card opens the article", async ({ page }) => {
     await page.goto("/v5/");
-    await page.getByTestId(`blog-card-${SLUG}`).click();
-    await expect(page).toHaveURL(new RegExp(`/v5/blog/${SLUG}`));
-    await expect(page.getByRole("heading", { level: 1 })).toContainText(TITLE_RE);
+    await page.getByTestId(`blog-card-${HEAL_SLUG}`).click();
+    await expect(page).toHaveURL(new RegExp(`/v5/blog/${HEAL_SLUG}`));
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(HEAL_TITLE_RE);
   });
 
   test("TC-3: /blog index lists the article", async ({ page }) => {
@@ -85,5 +91,30 @@ test.describe("Blog", () => {
     await page.getByTestId(`blog-card-${MF_SLUG}`).waitFor({ state: "attached", timeout: 90000 });
     await expect(page.getByTestId(`blog-card-${MF_SLUG}`)).toBeVisible();
     await expect(page.getByText(MF_TITLE_RE).first()).toBeVisible();
+  });
+
+  test("TC-8: self-healing article renders its pipeline, Phoenix + CTA to Copilot", async ({ page }) => {
+    await page.goto(`/v5/blog/${HEAL_SLUG}`);
+    await page.getByTestId("blog-article").waitFor({ state: "attached", timeout: 90000 });
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(HEAL_TITLE_RE);
+    await expect(page.getByText(/Autonomy stops at the pull request/i).first()).toBeVisible();
+    await expect(page.getByText(/Phoenix/).first()).toBeVisible();
+    await page.getByRole("button", { name: "See the Copilot" }).click();
+    await expect(page).toHaveURL(/\/v5\/copilot/);
+  });
+
+  test("TC-9: 'How we build with Claude' article renders its thesis + pillars", async ({ page }) => {
+    await page.goto(`/v5/blog/${CLAUDE_SLUG}`);
+    await page.getByTestId("blog-article").waitFor({ state: "attached", timeout: 90000 });
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(CLAUDE_TITLE_RE);
+    await expect(page.getByText(/disciplined engineers/i).first()).toBeVisible();
+    await expect(page.getByText(/Hooks/).first()).toBeVisible();
+  });
+
+  test("TC-10: /blog index lists both engineering articles", async ({ page }) => {
+    await page.goto("/v5/blog");
+    await page.getByTestId(`blog-card-${HEAL_SLUG}`).waitFor({ state: "attached", timeout: 90000 });
+    await expect(page.getByTestId(`blog-card-${HEAL_SLUG}`)).toBeVisible();
+    await expect(page.getByTestId(`blog-card-${CLAUDE_SLUG}`)).toBeVisible();
   });
 });
