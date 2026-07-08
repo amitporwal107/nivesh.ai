@@ -44,7 +44,7 @@ export default function MarketingShell({
           </div>
           {[
             { h: "Product", items: ["Overview", "For advisors", "Pricing", "Sign in"], to: ["/product", "/for-advisors", "/pricing", "/login"] },
-            { h: "Company", items: ["About", "Security", "Contact"], to: ["/about", "/security", "/contact"] },
+            { h: "Company", items: ["About", "Blog", "Security", "Contact"], to: ["/about", "/blog", "/security", "/contact"] },
             { h: "Legal", items: ["Privacy", "Terms", "Disclosure"], to: ["/privacy", "/terms", "/disclosure"] },
           ].map((col) => (
             <div key={col.h}>
