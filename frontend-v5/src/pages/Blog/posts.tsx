@@ -8,6 +8,7 @@ import RetailLossesArticle from "./RetailLossesArticle";
 import MFBestPracticesArticle from "./MFBestPracticesArticle";
 import HowWeUseClaudeArticle from "./HowWeUseClaudeArticle";
 import SelfHealingArticle from "./SelfHealingArticle";
+import CopilotTourArticle from "./CopilotTourArticle";
 
 export type BlogPost = {
   slug: string;
@@ -20,6 +21,16 @@ export type BlogPost = {
 };
 
 export const POSTS: BlogPost[] = [
+  {
+    slug: "nivesh-copilot-2-minute-tour",
+    title: "Watch: a 2-minute tour of Nivesh Copilot",
+    excerpt:
+      "See the full advisory loop end to end — ask what to fix first, compare options, get a ranked verdict, and approve. Investor and advisor, desktop and mobile, in two minutes.",
+    category: "Product tour",
+    readMins: 2,
+    dateLabel: "July 2026",
+    Body: CopilotTourArticle,
+  },
   {
     slug: "self-healing-software-autonomous-fixes",
     title: "Self-healing software: how our systems fix their own bugs — and stop at a pull request",
