@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter, Sparkles, Wand2, FlaskConical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CopilotOnboarding from "./CopilotOnboarding";
+import { useMe } from "@/hooks/use-auth";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useSuggestedPrompts,
@@ -133,7 +134,10 @@ export default function ChatPage() {
   const [analyseOpen, setAnalyseOpen] = useState(false);
   const [backtestOpen, setBacktestOpen] = useState(false);
   // In-chat guided onboarding — greets a fresh user, hands off to a real answer.
+  // Role-aware: advisors get the client-book tour (matches the copilot's mode).
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const me = useMe();
+  const isAdvisor = (me.data?.workspaceType || "").toUpperCase() === "ADVISORY";
   const [activeIdx, setActiveIdx] = useState(-1);
   // When a picked question template has a {stock}/{fund} placeholder, we enter
   // "entity fill" mode: instrument autocomplete suggests canonical names and a
@@ -620,6 +624,7 @@ export default function ChatPage() {
 
         {messages.length === 0 && onboardingOpen && (
           <CopilotOnboarding
+            isAdvisor={isAdvisor}
             onLaunch={(q) => { localStorage.setItem("nv-copilot-onboarding-seen", "1"); setOnboardingOpen(false); void submitMessage(q); }}
             onDismiss={() => { localStorage.setItem("nv-copilot-onboarding-seen", "1"); setOnboardingOpen(false); }}
           />

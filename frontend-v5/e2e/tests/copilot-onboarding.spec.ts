@@ -26,14 +26,14 @@ const ME = {
   copilot_enabled: true,
 };
 
-const setup = async (page: Page) => {
+const setup = async (page: Page, me: Record<string, unknown> = ME) => {
   // Playwright matches routes last-registered-first, so register the broad
   // catch-all FIRST and the specific overrides AFTER (they win).
   await page.route("**/api/**", (r) =>
     r.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
   );
   await page.route("**/api/auth/me**", (r) =>
-    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(ME) }),
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(me) }),
   );
   // Fresh chat: create-session + stream are answered so the handoff send runs.
   await page.route("**/api/chat/sessions**", (r) =>
@@ -92,5 +92,36 @@ test.describe("In-chat guided onboarding", () => {
     await expect(onb(page)).toHaveCount(0);
     await page.getByTestId("onb-launcher").click();
     await expect(onb(page)).toBeVisible();
+  });
+});
+
+test.describe("In-chat guided onboarding — advisor role", () => {
+  const ADVISOR_ME = { ...ME, workspace_type: "ADVISORY" };
+
+  test.beforeEach(async ({ page }) => {
+    await setup(page, ADVISOR_ME);
+  });
+
+  test("7 · advisor sees the client-book tour, not the investor one", async ({ page }) => {
+    await expect(onb(page)).toHaveAttribute("data-role", "advisor");
+    await expect(onb(page)).toContainText("client book");
+    await onb(page).getByTestId("onb-start").click();
+    await expect(onb(page)).toContainText("your clients' live NIDP data");
+    await onb(page).getByTestId("onb-next").click();
+    await expect(onb(page).getByText("At-risk & churn", { exact: true })).toBeVisible();
+    await expect(onb(page).getByText("Reviews due", { exact: true })).toBeVisible();
+    await expect(onb(page).getByText("Portfolio health review", { exact: true })).toHaveCount(0);
+  });
+
+  test("8 · advisor workflow hands off the book-level prompt", async ({ page }) => {
+    await onb(page).getByTestId("onb-start").click();
+    await onb(page).getByTestId("onb-next").click();
+    const sendReq = page.waitForRequest(
+      (r) => r.url().includes("/api/chat/stream") && r.method() === "POST",
+      { timeout: 10000 },
+    );
+    await onb(page).getByText("At-risk & churn", { exact: true }).click();
+    const body = JSON.parse((await sendReq).postData() || "{}");
+    expect(body.message).toBe("Which clients might leave?");
   });
 });

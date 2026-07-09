@@ -6,31 +6,87 @@
  * "how I think", then the catalog of jobs. Picking a job hands off to the REAL
  * copilot (onLaunch → submitMessage), so the guided steps are canned product
  * copy but the answer is live. Mirrors the /copilot tour's content.
+ *
+ * Role-aware: advisors get the client-book workflows (and the copilot answers in
+ * advisor mode); investors get the personal-portfolio workflows. Matches how the
+ * chat's suggested chips already differ by role (workspace_type === "ADVISORY").
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 type Workflow = { title: string; prompt: string };
 
-const WORKFLOWS: Workflow[] = [
-  { title: "Portfolio health review", prompt: "What's the one thing I should fix first?" },
-  { title: "Fund deep-dive", prompt: "Is HDFC Flexi Cap still worth holding?" },
-  { title: "Where to invest new money", prompt: "Where should I put ₹2L this month?" },
-  { title: "Should I sell?", prompt: "Should I exit my IT sector fund?" },
-  { title: "Tax-loss harvesting", prompt: "Cut my tax before March 31." },
-  { title: "Goal on track?", prompt: "Am I on track to retire at 55 with ₹5Cr?" },
-  { title: "Rebalance my mix", prompt: "Bring me back to a moderate allocation." },
-  { title: "Too many funds?", prompt: "I hold 14 funds — is that too many?" },
-  { title: "Optimize my SIPs", prompt: "Are my monthly SIPs set up right?" },
-  { title: "What moved today", prompt: "What happened to my portfolio today?" },
-];
+type Script = {
+  welcome: ReactNode;
+  how: ReactNode;
+  pick: string;
+  workflows: Workflow[];
+  intents: Workflow[];
+};
 
-const INTENTS: Workflow[] = [
-  { title: "Grow wealth", prompt: "How can I grow my wealth faster?" },
-  { title: "Reduce risk", prompt: "How can I reduce the risk in my portfolio?" },
-  { title: "Save tax", prompt: "How can I save tax on my investments?" },
-  { title: "Retire early", prompt: "Am I on track to retire early?" },
-];
+const INVESTOR: Script = {
+  welcome: (
+    <>
+      I read your entire portfolio and tell you the <span className="text-accent">one thing to fix first</span>.
+      Want a quick tour of what I can do?
+    </>
+  ),
+  how: (
+    <>
+      Here's how I work: I <span className="text-accent">ground every answer</span> in your live NIDP data, let
+      specialist agents reason over it (health, quality, tax, risk…), boil it down to one plain-language verdict,
+      rank the fixes by ₹ impact, and never act without your approval.
+    </>
+  ),
+  pick: "Pick any job and I'll run it on your real portfolio right now:",
+  workflows: [
+    { title: "Portfolio health review", prompt: "What's the one thing I should fix first?" },
+    { title: "Fund deep-dive", prompt: "Is HDFC Flexi Cap still worth holding?" },
+    { title: "Where to invest new money", prompt: "Where should I put ₹2L this month?" },
+    { title: "Should I sell?", prompt: "Should I exit my IT sector fund?" },
+    { title: "Tax-loss harvesting", prompt: "Cut my tax before March 31." },
+    { title: "Goal on track?", prompt: "Am I on track to retire at 55 with ₹5Cr?" },
+    { title: "Rebalance my mix", prompt: "Bring me back to a moderate allocation." },
+    { title: "Too many funds?", prompt: "I hold 14 funds — is that too many?" },
+    { title: "Optimize my SIPs", prompt: "Are my monthly SIPs set up right?" },
+    { title: "What moved today", prompt: "What happened to my portfolio today?" },
+  ],
+  intents: [
+    { title: "Grow wealth", prompt: "How can I grow my wealth faster?" },
+    { title: "Reduce risk", prompt: "How can I reduce the risk in my portfolio?" },
+    { title: "Save tax", prompt: "How can I save tax on my investments?" },
+    { title: "Retire early", prompt: "Am I on track to retire early?" },
+  ],
+};
+
+const ADVISOR: Script = {
+  welcome: (
+    <>
+      I read your entire <span className="text-accent">client book</span> and tell you who to call first.
+      Want a quick tour of what I can do?
+    </>
+  ),
+  how: (
+    <>
+      Here's how I work: I <span className="text-accent">ground every answer</span> in your clients' live NIDP data,
+      let specialist agents reason over each book (churn, tax, reviews, drift…), rank by AUM at risk and ₹ opportunity,
+      and never act without your approval.
+    </>
+  ),
+  pick: "Pick any job and I'll run it across your book right now:",
+  workflows: [
+    { title: "AUM & book health", prompt: "How's my book doing this quarter?" },
+    { title: "At-risk & churn", prompt: "Which clients might leave?" },
+    { title: "Reviews due", prompt: "Who's overdue for a portfolio review?" },
+    { title: "Harvest across the book", prompt: "Any tax savings for my clients this FY?" },
+    { title: "Idle cash to deploy", prompt: "Which clients are sitting on cash?" },
+    { title: "Off-mandate clients", prompt: "Who's drifted from their mandate?" },
+    { title: "SIP step-ups", prompt: "Who can step up their SIP?" },
+    { title: "Onboarding stuck", prompt: "Any new clients stuck in onboarding?" },
+    { title: "Suitability & disclosures", prompt: "Anything I need to flag for compliance?" },
+  ],
+  intents: [],
+};
 
 const Mark = () => (
   <span className="grid place-items-center h-9 w-9 rounded-md bg-ink text-on-accent font-display text-base leading-none shrink-0">
@@ -38,7 +94,7 @@ const Mark = () => (
   </span>
 );
 
-function Bubble({ children }: { children: React.ReactNode }) {
+function Bubble({ children }: { children: ReactNode }) {
   return (
     <div className="flex gap-3.5">
       <Mark />
@@ -55,16 +111,20 @@ const primaryChipCls =
 export default function CopilotOnboarding({
   onLaunch,
   onDismiss,
+  isAdvisor = false,
 }: {
   onLaunch: (prompt: string) => void;
   onDismiss: () => void;
+  isAdvisor?: boolean;
 }) {
   // 0 = welcome, 1 = how I think, 2 = pick a job
   const [step, setStep] = useState(0);
+  const c = isAdvisor ? ADVISOR : INVESTOR;
 
   return (
     <div
       data-testid="copilot-onboarding"
+      data-role={isAdvisor ? "advisor" : "investor"}
       className="mt-6 rounded-2xl border border-hairline bg-surface-1 p-5 sm:p-6 flex flex-col gap-5"
     >
       <div className="flex items-center justify-between">
@@ -79,10 +139,7 @@ export default function CopilotOnboarding({
       </div>
 
       {/* Step 0 — welcome */}
-      <Bubble>
-        I read your entire portfolio and tell you the <span className="text-accent">one thing to fix first</span>.
-        Want a quick tour of what I can do?
-      </Bubble>
+      <Bubble>{c.welcome}</Bubble>
       {step === 0 && (
         <div className="flex flex-wrap gap-2 pl-[50px]">
           <button data-testid="onb-start" onClick={() => setStep(1)} className={primaryChipCls}>
@@ -95,13 +152,7 @@ export default function CopilotOnboarding({
       )}
 
       {/* Step 1 — how I think */}
-      {step >= 1 && (
-        <Bubble>
-          Here's how I work: I <span className="text-accent">ground every answer</span> in your live NIDP data, let
-          specialist agents reason over it (health, quality, tax, risk…), boil it down to one plain-language verdict,
-          rank the fixes by ₹ impact, and never act without your approval.
-        </Bubble>
-      )}
+      {step >= 1 && <Bubble>{c.how}</Bubble>}
       {step === 1 && (
         <div className="flex flex-wrap gap-2 pl-[50px]">
           <button data-testid="onb-next" onClick={() => setStep(2)} className={primaryChipCls}>
@@ -113,28 +164,34 @@ export default function CopilotOnboarding({
       {/* Step 2 — pick a job → hand off to the real copilot */}
       {step >= 2 && (
         <>
-          <Bubble>Pick any job and I'll run it on your real portfolio right now:</Bubble>
+          <Bubble>{c.pick}</Bubble>
           <div className="pl-[50px] flex flex-col gap-3">
             <div className="flex flex-wrap gap-2">
-              {WORKFLOWS.map((w) => (
+              {c.workflows.map((w) => (
                 <button key={w.title} onClick={() => onLaunch(w.prompt)} title={w.prompt} className={chipCls}>
                   {w.title}
                 </button>
               ))}
             </div>
-            <div className="font-mono text-[10.5px] uppercase tracking-[.18em] text-ink-3 mt-1">Or start from a goal</div>
-            <div className="flex flex-wrap gap-2">
-              {INTENTS.map((it) => (
-                <button
-                  key={it.title}
-                  onClick={() => onLaunch(it.prompt)}
-                  title={it.prompt}
-                  className={cn(chipCls, "border-dashed")}
-                >
-                  {it.title}
-                </button>
-              ))}
-            </div>
+            {c.intents.length > 0 && (
+              <>
+                <div className="font-mono text-[10.5px] uppercase tracking-[.18em] text-ink-3 mt-1">
+                  Or start from a goal
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {c.intents.map((it) => (
+                    <button
+                      key={it.title}
+                      onClick={() => onLaunch(it.prompt)}
+                      title={it.prompt}
+                      className={cn(chipCls, "border-dashed")}
+                    >
+                      {it.title}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </>
       )}
