@@ -54,6 +54,10 @@ Style:
 
 
 async def _fetch_portfolio_data(state: CopilotState) -> list:
+    # `results` lives OUTSIDE the try so a tool that throws mid-way doesn't
+    # discard what already succeeded (e.g. summary + XIRR). One failing tool
+    # must not turn the whole answer into a "couldn't retrieve" fallback.
+    results: list = []
     try:
         import importlib
         port_mod = importlib.import_module("services.copilot_tools.portfolio")
@@ -61,8 +65,6 @@ async def _fetch_portfolio_data(state: CopilotState) -> list:
         user_id = state.user_id
         intent = state.intent
         scenario = (intent.scenario if intent and intent.scenario else "covid_2020")
-
-        results = []
 
         # always fetch summary + XIRR
         summary = await port_mod.get_portfolio_summary(user_id)
@@ -213,7 +215,11 @@ async def _fetch_portfolio_data(state: CopilotState) -> list:
 
         return results
     except Exception as exc:
-        logger.warning("portfolio data fetch failed: %s", exc)
+        logger.warning("portfolio data fetch failed after %d tool(s): %s", len(results), exc)
+        # Preserve whatever succeeded (summary/XIRR/…) so the copilot answers
+        # from partial data instead of the blunt "couldn't retrieve" fallback.
+        if results:
+            return results
         return [ToolResult(ok=False, tool_name="portfolio_tools", summary="Portfolio data unavailable", error=str(exc))]
 
 

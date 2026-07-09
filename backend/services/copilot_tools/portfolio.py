@@ -273,6 +273,70 @@ async def get_portfolio_summary(user_id: str) -> PortfolioResult:
     )
 
 
+# ── Portfolio health score + top recommendations ──────────────────────────
+# Called by the copilot portfolio node (nodes/portfolio.py). They were absent
+# from this module, so `port_mod.get_portfolio_health_score` /
+# `get_top_recommendations` raised AttributeError — which the node's coarse
+# except turned into "I couldn't retrieve the data needed…" for "What's my
+# portfolio health?" and "What's the one thing I should fix first?".
+async def get_portfolio_health_score(user_id: str) -> PortfolioResult:
+    """The SAME Portfolio Health score the overview/dashboard shows
+    (services.portfolio_health.build_portfolio_health) — score, grade, the four
+    component scores, and the top risk drivers. Use for "What is my portfolio
+    health score?" so the chat matches the number on screen."""
+    try:
+        from services.portfolio_health import build_portfolio_health
+        hr = await build_portfolio_health(user_id)
+        # Post-processing lives INSIDE the try so a None result or a shape change
+        # (e.g. hr.to_dict() failing) returns ok=False instead of throwing — an
+        # uncaught throw here would nuke the whole copilot answer (see the node's
+        # _fetch_portfolio_data, which preserves other tools' results too).
+        d = hr.to_dict()
+        drivers = d.get("risk_drivers") or []
+        driver_str = "; ".join(
+            str(dr.get("label") or dr.get("detail") or dr.get("component") or "") for dr in drivers[:3]
+        )
+        summary = d.get("summary") or f"Health {d.get('health_score')}/100 (Grade {d.get('grade')})."
+        if driver_str:
+            summary += f" Biggest fixes: {driver_str}."
+        if d.get("low_confidence"):
+            summary += " [some inputs are low-confidence]"
+        return PortfolioResult(ok=True, summary=summary, data=d, rows=drivers)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("health score unavailable user=%s err=%s", user_id, exc)
+        return PortfolioResult(ok=False, summary="Portfolio health score unavailable", error=str(exc))
+
+
+async def get_top_recommendations(user_id: str, limit: int = 6) -> PortfolioResult:
+    """The portfolio's top prioritised recommendations — the SAME ordered insight
+    list that powers the overview's Top-Actions card
+    (services.dashboard_recommendations.build_dashboard_recommendations). Use for
+    "What should I fix first?" / "Give me the top recommendations." so the chat
+    matches the dashboard."""
+    try:
+        from services.dashboard_recommendations import build_dashboard_recommendations
+        insights = await build_dashboard_recommendations(user_id)
+        # Post-processing lives INSIDE the try so a shape change in an insight
+        # (e.g. a non-float amount_rs) returns ok=False instead of throwing — an
+        # uncaught throw here would nuke the whole copilot answer.
+        if not insights:
+            return PortfolioResult(ok=True, summary="No outstanding recommendations — the portfolio looks aligned.", rows=[])
+        top = insights[:limit]
+        lines = []
+        for i, ins in enumerate(top, 1):
+            amt = ins.get("amount_rs")
+            amt_s = f" (~₹{float(amt):,.0f})" if amt else ""
+            lines.append(
+                f"{i}. [{ins.get('impact', '')}|{ins.get('kind', '')}] "
+                f"{ins.get('title', '')} → {ins.get('action', '')}{amt_s}"
+            )
+        summary = f"Top {len(top)} recommendations, ranked by impact: " + " | ".join(lines)
+        return PortfolioResult(ok=True, summary=summary, data={"total_count": len(insights)}, rows=top)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("top recommendations unavailable user=%s err=%s", user_id, exc)
+        return PortfolioResult(ok=False, summary="Top recommendations unavailable", error=str(exc))
+
+
 # ── Portfolio overlap ─────────────────────────────────────────────────────
 
 async def get_portfolio_overlap(user_id: str) -> PortfolioResult:
