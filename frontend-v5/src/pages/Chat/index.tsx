@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter, Sparkles, Wand2, FlaskConical } from "lucide-react";
 import { cn } from "@/lib/utils";
-import CopilotOnboarding from "./CopilotOnboarding";
+import CopilotWorkflows from "./CopilotWorkflows";
 import { useMe } from "@/hooks/use-auth";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -133,9 +133,7 @@ export default function ChatPage() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [analyseOpen, setAnalyseOpen] = useState(false);
   const [backtestOpen, setBacktestOpen] = useState(false);
-  // In-chat guided onboarding — greets a fresh user, hands off to a real answer.
-  // Role-aware: advisors get the client-book tour (matches the copilot's mode).
-  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  // Persona for the workflow landing (investor portfolio vs advisor book).
   const me = useMe();
   const isAdvisor = (me.data?.workspaceType || "").toUpperCase() === "ADVISORY";
   const [activeIdx, setActiveIdx] = useState(-1);
@@ -454,15 +452,6 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // First visit: greet the user with the guided tour (once). Skip if they
-  // arrived via a deep-link (?q=/?seed=) or already have a conversation.
-  useEffect(() => {
-    if (localStorage.getItem("nv-copilot-onboarding-seen")) return;
-    if (searchParams.get("q") || searchParams.get("seed")) return;
-    if (sessionId || messages.length > 0) return;
-    setOnboardingOpen(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Widget action chips → drive a follow-up. Some send immediately; "recalc"
   // prefills the composer so the user can type their real SIP amount.
@@ -622,27 +611,14 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {messages.length === 0 && onboardingOpen && (
-          <CopilotOnboarding
-            isAdvisor={isAdvisor}
-            onLaunch={(q) => { localStorage.setItem("nv-copilot-onboarding-seen", "1"); setOnboardingOpen(false); void submitMessage(q); }}
-            onDismiss={() => { localStorage.setItem("nv-copilot-onboarding-seen", "1"); setOnboardingOpen(false); }}
-          />
+        {messages.length === 0 && (
+          <CopilotWorkflows isAdvisor={isAdvisor} onLaunch={(q) => void submitMessage(q)} />
         )}
 
         <div className="mt-6">
           {/* My Portfolio Insights — explicit, icon-led research entry points */}
           <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">My Portfolio Insights</div>
           <div className="flex flex-wrap gap-2 mt-3">
-            <button
-              data-testid="onb-launcher"
-              onClick={() => setOnboardingOpen(true)}
-              disabled={isBusy}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 disabled:opacity-50 transition-colors"
-              title="Take the guided tour — see what the copilot can do"
-            >
-              <Sparkles className="h-3.5 w-3.5 text-accent" /> Take the tour
-            </button>
             <button
               onClick={() => setAnalyseOpen((v) => !v)}
               disabled={isBusy}
