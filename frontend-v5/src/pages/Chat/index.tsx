@@ -28,7 +28,7 @@ import { useQuerySuggestions, type QuerySuggestion } from "@/hooks/use-query-sug
 // typed-out slice the user sees (see useTypewriterReveal).
 type StreamState = { buffer: string; content: string; thinking?: string; widget?: { widget_type: string; data: unknown }; error?: string };
 
-const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "instrument_detail", "mf_detail", "market_detail", "risk_assessment", "goal_simulation", "stock_screener", "portfolio_builder", "capital_gains", "goal_basket", "backtest_comparison"]);
+const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "instrument_detail", "mf_detail", "market_detail", "risk_assessment", "goal_simulation", "stock_screener", "portfolio_builder", "strategy_lab", "capital_gains", "goal_basket", "backtest_comparison"]);
 
 const FALLBACK_PROMPTS = [
   "Why is my score 74?",

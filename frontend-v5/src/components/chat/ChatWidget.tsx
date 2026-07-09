@@ -11,7 +11,7 @@ import { Fragment, useState } from "react";
 import { cn } from "@/lib/utils";
 import { TypedText } from "@/components/chat/TypedHeadline";
 import { PortfolioBuilderWidget } from "@/components/chat/PortfolioBuilderWidget";
-import { StrategyLabWidget } from "@/components/chat/StrategyLabWidget";
+import StrategyBuilderPage from "@/pages/StrategyBuilder";
 import { createStrategyFromScreen } from "@/services/strategyBuilder";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
@@ -2952,7 +2952,7 @@ export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: stri
       case "goal_simulation":    return <GoalSimulationWidget data={widget.data} onAction={onAction} />;
       case "stock_screener":     return <StockScreenerWidget data={widget.data} onAction={onAction} />;
       case "portfolio_builder":  return <PortfolioBuilderWidget data={widget.data} onAction={onAction} />;
-      case "strategy_lab":       return <StrategyLabWidget data={widget.data} onAction={onAction} />;
+      case "strategy_lab":       return <StrategyBuilderPage />;
       case "backtest_comparison": return <BacktestComparisonWidget data={widget.data} />;
       case "capital_gains":      return <CapitalGainsWidget data={widget.data} onAction={onAction} />;
       case "goal_basket":        return <GoalBasketWidget data={widget.data} onAction={onAction} />;
