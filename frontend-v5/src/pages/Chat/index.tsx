@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter, Sparkles, Wand2 } from "lucide-react";
+import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter, Sparkles, Wand2, FlaskConical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CopilotOnboarding from "./CopilotOnboarding";
 import { useQueryClient } from "@tanstack/react-query";
@@ -674,6 +674,15 @@ export default function ChatPage() {
               title="Build a portfolio — goal, risk profile and a ranked mix on live V3 scores"
             >
               <Wand2 className="h-3.5 w-3.5 text-accent" /> Build a portfolio
+            </button>
+            <button
+              onClick={() => void submitMessage("build a strategy")}
+              disabled={isBusy}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-1 border border-hairline-2 text-[12.5px] text-ink hover:bg-surface-2 disabled:opacity-50 transition-colors"
+              title="Strategy Builder — build, screen and backtest an equity strategy in chat"
+              data-testid="tool-strategy-builder"
+            >
+              <FlaskConical className="h-3.5 w-3.5 text-accent" /> Strategy Builder
             </button>
             <button
               onClick={() => setBacktestOpen((v) => !v)}
