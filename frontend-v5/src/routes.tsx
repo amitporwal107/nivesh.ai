@@ -80,6 +80,11 @@ export function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/onboarding" element={<OnboardingPage />} />
 
+      {/* Learning Centre — standalone + self-gated: app-logged-in users pass straight
+          in; others get an in-page Google sign-in. NOT under RequireAuth (avoids the
+          app auth gate + its redirect loop). */}
+      <Route path="/learn" element={<RouteErrorBoundary pageName="Learn"><LearnPage /></RouteErrorBoundary>} />
+
       {/* CAS Connect widget OAuth popup callback — standalone, no layout */}
       <Route path="/cas-callback" element={<CasCallbackPage />} />
 
@@ -129,7 +134,6 @@ export function AppRoutes() {
         <Route path="/settings/releases/:id" element={<RequireAdmin><RouteErrorBoundary pageName="Release Document"><ReleaseDetailPage /></RouteErrorBoundary></RequireAdmin>} />
         <Route path="/pro-trader"       element={<RouteErrorBoundary pageName="Pro Trader"><ProTraderPage /></RouteErrorBoundary>} />
         <Route path="/strategy-builder" element={<RouteErrorBoundary pageName="Strategy Builder"><StrategyBuilderPage /></RouteErrorBoundary>} />
-        <Route path="/learn"            element={<RouteErrorBoundary pageName="Learn"><LearnPage /></RouteErrorBoundary>} />
         {/* Admin-only routes — RequireAdmin redirects non-admins to /dashboard */}
         <Route path="/admin"            element={<RequireAdmin><RouteErrorBoundary pageName="Admin"><AdminPage /></RouteErrorBoundary></RequireAdmin>} />
         <Route path="/nidp"             element={<RequireAdmin><RouteErrorBoundary pageName="NIDP Console"><NidpConsolePage /></RouteErrorBoundary></RequireAdmin>} />

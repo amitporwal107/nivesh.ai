@@ -1,11 +1,15 @@
-// Nivesh Learn — Learning Centre.
-// A route behind RequireAuth (forces sign-up/login), so the learner is the real
-// Nivesh account from useMe(); progress is stored per account. Views: home
-// dashboard -> course -> lesson (Core / personalized Hook / pass-to-progress Quiz).
-// Content + logic ported from the verified prototype; styled with app tokens.
-import { useEffect, useMemo, useState } from "react";
-import { GraduationCap, ArrowRight, RotateCcw, Check, X, Lock, ChevronRight, Volume2, Square } from "lucide-react";
-import { useMe } from "@/hooks/use-auth";
+// Nivesh Learn — Learning Centre (standalone, self-gated).
+// /learn is NOT under the app RequireAuth. App-logged-in users pass straight in;
+// everyone else gets an in-page Google (Gmail) sign-in that lands them right here
+// (no portfolio onboarding). Progress is saved per account. After a lesson,
+// learners without a full app profile are nudged to explore the Nivesh app.
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { GraduationCap, ArrowRight, RotateCcw, Check, X, Lock, ChevronRight, Volume2, Square, Sparkles, ExternalLink } from "lucide-react";
+import { useMe, useGoogleSignIn } from "@/hooks/use-auth";
+import { useGoogleIdentity } from "@/hooks/use-google-identity";
+import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
+import type { User } from "@/types/user";
 import { safeGet, safeSet } from "@/lib/safe-storage";
 import { cn } from "@/lib/utils";
 import { COURSES, DEMO, type LearnCourse, type LearnLesson } from "./courses";
@@ -84,10 +88,11 @@ function Hook({ text }: { text: string }) {
 }
 
 const card = "rounded-md bg-surface-1 border border-hairline";
+const initials = (name: string) => (name || "?").trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
-export default function LearnPage() {
-  const { data: me } = useMe();
-  const uid = String(me?.id ?? me?.email ?? "anon");
+function LearnApp({ me }: { me: User }) {
+  const navigate = useNavigate();
+  const uid = String(me.id);
 
   const [prog, setProg] = useState<LearnProgress>(() => loadProgress(uid));
   const [freeExplore, setFreeExplore] = useState<boolean>(() => safeGet<boolean>("nivesh_learn_explore") ?? false);
@@ -400,6 +405,17 @@ export default function LearnPage() {
           </div>
         </Block>
 
+        {passed && !me.onboardingCompleted && (
+          <div data-testid="explore-app" className="mt-6 p-4 rounded-md border border-accent/25 bg-accent/5 flex items-center gap-3 flex-wrap">
+            <Sparkles className="h-5 w-5 text-accent shrink-0" />
+            <div className="flex-1 min-w-[200px]">
+              <b className="text-[14.5px]">Ready to see this on your own money?</b>
+              <div className="text-[13px] text-ink-2">Connect your portfolio in the Nivesh app for personalized, plain-language insights.</div>
+            </div>
+            <button onClick={() => navigate("/dashboard")} className="inline-flex items-center gap-1.5 rounded-md bg-accent text-on-accent px-4 py-2 text-[13.5px] font-semibold hover:opacity-90">Explore the Nivesh app <ArrowRight className="h-4 w-4" /></button>
+          </div>
+        )}
+
         <div className="flex justify-between gap-3 mt-8 pt-5 border-t border-hairline">
           {prev ? <button onClick={() => goLesson(c.n, prev.id)} className="inline-flex items-center gap-1.5 rounded-md border border-hairline-2 px-3 py-1.5 text-[13px] font-semibold hover:bg-surface-2">← {prev.id}</button> : <span />}
           {next ? <button onClick={() => goLesson(c.n, next.id)} className="inline-flex items-center gap-1.5 rounded-md border border-hairline-2 px-3 py-1.5 text-[13px] font-semibold hover:bg-surface-2">{next.id} →</button>
@@ -414,10 +430,13 @@ export default function LearnPage() {
   }
 
   return (
-    <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1100px] mx-auto w-full">
-      {view.v === "home" && <Home />}
-      {view.v === "course" && view.c != null && <CourseView n={view.c} />}
-      {view.v === "lesson" && view.c != null && view.l != null && <LessonView n={view.c} id={view.l} />}
+    <div className="nv-frame" style={{ minHeight: "100vh" }}>
+      <LearnHeader me={me} onHome={goHome} />
+      <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1100px] mx-auto w-full">
+        {view.v === "home" && <Home />}
+        {view.v === "course" && view.c != null && <CourseView n={view.c} />}
+        {view.v === "lesson" && view.c != null && view.l != null && <LessonView n={view.c} id={view.l} />}
+      </div>
     </div>
   );
 }
@@ -458,4 +477,66 @@ function Block({ tag, tone, hint, children }: { tag: string; tone: keyof typeof 
       {children}
     </div>
   );
+}
+
+/* ---- standalone Learn chrome + self-gate ---- */
+function LearnHeader({ me, onHome }: { me: User; onHome: () => void }) {
+  const navigate = useNavigate();
+  return (
+    <header className="sticky top-0 z-30 border-b border-hairline backdrop-blur bg-bg/80">
+      <div className="max-w-[1100px] mx-auto px-6 lg:px-10 h-[60px] flex items-center gap-3">
+        <button onClick={onHome} className="flex items-center gap-2.5" aria-label="Nivesh Learn home">
+          <span className="nv-mark" style={{ width: 30, height: 30, fontSize: 17 }}>न</span>
+          <span className="font-display text-[20px] tracking-tightish">Nivesh <span className="italic text-ink-2">Learn</span></span>
+        </button>
+        <span className="flex-1" />
+        <button onClick={() => navigate("/dashboard")} className="hidden sm:inline-flex items-center gap-1.5 text-[13px] font-semibold text-ink-2 hover:text-accent">
+          Open Nivesh app <ExternalLink className="h-3.5 w-3.5" />
+        </button>
+        <span className="w-8 h-8 rounded-full grid place-items-center bg-accent/10 text-accent text-[12px] font-bold font-mono" title={me.name}>{initials(me.name)}</span>
+      </div>
+    </header>
+  );
+}
+
+function LearnAuthScreen() {
+  const google = useGoogleSignIn();
+  const btnRef = useRef<HTMLDivElement>(null);
+  const gis = useGoogleIdentity(async (cred) => { try { await google.mutateAsync(cred); } catch { /* toast handles the error globally */ } });
+  useEffect(() => { if (gis.ready && btnRef.current) gis.renderButton(btnRef.current); }, [gis.ready, gis.renderButton]);
+  return (
+    <div className="nv-frame" style={{ minHeight: "100vh" }}>
+      <div className="max-w-[460px] mx-auto px-6 py-16 sm:py-24 text-center">
+        <div className="flex justify-center"><span className="nv-mark" style={{ width: 40, height: 40, fontSize: 22 }}>न</span></div>
+        <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3 mt-6">Nivesh Learn</div>
+        <h1 className="font-display text-[clamp(30px,6vw,44px)] tracking-tightish leading-[1.05] mt-2">Learn to invest — <em className="italic text-accent">free</em>.</h1>
+        <p className="text-[15.5px] text-ink-2 mt-4 leading-relaxed">8 courses, 68 plain-language lessons — SIPs, LTCG, ELSS and all. Sign in with your Gmail to start and save your progress. No portfolio needed.</p>
+        <div className="mt-8 flex flex-col items-center gap-3">
+          <div ref={btnRef} data-testid="learn-google" className="flex justify-center min-h-[44px]" />
+          {!gis.ready && !gis.loadError && <div className="h-11 w-[280px] rounded-md bg-surface-2 animate-pulse" />}
+          {gis.loadError && <div className="font-mono text-[11px] text-neg">Google sign-in failed to load. Check your browser's popup/cookie settings.</div>}
+          {google.isPending && <div className="font-mono text-[12px] text-ink-3">Signing in…</div>}
+        </div>
+        <div className="flex flex-wrap justify-center gap-x-5 gap-y-2 mt-8 text-[12px] text-ink-3">
+          {["Education, not advice", "Saves your progress", "No card needed"].map((t) => (
+            <span key={t} className="inline-flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-accent" />{t}</span>
+          ))}
+        </div>
+        <p className="text-[12px] text-ink-4 mt-8">Already use the Nivesh app? Signing in here uses the same account and takes you straight in.</p>
+      </div>
+    </div>
+  );
+}
+
+export default function LearnPage() {
+  const meQ = useMe();
+  if (meQ.isPending) {
+    return (
+      <div className="nv-frame" style={{ minHeight: "100vh" }}>
+        <div className="max-w-[1100px] mx-auto px-6 py-16"><LoadingSkeleton variant="dashboard" /></div>
+      </div>
+    );
+  }
+  if (!meQ.data) return <LearnAuthScreen />;   // not logged in → in-page Gmail sign-in
+  return <LearnApp me={meQ.data} />;           // app account (or just-signed-in) → straight into Learn
 }
