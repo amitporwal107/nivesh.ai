@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Sparkles, MessageSquare, Shield,
   Layers, TrendingUp, Target, Receipt, ClipboardList,
   ShieldCheck, Server, BarChart2, Bug, LineChart, Users, Contact,
-  FlaskConical,
+  FlaskConical, GraduationCap,
 } from "lucide-react";
 
 /**
@@ -37,6 +37,7 @@ export const SECTION_NAV: NavItem[] = [
   { to: "/recommendations", label: "Recommendations", icon: Sparkles,        group: "Workspace"  },
   { to: "/pro-trader",      label: "Pro Trader",      icon: BarChart2,       group: "Workspace"  },
   { to: "/strategy-builder", label: "Strategy Builder", icon: FlaskConical,  group: "Workspace"  },
+  { to: "/learn",           label: "Learn",           icon: GraduationCap,   group: "Workspace"  },
 ];
 
 /** Reduced nav for an advisor at the workspace root (NOT impersonating a
@@ -48,6 +49,7 @@ export const ADVISOR_NAV: NavItem[] = [
   { to: "/client-360",  label: "Client 360",       icon: Contact,       group: "Workspace"  },
   { to: "/plan",        label: "Plan board",       icon: ClipboardList, group: "Workspace"  },
   { to: "/chat",        label: "Chat copilot",     icon: MessageSquare, group: "Workspace"  },
+  { to: "/learn",       label: "Learn",            icon: GraduationCap, group: "Workspace"  },
 ];
 
 /** Pick the primary nav for the current user. An advisor at their workspace

@@ -42,6 +42,7 @@ import TestDiagnosticToolPage from "./pages/TestDiagnosticTool";
 import NidpConsolePage from "./pages/NidpConsole";
 import ProTraderPage from "./pages/ProTrader";
 import StrategyBuilderPage from "./pages/StrategyBuilder";
+import LearnPage from "./pages/Learn";
 import MarketsPage from "./pages/Markets";
 import MarketPulseLayout from "./pages/Markets/MarketPulseLayout";
 import EarningsPage from "./pages/Markets/Earnings";
@@ -78,6 +79,11 @@ export function AppRoutes() {
       {/* Auth screens — full-bleed */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/onboarding" element={<OnboardingPage />} />
+
+      {/* Learning Centre — standalone + self-gated: app-logged-in users pass straight
+          in; others get an in-page Google sign-in. NOT under RequireAuth (avoids the
+          app auth gate + its redirect loop). */}
+      <Route path="/learn" element={<RouteErrorBoundary pageName="Learn"><LearnPage /></RouteErrorBoundary>} />
 
       {/* CAS Connect widget OAuth popup callback — standalone, no layout */}
       <Route path="/cas-callback" element={<CasCallbackPage />} />
