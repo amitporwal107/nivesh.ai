@@ -101,6 +101,12 @@ interface CompanyRoute {
   routes: string[];
 }
 
+interface SharedStock {
+  name: string;
+  w_a: number | null;
+  w_b: number | null;
+}
+
 interface FundPair {
   fundA: string;
   fundB: string;
@@ -108,6 +114,7 @@ interface FundPair {
   type: "duplicate_plan" | "redundant" | "related" | "diversifying";
   annualSavingRs?: number;
   cluster?: string;
+  topShared?: SharedStock[];   // the specific stocks both funds hold (holdings-level "why")
 }
 
 interface AnalyticsData {
@@ -615,6 +622,31 @@ function LensPanel({ lens }: { lens: LensData }) {
 
 // ─── Overlap panel ────────────────────────────────────────────────────────────
 
+// The specific stocks two funds both hold — the holdings-level "why" behind an
+// overlap %, mirroring the copilot chat's overlap chips. Rendered under the
+// redundancy-judgment pairs so the call is backed by names + numbers.
+function SharedChips({ shared }: { shared?: SharedStock[] }) {
+  if (!shared?.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <span className="text-[11px] text-ink-3">Both hold:</span>
+      {shared.map((s, k) => (
+        <span
+          key={k}
+          className="inline-flex items-baseline gap-1 rounded-md bg-surface-2 border border-[rgb(var(--line)/0.10)] px-1.5 py-0.5 text-[11.5px]"
+        >
+          {s.name}
+          {(s.w_a != null || s.w_b != null) && (
+            <span className="text-ink-3 text-[10.5px]">
+              {s.w_a != null ? s.w_a : "—"}/{s.w_b != null ? s.w_b : "—"}%
+            </span>
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function OverlapPanel({ data }: { data: AnalyticsData["overlap"] }) {
   const navigate = useNavigate();
   const [expandedCluster, setExpandedCluster] = useState<string | null>("Large-cap cluster");
@@ -747,23 +779,23 @@ function OverlapPanel({ data }: { data: AnalyticsData["overlap"] }) {
                 </p>
                 <ul className="divide-y divide-[rgb(var(--line)/0.08)]">
                   {pairs.map((p) => (
-                    <li
-                      key={p.fundA + p.fundB}
-                      className="grid grid-cols-[1fr_1fr_80px_72px] items-center gap-3 py-3"
-                    >
-                      <span className="text-[13px] font-medium truncate">{p.fundA}</span>
-                      <span className="text-[13px] text-ink-2 truncate">
-                        ↔ {p.fundB}
-                      </span>
-                      <div className="relative h-1.5 rounded-full bg-surface-2 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-neg/55"
-                          style={{ width: `${p.overlapPct}%` }}
-                        />
+                    <li key={p.fundA + p.fundB} className="py-3">
+                      <div className="grid grid-cols-[1fr_1fr_80px_72px] items-center gap-3">
+                        <span className="text-[13px] font-medium truncate">{p.fundA}</span>
+                        <span className="text-[13px] text-ink-2 truncate">
+                          ↔ {p.fundB}
+                        </span>
+                        <div className="relative h-1.5 rounded-full bg-surface-2 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-neg/55"
+                            style={{ width: `${p.overlapPct}%` }}
+                          />
+                        </div>
+                        <span className="font-mono num text-[13px] text-neg text-right">
+                          {p.overlapPct}%
+                        </span>
                       </div>
-                      <span className="font-mono num text-[13px] text-neg text-right">
-                        {p.overlapPct}%
-                      </span>
+                      <SharedChips shared={p.topShared} />
                     </li>
                   ))}
                 </ul>
@@ -782,30 +814,30 @@ function OverlapPanel({ data }: { data: AnalyticsData["overlap"] }) {
           <CardLabel className="mb-4">Other fund pairs</CardLabel>
           <ul className="divide-y divide-[rgb(var(--line)/0.08)]">
             {others.map((p) => (
-              <li
-                key={p.fundA + p.fundB}
-                className="grid grid-cols-[1fr_1fr_80px_72px_90px] items-center gap-3 py-3"
-              >
-                <span className="text-[13px] font-medium truncate">{p.fundA}</span>
-                <span className="text-[13px] text-ink-2 truncate">↔ {p.fundB}</span>
-                <div className="relative h-1.5 rounded-full bg-surface-2 overflow-hidden">
-                  <div
-                    className={cn(
-                      "h-full rounded-full",
-                      p.type === "related" ? "bg-warm/55" : "bg-accent/45",
-                    )}
-                    style={{ width: `${p.overlapPct}%` }}
-                  />
+              <li key={p.fundA + p.fundB} className="py-3">
+                <div className="grid grid-cols-[1fr_1fr_80px_72px_90px] items-center gap-3">
+                  <span className="text-[13px] font-medium truncate">{p.fundA}</span>
+                  <span className="text-[13px] text-ink-2 truncate">↔ {p.fundB}</span>
+                  <div className="relative h-1.5 rounded-full bg-surface-2 overflow-hidden">
+                    <div
+                      className={cn(
+                        "h-full rounded-full",
+                        p.type === "related" ? "bg-warm/55" : "bg-accent/45",
+                      )}
+                      style={{ width: `${p.overlapPct}%` }}
+                    />
+                  </div>
+                  <span className="font-mono num text-[13px] text-right">{p.overlapPct}%</span>
+                  <div className="flex justify-end">
+                    <Badge
+                      tone={p.type === "related" ? "warm" : "good"}
+                      className="text-[10px] capitalize"
+                    >
+                      {p.type}
+                    </Badge>
+                  </div>
                 </div>
-                <span className="font-mono num text-[13px] text-right">{p.overlapPct}%</span>
-                <div className="flex justify-end">
-                  <Badge
-                    tone={p.type === "related" ? "warm" : "good"}
-                    className="text-[10px] capitalize"
-                  >
-                    {p.type}
-                  </Badge>
-                </div>
+                <SharedChips shared={p.topShared} />
               </li>
             ))}
           </ul>
@@ -1198,7 +1230,7 @@ function mapLens(
 }
 
 type RawConcentration = Record<string, unknown>;
-type RawOverlap = { pairs?: Array<{ a_name: string; b_name: string; overlap_pct: number }>; funds?: Array<unknown> } | null;
+type RawOverlap = { pairs?: Array<{ a_name: string; b_name: string; overlap_pct: number; shared_count?: number; top_shared?: SharedStock[] }>; funds?: Array<unknown> } | null;
 
 function buildAnalyticsData(conc: RawConcentration, overlapRaw: unknown): AnalyticsData {
   const lenses: LensData[] = [
@@ -1231,6 +1263,7 @@ function buildAnalyticsData(conc: RawConcentration, overlapRaw: unknown): Analyt
         : p.overlap_pct >= 65 ? "redundant"
         : p.overlap_pct >= 35 ? "related"
         : "diversifying",
+    topShared: p.top_shared ?? [],
   }));
 
   const headline1 = ladder[0];
