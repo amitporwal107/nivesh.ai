@@ -20,6 +20,7 @@ Admin:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -179,6 +180,133 @@ async def create_universe(request: Request, body: UniverseCreate):
             uid, body.name, body.description, body.asset_class, body.symbols,
         )
     return _serialise(row)
+
+
+# ── Universe catalog (curated public baskets + index presets + real metrics) ──
+# Index presets are static — the only refs the compiler's INDEX_REFS accepts. Public
+# sector / index-theme baskets are seeded by migration 117 (real membership from
+# nidp.sector_master / index_constituents). Per-universe 3M return = median
+# return_60d_pct of constituents; trend = 1M-vs-3M momentum. Both are real, populated
+# columns (verified on staging). No number is fabricated — a basket with no metric
+# shows null. Result cached per snapshot date (values change once/day).
+_INDEX_PRESETS = [
+    {"ref": "NIFTY50",  "name": "Nifty 50",  "description": "Largest 50 by free-float — most liquid."},
+    {"ref": "NIFTY100", "name": "Nifty 100", "description": "Top 100 by free-float market cap."},
+    {"ref": "NIFTY200", "name": "Nifty 200", "description": "Large + midcap breadth."},
+    {"ref": "NIFTY500", "name": "Nifty 500", "description": "Full breadth — small / mid / large."},
+]
+_CATALOG_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def _median(vals: List[Any]) -> Optional[float]:
+    v = sorted(float(x) for x in vals if isinstance(x, (int, float)))
+    if not v:
+        return None
+    n = len(v)
+    return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2.0
+
+
+def _trend_label(m20: Optional[float], m60: Optional[float]) -> tuple:
+    """Trend from acceleration of median 1M (return_20d_pct) vs 3M (return_60d_pct)
+    pace — both real, materialised, populated columns. Deliberately does NOT use
+    momentum_score (not a materialised column → would be null/fabricated)."""
+    if m20 is None or m60 is None:
+        return (None, None)
+    monthly_from_3m = m60 / 3.0
+    if m60 > 0 and m20 > monthly_from_3m:
+        return ("warming", "Accelerating")
+    if m20 < 0:
+        return ("cooling", "Cooling")
+    return ("steady", "Steady")
+
+
+def _catalog_probe_spec(universe: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "version": dsl_mod.DSL_VERSION, "asset_class": "STOCK", "name": "catalog",
+        "universe": universe,
+        "entry": {"all_of": [{"feature": "close", "op": ">=", "value": 0}]},
+        "exit": {"stoploss_pct": 8.0, "target_rr": 2.0, "max_hold_days": 20},
+        "ranking": {"by": "market_cap_cr", "limit": 100, "order": "desc"},
+        "rebalance": "daily",
+    }
+
+
+async def _universe_metrics(pool, universe: Dict[str, Any], asof) -> Dict[str, Any]:
+    """Real median 3M return + trend for one universe. Fresh provider per call —
+    a provider instance accumulates per-universe state, so it must not be shared."""
+    try:
+        provider = get_provider(pool)
+        spec = _catalog_probe_spec(universe)
+        await provider.prepare(spec, asof, asof)
+        rows = await provider.screen(spec, asof)
+        r60 = _median([r.get("return_60d_pct") for r in rows])
+        r20 = _median([r.get("return_20d_pct") for r in rows])
+        trend, label = _trend_label(r20, r60)
+        return {
+            "return_3m_pct": round(r60, 2) if r60 is not None else None,
+            "trend": trend, "trend_label": label, "sampled": len(rows),
+        }
+    except Exception as e:   # noqa: BLE001
+        logger.warning("catalog metrics failed for %s: %s", universe, e)
+        return {"return_3m_pct": None, "trend": None, "trend_label": None, "sampled": 0}
+
+
+@router.get("/universe-catalog")
+async def universe_catalog(request: Request):
+    """Curated universe catalog: index presets + public sector / index-theme baskets,
+    each with a REAL median 3M return (return_60d_pct) and a momentum trend."""
+    await get_current_user(request)
+    pool = await pg_client.get_pool()
+    provider = get_provider(pool)
+    asof = await provider.latest_date()
+    if asof is None:
+        raise HTTPException(status_code=503, detail="no feature snapshots available")
+    ckey = asof.isoformat()
+    if ckey in _CATALOG_CACHE:
+        return _CATALOG_CACHE[ckey]
+
+    catalog: List[Dict[str, Any]] = [
+        {"kind": "broad", "category": "Broad Market", "ref": p["ref"], "id": None,
+         "name": p["name"], "description": p["description"], "symbol_count": None,
+         "_universe": {"type": "index", "ref": p["ref"]}}
+        for p in _INDEX_PRESETS
+    ]
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            r"SELECT id, owner_id, name, description, symbols FROM user_universes "
+            r"WHERE is_public AND asset_class = 'STOCK' AND owner_id LIKE '\_\_system%' "
+            r"ORDER BY cardinality(symbols) DESC, name ASC"
+        )
+    for r in rows:
+        is_sector = str(r["owner_id"]).startswith("__system_sector")
+        catalog.append({
+            "kind": "sector" if is_sector else "index-theme",
+            "category": "Sector" if is_sector else "Index Theme",
+            "ref": None, "id": str(r["id"]), "name": r["name"],
+            "description": r["description"], "symbol_count": len(r["symbols"] or []),
+            "_universe": {"type": "custom", "ref": str(r["id"])},
+        })
+
+    # Bounded concurrency — each metric is a fresh DaaS fetch; don't stampede DaaS.
+    sem = asyncio.Semaphore(6)
+
+    async def _bounded(u):
+        async with sem:
+            return await _universe_metrics(pool, u, asof)
+
+    metrics = await asyncio.gather(*[_bounded(c["_universe"]) for c in catalog])
+    out: List[Dict[str, Any]] = []
+    for c, m in zip(catalog, metrics):
+        c.pop("_universe", None)
+        c["return_3m_pct"] = m["return_3m_pct"]
+        c["trend"] = m["trend"]
+        c["trend_label"] = m["trend_label"]
+        out.append(c)
+
+    result = {"as_of_date": ckey, "return_window": "3M", "count": len(out), "universes": out}
+    _CATALOG_CACHE[ckey] = result
+    return result
 
 
 # ── Strategies ──────────────────────────────────────────────────────

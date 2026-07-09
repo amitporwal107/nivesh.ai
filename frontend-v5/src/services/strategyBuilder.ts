@@ -89,6 +89,40 @@ export interface BacktestResult {
 
 export type UniverseRef = { type: "index" | "custom"; ref: string };
 
+/** A curated universe from GET /universe-catalog: an index preset, a sector basket,
+ *  or an index-theme basket, each with a REAL median 3M return + momentum trend
+ *  (null where no real metric exists — never a placeholder). */
+export interface CatalogUniverse {
+  kind: "broad" | "sector" | "index-theme";
+  category: string;                 // "Broad Market" | "Sector" | "Index Theme"
+  ref: string | null;               // set for broad → {type:"index", ref}
+  id: string | null;                // set for sector/index-theme → {type:"custom", ref:id}
+  name: string;
+  description?: string | null;
+  symbol_count?: number | null;
+  return_3m_pct?: number | null;
+  trend?: "warming" | "cooling" | "steady" | null;
+  trend_label?: string | null;
+}
+
+export interface UniverseCatalog {
+  as_of_date: string;
+  return_window: string;            // "3M" (or "1M" if a fallback field was used)
+  count: number;
+  universes: CatalogUniverse[];
+}
+
+/** Curated universe catalog (index presets + public sector/theme baskets) with
+ *  real returns + trends. First load computes ~20 medians server-side (cached
+ *  per day), so allow a generous timeout. */
+export async function listUniverseCatalog(): Promise<UniverseCatalog> {
+  const { data } = await http<UniverseCatalog>({
+    path: `${BASE}/universe-catalog`,
+    timeoutMs: 60_000,
+  });
+  return data;
+}
+
 export async function listTemplates(): Promise<TemplateItem[]> {
   const { data } = await http<{ templates?: TemplateItem[] } | TemplateItem[]>({
     path: `${BASE}/templates`,

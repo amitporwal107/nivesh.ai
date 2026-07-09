@@ -178,6 +178,7 @@ SELECT f.symbol,
        f.swing_low_20,
        f.accumulation_score,
        f.return_20d_pct,
+       f.return_60d_pct,
        sm.sector,
        sm.market_cap_cr
   FROM nidp.stock_features_daily f
