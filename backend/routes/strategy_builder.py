@@ -261,7 +261,16 @@ async def universe_catalog(request: Request):
     asof = await provider.latest_date()
     if asof is None:
         raise HTTPException(status_code=503, detail="no feature snapshots available")
-    ckey = asof.isoformat()
+    # Fetch the public system baskets first so the cache key can include their
+    # count — seeding new baskets (a migration) then invalidates the cache
+    # automatically instead of serving a stale pre-seed catalog for the rest of the day.
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            r"SELECT id, owner_id, name, description, symbols FROM user_universes "
+            r"WHERE is_public AND asset_class = 'STOCK' AND owner_id LIKE '\_\_system%' "
+            r"ORDER BY cardinality(symbols) DESC, name ASC"
+        )
+    ckey = f"{asof.isoformat()}:{len(rows)}"
     if ckey in _CATALOG_CACHE:
         return _CATALOG_CACHE[ckey]
 
@@ -271,13 +280,6 @@ async def universe_catalog(request: Request):
          "_universe": {"type": "index", "ref": p["ref"]}}
         for p in _INDEX_PRESETS
     ]
-
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            r"SELECT id, owner_id, name, description, symbols FROM user_universes "
-            r"WHERE is_public AND asset_class = 'STOCK' AND owner_id LIKE '\_\_system%' "
-            r"ORDER BY cardinality(symbols) DESC, name ASC"
-        )
     for r in rows:
         is_sector = str(r["owner_id"]).startswith("__system_sector")
         catalog.append({
