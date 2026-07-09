@@ -8,6 +8,10 @@ import RetailLossesArticle from "./RetailLossesArticle";
 import MFBestPracticesArticle from "./MFBestPracticesArticle";
 import HowWeUseClaudeArticle from "./HowWeUseClaudeArticle";
 import SelfHealingArticle from "./SelfHealingArticle";
+import TypesOfFundsArticle from "./TypesOfFundsArticle";
+import SipVsLumpsumArticle from "./SipVsLumpsumArticle";
+import TaxHarvestingArticle from "./TaxHarvestingArticle";
+import DirectVsRegularArticle from "./DirectVsRegularArticle";
 
 export type BlogPost = {
   slug: string;
@@ -20,6 +24,46 @@ export type BlogPost = {
 };
 
 export const POSTS: BlogPost[] = [
+  {
+    slug: "types-of-mutual-funds-india",
+    title: "Types of mutual funds in India — a plain-English guide",
+    excerpt:
+      "Equity, debt, hybrid, index, ELSS — there are really just a few families. Here's the map, and how to pick the one that fits your goal and timeline.",
+    category: "Investor education",
+    readMins: 6,
+    dateLabel: "July 2026",
+    Body: TypesOfFundsArticle,
+  },
+  {
+    slug: "sip-vs-lumpsum",
+    title: "SIP vs lump sum — which one's actually right for you?",
+    excerpt:
+      "Got a bonus and not sure whether to drip it in or dump it in? The honest breakdown of when each wins — plus the middle path most people miss.",
+    category: "Investor education",
+    readMins: 5,
+    dateLabel: "July 2026",
+    Body: SipVsLumpsumArticle,
+  },
+  {
+    slug: "tax-harvesting-mutual-funds",
+    title: "Tax harvesting in mutual funds — a legal way to cut your tax",
+    excerpt:
+      "You get ₹1.25 lakh of long-term equity gains tax-free every year. Skip it and you lose it. How harvesting gains (and losses) quietly lowers your tax bill.",
+    category: "Investor education",
+    readMins: 5,
+    dateLabel: "July 2026",
+    Body: TaxHarvestingArticle,
+  },
+  {
+    slug: "direct-vs-regular-mutual-funds",
+    title: "Direct vs regular mutual funds — what it really costs you",
+    excerpt:
+      "Same fund, same manager — but a Regular plan quietly pays a commission every year. Over 20 years that ~1% can cost you ₹16 lakh. The maths, and how to switch.",
+    category: "Investor education",
+    readMins: 5,
+    dateLabel: "July 2026",
+    Body: DirectVsRegularArticle,
+  },
   {
     slug: "self-healing-software-autonomous-fixes",
     title: "Self-healing software: how our systems fix their own bugs — and stop at a pull request",
