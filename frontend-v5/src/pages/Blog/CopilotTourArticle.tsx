@@ -7,6 +7,7 @@
  * (e.g. "/v5/"), matching the Homepage demo-video convention. Layout mirrors
  * RetailLossesArticle (design tokens, nv-card, nv-serif, theme-aware).
  */
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 
@@ -33,29 +34,53 @@ export default function CopilotTourArticle() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const assetBase = import.meta.env.BASE_URL; // respects staging base path (e.g. "/v5/")
+  const [lang, setLang] = useState<"en" | "hi">("en");
+  // Per-language asset set (English + Hindi voiceover/captions of the same tour).
+  const V =
+    lang === "hi"
+      ? { mp4: "nivesh-copilot-tour-hi.mp4", poster: "nivesh-copilot-tour-hi-poster.jpg", vtt: "nivesh-copilot-tour.hi.vtt", srcLang: "hi", label: "हिंदी", aria: "Nivesh Copilot का दो-मिनट गाइडेड टूर" }
+      : { mp4: "nivesh-copilot-tour.mp4", poster: "nivesh-copilot-tour-poster.jpg", vtt: "nivesh-copilot-tour.en.vtt", srcLang: "en", label: "English", aria: "Two-minute guided tour of Nivesh Copilot" };
 
   return (
     <div style={{ padding: isMobile ? "0 4px" : "0" }}>
       {/* VIDEO */}
       <figure style={{ margin: "0 0 10px" }}>
+        {/* language toggle */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginBottom: 10 }}>
+          <span className="nv-mono" style={{ fontSize: 10, color: "var(--ink-4)", letterSpacing: ".1em", textTransform: "uppercase", marginRight: 2 }}>Audio</span>
+          {(["en", "hi"] as const).map((l) => (
+            <button
+              key={l}
+              type="button"
+              data-testid={`lang-${l}`}
+              onClick={() => setLang(l)}
+              aria-pressed={lang === l}
+              className={"nv-btn" + (lang === l ? " nv-btn-primary" : "")}
+              style={{ padding: "6px 14px", fontSize: 13 }}
+            >
+              {l === "en" ? "English" : "हिंदी"}
+            </button>
+          ))}
+        </div>
         <div className="nv-card" style={{ padding: 0, overflow: "hidden", borderRadius: 14, background: "#06080F" }}>
           <video
+            key={lang}
             data-testid="copilot-tour-video"
-            aria-label="Two-minute guided tour of Nivesh Copilot"
-            poster={`${assetBase}nivesh-copilot-tour-poster.jpg`}
+            aria-label={V.aria}
+            poster={`${assetBase}${V.poster}`}
             controls
             playsInline
             preload="metadata"
             style={{ width: "100%", display: "block", aspectRatio: "16 / 9", background: "#06080F" }}
           >
-            <source src={`${assetBase}nivesh-copilot-tour.mp4`} type="video/mp4" />
-            <track kind="captions" srcLang="en" label="English" src={`${assetBase}nivesh-copilot-tour.en.vtt`} default />
+            <source src={`${assetBase}${V.mp4}`} type="video/mp4" />
+            <track kind="captions" srcLang={V.srcLang} label={V.label} src={`${assetBase}${V.vtt}`} default />
             Your browser can’t play embedded video —{" "}
-            <a href={`${assetBase}nivesh-copilot-tour.mp4`}>download the tour</a> instead.
+            <a href={`${assetBase}${V.mp4}`}>download the tour</a> instead.
           </video>
         </div>
         <figcaption className="nv-mono" style={{ fontSize: 11, color: "var(--ink-3)", letterSpacing: ".04em", marginTop: 10, textAlign: "center" }}>
-          A guided walk through the Nivesh Copilot — investor &amp; advisor, desktop &amp; mobile. ~2 minutes.
+          A guided walk through the Nivesh Copilot — investor &amp; advisor, desktop &amp; mobile. ~2 minutes · English &amp; हिंदी.
         </figcaption>
       </figure>
 
