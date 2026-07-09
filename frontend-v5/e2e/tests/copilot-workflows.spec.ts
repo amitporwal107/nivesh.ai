@@ -18,12 +18,18 @@ import { test, expect, Page } from "@playwright/test";
 
 const ME = { user_id: "wf-user", email: "t@e.com", name: "T", is_admin: false, onboarding_completed: true, copilot_enabled: true };
 
-const setup = async (page: Page, me: Record<string, unknown> = ME) => {
+const setup = async (page: Page, me: Record<string, unknown> = ME, impersonateProfileId?: string) => {
   await page.route("**/api/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
   await page.route("**/api/auth/me**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(me) }));
   await page.route("**/api/chat/sessions**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: "wf-sid" }) }));
   await page.route("**/api/chat/messages**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ messages: [] }) }));
   await page.route("**/api/chat/stream**", (r) => r.fulfill({ status: 200, contentType: "text/event-stream", body: 'data: {"type":"meta","session_id":"wf-sid"}\n\n' }));
+  if (impersonateProfileId) {
+    // Mirror the "viewing a client" state the impersonation store persists.
+    await page.addInitScript((pid) => {
+      localStorage.setItem("nivesh.impersonation", JSON.stringify({ state: { profileId: pid, name: "Client" }, version: 0 }));
+    }, impersonateProfileId);
+  }
   await page.goto("/v5/chat");
 };
 
@@ -82,5 +88,18 @@ test.describe("Copilot chat workflow landing — advisor", () => {
     await expect(wf(page)).toBeVisible({ timeout: 15000 });
     const msg = await sentPrompt(page, () => wf(page).getByTestId("wf-row-churn").click());
     expect(msg).toBe("Which clients might leave?");
+  });
+});
+
+test.describe("Copilot chat workflow landing — advisor viewing a client", () => {
+  const ADVISOR_ME = { ...ME, workspace_type: "ADVISORY" };
+  test.beforeEach(async ({ page }) => { await setup(page, ADVISOR_ME, "client-97909"); });
+
+  test("6 · impersonating a client shows INVESTOR workflows, not the book", async ({ page }) => {
+    // Advisor account, but "viewing a client" → the copilot answers in investor
+    // mode for that portfolio, so the landing must show the investor workflows.
+    await expect(wf(page)).toHaveAttribute("data-role", "investor", { timeout: 15000 });
+    await expect(wf(page).getByText("Portfolio health review", { exact: true })).toBeVisible();
+    await expect(wf(page).getByText("At-risk & churn", { exact: true })).toHaveCount(0);
   });
 });

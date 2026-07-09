@@ -5,6 +5,7 @@ import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLef
 import { cn } from "@/lib/utils";
 import CopilotWorkflows from "./CopilotWorkflows";
 import { useMe } from "@/hooks/use-auth";
+import { useImpersonationStore } from "@/stores/impersonation.store";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useSuggestedPrompts,
@@ -134,8 +135,14 @@ export default function ChatPage() {
   const [analyseOpen, setAnalyseOpen] = useState(false);
   const [backtestOpen, setBacktestOpen] = useState(false);
   // Persona for the workflow landing (investor portfolio vs advisor book).
+  // The advisor book shows ONLY at the advisor root. While viewing a client
+  // (impersonating), the copilot answers in investor mode for that client's
+  // portfolio, so show the investor workflows to match. Prefer the store over
+  // me.activeProfileId — the backend field races the persisted store (see use-chat.ts).
   const me = useMe();
-  const isAdvisor = (me.data?.workspaceType || "").toUpperCase() === "ADVISORY";
+  const impersonatingProfileId = useImpersonationStore((s) => s.profileId);
+  const isAdvisor =
+    (me.data?.workspaceType || "").toUpperCase() === "ADVISORY" && !impersonatingProfileId;
   const [activeIdx, setActiveIdx] = useState(-1);
   // When a picked question template has a {stock}/{fund} placeholder, we enter
   // "entity fill" mode: instrument autocomplete suggests canonical names and a
