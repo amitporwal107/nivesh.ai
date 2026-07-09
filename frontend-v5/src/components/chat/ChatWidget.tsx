@@ -138,6 +138,36 @@ function FundConsolidationWidget({ data }: { data: any }) {
 }
 
 // ── fund_overlap ──────────────────────────────────────────────────────────
+// The specific stocks two funds BOTH hold — the holdings-level evidence behind
+// an overlap %. Each chip shows the stock and its weight in each of the two
+// funds (fund-A% / fund-B%), so an overlap call is backed by names + numbers,
+// not taken on faith.
+function SharedStocks({ shared, count }: { shared?: any[]; count?: number }) {
+  if (!shared?.length) return null;
+  const extra = (count || shared.length) - shared.length;
+  return (
+    <div className="mt-2">
+      <div className="text-[11.5px] text-ink-3 mb-1.5">Both hold</div>
+      <div className="flex flex-wrap gap-1.5">
+        {shared.map((s: any, k: number) => (
+          <span
+            key={k}
+            className="inline-flex items-baseline gap-1 rounded-md bg-surface-2 border border-hairline px-2 py-0.5 text-[12px] text-ink"
+          >
+            {s.name}
+            {(s.w_a != null || s.w_b != null) && (
+              <span className="text-ink-3 text-[11px]">
+                {s.w_a != null ? `${s.w_a}%` : "—"}/{s.w_b != null ? `${s.w_b}%` : "—"}
+              </span>
+            )}
+          </span>
+        ))}
+        {extra > 0 && <span className="text-[11.5px] text-ink-3 self-center px-0.5">+{extra} more</span>}
+      </div>
+    </div>
+  );
+}
+
 function OverlapRows({ rows, color }: { rows: any[]; color: string }) {
   return (
     <div className="flex flex-col gap-3.5 mt-3">
@@ -149,6 +179,7 @@ function OverlapRows({ rows, color }: { rows: any[]; color: string }) {
           </div>
           <Bar pct={r.overlap_pct} color={color} />
           {r.detail && <p className="text-[12.5px] text-ink-3 mt-1.5">{r.detail}</p>}
+          <SharedStocks shared={r.shared} count={r.shared_count} />
         </div>
       ))}
     </div>
@@ -279,9 +310,12 @@ function OverlapSeverityWidget({ data }: { data: any }) {
           <Heading>{offenders.title}</Heading>
           <div className="flex flex-col mt-3">
             {offenders.rows.map((r: any, i: number) => (
-              <div key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-md odd:bg-surface-2/50">
-                <span className="text-[14px] text-ink">{r.name}</span>
-                <span className="text-[13px] font-medium text-neg shrink-0">{r.overlap_pct}%</span>
+              <div key={i} className="px-3 py-2.5 rounded-md odd:bg-surface-2/50">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[14px] text-ink">{r.name}</span>
+                  <span className="text-[13px] font-medium text-neg shrink-0">{r.overlap_pct}%</span>
+                </div>
+                <SharedStocks shared={r.shared} count={r.shared_count} />
               </div>
             ))}
           </div>
