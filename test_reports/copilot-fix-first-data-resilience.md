@@ -53,8 +53,28 @@ $ python3 -m py_compile backend/services/copilot_tools/portfolio.py \
 `REACT_APP_BACKEND_URL`/missing-fixture env issues, unrelated to this change. The copilot
 agent runs in the streaming generator, so the real proof is the staging re-run below.)
 
-## Real output — staging, both modes
+## Real output — staging, both modes (after deploy of f2e13bb3)
 
-_(filled after deploy)_
+Re-ran on staging with a fresh session token; investor mode forced via
+`X-Active-Profile: <SELF profile d07ed42c…>`, advisor mode via no header. **Zero**
+"couldn't retrieve" errors across 9 reproductions:
 
-## Verdict: PENDING (implementation + py_compile done; awaiting staging deploy + both-mode re-run)
+| Case | Mode | Question | route | Real answer (excerpt) |
+|---|---|---|---|---|
+| I1a/I1b | investor | fix first | portfolio_analyst | "Fix first: Consolidate 2 funds in your Small Cap category… [high\|OVERLAP]… keep the highest-scoring fund and exit the other" (2× consistent) |
+| I2a/I2b | investor | portfolio health | portfolio_analyst | "health is 67/100, Grade B — Fair… Diversification 34, Risk 77, Cost 78, Performance 90… Total ₹12,373,501" (2× consistent) |
+| I3 | investor | summarise (regression) | portfolio_analyst | "₹12,373,501… equity 82%, gold 18%… +40.3% across 109 positions" |
+| I4 | investor | improve | portfolio_analyst | "reduce fund overlap, cut HDFC AMC concentration, rebalance equity 82%→60%…" |
+| I5 | investor | top recommendations | recommendation | grounded picks (RELIANCE PE 21.9, HDFCBANK PE 16.8…) |
+| A1 | advisor | fix first (regression) | — | "improve diversification… health 67/100, diversification 34…" |
+| A2 | advisor | portfolio health (regression) | — | "67/100, Grade B… Diversification 34 (poor), Risk 77…" |
+
+The two previously-broken investor questions now return the real dashboard-grounded
+recommendations/health; regressions (summarise, advisor) hold. Numbers are internally
+consistent across cases (same 67/100 health, same ₹12,373,501 total), evidence they are
+real, not hallucinated.
+
+Independently re-judged by an adversarial verification workflow (per-case judges + skeptics
+trying to refute "fixed in both modes").
+
+## Verdict: PASS
