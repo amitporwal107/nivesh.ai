@@ -191,6 +191,9 @@ export default function HomepagePage() {
               <button className="btn-ghost btn-lg" onClick={() => setShowDemo(true)}>
                 Watch the 90-second tour
               </button>
+              <button className="btn-ghost btn-lg" data-testid="home-learn-link" onClick={() => navigate("/learn")}>
+                Explore Nivesh Learn →
+              </button>
             </div>
             <div className="trust h-rv d3">
               <span>SEBI-aligned</span>
