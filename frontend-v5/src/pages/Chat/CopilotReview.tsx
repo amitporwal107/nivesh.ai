@@ -2,23 +2,24 @@
  * CopilotReview — the staged Portfolio Health Review, brought from the
  * `/v5/copilot` tour design into the real copilot chat (investor empty-state).
  *
- * Phase 1 ships the two stages that are 100% backed by REAL data:
- *   • ANALYSIS       — score ring (health score) + metric tiles + portfolio
- *                      snapshot + flags, from live hooks. No fabricated numbers:
- *                      any metric without a real source is simply omitted, and
- *                      the mockup's "risk 6.4" is dropped (no real 0–10 score).
- *   • RECOMMENDATION — top actions ranked by ₹ impact, with the exit/retain fund
- *                      names, capital-to-redeploy and annual saving, from
- *                      `useRemediation()` (the SAME compute_remediation builder the
- *                      AI Insights page renders → full parity).
+ * Live stages (all backed by REAL data — no fabricated numbers):
+ *   • INTAKE      — captures the user's goal / risk comfort / time horizon
+ *                   (real user input) + real holdings count. Frames the rest.
+ *   • ANALYSIS    — score ring (health score) + metric tiles + portfolio
+ *                   snapshot + flags, from live hooks. The mockup's "risk 6.4"
+ *                   is dropped (no real 0–10 score); overlap is worst-pair.
+ *   • OPTIONS     — the real remediation recs as choosable paths, each with its
+ *                   real ₹ impact + priority. Fields with no real source (the
+ *                   mock's RISK Δ / EFFORT / TIME) are omitted, not faked.
+ *   • RECOMMEND   — top actions ranked by ₹ impact with exit/retain fund names,
+ *                   capital-to-redeploy and annual saving, from useRemediation()
+ *                   (the SAME compute_remediation builder AI Insights renders).
  *
- * INTAKE / OPTIONS / ACTION are labeled "coming" panels — their backends
- * (intake state, scenario simulation, broker order routing) are later phases, so
- * we show what they'll do rather than fake orders/paths.
+ * ACTION is a labeled "coming" panel — real SELL/BUY order construction + broker
+ * execution aren't wired, so no fabricated orders are shown.
  *
  * All hooks flow through http() which attaches X-Active-Profile, so when an
  * advisor is viewing a client this renders the CLIENT's live portfolio.
- *
  * Rendered as a scoped `.copilot-tour` dark island (mirrors CopilotWorkflows).
  */
 import { useState } from "react";
@@ -34,7 +35,7 @@ interface Sector { name?: string; pct?: number; capPct?: number; isOverCap?: boo
 interface OverlapPair { a_name?: string; b_name?: string; overlap_pct?: number }
 interface AllocSlice { assetClass?: string; label?: string; pct?: number }
 interface EnrichedHolding { name?: string; pnl_pct?: number; pnl_rs?: number }
-interface Contributor { name?: string; pct_of_exposure?: number }
+interface Contributor { name?: string; pct_of_exposure?: number; value_rs?: number; exit_priority?: number }
 interface BeforeAfter { lens_label?: string; before_pct?: number; after_pct?: number }
 interface Rec {
   action_kind?: string; title?: string; why?: string; action?: string;
@@ -44,7 +45,11 @@ interface Rec {
 
 const STAGES = ["INTAKE", "ANALYSIS", "OPTIONS", "RECOMMEND", "ACTION"] as const;
 type Stage = (typeof STAGES)[number];
-const LIVE: Stage[] = ["ANALYSIS", "RECOMMEND"];
+const LIVE: Stage[] = ["INTAKE", "ANALYSIS", "OPTIONS", "RECOMMEND", "ACTION"];
+
+const GOALS = ["Grow wealth", "Reduce risk", "Save tax", "Retire early"];
+const RISKS = ["Conservative", "Moderate", "Aggressive"];
+const HORIZONS = ["< 3 years", "3–7 years", "7+ years"];
 
 const inr = (n: number) => "₹" + new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(Math.round(n));
 const pct = (n: number) => `${Math.round(n)}%`;
@@ -56,10 +61,33 @@ function impactOf(r: Rec): string {
   if (r.amount_rs && r.amount_rs > 0) return inr(r.amount_rs);
   return "";
 }
+/** Compact ₹ for the tight compare grid. */
+function shortRs(r: Rec): string {
+  const v = r.annual_saving_rs && r.annual_saving_rs > 0 ? r.annual_saving_rs : (r.amount_rs || 0);
+  if (!v) return "—";
+  if (v >= 1e7) return `₹${(v / 1e7).toFixed(1)}Cr`;
+  if (v >= 1e5) return `₹${(v / 1e5).toFixed(1)}L`;
+  if (v >= 1e3) return `₹${Math.round(v / 1e3)}K`;
+  return `₹${Math.round(v)}`;
+}
 
 const EYEBROW = (t: string, style?: React.CSSProperties) => (
   <div className="nv-eyebrow" style={{ fontSize: 9, ...style }}>{t}</div>
 );
+
+function Chip({ label, selected, onClick, testid }: { label: string; selected: boolean; onClick: () => void; testid?: string }) {
+  return (
+    <button
+      onClick={onClick} data-testid={testid} className="nv-btn"
+      style={{
+        padding: "7px 14px", fontSize: 12, cursor: "pointer",
+        borderColor: selected ? "var(--mint)" : undefined,
+        color: selected ? "var(--mint)" : "rgb(var(--ink))",
+        background: selected ? "var(--mint-soft)" : undefined,
+      }}
+    >{label}{selected ? " ✓" : ""}</button>
+  );
+}
 
 function StageStrip({ stage, onPick }: { stage: Stage; onPick: (s: Stage) => void }) {
   const active = STAGES.indexOf(stage);
@@ -86,7 +114,6 @@ function StageStrip({ stage, onPick }: { stage: Stage; onPick: (s: Stage) => voi
   );
 }
 
-/** Two-column stage body: main thread + right workspace, wraps on narrow. */
 function Body({ main, workspace }: { main: React.ReactNode; workspace: React.ReactNode }) {
   return (
     <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 16 }}>
@@ -100,28 +127,22 @@ function Body({ main, workspace }: { main: React.ReactNode; workspace: React.Rea
 function Skeleton({ rows = 3 }: { rows?: number }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }} aria-busy="true">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="nv-card-2" style={{ height: 46, opacity: 0.5 }} />
-      ))}
+      {Array.from({ length: rows }).map((_, i) => (<div key={i} className="nv-card-2" style={{ height: 46, opacity: 0.5 }} />))}
     </div>
   );
 }
 
-function ComingPanel({ stage, needs }: { stage: Stage; needs: string }) {
-  return (
-    <div className="nv-card-2" data-testid="stage-coming" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 8 }}>
-      {EYEBROW(`${stage} · COMING`, { color: "var(--amber)" })}
-      <div className="nv-serif" style={{ fontSize: 18 }}>Not live yet</div>
-      <div className="nv-body" style={{ fontSize: 13, color: "rgb(var(--ink-2))" }}>{needs}</div>
-      <div className="nv-mono" style={{ fontSize: 9, color: "rgb(var(--ink-4))", letterSpacing: ".04em", marginTop: 4 }}>
-        SHOWN WHEN THE DATA IS REAL — NO PLACEHOLDER NUMBERS.
-      </div>
-    </div>
-  );
-}
+const FwdBtn = ({ label, onClick, testid }: { label: string; onClick: () => void; testid?: string }) => (
+  <button onClick={onClick} data-testid={testid} className="nv-btn nv-btn-primary"
+    style={{ alignSelf: "flex-start", padding: "9px 16px", fontSize: 13, cursor: "pointer", border: "none" }}>{label}</button>
+);
 
 export default function CopilotReview({ onAsk }: { onAsk: (q: string) => void }) {
-  const [stage, setStage] = useState<Stage>("ANALYSIS");
+  const [stage, setStage] = useState<Stage>("INTAKE");
+  const [goal, setGoal] = useState<string | null>(null);
+  const [risk, setRisk] = useState<string | null>(null);
+  const [horizon, setHorizon] = useState<string | null>(null);
+  const [intakeText, setIntakeText] = useState("");
 
   const healthQ = useHealthAnalysis();
   const concQ = useConcentration();
@@ -140,9 +161,7 @@ export default function CopilotReview({ onAsk }: { onAsk: (q: string) => void })
   const concentrationPct = typeof topSector?.pct === "number" ? topSector.pct : undefined;
 
   const overlapPairs = (concAnalysisQ.data as { overlap?: { pairs?: OverlapPair[] } } | undefined)?.overlap?.pairs;
-  const worstOverlap = overlapPairs?.length
-    ? Math.max(...overlapPairs.map((p) => Number(p.overlap_pct ?? 0)))
-    : undefined;
+  const worstOverlap = overlapPairs?.length ? Math.max(...overlapPairs.map((p) => Number(p.overlap_pct ?? 0))) : undefined;
 
   const allocation = (summaryQ.data as { allocation?: AllocSlice[] } | undefined)?.allocation;
   const cashPct = allocation?.find((a) => (a.assetClass || "").toLowerCase() === "cash")?.pct;
@@ -155,6 +174,65 @@ export default function CopilotReview({ onAsk }: { onAsk: (q: string) => void })
   const remEmpty = (remQ.data as { empty?: boolean } | undefined)?.empty || recs.length === 0;
   const top3 = recs.slice(0, 3);
   const rebalRec = recs.find((r) => (r.before_after?.length ?? 0) > 0);
+
+  /* ── INTAKE ── */
+  const intakeMain = (
+    <>
+      <div>
+        <div className="nv-serif" style={{ fontSize: 19, lineHeight: 1.25 }}>
+          I can see {holdingsCount != null ? <>all <span style={{ color: "var(--mint)" }}>{holdingsCount} holdings</span></> : "your holdings"}. Before I dig in — what matters most to you right now?
+        </div>
+        <div className="nv-body" style={{ fontSize: 12, color: "rgb(var(--ink-3))", marginTop: 4 }}>Pick one. You can always type instead.</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }} data-testid="intake-goals">
+          {GOALS.map((g) => <Chip key={g} label={g} selected={goal === g} onClick={() => setGoal(g)} />)}
+        </div>
+      </div>
+      {goal && (
+        <div>
+          <div className="nv-serif" style={{ fontSize: 19, lineHeight: 1.25 }}>Got it. And how do you feel about short-term swings?</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }} data-testid="intake-risks">
+            {RISKS.map((rk) => <Chip key={rk} label={rk} selected={risk === rk} onClick={() => setRisk(rk)} />)}
+          </div>
+        </div>
+      )}
+      {goal && risk && (
+        <div>
+          <div className="nv-serif" style={{ fontSize: 19, lineHeight: 1.25 }}>And when do you need this money?</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }} data-testid="intake-horizons">
+            {HORIZONS.map((h) => <Chip key={h} label={h} selected={horizon === h} onClick={() => setHorizon(h)} />)}
+          </div>
+        </div>
+      )}
+      <div className="nv-glass" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 13px", marginTop: 4 }}>
+        <input className="ct-ask-input" value={intakeText} onChange={(e) => setIntakeText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && intakeText.trim()) { e.preventDefault(); onAsk(intakeText.trim()); } }}
+          placeholder="Type your own answer…" aria-label="Type your own answer" style={{ flex: 1, minWidth: 0, fontSize: 13 }} />
+        <button onClick={() => intakeText.trim() && onAsk(intakeText.trim())} className="nv-btn nv-btn-primary"
+          aria-label="Send" style={{ padding: "7px 12px", fontSize: 12, cursor: "pointer", border: "none" }}>↑</button>
+      </div>
+      <FwdBtn label="Analyze my portfolio →" onClick={() => setStage("ANALYSIS")} testid="intake-analyze" />
+    </>
+  );
+
+  const intakeWorkspace = (
+    <>
+      {EYEBROW("WHAT I KNOW SO FAR")}
+      {([
+        ["Holdings", holdingsCount != null ? `${holdingsCount} · synced ✓` : "syncing…"],
+        ["Primary goal", goal || "→ asking"],
+        ["Risk comfort", risk || "→ asking"],
+        ["Time horizon", horizon || "→ asking"],
+      ] as [string, string][]).map(([k, v]) => (
+        <div key={k} className="ct-krow"><span>{k}</span>
+          <span style={{ color: v.includes("→") ? "rgb(var(--ink-4))" : "rgb(var(--ink))" }}>{v}</span></div>
+      ))}
+      <div style={{ marginTop: "auto", paddingTop: 8, borderTop: "1px solid rgb(var(--line) / 0.10)" }}>
+        <div className="nv-mono" style={{ fontSize: 9, color: "rgb(var(--ink-4))", lineHeight: 1.6, letterSpacing: ".04em" }}>
+          EDUCATIONAL · NOT INVESTMENT ADVICE. YOU CONFIRM EVERY INPUT BEFORE I ANALYZE.
+        </div>
+      </div>
+    </>
+  );
 
   /* ── ANALYSIS ── */
   const metricTiles = [
@@ -178,30 +256,29 @@ export default function CopilotReview({ onAsk }: { onAsk: (q: string) => void })
   const analysisMain = analysisLoading ? <Skeleton rows={2} /> : analysisEmpty ? (
     <div className="nv-card-2" style={{ padding: 20 }}>
       <div className="nv-serif" style={{ fontSize: 17 }}>No live portfolio yet</div>
-      <div className="nv-body" style={{ fontSize: 13, color: "rgb(var(--ink-2))", marginTop: 4 }}>
-        Connect or sync your holdings and I'll score them here.
-      </div>
+      <div className="nv-body" style={{ fontSize: 13, color: "rgb(var(--ink-2))", marginTop: 4 }}>Connect or sync your holdings and I'll score them here.</div>
     </div>
   ) : (
     <>
+      {(goal || risk) && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} data-testid="analysis-context">
+          {goal && <span className="nv-pill" style={{ fontSize: 9 }}>GOAL · {goal.toUpperCase()}</span>}
+          {risk && <span className="nv-pill nv-pill-mint" style={{ fontSize: 9 }}>RISK · {risk.toUpperCase()}</span>}
+          {horizon && <span className="nv-pill" style={{ fontSize: 9 }}>HORIZON · {horizon.toUpperCase()}</span>}
+        </div>
+      )}
       <div className="nv-card-2" style={{ padding: "11px 13px", display: "flex", flexDirection: "column", gap: 6 }}>
         <div className="nv-mono" style={{ fontSize: 9, color: "var(--mint)" }}>● ANALYZED · LIVE</div>
         {[
           holdingsCount != null ? `✓ FETCHED ${holdingsCount} HOLDINGS · NIDP` : "✓ FETCHED HOLDINGS · NIDP",
           "✓ SCORED HEALTH · CONCENTRATION · OVERLAP",
           "✓ RANKED FIXES BY ₹ IMPACT",
-        ].map((s) => (
-          <div key={s} className="nv-mono" style={{ fontSize: 10, color: "rgb(var(--ink-2))", letterSpacing: ".04em" }}>{s}</div>
-        ))}
+        ].map((s) => (<div key={s} className="nv-mono" style={{ fontSize: 10, color: "rgb(var(--ink-2))", letterSpacing: ".04em" }}>{s}</div>))}
       </div>
       {score != null && (
-        <div>
-          <div className="nv-serif" style={{ fontSize: 19, lineHeight: 1.25 }} data-testid="review-synthesis">
-            Your portfolio is <span style={{ color: "var(--mint)" }}>{label || healthWord(score)}</span>
-            {topSector?.name && concentrationPct != null && (
-              <> — {topSector.name} is <span className="nv-num">{pct(concentrationPct)}</span> of your equity.</>
-            )}
-          </div>
+        <div className="nv-serif" style={{ fontSize: 19, lineHeight: 1.25 }} data-testid="review-synthesis">
+          Your portfolio is <span style={{ color: "var(--mint)" }}>{label || healthWord(score)}</span>
+          {topSector?.name && concentrationPct != null && (<> — {topSector.name} is <span className="nv-num">{pct(concentrationPct)}</span> of your equity.</>)}
         </div>
       )}
       <div className="nv-card-2" style={{ padding: 13, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
@@ -217,11 +294,7 @@ export default function CopilotReview({ onAsk }: { onAsk: (q: string) => void })
           </div>
         )}
       </div>
-      <button onClick={() => setStage("RECOMMEND")} className="nv-btn nv-btn-primary"
-        style={{ alignSelf: "flex-start", padding: "9px 16px", fontSize: 13, cursor: "pointer", border: "none" }}
-        data-testid="review-to-recommend">
-        See recommendations →
-      </button>
+      <FwdBtn label="See my options →" onClick={() => setStage("OPTIONS")} testid="review-to-options" />
     </>
   );
 
@@ -256,13 +329,70 @@ export default function CopilotReview({ onAsk }: { onAsk: (q: string) => void })
     </>
   );
 
+  /* ── OPTIONS (real remediation recs as choosable paths) ── */
+  const optionsMain = remQ.isPending ? <Skeleton rows={3} /> : remEmpty ? (
+    <div className="nv-card-2" style={{ padding: 20 }}>
+      <div className="nv-serif" style={{ fontSize: 17 }}>No options to weigh</div>
+      <div className="nv-body" style={{ fontSize: 13, color: "rgb(var(--ink-2))", marginTop: 4 }}>Nothing high-impact to fix on your holdings right now.</div>
+    </div>
+  ) : (
+    <>
+      <div className="nv-serif" style={{ fontSize: 19, lineHeight: 1.25 }}>
+        Ways forward — each is a <span style={{ color: "var(--mint)" }}>real fix</span> on your portfolio, with its ₹ impact. Pick one to drill in.
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 11 }}>
+        {top3.map((r, i) => {
+          const accent = ["var(--mint)", "var(--indigo-hex)", "var(--amber)"][i % 3];
+          const first = i === 0;
+          return (
+            <div key={i} data-testid={`option-${i}`} className="nv-card-2"
+              style={{ padding: 13, display: "flex", flexDirection: "column", gap: 9, borderColor: first ? "rgb(var(--pos) / 0.28)" : undefined }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span className="nv-eyebrow" style={{ fontSize: 8, color: accent }}>{first ? "RECOMMENDED" : `OPTION ${String.fromCharCode(65 + i)}`}</span>
+                <span className="nv-dot" style={{ background: accent }} />
+              </div>
+              <div className="nv-serif" style={{ fontSize: 16, lineHeight: 1.15 }}>{r.title}</div>
+              {impactOf(r) && <div className="nv-serif nv-num" style={{ fontSize: 20, color: "var(--mint)" }}>{impactOf(r)}</div>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, fontFamily: "var(--mono)", fontSize: 10, color: "rgb(var(--ink-2))", letterSpacing: ".04em" }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span>TYPE</span><span>{(r.action_kind || "fix").replace(/_/g, " ").toUpperCase()}</span></div>
+                {r.leverage_score != null && <div style={{ display: "flex", justifyContent: "space-between" }}><span>PRIORITY</span><span>{r.leverage_score}/100</span></div>}
+              </div>
+              <button onClick={() => onAsk(`Walk me through: ${r.title}`)} className={"nv-btn" + (first ? " nv-btn-primary" : "")}
+                data-testid={`option-choose-${i}`} style={{ justifyContent: "center", padding: 7, fontSize: 11, cursor: "pointer", border: first ? "none" : undefined }}>Choose</button>
+            </div>
+          );
+        })}
+      </div>
+      <div className="nv-mono" style={{ fontSize: 9, color: "rgb(var(--ink-4))", letterSpacing: ".04em" }}>
+        RANKED BY ₹ IMPACT · FROM YOUR LIVE HOLDINGS.
+      </div>
+      <FwdBtn label="See the recommendation →" onClick={() => setStage("RECOMMEND")} testid="options-to-recommend" />
+    </>
+  );
+
+  const optionsWorkspace = !remEmpty ? (
+    <>
+      {EYEBROW("COMPARE")}
+      <div style={{ display: "grid", gridTemplateColumns: `1.2fr ${top3.map(() => "1fr").join(" ")}`, gap: "6px 4px", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".03em" }}>
+        <span />{top3.map((_, i) => <span key={i} style={{ textAlign: "center", color: ["var(--mint)", "var(--indigo-hex)", "var(--amber)"][i % 3] }}>{String.fromCharCode(65 + i)}</span>)}
+        <span style={{ color: "rgb(var(--ink-3))" }}>₹ IMPACT</span>{top3.map((r, i) => <span key={i} style={{ textAlign: "center", color: "rgb(var(--ink))" }}>{shortRs(r)}</span>)}
+        <span style={{ color: "rgb(var(--ink-3))" }}>PRIORITY</span>{top3.map((r, i) => <span key={i} style={{ textAlign: "center" }}>{r.leverage_score ?? "—"}</span>)}
+      </div>
+      <hr className="nv-hr" />
+      <div className="nv-body" style={{ fontSize: 12 }}>Option A has the biggest ₹ impact on your holdings — which is why it's ranked first.</div>
+      <div className="nv-mono" style={{ fontSize: 9, color: "rgb(var(--ink-4))", letterSpacing: ".04em" }}>
+        RISK Δ / EFFORT / TIME shown once the scenario engine lands.
+      </div>
+    </>
+  ) : (
+    <div className="nv-body" style={{ fontSize: 12, color: "rgb(var(--ink-4))" }}>Nothing high-impact to compare.</div>
+  );
+
   /* ── RECOMMEND ── */
   const recommendMain = remQ.isPending ? <Skeleton rows={3} /> : remEmpty ? (
     <div className="nv-card-2" style={{ padding: 20 }}>
       <div className="nv-serif" style={{ fontSize: 17 }}>Nothing urgent to fix</div>
-      <div className="nv-body" style={{ fontSize: 13, color: "rgb(var(--ink-2))", marginTop: 4 }}>
-        No high-impact actions surfaced on your holdings right now.
-      </div>
+      <div className="nv-body" style={{ fontSize: 13, color: "rgb(var(--ink-2))", marginTop: 4 }}>No high-impact actions surfaced on your holdings right now.</div>
     </div>
   ) : (
     <>
@@ -286,13 +416,9 @@ export default function CopilotReview({ onAsk }: { onAsk: (q: string) => void })
                 {cta ? (
                   <button onClick={() => onAsk(r.title || "What should I fix first?")} className="nv-btn nv-btn-primary"
                     data-testid="rec-cta" style={{ padding: "5px 11px", fontSize: 11, cursor: "pointer", border: "none" }}>Do it ↓</button>
-                ) : (
-                  <span className="nv-mono" style={{ fontSize: 10, color: "rgb(var(--ink-3))" }}>QUEUE</span>
-                )}
+                ) : (<span className="nv-mono" style={{ fontSize: 10, color: "rgb(var(--ink-3))" }}>QUEUE</span>)}
               </div>
-              {r.action && (
-                <div className="nv-body" style={{ fontSize: 12, color: "rgb(var(--ink-2))", marginTop: 6, paddingLeft: 22 }}>{r.action}</div>
-              )}
+              {r.action && (<div className="nv-body" style={{ fontSize: 12, color: "rgb(var(--ink-2))", marginTop: 6, paddingLeft: 22 }}>{r.action}</div>)}
             </div>
           );
         })}
@@ -337,22 +463,87 @@ export default function CopilotReview({ onAsk }: { onAsk: (q: string) => void })
       )}
       {!remEmpty && (
         <div style={{ marginTop: "auto" }}>
-          <button onClick={() => onAsk("Review and apply these recommendations on my portfolio")} className="nv-btn nv-btn-primary"
-            style={{ width: "100%", justifyContent: "center", padding: 9, fontSize: 12, cursor: "pointer", border: "none" }}>
-            Review &amp; apply →
-          </button>
+          <button onClick={() => setStage("ACTION")} className="nv-btn nv-btn-primary" data-testid="recommend-to-action"
+            style={{ width: "100%", justifyContent: "center", padding: 9, fontSize: 12, cursor: "pointer", border: "none" }}>Preview the changes →</button>
         </div>
       )}
     </>
   );
 
+  /* ── ACTION (non-executable preview — real EXIT/SELL lines; no orders are placed) ── */
+  // Prefer a rec that carries per-fund contributors (real EXIT lines); else the #1 rec.
+  const actionRec = top3.find((r) => (r.contributors?.length ?? 0) > 0) ?? top3[0];
+  const actionMain = remQ.isPending ? <Skeleton rows={3} /> : (remEmpty || !actionRec) ? (
+    <div className="nv-card-2" style={{ padding: 20 }}>
+      <div className="nv-serif" style={{ fontSize: 17 }}>Nothing to preview</div>
+      <div className="nv-body" style={{ fontSize: 13, color: "rgb(var(--ink-2))", marginTop: 4 }}>No actionable changes on your holdings right now.</div>
+    </div>
+  ) : (
+    <>
+      <div className="nv-serif" style={{ fontSize: 19, lineHeight: 1.25 }} data-testid="review-action">
+        Here's what <span style={{ color: "var(--mint)" }}>{actionRec.title}</span> would change — a preview.
+        <span style={{ color: "var(--amber)" }}> Nothing is placed.</span>
+      </div>
+      <div className="nv-card-2" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          {EYEBROW("PROPOSED CHANGES", { color: "var(--amber)" })}
+          <span className="nv-pill nv-pill-amber" style={{ fontSize: 9 }}>PREVIEW · NOT EXECUTABLE</span>
+        </div>
+        {actionRec.contributors?.length ? (
+          actionRec.contributors.slice(0, 6).map((c, i) => (
+            <div key={c.name || i} className="ct-krow" data-testid={`action-line-${i}`}>
+              <span style={{ color: "var(--danger-hex)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginRight: 8 }}>↓ EXIT · {c.name}</span>
+              <span className="nv-num" style={{ color: "rgb(var(--ink))", whiteSpace: "nowrap" }}>
+                {c.value_rs != null ? inr(c.value_rs) : pct(Number(c.pct_of_exposure ?? 0))}
+              </span>
+            </div>
+          ))
+        ) : (
+          <div className="nv-body" style={{ fontSize: 13, color: "rgb(var(--ink-2))" }} data-testid="action-line-prose">{actionRec.action}</div>
+        )}
+        {actionRec.redeploy_to && (
+          <div className="ct-krow"><span style={{ color: "var(--mint)" }}>↑ REDEPLOY</span>
+            <span className="nv-body" style={{ fontSize: 12, color: "rgb(var(--ink-2))", textAlign: "right", maxWidth: "62%" }}>{actionRec.redeploy_to}</span></div>
+        )}
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", paddingTop: 2 }}>
+          {actionRec.amount_rs ? <div><div className="nv-eyebrow" style={{ fontSize: 8 }}>CAPITAL</div><div className="nv-serif nv-num" style={{ fontSize: 16 }}>{inr(actionRec.amount_rs)}</div></div> : null}
+          {actionRec.annual_saving_rs ? <div><div className="nv-eyebrow" style={{ fontSize: 8 }}>SAVES / YR</div><div className="nv-serif nv-num" style={{ fontSize: 16, color: "var(--mint)" }}>{inr(actionRec.annual_saving_rs)}</div></div> : null}
+          <div><div className="nv-eyebrow" style={{ fontSize: 8 }}>EST. COST · TAX</div><div className="nv-body" style={{ fontSize: 12, color: "rgb(var(--ink-4))" }}>not computed</div></div>
+        </div>
+      </div>
+      <div className="nv-mono" style={{ fontSize: 9, color: "var(--amber)", letterSpacing: ".04em", lineHeight: 1.6 }} data-testid="action-noexec">
+        EDUCATIONAL PREVIEW · NOT INVESTMENT ADVICE · NO ORDERS ARE PLACED — YOUR BROKER LINKS ARE READ-ONLY.
+      </div>
+      <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
+        <button onClick={() => onAsk(`Explain the trades for: ${actionRec.title}`)} className="nv-btn nv-btn-primary"
+          data-testid="action-explain" style={{ padding: "9px 15px", fontSize: 12, cursor: "pointer", border: "none" }}>Explain these trades</button>
+        <button onClick={() => onAsk(`I'd like an advisor to review: ${actionRec.title}`)} className="nv-btn"
+          style={{ padding: "9px 15px", fontSize: 12, cursor: "pointer", borderColor: "rgb(var(--warm) / 0.30)", color: "var(--amber)" }}>Review with an advisor</button>
+      </div>
+    </>
+  );
+
+  const actionWorkspace = (
+    <>
+      {EYEBROW("ORDER PREVIEW · READ-ONLY")}
+      <div className="nv-body" style={{ fontSize: 12, color: "rgb(var(--ink-2))" }}>
+        These are proposed changes on your real holdings. Nothing is sent to a broker — Nivesh's broker links are read-only.
+      </div>
+      <div style={{ marginTop: "auto", paddingTop: 8, borderTop: "1px solid rgb(var(--line) / 0.10)" }}>
+        <div className="nv-mono" style={{ fontSize: 9, color: "rgb(var(--ink-4))", letterSpacing: ".04em", lineHeight: 1.6 }}>
+          EXECUTION IS NOT AVAILABLE. ANY TRADES ARE PLACED BY YOU, WITH YOUR OWN BROKER.
+        </div>
+      </div>
+    </>
+  );
+
   /* ── stage router ── */
   let body: React.ReactNode;
-  if (stage === "ANALYSIS") body = <Body main={analysisMain} workspace={analysisWorkspace} />;
+  if (stage === "INTAKE") body = <Body main={intakeMain} workspace={intakeWorkspace} />;
+  else if (stage === "ANALYSIS") body = <Body main={analysisMain} workspace={analysisWorkspace} />;
+  else if (stage === "OPTIONS") body = <Body main={optionsMain} workspace={optionsWorkspace} />;
   else if (stage === "RECOMMEND") body = <Body main={recommendMain} workspace={recommendWorkspace} />;
-  else if (stage === "INTAKE") body = <ComingPanel stage="INTAKE" needs="Guided goal & risk intake (tappable chips, 'what I know so far') lands next — for now the review starts from your synced holdings." />;
-  else if (stage === "OPTIONS") body = <ComingPanel stage="OPTIONS" needs="Side-by-side paths (trim / harvest / consolidate) with a scenario simulation of each path's ₹ impact and risk delta. Needs the simulation engine." />;
-  else body = <ComingPanel stage="ACTION" needs="Exact SELL/BUY order preview with est. cost, tax and broker routing — behind explicit consent. Needs order construction + broker execution." />;
+  else body = <Body main={actionMain} workspace={actionWorkspace} />;
 
   return (
     <div
@@ -361,19 +552,14 @@ export default function CopilotReview({ onAsk }: { onAsk: (q: string) => void })
       data-role="investor"
       style={{ minHeight: 0, borderRadius: 18, border: "1px solid var(--line-2)", padding: "clamp(16px,3vw,24px)", marginTop: 24, overflowX: "clip" }}
     >
-      {/* top bar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span className="nv-serif" style={{ fontSize: 18 }}>Portfolio health review</span>
           <span className="nv-pill nv-pill-mint" style={{ fontSize: 9 }}><span className="nv-dot" style={{ background: "var(--mint)" }} />NIDP CONNECTED</span>
-          {holdingsCount != null && (
-            <span className="nv-mono" style={{ fontSize: 9, color: "rgb(var(--ink-3))", letterSpacing: ".06em" }}>{holdingsCount} HOLDINGS</span>
-          )}
+          {holdingsCount != null && (<span className="nv-mono" style={{ fontSize: 9, color: "rgb(var(--ink-3))", letterSpacing: ".06em" }}>{holdingsCount} HOLDINGS</span>)}
         </div>
         <button onClick={() => onAsk("I'd like to talk to a human advisor")} className="nv-btn"
-          style={{ padding: "6px 12px", fontSize: 12, cursor: "pointer", borderColor: "rgb(var(--warm) / 0.30)", color: "var(--amber)" }}>
-          Talk to an advisor ▸
-        </button>
+          style={{ padding: "6px 12px", fontSize: 12, cursor: "pointer", borderColor: "rgb(var(--warm) / 0.30)", color: "var(--amber)" }}>Talk to an advisor ▸</button>
       </div>
 
       <hr className="nv-hr" style={{ margin: "16px 0" }} />

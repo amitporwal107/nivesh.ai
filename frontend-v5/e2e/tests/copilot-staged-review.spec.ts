@@ -1,12 +1,16 @@
 /**
- * Copilot chat staged review (/v5/chat) — Phase 1: the investor empty-state
- * renders the staged Portfolio Health Review (ANALYSIS + RECOMMENDATION live),
- * with OPTIONS/ACTION/INTAKE as labeled "coming" panels.
+ * Copilot chat staged review (/v5/chat) — the investor empty-state renders the
+ * staged Portfolio Health Review. All five stages are live off REAL data:
+ *   INTAKE (goal/risk/horizon + holdings) · ANALYSIS (health score + metrics +
+ *   snapshot + flags) · OPTIONS (real remediation recs as paths) · RECOMMEND
+ *   (ranked actions with exit/retain + ₹ impact) · ACTION (non-executable
+ *   preview of the real EXIT/SELL lines — no orders are ever placed).
  *
- * Offline (mocked) coverage: structure, stage navigation, persona, impersonation,
- * live health score + grade, live remediation recs (exit/retain + ₹ impact),
- * the CTA handoff, and the honest empty/coming states. The full metric/flag/
- * snapshot rendering off real feeds is proven separately on LIVE staging.
+ * Offline (mocked) coverage: structure, stage navigation, persona,
+ * impersonation, intake capture, live health score + grade, live remediation
+ * recs, the Action preview + its "not executable" guarantee, and honest empty
+ * states. The full metric/flag/snapshot rendering off real feeds is proven
+ * separately on LIVE staging.
  *
  * Route order matters: the catch-all api glob is registered FIRST so the
  * specific overrides (registered after) win — Playwright matches last-first.
@@ -26,7 +30,11 @@ const REM = {
       title: "Consolidate 5 Small Cap funds into 1",
       action: "Exit: quant Small Cap, HDFC Small Cap, Nippon India Small Cap and 1 more. Retain: Nippon India Small Cap Direct. Capital to redeploy: ₹3,14,755.",
       amount_rs: 314755, annual_saving_rs: 4092, leverage_score: 80,
-      contributors: [{ name: "quant Small Cap Fund", pct_of_exposure: 42.8 }, { name: "HDFC Small Cap Fund", pct_of_exposure: 1 }],
+      contributors: [
+        { name: "quant Small Cap Fund", pct_of_exposure: 42.8, value_rs: 134755 },
+        { name: "HDFC Small Cap Fund", pct_of_exposure: 1, value_rs: 3151 },
+      ],
+      redeploy_to: "Redirect freed SIPs to under-allocated categories",
       before_after: [],
     },
     {
@@ -50,9 +58,7 @@ const setup = async (
   opts: { me?: Record<string, unknown>; impersonateProfileId?: string; health?: unknown; rem?: unknown } = {},
 ) => {
   const { me = ME, impersonateProfileId, health = HEALTH, rem = REM } = opts;
-  // catch-all FIRST (returns {} → non-mocked feeds degrade to honest empty states)
   await page.route("**/api/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
-  // specific overrides AFTER (win)
   await page.route("**/api/auth/me**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(me) }));
   await page.route("**/api/insights/analysis**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(health) }));
   await page.route("**/api/portfolio/exposure/remediation**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(rem) }));
@@ -70,44 +76,56 @@ const setup = async (
 const rv = (page: Page) => page.getByTestId("copilot-review");
 
 test.describe("Copilot staged review — investor", () => {
-  test("1 · investor empty-state renders the staged review, ANALYSIS active", async ({ page }) => {
+  test("1 · investor empty-state renders the staged review, INTAKE active", async ({ page }) => {
     await setup(page);
     await expect(rv(page)).toBeVisible({ timeout: 15000 });
     await expect(rv(page)).toHaveAttribute("data-role", "investor");
     await expect(rv(page).getByTestId("review-stagestrip")).toBeVisible();
+    await expect(rv(page).getByTestId("stage-INTAKE")).toHaveAttribute("aria-current", "step");
+    await expect(rv(page).getByTestId("intake-goals")).toBeVisible();
+  });
+
+  test("2 · INTAKE captures goal → risk → horizon and carries into ANALYSIS", async ({ page }) => {
+    await setup(page);
+    await expect(rv(page).getByTestId("intake-goals")).toBeVisible({ timeout: 15000 });
+    await rv(page).getByRole("button", { name: "Reduce risk" }).click();
+    await expect(rv(page).getByTestId("intake-risks")).toBeVisible();
+    await rv(page).getByRole("button", { name: "Moderate" }).click();
+    await expect(rv(page).getByTestId("intake-horizons")).toBeVisible();
+    await expect(rv(page).getByText("Reduce risk", { exact: true }).first()).toBeVisible();
+    await rv(page).getByTestId("intake-analyze").click();
     await expect(rv(page).getByTestId("stage-ANALYSIS")).toHaveAttribute("aria-current", "step");
+    await expect(rv(page).getByTestId("analysis-context")).toContainText("RISK · MODERATE");
   });
 
-  test("2 · ANALYSIS shows the live health score + grade", async ({ page }) => {
+  test("3 · ANALYSIS shows the live health score + grade, no fabricated risk", async ({ page }) => {
     await setup(page);
-    await expect(rv(page).getByTestId("review-health-score")).toContainText("67", { timeout: 15000 });
+    await expect(rv(page)).toBeVisible({ timeout: 15000 });
+    await rv(page).getByTestId("stage-ANALYSIS").click();
+    await expect(rv(page).getByTestId("review-health-score")).toContainText("67");
     await expect(rv(page).getByTestId("metric-grade")).toContainText("B");
-  });
-
-  test("3 · no fabricated risk score is shown", async ({ page }) => {
-    await setup(page);
-    await expect(rv(page)).toBeVisible({ timeout: 15000 });
     await expect(rv(page).getByText("6.4")).toHaveCount(0);
-    await expect(rv(page).getByText("PORTFOLIO SNAPSHOT")).toBeVisible();
   });
 
-  test("4 · RECOMMEND shows top remediation recs with exit/retain + ₹ impact", async ({ page }) => {
+  test("4 · OPTIONS shows the real remediation recs as paths with ₹ impact", async ({ page }) => {
     await setup(page);
     await expect(rv(page)).toBeVisible({ timeout: 15000 });
-    await rv(page).getByTestId("review-to-recommend").click();
+    await rv(page).getByTestId("stage-OPTIONS").click();
+    await expect(rv(page).getByTestId("option-0")).toContainText("Consolidate 5 Small Cap funds into 1");
+    await expect(rv(page).getByTestId("option-0")).toContainText("₹4,092 saved/yr");
+    await expect(rv(page).getByTestId("option-1")).toContainText("Reduce HDFC");
+  });
+
+  test("5 · RECOMMEND shows top recs with exit/retain + ₹ impact + now→target", async ({ page }) => {
+    await setup(page);
+    await expect(rv(page)).toBeVisible({ timeout: 15000 });
+    await rv(page).getByTestId("stage-RECOMMEND").click();
     const row0 = rv(page).getByTestId("rec-row-0");
     await expect(row0).toContainText("Consolidate 5 Small Cap funds into 1");
     await expect(row0).toContainText("₹4,092 saved/yr");
     await expect(row0).toContainText("Retain: Nippon India Small Cap Direct");
     await expect(row0).toContainText("Capital to redeploy: ₹3,14,755");
-    await expect(rv(page).getByTestId("rec-row-1")).toContainText("Reduce HDFC");
-    await expect(rv(page).getByTestId("rec-row-2")).toContainText("equity 82%");
-  });
-
-  test("5 · RECOMMEND now→target plan uses real before_after", async ({ page }) => {
-    await setup(page);
-    await rv(page).getByTestId("stage-RECOMMEND").click();
-    await expect(rv(page).getByText("ALLOCATION · NOW → TARGET")).toBeVisible({ timeout: 15000 });
+    await expect(rv(page).getByText("ALLOCATION · NOW → TARGET")).toBeVisible();
     await expect(rv(page).getByText("82% → 60%")).toBeVisible();
   });
 
@@ -119,21 +137,30 @@ test.describe("Copilot staged review — investor", () => {
     expect(JSON.parse((await req).postData() || "{}").message).toBe("Consolidate 5 Small Cap funds into 1");
   });
 
-  test("7 · OPTIONS / ACTION are labeled 'coming' with no fake orders", async ({ page }) => {
+  test("7 · ACTION is a non-executable preview of real EXIT lines — no orders placed", async ({ page }) => {
     await setup(page);
-    await rv(page).getByTestId("stage-OPTIONS").click();
-    await expect(rv(page).getByTestId("stage-coming")).toContainText("scenario simulation");
     await rv(page).getByTestId("stage-ACTION").click();
-    await expect(rv(page).getByTestId("stage-coming")).toContainText("broker");
-    await expect(rv(page).getByText(/SELL · HDFC/)).toHaveCount(0);
+    await expect(rv(page).getByTestId("review-action")).toContainText("Nothing is placed");
+    // real per-fund EXIT line with a real ₹ value (from contributors.value_rs)
+    await expect(rv(page).getByTestId("action-line-0")).toContainText("quant Small Cap Fund");
+    await expect(rv(page).getByTestId("action-line-0")).toContainText("₹1,34,755");
+    // the no-execution guarantee is loud
+    await expect(rv(page).getByTestId("action-noexec")).toContainText("NO ORDERS ARE PLACED");
+    // nothing fabricated: no est. cost, none of the mockup's invented stock sells
+    await expect(rv(page).getByText("not computed")).toBeVisible();
+    await expect(rv(page).getByText(/SELL · HDFC Bank/)).toHaveCount(0);
+    await expect(rv(page).getByText("₹96,000")).toHaveCount(0);
   });
 
-  test("8 · empty portfolio → honest states, no crash", async ({ page }) => {
+  test("8 · empty portfolio → honest states across stages, no crash", async ({ page }) => {
     await setup(page, { health: { portfolio_health: { health_score: 0, grade: "" } }, rem: { total_value: 0, empty: true, recommendations: [] } });
     await expect(rv(page)).toBeVisible({ timeout: 15000 });
+    await rv(page).getByTestId("stage-ANALYSIS").click();
     await expect(rv(page).getByText("No live portfolio yet")).toBeVisible();
-    await rv(page).getByTestId("stage-RECOMMEND").click();
-    await expect(rv(page).getByText("Nothing urgent to fix")).toBeVisible();
+    await rv(page).getByTestId("stage-OPTIONS").click();
+    await expect(rv(page).getByText("No options to weigh")).toBeVisible();
+    await rv(page).getByTestId("stage-ACTION").click();
+    await expect(rv(page).getByText("Nothing to preview")).toBeVisible();
   });
 });
 
