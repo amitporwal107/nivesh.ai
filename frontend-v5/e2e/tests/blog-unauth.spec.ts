@@ -15,6 +15,9 @@ const HEAL_SLUG = "self-healing-software-autonomous-fixes";
 const HEAL_TITLE_RE = /Self-healing software/i;
 const CLAUDE_SLUG = "how-we-build-with-claude";
 const CLAUDE_TITLE_RE = /How we build with Claude/i;
+// Flagship overview adapted from the "Shipping Like a Team of Ten" webinar.
+const T10_SLUG = "shipping-like-a-team-of-ten";
+const T10_TITLE_RE = /Shipping like a team of ten/i;
 // Conversational investor-education batch (now the newest → top of the homepage slice).
 const TOP_SLUG = "types-of-mutual-funds-india";
 const TOP_TITLE_RE = /Types of mutual funds/i;
@@ -145,5 +148,49 @@ test.describe("Blog", () => {
     for (const c of CONV) {
       await expect(page.getByTestId(`blog-card-${c.slug}`)).toBeVisible();
     }
+  });
+
+  test("TC-13: /blog index lists the flagship 'team of ten' overview", async ({ page }) => {
+    await page.goto("/v5/blog");
+    await page.getByTestId(`blog-card-${T10_SLUG}`).waitFor({ state: "attached", timeout: 90000 });
+    await expect(page.getByTestId(`blog-card-${T10_SLUG}`)).toBeVisible();
+    await expect(page.getByText(T10_TITLE_RE).first()).toBeVisible();
+  });
+
+  test("TC-14: homepage 'From the blog' section shows the flagship card", async ({ page }) => {
+    await page.goto("/v5/");
+    const card = page.getByTestId(`blog-card-${T10_SLUG}`);
+    await card.waitFor({ state: "attached", timeout: 90000 });
+    await card.scrollIntoViewIfNeeded();
+    await expect(card).toBeVisible();
+  });
+
+  test("TC-15: flagship article renders the rule, gate terminal, six blocks and honest scorecard", async ({ page }) => {
+    await page.goto(`/v5/blog/${T10_SLUG}`);
+    await page.getByTestId("blog-article").waitFor({ state: "attached", timeout: 90000 });
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(T10_TITLE_RE);
+    await expect(page.getByText(/Changed.*is not.*verified/i).first()).toBeVisible();
+    await expect(page.getByText(/## Verdict: PASS/).first()).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: /Six building blocks/i })).toBeVisible();
+    await expect(page.getByText("NOT YET").first()).toBeVisible();
+  });
+
+  test("TC-16: flagship CTA 'Try Nivesh Copilot free' navigates to /login", async ({ page }) => {
+    await page.goto(`/v5/blog/${T10_SLUG}`);
+    await page.getByTestId("blog-article").waitFor({ state: "attached", timeout: 90000 });
+    await page.getByRole("button", { name: "Try Nivesh Copilot free" }).click();
+    await expect(page).toHaveURL(/\/v5\/login/);
+  });
+
+  test("TC-17: flagship cross-links open the two engineering deep-dives", async ({ page }) => {
+    await page.goto(`/v5/blog/${T10_SLUG}`);
+    await page.getByTestId("blog-article").waitFor({ state: "attached", timeout: 90000 });
+    await page.getByRole("link", { name: /How we build with Claude/i }).first().click();
+    await expect(page).toHaveURL(new RegExp(`/v5/blog/${CLAUDE_SLUG}`));
+
+    await page.goto(`/v5/blog/${T10_SLUG}`);
+    await page.getByTestId("blog-article").waitFor({ state: "attached", timeout: 90000 });
+    await page.getByRole("link", { name: /Self-healing software/i }).first().click();
+    await expect(page).toHaveURL(new RegExp(`/v5/blog/${HEAL_SLUG}`));
   });
 });
