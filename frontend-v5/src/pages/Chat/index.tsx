@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter, Sparkles, Wand2, FlaskConical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CopilotWorkflows from "./CopilotWorkflows";
+import CopilotReview from "./CopilotReview";
 import { useMe } from "@/hooks/use-auth";
 import { useImpersonationStore } from "@/stores/impersonation.store";
 import { useQueryClient } from "@tanstack/react-query";
@@ -619,7 +620,11 @@ export default function ChatPage() {
         </div>
 
         {messages.length === 0 && (
-          <CopilotWorkflows isAdvisor={isAdvisor} onLaunch={(q) => void submitMessage(q)} />
+          isAdvisor ? (
+            <CopilotWorkflows isAdvisor onLaunch={(q) => void submitMessage(q)} />
+          ) : (
+            <CopilotReview onAsk={(q) => void submitMessage(q)} />
+          )
         )}
 
         <div className="mt-6">
