@@ -33,6 +33,7 @@ gate wins on any conflict).
 | "should we build", scope, priorities, user value, requirements, acceptance criteria, tradeoffs | `.claude/roles/PRODUCT_MANAGER.md` | *what* and *why* |
 | UI, component, layout, design system, accessibility, visual polish, interaction, responsive | `.claude/roles/DESIGN_ENGINEER.md` | how it looks/feels |
 | timeline, dependencies, sequencing, "what's blocking", status, breaking work into steps, risk | `.claude/roles/PROJECT_MANAGER.md` | order and flow |
+| fundamental/technical analysis, read a balance sheet, MF selection/suitability, a quant/stat model, which feed/is the data trustworthy, SEBI/regulatory review, or advice on what market-analytics to build | `.claude/roles/DOMAIN_EXPERT_ANALYST.md` (skill: `domain-expert-analyst`) | domain correctness & data trust |
 
 **Step 3 — Name the guardrails** that now apply (the shared ones below + each role
 guide's Definition of Done). If a task has no clear owning role, default to
