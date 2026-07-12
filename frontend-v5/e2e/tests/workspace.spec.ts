@@ -122,7 +122,7 @@ test.describe("Settings (mocked)", () => {
     expect(page.url()).toBe(url);
   });
 
-  test("'Sign out' navigates to /login", async ({ page }) => {
+  test("'Sign out' navigates to the public homepage (/v5/), not the login wall", async ({ page }) => {
     await mockApi(page, "populated");
     await page.route("**/api/auth/logout", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "ok" }) }),
@@ -130,6 +130,6 @@ test.describe("Settings (mocked)", () => {
     await page.goto("/v5/settings");
 
     await page.getByText("Sign out").click();
-    await expect(page).toHaveURL(/\/v5\/login/);
+    await expect(page).toHaveURL(/\/v5\/?$/);
   });
 });
