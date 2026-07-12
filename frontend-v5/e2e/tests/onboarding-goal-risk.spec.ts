@@ -45,6 +45,69 @@ test.describe("Onboarding — Goal & Risk steps (optional) → Copilot", () => {
     // The Goal step itself is proven reachable + skippable by the next test.
   });
 
+  test("Gmail import failure surfaces the REAL reason (not 'Import failed: 200')", async ({ page }) => {
+    await page.route("**/api/onboarding/pan", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) }));
+    // Backend returns HTTP 200 with ok:false and the reason in parse_error.
+    await page.route("**/api/onboarding/gmail/auto-import", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+        ok: false, scanned: 1,
+        parse_error: { kind: "password", message: "The CAS statement couldn't be read.", detail: "wrong PAN" },
+      }) }));
+    // Arrive back from Gmail OAuth → the GmailPanel is in PAN-entry.
+    await page.goto("/v5/onboarding?gmail_code=test123");
+    const panInput = page.locator('input[placeholder="e.g. ABCDE1234F"]');
+    await expect(panInput).toBeVisible();
+    await panInput.fill("ABCDE1234F");
+    await page.getByRole("button", { name: /Import my holdings/ }).click();
+    // The actual reason is shown; the bare-status message is NOT.
+    await expect(page.getByText("The CAS statement couldn't be read.")).toBeVisible();
+    await expect(page.getByText(/Import failed: 200/)).toHaveCount(0);
+  });
+
+  test("CAS upload posts to the in-house parser (/api/onboarding/upload-cas) and imports holdings", async ({ page }) => {
+    await page.route("**/api/onboarding/pan", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) }));
+    let uploadUrl = "";
+    await page.route("**/api/onboarding/upload-cas", (route) => {
+      uploadUrl = route.request().url();
+      return route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ ok: true, imported_holdings: 5 }) });
+    });
+    // Regression guard: the OLD (broken) path — /api/portfolio/upload 410s PDFs.
+    await page.route("**/api/portfolio/upload", (route) =>
+      route.fulfill({ status: 410, contentType: "application/json", body: JSON.stringify({ detail: "gone" }) }));
+
+    await page.goto("/v5/onboarding");
+    await page.getByTestId("persona-individual").click();
+    await page.getByText("CAS Upload · NSDL / CDSL").click();
+    await page.getByTestId("cas-pan").fill("ABCDE1234F");
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "cas.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 test"),
+    });
+    await expect(page.getByText(/5 holdings imported/i)).toBeVisible();
+    await expect(page.getByTestId("upload-continue")).toBeVisible();
+    expect(uploadUrl).toContain("/api/onboarding/upload-cas");
+  });
+
+  test("CAS upload failure surfaces the real reason (422 detail)", async ({ page }) => {
+    await page.route("**/api/onboarding/pan", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) }));
+    await page.route("**/api/onboarding/upload-cas", (route) =>
+      route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({
+        detail: "Couldn't parse this CAS PDF. Check that the PAN matches and the file is a recent statement.",
+      }) }));
+
+    await page.goto("/v5/onboarding");
+    await page.getByTestId("persona-individual").click();
+    await page.getByText("CAS Upload · NSDL / CDSL").click();
+    await page.getByTestId("cas-pan").fill("ABCDE1234F");
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "cas.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 test"),
+    });
+    await expect(page.getByText(/Couldn't parse this CAS PDF/)).toBeVisible();
+  });
+
   test("Already-onboarded users hitting /onboarding are redirected to the Copilot (/lite)", async ({ page }) => {
     // Override: this user has already completed onboarding.
     await page.route("**/api/onboarding/state", (route) =>

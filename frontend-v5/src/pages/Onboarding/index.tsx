@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { GoogleMark } from "@/components/shared/GoogleMark";
 import { Upload, Shield, CheckCircle2, User, Briefcase } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useCasUpload } from "@/hooks/use-cas-upload";
 import { useUpgradeToAdvisory } from "@/hooks/use-advisor";
 import { useUIStore } from "@/stores/ui.store";
 import { useToastStore } from "@/stores/toast.store";
@@ -353,11 +352,25 @@ function GmailPanel({ onContinue }: { onContinue: () => void }) {
         method: "POST",
       });
       const data = await importRes.json() as {
-        ok?: boolean; message?: string;
+        ok?: boolean; message?: string; scanned?: number;
+        parse_error?: { kind?: string; message?: string; detail?: string };
         source_used?: string; imported_holdings?: number; imported_transactions?: number;
       };
-      if (!importRes.ok || !data.ok) {
-        throw new Error(data.message || `Import failed: ${importRes.status}`);
+      // A failed import returns HTTP 200 with ok:false and the real reason in
+      // `parse_error` (kind/message/detail). The "no CAS emails" case returns
+      // ok:true but 0 holdings with a top-level `message`. Surface the actual
+      // reason — never the bare status (that produced the useless
+      // "Import failed: 200").
+      const importedOk = data.ok && (data.imported_holdings ?? 0) > 0;
+      if (!importRes.ok || !importedOk) {
+        const reason =
+          data.parse_error?.message ||
+          data.message ||
+          (data.scanned === 0
+            ? "No CAS emails found in this inbox. Try CAS Upload instead."
+            : "We found your CAS email but couldn't read the statement. Check your PAN is correct, or use CAS Upload.");
+        const detail = data.parse_error?.detail ? ` (${data.parse_error.detail})` : "";
+        throw new Error(reason + detail);
       }
       setResult({ source: data.source_used, holdings: data.imported_holdings, transactions: data.imported_transactions });
       setState("done");
@@ -495,20 +508,58 @@ function GmailPanel({ onContinue }: { onContinue: () => void }) {
   );
 }
 
+type UploadState = "idle" | "uploading" | "done" | "error";
+
 function UploadPanel({ onContinue }: { onContinue: () => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [password, setPassword] = useState("");
-  const upload = useCasUpload();
+  const [pan, setPan] = useState("");
+  const [state, setState] = useState<UploadState>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ holdings?: number } | null>(null);
 
-  const handleFile = (file: File | undefined) => {
+  // Retail CAS PDF upload goes to the in-house parser at
+  // POST /api/onboarding/upload-cas (NOT /api/portfolio/upload — that endpoint
+  // is CSV/Excel-only and 410s PDFs). eCAS PDFs are password-locked with the
+  // holder's PAN, which the endpoint reads from the profile — so we save the
+  // PAN first, then post the file as multipart.
+  const handleFile = async (file: File | undefined) => {
     if (!file) return;
-    upload.upload({ file, password: password || undefined });
-  };
+    const panVal = pan.trim().toUpperCase();
+    if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(panVal)) {
+      setError("Enter your PAN (e.g. ABCDE1234F) first — eCAS PDFs are locked with it.");
+      setState("error");
+      return;
+    }
+    setError(null);
+    setState("uploading");
+    try {
+      const panRes = await apiFetch("/api/onboarding/pan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pan: panVal }),
+      });
+      if (!panRes.ok) throw new Error(`Couldn't save your PAN (${panRes.status}).`);
 
-  const status = upload.status;
-  const progress = upload.progress;
-  const done = status === "COMPLETED";
-  const failed = status === "FAILED";
+      const form = new FormData();
+      form.append("file", file);
+      const res = await apiFetch("/api/onboarding/upload-cas", { method: "POST", body: form });
+      const data = await res.json().catch(() => ({})) as {
+        ok?: boolean; imported_holdings?: number;
+        detail?: string | { message?: string };
+      };
+      if (!res.ok || !data.ok) {
+        const reason =
+          (typeof data.detail === "string" ? data.detail : data.detail?.message) ||
+          "Couldn't read this CAS PDF. Check your PAN, and use a recent NSDL / CDSL / CAMS / KFintech statement.";
+        throw new Error(reason);
+      }
+      setResult({ holdings: data.imported_holdings });
+      setState("done");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+      setState("error");
+    }
+  };
 
   return (
     <div className="p-6">
@@ -535,7 +586,7 @@ function UploadPanel({ onContinue }: { onContinue: () => void }) {
         onChange={(e) => handleFile(e.target.files?.[0])}
       />
 
-      {!upload.taskId && (
+      {(state === "idle" || state === "error") && (
         <div
           className="mt-5 rounded-md border border-dashed border-hairline-2 bg-bg p-8 text-center"
           onDragOver={(e) => e.preventDefault()}
@@ -546,49 +597,51 @@ function UploadPanel({ onContinue }: { onContinue: () => void }) {
         >
           <div className="h-12 w-12 rounded-md bg-surface-2 grid place-items-center text-ink-2 mx-auto mb-3 text-2xl">↧</div>
           <div className="font-display text-lg tracking-tightish">Drop your eCAS PDF here</div>
-          <div className="font-mono text-[10.5px] text-ink-3 mt-1.5">PDF · up to 10 MB · password-protected accepted</div>
+          <div className="font-mono text-[10.5px] text-ink-3 mt-1.5">PDF · up to 25 MB · PAN unlocks it</div>
+
+          <div className="mt-4 text-left">
+            <label className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">Your PAN · unlocks the eCAS PDF</label>
+            <input
+              type="text"
+              value={pan}
+              onChange={(e) => setPan(e.target.value.toUpperCase())}
+              maxLength={10}
+              placeholder="e.g. ABCDE1234F"
+              data-testid="cas-pan"
+              className="mt-1.5 w-full px-3 h-10 rounded-md bg-surface-1 border border-hairline-2 font-mono text-[13px] uppercase tracking-widest outline-none focus:border-accent"
+            />
+          </div>
+
           <Button variant="outline" size="sm" className="mt-3.5" onClick={() => fileInputRef.current?.click()}>
             Browse files
           </Button>
+        </div>
+      )}
 
-          <div className="mt-4 text-left">
-            <label className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">PDF password (optional)</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="leave blank if none"
-              className="mt-1.5 w-full px-3 h-10 rounded-md bg-surface-1 border border-hairline-2 text-[13px] outline-none focus:border-accent"
-            />
+      {state === "error" && error && (
+        <div className="mt-4 text-[12.5px] text-neg bg-[rgb(var(--neg)/0.08)] border border-[rgb(var(--neg)/0.20)] rounded-md px-3.5 py-2.5">
+          {error}
+        </div>
+      )}
+
+      {state === "uploading" && (
+        <div className="mt-5 rounded-md bg-bg border border-hairline p-5 flex items-center gap-3">
+          <div className="h-8 w-8 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">Parsing your statement…</div>
+            <div className="text-[12.5px] text-ink-2 mt-0.5">Unlocking with your PAN · reading holdings</div>
           </div>
         </div>
       )}
 
-      {upload.taskId && !done && !failed && (
-        <div className="mt-5 rounded-md bg-bg border border-hairline p-5">
-          <div className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">
-            Parsing your statement…
-          </div>
-          <div className="mt-2 h-2 w-full rounded-full bg-surface-2 overflow-hidden">
-            <div
-              className="h-full bg-accent transition-all"
-              style={{ width: `${Math.max(8, progress)}%` }}
-            />
-          </div>
-          <div className="font-mono text-[10.5px] text-ink-3 mt-2">
-            Status · {status ?? "QUEUED"} · {progress}%
-          </div>
-        </div>
-      )}
-
-      {done && (
+      {state === "done" && (
         <>
           <div className="mt-5 rounded-md bg-[rgb(var(--pos)/0.08)] border border-[rgb(var(--pos)/0.30)] p-4 flex items-start gap-3">
             <CheckCircle2 className="h-5 w-5 text-pos shrink-0 mt-0.5" />
             <div>
               <div className="font-medium text-[14px]">Parsed successfully</div>
               <div className="text-[12.5px] text-ink-2 mt-1">
-                Your holdings are now in Nivesh. Continue to set your goals.
+                {result?.holdings ? `${result.holdings} holdings imported. ` : ""}Continue to set your goals.
               </div>
             </div>
           </div>
@@ -596,15 +649,6 @@ function UploadPanel({ onContinue }: { onContinue: () => void }) {
             Set goals &amp; risk →
           </Button>
         </>
-      )}
-
-      {failed && (
-        <div className="mt-5 rounded-md bg-[rgb(var(--neg)/0.08)] border border-[rgb(var(--neg)/0.30)] p-4">
-          <div className="font-medium text-[14px] text-neg">Parsing failed</div>
-          <div className="text-[12.5px] text-ink-2 mt-1">
-            {upload.error instanceof Error ? upload.error.message : "Try a different file or check the password."}
-          </div>
-        </div>
       )}
 
       <div className="rounded-md bg-bg border border-hairline p-3.5 mt-3.5 flex items-center gap-3">
