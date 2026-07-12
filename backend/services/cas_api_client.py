@@ -831,6 +831,44 @@ def parse_cas_via_sdk_flow_with_error(content: bytes, password: str = "") -> tup
     return holdings, data, normalized, None
 
 
+_CASPARSER_RELAXED = False
+
+
+def _relax_casparser_investor_info() -> None:
+    """Make casparser's ``investor_info`` field Optional so a statement whose
+    investor header can't be parsed still yields its holdings.
+
+    casparser's CAMS/KFintech models (``PartialCASData``, ``CASData``) declare
+    ``investor_info`` as REQUIRED. Its parser leaves that field ``None`` whenever
+    it can't recognise/extract the investor block (e.g. a CAMS template it
+    doesn't know), and under pydantic 2.12 constructing the model then raises a
+    ValidationError that aborts the ENTIRE parse — holdings included — even
+    though folio/holding extraction (``process_cas_text``) never touches
+    ``investor_info``. We don't need the investor block anyway (it's PII we mask
+    downstream), so relax the requirement once: a missing header degrades to
+    "return the holdings" instead of a hard failure. Statements that already
+    parse are unaffected (their ``investor_info`` is non-None).
+
+    Idempotent and defensive — a no-op if casparser's model shape changes or the
+    field is already Optional (``NSDLCASData`` already is)."""
+    global _CASPARSER_RELAXED
+    if _CASPARSER_RELAXED:
+        return
+    _CASPARSER_RELAXED = True
+    try:
+        import casparser.types as _ct
+        for _name in ("PartialCASData", "CASData"):
+            _model = getattr(_ct, _name, None)
+            _fld = getattr(_model, "model_fields", {}).get("investor_info") if _model else None
+            if _fld is not None and _fld.is_required():
+                _fld.annotation = Optional[_ct.InvestorInfo]
+                _fld.default = None
+                _model.model_rebuild(force=True)
+                logger.info("casparser: relaxed %s.investor_info to Optional", _name)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("casparser: could not relax investor_info requirement: %s", e)
+
+
 def parse_cas_offline(content: bytes, password: str = "") -> tuple:
     """Parse a CAS PDF with the OFFLINE `casparser` library — no API call, no
     subscription gate, no OCR. Works for digitally-generated NSDL/CDSL/CAMS/
@@ -844,6 +882,7 @@ def parse_cas_offline(content: bytes, password: str = "") -> tuple:
     except ImportError:
         return [], None, {"kind": "service", "message": "Offline CAS parser is unavailable.",
                           "detail": "casparser_lib_missing"}
+    _relax_casparser_investor_info()
     try:
         raw = _cp.read_cas_pdf(io.BytesIO(content), password or "", output="dict")
     except TypeError:
