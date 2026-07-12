@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import AppLayout from "./components/layout/AppLayout";
+import LiteLayout from "./components/layout/LiteLayout";
 import { RequireAuth } from "./components/layout/RequireAuth";
 import { RequireAdmin } from "./components/layout/RequireAdmin";
 import { RouteErrorBoundary } from "./components/shared/RouteErrorBoundary";
@@ -97,6 +98,13 @@ export function AppRoutes() {
       <Route path="/testSelfDiagnosticTool" element={<TestDiagnosticToolPage />} />
       {/* On-device debug log viewer — no auth, for diagnosing native app errors */}
       <Route path="/debug-logs" element={<DebugLogsPage />} />
+
+      {/* Lite surface — ONLY the Copilot chat, no dashboard chrome.
+          URL-pattern gated (/lite): same auth, minimal layout, self-contained
+          ChatPage. The full app below is untouched. */}
+      <Route element={<RequireAuth><LiteLayout /></RequireAuth>}>
+        <Route path="/lite" element={<RouteErrorBoundary pageName="Copilot (Lite)"><ChatPage /></RouteErrorBoundary>} />
+      </Route>
 
       {/* Authenticated app — sidebar layout */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
