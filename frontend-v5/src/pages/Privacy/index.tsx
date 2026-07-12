@@ -28,6 +28,23 @@ export default function PrivacyPage() {
           body: "When you connect Gmail, access is read-only and scoped to finding CAS statements. We do not send mail, and we do not read anything other than the statements needed to build your portfolio. You can revoke access at any time from your Google account.",
         },
         {
+          h: "Google user data — Limited Use",
+          body: (
+            <>Nivesh's use and transfer of information received from Google APIs to any other app
+              will adhere to the{" "}
+              <a
+                href="https://developers.google.com/terms/api-services-user-data-policy"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "var(--mint)" }}
+              >
+                Google API Services User Data Policy
+              </a>, including the Limited Use requirements. We do not use Gmail data for
+              advertising, do not sell it, and do not allow humans to read it except where you
+              explicitly ask us to, for security or to comply with the law.</>
+          ),
+        },
+        {
           h: "How statements are handled",
           body: "Statements are parsed to extract holdings and transactions, and encrypted in transit. We store the structured portfolio we derive so we can show you your analysis over time; we do not warehouse the raw statement files beyond what is needed to process them.",
         },
