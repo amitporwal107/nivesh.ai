@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import AppLayout from "./components/layout/AppLayout";
 import LiteLayout from "./components/layout/LiteLayout";
 import { RequireAuth } from "./components/layout/RequireAuth";
+import { RequireOnboarded } from "./components/layout/RequireOnboarded";
 import { RequireAdmin } from "./components/layout/RequireAdmin";
 import { RouteErrorBoundary } from "./components/shared/RouteErrorBoundary";
 import HomepagePage from "./pages/Homepage";
@@ -101,8 +102,10 @@ export function AppRoutes() {
 
       {/* Lite surface — ONLY the Copilot chat, no dashboard chrome.
           URL-pattern gated (/lite): same auth, minimal layout, self-contained
-          ChatPage. The full app below is untouched. */}
-      <Route element={<RequireAuth><LiteLayout /></RequireAuth>}>
+          ChatPage. RequireOnboarded sends a not-yet-onboarded user to
+          /onboarding first (CAS upload / Gmail sync → Goal → Risk), which
+          lands them back here. The full app below is untouched. */}
+      <Route element={<RequireAuth><RequireOnboarded><LiteLayout /></RequireOnboarded></RequireAuth>}>
         <Route path="/lite" element={<RouteErrorBoundary pageName="Copilot (Lite)"><ChatPage /></RouteErrorBoundary>} />
       </Route>
 

@@ -15,7 +15,7 @@
  * by mockApi → user-profile-onboarded.json), so no real session token needed.
  */
 import { test, expect } from "@playwright/test";
-import { mockApi } from "../helpers/api-mock";
+import { mockApi, mockSingleRoute } from "../helpers/api-mock";
 
 const SIDEBAR = 'nav[aria-label="Primary"]';
 
@@ -39,6 +39,19 @@ test.describe("Lite Copilot surface", () => {
     await page.goto("/v5/lite");
     await page.waitForLoadState("networkidle");
     await expect(page.locator(SIDEBAR)).toHaveCount(0);
+  });
+
+  test("NOT-onboarded user on /lite is routed to onboarding (CAS upload / Gmail sync)", async ({ page }) => {
+    // Same mocks, but this user has NOT completed onboarding.
+    await mockSingleRoute(page, "**/api/auth/me", "user-profile.json"); // onboarding_completed: false
+    await page.goto("/v5/lite");
+    // Gated → sent to onboarding instead of the empty Copilot.
+    await expect(page).toHaveURL(/\/v5\/onboarding$/);
+    // The Connect step exposes CAS upload + Gmail sync.
+    await page.getByTestId("persona-individual").click();
+    await expect(page.getByText("Bring your investments in.")).toBeVisible();
+    await expect(page.getByText("Gmail CAS Import")).toBeVisible();
+    await expect(page.getByText("CAS Upload · NSDL / CDSL")).toBeVisible();
   });
 
   test("CONTROL: /chat renders the SAME Copilot WITH the sidebar", async ({ page }) => {

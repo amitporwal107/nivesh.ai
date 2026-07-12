@@ -12,6 +12,8 @@ import { useUIStore } from "@/stores/ui.store";
 import { useToastStore } from "@/stores/toast.store";
 import { apiFetch } from "@/services/api/authed-fetch";
 import { ProfileWizardModal } from "@/pages/Dashboard/ProfileWizardModal";
+import { useQueryClient } from "@tanstack/react-query";
+import type { User as AppUser } from "@/types/user";
 
 type Method = "gmail" | "upload" | "otp";
 type Phase = "persona" | "connect" | "profile";
@@ -26,6 +28,7 @@ const returningFromOauth = () => {
 
 export default function OnboardingPage() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [method, setMethod] = useState<Method>("gmail");
   const [phase, setPhase] = useState<Phase>(returningFromOauth() ? "connect" : "persona");
 
@@ -42,6 +45,28 @@ export default function OnboardingPage() {
   }, [navigate]);
 
   const goToProfile = () => setPhase("profile");
+
+  // Terminal step of onboarding → land in the Copilot (/lite). Mark onboarding
+  // complete (connecting a portfolio already sets this server-side; this also
+  // covers the skip-through path) and refresh `useMe` BEFORE navigating, so the
+  // /lite onboarding gate (RequireOnboarded) sees the fresh flag and does not
+  // bounce the user straight back here.
+  const finishOnboarding = async () => {
+    try {
+      await apiFetch("/api/user/complete-onboarding", { method: "POST" });
+    } catch {
+      // best-effort — a connected CAS/Gmail import already flips the flag
+    }
+    // Flip the cached onboarding flag SYNCHRONOUSLY so the /lite gate
+    // (RequireOnboarded) passes immediately. /onboarding has no active `useMe`
+    // observer, so invalidate alone would leave the stale flag in the cache and
+    // the gate would bounce the user back here (useMe has refetchOnMount:false).
+    // Invalidate too, so the server value is reconciled in the background.
+    qc.setQueryData<AppUser>(["auth", "me"], (old) =>
+      old ? { ...old, onboardingCompleted: true } : old);
+    qc.invalidateQueries({ queryKey: ["auth", "me"] });
+    navigate("/lite", { replace: true });
+  };
 
   if (phase === "persona") {
     return <PersonaSelect onIndividual={() => setPhase("connect")} />;
@@ -73,7 +98,7 @@ export default function OnboardingPage() {
           completeness={{ hasRiskProfile: false, hasGoal: false, hasSnapshot: false }}
           existingProfile={null}
           onComplete={() => {}}
-          onClose={() => navigate("/lite", { replace: true })}
+          onClose={finishOnboarding}
         />
       </div>
     );

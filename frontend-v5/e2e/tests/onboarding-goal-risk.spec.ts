@@ -55,6 +55,40 @@ test.describe("Onboarding — Goal & Risk steps (optional) → Copilot", () => {
     await expect(page.getByText("New chat").first()).toBeVisible();
   });
 
+  test("NOT-onboarded user completes onboarding by skipping → lands in /lite, no loop", async ({ page }) => {
+    // Stateful: the user starts NOT onboarded; POST /complete-onboarding flips it.
+    let onboarded = false;
+    await page.route("**/api/user/complete-onboarding", (route) => {
+      onboarded = true;
+      return route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ status: "ok", onboarding_completed: true }) });
+    });
+    const meBody = () => JSON.stringify({
+      user_id: "u1", email: "new@user.com", email_norm: "new@user.com", name: "New User",
+      is_admin: false, onboarding_completed: onboarded,
+      created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+      _session_user_id: "u1", _active_profile_id: null,
+    });
+    await page.route("**/api/auth/me", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: meBody() }));
+    await page.route("**/api/onboarding/state", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ onboarding_completed: onboarded }) }));
+
+    // Not onboarded → /lite bounces to onboarding.
+    await page.goto("/v5/lite");
+    await expect(page).toHaveURL(/\/v5\/onboarding$/);
+    // Go through the flow skipping everything (connect, risk, goal).
+    await page.getByTestId("persona-individual").click();
+    await page.getByTestId("onboarding-to-profile").click();
+    await page.getByRole("button", { name: "Skip", exact: true }).click();
+    await page.getByRole("button", { name: /Skip for now/ }).click();
+    await page.getByRole("button", { name: /View my action plan/ }).click();
+    // finishOnboarding flips the flag + refreshes useMe → /lite now passes the gate.
+    await expect(page).toHaveURL(/\/v5\/lite$/);
+    await expect(page.getByText("New chat").first()).toBeVisible();
+  });
+
   test("Both steps are OPTIONAL — skipping through lands in the Copilot (/lite)", async ({ page }) => {
     await reachGoalRiskStep(page);
     // Step 1 — Risk: skip.
