@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter, Sparkles, Wand2 } from "lucide-react";
+import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter, Sparkles, Wand2, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CopilotWorkflows from "./CopilotWorkflows";
 import CopilotReview from "./CopilotReview";
+import StockInsightsLanding from "./StockInsightsLanding";
 import { useMe } from "@/hooks/use-auth";
 import { useImpersonationStore } from "@/stores/impersonation.store";
 import { useQueryClient } from "@tanstack/react-query";
@@ -133,6 +134,7 @@ export default function ChatPage() {
   const [suggestOpen, setSuggestOpen] = useState(false);
   // Visual screener query-builder panel.
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [stockInsightsOpen, setStockInsightsOpen] = useState(false);
   const [analyseOpen, setAnalyseOpen] = useState(false);
   const [backtestOpen, setBacktestOpen] = useState(false);
   // Persona for the workflow landing (investor portfolio vs advisor book).
@@ -695,7 +697,25 @@ export default function ChatPage() {
             >
               <ListFilter className="h-3.5 w-3.5 text-accent" /> Stocks Screener
             </button>
+            <button
+              onClick={() => setStockInsightsOpen((v) => !v)}
+              disabled={isBusy}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-[12.5px] transition-colors disabled:opacity-50",
+                stockInsightsOpen
+                  ? "border-accent bg-[rgb(var(--accent)/0.10)] text-accent"
+                  : "bg-surface-1 border-hairline-2 text-ink hover:bg-surface-2",
+              )}
+              title="Stocks Insight — explore company filings, financials & disclosures"
+              data-testid="tool-stocks-insight"
+            >
+              <Building2 className="h-3.5 w-3.5 text-accent" /> Stocks Insight
+            </button>
           </div>
+
+          {stockInsightsOpen && (
+            <StockInsightsLanding onLaunch={(q) => { setStockInsightsOpen(false); void submitMessage(q); }} />
+          )}
 
           {/* Analyse my portfolio — ready-made questions, revealed by the
               launcher chip above (mirrors the Query builder reveal). */}
