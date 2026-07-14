@@ -135,21 +135,31 @@ async def _daas_get(path: str, params: Optional[Dict[str, Any]] = None) -> Any:
         return {}
 
 
-async def _fetch_articles(q: str, limit: int) -> List[Dict[str, Any]]:
-    """Rich, classified corporate filings (real category + summary text + source url)
-    via the market-pulse articles source — the same data behind /v5/markets/articles.
-    ``q`` matches ticker / company / subject, so it serves both ticker and thematic
-    modes. Falls back to the events-search endpoint if articles return nothing."""
-    try:
-        data = await daas_client.get_market_pulse_articles(days=90, q=q, limit=limit)
-    except Exception as exc:  # noqa: BLE001 — degrade gracefully
-        logger.warning("articles fetch failed for %r: %s", q, exc)
-        data = None
-    events = _shape_events(data, limit) if data else []
-    if not events:  # secondary path — thematic event search
+async def _fetch_filings(q: str, limit: int, *, ticker: bool) -> List[Dict[str, Any]]:
+    """Recent corporate filings for the query.
+
+    ticker mode → the announcements endpoint by symbol (ALL recent filings incl.
+    routine 'other' ones — the right view of a company's own disclosures). thematic
+    mode → the market-pulse articles feed by free-text (curated, categorized, with
+    summaries; it intentionally hides routine 'other'/'regulatory' noise). Both fall
+    back to the intelligence events-search. Every hop degrades gracefully to []."""
+    events: List[Dict[str, Any]] = []
+    if ticker:
         try:
-            events = _shape_events(await daas_client._get("/intelligence/events/search",
-                                                          {"q": q, "limit": limit}), limit)
+            events = _shape_events(await daas_client._get(
+                "/announcements", {"symbol": q, "limit": limit, "sort": "filed_at"}), limit)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("announcements fetch failed for %s: %s", q, exc)
+    if not events:  # curated articles by free-text (primary for thematic; ticker fallback)
+        try:
+            events = _shape_events(await daas_client.get_market_pulse_articles(
+                days=30, q=q, limit=limit), limit)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("articles fetch failed for %r: %s", q, exc)
+    if not events:  # last resort — intelligence events search
+        try:
+            events = _shape_events(await daas_client._get(
+                "/intelligence/events/search", {"q": q, "limit": limit}), limit)
         except Exception as exc:  # noqa: BLE001
             logger.warning("events/search fallback failed for %r: %s", q, exc)
     return events
@@ -186,13 +196,13 @@ async def get_stocks_insights(
     if symbol:
         sym = symbol.upper()
         events, financials = await asyncio.gather(
-            _fetch_articles(sym, limit),
+            _fetch_filings(sym, limit, ticker=True),
             _fetch_financials(sym),
         )
         mode = "ticker"
         ticker: Optional[str] = sym
     else:
-        events = await _fetch_articles(query, limit)
+        events = await _fetch_filings(query, limit, ticker=False)
         mode = "thematic"
         ticker = None
 
