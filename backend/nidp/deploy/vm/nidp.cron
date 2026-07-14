@@ -176,3 +176,9 @@ MAILTO=""
 0 1 * * *      nidp  /opt/nidp/venv/bin/python /opt/nidp/repo/backend/nidp/deploy/vm/gate4_replication_check.py --mode=daily >> /opt/nidp/logs/gate4_daily.log 2>&1
 
 # yfinance_backfill is event-driven (manual run only) — not scheduled.
+
+# ── Disk hygiene (04:30 IST): prune stale /tmp + raw feed archives older than
+#    7 days, cap the journal, drop dangling docker images. Runs as root because
+#    it removes root-owned temp/archive files and calls journalctl/docker.
+#    Keeps the 49G root disk from filling (see disk-cleanup.sh).
+30 4 * * *     root  /opt/nidp/repo/backend/nidp/deploy/vm/disk-cleanup.sh
