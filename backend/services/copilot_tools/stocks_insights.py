@@ -99,7 +99,8 @@ def _shape_events(rows: Any, limit: int = 8) -> List[Dict[str, Any]]:
     """
     if isinstance(rows, dict):
         rows = (rows.get("rows") or rows.get("announcements") or rows.get("events")
-                or rows.get("results") or rows.get("items") or [])
+                or rows.get("results") or rows.get("items") or rows.get("data")
+                or rows.get("hits") or [])
     if not isinstance(rows, list):
         return []
     out: List[Dict[str, Any]] = []
@@ -140,15 +141,16 @@ async def get_stocks_insights(
 
     if symbol:
         sym = symbol.upper()
+        # NOTE: daas_client._get already prepends "/v1" — paths here must NOT.
         ann_resp, ev_resp = await asyncio.gather(
-            _daas_get("/v1/announcements", {"symbol": sym, "limit": limit, "sort": "filed_at"}),
-            _daas_get(f"/v1/events/{sym}", {"limit": limit}),
+            _daas_get("/announcements", {"symbol": sym, "limit": limit, "sort": "filed_at"}),
+            _daas_get(f"/events/{sym}", {"limit": limit}),
         )
         events = _shape_events(ann_resp, limit) or _shape_events(ev_resp, limit)
         mode = "ticker"
         ticker: Optional[str] = sym
     else:
-        search_resp = await _daas_get("/v1/intelligence/events/search", {"q": query, "limit": limit})
+        search_resp = await _daas_get("/intelligence/events/search", {"q": query, "limit": limit})
         events = _shape_events(search_resp, limit)
         mode = "thematic"
         ticker = None
