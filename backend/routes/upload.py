@@ -373,7 +373,7 @@ async def portfolio_import_from_connect(
         now = datetime.now(timezone.utc)
 
         # Extract statement period ("Apr/2026") from the casparser JSON.
-        from services.cas_api_client import extract_statement_period
+        from services.cas_api_client import extract_statement_period, period_label_from_date
         cas_statement_period = extract_statement_period(parsed_data)
 
         # Statement date — try standard casparser meta fields first.
@@ -383,6 +383,12 @@ async def portfolio_import_from_connect(
             or meta_block.get("period_to")
             or meta_block.get("statement_to")
         )
+
+        # Fall back to deriving the period from the statement date when the
+        # casparser meta had no explicit period (keeps the "Last CAS" banner
+        # populated for custom-extractor layouts).
+        if not cas_statement_period and cas_statement_date:
+            cas_statement_period = period_label_from_date(cas_statement_date)
 
         # Portfolio value — sum current_price × quantity across saved holdings.
         # This is the last-known NAV value at statement time.

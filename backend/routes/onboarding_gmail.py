@@ -460,6 +460,12 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             cas_total_value = nsdl_grand_total
         if nsdl_stmt_date:
             cas_statement_date = nsdl_stmt_date
+        # The custom NSDL / CAMS-KFin extractors give a statement date but no
+        # casparser meta, so extract_statement_period() found nothing above.
+        # Fall back to the finalized statement date so the "Last CAS" banner
+        # shows the month for every CAS type, not just the casparser path.
+        if not statement_period and cas_statement_date:
+            statement_period = cas_api_client.period_label_from_date(cas_statement_date)
         all_holdings.extend(holdings)
         used_email = email
         # Per-asset-class breakdown for reconciliation against the CAS summary.
@@ -791,6 +797,10 @@ async def import_cas_pdf_for_user(
         cas_portfolio_value = nsdl_grand_total
     if nsdl_stmt_date:
         cas_statement_date = nsdl_stmt_date
+    # Custom-extractor CAS has a statement date but no casparser meta — derive
+    # the "Last CAS" period from the date so it isn't dropped (see gmail import).
+    if not statement_period and cas_statement_date:
+        statement_period = cas_api_client.period_label_from_date(cas_statement_date)
     task_id = f"onboard_upload_{uuid.uuid4().hex[:10]}"
     await save_holdings(user_id, holdings, file_type="cas_pdf", task_id=task_id)
 

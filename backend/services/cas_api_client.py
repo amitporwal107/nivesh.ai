@@ -799,6 +799,31 @@ def extract_statement_period(data: dict) -> Optional[str]:
     return None
 
 
+def period_label_from_date(date_str: Optional[str]) -> Optional[str]:
+    """Derive a 'MMM/YYYY' statement-period label from a statement END date.
+
+    The custom NSDL / CAMS-KFin extractors give a statement date (e.g.
+    '31-Mar-2025') but no casparser meta, so extract_statement_period() finds no
+    period for them. Callers fall back to the date they already have so the
+    'Last CAS' banner shows the month for every CAS type, not just the casparser
+    path. Accepts the common statement-date formats (and a value already in
+    'MMM/YYYY'); returns None when the date can't be parsed.
+    """
+    if not date_str or not isinstance(date_str, str):
+        return None
+    s = date_str.strip()
+    if len(s) <= 8 and "/" in s:  # already "Mar/2025"
+        return s
+    date_fmts = ("%Y-%m-%d", "%d-%b-%Y", "%d-%B-%Y", "%d-%m-%Y", "%d/%m/%Y", "%d %b %Y", "%d-%b-%y")
+    from datetime import datetime as _dt
+    for fmt in date_fmts:
+        try:
+            return _dt.strptime(s, fmt).strftime("%b/%Y")
+        except ValueError:
+            continue
+    return None
+
+
 def parse_cas_via_sdk_flow_with_data(content: bytes, password: str = "") -> tuple:
     """SDK-flow wrapper returning (holdings, raw_data, normalized) — same
     signature as parse_cas_via_api_with_data so callers can swap them.
