@@ -38,6 +38,7 @@ class AgentName(str, Enum):
     GOAL = "goal_planner"
     RECOMMENDATION = "recommendation"
     BACKTEST = "backtest_analyst"
+    STOCKS_INSIGHTS = "stocks_insights"   # corporate-filings insights (Nivesh Copilot)
     ADVISOR = "advisor"
     COMPLIANCE = "compliance"
 
@@ -68,6 +69,7 @@ class WidgetType(str, Enum):
     PORTFOLIO_BUILDER = "portfolio_builder"   # in-chat multi-step builder wizard
     STRATEGY_LAB = "strategy_lab"             # in-chat 5-step equity strategy workbench
     BACKTEST_COMPARISON = "backtest_comparison"  # historical what-if backtest table
+    STOCK_INSIGHTS = "stock_insights"         # corporate-filings insights card (Nivesh Copilot)
     # ── Tier-A conversational advisory tools (WF-02/03/04 investor + WF-07 advisor) ──
     GOAL_BASKET = "goal_basket"            # goal→fund basket (WF-02-06 / WF-03 suitability)
     UNDERPERFORMER = "underperformer"      # 2-of-3 underperformer detection (WF-04-03)

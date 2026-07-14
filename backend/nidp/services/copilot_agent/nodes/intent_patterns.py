@@ -22,6 +22,7 @@ RISK = "risk_analyst"
 GOAL = "goal_planner"
 RECOMMENDATION = "recommendation"
 BACKTEST = "backtest_analyst"
+STOCKS_INSIGHTS = "stocks_insights"
 
 
 # Historical "what-if" backtest — "if I'd invested ₹10L in X and Y 3 years ago,
@@ -124,6 +125,23 @@ _P_STOCK_OWNERSHIP = re.compile(
     r"\b(?:fii|dii|promoter|institutional|foreign|public|domestic)\s+(?:holding|stake|ownership)|"
     r"\bshareholding(?:\s+pattern)?\b|"
     r"\bpromoter\s+pledg|\bpledged?\s+shares?",
+    re.IGNORECASE,
+)
+
+# Corporate-DISCLOSURES / filings insights (Nivesh Copilot "stocks insights" tool):
+# recent announcements/news/filings for a company, order wins, board outcomes,
+# fund raises, and thematic "which companies announced X". Anchored on
+# disclosure/news/recency vocabulary so it does NOT steal fundamentals/technicals
+# (P/E, ROE, RSI → stock_analyst) or bare "results" (→ stock-lookup gate). Checked
+# in _PRE so a clear disclosure query beats the stock-lookup gate.
+_P_STOCK_INSIGHTS = re.compile(
+    r"\b(?:latest|recent|any)\s+(?:news|updates?|announcements?|filings?|disclosures?|developments?|corporate\s+actions?)\b|"
+    r"\bwhat'?s\s+(?:the\s+)?(?:latest|new|happening|going\s+on)\s+(?:with|on|for|at|in)\b|"
+    r"\b(?:corporate\s+)?(?:announcements?|filings?|disclosures?)\s+(?:of|for|by|from)\b|"
+    r"\b(?:order|contract)\s+(?:win|wins|book|award|awards)\b|\bbagged?\s+(?:an?\s+)?(?:order|contract)\b|"
+    r"\bboard\s+meeting\s+outcome|fund\s*rais(?:e|ing)|\bqip\b|preferential\s+(?:issue|allotment)|"
+    r"\bwhich\s+companies\s+(?:announced|filed|reported|won|raised|are\s+(?:investing|expanding|acquiring|raising))\b|"
+    r"\bany\s+news\s+(?:on|about|for)\b",
     re.IGNORECASE,
 )
 
@@ -335,6 +353,7 @@ _PRE_PATTERNS: List[Tuple[re.Pattern, str]] = [
     (_P_CAP,              MF),       # cap-category education → mf (cap_education widget) before others
     (_P_FUND_OVERLAP,     MF),       # fund overlap/consolidation → mf (widgets) before PORTFOLIO grabs "overlap"
     (_P_STOCK_OWNERSHIP,  STOCK),    # per-stock FII/DII/promoter holding → stock (before MARKET grabs "fii"/"dii")
+    (_P_STOCK_INSIGHTS,   STOCKS_INSIGHTS),  # recent filings/news/order-wins/thematic → stocks_insights (before stock-lookup gate)
 ]
 # The entity-aware stock-lookup gate runs HERE — between _PRE and _POST.
 _POST_PATTERNS: List[Tuple[re.Pattern, str]] = [
