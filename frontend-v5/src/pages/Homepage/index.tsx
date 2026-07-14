@@ -150,7 +150,7 @@ export default function HomepagePage() {
         <div className="wrap nav-inner">
           <a className="nvx-brand" onClick={() => scrollTo("top")} style={{ cursor: "pointer" }}>
             <span className="nvx-mark">न</span>
-            <b>Nivesh</b>
+            <b>Nivesh Copilot</b>
           </a>
           <nav className="nav-links">
             <a onClick={() => scrollTo("tour")}>Product</a>
@@ -374,7 +374,7 @@ export default function HomepagePage() {
         <footer className="wrap foot">
           <a className="nvx-brand" onClick={() => scrollTo("top")} style={{ cursor: "pointer" }}>
             <span className="nvx-mark">न</span>
-            <b>Nivesh</b>
+            <b>Nivesh Copilot</b>
           </a>
           <span className="meta">SEBI-aligned · ARN-128459 · India-hosted (Bangalore)</span>
           <nav className="flinks">
