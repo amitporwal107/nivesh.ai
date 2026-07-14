@@ -30,9 +30,10 @@ export default function MarketingNav({ active }: { active?: NavKey }) {
         <div onClick={() => navigate("/")} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
           <span className="nv-mark" style={{ width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, fontSize: isMobile ? 17 : 19 }}>न</span>
           <span className="nv-serif" style={{ fontSize: isMobile ? 19 : 22 }}>Nivesh</span>
-          {!isMobile && (
-            <span className="nv-mono" style={{ fontSize: 10, letterSpacing: ".18em", color: "var(--ink-3)", textTransform: "uppercase" as const, marginLeft: 6 }}>COPILOT</span>
-          )}
+          {/* App name is "Nivesh Copilot" (matches the OAuth consent screen +
+              niveshcopilot.com). Show the "Copilot" wordmark on every viewport
+              — it used to be hidden on mobile, which read as just "Nivesh". */}
+          <span className="nv-mono" style={{ fontSize: isMobile ? 9 : 10, letterSpacing: ".18em", color: "var(--ink-3)", textTransform: "uppercase" as const, marginLeft: 6 }}>COPILOT</span>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: isMobile ? 8 : 36 }}>
           {!isMobile && NAV.map((n) => (
