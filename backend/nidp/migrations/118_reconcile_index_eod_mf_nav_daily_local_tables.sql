@@ -1,10 +1,11 @@
 -- 118_reconcile_index_eod_mf_nav_daily_local_tables.sql
 --
--- Restore nidp.index_eod and nidp.mf_nav_daily as REAL LOCAL TABLES.
+-- Restore nidp.index_eod, nidp.mf_nav_daily and nidp.mf_scheme_master as REAL
+-- LOCAL TABLES.
 --
 -- WHY
 -- ---
--- On prod these two names had drifted to VIEWS over postgres_fdw foreign tables
+-- On prod these three names had drifted to VIEWS over postgres_fdw foreign tables
 -- (search_path = prod_data,nidp,public; the views read `FROM index_eod` /
 -- `FROM mf_nav_daily`, which resolve to prod_data.* foreign tables backed by a
 -- remote nidp DB). The ingesters write with:
@@ -142,17 +143,71 @@ BEGIN
     END IF;
 
     --------------------------------------------------------- mf_scheme_master --
-    -- amfi_nav also upserts nidp.mf_scheme_master ON CONFLICT (scheme_code).
-    -- If that is ALSO a view, amfi_nav stays broken after this migration. It is
-    -- almost certainly a real table (master), but assert loudly so an apply
-    -- against a drifted DB fails visibly instead of half-fixing amfi_nav.
+    -- amfi_nav also upserts nidp.mf_scheme_master ON CONFLICT (scheme_code), and
+    -- on prod this too had drifted to a view (relkind confirmed 'v'), so amfi_nav
+    -- fails on the scheme upsert before it ever reaches mf_nav_daily. Restore it
+    -- per migration 034 (all 15 columns confirmed identical on prod).
     SELECT c.relkind INTO _kind
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'nidp' AND c.relname = 'mf_scheme_master';
+
     IF _kind = 'v' THEN
-        RAISE EXCEPTION '118: nidp.mf_scheme_master is a VIEW too — amfi_nav will '
-            'still fail. Extend this migration to restore it (def: migration 034, '
-            'PK scheme_code, FK amc_id->mf_amc_master, CHECK on status) before applying.';
+        CREATE TEMP TABLE _sm_seed ON COMMIT DROP AS
+            SELECT scheme_code, scheme_name, amc_id, amc_name_raw, isin_growth,
+                   isin_idcw, scheme_type, scheme_category, benchmark_id,
+                   launch_date, status, latest_nav, latest_nav_date,
+                   first_seen_at, updated_at
+              FROM nidp.mf_scheme_master;
+
+        DROP VIEW nidp.mf_scheme_master;
+
+        CREATE TABLE nidp.mf_scheme_master (
+            scheme_code        TEXT PRIMARY KEY,          -- == writer ON CONFLICT
+            scheme_name        TEXT NOT NULL,
+            amc_id             TEXT,
+            amc_name_raw       TEXT,
+            isin_growth        TEXT,
+            isin_idcw          TEXT,
+            scheme_type        TEXT,
+            scheme_category    TEXT,
+            benchmark_id       TEXT,
+            launch_date        DATE,
+            status             TEXT NOT NULL DEFAULT 'active',
+            latest_nav         NUMERIC(14,4),
+            latest_nav_date    DATE,
+            first_seen_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        INSERT INTO nidp.mf_scheme_master
+            (scheme_code, scheme_name, amc_id, amc_name_raw, isin_growth,
+             isin_idcw, scheme_type, scheme_category, benchmark_id,
+             launch_date, status, latest_nav, latest_nav_date,
+             first_seen_at, updated_at)
+        SELECT scheme_code, scheme_name, amc_id, amc_name_raw, isin_growth,
+               isin_idcw, scheme_type, scheme_category, benchmark_id,
+               launch_date, COALESCE(status,'active'), latest_nav, latest_nav_date,
+               COALESCE(first_seen_at, NOW()), COALESCE(updated_at, NOW())
+          FROM _sm_seed
+        ON CONFLICT (scheme_code) DO NOTHING;
+
+        -- FK + CHECK added NOT VALID: enforced for new ingester upserts, but not
+        -- retro-validated, so any legacy orphan amc_id / off-enum status doesn't
+        -- block the cutover. mf_amc_master is a real table on prod (relkind 'r').
+        ALTER TABLE nidp.mf_scheme_master
+            ADD CONSTRAINT mf_scheme_master_amc_id_fkey
+            FOREIGN KEY (amc_id) REFERENCES nidp.mf_amc_master(amc_id) NOT VALID;
+        ALTER TABLE nidp.mf_scheme_master
+            ADD CONSTRAINT mf_scheme_master_status_check
+            CHECK (status IN ('active','closed','merged','suspended')) NOT VALID;
+
+        CREATE INDEX IF NOT EXISTS idx_mf_scheme_master_amc
+            ON nidp.mf_scheme_master (amc_id);
+
+        SELECT count(*) INTO _n FROM nidp.mf_scheme_master;
+        RAISE NOTICE '118: nidp.mf_scheme_master restored as TABLE, % rows migrated', _n;
+    ELSE
+        RAISE NOTICE '118: nidp.mf_scheme_master relkind=% (not a view) — skipped', COALESCE(_kind::text, 'MISSING');
     END IF;
 END
 $mig$;
