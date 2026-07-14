@@ -50,6 +50,18 @@ test.describe("Desktop sidebar navigation (≥1024px)", () => {
     await expect(page.getByText("Workspace", { exact: true }).first()).toBeVisible();
   });
 
+  test("Pro Trader and Strategy Builder are hidden from the sidebar", async ({ page }) => {
+    await mockApi(page, "populated");
+    await page.goto("/v5/dashboard");
+
+    // Sanity: the nav rendered (a known link is present) before asserting absence.
+    await expect(page.getByRole("link", { name: "Recommendations" })).toBeVisible();
+
+    // The two de-surfaced destinations must NOT appear as nav links.
+    await expect(page.getByRole("link", { name: "Pro Trader" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Strategy Builder" })).toHaveCount(0);
+  });
+
   test("sidebar shows user name from fixture", async ({ page }) => {
     await mockApi(page, "populated");
     await page.goto("/v5/dashboard");

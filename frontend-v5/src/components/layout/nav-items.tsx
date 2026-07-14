@@ -1,8 +1,8 @@
 import {
   LayoutDashboard, Sparkles, MessageSquare, Shield,
   Layers, TrendingUp, Target, Receipt, ClipboardList,
-  ShieldCheck, Server, BarChart2, Bug, LineChart, Users, Contact, Globe,
-  FlaskConical, GraduationCap,
+  ShieldCheck, Server, Bug, LineChart, Users, Contact, Globe,
+  GraduationCap,
 } from "lucide-react";
 
 /**
@@ -36,8 +36,9 @@ export const SECTION_NAV: NavItem[] = [
   { to: "/plan",            label: "Plan board",      icon: ClipboardList,   group: "Workspace"  },
   { to: "/chat",            label: "Chat copilot",    icon: MessageSquare,   group: "Workspace"  },
   { to: "/recommendations", label: "Recommendations", icon: Sparkles,        group: "Workspace"  },
-  { to: "/pro-trader",      label: "Pro Trader",      icon: BarChart2,       group: "Workspace"  },
-  { to: "/strategy-builder", label: "Strategy Builder", icon: FlaskConical,  group: "Workspace"  },
+  // Pro Trader and Strategy Builder are intentionally hidden from the nav.
+  // Their routes/pages remain (reachable by direct URL); only the entry points
+  // are removed. Re-add the two NavItems here to restore them.
   { to: "/learn",           label: "Learn",           icon: GraduationCap,   group: "Workspace"  },
 ];
 
