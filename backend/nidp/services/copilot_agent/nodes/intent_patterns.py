@@ -140,8 +140,17 @@ _P_STOCK_INSIGHTS = re.compile(
     r"\b(?:corporate\s+)?(?:announcements?|filings?|disclosures?)\s+(?:of|for|by|from)\b|"
     r"\b(?:order|contract)\s+(?:win|wins|book|award|awards)\b|\bbagged?\s+(?:an?\s+)?(?:order|contract)\b|"
     r"\bboard\s+meeting\s+outcome|fund\s*rais(?:e|ing)|\bqip\b|preferential\s+(?:issue|allotment)|"
-    r"\bwhich\s+companies\s+(?:announced|filed|reported|won|raised|are\s+(?:investing|expanding|acquiring|raising))\b|"
-    r"\bany\s+news\s+(?:on|about|for)\b",
+    r"\bwhich\s+(?:\w+\s+){0,2}(?:companies|smallcaps?|midcaps?|largecaps?|stocks?|firms|players|makers?)\s+"
+    r"(?:announced|filed|reported|won|raised|mention\w*|talk\w*|discuss\w*|are\s+(?:investing|expanding|acquiring|raising|talking))\b|"
+    r"\b(?:who\s+(?:are\s+)?(?:the\s+)?benefici|benefici\w+\s+of)\b|"
+    r"\bany\s+news\s+(?:on|about|for)\b|"
+    # concall / earnings-call / management-commentary (Nivesh Copilot deep-dives A/B)
+    r"\b(?:earnings|conference|con)[\s-]?call\b|\bconcall\b|\binvestor\s+presentation\b|\bfact\s*sheet\b|"
+    r"\bwhat\s+did\b[^?]{0,40}\bsay\b|\bmanagement\s+(?:said|say|commentary|guidance|attribut|highlight|note)|"
+    r"\b(?:margin|revenue|profit|earnings)\s+guidance\b|\bguidance\s+(?:for|on|did|given)\b|"
+    r"\border\s+book\b|\bcapex\s+plan|\bcapacity\s+expansion\b|"
+    r"\bwhy\s+did\b[^?]{0,40}\b(?:revenue|profit|margin|sales|net\s+profit)\b|"
+    r"\bsummar(?:y|ize|ise)\b[^?]{0,30}(?:concall|earnings\s+call|\bcall\b)",
     re.IGNORECASE,
 )
 
