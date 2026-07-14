@@ -9,6 +9,7 @@ import MFBestPracticesArticle from "./MFBestPracticesArticle";
 import HowWeUseClaudeArticle from "./HowWeUseClaudeArticle";
 import SelfHealingArticle from "./SelfHealingArticle";
 import CopilotTourArticle from "./CopilotTourArticle";
+import TeamOfTenArticle from "./TeamOfTenArticle";
 
 export type BlogPost = {
   slug: string;
@@ -30,6 +31,16 @@ export const POSTS: BlogPost[] = [
     readMins: 2,
     dateLabel: "July 2026",
     Body: CopilotTourArticle,
+  },
+  {
+    slug: "shipping-like-a-team-of-ten",
+    title: "Shipping like a team of ten: how we automated our dev + support with AI",
+    excerpt:
+      "The whole story in one place — how we built a team of disciplined AI engineers into the repo, with one rule the machine enforces: \"changed\" is not \"verified.\" Leverage where it's safe, an AI that can't lie about being done, and exactly where autonomy stops.",
+    category: "Engineering",
+    readMins: 8,
+    dateLabel: "July 2026",
+    Body: TeamOfTenArticle,
   },
   {
     slug: "self-healing-software-autonomous-fixes",
