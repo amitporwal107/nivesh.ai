@@ -58,11 +58,15 @@ jobs:
             log "    Commit    : ${{ github.sha }}"
             log "    Component : $COMPONENT"
 
-            # Ensure code is current first
-            git config --global --add safe.directory "$REPO"
-            sudo -u nidp git -C "$REPO" fetch --quiet origin main
-            sudo -u nidp git -C "$REPO" reset --hard --quiet origin/main
-            ok "Code at $(git -C $REPO rev-parse --short HEAD)"
+            # Ensure code is current first. Run git as the repo owner (nidp) and
+            # pass safe.directory inline (-c) — never `git config --global`, which
+            # writes ~/.gitconfig and fails when the SSH user's HOME is
+            # non-writable/root-owned ("could not lock config file .gitconfig:
+            # Permission denied"). Mirrors backend/nidp/deploy/vm/deploy.sh.
+            GIT_NIDP=(sudo -u nidp git -c "safe.directory=$REPO")
+            "${GIT_NIDP[@]}" -C "$REPO" fetch --quiet origin main
+            "${GIT_NIDP[@]}" -C "$REPO" reset --hard --quiet origin/main
+            ok "Code at $("${GIT_NIDP[@]}" -C "$REPO" rev-parse --short HEAD)"
 
             # ── Cron schedule ───────────────────────────────────────────────
             if [[ "$COMPONENT" == "all" || "$COMPONENT" == "cron" ]]; then

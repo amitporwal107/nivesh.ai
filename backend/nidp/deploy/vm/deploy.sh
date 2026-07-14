@@ -80,6 +80,22 @@ if "${GIT[@]}" diff --name-only "$OLD_SHA" "$NEW_SHA" | \
     echo "   sudo bash $NIDP_HOME/repo/backend/nidp/deploy/vm/install-ops-agent.sh" >&2
 fi
 
+# Load DB/secrets env so the migrate CLI gets NIDP_POSTGRES_URL (the real NIDP
+# DB on :5433). Without it, nidp.shared.storage.pg.get_pool() falls back to its
+# hardcoded localhost:5432 default and migrations fail with
+# "Connect call failed ('127.0.0.1', 5432)". set -a exports the sourced vars to
+# the python subprocess. This file is read-only here — deploy.sh never writes it.
+if [[ -f "$NIDP_HOME/nidp.env" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$NIDP_HOME/nidp.env"
+    set +a
+    log "loaded env from $NIDP_HOME/nidp.env"
+else
+    echo "⚠  $NIDP_HOME/nidp.env not found — migrate would use the default DSN" >&2
+    exit 1
+fi
+
 # Run pending SQL migrations (idempotent — each file self-registers in
 # nidp.schema_migrations, so re-running is a no-op for applied files).
 log "running pending DB migrations"
