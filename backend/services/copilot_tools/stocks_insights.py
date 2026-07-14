@@ -35,10 +35,11 @@ DISCLAIMER = "AI-generated from exchange filings. Verify against the original fi
 _HEADLINE_KEYS = ("headline", "subject", "title", "summary", "description")
 _CATEGORY_KEYS = ("category", "event_category", "event_type", "type")
 _IMPACT_KEYS = ("ai_impact", "impact", "materiality")
-_FILED_KEYS = ("filed_at", "filed_date", "as_of", "date", "event_date", "published_at")
+_FILED_KEYS = ("filed_at", "filed_date", "as_of", "date", "event_date", "published_at", "when")
 _URL_KEYS = ("url", "attachment_url", "source_url", "pdf_url", "filing_url", "link")
 _SYMBOL_KEYS = ("symbol", "nse_symbol", "ticker", "security_symbol")
 _ID_KEYS = ("announcement_id", "event_id", "id")
+_SUMMARY_KEYS = ("summary", "description", "body", "ai_summary", "excerpt")
 
 
 @dataclass
@@ -48,21 +49,30 @@ class StocksInsightsResult:
     ticker: Optional[str] = None
     mode: str = "ticker"                            # "ticker" | "thematic"
     events: List[Dict[str, Any]] = field(default_factory=list)
+    financials: Optional[str] = None                # compact quarterly P&L context (ticker mode)
     error: Optional[str] = None
 
     def as_llm_context(self) -> str:
-        """A compact, numbered list of filings for the LLM to ground + cite."""
-        if not self.events:
-            return "recent_filings: NONE FOUND"
-        lines = ["recent_filings (cite as [n]):"]
-        for i, e in enumerate(self.events, start=1):
-            filed = (e.get("filed_at") or "")[:10]
-            lines.append(
-                f"  [{i}] {filed} [{e.get('category') or 'other'}] "
-                f"{(e.get('headline') or '')[:110]}"
-                + (f" (impact={e['impact']})" if e.get("impact") else "")
-            )
-        return "\n".join(lines)
+        """Numbered filings (with summaries) + optional quarterly financials for the
+        LLM to ground on. Filings are cited [n]; financials are stated plainly."""
+        parts: List[str] = []
+        if self.events:
+            lines = ["recent_filings (cite as [n]):"]
+            for i, e in enumerate(self.events, start=1):
+                filed = (e.get("filed_at") or "")[:10]
+                line = (f"  [{i}] {filed} [{e.get('category') or 'other'}] "
+                        f"{(e.get('headline') or '')[:120]}")
+                if e.get("summary"):
+                    line += f" — {str(e['summary'])[:200]}"
+                if e.get("impact"):
+                    line += f" (impact={e['impact']})"
+                lines.append(line)
+            parts.append("\n".join(lines))
+        else:
+            parts.append("recent_filings: NONE FOUND")
+        if self.financials:
+            parts.append("quarterly_financials (state plainly; no [n] needed):\n  " + str(self.financials)[:700])
+        return "\n\n".join(parts)
 
 
 def _first(row: Dict[str, Any], keys: tuple, default: Any = None) -> Any:
@@ -88,6 +98,7 @@ def _shape_event(row: Dict[str, Any]) -> Dict[str, Any]:
         "impact": _first(row, _IMPACT_KEYS),
         "filed_at": _first(row, _FILED_KEYS),
         "url": _first(row, _URL_KEYS),
+        "summary": _first(row, _SUMMARY_KEYS),
     }
 
 
@@ -100,7 +111,7 @@ def _shape_events(rows: Any, limit: int = 8) -> List[Dict[str, Any]]:
     if isinstance(rows, dict):
         rows = (rows.get("rows") or rows.get("announcements") or rows.get("events")
                 or rows.get("results") or rows.get("items") or rows.get("data")
-                or rows.get("hits") or [])
+                or rows.get("hits") or rows.get("articles") or [])
     if not isinstance(rows, list):
         return []
     out: List[Dict[str, Any]] = []
@@ -124,46 +135,80 @@ async def _daas_get(path: str, params: Optional[Dict[str, Any]] = None) -> Any:
         return {}
 
 
+async def _fetch_articles(q: str, limit: int) -> List[Dict[str, Any]]:
+    """Rich, classified corporate filings (real category + summary text + source url)
+    via the market-pulse articles source — the same data behind /v5/markets/articles.
+    ``q`` matches ticker / company / subject, so it serves both ticker and thematic
+    modes. Falls back to the events-search endpoint if articles return nothing."""
+    try:
+        data = await daas_client.get_market_pulse_articles(days=90, q=q, limit=limit)
+    except Exception as exc:  # noqa: BLE001 — degrade gracefully
+        logger.warning("articles fetch failed for %r: %s", q, exc)
+        data = None
+    events = _shape_events(data, limit) if data else []
+    if not events:  # secondary path — thematic event search
+        try:
+            events = _shape_events(await daas_client._get("/intelligence/events/search",
+                                                          {"q": q, "limit": limit}), limit)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("events/search fallback failed for %r: %s", q, exc)
+    return events
+
+
+async def _fetch_financials(sym: str) -> Optional[str]:
+    """Compact quarterly P&L context so ticker answers can address results / numbers
+    (revenue, PAT, margins, YoY) — DaaS /v1/financials via the shared tool."""
+    try:
+        from . import company_financials
+        res = await company_financials.get_company_financials(sym, limit=6)
+        return res.summary if getattr(res, "ok", False) else None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("financials fetch failed for %s: %s", sym, exc)
+        return None
+
+
 async def get_stocks_insights(
     query: str,
     symbol: Optional[str] = None,
     limit: int = 8,
 ) -> StocksInsightsResult:
-    """Fetch recent corporate filings for the query.
+    """Fetch company disclosures for the query.
 
-    If ``symbol`` is given → per-ticker filings (announcements + events).
-    Otherwise → thematic free-text search across companies.
+    ticker mode → recent classified filings (articles) + quarterly financials.
+    thematic mode → classified filings matching the free-text query across companies.
     """
     if not daas_client.is_configured():
         return StocksInsightsResult(
             ok=False, summary="DAAS not configured", error="DAAS credentials missing",
         )
 
+    financials: Optional[str] = None
     if symbol:
         sym = symbol.upper()
-        # NOTE: daas_client._get already prepends "/v1" — paths here must NOT.
-        ann_resp, ev_resp = await asyncio.gather(
-            _daas_get("/announcements", {"symbol": sym, "limit": limit, "sort": "filed_at"}),
-            _daas_get(f"/events/{sym}", {"limit": limit}),
+        events, financials = await asyncio.gather(
+            _fetch_articles(sym, limit),
+            _fetch_financials(sym),
         )
-        events = _shape_events(ann_resp, limit) or _shape_events(ev_resp, limit)
         mode = "ticker"
         ticker: Optional[str] = sym
     else:
-        search_resp = await _daas_get("/intelligence/events/search", {"q": query, "limit": limit})
-        events = _shape_events(search_resp, limit)
+        events = await _fetch_articles(query, limit)
         mode = "thematic"
         ticker = None
 
-    ok = bool(events)
-    if ok:
-        subject = ticker or "the market"
+    ok = bool(events) or bool(financials)
+    subject = ticker or "that query"
+    if events and financials:
+        summary = f"{len(events)} recent filings + quarterly financials for {subject}"
+    elif events:
         summary = f"{len(events)} recent filings for {subject}"
+    elif financials:
+        summary = f"Quarterly financials for {subject} (no recent filings)"
     else:
-        summary = f"No recent filings found for {ticker or 'that query'}"
+        summary = f"No recent filings or financials found for {subject}"
     return StocksInsightsResult(
         ok=ok, summary=summary, ticker=ticker, mode=mode, events=events,
-        error=None if ok else "no_filings",
+        financials=financials, error=None if ok else "no_filings",
     )
 
 
