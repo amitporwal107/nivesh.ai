@@ -50,26 +50,38 @@ class StocksInsightsResult:
     mode: str = "ticker"                            # "ticker" | "thematic"
     events: List[Dict[str, Any]] = field(default_factory=list)
     financials: Optional[str] = None                # compact quarterly P&L context (ticker mode)
+    commentary: List[Dict[str, Any]] = field(default_factory=list)  # concall/presentation chunks
     error: Optional[str] = None
 
     def as_llm_context(self) -> str:
-        """Numbered filings (with summaries) + optional quarterly financials for the
-        LLM to ground on. Filings are cited [n]; financials are stated plainly."""
+        """Numbered filings + management commentary passages (concall/presentation
+        text) + optional quarterly financials. Filings and commentary share ONE [n]
+        numbering (matches the card's Sources register). Financials stated plainly."""
         parts: List[str] = []
+        n = 0
         if self.events:
             lines = ["recent_filings (cite as [n]):"]
-            for i, e in enumerate(self.events, start=1):
+            for e in self.events:
+                n += 1
                 filed = (e.get("filed_at") or "")[:10]
-                line = (f"  [{i}] {filed} [{e.get('category') or 'other'}] "
+                line = (f"  [{n}] {filed} [{e.get('category') or 'other'}] "
                         f"{(e.get('headline') or '')[:120]}")
                 if e.get("summary"):
                     line += f" — {str(e['summary'])[:200]}"
-                if e.get("impact"):
-                    line += f" (impact={e['impact']})"
                 lines.append(line)
             parts.append("\n".join(lines))
         else:
             parts.append("recent_filings: NONE FOUND")
+        if self.commentary:
+            lines = ["management_commentary — ACTUAL transcript/presentation text. Quote it, "
+                     "attribute to management, and cite [n]:"]
+            for c in self.commentary:
+                n += 1
+                label = (c.get("company") or "").strip()
+                dt = (c.get("doc_type") or "document").replace("_", " ")
+                pg = f", p.{c['page']}" if c.get("page") else ""
+                lines.append(f"  [{n}] ({label} {dt}{pg}) \"{(c.get('text') or '')[:320]}\"")
+            parts.append("\n".join(lines))
         if self.financials:
             parts.append("quarterly_financials (state plainly; no [n] needed):\n  " + str(self.financials)[:700])
         return "\n\n".join(parts)
@@ -177,6 +189,34 @@ async def _fetch_financials(sym: str) -> Optional[str]:
         return None
 
 
+def _shape_commentary(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalise a DAAS /documents/search chunk row into a quotable passage."""
+    return {
+        "text": (row.get("text") or "").strip(),
+        "page": row.get("page_start"),
+        "doc_type": row.get("doc_type"),
+        "company": row.get("company_name") or row.get("ticker_symbol"),
+        "symbol": row.get("ticker_symbol"),
+        "filed_at": (str(row.get("filed_at"))[:10] if row.get("filed_at") else None),
+        "url": row.get("source_url"),
+    }
+
+
+async def _fetch_commentary(q: str, symbol: Optional[str], limit: int = 5) -> List[Dict[str, Any]]:
+    """Retrieve management-commentary passages (concall transcripts / investor
+    presentations / annual reports) matching the query — DAAS /v1/documents/search.
+    Returns [] when the corpus has no match (or isn't populated yet)."""
+    try:
+        data = await daas_client.search_documents(q=q, symbol=symbol, limit=limit)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("commentary search failed for %r: %s", q, exc)
+        return []
+    rows = data.get("data") if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        return []
+    return [_shape_commentary(r) for r in rows if isinstance(r, dict) and r.get("text")][:limit]
+
+
 async def get_stocks_insights(
     query: str,
     symbol: Optional[str] = None,
@@ -193,32 +233,37 @@ async def get_stocks_insights(
         )
 
     financials: Optional[str] = None
+    commentary: List[Dict[str, Any]] = []
     if symbol:
         sym = symbol.upper()
-        events, financials = await asyncio.gather(
+        events, financials, commentary = await asyncio.gather(
             _fetch_filings(sym, limit, ticker=True),
             _fetch_financials(sym),
+            _fetch_commentary(query, sym),
         )
         mode = "ticker"
         ticker: Optional[str] = sym
     else:
-        events = await _fetch_filings(query, limit, ticker=False)
+        events, commentary = await asyncio.gather(
+            _fetch_filings(query, limit, ticker=False),
+            _fetch_commentary(query, None),
+        )
         mode = "thematic"
         ticker = None
 
-    ok = bool(events) or bool(financials)
+    ok = bool(events) or bool(financials) or bool(commentary)
     subject = ticker or "that query"
-    if events and financials:
-        summary = f"{len(events)} recent filings + quarterly financials for {subject}"
-    elif events:
-        summary = f"{len(events)} recent filings for {subject}"
-    elif financials:
-        summary = f"Quarterly financials for {subject} (no recent filings)"
-    else:
-        summary = f"No recent filings or financials found for {subject}"
+    bits: List[str] = []
+    if events:
+        bits.append(f"{len(events)} filings")
+    if commentary:
+        bits.append(f"{len(commentary)} commentary passages")
+    if financials:
+        bits.append("quarterly financials")
+    summary = (", ".join(bits) + f" for {subject}") if bits else f"No disclosures found for {subject}"
     return StocksInsightsResult(
         ok=ok, summary=summary, ticker=ticker, mode=mode, events=events,
-        financials=financials, error=None if ok else "no_filings",
+        financials=financials, commentary=commentary, error=None if ok else "no_filings",
     )
 
 
@@ -232,15 +277,33 @@ def build_widget_data(
     ``sources`` is the numbered filing register [1..N] the answer's [n] markers
     resolve to (filing-level "View Source"). Always includes the AI disclaimer.
     """
+    # Filings and commentary share ONE continuous [n] numbering (matches as_llm_context).
     sources: List[Dict[str, Any]] = []
-    for i, e in enumerate(result.events, start=1):
+    n = 0
+    for e in result.events:
+        n += 1
         sources.append({
-            "n": i,
-            "title": e.get("headline") or f"Filing {i}",
+            "n": n,
+            "title": e.get("headline") or f"Filing {n}",
             "category": e.get("category") or "other",
             "filed_at": e.get("filed_at"),
             "url": e.get("url"),
             "symbol": e.get("symbol") or result.ticker,
+        })
+    for c in result.commentary:
+        n += 1
+        url = c.get("url")
+        if url and c.get("page"):
+            url = f"{url}#page={c['page']}"
+        dt = (c.get("doc_type") or "document").replace("_", " ")
+        pg = f" · p.{c['page']}" if c.get("page") else ""
+        sources.append({
+            "n": n,
+            "title": f"{c.get('company') or result.ticker or 'Document'} — {dt}{pg}",
+            "category": c.get("doc_type") or "document",
+            "filed_at": c.get("filed_at"),
+            "url": url,
+            "symbol": c.get("symbol") or result.ticker,
         })
     return {
         "ticker": result.ticker,
@@ -249,6 +312,7 @@ def build_widget_data(
         "answer": answer,
         "events": result.events,
         "sources": sources,
+        "has_commentary": bool(result.commentary),
         "disclaimer": DISCLAIMER,
         "empty": not result.ok,
     }

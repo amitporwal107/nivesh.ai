@@ -339,6 +339,34 @@ async def get_market_pulse_articles(
     return data if isinstance(data, dict) else None
 
 
+async def search_documents(
+    q: str, symbol: Optional[str] = None, doc_type: Optional[str] = None, limit: int = 6,
+) -> Optional[Dict[str, Any]]:
+    """Full-text search over concall/presentation/annual-report CHUNKS
+    (DAAS /v1/documents/search). Returns {"data": [chunk rows…]} or None. Each row
+    carries the passage text + page_start/end + source_url + doc_type for citations."""
+    params: Dict[str, Any] = {"q": q, "limit": limit}
+    if symbol:
+        params["symbol"] = symbol
+    if doc_type:
+        params["doc_type"] = doc_type
+    try:
+        data = await _get("/documents/search", params=params)
+    except DaasError as exc:
+        logger.debug("search_documents: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def documents_coverage() -> Optional[Dict[str, Any]]:
+    """Corpus diagnostic — chunk/doc counts by doc_type (DAAS /v1/documents/coverage)."""
+    try:
+        return await _get("/documents/coverage")
+    except DaasError as exc:
+        logger.debug("documents_coverage: %s", exc)
+        return None
+
+
 async def get_market_pulse_movers(cap: str = "large") -> Optional[Dict[str, Any]]:
     try:
         data = await _get("/market-pulse/movers", params={"cap": cap})
