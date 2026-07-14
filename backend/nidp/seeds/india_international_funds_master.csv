@@ -1,0 +1,34 @@
+fund_name,amc,route,vehicle_type,underlying_benchmark_or_etf,geography,category,expense_ratio_approx,typical_subscription_status,notes
+Motilal Oswal Nasdaq 100 FOF,Motilal Oswal,Indian FoF,FoF,Nasdaq-100 Index,US,US Tech/Large Cap,0.20%,Verify - often open,Largest US tech-tracking FoF by AUM
+Mirae Asset NYSE FANG+ FoF,Mirae Asset,Indian FoF,FoF,NYSE FANG+ Index,US,US Mega-cap Tech,0.30%,Verify - periodically closed,Concentrated 10-stock index
+Kotak US Specific Equity Passive FoF,Kotak,Indian FoF,FoF,S&P 500 / US ETF,US,US Broad Market,0.20%,Verify - periodically closed,Tracks US passive ETF
+Navi Nasdaq100 US Specific Equity Passive FoF,Navi,Indian FoF,FoF,Nasdaq-100 Index,US,US Tech/Large Cap,0.20%,Verify - often open,Low-cost passive option
+Edelweiss US Technology Equity FoF,Edelweiss,Indian FoF,FoF,US Technology basket,US,US Technology Sector,0.70%,Verify - periodically closed,Active-leaning tech tilt
+Aditya Birla Sun Life US Equity Passive FoF,Aditya Birla Sun Life,Indian FoF,FoF,US Equity Index,US,US Broad Market,0.26%,Verify - periodically closed,
+Bandhan US Specific Equity Active FoF,Bandhan,Indian FoF,FoF,US Equities (active),US,US Broad Market,0.70%,Verify - periodically closed,
+ICICI Prudential US Bluechip Equity Fund,ICICI Prudential,Indian Feeder,Feeder Fund,US Bluechip basket,US,US Large Cap,1.10%,Verify - periodically closed,"Older feeder structure, actively managed"
+Franklin India Feeder - Franklin US Opportunities Fund,Franklin Templeton,Indian Feeder,Feeder Fund,Franklin US Opportunities Fund,US,US Growth,1.00%+,Verify - periodically closed,Feeds into Luxembourg-domiciled master fund
+Invesco India - Invesco Global Consumer Trends FoF,Invesco,Indian FoF,FoF,Invesco Global Consumer Trends Fund,Global,Global Consumer Theme,0.60%+,Reopened May 2026 - verify headroom,High volatility thematic fund
+Invesco India - Invesco Global Equity Income FoF,Invesco,Indian FoF,FoF,Invesco Global Equity Income Fund,Global,Global Dividend/Income,0.60%+,Reopened May 2026 - verify headroom,46-stock concentrated global income strategy
+Invesco India - Invesco Pan European Equity FoF,Invesco,Indian FoF,FoF,Invesco Pan European Equity Fund,Europe,European Equity,0.60%+,Reopened May 2026 - verify headroom,Large-cap European value/transition tilt
+Invesco EQQQ NASDAQ-100 ETF FoF,Invesco,Indian FoF,FoF,Invesco EQQQ NASDAQ-100 UCITS ETF,US,US Tech/Large Cap,0.30%,Closed since Apr 2024 - separate ETF cap,Suspended under USD 1bn overseas ETF limit
+Edelweiss Greater China Equity Offshore Fund,Edelweiss,Indian Feeder,Feeder Fund,China equities basket,China,Country - China,1.00%+,Verify - periodically closed,
+PGIM India Global Select Real Estate Securities FoF,PGIM India,Indian FoF,FoF,Global REITs basket,Global,Real Estate/REITs,0.75%+,Verify - periodically closed,
+DSP Global Innovation FoF,DSP,Indian FoF,FoF,Global innovation/disruption basket,Global,Global Thematic - Innovation,0.75%+,Verify - periodically closed,
+Aditya Birla Sun Life Global Excellence Equity FoF,Aditya Birla Sun Life,Indian FoF,FoF,Global large-cap equity basket,Global,Global Diversified,0.75%+,Verify - periodically closed,
+Nippon India US Equity Opportunities Fund,Nippon India,Indian Feeder,Feeder Fund,US equities basket,US,US Broad Market,1.00%+,Closed since Feb 2024,Existing SIPs only
+Nippon India Japan Equity Fund,Nippon India,Indian Feeder,Feeder Fund,Japan equities basket,Japan,Country - Japan,1.00%+,Closed since Feb 2024,Existing SIPs only
+Nippon India Taiwan Equity Fund,Nippon India,Indian Feeder,Feeder Fund,Taiwan equities basket,Taiwan,Country - Taiwan,1.00%+,Closed since Feb 2024,Existing SIPs only
+Nippon India ETF Hang Seng BeES,Nippon India,Indian ETF,Domestic ETF (overseas index),Hang Seng Index,Hong Kong,Country - Hong Kong,1.00%+,Closed since Feb 2024,Lists on NSE like a normal ETF
+Motilal Oswal NASDAQ 100 ETF,Motilal Oswal,Indian ETF,Domestic ETF (overseas index),Nasdaq-100 Index,US,US Tech/Large Cap,0.30%+,Verify - subject to ETF cap,Lists on NSE
+ICICI Prudential MNC Fund,ICICI Prudential,Indian Domestic,Domestic Equity Fund,Indian-listed MNC subsidiaries,India (indirect global),Indirect Global Exposure,1.00%+,Always open,Indirect play - no LRS/overseas cap issue
+SPY,N/A - Direct via LRS,LRS Direct,US-listed ETF,S&P 500 Index,US,US Broad Market,0.0945%,Open via LRS broker,Buy via Vested/INDmoney Direct/IBKR
+VOO,N/A - Direct via LRS,LRS Direct,US-listed ETF,S&P 500 Index,US,US Broad Market,0.03%,Open via LRS broker,Lower cost S&P 500 alternative to SPY
+QQQ,N/A - Direct via LRS,LRS Direct,US-listed ETF,Nasdaq-100 Index,US,US Tech/Large Cap,0.20%,Open via LRS broker,
+VTI,N/A - Direct via LRS,LRS Direct,US-listed ETF,CRSP US Total Market Index,US,US Total Market,0.03%,Open via LRS broker,
+VXUS,N/A - Direct via LRS,LRS Direct,US-listed ETF,FTSE Global All Cap ex US Index,Ex-US Global,Global ex-US,0.07%,Open via LRS broker,
+VEA,N/A - Direct via LRS,LRS Direct,US-listed ETF,FTSE Developed Markets ex US Index,Developed ex-US,Developed Markets,0.05%,Open via LRS broker,
+VWO,N/A - Direct via LRS,LRS Direct,US-listed ETF,FTSE Emerging Markets Index,Emerging Markets,Emerging Markets,0.07%,Open via LRS broker,
+SCHD,N/A - Direct via LRS,LRS Direct,US-listed ETF,Dow Jones US Dividend 100 Index,US,US Dividend,0.06%,Open via LRS broker,
+ARKK,N/A - Direct via LRS,LRS Direct,US-listed ETF,Actively managed - disruptive innovation,US/Global,Thematic - Innovation,0.75%,Open via LRS broker,
+GLD,N/A - Direct via LRS,LRS Direct,US-listed ETF,Gold bullion,Commodity,Gold,0.40%,Open via LRS broker,

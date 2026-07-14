@@ -49,7 +49,8 @@ async def _session_days(user_id: str) -> int:
 MAGIC_LINK_TTL_HOURS = 24
 
 # ── Email OTP sign-in ─────────────────────────────────────────────────────
-# Passwordless login: any valid email → 6-digit code → verify → session.
+# Passwordless login for whitelisted users: invited email → 6-digit code →
+# verify → session. Invite-gated (a code never adds anyone to the whitelist).
 # Codes are stored hashed, single-use, rate-limited, and attempt-capped.
 OTP_TTL_MINUTES = 30
 OTP_MAX_ATTEMPTS = 5              # wrong guesses before a code is burned
@@ -433,23 +434,23 @@ async def request_magic_link(request: Request):
 
 
 async def _issue_email_session(request: Request, response: Response, email: str) -> dict:
-    """Whitelist the address (self-serve), create/find the user, mint a 7-day
-    session, set the cookie, and return the user doc. Mirrors the tail of
-    google_auth so an OTP sign-in lands on the dashboard exactly like Google."""
+    """Establish a session for an already-whitelisted address: create/find the
+    user, mint a 7-day session, set the cookie, and return the user doc. Mirrors
+    the tail of google_auth so an OTP sign-in lands on the dashboard exactly like
+    Google. Callers MUST verify whitelist access before reaching here."""
     now = datetime.now(timezone.utc)
 
-    # Self-serve whitelist: a verified OTP proves control of the address, so we
-    # add it (idempotent). Set invite-only posture by requiring an existing
-    # whitelist entry here instead.
+    # Invite-only: OTP is a login mechanism for whitelisted users, not a
+    # self-serve registration path. A verified code never adds anyone to the
+    # whitelist (access could also have been revoked between request and verify).
+    # Non-invited emails are steered to the magic-link request-access flow.
     whitelist_entry = await check_whitelist(email)
     if not whitelist_entry:
-        await db.whitelisted_users.update_one(
-            {"email": email},
-            {"$set": {"email": email, "status": "active",
-                      "registered_at": now.isoformat(), "source": "otp"}},
-            upsert=True,
+        logger.warning("OTP verified but email not whitelisted: %s", mask_email(email))
+        raise AuthorizationException(
+            "Access is currently restricted. Your email is not on the invite list.",
+            code="AUTHZ-001",
         )
-        whitelist_entry = await check_whitelist(email) or {}
     is_admin = whitelist_entry.get("is_admin", False)
 
     existing_user = await db.users.find_one({"email": email}, {"_id": 0})
@@ -496,15 +497,25 @@ async def _issue_email_session(request: Request, response: Response, email: str)
 
 @router.post("/auth/otp/request")
 async def request_otp(request: Request):
-    """Send a 6-digit sign-in code to any valid email (self-serve).
+    """Email a 6-digit sign-in code to an already-whitelisted address.
 
-    Body: {"email": "..."}. Rate-limited per email. Requires SMTP to be
-    configured — we never pretend a code went out.
+    Body: {"email": "..."}. Invite-gated (non-whitelisted → 403; never adds
+    anyone). Rate-limited per email. Requires SMTP to be configured — we never
+    pretend a code went out.
     """
     body = await request.json()
     email = (body.get("email") or "").strip().lower()
     if not email or "@" not in email or "." not in email.split("@")[-1]:
         raise ValidationException("A valid email address is required", code="VAL-003")
+
+    # Invite-gate — OTP signs in whitelisted users only; it never adds anyone.
+    # Non-invited emails are steered to the magic-link request-access flow.
+    if not await check_whitelist(email):
+        logger.info("OTP requested for non-whitelisted email: %s", mask_email(email))
+        raise AuthorizationException(
+            "This email isn't on the invite list yet. Request access first, then sign in.",
+            code="AUTHZ-001",
+        )
 
     # Fail loud if we can't actually send mail — never pretend a code went out.
     if not email_service.is_configured():

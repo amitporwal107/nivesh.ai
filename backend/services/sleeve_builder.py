@@ -118,9 +118,22 @@ async def build_sleeve_portfolio(
         s["lumpsum_rs"] = round(lump * share) if lump else None
 
     # L3 — named-scheme selection ONLY if Compliance enabled it.
+    audit: Optional[Dict[str, Any]] = None
     names_on = _p.names_allowed()
     if names_on:
         from services.copilot_tools import daas_client as _dc
+
+        # Buyable universe (plan Step 2): fetch the transactable-ISIN set ONCE,
+        # before _fill is defined, so the closure reads a bound value (not a
+        # forward reference). Empty/None set -> selection.intersect_buyable
+        # passthrough (MVP fallback, decision NI-1). Best-effort: any failure
+        # degrades to None (no platform filter applied).
+        from services import buyable_universe as _bu
+        try:
+            buyable = await _bu.get_buyable_isins()
+        except Exception as e:  # noqa: BLE001 — never let the buyable fetch sink the build
+            logger.warning("buyable universe fetch failed: %s", e)
+            buyable = None
 
         async def _fill(s: Dict[str, Any]) -> None:
             kinds = [k for k in s["_member_kinds"] if _KIND.get(k, {}).get("sub_category")]
@@ -146,10 +159,69 @@ async def build_sleeve_portfolio(
                                      for r in rows)
                 except Exception as e:  # noqa: BLE001
                     logger.warning("L3 fill %s/%s: %s", s["key"], k, e)
-            # cap: max holdings per sub-sleeve
+            # Rank-wiring (plan Step 1): re-rank the pool peer-relatively BEFORE
+            # selection, replacing reliance on the incoming point-to-point
+            # quality_score order (PRD golden rule #1). A passive/index sub-sleeve
+            # uses the PRD A4 override (rank_passive: drops active-return factors);
+            # everything else uses the default peer-relative rank_candidates.
+            from services import selection_ranking as _rank
+            if any(_rank.is_passive(p.get("sub_category")) for p in picks):
+                picks = _rank.rank_passive(picks)
+            else:
+                picks = _rank.rank_candidates(picks)
+
+            # Selection framework: hard gates -> overlap rejection -> capacity cap.
+            # picks are now peer-relative ranked; selection enforces eligibility +
+            # de-dup + caps. Overlap degrades to "not_evaluated" until a holdings
+            # source is wired (workspace spike S4); gates degrade likewise on any
+            # missing field — never a silent pass (selection.py honesty contract).
+            from services import selection as _sel
+            overlap_thr = float((_p.selection().get("overlap_guard") or {})
+                                .get("max_holdings_overlap", 0.40))
             cap = int(_p.caps().get("max_holdings_per_sub_sleeve", 3))
-            s["funds"] = picks[:cap]
+            res = _sel.select_for_sleeve(
+                picks,
+                asset_class=s["asset_class"],
+                monthly_sip_rs=sip,
+                buyable_isins=(buyable or None),  # empty/None -> passthrough fallback
+                holdings_by_key=None,        # overlap not_evaluated until S4
+                overlap_threshold=overlap_thr,
+                max_holdings=cap,
+            )
+            s["funds"] = res["selected"]
+            s["selection"] = {
+                "rejected": res["rejected"],
+                "shortlist_size": res["shortlist_size"],
+                "cap_applied": res["cap_applied"],
+            }
+
         await asyncio.gather(*(_fill(s) for s in sleeves))
+
+        # Per-proposal audit trail (PRD D4): inputs, gates, scores, weights,
+        # scoring-config version, timestamp. Persisting to a store is a follow-up
+        # (workspace plan Step 7); we always assemble the record here.
+        from services import selection as _sel
+        _all_selected = [f for s in sleeves for f in s.get("funds", [])]
+        _all_rejected = [r for s in sleeves for r in (s.get("selection") or {}).get("rejected", [])]
+        _weights = (_p.selection().get("mf_score_weights") or {}).get(profile, {})
+        audit = _sel.build_audit_record(
+            inputs={"risk_profile": profile, "horizon_years": horizon_years,
+                    "monthly_sip_rs": monthly_sip_rs, "lumpsum_rs": lumpsum_rs},
+            selected=_all_selected, rejected=_all_rejected, weights=_weights,
+            scoring_config_version=_p.version(),
+        )
+
+        # Audit persist (plan Step 7): best-effort write to portfolio_proposal_audit.
+        # persist() returns None on a missing pool / any error (never raises), so a
+        # failed audit write does not break proposal generation. Attach the returned
+        # proposal_id only when the row was actually written (pid non-None).
+        from services import portfolio_proposal_audit as _ppa
+        try:
+            pid = await _ppa.persist(audit)
+            if pid is not None:
+                audit["proposal_id"] = pid
+        except Exception as e:  # noqa: BLE001 — audit write must never break the builder
+            logger.warning("audit persist failed: %s", e)
 
     for s in sleeves:
         s.pop("_member_kinds", None)
@@ -176,6 +248,7 @@ async def build_sleeve_portfolio(
         "allocation": alloc,                 # asset-class rollup (= L1 strategic)
         "sleeves": sleeves,                  # governed sub-sleeve model (category level)
         "validation": validation,            # MC gates on house CMAs (may be null)
+        "audit": audit,                      # per-proposal audit record (PRD D4); null in category mode
         "compliance": {
             "mode": comp.get("mf_recommendations_mode"),
             "names_allowed": names_on,

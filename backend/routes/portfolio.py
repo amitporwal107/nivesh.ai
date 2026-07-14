@@ -184,6 +184,119 @@ async def refresh_international_fund_cache(request: Request, force: bool = False
     return await _intl.refresh_international_funds(force=force)
 
 
+@router.get("/funds/international")
+async def international_fund_universe(request: Request, route: str = "", geography: str = ""):
+    """International investment universe for the International Funds dashboard.
+
+    Reads `nidp.v_international_funds` (migration 116) — the curated cross-route
+    universe of international options for Indian investors (Indian FoF / Feeder /
+    ETF / Domestic + LRS-direct US ETFs), with a unified price block (LRS ticker
+    price via yfinance, else AMFI NAV) and NIDP analytics where the scheme is
+    linked + scored. Proper-schema replacement for the Groww scrape-cache.
+
+    Query (both optional, case-insensitive):
+      • route     — Indian FoF | Indian Feeder | Indian ETF | Indian Domestic | LRS Direct
+      • geography — US | Global | Europe | Emerging Markets | …
+
+    Returns {ok, count, routes[], funds[]}. Real data only — if the NIDP pool is
+    unavailable the response carries ok=false rather than fabricated rows.
+    """
+    await get_current_user(request)
+    from services import pg_client
+
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return {"ok": False, "error": "no_pg_pool", "funds": [], "routes": [], "count": 0}
+
+    # Validate route against the master's allowed set (avoids silent empty results).
+    valid_routes = {"indian fof": "Indian FoF", "indian feeder": "Indian Feeder",
+                    "indian etf": "Indian ETF", "indian domestic": "Indian Domestic",
+                    "lrs direct": "LRS Direct"}
+    route_filter = valid_routes.get((route or "").strip().lower())  # None ⇒ all
+    geo_filter = (geography or "").strip() or None
+
+    sql = """
+        SELECT instrument_key, fund_name, amc, route, vehicle_type, underlying,
+               geography, category, expense_ratio_text, expense_ratio_pct,
+               subscription_status, status_class, ticker, scheme_code, notes,
+               price, price_currency, change_pct, price_source, price_as_of,
+               year_high, year_low,
+               aum_cr, risk_o_meter, ret_1y, ret_3y, ret_5y, sharpe,
+               max_drawdown_pct, analytics_available
+          FROM nidp.v_international_funds
+         WHERE ($1::text IS NULL OR route = $1::text)
+           AND ($2::text IS NULL OR geography = $2::text)
+         ORDER BY route, expense_ratio_pct ASC NULLS LAST, fund_name
+    """
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(sql, route_filter, geo_filter)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("funds.international universe query failed: %s", e)
+        return {"ok": False, "error": "query_failed", "funds": [], "routes": [], "count": 0}
+
+    def _f(v):
+        return round(float(v), 4) if v is not None else None
+
+    funds = []
+    for r in rows:
+        funds.append({
+            "instrument_key": r["instrument_key"],
+            "fund_name":      r["fund_name"],
+            "amc":            r["amc"],
+            "route":          r["route"],
+            "vehicle_type":   r["vehicle_type"],
+            "underlying":     r["underlying"],
+            "geography":      r["geography"],
+            "category":       r["category"],
+            "expense_ratio_text": r["expense_ratio_text"],
+            "expense_ratio_pct":  _f(r["expense_ratio_pct"]),
+            "subscription_status": r["subscription_status"],
+            "status_class":   r["status_class"],
+            "ticker":         r["ticker"],
+            "scheme_code":    r["scheme_code"],
+            "notes":          r["notes"],
+            "price":          _f(r["price"]),
+            "price_currency": r["price_currency"],
+            "change_pct":     _f(r["change_pct"]),
+            "price_source":   r["price_source"],
+            "price_as_of":    r["price_as_of"].isoformat() if r["price_as_of"] else None,
+            "year_high":      _f(r["year_high"]),
+            "year_low":       _f(r["year_low"]),
+            "aum_cr":         _f(r["aum_cr"]),
+            "risk_o_meter":   r["risk_o_meter"],
+            "ret_1y":         _f(r["ret_1y"]),
+            "ret_3y":         _f(r["ret_3y"]),
+            "ret_5y":         _f(r["ret_5y"]),
+            "sharpe":         _f(r["sharpe"]),
+            "max_drawdown_pct": _f(r["max_drawdown_pct"]),
+            "analytics_available": bool(r["analytics_available"]),
+        })
+
+    # Per-route roll-up: count + how many are priced live + open for subscription.
+    routes: dict = {}
+    for f in funds:
+        rb = routes.setdefault(f["route"], {"route": f["route"], "count": 0,
+                                            "priced": 0, "open": 0})
+        rb["count"] += 1
+        if f["price"] is not None:
+            rb["priced"] += 1
+        if f["status_class"] == "open":
+            rb["open"] += 1
+    route_order = {"Indian FoF": 0, "Indian Feeder": 1, "Indian ETF": 2,
+                   "Indian Domestic": 3, "LRS Direct": 4}
+    route_list = sorted(routes.values(), key=lambda x: route_order.get(x["route"], 9))
+
+    return {
+        "ok": True,
+        "count": len(funds),
+        "route_filter": route_filter,
+        "geography_filter": geo_filter,
+        "routes": route_list,
+        "funds": funds,
+    }
+
+
 @router.get("/portfolio/switch-candidates")
 async def switch_candidates(request: Request, holding_id: str, limit: int = 3):
     """Return top same-category replacement funds for a given MF holding.

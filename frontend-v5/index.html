@@ -4,7 +4,11 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230F172A'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Georgia' font-size='20' fill='%23FFFFFF'%3E%E0%A4%A8%3C/text%3E%3C/svg%3E" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Nivesh</title>
+    <title>Nivesh — portfolio-intelligence copilot for Indian investors</title>
+    <meta
+      name="description"
+      content="Nivesh is a portfolio-intelligence copilot for Indian investors: it reads every holding, scores its health, flags risk, and explains your portfolio in plain language. Connect a broker, upload a CAS PDF, or grant read-only Gmail access to auto-import your CAS statements."
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -19,6 +23,26 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      Static, crawlable fallback for non-JS clients (search crawlers, Google's
+      OAuth branding verifier). Real browsers run React and never see this;
+      it exists so a server-side fetch of /v5 returns readable public content
+      describing the app's purpose and its Google/Gmail data use, without login.
+    -->
+    <noscript>
+      <main style="max-width:640px;margin:40px auto;padding:0 20px;font:16px/1.6 system-ui,-apple-system,sans-serif">
+        <h1>Nivesh</h1>
+        <p>Nivesh is a portfolio-intelligence copilot for Indian investors. It reads every
+           holding in your portfolio, scores its health, flags concentration and risk, and
+           rewrites your investment report in plain language.</p>
+        <p>Connect your portfolio by linking a broker, uploading a Consolidated Account
+           Statement (CAS) PDF, or granting <strong>read-only</strong> access to Gmail so
+           Nivesh can find and import the CAS statements sent by NSDL, CDSL, CAMS and
+           KFintech. Nivesh reads only those statement emails and never sends mail on your
+           behalf.</p>
+        <p><a href="/v5/privacy">Privacy Policy</a> &middot; <a href="/v5/terms">Terms of Service</a></p>
+      </main>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
 
     <!--

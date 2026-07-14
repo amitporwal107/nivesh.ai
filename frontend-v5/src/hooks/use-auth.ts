@@ -47,12 +47,14 @@ export function useLogout() {
     mutationFn: () => authService.logout(),
     onSuccess: () => {
       qc.clear();
-      navigate("/login");
+      // Land on the public homepage ("/" → /v5/), not the login wall. The
+      // homepage is the crawlable, purpose-explaining public surface.
+      navigate("/");
     },
     onError: () => {
       // Clear cache and navigate even on error — cookie may already be gone
       qc.clear();
-      navigate("/login");
+      navigate("/");
     },
   });
 }

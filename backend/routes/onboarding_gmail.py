@@ -31,7 +31,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from deps import db, get_current_user
@@ -622,15 +622,25 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
 
 
 @router.post("/upload-cas")
-async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict[str, Any]:
+async def upload_cas_pdf(
+    request: Request,
+    file: UploadFile = File(...),
+    password: Optional[str] = Form(None),
+) -> Dict[str, Any]:
     """Server-wrapped CAS PDF upload — same parsing engine as the Gmail
     auto-import path, but the bytes come from the user's file picker
     instead of Gmail. Returns the imported holdings summary.
 
-    Reuses the PAN saved via /api/onboarding/pan as the unlock password.
-    If parsing fails (wrong PAN, scanned PDF too large, etc.) returns 422
-    so the UI can prompt the user to re-enter PAN or pick a different
-    file — no third-party widget required.
+    The unlock secret can be supplied inline via the ``password`` field (the
+    onboarding Upload panel sends it), or reused from a PAN previously saved
+    via /api/onboarding/pan. A PAN-shaped value is stored as the PAN (and used
+    upper-cased, as NSDL/CDSL eCAS require); anything else is stored as a
+    custom statement password (CAMS/KFintech mailback statements). Persisting
+    it here also unlocks future Gmail auto-imports.
+
+    If parsing fails (wrong PAN/password, scanned PDF too large, etc.) returns
+    422 so the UI can prompt the user to re-enter the secret or pick a
+    different file — no third-party widget required.
     """
     user = await get_current_user(request)
     user_id = user["user_id"]
@@ -644,9 +654,39 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
         raise HTTPException(413, "PDF too large — max 25 MB.")
 
     profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
+
+    # Inline secret from the Upload panel wins and is persisted so future
+    # auto-imports unlock too. PAN-shaped -> store as PAN; otherwise store as a
+    # custom (case-sensitive) statement password. Mirror the shape written by
+    # /api/onboarding/pan and /api/onboarding/cas-password.
+    supplied = (password or "").strip()
+    if supplied:
+        now = _now_iso()
+        if PAN_REGEX.match(supplied.upper()):
+            pan_val = supplied.upper()
+            profile["pan"] = pan_val
+            profile["cas_password"] = pan_val
+            await db.user_profiles.update_one(
+                {"user_id": user_id},
+                {"$set": {"pan": pan_val, "cas_password": pan_val, "updated_at": now},
+                 "$setOnInsert": {"user_id": user_id, "created_at": now}},
+                upsert=True,
+            )
+        else:
+            profile["cas_pdf_password"] = supplied
+            await db.user_profiles.update_one(
+                {"user_id": user_id},
+                {"$set": {"cas_pdf_password": supplied, "updated_at": now},
+                 "$setOnInsert": {"user_id": user_id, "created_at": now}},
+                upsert=True,
+            )
+
     pan = _resolve_cas_password(profile)
     if not pan:
-        raise HTTPException(400, "PAN missing — submit /api/onboarding/pan first.")
+        raise HTTPException(
+            400,
+            "Enter your PAN (or the statement password) to unlock the CAS PDF.",
+        )
 
     return await import_cas_pdf_for_user(user_id, content, pan, filename)
 

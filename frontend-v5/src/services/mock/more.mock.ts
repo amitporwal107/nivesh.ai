@@ -73,5 +73,5 @@ export const mockCasUploadAdapter: CasUploadAdapter = {
   async importConnect()      { await delay(380); return { imported: true }; },
   async status()             { await delay(220); return { task_id: "upl_mock_1", status: "COMPLETED", progress: 100 }; },
   async latestTask()         { await delay(180); return { task_id: "upl_mock_1", status: "COMPLETED" }; },
-  async upload()             { await delay(420); return { task_id: "upl_mock_1" }; },
+  async upload()             { await delay(420); return { ok: true, imported_holdings: 7, statement_period: "Apr 2026", filename: "cas.pdf" }; },
 };
