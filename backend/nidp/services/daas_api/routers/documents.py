@@ -21,20 +21,20 @@ from nidp.services.daas_api.responses import envelope, normalise_symbol, page_pa
 router = APIRouter(prefix="/documents", tags=["documents"],
                    dependencies=[Depends(require_api_key)])
 
-# The "what management said / presented" corpus. Excludes announcement_attachment
-# (that filing metadata is already served by /announcements).
-_DEFAULT_DOC_TYPES = ["concall_transcript", "investor_presentation", "annual_report"]
-
-
-@router.get("/search", summary="Full-text search over concall/presentation/annual-report chunks")
+# doc_parser tags ALL auto-ingested PDFs as 'announcement_attachment' — and in
+# India, earnings-call transcripts + investor presentations are FILED as
+# announcements, so their chunks live under that doc_type too. Therefore the
+# default search spans ALL doc_types (announcement_attachment / concall_transcript
+# / investor_presentation / annual_report); pass ?doc_type= to narrow.
+@router.get("/search", summary="Full-text search over document chunks (all doc types)")
 async def documents_search(
     q: str = Query(..., min_length=2, max_length=256, description="free-text query"),
     symbol: Optional[str] = Query(None, description="restrict to one ticker"),
-    doc_type: Optional[str] = Query(None, description="concall_transcript | investor_presentation | annual_report"),
+    doc_type: Optional[str] = Query(None, description="announcement_attachment | concall_transcript | investor_presentation | annual_report"),
     page: Dict[str, int] = Depends(page_params),
 ) -> Dict[str, Any]:
     sym = normalise_symbol(symbol) if symbol else None
-    doc_types: List[str] = [doc_type] if doc_type else _DEFAULT_DOC_TYPES
+    doc_types: Optional[List[str]] = [doc_type] if doc_type else None  # None → all types
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -48,7 +48,7 @@ async def documents_search(
               FROM nidp.document_chunks c
               JOIN nidp.documents d USING (doc_id)
              WHERE d.parse_status = 'parsed'
-               AND d.doc_type = ANY($2::text[])
+               AND ($2::text[] IS NULL OR d.doc_type = ANY($2::text[]))
                AND ($3::text IS NULL OR d.ticker_symbol = $3)
                AND to_tsvector('simple', c.text) @@ plainto_tsquery('simple', $1)
              ORDER BY rank DESC, d.filed_at DESC NULLS LAST
@@ -57,7 +57,7 @@ async def documents_search(
             q, doc_types, sym, page["limit"], page["offset"],
         )
     return envelope([row_to_dict(r) for r in rows], **page,
-                    extra={"query": q, "doc_types": doc_types})
+                    extra={"query": q, "doc_types": doc_types or "all"})
 
 
 @router.get("/coverage", summary="Corpus coverage — chunk/doc counts by doc_type (diagnostic)")
