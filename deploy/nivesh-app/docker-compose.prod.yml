@@ -74,6 +74,17 @@ services:
     image: nivesh/backend:prod
     container_name: nivesh-backend
     restart: unless-stopped
+    environment:
+      # Declare the deploy environment so helpers.secrets loads the
+      # `secrets:production` Mongo scope (where admin-dashboard secrets such as
+      # SMTP are saved). Without this, current_env() defaults to "staging" and
+      # the prod backend reads the wrong scope — making magic-link email report
+      # "Email delivery is not configured on the server." Staging sets the
+      # matching APP_ENV: staging in its own compose.
+      APP_ENV: production
+    # Outbound SMTP for magic-link email (SMTP_HOST/PORT/USERNAME/PASSWORD/FROM/
+    # STARTTLS) can also be supplied via this env_file — same relay as staging.
+    # See deploy/nivesh-staging/.env.staging.example for the canonical block.
     env_file: /opt/nivesh/.env.prod
     volumes:
       - /opt/nivesh/repo/backend:/app/backend

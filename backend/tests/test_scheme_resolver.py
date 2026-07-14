@@ -41,3 +41,85 @@ from services.copilot_tools.scheme_resolver import extract_scheme_query
 )
 def test_extract_strips_generic_fund_filler(text, expected):
     assert extract_scheme_query(text) == expected
+
+
+# A view/metric clause TRAILING the fund name ("{fund} top holdings", "{fund}
+# latest NAV") must be stripped too. The MF node resolves on the whole user
+# message, so "hdfc balanced advantage fund top holdings" left a stray "top" in
+# the DaaS search → no or wrong scheme → live "top holdings: data unavailable".
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        # the reported failure
+        ("hdfc balanced advantage fund top holdings", "hdfc balanced advantage fund"),
+        ("HDFC Balanced Advantage Fund top holdings", "HDFC Balanced Advantage Fund"),
+        # other trailing view/metric clauses
+        ("Parag Parikh Flexi Cap Fund latest NAV", "Parag Parikh Flexi Cap Fund"),
+        ("SBI Small Cap Fund returns", "SBI Small Cap Fund"),
+        ("Axis Bluechip Fund expense ratio", "Axis Bluechip Fund"),
+        ("Mirae Asset Large Cap Fund sector allocation", "Mirae Asset Large Cap Fund"),
+        ("Quant Active Fund sharpe", "Quant Active Fund"),
+        ("ICICI Prudential Bluechip Fund 5 year returns", "ICICI Prudential Bluechip Fund"),
+        # alias shortcut still wins even with a trailing clause
+        ("hdfc baf top holdings", "HDFC Balanced Advantage"),
+    ],
+)
+def test_extract_strips_trailing_view_clause(text, expected):
+    assert extract_scheme_query(text) == expected
+
+
+# Real scheme names that contain view-like / qualifier words must NOT be truncated.
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("HDFC Top 100 Fund", "HDFC Top 100 Fund"),
+        ("Kotak Emerging Equity Fund", "Kotak Emerging Equity Fund"),
+        ("HDFC Top 100 Fund returns", "HDFC Top 100 Fund"),
+    ],
+)
+def test_extract_does_not_truncate_real_names(text, expected):
+    assert extract_scheme_query(text) == expected
+
+
+# Unfilled template placeholders + view words on EITHER side of the name (the
+# "{fund} top holdings hdfc balanced advantage" failure from the suggested-query
+# typeahead: placeholder left in, name appended after the view words).
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("{fund} top holdings hdfc balanced advantage", "hdfc balanced advantage"),
+        ("top holdings hdfc balanced advantage", "hdfc balanced advantage"),
+        ("{fund} latest nav parag parikh flexi cap", "parag parikh flexi cap"),
+        ("returns of HDFC Balanced Advantage Fund", "HDFC Balanced Advantage Fund"),
+        ("{fund} hdfc baf top holdings", "HDFC Balanced Advantage"),  # alias still wins
+    ],
+)
+def test_extract_strips_placeholders_and_leading_view(text, expected):
+    assert extract_scheme_query(text) == expected
+
+
+# When only view/filler words survive (no fund named), return "" so the resolver
+# yields None instead of searching DaaS for "returns"/"top holdings".
+@pytest.mark.parametrize("text", ["{fund} returns", "returns", "top holdings", "{fund}", "latest nav"])
+def test_extract_returns_empty_when_no_fund_named(text):
+    assert extract_scheme_query(text) == ""
+
+
+# "top-10 concentration" view clause (the "{fund} top-10 concentration" template),
+# in both fill orders, plus the no-fund case.
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("HDFC Balanced Advantage Fund top-10 concentration", "HDFC Balanced Advantage Fund"),
+        ("HDFC Balanced Advantage Fund top 10 concentration", "HDFC Balanced Advantage Fund"),
+        ("top-10 concentration hdfc balanced advantage", "hdfc balanced advantage"),
+        ("Axis Bluechip Fund concentration", "Axis Bluechip Fund"),
+    ],
+)
+def test_extract_handles_concentration_clause(text, expected):
+    assert extract_scheme_query(text) == expected
+
+
+@pytest.mark.parametrize("text", ["{fund} top-10 concentration", "top-10 concentration", "concentration"])
+def test_concentration_with_no_fund_is_empty(text):
+    assert extract_scheme_query(text) == ""

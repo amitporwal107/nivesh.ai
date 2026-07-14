@@ -7,6 +7,8 @@ import { ErrorBoundary } from "./components/shared/ErrorBoundary";
 import { buildDiagnosticPayload } from "./lib/diagnostic-payload";
 import { setObserver } from "./lib/observability";
 import { sentryObserver } from "./lib/observability/sentry";
+import { resumeCaptureIfEnabled } from "./stores/logging.store";
+import { recordClientError } from "./lib/session-log";
 import "./index.css";
 import "streamdown/styles.css"; // Streamdown's streaming/caret keyframes
 
@@ -41,14 +43,20 @@ if (SENTRY_DSN) {
 // ── Diagnostics available before React mounts (boot-failure scenarios) ───────
 window.__DIAGNOSTICS__ = { build: () => buildDiagnosticPayload() };
 
+// ── Session logging (Settings → Logs & Diagnostics) ──────────────────────────
+// Resume client-side capture if the user left logging on in a previous tab.
+resumeCaptureIfEnabled();
+
 // ── Catch module-load failures and unhandled rejections ──────────────────────
 window.onerror = function(message, source, line, col, error) {
   console.error("window.onerror", { message, source, line, col, stack: error?.stack });
+  recordClientError(`window.onerror: ${String(message)} @ ${source}:${line}:${col}${error?.stack ? `\n${error.stack}` : ""}`);
   void import("./lib/device-log").then(({ dlog }) =>
     dlog("window.onerror", String(message), `${source}:${line}:${col}`, error ?? ""));
 };
 window.onunhandledrejection = function(event) {
   console.error("Unhandled Promise rejection:", event.reason);
+  recordClientError(`unhandledrejection: ${event.reason instanceof Error ? `${event.reason.name}: ${event.reason.message}` : String(event.reason)}`);
   void import("./lib/device-log").then(({ dlog }) => dlog("unhandledrejection", event.reason));
 };
 

@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from deps import db, get_current_user
@@ -392,6 +392,59 @@ async def deactivate_profile(request: Request):
         raise HTTPException(status_code=401, detail="No session token")
     await mfd_workspace.set_active_profile(token, None)
     return {"status": "ok", "active_profile_id": None}
+
+
+# ── Advisor-driven CAS upload (onboard a client from their statement) ────
+MAX_CAS_PDF_BYTES = 25 * 1024 * 1024  # 25 MB — mirrors the retail upload cap
+
+
+@router.post("/profiles/{profile_id}/upload-cas")
+async def upload_client_cas(
+    profile_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    password: Optional[str] = Form(default=None),
+):
+    """Advisor uploads a client's CAS PDF directly while onboarding them.
+
+    Runs the same in-house server-side parser as retail onboarding
+    (`/api/onboarding/upload-cas`) but attaches the reconciled holdings to
+    the client profile's shadow user — not the advisor's own portfolio.
+
+    Password precedence: an explicit `password` (for statements locked with a
+    non-PAN mailback password) is used verbatim; otherwise the client's PAN
+    captured at Add-client time is used, upper-cased (NSDL/CDSL eCAS default).
+    """
+    user = await get_current_user(request)
+    owner_uid = _session_user_id(user)
+    prof = await _owned_or_404(profile_id, owner_uid)
+    shadow_uid = prof.get("shadow_user_id")
+    if not shadow_uid:
+        raise HTTPException(400, "This profile has no portfolio to attach holdings to.")
+
+    filename = (file.filename or "cas.pdf").lower()
+    if not filename.endswith(".pdf"):
+        raise HTTPException(415, "Only CAS PDF files are supported on this endpoint.")
+
+    content = file.file.read()
+    from helpers.upload_validation import validate_upload
+    validate_upload(content, filename)
+    if len(content) > MAX_CAS_PDF_BYTES:
+        raise HTTPException(413, "PDF too large — max 25 MB.")
+
+    if password and password.strip():
+        unlock = password.strip()
+    else:
+        unlock = (prof.get("pan") or "").strip().upper()
+    if not unlock:
+        raise HTTPException(
+            400,
+            "This CAS is password-protected. Add the client's PAN, or enter the "
+            "statement password on the upload form.",
+        )
+
+    from routes.onboarding_gmail import import_cas_pdf_for_user
+    return await import_cas_pdf_for_user(shadow_uid, content, unlock, filename)
 
 
 # ── Advisor notes (freeform + structured SIP meta) ──────────────────────

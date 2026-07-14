@@ -9,6 +9,7 @@ Public (auth-required):
   GET    /api/strategy-builder/strategies/{id}          — fetch active version
   PATCH  /api/strategy-builder/strategies/{id}          — save new version
   DELETE /api/strategy-builder/strategies/{id}          — archive
+  POST   /api/strategy-builder/screen                   — run entry rules vs latest snapshot → ranked list
   POST   /api/strategy-builder/strategies/{id}/backtest — run backtest, returns run_id
   GET    /api/strategy-builder/runs/{run_id}            — fetch backtest result + trades
   POST   /api/strategy-builder/validate                 — validate a DSL doc (no save)
@@ -19,6 +20,7 @@ Admin:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -35,6 +37,9 @@ from services import pg_client
 from services.strategy_engine import dsl as dsl_mod
 from services.strategy_engine import backtest as bt
 from services.strategy_engine.compiler_stock import compile_stock_query, to_asyncpg, CompileError
+from services.strategy_engine.market_data import get_provider
+from services.strategy_engine.evaluator import EvalError
+from services.strategy_engine.screen_bridge import build_definition_from_screen, ScreenBridgeError
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +72,21 @@ class BacktestRequest(BaseModel):
     to_date: str
     starting_capital: float = 1_000_000.0
     max_positions: int = 10
+
+
+class ScreenRequest(BaseModel):
+    definition: Dict[str, Any]
+    as_of_date: Optional[str] = None   # ISO YYYY-MM-DD; default = latest snapshot
+
+
+class FromScreenRequest(BaseModel):
+    """Create a strategy from the copilot-chat stock-screener widget state."""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    # widget filters: {"<primitiveKey>_min"|"_max": number}
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    sector: Optional[List[str]] = None
+    universe: Optional[Dict[str, Any]] = None
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
@@ -162,6 +182,135 @@ async def create_universe(request: Request, body: UniverseCreate):
     return _serialise(row)
 
 
+# ── Universe catalog (curated public baskets + index presets + real metrics) ──
+# Index presets are static — the only refs the compiler's INDEX_REFS accepts. Public
+# sector / index-theme baskets are seeded by migration 117 (real membership from
+# nidp.sector_master / index_constituents). Per-universe 3M return = median
+# return_60d_pct of constituents; trend = 1M-vs-3M momentum. Both are real, populated
+# columns (verified on staging). No number is fabricated — a basket with no metric
+# shows null. Result cached per snapshot date (values change once/day).
+_INDEX_PRESETS = [
+    {"ref": "NIFTY50",  "name": "Nifty 50",  "description": "Largest 50 by free-float — most liquid."},
+    {"ref": "NIFTY100", "name": "Nifty 100", "description": "Top 100 by free-float market cap."},
+    {"ref": "NIFTY200", "name": "Nifty 200", "description": "Large + midcap breadth."},
+    {"ref": "NIFTY500", "name": "Nifty 500", "description": "Full breadth — small / mid / large."},
+]
+_CATALOG_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def _median(vals: List[Any]) -> Optional[float]:
+    v = sorted(float(x) for x in vals if isinstance(x, (int, float)))
+    if not v:
+        return None
+    n = len(v)
+    return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2.0
+
+
+def _trend_label(m20: Optional[float], m60: Optional[float]) -> tuple:
+    """Trend from acceleration of median 1M (return_20d_pct) vs 3M (return_60d_pct)
+    pace — both real, materialised, populated columns. Deliberately does NOT use
+    momentum_score (not a materialised column → would be null/fabricated)."""
+    if m20 is None or m60 is None:
+        return (None, None)
+    monthly_from_3m = m60 / 3.0
+    if m60 > 0 and m20 > monthly_from_3m:
+        return ("warming", "Accelerating")
+    if m20 < 0:
+        return ("cooling", "Cooling")
+    return ("steady", "Steady")
+
+
+def _catalog_probe_spec(universe: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "version": dsl_mod.DSL_VERSION, "asset_class": "STOCK", "name": "catalog",
+        "universe": universe,
+        "entry": {"all_of": [{"feature": "close", "op": ">=", "value": 0}]},
+        "exit": {"stoploss_pct": 8.0, "target_rr": 2.0, "max_hold_days": 20},
+        "ranking": {"by": "market_cap_cr", "limit": 100, "order": "desc"},
+        "rebalance": "daily",
+    }
+
+
+async def _universe_metrics(pool, universe: Dict[str, Any], asof) -> Dict[str, Any]:
+    """Real median 3M return + trend for one universe. Fresh provider per call —
+    a provider instance accumulates per-universe state, so it must not be shared."""
+    try:
+        provider = get_provider(pool)
+        spec = _catalog_probe_spec(universe)
+        await provider.prepare(spec, asof, asof)
+        rows = await provider.screen(spec, asof)
+        r60 = _median([r.get("return_60d_pct") for r in rows])
+        r20 = _median([r.get("return_20d_pct") for r in rows])
+        trend, label = _trend_label(r20, r60)
+        return {
+            "return_3m_pct": round(r60, 2) if r60 is not None else None,
+            "trend": trend, "trend_label": label, "sampled": len(rows),
+        }
+    except Exception as e:   # noqa: BLE001
+        logger.warning("catalog metrics failed for %s: %s", universe, e)
+        return {"return_3m_pct": None, "trend": None, "trend_label": None, "sampled": 0}
+
+
+@router.get("/universe-catalog")
+async def universe_catalog(request: Request):
+    """Curated universe catalog: index presets + public sector / index-theme baskets,
+    each with a REAL median 3M return (return_60d_pct) and a momentum trend."""
+    await get_current_user(request)
+    pool = await pg_client.get_pool()
+    provider = get_provider(pool)
+    asof = await provider.latest_date()
+    if asof is None:
+        raise HTTPException(status_code=503, detail="no feature snapshots available")
+    # Fetch the public system baskets first so the cache key can include their
+    # count — seeding new baskets (a migration) then invalidates the cache
+    # automatically instead of serving a stale pre-seed catalog for the rest of the day.
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            r"SELECT id, owner_id, name, description, symbols FROM user_universes "
+            r"WHERE is_public AND asset_class = 'STOCK' AND owner_id LIKE '\_\_system%' "
+            r"ORDER BY cardinality(symbols) DESC, name ASC"
+        )
+    ckey = f"{asof.isoformat()}:{len(rows)}"
+    if ckey in _CATALOG_CACHE:
+        return _CATALOG_CACHE[ckey]
+
+    catalog: List[Dict[str, Any]] = [
+        {"kind": "broad", "category": "Broad Market", "ref": p["ref"], "id": None,
+         "name": p["name"], "description": p["description"], "symbol_count": None,
+         "_universe": {"type": "index", "ref": p["ref"]}}
+        for p in _INDEX_PRESETS
+    ]
+    for r in rows:
+        is_sector = str(r["owner_id"]).startswith("__system_sector")
+        catalog.append({
+            "kind": "sector" if is_sector else "index-theme",
+            "category": "Sector" if is_sector else "Index Theme",
+            "ref": None, "id": str(r["id"]), "name": r["name"],
+            "description": r["description"], "symbol_count": len(r["symbols"] or []),
+            "_universe": {"type": "custom", "ref": str(r["id"])},
+        })
+
+    # Bounded concurrency — each metric is a fresh DaaS fetch; don't stampede DaaS.
+    sem = asyncio.Semaphore(6)
+
+    async def _bounded(u):
+        async with sem:
+            return await _universe_metrics(pool, u, asof)
+
+    metrics = await asyncio.gather(*[_bounded(c["_universe"]) for c in catalog])
+    out: List[Dict[str, Any]] = []
+    for c, m in zip(catalog, metrics):
+        c.pop("_universe", None)
+        c["return_3m_pct"] = m["return_3m_pct"]
+        c["trend"] = m["trend"]
+        c["trend_label"] = m["trend_label"]
+        out.append(c)
+
+    result = {"as_of_date": ckey, "return_window": "3M", "count": len(out), "universes": out}
+    _CATALOG_CACHE[ckey] = result
+    return result
+
+
 # ── Strategies ──────────────────────────────────────────────────────
 @router.post("/strategies")
 async def create_strategy(request: Request, body: StrategyCreate):
@@ -202,6 +351,63 @@ async def create_strategy(request: Request, body: StrategyCreate):
     return {
         **_serialise(srow),
         "active_version": _serialise(vrow),
+    }
+
+
+@router.post("/from-screen")
+async def create_strategy_from_screen(request: Request, body: FromScreenRequest):
+    """Turn the copilot-chat stock screener's current filters into a saved
+    STOCK strategy. Maps each screener primitive to its stock_features_daily
+    column (feature.* predicate), applies default exit/ranking/rebalance, then
+    validates + persists exactly like POST /strategies. Unmappable filters are
+    returned in `dropped_filters` (never silently ignored)."""
+    user = await get_current_user(request)
+    uid = _user_id(user)
+    try:
+        definition, dropped = build_definition_from_screen(
+            name=body.name, filters=body.filters, sector=body.sector,
+            universe=body.universe, description=body.description,
+        )
+    except ScreenBridgeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    errs = dsl_mod.validate_strategy(definition)
+    if errs:
+        raise HTTPException(status_code=400, detail={
+            "message": "could not build a valid strategy from this screen",
+            "errors": dsl_mod.errors_as_strings(errs),
+        })
+
+    pool = await pg_client.get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            srow = await conn.fetchrow(
+                """INSERT INTO strategies
+                       (owner_id, name, description, asset_class)
+                   VALUES ($1, $2, $3, 'STOCK')
+                   RETURNING id, owner_id, name, description, asset_class,
+                             is_public_template, is_archived, created_at, updated_at""",
+                uid, body.name, definition.get("description"),
+            )
+            sid = srow["id"]
+            vrow = await conn.fetchrow(
+                """INSERT INTO strategy_versions
+                       (strategy_id, version_no, definition, dsl_version, is_active, created_by)
+                   VALUES ($1, 1, $2::jsonb, $3, TRUE, $4)
+                   RETURNING id, version_no, created_at""",
+                sid, json.dumps(definition), dsl_mod.DSL_VERSION, uid,
+            )
+            await conn.execute(
+                """INSERT INTO strategy_audit
+                       (strategy_id, actor_id, action, new_definition, note)
+                   VALUES ($1, $2, 'CREATE', $3::jsonb, 'from stock screener')""",
+                sid, uid, json.dumps(definition),
+            )
+    return {
+        **_serialise(srow),
+        "active_version": _serialise(vrow),
+        "definition": definition,
+        "dropped_filters": dropped,
     }
 
 
@@ -318,6 +524,75 @@ async def archive_strategy(request: Request, strategy_id: str):
             strategy_id, uid,
         )
     return {"ok": True, "id": strategy_id, "archived": True}
+
+
+# ── Screen (live ranked candidate list) ─────────────────────────────
+@router.post("/screen")
+async def screen_strategy(request: Request, body: ScreenRequest):
+    """Run a strategy's entry rules against the latest feature snapshot and
+    return the ranked candidate list — the Phase-1 "Screen" step.
+
+    Unlike /backtest this evaluates a *single* as_of_date (the latest
+    snapshot by default) and does not simulate trades. It reuses the same
+    compiler as the backtest, so the candidate set is exactly what a
+    backtest would enter on that date — keeping Screen and Backtest
+    consistent for a given spec + as_of_date.
+    """
+    user = await get_current_user(request)
+    uid = _user_id(user)
+
+    spec = body.definition
+    errs = dsl_mod.validate_strategy(spec)
+    if errs:
+        raise HTTPException(status_code=400, detail={
+            "message": "invalid strategy spec",
+            "errors": dsl_mod.errors_as_strings(errs),
+        })
+
+    pool = await pg_client.get_pool()
+
+    # Custom universes: compile_stock_query expands `type:custom` to a
+    # subselect on user_universes WITHOUT an owner check — its documented
+    # contract leaves that to the route layer. Enforce owner-or-public here
+    # so a caller can't screen another user's private universe by guessing
+    # its UUID.
+    uni = spec.get("universe") or {}
+    if uni.get("type") == "custom":
+        async with pool.acquire() as conn:
+            owns = await conn.fetchrow(
+                "SELECT 1 FROM user_universes WHERE id = $1 AND (owner_id = $2 OR is_public)",
+                uni.get("ref"), uid,
+            )
+        if not owns:
+            raise HTTPException(status_code=403, detail="universe not found or not authorised")
+
+    # Screen via the market-data provider (direct SQL on co-located dev; NIDP
+    # DaaS API on staging/prod). Same compiler/evaluator semantics as the
+    # backtest, so Screen and Backtest stay consistent for a spec + as_of_date.
+    provider = get_provider(pool)
+    try:
+        asof = _parse_iso_date(body.as_of_date) if body.as_of_date else await provider.latest_date()
+        if asof is None:
+            raise HTTPException(status_code=503, detail="no feature snapshots available")
+        await provider.prepare(spec, asof, asof)
+        rows = await provider.screen(spec, asof)
+    except (CompileError, EvalError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    ranked_by = spec["ranking"]["by"]
+    # Honesty (CONTEXT §1): `score`/`composite_score` are Phase-1 proxies that
+    # the compiler maps to accumulation_score. Surface the real basis so the
+    # UI can label the score column truthfully rather than implying a
+    # fundamentals composite that doesn't exist yet.
+    score_basis = "accumulation_score" if ranked_by in {"score", "composite_score"} else ranked_by
+
+    return {
+        "candidates": [_serialise(r) for r in rows],
+        "count": len(rows),
+        "as_of_date": asof.isoformat(),
+        "ranked_by": ranked_by,
+        "score_basis": score_basis,
+    }
 
 
 # ── Backtest ────────────────────────────────────────────────────────

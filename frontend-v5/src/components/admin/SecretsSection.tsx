@@ -21,7 +21,8 @@ interface Secret {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  parsing: "Parsing", ai: "AI / LLM", auth: "Authentication", data: "Data Layer", custom: "Custom",
+  parsing: "Parsing", ai: "AI / LLM", auth: "Authentication", data: "Data Layer",
+  ci: "CI / Automation", nidp: "NIDP", broker: "Broker", custom: "Custom",
 };
 
 const inputCls = "w-full rounded-md border border-hairline-2 bg-surface-1 px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:ring-1 focus:ring-accent";
@@ -31,6 +32,9 @@ function SecretRow({ secret, onRefresh }: { secret: Secret; onRefresh: () => voi
   const [editing, setEditing] = useState(false);
   const [newValue, setNewValue] = useState("");
   const [saving, setSaving] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  const [rotateOpen, setRotateOpen] = useState(false);
+  const [rotateVal, setRotateVal] = useState("");
   const [testing, setTesting] = useState(false);
   const [testOk, setTestOk] = useState<boolean | null>(null);
   const [revealed, setRevealed] = useState<string | null>(null);
@@ -78,6 +82,26 @@ function SecretRow({ secret, onRefresh }: { secret: Secret; onRefresh: () => voi
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const handleRotate = async () => {
+    if (!rotateVal.trim()) return;
+    setRotating(true);
+    try {
+      const r = await http<{ test?: { ok: boolean; detail?: string; error?: string } | null }>({
+        method: "POST",
+        path: `/api/admin/secrets/${secret.key}/rotate`,
+        body: { value: rotateVal.trim(), env: secret.env },
+      });
+      const t = r.data?.test;
+      push({
+        kind: t && t.ok === false ? "error" : "success",
+        title: `${secret.display_name} rotated`,
+        description: t ? (t.ok ? (t.detail ?? "validated") : `saved, but test failed: ${t.error ?? ""}`) : undefined,
+      });
+      setRotateOpen(false); setRotateVal(""); setRevealed(null); onRefresh();
+    } catch { push({ kind: "error", title: "Rotate failed" }); }
+    finally { setRotating(false); }
+  };
+
   const handleDelete = async () => {
     if (!window.confirm(`Delete secret "${secret.display_name}"?`)) return;
     try {
@@ -114,7 +138,10 @@ function SecretRow({ secret, onRefresh }: { secret: Secret; onRefresh: () => voi
               {copied ? <Check className="w-3.5 h-3.5 text-pos" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
           )}
-          <button onClick={() => setEditing((v) => !v)} title="Edit" className="h-8 px-2 flex items-center gap-1 rounded-md border border-hairline text-xs text-ink-2 hover:bg-surface-2 transition-colors">
+          <button onClick={() => { setRotateOpen((v) => !v); setEditing(false); }} title="Rotate — save a new token value" className="h-8 px-2 flex items-center gap-1 rounded-md border border-hairline text-xs text-ink-2 hover:bg-surface-2 transition-colors">
+            <RefreshCw className="w-3.5 h-3.5" /> Rotate
+          </button>
+          <button onClick={() => { setEditing((v) => !v); setRotateOpen(false); }} title="Edit" className="h-8 px-2 flex items-center gap-1 rounded-md border border-hairline text-xs text-ink-2 hover:bg-surface-2 transition-colors">
             {editing ? <X className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
           </button>
           <button onClick={handleDelete} title="Delete" className="h-8 w-8 flex items-center justify-center rounded-md border border-hairline text-neg hover:bg-[rgb(var(--neg)/0.05)] transition-colors">
@@ -134,6 +161,22 @@ function SecretRow({ secret, onRefresh }: { secret: Secret; onRefresh: () => voi
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
           </Button>
           <Button size="sm" variant="outline" onClick={() => { setEditing(false); setNewValue(""); }}>Cancel</Button>
+        </div>
+      )}
+
+      {rotateOpen && (
+        <div className="mt-2 space-y-1.5">
+          <p className="text-[11px] text-ink-3">
+            Paste a freshly-issued token to rotate. The app can't mint external tokens (e.g. a GitHub PAT) —
+            generate the new one, then rotate here. It's saved + re-tested.
+          </p>
+          <div className="flex gap-2">
+            <input type="password" value={rotateVal} onChange={(e) => setRotateVal(e.target.value)} placeholder="Paste new value…" className={`${inputCls} flex-1`} autoFocus disabled={rotating} />
+            <Button size="sm" onClick={handleRotate} disabled={rotating || !rotateVal.trim()}>
+              {rotating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Rotate
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => { setRotateOpen(false); setRotateVal(""); }}>Cancel</Button>
+          </div>
         </div>
       )}
     </div>

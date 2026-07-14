@@ -45,6 +45,17 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "default_mode": "everyone",
         "default_allowlist": [],
     },
+    "auto_fix_agent": {
+        "display_name": "Auto-fix agent (high-confidence coding bugs)",
+        "description": (
+            "When ON (mode = everyone), the Work tracker auto-classifies high-confidence "
+            "CODING bugs as 'valid' and spawns the PR-only fix agent (opens a PR for review — "
+            "never auto-merges). Data / vendor / delisted-symbol errors are excluded and left "
+            "for human triage. OFF (default) keeps the pipeline human-gated."
+        ),
+        "default_mode": "off",
+        "default_allowlist": [],
+    },
     "copilot_persona_prompts_enabled": {
         "display_name": "Copilot Persona-Tagged Suggested Prompts",
         "description": (

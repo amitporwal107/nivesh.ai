@@ -4,6 +4,7 @@ This directory contains project-specific Claude Skills that train AI agents on t
 
 ## Roles
 - shared-project-context
+- domain-expert-analyst
 - product-manager
 - business-analyst
 - technical-architect

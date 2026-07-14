@@ -89,6 +89,9 @@ services:
     image: nivesh/backend:staging
     container_name: nivesh-staging-app-backend
     restart: unless-stopped
+    # Outbound SMTP for magic-link email (SMTP_HOST/PORT/USERNAME/PASSWORD/FROM/
+    # STARTTLS) lives in this env_file — same relay as prod. See
+    # .env.staging.example for the canonical block.
     env_file: /opt/nivesh-staging/.env.staging
     environment:
       APP_ENV: staging
@@ -132,9 +135,15 @@ services:
     # The frontend image's baked nginx.conf hardcodes `upstream backend`
     # (prod service key). Add a network alias so it resolves the same name.
     networks:
+      # Default route MUST go via nivesh-staging (MTU 1460) — NOT the external
+      # nidp-bridge (1500, shared with prod, can't change). gw_priority makes
+      # nivesh-staging the default gateway so external/cross-VM egress (DaaS bulk
+      # reads to the NIDP VM) uses the 1460 interface and isn't blackholed.
       nivesh-staging:
         aliases: [backend]
-      nidp-bridge: {}
+        gw_priority: 100
+      nidp-bridge:
+        gw_priority: 1
     logging: *default-logging
     depends_on:
       postgres: { condition: service_healthy }
@@ -248,5 +257,10 @@ networks:
   nivesh-staging:
     name: nivesh-staging
     driver: bridge
+    driver_opts:
+      # GCP VPC path MTU is 1460; the docker bridge defaults to 1500, which
+      # blackholes large responses (PMTUD) — DaaS bulk reads truncated at ~32KB.
+      # Pin to 1460 so cross-VM / egress responses come through intact.
+      com.docker.network.driver.mtu: "1460"
   nidp-bridge:
     external: true   # created by the prod stack; staging backend joins it to reach NIDP Query API

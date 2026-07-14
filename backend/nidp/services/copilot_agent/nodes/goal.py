@@ -255,15 +255,104 @@ async def _fetch_goal_data(state: CopilotState) -> List[ToolResult]:
     return results
 
 
-async def goal_node(state: CopilotState) -> dict:
-    tool_results = await _fetch_goal_data(state)
-    tool_context = "TOOL_DATA:\n" + "\n".join(
-        f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results
-    )
+# ── Goal→Fund BASKET sub-intent (WF-02-06 / WF-03 suitability) ───────────────
+# "which funds for this goal?" — maps the goal's horizon + risk to an allocation
+# and picks suitability-gated, quality-ranked funds (goal_basket tool).
+_BASKET_CUE = re.compile(
+    r"\bwhich\s+funds?\b|\bwhat\s+funds?\b|\bfund\s+basket\b|\brecommend\s+funds?\b|"
+    r"\bsuggest\s+funds?\b|\bbasket\s+of\s+funds?\b|\bpick\s+funds?\b|"
+    r"\bfunds?\s+(?:for|to\s+(?:hit|reach|meet))\s+(?:this|my|the)\s+goal\b|"
+    r"\bwhere\s+(?:should|do)\s+i\s+invest\s+for\s+(?:this|my)\s+goal\b",
+    re.IGNORECASE,
+)
 
+_BASKET_SYSTEM = """You are the Goal Planner for Nivesh AI.
+
+TOOL_DATA holds a suitability-gated fund BASKET for the user's goal: an asset
+allocation (equity/debt/hybrid) derived from the goal's horizon + risk profile,
+and a quality-ranked, eligibility-filtered fund per bucket with its weight,
+expense ratio (TER) and Nivesh quality score. Ground EVERY number in TOOL_DATA.
+
+Style:
+- <= 180 words, plain text (no markdown headings), Indian numbering.
+- Lead with the allocation split, then list each basket fund with its weight and
+  why it qualifies (quality score, low TER). Quote the numbers verbatim.
+- If a bucket has no eligible fund, say so honestly.
+- End with one line inviting them to compare the funds or start the SIP.
+  Do NOT append any SEBI disclaimer — the UI renders one below the chat input.
+""" + ANTI_HALLUCINATION_RULES
+
+
+async def _goal_basket_turn(state: CopilotState, user_msg: str) -> dict:
+    """Goal→fund basket turn — emits the goal_basket widget."""
+    import importlib
+    gb_mod = importlib.import_module("services.copilot_tools.goal_basket")
+    params = _parse_sip_intent(user_msg) or {}
+    horizon = params.get("years")
+    risk = (state.risk_profile or "moderate")
+    if not horizon:  # fall back to the user's primary recorded goal horizon
+        try:
+            from services.copilot_rag.retrievers import goals_status
+            gs = await goals_status(state.user_id)
+            if gs.ok and gs.rows:
+                horizon = gs.rows[0].get("horizon_years")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("basket: goals_status unavailable: %s", exc)
+    horizon = float(horizon or 10)
+
+    try:
+        res = await gb_mod.get_goal_basket(risk_profile=risk, horizon_years=horizon, per_bucket=1)
+    except Exception as exc:  # noqa: BLE001 — never crash the stream
+        logger.warning("goal basket turn failed: %s", exc)
+        res = None
+
+    if res is not None and res.ok:
+        tr = ToolResult(ok=True, tool_name="get_goal_basket", summary=res.summary,
+                        data=res.data, rows=res.rows, widget_type=WidgetType.GOAL_BASKET)
+        widget_type, widget_data = WidgetType.GOAL_BASKET, {"rows": res.rows, **res.data}
+    else:
+        tr = ToolResult(ok=False, tool_name="get_goal_basket",
+                        summary=(res.summary if res is not None else "Fund basket unavailable"),
+                        error=(res.error if res is not None else "unavailable"))
+        widget_type, widget_data = WidgetType.NONE, {}
+
+    from .._stream import emit_widget
+    await emit_widget(widget_type, widget_data)
+
+    tool_context = "TOOL_DATA:\n  [get_goal_basket] " + tr.as_llm_context()
+    answer_text = ""
+    try:
+        llm = ChatOpenAI(model=COPILOT_LLM_MODEL, temperature=temperature_for(0.15),
+                         api_key=get_openai_api_key())
+        resp = await llm.ainvoke([
+            {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _BASKET_SYSTEM + "\n\n" + tool_context},
+            {"role": "user", "content": user_msg},
+        ])
+        answer_text = (resp.content or "").strip()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("basket narrative failed: %s", exc)
+    if not answer_text:
+        answer_text = (f"Here's a suitability-matched fund basket for your goal — {tr.summary}"
+                       if tr.ok else
+                       "I couldn't build a fund basket just now — please try again in a moment.")
+
+    response = AgentResponse(agent=AgentName.GOAL, text=answer_text,
+                             widget_type=widget_type, widget_data=widget_data, tool_results=[tr])
+    return {"tool_results": [tr], "response": response, "messages": [AIMessage(content=answer_text)]}
+
+
+async def goal_node(state: CopilotState) -> dict:
     user_msg = next(
         (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
         "Am I on track for my financial goals?",
+    )
+    # "Which funds for this goal?" → suitability-gated basket (short-circuits).
+    if _BASKET_CUE.search(user_msg):
+        return await _goal_basket_turn(state, user_msg)
+
+    tool_results = await _fetch_goal_data(state)
+    tool_context = "TOOL_DATA:\n" + "\n".join(
+        f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results
     )
 
     # Prefer SIP_PLAN widget over GOAL_TRACKER when a projection was computed

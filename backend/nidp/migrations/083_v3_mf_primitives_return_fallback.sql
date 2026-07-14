@@ -10,7 +10,13 @@
 -- row that has a non-null value. This ensures the view always returns the best
 -- available data, not just the most recent (possibly incomplete) snapshot.
 
-DROP VIEW IF EXISTS nidp.v_v3_mf_primitives;
+-- Idempotent + drift-safe: on environments where migration 098 already ran,
+-- v_v3_mf_primitives is a MATERIALIZED view, so a plain `DROP VIEW` is a no-op
+-- and the following CREATE VIEW would fail ("… is not a view"). Drop whichever
+-- object type exists first; 098 re-materializes it downstream. No object depends
+-- on this view, so CASCADE is safe. (See the ⚠️ note in 098_v3_mf_primitives_materialized.sql.)
+DROP MATERIALIZED VIEW IF EXISTS nidp.v_v3_mf_primitives CASCADE;
+DROP VIEW IF EXISTS nidp.v_v3_mf_primitives CASCADE;
 CREATE VIEW nidp.v_v3_mf_primitives AS
 WITH latest_rank AS (
     -- Latest analytics row per scheme (may have nulls for longer-period returns)

@@ -1,0 +1,16 @@
+# /etc/cron.d/fix-agent-runner — every 5 min: pick up queued auto-fix jobs.
+# Owner: nivesh (repo at /opt/nivesh/repo). Runs on the VM (which HAS git); the
+# app container does not, so the fix executes here — mirrors error-triage.
+#
+# Auth files (readable by nivesh, 0600):
+#   /opt/nivesh/.gh_pat             — GitHub PAT (contents + pull_requests = write) for push/PR
+#   /opt/nivesh/.openai_key         — OpenAI key for RCA + minimal patch
+#   /opt/nivesh/.work_ingest_secret — shared secret for /api/work/fix-queue + /issues/{id}/artifacts
+#                                     (same value the app is configured with in WORK_INGEST_SECRET)
+# The app is reached at http://localhost:8001 by default (override WORK_API_BASE).
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Every 5 minutes. Output appended to a rolling log; logrotate handles it.
+*/5 * * * *  nivesh  /usr/bin/python3 /opt/nivesh/repo/backend/scripts/fix_agent_runner.py >> /opt/nivesh/logs/fix-agent-runner.log 2>&1

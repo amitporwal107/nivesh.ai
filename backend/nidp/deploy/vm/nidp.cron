@@ -1,13 +1,13 @@
-# /etc/cron.d/nidp — schedules for the 28 NIDP services.
+# /etc/cron.d/nidp — the AUTHORITATIVE scheduler for all NIDP services.
 #
-# Schedules ported 1:1 from
-#   backend/nidp/deploy/gcp/setup_schedules.sh
-# (same cron strings, same Asia/Kolkata semantics — TZ is set for the
-# whole file below). When you change a schedule, change it in BOTH
-# files until the Cloud Run path is fully decommissioned.
+# VM cron is the single source of truth for feed scheduling (WORK-0145).
+# The legacy GCP Cloud Scheduler path (deploy/gcp/setup_schedules.sh) is
+# DEPRECATED — do NOT add schedules there. To fully decommission it: delete
+# the `nidp-cron-*` Cloud Scheduler jobs and drop the gcloud fallback in
+# routes/admin_nidp.py::execute_job (needs GCP compute perms).
 #
-# Cron under Debian's vixie-cron honours `CRON_TZ=` so all schedules
-# below run in IST.
+# Cron under Debian's vixie-cron honours `CRON_TZ=` so all schedules below
+# run in IST.
 
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -145,6 +145,17 @@ MAILTO=""
 # as partitioned Parquet for DuckDB historical queries and AI datasets.
 # Requires NIDP_MINIO_ENDPOINT / NIDP_MINIO_ACCESS_KEY / NIDP_S3_BUCKET in nidp.env.
 30 0 * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh parquet_exporter
+
+# ── Feed reliability: auto-recovery + monitoring ──────────────────
+# Self-healing gap catch-up (next morning, after overnight ingest + any DB
+# recovery). Idempotent — heals only missing (feed, trading-day) via backfill.
+30 6  * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh feed_reconciler
+# DLQ redrive — reprocess PENDING dq.dlq_findings (daily, after reconciler).
+0  7  * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh dlq_redrive
+# Off-DB disk alarm — every 10 min (MAX_ATTEMPTS=1: never retry a monitor).
+*/10 * * * *   nidp  NIDP_MAX_ATTEMPTS=1 /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh disk_monitor
+# Feed-freshness detector — every 30 min; emails on ERROR gaps.
+*/30 * * * *   nidp  NIDP_MAX_ATTEMPTS=1 /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh feed_health_check
 
 # ── Container health collector (infra monitoring dashboard) ───────
 # Writes docker ps + cpu/mem stats to monitoring.container_health every minute.

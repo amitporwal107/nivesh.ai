@@ -41,6 +41,7 @@ from models_copilot_widgets import (
     TaxHarvestData,
     SectorRotationData,
     OverlapRevealData,
+    OverlapStock,
 )
 
 
@@ -1661,10 +1662,28 @@ def nidp_widget_to_insight_card(widget_type: str,
             )
 
         if wt == "overlap_reveal":
+            # Populate the shared-stock findings from whatever shape the widget
+            # data carries: native OverlapRevealData (`top_common_stocks`) or the
+            # portfolio-overlap tool rows (`top_shared`: [{name, w_a, w_b}]).
+            common: List[OverlapStock] = []
+            for s in (wd.get("top_common_stocks") or wd.get("top_shared") or [])[:8]:
+                if isinstance(s, dict):
+                    name = s.get("stock_name") or s.get("name") or s.get("key") or ""
+                    if not name:
+                        continue
+                    weights = [w for w in (s.get("w_a"), s.get("w_b")) if isinstance(w, (int, float))]
+                    common.append(OverlapStock(
+                        stock_name=str(name),
+                        funds=s.get("funds") or [],
+                        avg_weight_pct=(round(sum(weights) / len(weights), 1) if weights
+                                        else s.get("avg_weight_pct")),
+                    ))
+                elif isinstance(s, str) and s.strip():
+                    common.append(OverlapStock(stock_name=s.strip(), funds=[]))
             data = OverlapRevealData(
                 funds=wd.get("funds") or [],
                 overlap_pct=wd.get("overlap_pct"),
-                top_common_stocks=[],
+                top_common_stocks=common,
                 verdict=wd.get("verdict"),
             )
             return overlap_to_insight_card(data)

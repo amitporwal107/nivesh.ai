@@ -1,5 +1,6 @@
 """Middleware — rate limiting, env validation, request logging, security headers."""
 import os
+import re
 import time
 import logging
 import secrets as _stdlib_secrets
@@ -11,7 +12,10 @@ from core.logging_config import (
     get_correlation_id,
     set_request_context,
     reset_request_context,
+    set_session_capture,
+    reset_session_capture,
 )
+from services import session_log_store, issue_intake
 
 logger = logging.getLogger(__name__)
 _req_logger = logging.getLogger("nivesh.access")
@@ -214,6 +218,19 @@ def _extract_trace_id(request: Request) -> str:
     return ""
 
 
+# ── Opt-in per-session log capture (Settings → Logs & Diagnostics) ────────────
+# The frontend sends this header on every request while a user has logging on.
+DEBUG_SESSION_HEADER = "X-Nivesh-Debug-Session"
+_SID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+
+def _valid_debug_sid(raw: str | None) -> str | None:
+    """Return the debug-session id if it looks well-formed, else None."""
+    if raw and _SID_RE.match(raw):
+        return raw
+    return None
+
+
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """Emit one structured access log per request with all required GCP fields.
 
@@ -229,58 +246,86 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         trace_id = _extract_trace_id(request)
         cid = getattr(getattr(request, "state", None), "correlation_id", "") or get_correlation_id()
 
-        tokens = set_request_context(
-            correlation_id=cid,
-            trace_id=trace_id,
-            application=application,
-            endpoint=path,
-        )
+        # Opt-in per-session log capture: only requests carrying a well-formed
+        # X-Nivesh-Debug-Session header allocate a buffer; everything below
+        # (the route + this middleware's access log) is captured into it and
+        # flushed to Redis at the end. Near-zero cost for the common (no header) case.
+        sid = _valid_debug_sid(request.headers.get(DEBUG_SESSION_HEADER))
+        capture_buf: list | None = [] if sid else None
+        capture_token = set_session_capture(capture_buf) if capture_buf is not None else None
+
         try:
-            response = await call_next(request)
-        except Exception:
+            tokens = set_request_context(
+                correlation_id=cid,
+                trace_id=trace_id,
+                application=application,
+                endpoint=path,
+            )
+            try:
+                response = await call_next(request)
+            except Exception:
+                elapsed = int((time.monotonic() - start) * 1000)
+                _req_logger.error(
+                    "%s %s → unhandled exception",
+                    request.method, path,
+                    extra={
+                        "application": application,
+                        "endpoint": path,
+                        "httpStatus": 500,
+                        "responseTimeMs": elapsed,
+                        "correlationId": cid,
+                        "traceId": trace_id,
+                        "eventType": "REQUEST",
+                    },
+                )
+                raise
+            finally:
+                reset_request_context(tokens)
+
             elapsed = int((time.monotonic() - start) * 1000)
-            _req_logger.error(
-                "%s %s → unhandled exception",
-                request.method, path,
+            status = response.status_code
+
+            # Choose log level based on status code.
+            if status >= 500:
+                log_fn = _req_logger.error
+            elif status >= 400:
+                log_fn = _req_logger.warning
+            else:
+                log_fn = _req_logger.info
+
+            log_fn(
+                "%s %s %d (%dms)",
+                request.method, path, status, elapsed,
                 extra={
                     "application": application,
                     "endpoint": path,
-                    "httpStatus": 500,
+                    "httpStatus": status,
                     "responseTimeMs": elapsed,
                     "correlationId": cid,
                     "traceId": trace_id,
                     "eventType": "REQUEST",
                 },
             )
-            raise
+            return response
         finally:
-            reset_request_context(tokens)
-
-        elapsed = int((time.monotonic() - start) * 1000)
-        status = response.status_code
-
-        # Choose log level based on status code.
-        if status >= 500:
-            log_fn = _req_logger.error
-        elif status >= 400:
-            log_fn = _req_logger.warning
-        else:
-            log_fn = _req_logger.info
-
-        log_fn(
-            "%s %s %d (%dms)",
-            request.method, path, status, elapsed,
-            extra={
-                "application": application,
-                "endpoint": path,
-                "httpStatus": status,
-                "responseTimeMs": elapsed,
-                "correlationId": cid,
-                "traceId": trace_id,
-                "eventType": "REQUEST",
-            },
-        )
-        return response
+            # Flush the captured records (if any) to Redis. Best-effort: a debug
+            # feature must never affect the response, so swallow all errors here.
+            if capture_token is not None:
+                reset_session_capture(capture_token)
+                if capture_buf:
+                    try:
+                        await session_log_store.append(sid, capture_buf)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    # Auto-file a work issue for any server-side error/exception
+                    # captured this request (deduped by sig; best-effort).
+                    try:
+                        errs = [e for e in capture_buf
+                                if str(e.get("severity", "")).upper() in ("ERROR", "CRITICAL")]
+                        if errs:
+                            await issue_intake.intake_from_server_entries(errs, application=application)
+                    except Exception:  # noqa: BLE001
+                        pass
 
 
 # ── JSON Body Size Limit ──────────────────────────────────────────────────────

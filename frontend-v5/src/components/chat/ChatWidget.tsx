@@ -11,6 +11,8 @@ import { Fragment, useState } from "react";
 import { cn } from "@/lib/utils";
 import { TypedText } from "@/components/chat/TypedHeadline";
 import { PortfolioBuilderWidget } from "@/components/chat/PortfolioBuilderWidget";
+import StrategyBuilderPage from "@/pages/StrategyBuilder";
+import { createStrategyFromScreen } from "@/services/strategyBuilder";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 const BAR: Record<string, string> = {
@@ -136,6 +138,36 @@ function FundConsolidationWidget({ data }: { data: any }) {
 }
 
 // ── fund_overlap ──────────────────────────────────────────────────────────
+// The specific stocks two funds BOTH hold — the holdings-level evidence behind
+// an overlap %. Each chip shows the stock and its weight in each of the two
+// funds (fund-A% / fund-B%), so an overlap call is backed by names + numbers,
+// not taken on faith.
+function SharedStocks({ shared, count }: { shared?: any[]; count?: number }) {
+  if (!shared?.length) return null;
+  const extra = (count || shared.length) - shared.length;
+  return (
+    <div className="mt-2">
+      <div className="text-[11.5px] text-ink-3 mb-1.5">Both hold</div>
+      <div className="flex flex-wrap gap-1.5">
+        {shared.map((s: any, k: number) => (
+          <span
+            key={k}
+            className="inline-flex items-baseline gap-1 rounded-md bg-surface-2 border border-hairline px-2 py-0.5 text-[12px] text-ink"
+          >
+            {s.name}
+            {(s.w_a != null || s.w_b != null) && (
+              <span className="text-ink-3 text-[11px]">
+                {s.w_a != null ? `${s.w_a}%` : "—"}/{s.w_b != null ? `${s.w_b}%` : "—"}
+              </span>
+            )}
+          </span>
+        ))}
+        {extra > 0 && <span className="text-[11.5px] text-ink-3 self-center px-0.5">+{extra} more</span>}
+      </div>
+    </div>
+  );
+}
+
 function OverlapRows({ rows, color }: { rows: any[]; color: string }) {
   return (
     <div className="flex flex-col gap-3.5 mt-3">
@@ -147,6 +179,7 @@ function OverlapRows({ rows, color }: { rows: any[]; color: string }) {
           </div>
           <Bar pct={r.overlap_pct} color={color} />
           {r.detail && <p className="text-[12.5px] text-ink-3 mt-1.5">{r.detail}</p>}
+          <SharedStocks shared={r.shared} count={r.shared_count} />
         </div>
       ))}
     </div>
@@ -277,9 +310,12 @@ function OverlapSeverityWidget({ data }: { data: any }) {
           <Heading>{offenders.title}</Heading>
           <div className="flex flex-col mt-3">
             {offenders.rows.map((r: any, i: number) => (
-              <div key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-md odd:bg-surface-2/50">
-                <span className="text-[14px] text-ink">{r.name}</span>
-                <span className="text-[13px] font-medium text-neg shrink-0">{r.overlap_pct}%</span>
+              <div key={i} className="px-3 py-2.5 rounded-md odd:bg-surface-2/50">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[14px] text-ink">{r.name}</span>
+                  <span className="text-[13px] font-medium text-neg shrink-0">{r.overlap_pct}%</span>
+                </div>
+                <SharedStocks shared={r.shared} count={r.shared_count} />
               </div>
             ))}
           </div>
@@ -2249,6 +2285,8 @@ function StockScreenerWidget({ data, onAction }: { data: any; onAction?: (a: Wid
     data?.sort || { key: cols.find((c) => c.kind !== "text")?.key || cols[0]?.key || "", dir: "desc" },
   );
   const [showFilters, setShowFilters] = useState(false);
+  const [createState, setCreateState] =
+    useState<{ status: "idle" | "loading" | "done" | "error"; msg?: string }>({ status: "idle" });
 
   if (!cols.length || !universe.length) {
     return data?.note ? <p className="text-[13.5px] text-ink-2 leading-relaxed mt-1 px-1">{data.note}</p> : null;
@@ -2314,6 +2352,23 @@ function StockScreenerWidget({ data, onAction }: { data: any; onAction?: (a: Wid
     setSort((p) => (p.key === key ? { key, dir: p.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
   const activeCount = Object.keys(filters).length + sector.length;
 
+  // Turn the current screen into a saved STOCK strategy (POST /from-screen).
+  // The backend maps these widget filters + sector to feature.* predicates.
+  const createStrategy = async () => {
+    if (createState.status === "loading") return;
+    const name = (query ? `Screen: ${query}` : "Stock screen strategy").slice(0, 100);
+    setCreateState({ status: "loading" });
+    try {
+      const res = await createStrategyFromScreen({ name, filters, sector });
+      const dropped = res?.dropped_filters?.length
+        ? ` · ${res.dropped_filters.length} filter(s) not yet supported`
+        : "";
+      setCreateState({ status: "done", msg: `Strategy created — open it in Strategy Builder${dropped}` });
+    } catch (e: any) {
+      setCreateState({ status: "error", msg: e?.message || "Could not create strategy" });
+    }
+  };
+
   const nameKey = data?.name_key || "name";
   const tickerKey = data?.ticker_key || "ticker";
   const askPrompt = (s: any) =>
@@ -2353,6 +2408,24 @@ function StockScreenerWidget({ data, onAction }: { data: any; onAction?: (a: Wid
                 Reset
               </button>
             )}
+            {activeCount > 0 && createState.status !== "done" && (
+              <button
+                data-testid="screener-create-strategy"
+                onClick={createStrategy}
+                disabled={createState.status === "loading"}
+                className="ml-auto text-[12.5px] font-medium text-accent hover:opacity-80 transition-opacity disabled:opacity-50"
+              >
+                {createState.status === "loading" ? "Creating…" : "＋ Create strategy"}
+              </button>
+            )}
+          </div>
+        )}
+        {createState.msg && (
+          <div
+            data-testid="screener-create-status"
+            className={cn("mt-2.5 text-[12.5px]", createState.status === "error" ? "text-neg" : "text-pos")}
+          >
+            {createState.status === "done" ? "✓ " : "⚠ "}{createState.msg}
           </div>
         )}
       </div>
@@ -2517,6 +2590,377 @@ function StockScreenerWidget({ data, onAction }: { data: any; onAction?: (a: Wid
 // `onAction` lets a widget's action chips drive a follow-up — the host passes a
 // handler that submits a chat query (or prefills the composer).
 export type WidgetAction = { intent?: string; label?: string; query?: string };
+// ── backtest_comparison ──────────────────────────────────────────────────────
+// Historical "what-if": a fixed ₹amount notionally invested across the named
+// stocks/funds N years ago, valued today. Per period: portfolio lump-sum value +
+// CAGR and monthly-SIP XIRR, the same vs a benchmark index, and a per-instrument
+// comparison table. Insufficient-history instruments are shown, never hidden.
+// Data: services.copilot_tools.backtest.get_historical_backtest (widget_data).
+function _btInr(v: number | null | undefined): string {
+  if (v == null || isNaN(v as number)) return "—";
+  const n = v as number;
+  if (Math.abs(n) >= 1e7) return `₹${(n / 1e7).toFixed(2)}Cr`;
+  if (Math.abs(n) >= 1e5) return `₹${(n / 1e5).toFixed(2)}L`;
+  return `₹${Math.round(n).toLocaleString("en-IN")}`;
+}
+function BtPct({ v }: { v: number | null | undefined }) {
+  if (v == null || isNaN(v as number)) return <span className="text-ink-3">—</span>;
+  const n = v as number;
+  return <span className={n >= 0 ? "text-accent" : "text-neg"}>{n >= 0 ? "+" : ""}{n.toFixed(1)}%</span>;
+}
+
+function BacktestComparisonWidget({ data }: { data: any }) {
+  if (!data) return null;
+  const periods: number[] = Array.isArray(data.periods) ? data.periods : [];
+  const rows: any[] = Array.isArray(data.rows) ? data.rows : [];
+  const bench = data.benchmark;
+  const benchName: string | undefined = bench?.index;
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      <div className="rounded-lg border border-hairline p-5" style={{ background: "rgb(var(--accent) / 0.08)" }}>
+        <div className="font-display text-[17px] text-ink tracking-tightish leading-snug">
+          {_btInr(data.amount)} what-if backtest
+        </div>
+        <p className="text-[12.5px] text-ink-3 leading-relaxed mt-1.5">
+          {(data.instruments?.length ?? 0)} instrument(s) · {data.weighting === "explicit" ? "your weights" : "equal weight"}
+          {data.as_of ? ` · as of ${data.as_of}` : ""} · historical illustration, not a prediction
+        </p>
+        {data.unresolved?.length > 0 && (
+          <p className="text-[12px] text-warm leading-relaxed mt-1.5">Couldn’t resolve: {data.unresolved.join(", ")}</p>
+        )}
+      </div>
+
+      {periods.map((n) => {
+        const pf = data.portfolio?.[String(n)];
+        const bp = bench?.[String(n)];
+        const prows = rows.filter((r) => r.period_years === n);
+        const ok = pf && pf.status === "ok";
+        return (
+          <Card key={n}>
+            <div className="flex items-center justify-between gap-3">
+              <Heading>{n}-year lookback</Heading>
+              {ok && <ToneBadge text={`${pf.instruments_covered}/${pf.instruments_total} covered`} tone="accent" />}
+            </div>
+
+            {!ok ? (
+              <p className="text-[13.5px] text-ink-3 leading-relaxed mt-3">
+                Insufficient price/NAV history to backtest {n} year(s) for the named instruments.
+              </p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2.5 mt-4">
+                  <KpiTile label="Lump-sum today" value={_btInr(pf.lump_sum.current_value)}
+                           sub={`from ${_btInr(pf.lump_sum.invested)}`} />
+                  <KpiTile label="Lump-sum CAGR" value={`${pf.lump_sum.cagr_pct?.toFixed?.(1) ?? pf.lump_sum.cagr_pct}%`} />
+                  <KpiTile label="SIP XIRR" value={pf.sip?.xirr_pct != null ? `${pf.sip.xirr_pct.toFixed(1)}%` : "—"} />
+                  {bp?.status === "ok" && benchName && (
+                    <KpiTile label={`${benchName} CAGR`} value={`${bp.lump_sum.cagr_pct?.toFixed?.(1) ?? bp.lump_sum.cagr_pct}%`}
+                             sub="same amount, lump-sum" />
+                  )}
+                </div>
+
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-[13px]">
+                    <thead>
+                      <tr className="text-ink-3 text-[11px] uppercase tracking-wide text-left">
+                        <th className="font-medium py-1.5 pr-3">Instrument</th>
+                        <th className="font-medium py-1.5 px-2 text-right">Wt</th>
+                        <th className="font-medium py-1.5 px-2 text-right">Now</th>
+                        <th className="font-medium py-1.5 px-2 text-right">CAGR</th>
+                        <th className="font-medium py-1.5 pl-2 text-right">SIP XIRR</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {prows.map((r, i) => (
+                        <tr key={i} className="border-t border-hairline">
+                          <td className="py-2 pr-3">
+                            <span className="text-ink">{r.name}</span>
+                            <span className="text-ink-3 text-[11px] ml-1.5 uppercase">{r.kind}</span>
+                          </td>
+                          {r.status === "ok" ? (
+                            <>
+                              <td className="py-2 px-2 text-right text-ink-2">{r.weight_pct}%</td>
+                              <td className="py-2 px-2 text-right text-ink">{_btInr(r.current_value)}</td>
+                              <td className="py-2 px-2 text-right font-display"><BtPct v={r.cagr_pct} /></td>
+                              <td className="py-2 pl-2 text-right font-display"><BtPct v={r.sip_xirr_pct} /></td>
+                            </>
+                          ) : (
+                            <td className="py-2 px-2 text-ink-3 text-[12px]" colSpan={4}>
+                              insufficient history{r.data_since ? ` · data since ${r.data_since}` : ""}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </Card>
+        );
+      })}
+
+      {bench?.status === "unavailable" && benchName && (
+        <p className="text-[12px] text-ink-3 leading-relaxed px-1">{benchName} benchmark unavailable for this run.</p>
+      )}
+    </div>
+  );
+}
+
+// ── market_detail (market research hub) ────────────────────────────────────
+// Indices + India VIX, breadth, FII/DII, G-Sec yields, top movers — built by
+// copilot_tools.market_research from /v1/snapshots/market + /market-pulse/movers.
+// Suggested chips drive follow-up market questions via onAction({ query }).
+function MarketDetailWidget({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
+  if (!data) return null;
+  const { indices, vix, vix_tone, breadth, flows, yields, movers, suggestions, as_of, caveat } = data;
+  const fmt = (n: any) => (typeof n === "number" ? n.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : n);
+  const advPct = breadth && (breadth.advances + breadth.declines) > 0
+    ? (breadth.advances / (breadth.advances + breadth.declines)) * 100 : 0;
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      {(indices?.length > 0 || vix != null) && (
+        <div className="flex flex-wrap gap-2.5">
+          {(indices ?? []).map((i: any, idx: number) => (
+            <div key={idx} className="rounded-lg bg-surface-1 border border-hairline px-4 py-3 flex-1 min-w-[120px]">
+              <div className="text-[12.5px] text-ink-3 leading-tight">{i.label}</div>
+              <div className="font-display text-[24px] text-ink tracking-tightish mt-1 leading-none">{fmt(i.value)}</div>
+              {i.change_pct != null && (
+                <div className={`text-[12.5px] font-medium mt-1 ${i.change_pct < 0 ? "text-neg" : "text-pos"}`}>
+                  {i.change_pct >= 0 ? "+" : ""}{i.change_pct}%
+                </div>
+              )}
+            </div>
+          ))}
+          {vix != null && (
+            <div className="rounded-lg bg-surface-1 border border-hairline px-4 py-3 flex-1 min-w-[120px]">
+              <div className="text-[12.5px] text-ink-3 leading-tight">India VIX</div>
+              <div className="font-display text-[24px] text-ink tracking-tightish mt-1 leading-none">{fmt(vix)}</div>
+              {vix_tone && <div className="text-[12px] text-ink-3 mt-1 capitalize">{vix_tone}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {(breadth || flows || yields) && (
+        <Card>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {breadth && (
+              <div>
+                <div className="text-[11px] text-ink-3 uppercase tracking-wide">Breadth</div>
+                <div className="text-[14px] text-ink mt-1">
+                  <span className="text-pos">{breadth.advances} adv</span> · <span className="text-neg">{breadth.declines} decl</span>
+                </div>
+                <div className="mt-2"><Bar pct={advPct} color="green" /></div>
+              </div>
+            )}
+            {flows && (
+              <div>
+                <div className="text-[11px] text-ink-3 uppercase tracking-wide">FII / DII (cash)</div>
+                {flows.fii_cr != null && <div className="text-[14px] text-ink mt-1">FII <span className={flows.fii_cr < 0 ? "text-neg" : "text-pos"}>₹{fmt(flows.fii_cr)} cr</span></div>}
+                {flows.dii_cr != null && <div className="text-[14px] text-ink">DII <span className={flows.dii_cr < 0 ? "text-neg" : "text-pos"}>₹{fmt(flows.dii_cr)} cr</span></div>}
+              </div>
+            )}
+            {yields && (
+              <div>
+                <div className="text-[11px] text-ink-3 uppercase tracking-wide">G-Sec yields</div>
+                <div className="text-[14px] text-ink mt-1">10Y {yields.g10y}%</div>
+                {yields.g91d != null && <div className="text-[14px] text-ink">91D {yields.g91d}%</div>}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {movers && (movers.gainers?.length || movers.losers?.length) && (
+        <Card>
+          <Heading>Top movers</Heading>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+            <div>
+              <div className="text-[11px] text-pos uppercase tracking-wide mb-1">Gainers</div>
+              {(movers.gainers ?? []).map((m: any, i: number) => (
+                <div key={i} className="flex justify-between text-[13px] py-0.5">
+                  <span className="text-ink truncate mr-2">{m.symbol}</span>
+                  <span className="text-pos shrink-0">{m.change_pct >= 0 ? "+" : ""}{m.change_pct}%</span>
+                </div>
+              ))}
+            </div>
+            <div>
+              <div className="text-[11px] text-neg uppercase tracking-wide mb-1">Losers</div>
+              {(movers.losers ?? []).map((m: any, i: number) => (
+                <div key={i} className="flex justify-between text-[13px] py-0.5">
+                  <span className="text-ink truncate mr-2">{m.symbol}</span>
+                  <span className="text-neg shrink-0">{m.change_pct}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {suggestions?.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {suggestions.map((s: string, i: number) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => onAction?.({ query: s })}
+              disabled={!onAction}
+              className="px-3 py-1.5 rounded-full bg-surface-2 border border-hairline text-[12.5px] text-ink-2 hover:bg-surface-3 transition-colors disabled:opacity-60"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {caveat && <p className="text-[11.5px] text-ink-3 leading-relaxed px-1">{caveat}{as_of ? ` · as of ${as_of}` : ""}</p>}
+    </div>
+  );
+}
+
+// ── capital_gains (WF-04-07) ───────────────────────────────────────────────
+function cgINR(v: number | null | undefined): string {
+  const n = Number(v ?? 0);
+  if (Math.abs(n) >= 1e7) return `₹${(n / 1e7).toFixed(2)}Cr`;
+  if (Math.abs(n) >= 1e5) return `₹${(n / 1e5).toFixed(2)}L`;
+  return `₹${Math.round(n).toLocaleString("en-IN")}`;
+}
+
+function CgSection({ title, section, rows }: { title: string; section: string; rows: any[] }) {
+  if (!rows?.length) return null;
+  return (
+    <Card>
+      <div className="flex items-baseline justify-between">
+        <Heading>{title}</Heading>
+        <span className="text-[11px] text-ink-3 nv-mono">Sec {section}</span>
+      </div>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-[12.5px]">
+          <thead><tr className="text-ink-4 text-[10px] uppercase tracking-wide">
+            <th className="text-left font-medium pb-2">Scheme</th>
+            <th className="text-right font-medium pb-2">Qty</th>
+            <th className="text-right font-medium pb-2">Days</th>
+            <th className="text-right font-medium pb-2">Gain</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r: any, i: number) => (
+              <tr key={i} className="border-t border-hairline">
+                <td className="py-2 text-ink">{r.scheme_name}</td>
+                <td className="py-2 text-right num text-ink-3">{r.qty}</td>
+                <td className="py-2 text-right num text-ink-3">{r.days_held ?? "—"}</td>
+                <td className={`py-2 text-right num ${Number(r.gain_rs) < 0 ? "text-neg" : "text-ink"}`}>{cgINR(r.gain_rs)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function CapitalGainsWidget({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
+  if (!data) return null;
+  const header = data.header || {};
+  const A = data.sections?.A_stcg_equity || { rows: [], total: {} };
+  const B = data.sections?.B_ltcg_equity || { rows: [], total: {} };
+  const stcg = A.total?.gain_rs ?? 0;
+  const ltcg = B.total?.gain_rs ?? 0;
+  const exemption = (data.summary || []).find((r: any) => /exemption/i.test(r.particulars || ""))?.amount_rs ?? 0;
+  const estTax = data.estimated_tax_rs ?? 0;
+  const empty = ((A.rows?.length || 0) + (B.rows?.length || 0)) === 0;
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      <div className="rounded-lg bg-surface-2 border border-hairline p-5">
+        <div className="flex items-baseline justify-between gap-2">
+          <Heading>Capital Gains — {header.fy || "this FY"}</Heading>
+          <span className="text-[11px] text-ink-3">{header.period}</span>
+        </div>
+        {empty ? (
+          <p className="text-[14px] text-ink-2 leading-relaxed mt-2">No realised gains recorded for this FY — no sell/redeem transactions. This covers <b>booked</b> gains, not unrealised.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2.5 mt-3.5">
+            <Tile label="STCG · 111A" value={cgINR(stcg)} />
+            <Tile label="LTCG · 112A" value={cgINR(ltcg)} />
+            <Tile label="LTCG exempt" value={cgINR(exemption)} />
+            <Tile label="Est. tax" value={cgINR(estTax)} />
+          </div>
+        )}
+      </div>
+      <CgSection title="Short-Term — Equity" section="111A" rows={A.rows} />
+      <CgSection title="Long-Term — Equity" section="112A" rows={B.rows} />
+      {(data.notes?.length || data.data_gaps?.length) ? (
+        <p className="text-[11.5px] text-ink-4 leading-relaxed">
+          {(data.notes || [])[0]}{data.data_gaps?.length ? ` · ${data.data_gaps[0]}` : ""}
+        </p>
+      ) : null}
+      {onAction && (
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => onAction({ query: "any tax-loss harvesting opportunities?" })} className="rounded-full border border-hairline bg-surface-1 px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2">Tax-loss harvest?</button>
+          <button onClick={() => onAction({ intent: "open", query: "/tax" })} className="rounded-full border border-hairline bg-surface-1 px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2">Open full statement →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── goal_basket (WF-02-06 / WF-03 suitability) ─────────────────────────────
+function GoalBasketWidget({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
+  if (!data) return null;
+  const alloc = data.allocation || {};
+  const exp = data.expected || {};
+  const rows: any[] = data.rows || [];
+  const prof = String(data.risk_profile || "").replace(/^\w/, (c: string) => c.toUpperCase());
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      <div className="rounded-lg bg-surface-2 border border-hairline p-5">
+        <Heading>Fund basket · {prof} · {data.horizon_years}y</Heading>
+        <div className="flex flex-wrap gap-2.5 mt-3.5">
+          {["equity", "debt", "hybrid"].filter((k) => alloc[k]).map((k) => (
+            <Tile key={k} label={k[0].toUpperCase() + k.slice(1)} value={`${alloc[k]}%`} />
+          ))}
+          {exp.annual_return_pct != null && <Tile label="Exp. return" value={`${exp.annual_return_pct}%`} />}
+        </div>
+      </div>
+      {rows.length ? (
+        <Card>
+          <Heading>Suitability-matched funds</Heading>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-[12.5px]">
+              <thead><tr className="text-ink-4 text-[10px] uppercase tracking-wide">
+                <th className="text-left font-medium pb-2">Fund</th>
+                <th className="text-left font-medium pb-2">Bucket</th>
+                <th className="text-right font-medium pb-2">Weight</th>
+                <th className="text-right font-medium pb-2">TER</th>
+                <th className="text-right font-medium pb-2">Quality</th>
+              </tr></thead>
+              <tbody>
+                {rows.map((r: any, i: number) => (
+                  <tr key={i} className="border-t border-hairline">
+                    <td className="py-2 text-ink">{r.scheme_name}</td>
+                    <td className="py-2 text-ink-3 capitalize">{r.bucket}</td>
+                    <td className="py-2 text-right num">{r.weight_pct}%</td>
+                    <td className="py-2 text-right num text-ink-3">{r.expense_ratio != null ? `${r.expense_ratio}%` : "—"}</td>
+                    <td className="py-2 text-right num">{r.quality_score != null ? Math.round(r.quality_score) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      ) : (
+        <p className="text-[14px] text-ink-2">No funds cleared the suitability gates just now — try again shortly.</p>
+      )}
+      {onAction && rows.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => onAction({ query: `compare ${rows.slice(0, 3).map((r: any) => r.scheme_name).join(", ")}` })} className="rounded-full border border-hairline bg-surface-1 px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2">Compare these funds</button>
+          <button onClick={() => onAction({ intent: "open", query: "/recommendations" })} className="rounded-full border border-hairline bg-surface-1 px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2">Open recommendations →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: string; data?: any }; onAction?: (a: WidgetAction) => void }) {
   if (!widget?.widget_type) return null;
   try {
@@ -2537,10 +2981,15 @@ export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: stri
                                    ? <MfSummaryWidget data={widget.data} onAction={onAction} />
                                    : <InstrumentDetailWidget data={widget.data} />;
       case "mf_detail":          return <MfCard data={widget.data} onAction={onAction} />;
+      case "market_detail":      return <MarketDetailWidget data={widget.data} onAction={onAction} />;
       case "risk_assessment":    return <RiskAssessmentWidget data={widget.data} />;
       case "goal_simulation":    return <GoalSimulationWidget data={widget.data} onAction={onAction} />;
       case "stock_screener":     return <StockScreenerWidget data={widget.data} onAction={onAction} />;
       case "portfolio_builder":  return <PortfolioBuilderWidget data={widget.data} onAction={onAction} />;
+      case "strategy_lab":       return <StrategyBuilderPage />;
+      case "backtest_comparison": return <BacktestComparisonWidget data={widget.data} />;
+      case "capital_gains":      return <CapitalGainsWidget data={widget.data} onAction={onAction} />;
+      case "goal_basket":        return <GoalBasketWidget data={widget.data} onAction={onAction} />;
     }
   } catch {
     return null;

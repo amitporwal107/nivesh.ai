@@ -3,6 +3,7 @@
  * filmstrip: the complete journey for each, tailored at every step.
  */
 import { ReactNode } from "react";
+import { askText, useEnterCopilot } from "../useEnterCopilot";
 
 const STAGES = ["ASK", "ANALYZE", "DECIDE", "ACT"];
 
@@ -125,6 +126,7 @@ const FLOWS: Flow[] = [
 ];
 
 export default function AllFlows() {
+  const enter = useEnterCopilot();
   return (
     <section id="ct-allflows" style={{ padding: "38px clamp(18px,3vw,52px) 60px" }}>
       <div className="ct-wrap" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
@@ -147,7 +149,13 @@ export default function AllFlows() {
               <span className="nv-serif" style={{ fontSize: 22 }}>{f.title}</span>
               <span className="nv-body" style={{ color: "rgb(var(--ink-3))", fontSize: 13 }}>{f.sub}</span>
             </div>
-            <div className="ct-flowrow">
+            <div
+              className="ct-flowrow"
+              onClick={(e) => {
+                const el = (e.target as HTMLElement).closest(".ct-pb, .ct-pbtn, .ct-chip");
+                if (el) enter(askText(el.textContent || ""));
+              }}
+            >
               {f.panels.map((p, i) => (
                 <div key={i} style={{ display: "contents" }}>
                   <div className="nv-card ct-fc"><PanelHead i={i} />{p}</div>

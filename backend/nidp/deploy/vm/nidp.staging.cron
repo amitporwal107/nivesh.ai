@@ -103,6 +103,14 @@ NIDP_HOME=/opt/nidp-staging
 # 20 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh intelligence_layer
 # 30 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_intelligence_sync
 
+# ── Feed reliability: auto-recovery + monitoring (ENABLED) ────────
+# Safe in staging: reconciler heals only missing days via the idempotent
+# backfill; disk_monitor + feed_health_check are read-only + alert.
+30 6  * * 2-6  nidp-staging  /opt/nidp-staging/run_service.sh feed_reconciler
+0  7  * * 2-6  nidp-staging  /opt/nidp-staging/run_service.sh dlq_redrive
+*/10 * * * *   nidp-staging  NIDP_MAX_ATTEMPTS=1 /opt/nidp-staging/run_service.sh disk_monitor
+*/30 * * * *   nidp-staging  NIDP_MAX_ATTEMPTS=1 /opt/nidp-staging/run_service.sh feed_health_check
+
 # ── Container health collector (ENABLED — infra monitoring) ───────
 # Prereq: nidp-staging in docker group (bootstrap-staging.sh step 1b).
 * * * * *  nidp-staging  NIDP_HOME=/opt/nidp-staging PYTHON=/opt/nidp-staging/venv/bin/python SCRIPT=/opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/container_health_collector.py /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_collector.sh >> /opt/nidp-staging/logs/container_health.log 2>&1

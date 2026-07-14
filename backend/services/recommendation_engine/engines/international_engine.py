@@ -78,7 +78,12 @@ class InternationalEngine(BaseEngine):
                 if best_fund is None or _intl._quality_score(f) > _intl._quality_score(best_fund):
                     best_fund = f
 
-        fund_name = (best_fund or {}).get("scheme_name") or "An international fund of funds"
+        # Static fallback when the DaaS cache is empty/unavailable: a diversified
+        # developed-world index FoF is the conservative default and sidesteps the
+        # US/Tech concentration overrides. Keeps the card specific (named) rather
+        # than the generic "An international fund of funds".
+        _STATIC_INTL_DEFAULT = "HDFC Developed World Indexes Fund of Funds"
+        fund_name = (best_fund or {}).get("scheme_name") or _STATIC_INTL_DEFAULT
         expense = (best_fund or {}).get("expense_ratio_direct")
         ret_3y = (best_fund or {}).get("ret_3y")
 
@@ -89,11 +94,13 @@ class InternationalEngine(BaseEngine):
             detail_parts.append(f"expense {expense:.2f}%")
         detail_str = f" ({', '.join(detail_parts)})" if detail_parts else ""
 
+        # Naming a specific fund to buy is investment advice — qualify it.
         reason_text = (
             f"Your portfolio has {current_intl_pct:.0f}% international exposure — "
             f"{target_pct:.0f}% is recommended for a {risk} risk profile. "
             f"Adding {fund_name}{detail_str} gives you 5–10% global exposure, "
             f"reducing India-concentration risk."
+            f" ⓘ Educational only — not investment advice."
         )
 
         signal = EngineSignal(

@@ -110,6 +110,17 @@ def _stock_key(h: dict) -> str:
     return name.lower() if name else ""
 
 
+def _pretty_stock(key: str) -> str:
+    """Re-case a lowercased stock key for display ('hdfc bank' → 'Hdfc Bank'),
+    keeping short tokens (<=3 chars: TCS, ITC, SBI, LTD) upper-cased. Mirrors the
+    copilot chat's overlap-widget re-casing so both surfaces read the same."""
+    import re as _re
+    s = _re.sub(r"\s+", " ", _re.sub(r"[-_]+", " ", (key or "").strip()))
+    if not s:
+        return ""
+    return " ".join(w.upper() if len(w) <= 3 else w[:1].upper() + w[1:] for w in s.split())
+
+
 def _build_fund_weights(fund_doc: dict) -> dict[str, float]:
     """{stock_key: weight_pct} for one fund_holdings_cache doc."""
     out: dict[str, float] = {}
@@ -140,7 +151,8 @@ async def get_fund_overlap_matrix(request: Request) -> dict[str, Any]:
     {
       "funds": [{id, name, amc, category}],
       "matrix": [[100, 42.5, 12.0, ...], ...]   # symmetric, diagonal = 100
-      "pairs": [{a, b, a_name, b_name, overlap_pct, shared_count}, ...]  # sorted desc
+      "pairs": [{a, b, a_name, b_name, overlap_pct, shared_count,
+                 top_shared:[{name, w_a, w_b}]}, ...]   # sorted desc
       "max_pct": 67.2,
       "high_pairs": 3,      # count where overlap_pct >= 65
       "coverage_pct": 78,   # what % of MF AUM has fund_holdings_cache data
@@ -233,11 +245,24 @@ async def get_fund_overlap_matrix(request: Request) -> dict[str, Any]:
             matrix[i][j] = ov
             matrix[j][i] = ov
             shared_keys = set(weights[a_id]) & set(weights[b_id])
+            # The specific stocks both funds hold — the holdings-level "why"
+            # behind the overlap %. Top ~6 by the smaller of the two weights
+            # (the actually-shared exposure), with each fund's weight.
+            top_shared = sorted(
+                (
+                    {"name": _pretty_stock(k),
+                     "w_a": round(weights[a_id][k], 2),
+                     "w_b": round(weights[b_id][k], 2)}
+                    for k in shared_keys if _pretty_stock(k)
+                ),
+                key=lambda s: min(s["w_a"], s["w_b"]), reverse=True,
+            )[:6]
             pairs.append({
                 "a": a_id, "b": b_id,
                 "a_name": funds[i]["name"], "b_name": funds[j]["name"],
                 "overlap_pct": ov,
                 "shared_count": len(shared_keys),
+                "top_shared": top_shared,
             })
             if ov > max_pct:
                 max_pct = ov

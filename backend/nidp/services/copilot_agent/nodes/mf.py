@@ -146,6 +146,17 @@ _LEADERBOARD_Q = re.compile(
     re.IGNORECASE,
 )
 
+# Questions about ONE fund's composition ("{fund} top-10 concentration", "top 10
+# holdings of {fund}") — they contain "top"/"holdings" so the broad leaderboard
+# heuristic ("fund … top") mis-reads them as a "top funds" list and skips
+# single-fund resolution. Checked BEFORE _LEADERBOARD_Q to force resolution.
+# Note "top-N concentration/holdings/stocks" ≠ "top-N funds" (the leaderboard).
+_SINGLE_FUND_METRIC = re.compile(
+    r"top[\s-]?\d+\s+(?:holdings?|concentration|stocks?|positions?)|"
+    r"\bconcentration\b|portfolio\s+turnover|sector\s+allocation",
+    re.IGNORECASE,
+)
+
 # Generic / educational MF questions ("what is NAV", "how do mutual funds work",
 # "explain SIP") — no specific fund named; resolution would only mis-match.
 _GENERIC_MF_Q = re.compile(
@@ -182,6 +193,10 @@ def _should_resolve_scheme(
     if is_portfolio_q:          # count / fix / severity / cap → not a single fund
         return False
     t = text or ""
+    # A single-fund composition metric ("top-10 concentration") names one fund —
+    # resolve it, before the leaderboard heuristic mistakes "fund … top" for a list.
+    if _SINGLE_FUND_METRIC.search(t):
+        return True
     if _LEADERBOARD_Q.search(t) or _GENERIC_MF_Q.search(t):
         return False
     return True

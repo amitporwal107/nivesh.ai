@@ -8,7 +8,12 @@ import RetailLossesArticle from "./RetailLossesArticle";
 import MFBestPracticesArticle from "./MFBestPracticesArticle";
 import HowWeUseClaudeArticle from "./HowWeUseClaudeArticle";
 import SelfHealingArticle from "./SelfHealingArticle";
+import TypesOfFundsArticle from "./TypesOfFundsArticle";
+import SipVsLumpsumArticle from "./SipVsLumpsumArticle";
+import TaxHarvestingArticle from "./TaxHarvestingArticle";
+import DirectVsRegularArticle from "./DirectVsRegularArticle";
 import CopilotTourArticle from "./CopilotTourArticle";
+import TeamOfTenArticle from "./TeamOfTenArticle";
 
 export type BlogPost = {
   slug: string;
@@ -30,6 +35,56 @@ export const POSTS: BlogPost[] = [
     readMins: 2,
     dateLabel: "July 2026",
     Body: CopilotTourArticle,
+  },
+  {
+    slug: "shipping-like-a-team-of-ten",
+    title: "Shipping like a team of ten: how we automated our dev + support with AI",
+    excerpt:
+      "The whole story in one place — how we built a team of disciplined AI engineers into the repo, with one rule the machine enforces: \"changed\" is not \"verified.\" Leverage where it's safe, an AI that can't lie about being done, and exactly where autonomy stops.",
+    category: "Engineering",
+    readMins: 8,
+    dateLabel: "July 2026",
+    Body: TeamOfTenArticle,
+  },
+  {
+    slug: "types-of-mutual-funds-india",
+    title: "Types of mutual funds in India — a plain-English guide",
+    excerpt:
+      "Equity, debt, hybrid, index, ELSS — there are really just a few families. Here's the map, and how to pick the one that fits your goal and timeline.",
+    category: "Investor education",
+    readMins: 6,
+    dateLabel: "July 2026",
+    Body: TypesOfFundsArticle,
+  },
+  {
+    slug: "sip-vs-lumpsum",
+    title: "SIP vs lump sum — which one's actually right for you?",
+    excerpt:
+      "Got a bonus and not sure whether to drip it in or dump it in? The honest breakdown of when each wins — plus the middle path most people miss.",
+    category: "Investor education",
+    readMins: 5,
+    dateLabel: "July 2026",
+    Body: SipVsLumpsumArticle,
+  },
+  {
+    slug: "tax-harvesting-mutual-funds",
+    title: "Tax harvesting in mutual funds — a legal way to cut your tax",
+    excerpt:
+      "You get ₹1.25 lakh of long-term equity gains tax-free every year. Skip it and you lose it. How harvesting gains (and losses) quietly lowers your tax bill.",
+    category: "Investor education",
+    readMins: 5,
+    dateLabel: "July 2026",
+    Body: TaxHarvestingArticle,
+  },
+  {
+    slug: "direct-vs-regular-mutual-funds",
+    title: "Direct vs regular mutual funds — what it really costs you",
+    excerpt:
+      "Same fund, same manager — but a Regular plan quietly pays a commission every year. Over 20 years that ~1% can cost you ₹16 lakh. The maths, and how to switch.",
+    category: "Investor education",
+    readMins: 5,
+    dateLabel: "July 2026",
+    Body: DirectVsRegularArticle,
   },
   {
     slug: "self-healing-software-autonomous-fixes",

@@ -19,6 +19,13 @@ test.describe("Chat page — suggested prompts", () => {
     ).toBeVisible();
   });
 
+  test("Strategy Builder tool chip is hidden", async ({ page }) => {
+    // Sanity: the composer tool row rendered (a sibling chip is present).
+    await expect(page.getByRole("button", { name: /Build a portfolio/ })).toBeVisible();
+    // The de-surfaced Strategy Builder chip must be gone.
+    await expect(page.getByTestId("tool-strategy-builder")).toHaveCount(0);
+  });
+
   test("secondary prompt shown: 'Fix overlap in my funds'", async ({ page }) => {
     // suggested-prompts.json: secondary[0].label
     await expect(page.locator("text=Fix overlap in my funds").first()).toBeVisible();

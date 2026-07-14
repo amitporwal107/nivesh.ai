@@ -69,6 +69,7 @@ from routes.portfolio_export import router as portfolio_export_router  # CSV/XLS
 from routes.client_cas_invite import mfd_router as cas_invite_mfd_router, public_router as cas_invite_public_router
 from routes.data_health import router as data_health_router  # Global stale-data banner
 from routes.client_logs import router as client_logs_router  # Mobile app → Cloud Logging ingest
+from routes.session_logs import router as session_logs_router  # Settings → Logs & Diagnostics (per-session server logs)
 from routes.cas_transactions import router as cas_transactions_router  # SIP detection + txn history
 from routes.cas_snapshots import router as cas_snapshots_router  # CAS Time-Machine endpoints
 from routes.benchmarks import router as benchmarks_router  # Benchmark Index Data Service
@@ -100,6 +101,7 @@ from routes.copilot_widgets import router as copilot_widgets_router  # Copilot e
 from routes.admin_swagger import router as admin_swagger_router  # Admin-only Swagger UI (/api/admin/swagger)
 from routes.grafana_alerts import router as grafana_alerts_router  # Grafana webhook receiver + active alerts query
 from routes.monitoring_actions import router as monitoring_actions_router  # Operator actions webhook + audit log
+from routes.release_docs import router as release_docs_router  # Settings → Release Management (versioned release docs in Mongo)
 
 # ── CAS ingestion module ──────────────────────────────────────────────
 # Used to be a standalone FastAPI service in its own container; now mounted
@@ -173,6 +175,8 @@ app.include_router(cas_invite_mfd_router)       # Client CAS invite (MFD side)
 app.include_router(cas_invite_public_router)    # Client CAS invite (public, no auth)
 app.include_router(data_health_router)           # Global stale-data banner
 app.include_router(client_logs_router)           # Mobile app → Cloud Logging ingest
+app.include_router(session_logs_router)          # Settings → Logs & Diagnostics (per-session server logs)
+app.include_router(release_docs_router)          # Settings → Release Management (admin: versioned release docs in Mongo)
 app.include_router(cas_transactions_router)      # SIP detection + txn history
 app.include_router(cas_snapshots_router)          # CAS Time-Machine endpoints
 app.include_router(benchmarks_router)             # Benchmark Index Data Service

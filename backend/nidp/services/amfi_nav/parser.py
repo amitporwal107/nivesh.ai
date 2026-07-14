@@ -31,7 +31,14 @@ import re
 from datetime import datetime
 from typing import Any, Optional
 
+from nidp.shared.sources.schema_contract import require_columns, SchemaContractError
+
 logger = logging.getLogger(__name__)
+
+# Header columns the parser depends on. Their absence means the source returned
+# HTML / an error page / a renamed format — fail LOUD (schema contract) instead
+# of silently yielding 0 rows (which the service marks SKIPPED = looks healthy).
+_AMFI_REQUIRED_COLS = ("Scheme Code", "Net Asset Value", "Date")
 
 # "Open Ended Schemes(Equity Scheme - Large Cap Fund)"
 # also seen: "Open Ended Schemes ( Equity Scheme - Large Cap Fund )"
@@ -77,6 +84,29 @@ def parse_nav_all(body: bytes) -> tuple[list[dict[str, Any]], list[dict[str, Any
     (last-write wins on duplicates within the file — shouldn't happen).
     """
     text = body.decode("utf-8-sig", errors="replace")
+    lines = text.splitlines()
+
+    # ── Schema contract ──────────────────────────────────────────────
+    # A real NAVAll.txt starts with the "Scheme Code;…;Net Asset Value;Date"
+    # header. If content is present but that header is absent (HTML/error page)
+    # or a required column is renamed, fail LOUD rather than return 0 rows
+    # silently. An empty/whitespace body is "no data" (handled as SKIPPED
+    # upstream), so we don't raise on it.
+    if text.strip():
+        header_line = next(
+            (l for l in lines[:25] if l.strip().lower().startswith("scheme code")),
+            None,
+        )
+        if header_line is None:
+            raise SchemaContractError(
+                "amfi_nav", missing=list(_AMFI_REQUIRED_COLS), present=[],
+                source="AMFI NAVAll.txt (no 'Scheme Code' header row)",
+            )
+        require_columns(
+            header_line.split(";"), _AMFI_REQUIRED_COLS,
+            feed="amfi_nav", source="AMFI NAVAll.txt",
+        )
+
     nav_rows: list[dict[str, Any]] = []
     scheme_seen: dict[str, dict[str, Any]] = {}
 
@@ -84,7 +114,7 @@ def parse_nav_all(body: bytes) -> tuple[list[dict[str, Any]], list[dict[str, Any
     scheme_category: Optional[str] = None
     amc_name_raw: Optional[str] = None
 
-    for raw in text.splitlines():
+    for raw in lines:
         line = raw.strip()
         if not line:
             continue

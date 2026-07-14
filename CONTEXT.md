@@ -33,6 +33,7 @@ gate wins on any conflict).
 | "should we build", scope, priorities, user value, requirements, acceptance criteria, tradeoffs | `.claude/roles/PRODUCT_MANAGER.md` | *what* and *why* |
 | UI, component, layout, design system, accessibility, visual polish, interaction, responsive | `.claude/roles/DESIGN_ENGINEER.md` | how it looks/feels |
 | timeline, dependencies, sequencing, "what's blocking", status, breaking work into steps, risk | `.claude/roles/PROJECT_MANAGER.md` | order and flow |
+| fundamental/technical analysis, read a balance sheet, MF selection/suitability, a quant/stat model, which feed/is the data trustworthy, SEBI/regulatory review, or advice on what market-analytics to build | `.claude/roles/DOMAIN_EXPERT_ANALYST.md` (skill: `domain-expert-analyst`) | domain correctness & data trust |
 
 **Step 3 — Name the guardrails** that now apply (the shared ones below + each role
 guide's Definition of Done). If a task has no clear owning role, default to
@@ -174,6 +175,20 @@ back the reason). Each role guide declares its **verify commands**; those feed t
 To wire a new role's verify command in, add its pattern to that regex. Hooks block on
 **exit code 2 only** (exit 1 is ignored), and feedback to the agent is read from
 **stderr**. Keep that in mind if you extend them.
+
+### 4a. Functionality-verification gate (verify-before-complete)
+
+On top of the baseline gate, a **stronger, functionality-scoped** gate enforces
+`.claude/VERIFICATION_PROTOCOL.md`. When a session edits product code
+(`backend/routes|services|*routers`, or `frontend*/src`), a `Stop` hook
+(`require-functionality-verification.sh`) blocks the turn from ending until
+`test_reports/` holds a **fresh** report (newer than the last edit) that lists the test
+cases, shows **real staging API results** (backend) and **real Playwright output**
+(frontend), and ends with a line exactly `## Verdict: PASS` — or a loud
+`test_reports/OVERRIDE_<slug>.md` with a `REASON:` line (the only sanctioned, non-silent
+skip; used when blocked, e.g. awaiting a user-provided session token / CAS document).
+Test cases are authored **up front**, after API+UI design and before implementation.
+Use `test_reports/_TEMPLATE_functionality.md`.
 
 ---
 

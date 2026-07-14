@@ -33,6 +33,9 @@ interface Props {
   onComplete: () => void;
   /** Open at a specific step (0=risk, 1=goal, 2=snapshot) */
   startStep?: 0 | 1 | 2;
+  /** Last step to include (default 2 = snapshot). Onboarding passes 1 so the
+   *  wizard collects only Risk + Goal and finishes after the goal step. */
+  lastStep?: 0 | 1 | 2;
 }
 
 // ── Risk questions (mirrors RiskProfileModal) ─────────────────────────────────
@@ -609,7 +612,7 @@ const STEP_META = [
   { label: "Snapshot (optional)",  key: "snapshot" },
 ];
 
-export function ProfileWizardModal({ open, onClose, completeness, existingProfile, onComplete, startStep }: Props) {
+export function ProfileWizardModal({ open, onClose, completeness, existingProfile, onComplete, startStep, lastStep = 2 }: Props) {
   // Determine first incomplete step
   function firstIncomplete(): number {
     if (!completeness.hasRiskProfile) return 0;
@@ -644,7 +647,7 @@ export function ProfileWizardModal({ open, onClose, completeness, existingProfil
   }
 
   function advance() {
-    if (wizardStep < 2) {
+    if (wizardStep < lastStep) {
       setWizardStep(s => s + 1);
     } else {
       finish();
@@ -676,7 +679,7 @@ export function ProfileWizardModal({ open, onClose, completeness, existingProfil
                 Complete your profile
               </div>
               <div className="flex items-center gap-2">
-                {STEP_META.map((s, i) => (
+                {STEP_META.slice(0, lastStep + 1).map((s, i) => (
                   <button
                     key={s.key}
                     onClick={() => setWizardStep(i)}

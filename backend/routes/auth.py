@@ -4,14 +4,13 @@ from fastapi.responses import RedirectResponse as _RedirectResponse
 from datetime import datetime, timezone, timedelta
 import urllib.parse
 import uuid
-import hashlib
 import hmac
-import secrets as _stdlib_secrets   # stdlib CSPRNG — distinct from helpers.secrets below
 import httpx
 import logging
 
 from deps import db, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, get_current_user, check_whitelist, COOKIE_SECURE, COOKIE_SAMESITE
 from helpers import secrets
+from helpers.otp import generate_otp, hash_otp
 from services import email_service
 from core.logging_config import mask_email
 from core.exceptions import (
@@ -22,31 +21,41 @@ from core.exceptions import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
+_DEFAULT_SESSION_DAYS = 7
+_LONG_SESSION_DAYS = 3650  # ~10y — effectively non-expiring
+
+
+async def _session_days(user_id: str) -> int:
+    """Session lifetime in days. Founder/admin accounts on NON-production get an
+    effectively non-expiring session (frictionless staging dev/verify); everyone
+    else — and ALL of production — keeps the standard 7-day window."""
+    try:
+        from helpers import secrets as _secrets
+        from deps import SEED_FOUNDER_EMAILS
+        if _secrets.current_env() == "production":
+            return _DEFAULT_SESSION_DAYS
+        u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1})
+        email = ((u or {}).get("email") or "").strip().lower()
+        founders = {e.strip().lower() for e in SEED_FOUNDER_EMAILS}
+        return _LONG_SESSION_DAYS if email in founders else _DEFAULT_SESSION_DAYS
+    except Exception:  # noqa: BLE001 — never block login on this
+        return _DEFAULT_SESSION_DAYS
+
 # ── Magic-link whitelist validation ──────────────────────────────────────
-# Self-serve flow behind the "or sign in with email" box on the login page.
+# Self-serve flow behind the "or a whitelisted email" box on the login page.
 # A visitor submits any valid email; if it isn't already whitelisted we email
 # them a one-time validation link valid for 24h. Opening the link adds the
-# address to the whitelist so they can then sign in. Any email domain may
-# self-serve (Gmail included) — actual sign-in still goes through Google OAuth.
+# address to the whitelist so they can then sign in.
 MAGIC_LINK_TTL_HOURS = 24
 
 # ── Email OTP sign-in ─────────────────────────────────────────────────────
-# Passwordless login for whitelisted users whose email is NOT a Google account
-# (Google OAuth is the other path). A short numeric code is emailed and then
-# exchanged for the same 7-day session a Google sign-in issues. Invite-gated:
-# the email must already be whitelisted (admin invite, or the magic-link
-# request-access flow) — verifying a code never adds anyone to the whitelist.
-OTP_TTL_MINUTES = 10
-OTP_LENGTH = 6
-OTP_MAX_ATTEMPTS = 5          # wrong tries before the code is burned
-OTP_RESEND_COOLDOWN_SECONDS = 30
-
-
-def _hash_otp(email: str, code: str) -> str:
-    """SHA-256 of the code, salted by email, so a DB read never exposes a live
-    code. The threat model is online guessing (bounded by OTP_MAX_ATTEMPTS +
-    the short TTL + the per-IP auth-strict rate limit), not offline cracking."""
-    return hashlib.sha256(f"{email}:{code}".encode("utf-8")).hexdigest()
+# Passwordless login for whitelisted users: invited email → 6-digit code →
+# verify → session. Invite-gated (a code never adds anyone to the whitelist).
+# Codes are stored hashed, single-use, rate-limited, and attempt-capped.
+OTP_TTL_MINUTES = 30
+OTP_MAX_ATTEMPTS = 5              # wrong guesses before a code is burned
+OTP_RESEND_COOLDOWN_SECONDS = 60  # min gap between two code requests for an email
+OTP_MAX_PER_HOUR = 6              # code requests per email per rolling hour
 
 
 def _iso_is_expired(iso_str: str) -> bool:
@@ -79,79 +88,6 @@ def _resolve_public_base(request: Request) -> str:
     if fwd_host:
         return f"{fwd_proto}://{fwd_host}"
     return str(request.base_url).rstrip("/")
-
-
-async def _establish_session(
-    request: Request, response: Response, *,
-    email: str, name: str, picture: str, is_admin: bool,
-) -> dict:
-    """Mark the (already-whitelisted) email active, upsert the user, mint a
-    7-day session + cookie, audit the login, and return the user_doc the SPA
-    expects (with session_token + onboarding_completed). Shared by Google OAuth
-    (/auth/google) and email-OTP (/auth/otp/verify) so both issue identical
-    sessions. Callers MUST verify access (whitelist) before calling this."""
-    await db.whitelisted_users.update_one(
-        {"email": email},
-        {"$set": {"status": "active", "registered_at": datetime.now(timezone.utc).isoformat()}},
-    )
-
-    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
-    if existing_user:
-        user_id = existing_user["user_id"]
-        await db.users.update_one({"email": email}, {"$set": {"name": name, "picture": picture, "is_admin": is_admin}})
-    else:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        await db.users.insert_one({
-            "user_id": user_id,
-            "email": email,
-            "name": name,
-            "picture": picture,
-            "is_admin": is_admin,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
-
-    session_token = str(uuid.uuid4())
-    await db.user_sessions.insert_one({
-        "user_id": user_id,
-        "session_token": session_token,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-
-    # REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-    # COOKIE_SECURE / COOKIE_SAMESITE come from env — set to false/lax on HTTP-only deploys.
-    response.set_cookie(
-        key="session_token",
-        value=session_token,
-        httponly=True,
-        secure=COOKIE_SECURE,
-        samesite=COOKIE_SAMESITE,
-        path="/",
-        max_age=7 * 24 * 3600
-    )
-
-    # DPDP audit — record successful sign-in.
-    try:
-        from services import audit
-        await audit.record(
-            user_id=user_id, action="login",
-            ip=request.client.host if request.client else "",
-            ua=request.headers.get("user-agent", ""),
-            details={"email": email, "new_user": not existing_user},
-        )
-    except Exception:  # noqa: BLE001
-        pass
-
-    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    # Use user_profiles as the authoritative source for onboarding_completed
-    # so that admin resets (which write to user_profiles) are reflected at login.
-    profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
-    user_doc["onboarding_completed"] = bool(profile.get("onboarding_completed", False))
-    # Also return the session token in the body so the mobile app can send it as
-    # `Authorization: Bearer` — Android WebViews don't reliably keep the cross-site
-    # session cookie. get_current_user already accepts this header.
-    user_doc["session_token"] = session_token
-    return user_doc
 
 
 @router.post("/auth/google")
@@ -196,10 +132,69 @@ async def google_auth(request: Request, response: Response):
             code="AUTHZ-001",
         )
 
+    update_fields = {"status": "active", "registered_at": datetime.now(timezone.utc).isoformat()}
+    await db.whitelisted_users.update_one({"email": email}, {"$set": update_fields})
+
     is_admin = whitelist_entry.get("is_admin", False)
-    return await _establish_session(
-        request, response, email=email, name=name, picture=picture, is_admin=is_admin,
+
+    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing_user:
+        user_id = existing_user["user_id"]
+        await db.users.update_one({"email": email}, {"$set": {"name": name, "picture": picture, "is_admin": is_admin}})
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        await db.users.insert_one({
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "picture": picture,
+            "is_admin": is_admin,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+
+    session_token = str(uuid.uuid4())
+    _days = await _session_days(user_id)
+    await db.user_sessions.insert_one({
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=_days)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+
+    # REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+    # COOKIE_SECURE / COOKIE_SAMESITE come from env — set to false/lax on HTTP-only deploys.
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        path="/",
+        max_age=7 * 24 * 3600
     )
+
+    # DPDP audit — record successful sign-in.
+    try:
+        from services import audit
+        await audit.record(
+            user_id=user_id, action="login",
+            ip=request.client.host if request.client else "",
+            ua=request.headers.get("user-agent", ""),
+            details={"email": email, "new_user": not existing_user},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    # Use user_profiles as the authoritative source for onboarding_completed
+    # so that admin resets (which write to user_profiles) are reflected at login.
+    profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    user_doc["onboarding_completed"] = bool(profile.get("onboarding_completed", False))
+    # Also return the session token in the body so the mobile app can send it as
+    # `Authorization: Bearer` — Android WebViews don't reliably keep the cross-site
+    # session cookie. get_current_user already accepts this header.
+    user_doc["session_token"] = session_token
+    return user_doc
 
 
 @router.post("/auth/session")
@@ -295,10 +290,11 @@ async def exchange_gmail_session(request: Request, response: Response):
 
     user_id = doc["user_id"]
     session_token = str(uuid.uuid4())
+    _days = await _session_days(user_id)
     await db.user_sessions.insert_one({
         "user_id": user_id,
         "session_token": session_token,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=_days)).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     response.set_cookie(
@@ -349,10 +345,11 @@ async def gmail_exchange(code: str, return_to: str = "/v2/app"):
 
     user_id = doc["user_id"]
     session_token = str(uuid.uuid4())
+    _days = await _session_days(user_id)
     await db.user_sessions.insert_one({
         "user_id": user_id,
         "session_token": session_token,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=_days)).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -383,8 +380,8 @@ async def request_magic_link(request: Request):
     body = await request.json()
     email = (body.get("email") or "").strip().lower()
 
-    # Format gate — mirrors the frontend's isValidEmail check so the API is
-    # safe even if called directly. Any valid email domain may self-serve.
+    # Format gate only — any valid email may self-serve a magic link. The
+    # address is not whitelisted until the emailed link is actually opened.
     if not email or "@" not in email or "." not in email.split("@")[-1]:
         raise ValidationException("A valid email address is required", code="VAL-003")
 
@@ -394,21 +391,6 @@ async def request_magic_link(request: Request):
         return {
             "message": "This email is already approved — you can sign in above.",
             "already_whitelisted": True,
-        }
-
-    # Per-email cooldown — if a still-valid, unopened link is already
-    # outstanding for this address, don't mint or re-send another. The
-    # endpoint is open to any domain now, so without this an attacker could
-    # use it to spam validation mail at arbitrary addresses via our SMTP relay
-    # (the existing rate limit is per-IP, not per-recipient).
-    outstanding = await db.magic_link_tokens.find_one(
-        {"email": email, "used": False}, {"_id": 0, "expires_at": 1}
-    )
-    if outstanding and not _iso_is_expired(outstanding.get("expires_at", "")):
-        logger.info("Magic-link re-requested while a valid link is outstanding: %s", mask_email(email))
-        return {
-            "message": f"A validation link was already sent to {email}. Please check your inbox — it expires in {MAGIC_LINK_TTL_HOURS} hours.",
-            "already_whitelisted": False,
         }
 
     # Fail loud if we can't actually send mail — never pretend a link went out.
@@ -451,6 +433,188 @@ async def request_magic_link(request: Request):
     }
 
 
+async def _issue_email_session(request: Request, response: Response, email: str) -> dict:
+    """Establish a session for an already-whitelisted address: create/find the
+    user, mint a 7-day session, set the cookie, and return the user doc. Mirrors
+    the tail of google_auth so an OTP sign-in lands on the dashboard exactly like
+    Google. Callers MUST verify whitelist access before reaching here."""
+    now = datetime.now(timezone.utc)
+
+    # Invite-only: OTP is a login mechanism for whitelisted users, not a
+    # self-serve registration path. A verified code never adds anyone to the
+    # whitelist (access could also have been revoked between request and verify).
+    # Non-invited emails are steered to the magic-link request-access flow.
+    whitelist_entry = await check_whitelist(email)
+    if not whitelist_entry:
+        logger.warning("OTP verified but email not whitelisted: %s", mask_email(email))
+        raise AuthorizationException(
+            "Access is currently restricted. Your email is not on the invite list.",
+            code="AUTHZ-001",
+        )
+    is_admin = whitelist_entry.get("is_admin", False)
+
+    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing_user:
+        user_id = existing_user["user_id"]
+        await db.users.update_one({"email": email}, {"$set": {"is_admin": is_admin}})
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        await db.users.insert_one({
+            "user_id": user_id, "email": email, "name": "", "picture": "",
+            "is_admin": is_admin, "created_at": now.isoformat(),
+        })
+
+    session_token = str(uuid.uuid4())
+    _days = await _session_days(user_id)
+    await db.user_sessions.insert_one({
+        "user_id": user_id, "session_token": session_token,
+        "expires_at": (now + timedelta(days=_days)).isoformat(),
+        "created_at": now.isoformat(),
+    })
+    response.set_cookie(
+        key="session_token", value=session_token, httponly=True,
+        secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, path="/",
+        max_age=7 * 24 * 3600,
+    )
+
+    try:
+        from services import audit
+        await audit.record(
+            user_id=user_id, action="login",
+            ip=request.client.host if request.client else "",
+            ua=request.headers.get("user-agent", ""),
+            details={"email": email, "new_user": not existing_user, "method": "otp"},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    user_doc["onboarding_completed"] = bool(profile.get("onboarding_completed", False))
+    user_doc["session_token"] = session_token
+    return user_doc
+
+
+@router.post("/auth/otp/request")
+async def request_otp(request: Request):
+    """Email a 6-digit sign-in code to an already-whitelisted address.
+
+    Body: {"email": "..."}. Invite-gated (non-whitelisted → 403; never adds
+    anyone). Rate-limited per email. Requires SMTP to be configured — we never
+    pretend a code went out.
+    """
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    if not email or "@" not in email or "." not in email.split("@")[-1]:
+        raise ValidationException("A valid email address is required", code="VAL-003")
+
+    # Invite-gate — OTP signs in whitelisted users only; it never adds anyone.
+    # Non-invited emails are steered to the magic-link request-access flow.
+    if not await check_whitelist(email):
+        logger.info("OTP requested for non-whitelisted email: %s", mask_email(email))
+        raise AuthorizationException(
+            "This email isn't on the invite list yet. Request access first, then sign in.",
+            code="AUTHZ-001",
+        )
+
+    # Fail loud if we can't actually send mail — never pretend a code went out.
+    if not email_service.is_configured():
+        logger.error("OTP requested but SMTP is not configured")
+        raise SystemException(
+            "Email delivery is not configured on the server. Please contact the admin.",
+            code="SYS-003",
+        )
+
+    now = datetime.now(timezone.utc)
+    # Rate limit: resend cooldown + hourly cap per email (anti email-bombing).
+    window_start = (now - timedelta(hours=1)).isoformat()
+    recent = await db.email_otp_codes.find(
+        {"email": email, "created_at": {"$gte": window_start}}
+    ).to_list(50)
+    if recent:
+        latest = max(recent, key=lambda d: d.get("created_at", ""))
+        secs = (now - datetime.fromisoformat(latest["created_at"])).total_seconds()
+        if secs < OTP_RESEND_COOLDOWN_SECONDS:
+            raise ValidationException(
+                "Please wait a moment before requesting another code.", code="VAL-003")
+        if len(recent) >= OTP_MAX_PER_HOUR:
+            raise ValidationException(
+                "Too many codes requested. Please try again later.", code="VAL-003")
+
+    # Invalidate any earlier live codes so only the newest one works.
+    await db.email_otp_codes.update_many(
+        {"email": email, "used": False},
+        {"$set": {"used": True, "used_at": now.isoformat()}},
+    )
+
+    code = generate_otp()
+    result = await db.email_otp_codes.insert_one({
+        "email": email,
+        "code_hash": hash_otp(email, code),
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(minutes=OTP_TTL_MINUTES)).isoformat(),
+        "attempts": 0,
+        "used": False,
+        "used_at": None,
+        "request_ip": request.client.host if request.client else "",
+    })
+
+    try:
+        await email_service.send_otp_email(email, code, OTP_TTL_MINUTES)
+    except Exception as e:  # noqa: BLE001
+        # Drop the just-created code so a failed send can't leave a live code
+        # the user never received, and surface the real failure.
+        await db.email_otp_codes.delete_one({"_id": result.inserted_id})
+        logger.error("Failed to send OTP email: %s", type(e).__name__)
+        raise SystemException(
+            "We couldn't send the code right now. Please try again later.",
+            code="SYS-003", cause=e,
+        )
+
+    return {
+        "message": f"A 6-digit code was sent to {email}. It expires in {OTP_TTL_MINUTES} minutes.",
+        "expires_in_minutes": OTP_TTL_MINUTES,
+    }
+
+
+@router.post("/auth/otp/verify")
+async def verify_otp(request: Request, response: Response):
+    """Verify a 6-digit code and sign the user in (sets the session cookie)."""
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    code = (body.get("code") or "").strip()
+    if not email or not code:
+        raise ValidationException("Email and code are required", code="VAL-003")
+
+    now = datetime.now(timezone.utc)
+    doc = await db.email_otp_codes.find_one(
+        {"email": email, "used": False}, sort=[("created_at", -1)]
+    )
+    if not doc:
+        raise ValidationException(
+            "No active code for this email. Request a new one.", code="VAL-003")
+
+    if _iso_is_expired(doc.get("expires_at", "")):
+        await db.email_otp_codes.update_one(
+            {"_id": doc["_id"]}, {"$set": {"used": True, "used_at": now.isoformat()}})
+        raise ValidationException("This code has expired. Request a new one.", code="VAL-003")
+
+    if doc.get("attempts", 0) >= OTP_MAX_ATTEMPTS:
+        await db.email_otp_codes.update_one(
+            {"_id": doc["_id"]}, {"$set": {"used": True, "used_at": now.isoformat()}})
+        raise ValidationException(
+            "Too many incorrect attempts. Request a new code.", code="VAL-003")
+
+    if not hmac.compare_digest(doc.get("code_hash", ""), hash_otp(email, code)):
+        await db.email_otp_codes.update_one({"_id": doc["_id"]}, {"$inc": {"attempts": 1}})
+        raise ValidationException("Incorrect code. Please try again.", code="VAL-003")
+
+    # Correct — consume the code (single-use) and issue the session.
+    await db.email_otp_codes.update_one(
+        {"_id": doc["_id"]}, {"$set": {"used": True, "used_at": now.isoformat()}})
+    return await _issue_email_session(request, response, email)
+
+
 @router.get("/auth/magic-link/validate")
 async def validate_magic_link(token: str):
     """Open a magic-link validation token. On success the email is added to
@@ -491,153 +655,6 @@ async def validate_magic_link(token: str):
     )
     logger.info("Magic-link validated, email added to whitelist: %s", mask_email(email))
     return _RedirectResponse(url="/login?validated=1", status_code=302)
-
-
-@router.post("/auth/otp/request")
-async def request_otp(request: Request):
-    """Email a one-time sign-in code to an already-whitelisted address.
-
-    Body: {"email": "..."}.
-      * Not whitelisted → 403 (use the magic-link request-access flow first).
-      * Whitelisted     → email a 6-digit code (valid OTP_TTL_MINUTES) and store
-                          only its salted hash. A still-fresh code is rate-limited
-                          by a short resend cooldown. Verifying happens at
-                          /auth/otp/verify. Never adds anyone to the whitelist.
-    """
-    body = await request.json()
-    email = (body.get("email") or "").strip().lower()
-
-    if not email or "@" not in email or "." not in email.split("@")[-1]:
-        raise ValidationException("A valid email address is required", code="VAL-003")
-
-    # Invite-gate — OTP is a login mechanism for whitelisted users only. Do not
-    # leak whether the address exists beyond the standard access message.
-    if not await check_whitelist(email):
-        logger.info("OTP requested for non-whitelisted email: %s", mask_email(email))
-        raise AuthorizationException(
-            "This email isn't on the invite list yet. Request access first, then sign in.",
-            code="AUTHZ-001",
-        )
-
-    # Fail loud if we can't actually send mail — never pretend a code went out.
-    if not email_service.is_configured():
-        logger.error("OTP requested but SMTP is not configured")
-        raise SystemException(
-            "Email delivery is not configured on the server. Please contact the admin.",
-            code="SYS-003",
-        )
-
-    now = datetime.now(timezone.utc)
-
-    # Resend cooldown — don't mint/send another code while a very fresh one is
-    # outstanding (caps using the endpoint as a mail relay; complements the
-    # per-IP auth-strict rate limit, which is not per-recipient).
-    existing = await db.otp_codes.find_one({"email": email}, {"_id": 0, "created_at": 1})
-    if existing:
-        try:
-            created = datetime.fromisoformat(existing["created_at"])
-            if created.tzinfo is None:
-                created = created.replace(tzinfo=timezone.utc)
-            wait = OTP_RESEND_COOLDOWN_SECONDS - (now - created).total_seconds()
-            if wait > 0:
-                raise ValidationException(
-                    f"Please wait {int(wait) + 1}s before requesting another code.",
-                    code="VAL-003",
-                )
-        except (ValueError, KeyError):
-            pass  # malformed/absent timestamp — treat as no active code
-
-    # Cryptographically-random zero-padded numeric code; store only the hash.
-    code = f"{_stdlib_secrets.randbelow(10 ** OTP_LENGTH):0{OTP_LENGTH}d}"
-    await db.otp_codes.update_one(
-        {"email": email},
-        {"$set": {
-            "email": email,
-            "code_hash": _hash_otp(email, code),
-            "created_at": now.isoformat(),
-            "expires_at": (now + timedelta(minutes=OTP_TTL_MINUTES)).isoformat(),
-            "attempts": 0,
-        }},
-        upsert=True,
-    )
-
-    try:
-        await email_service.send_otp_email(email, code, OTP_TTL_MINUTES)
-    except Exception as e:  # noqa: BLE001
-        # Drop the just-stored code so a failed send can't leave a usable code
-        # the user never received, and surface the real failure.
-        await db.otp_codes.delete_one({"email": email})
-        logger.error("Failed to send OTP email: %s", type(e).__name__)
-        raise SystemException(
-            "We couldn't send the code right now. Please try again later.",
-            code="SYS-003", cause=e,
-        )
-
-    logger.info("OTP sign-in code sent: %s", mask_email(email))
-    return {
-        "message": f"We sent a {OTP_LENGTH}-digit code to {email}. It expires in {OTP_TTL_MINUTES} minutes.",
-        "expires_in_minutes": OTP_TTL_MINUTES,
-    }
-
-
-@router.post("/auth/otp/verify")
-async def verify_otp(request: Request, response: Response):
-    """Exchange a valid OTP code for a session (same session a Google sign-in
-    issues). Body: {"email": "...", "code": "123456"}."""
-    body = await request.json()
-    email = (body.get("email") or "").strip().lower()
-    code = (body.get("code") or "").strip()
-
-    if not email or not code:
-        raise ValidationException("Email and code are required", code="VAL-003")
-
-    doc = await db.otp_codes.find_one({"email": email}, {"_id": 0})
-    if not doc:
-        raise AuthenticationException(
-            "That code is invalid or has expired. Request a new one.", code="AUTH-003",
-        )
-
-    if _iso_is_expired(doc.get("expires_at", "")):
-        await db.otp_codes.delete_one({"email": email})
-        raise AuthenticationException(
-            "That code has expired. Request a new one.", code="AUTH-003",
-        )
-
-    if doc.get("attempts", 0) >= OTP_MAX_ATTEMPTS:
-        await db.otp_codes.delete_one({"email": email})
-        raise AuthenticationException(
-            "Too many incorrect attempts. Request a new code.", code="AUTH-003",
-        )
-
-    # Constant-time compare; count the failure and bail without burning the code
-    # so a typo is recoverable up to the attempt cap.
-    if not hmac.compare_digest(doc.get("code_hash", ""), _hash_otp(email, code)):
-        await db.otp_codes.update_one({"email": email}, {"$inc": {"attempts": 1}})
-        raise AuthenticationException(
-            "That code is incorrect. Please try again.", code="AUTH-003",
-        )
-
-    # Re-check the whitelist at redemption time — access could have been revoked
-    # between request and verify. Burn the code regardless (single use).
-    await db.otp_codes.delete_one({"email": email})
-    whitelist_entry = await check_whitelist(email)
-    if not whitelist_entry:
-        logger.warning("OTP verified but email no longer whitelisted: %s", mask_email(email))
-        raise AuthorizationException(
-            "Access is currently restricted. Your email is not on the invite list.",
-            code="AUTHZ-001",
-        )
-
-    existing_user = await db.users.find_one({"email": email}, {"_id": 0}) or {}
-    # No display name from email login — keep the existing one, else the local-part.
-    name = existing_user.get("name") or email.split("@")[0]
-    picture = existing_user.get("picture", "")
-    is_admin = whitelist_entry.get("is_admin", False)
-
-    logger.info("OTP sign-in succeeded: %s", mask_email(email))
-    return await _establish_session(
-        request, response, email=email, name=name, picture=picture, is_admin=is_admin,
-    )
 
 
 @router.get("/auth/dev-set-cookie")

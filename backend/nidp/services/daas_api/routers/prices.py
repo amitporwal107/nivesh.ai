@@ -5,9 +5,9 @@ right choice for return calculations across corporate actions; raw is
 the right choice when you need actual quoted prices on a given day."""
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 
 from nidp.shared.storage.pg import get_pool
 from nidp.services.daas_api.auth import require_api_key
@@ -17,6 +17,10 @@ from nidp.services.daas_api.responses import (
 
 
 router = APIRouter(prefix="/prices", tags=["prices"], dependencies=[Depends(require_api_key)])
+
+# Bounds mirror the features bulk endpoint.
+_BULK_MAX_SYMBOLS = 300
+_BULK_MAX_ROWS = 400_000
 
 
 @router.get("/eod/{symbol}", summary="Daily OHLCV for one symbol (raw)")
@@ -89,6 +93,52 @@ async def prices_adjusted(
             "note": "adj_* columns: split+bonus only (price-return). tret_close: split+bonus+dividend (total-return).",
         },
     )
+
+
+@router.post("/adjusted/bulk", summary="Split/bonus-adjusted OHLC for many symbols over a date range")
+async def prices_adjusted_bulk(
+    body: Dict[str, Any] = Body(
+        ...,
+        example={"symbols": ["RELIANCE", "TCS"], "start": "2021-01-01", "end": "2026-01-01"},
+    ),
+) -> Dict[str, Any]:
+    """Bulk adjusted bars keyed by symbol, each a date-ascending list.
+
+    Serves the strategy backtest's exit-bar + entry-price needs (adj_high/
+    adj_low/adj_close + cumulative_adj_factor) without per-symbol fan-out.
+    The caller chunks the universe into <= _BULK_MAX_SYMBOLS batches.
+    """
+    raw = body.get("symbols") or []
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="symbols must be a list")
+    symbols = [normalise_symbol(s) for s in raw if isinstance(s, str) and s.strip()]
+    if not symbols:
+        return {"data": {}, "count": 0, "requested": len(raw)}
+    if len(symbols) > _BULK_MAX_SYMBOLS:
+        raise HTTPException(status_code=400,
+                            detail=f"too many symbols ({len(symbols)}); max {_BULK_MAX_SYMBOLS} per call")
+    d_start = parse_date(body.get("start"), field="start")
+    d_end = parse_date(body.get("end"), field="end")
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT symbol, as_of_date,
+                   adj_open, adj_high, adj_low, adj_close, adj_volume,
+                   tret_close, cumulative_adj_factor
+              FROM nidp.prices_eod_adjusted
+             WHERE symbol = ANY($1::text[])
+               AND ($2::date IS NULL OR as_of_date >= $2)
+               AND ($3::date IS NULL OR as_of_date <= $3)
+             ORDER BY symbol, as_of_date
+             LIMIT {_BULK_MAX_ROWS}
+            """,
+            symbols, d_start, d_end,
+        )
+    data: Dict[str, List[Dict[str, Any]]] = {}
+    for r in rows:
+        data.setdefault(r["symbol"], []).append(row_to_dict(r))
+    return {"data": data, "count": len(rows), "symbols": len(data), "requested": len(symbols)}
 
 
 @router.get("/latest/{symbol}", summary="Most-recent EOD bar for one symbol")

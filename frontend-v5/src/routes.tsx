@@ -1,6 +1,8 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import AppLayout from "./components/layout/AppLayout";
+import LiteLayout from "./components/layout/LiteLayout";
 import { RequireAuth } from "./components/layout/RequireAuth";
+import { RequireOnboarded } from "./components/layout/RequireOnboarded";
 import { RequireAdmin } from "./components/layout/RequireAdmin";
 import { RouteErrorBoundary } from "./components/shared/RouteErrorBoundary";
 import HomepagePage from "./pages/Homepage";
@@ -23,6 +25,9 @@ import RiskPage from "./pages/Risk";
 import FundDetailsPage from "./pages/FundDetails";
 import InternationalFundsPage from "./pages/InternationalFunds";
 import SettingsPage from "./pages/Settings";
+import LogsPage from "./pages/Logs";
+import ReleasesPage from "./pages/Releases";
+import ReleaseDetailPage from "./pages/Releases/ReleaseDetail";
 import ChatPage from "./pages/Chat";
 import LoginPage from "./pages/Login";
 import OnboardingPage from "./pages/Onboarding";
@@ -39,6 +44,8 @@ import WorkPage from "./pages/Work";
 import TestDiagnosticToolPage from "./pages/TestDiagnosticTool";
 import NidpConsolePage from "./pages/NidpConsole";
 import ProTraderPage from "./pages/ProTrader";
+import StrategyBuilderPage from "./pages/StrategyBuilder";
+import LearnPage from "./pages/Learn";
 import MarketsPage from "./pages/Markets";
 import MarketPulseLayout from "./pages/Markets/MarketPulseLayout";
 import EarningsPage from "./pages/Markets/Earnings";
@@ -76,6 +83,11 @@ export function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/onboarding" element={<OnboardingPage />} />
 
+      {/* Learning Centre — standalone + self-gated: app-logged-in users pass straight
+          in; others get an in-page Google sign-in. NOT under RequireAuth (avoids the
+          app auth gate + its redirect loop). */}
+      <Route path="/learn" element={<RouteErrorBoundary pageName="Learn"><LearnPage /></RouteErrorBoundary>} />
+
       {/* CAS Connect widget OAuth popup callback — standalone, no layout */}
       <Route path="/cas-callback" element={<CasCallbackPage />} />
 
@@ -88,6 +100,15 @@ export function AppRoutes() {
       <Route path="/testSelfDiagnosticTool" element={<TestDiagnosticToolPage />} />
       {/* On-device debug log viewer — no auth, for diagnosing native app errors */}
       <Route path="/debug-logs" element={<DebugLogsPage />} />
+
+      {/* Lite surface — ONLY the Copilot chat, no dashboard chrome.
+          URL-pattern gated (/lite): same auth, minimal layout, self-contained
+          ChatPage. RequireOnboarded sends a not-yet-onboarded user to
+          /onboarding first (CAS upload / Gmail sync → Goal → Risk), which
+          lands them back here. The full app below is untouched. */}
+      <Route element={<RequireAuth><RequireOnboarded><LiteLayout /></RequireOnboarded></RequireAuth>}>
+        <Route path="/lite" element={<RouteErrorBoundary pageName="Copilot (Lite)"><ChatPage /></RouteErrorBoundary>} />
+      </Route>
 
       {/* Authenticated app — sidebar layout */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
@@ -121,7 +142,11 @@ export function AppRoutes() {
         <Route path="/tax"              element={<RouteErrorBoundary pageName="Tax"><TaxPage /></RouteErrorBoundary>} />
         <Route path="/plan"             element={<RouteErrorBoundary pageName="Plan"><PlanPage /></RouteErrorBoundary>} />
         <Route path="/settings"         element={<RouteErrorBoundary pageName="Settings"><SettingsPage /></RouteErrorBoundary>} />
+        <Route path="/settings/logs"    element={<RouteErrorBoundary pageName="Session Logs"><LogsPage /></RouteErrorBoundary>} />
+        <Route path="/settings/releases"     element={<RequireAdmin><RouteErrorBoundary pageName="Release Management"><ReleasesPage /></RouteErrorBoundary></RequireAdmin>} />
+        <Route path="/settings/releases/:id" element={<RequireAdmin><RouteErrorBoundary pageName="Release Document"><ReleaseDetailPage /></RouteErrorBoundary></RequireAdmin>} />
         <Route path="/pro-trader"       element={<RouteErrorBoundary pageName="Pro Trader"><ProTraderPage /></RouteErrorBoundary>} />
+        <Route path="/strategy-builder" element={<RouteErrorBoundary pageName="Strategy Builder"><StrategyBuilderPage /></RouteErrorBoundary>} />
         {/* Admin-only routes — RequireAdmin redirects non-admins to /dashboard */}
         <Route path="/admin"            element={<RequireAdmin><RouteErrorBoundary pageName="Admin"><AdminPage /></RouteErrorBoundary></RequireAdmin>} />
         <Route path="/nidp"             element={<RequireAdmin><RouteErrorBoundary pageName="NIDP Console"><NidpConsolePage /></RouteErrorBoundary></RequireAdmin>} />

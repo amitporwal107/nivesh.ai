@@ -95,6 +95,9 @@ export default function StepBacktest({
         <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5">
           Sweep your strategy across history. Slippage 5 bps + ₹20 brokerage per side baked in — numbers are net of costs.
         </p>
+        <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1.5">
+          Prices are <strong>corporate-action adjusted</strong> (splits/bonuses), so entries and exits are on one consistent basis. Universe membership is point-in-time where index constituents are available; if not, it falls back to a present-day large/mid set, which carries some <strong>survivorship bias</strong>. Treat results as indicative, not a precise track record.
+        </p>
       </div>
 
       {/* Date range + run button */}

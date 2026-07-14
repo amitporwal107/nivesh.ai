@@ -1,0 +1,802 @@
+<article class="screen" id="wf07-business">
+  <div class="cap">
+    <span class="nv-pill mint">Live</span>
+    <h3>Business Dashboard</h3>
+    <span class="route">/v5/advisor</span>
+    <p class="desc">The MFD's single view of the practice — AUM with MoM movement, active-client count, the live SIP book and trail income (MTD/YTD), with an AUM/SIP trend, a product-mix breakdown and the top clients by AUM. Recomputed on a daily 08:00 IST refresh. FR-07-07.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/advisor</span>
+      <span class="nv-pill mint st">Live</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico on">◫</span><span class="ico">◎</span><span class="ico">₹</span><span class="ico">📣</span><span class="ico">⚑</span><span class="ico">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">Business dashboard</div><div class="vsub">Kulkarni Wealth Advisory · Rohan Kulkarni · ARN-115287</div></div>
+          <div class="grow"></div>
+          <span class="chip neutral">Refreshed 08:00 IST · daily</span>
+          <button class="nv-btn sm ghost">FY 26-27 ▾</button>
+          <button class="nv-btn sm">⤓ MIS</button>
+        </div>
+        <div class="viewbody">
+          <div class="grid4">
+            <div class="stat"><span class="k">Assets under advisory</span><span class="v serif num">₹ 48.24 Cr</span><span class="d pos">▲ 3.4% MoM · +₹ 1.58 Cr</span></div>
+            <div class="stat"><span class="k">Active clients</span><span class="v num">142</span><span class="d pos">▲ 4 this month · 2 dormant</span></div>
+            <div class="stat"><span class="k">Monthly SIP book</span><span class="v num">₹ 18.4 L</span><span class="d pos">▲ 6 new · 1 paused</span></div>
+            <div class="stat"><span class="k">Trail income · MTD</span><span class="v num">₹ 2.14 L</span><span class="d muted">— MoM n/a · first full month on platform</span></div>
+          </div>
+          <div class="row" style="align-items:stretch">
+            <div class="nv-card pad" style="flex:1.7;min-width:340px">
+              <div class="ch"><span class="lbl">AUM &amp; SIP trend · trailing 12 months</span><span class="tag">YTD trail ₹ 2.14 L</span></div>
+              <div class="row" style="align-items:center;gap:16px;margin-bottom:6px">
+                <span class="legend"><span class="li"><span class="sw" style="background:var(--mint)"></span>AUM (₹ Cr)</span></span>
+                <span class="legend"><span class="li"><span class="sw" style="background:var(--amber)"></span>SIP book (₹ L/mo)</span></span>
+              </div>
+              <svg class="spark" viewBox="0 0 340 128" preserveAspectRatio="none" style="height:120px">
+                <line x1="20" y1="112" x2="326" y2="112" stroke="var(--line2)" stroke-width="1" />
+                <path class="area" fill="var(--mint)" d="M20,96 L47,92 L74,88 L101,80 L128,74 L155,70 L182,62 L209,56 L236,50 L263,40 L290,34 L317,24 L317,112 L20,112 Z"/>
+                <polyline points="20,96 47,92 74,88 101,80 128,74 155,70 182,62 209,56 236,50 263,40 290,34 317,24" fill="none" stroke="var(--mint)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" />
+                <polyline points="20,104 47,102 74,100 101,97 128,95 155,92 182,90 209,87 236,84 263,82 290,79 317,75" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+                <circle cx="317" cy="24" r="3" fill="var(--mint)" />
+                <circle cx="317" cy="75" r="3" fill="var(--amber)" />
+              </svg>
+              <div class="between" style="margin-top:2px"><span class="muted" style="font-size:11px">Jul '25</span><span class="muted" style="font-size:11px">Jun '26</span></div>
+            </div>
+            <div class="nv-card pad" style="flex:1;min-width:230px">
+              <div class="ch"><span class="lbl">Product mix</span><span class="tag">by AUM</span></div>
+              <div class="row" style="align-items:center;gap:16px">
+                <div class="donut" style="--sz:112px;--a:58%;--b:80%;--cc:94%;--c1:var(--mint);--c2:var(--indigo);--c3:var(--amber);--c4:var(--s4)"></div>
+                <div class="legend">
+                  <span class="li"><span class="sw" style="background:var(--mint)"></span>Equity <b class="num">&nbsp;58%</b></span>
+                  <span class="li"><span class="sw" style="background:var(--indigo)"></span>Debt <b class="num">&nbsp;22%</b></span>
+                  <span class="li"><span class="sw" style="background:var(--amber)"></span>Hybrid <b class="num">&nbsp;14%</b></span>
+                  <span class="li"><span class="sw" style="background:var(--s4)"></span>Liquid/Cash <b class="num">&nbsp;6%</b></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="nv-card pad">
+            <div class="ch"><span class="lbl">Top clients by AUM</span><span class="chip neutral">7 of 142 shown</span></div>
+            <div class="tbl-wrap"><table class="tbl">
+              <thead><tr><th>Client</th><th>PAN</th><th class="r">AUM</th><th class="r">Monthly SIP</th><th class="r">XIRR</th><th class="r">Schemes</th><th>Since</th></tr></thead>
+              <tbody>
+                <tr><td><div class="nm">Aditya Bhandari</div><div class="sub">HNI · Aggressive</div></td><td class="mono">XXXXX2210H</td><td class="r num">₹ 3.84 Cr</td><td class="r num">₹ 1.50 L</td><td class="r num pos">15.8%</td><td class="r num">11</td><td class="num">Mar 2019</td></tr>
+                <tr><td><div class="nm">Meera Iyer</div><div class="sub">HNI · Moderate</div></td><td class="mono">XXXXX4471K</td><td class="r num">₹ 2.96 Cr</td><td class="r num">₹ 90,000</td><td class="r num pos">13.2%</td><td class="r num">9</td><td class="num">Jun 2020</td></tr>
+                <tr><td><div class="nm">Vikram Desai</div><div class="sub">HNI · Moderate</div></td><td class="mono">XXXXX9920L</td><td class="r num">₹ 2.41 Cr</td><td class="r num">₹ 75,000</td><td class="r num pos">14.1%</td><td class="r num">8</td><td class="num">Jan 2021</td></tr>
+                <tr><td><div class="nm">Sneha Reddy</div><div class="sub">Aggressive</div></td><td class="mono">XXXXX3388M</td><td class="r num">₹ 1.62 Cr</td><td class="r num">₹ 60,000</td><td class="r num pos">16.4%</td><td class="r num">7</td><td class="num">Aug 2021</td></tr>
+                <tr><td><div class="nm">Aarav P. Sharma</div><div class="sub">Moderate</div></td><td class="mono">XXXXX1234F</td><td class="r num">₹ 1.24 Cr</td><td class="r num">₹ 45,000</td><td class="r num pos">14.2%</td><td class="r num">6</td><td class="num">Jun 2021</td></tr>
+                <tr><td><div class="nm">Priya Nair</div><div class="sub">Moderate</div></td><td class="mono">XXXXX5540Q</td><td class="r num">₹ 96.5 L</td><td class="r num">₹ 35,000</td><td class="r num pos">12.9%</td><td class="r num">5</td><td class="num">Nov 2022</td></tr>
+                <tr><td><div class="nm">Rahul Menon</div><div class="sub">Conservative</div></td><td class="mono">XXXXX7712P</td><td class="r num">₹ 88.2 L</td><td class="r num">₹ 25,000</td><td class="r num pos">10.6%</td><td class="r num">4</td><td class="num">Feb 2023</td></tr>
+              </tbody>
+            </table></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf07-comms">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>Client Communication Composer</h3>
+    <span class="route">/v5/advisor/communicate</span>
+    <span class="nv-pill">⛓ SMS / WhatsApp</span>
+    <p class="desc">Compose and send targeted client messages across Email / SMS / WhatsApp / Push — pick an individual, a saved segment or everyone, personalise with {first_name} tokens, schedule for later, and track per-recipient delivery with DND-suppression handled inline. FR-07-02.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/advisor/communicate</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico">◎</span><span class="ico">₹</span><span class="ico on">📣</span><span class="ico">⚑</span><span class="ico">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">Compose message</div><div class="vsub">DLT sender KULKWA · WhatsApp BSP verified</div></div>
+          <div class="grow"></div>
+          <span class="chip info">Draft autosaved 11:04</span>
+          <button class="nv-btn sm ghost">Preview</button>
+          <button class="nv-btn sm primary">Send / schedule</button>
+        </div>
+        <div class="viewbody">
+          <div class="row" style="align-items:flex-start">
+            <div class="col" style="flex:1.4;min-width:340px;gap:14px">
+              <div class="nv-card pad">
+                <div class="ch"><span class="lbl">Audience</span><span class="chip info">64 recipients</span></div>
+                <div class="seg" style="margin-bottom:11px"><span>Individual</span><span class="on">Segment</span><span>All clients</span></div>
+                <div class="row" style="gap:8px">
+                  <span class="chip info">SIP active · Equity ✕</span>
+                  <span class="chip neutral">+ Moderate risk</span>
+                  <span class="chip neutral">+ AUM &gt; ₹ 25 L</span>
+                  <span class="nv-btn sm ghost" style="padding:3px 10px">+ Add filter</span>
+                </div>
+                <div class="between" style="margin-top:12px"><span class="muted" style="font-size:12px">Estimated reach after DND/opt-out screening</span><b class="num">58 of 64</b></div>
+              </div>
+              <div class="nv-card pad">
+                <div class="ch"><span class="lbl">Channel</span><span class="tag">fallback: WhatsApp → SMS</span></div>
+                <div class="seg"><span>Email</span><span>SMS</span><span class="on">WhatsApp</span><span>Push</span></div>
+                <div class="field" style="margin-top:14px"><label>WhatsApp template (DLT-approved)</label><div class="input">midcap_rebalance_util_v3 · Utility</div></div>
+                <div class="field" style="margin-top:12px"><label>Message body</label>
+                  <div class="input" style="min-height:96px;line-height:1.6"><b style="color:var(--indigo)">{first_name}</b>, your portfolio's mid-cap allocation has drifted to <b>34%</b> vs your <b>25%</b> target. Reply <b>REVIEW</b> or tap below to book a 15-min call. — Rohan, Kulkarni Wealth. <span class="muted">Opt out: reply STOP.</span></div>
+                </div>
+                <div class="between" style="margin-top:9px">
+                  <div class="row" style="gap:6px"><span class="tag">{first_name}</span><span class="tag">{portfolio_value}</span><span class="tag">{sip_amount}</span></div>
+                  <span class="muted mono" style="font-size:11px">1 msg · 1 credit/recipient</span>
+                </div>
+              </div>
+              <div class="nv-card-2 pad-sm between">
+                <label class="check"><span class="switch"></span> Schedule for later</label>
+                <div class="row" style="gap:8px;align-items:center"><span class="chip neutral">Mon 07 Jul · 10:00 IST</span><span class="muted" style="font-size:11px">outside 9pm–9am TRAI window ✓</span></div>
+              </div>
+            </div>
+            <div class="col" style="flex:1;min-width:300px;gap:14px">
+              <div class="nv-card pad">
+                <div class="ch"><span class="lbl">Delivery status · last campaign</span><span class="chip warn">3 issues</span></div>
+                <div class="row" style="gap:8px;margin-bottom:10px">
+                  <span class="chip ok">51 delivered</span><span class="chip bad">2 bounced</span><span class="chip warn">4 DND-suppressed</span>
+                </div>
+                <div class="tbl-wrap"><table class="tbl">
+                  <thead><tr><th>Recipient</th><th>Channel</th><th>Status</th></tr></thead>
+                  <tbody>
+                    <tr><td class="nm">Aarav P. Sharma</td><td>WhatsApp</td><td><span class="chip ok">Read 10:02</span></td></tr>
+                    <tr><td class="nm">Priya Nair</td><td>WhatsApp</td><td><span class="chip ok">Delivered</span></td></tr>
+                    <tr style="background:var(--amber-soft)"><td class="nm">Vikram Desai</td><td>SMS</td><td><span class="chip warn">DND-suppressed</span></td></tr>
+                    <tr style="background:var(--danger-soft)"><td class="nm">R. Menon <span class="sub">+91 ••••• 7712</span></td><td>WhatsApp</td><td><span class="chip bad">Bounced · no WA</span></td></tr>
+                    <tr><td class="nm">Meera Iyer</td><td>Email</td><td><span class="chip ok">Opened</span></td></tr>
+                    <tr style="background:var(--amber-soft)"><td class="nm">S. Reddy</td><td>SMS</td><td><span class="chip warn">DND-suppressed</span></td></tr>
+                  </tbody>
+                </table></div>
+              </div>
+              <div class="banner warn"><span class="bi">⚖</span><div><b>TRAI / DND compliance.</b> Numbers on the NCPR/DND registry are auto-suppressed for promotional SMS; only DLT-registered <b>utility/transactional</b> templates reach them. Every message carries a one-tap opt-out and honours the 9pm–9am quiet window. 6 recipients opted out this month.</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf07-branding">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>White-Label Branding Config</h3>
+    <span class="route">/v5/advisor/branding</span>
+    <p class="desc">Configure the advisor's own brand across the investor app and reports — logo, brand colour, tagline, support contact and a custom domain via CNAME — with a live preview of the branded splash and nav. Changes propagate to all clients in under 24h. FR-07-01.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/advisor/branding</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico">◎</span><span class="ico">₹</span><span class="ico on">📣</span><span class="ico">⚑</span><span class="ico">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">Branding</div><div class="vsub">White-label · applies to app, reports &amp; emails</div></div>
+          <div class="grow"></div>
+          <span class="chip warn">Unsaved changes</span>
+          <button class="nv-btn sm ghost">Reset</button>
+          <button class="nv-btn sm primary">Save &amp; publish</button>
+        </div>
+        <div class="viewbody">
+          <div class="row" style="align-items:flex-start">
+            <div class="col" style="flex:1.2;min-width:320px;gap:14px">
+              <div class="nv-card pad">
+                <div class="ch"><span class="lbl">Brand identity</span><span class="tag">SVG/PNG · ≤ 1 MB</span></div>
+                <div class="row" style="align-items:center;gap:14px;margin-bottom:14px">
+                  <div style="width:56px;height:56px;border-radius:12px;background:#0B5FA5;display:grid;place-items:center;color:#fff;font-family:var(--display);font-size:24px;flex:none">K</div>
+                  <div class="col" style="gap:6px"><span class="chip ok">✓ logo-kwa.svg uploaded</span><span class="muted" style="font-size:11px">Shown at 56px in-app, 120px on reports</span></div>
+                  <div class="grow"></div>
+                  <button class="nv-btn sm ghost">Replace</button>
+                </div>
+                <div class="grid2">
+                  <div class="field"><label>Brand colour</label><div class="input between" style="align-items:center"><span class="mono">#0B5FA5</span><span style="width:20px;height:20px;border-radius:6px;background:#0B5FA5"></span></div></div>
+                  <div class="field"><label>Firm name</label><div class="input">Kulkarni Wealth Advisory</div></div>
+                </div>
+                <div class="field" style="margin-top:12px"><label>Tagline</label><div class="input">Patient capital, planned outcomes.</div></div>
+                <div class="grid2" style="margin-top:12px">
+                  <div class="field"><label>Support contact</label><div class="input">care@kulkarniwealth.in</div></div>
+                  <div class="field"><label>Support phone</label><div class="input num">+91 20 4890 1120</div></div>
+                </div>
+              </div>
+              <div class="nv-card pad">
+                <div class="ch"><span class="lbl">Custom domain</span><span class="chip warn">Pending verification</span></div>
+                <div class="field"><label>Domain</label><div class="input between"><span class="mono">invest.kulkarniwealth.in</span><span class="chip warn">DNS not propagated</span></div></div>
+                <div class="nv-card-2 pad-sm" style="margin-top:11px">
+                  <div class="between" style="margin-bottom:6px"><span class="mono" style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)">Add this CNAME</span><button class="nv-btn sm ghost" style="padding:3px 9px">Copy</button></div>
+                  <div class="mono" style="font-size:11.5px;color:var(--ink2);line-height:1.7">invest.kulkarniwealth.in&nbsp; CNAME&nbsp; <span style="color:var(--indigo)">wl.niveshcopilot.com</span></div>
+                </div>
+                <div class="between" style="margin-top:10px"><span class="muted" style="font-size:11px">Last checked 11:06 · retrying every 15 min</span><button class="nv-btn sm">Re-check DNS</button></div>
+              </div>
+            </div>
+            <div class="col" style="flex:1;min-width:280px;gap:12px">
+              <div class="nv-card pad">
+                <div class="ch"><span class="lbl">Live preview</span><span class="chip info">investor app</span></div>
+                <div style="border:1px solid var(--line2);border-radius:16px;overflow:hidden;background:var(--s1)">
+                  <div style="background:#0B5FA5;padding:22px 16px 18px;color:#fff">
+                    <div style="width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,.16);display:grid;place-items:center;font-family:var(--display);font-size:20px">K</div>
+                    <div class="serif" style="font-size:22px;margin-top:12px;color:#fff">Kulkarni Wealth Advisory</div>
+                    <div style="font-size:12px;opacity:.85;margin-top:2px">Patient capital, planned outcomes.</div>
+                  </div>
+                  <div style="display:flex;gap:14px;padding:11px 16px;border-bottom:1px solid var(--line);font-size:12px">
+                    <b style="color:#0B5FA5;border-bottom:2px solid #0B5FA5;padding-bottom:9px">Portfolio</b><span class="muted">Goals</span><span class="muted">SIPs</span><span class="muted">Reports</span>
+                  </div>
+                  <div class="pad-sm">
+                    <div class="stat" style="border:none;padding:6px 2px"><span class="k">Portfolio value</span><span class="v serif num">₹ 1.24 Cr</span><span class="d pos">▲ 14.2% XIRR</span></div>
+                    <div class="between" style="margin-top:8px"><span class="muted" style="font-size:11px">Powered by Nivesh · SEBI-reg MFD</span><span class="tag">ARN-115287</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="banner info"><span class="bi">⏱</span><div><b>Propagates in &lt; 24h.</b> On publish, new branding rolls out to all 142 client apps, PDF reports and system emails within one refresh cycle. The custom domain goes live only after the CNAME verifies.</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf07-dispatch">
+  <div class="cap">
+    <span class="nv-pill amber">Extend</span>
+    <h3>Branded Report Dispatch</h3>
+    <span class="route">/v5/advisor/dispatch</span>
+    <p class="desc">Send a white-labelled portfolio/CAS report to a client segment — rendered with the MFD's brand and a per-client watermark, dispatched From the MFD's name, with a per-recipient delivery table whose result_url is filled in by the async render worker. FR-07-03.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/advisor/dispatch</span>
+      <span class="nv-pill amber st">Extend</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico">◎</span><span class="ico">₹</span><span class="ico on">📣</span><span class="ico">⚑</span><span class="ico">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">Report dispatch</div><div class="vsub">Run #DR-4471 · Q1 FY26-27 portfolio review</div></div>
+          <div class="grow"></div>
+          <span class="chip info">◷ Worker rendering · 41/64</span>
+          <button class="nv-btn sm">Pause run</button>
+        </div>
+        <div class="viewbody">
+          <div class="row" style="align-items:stretch">
+            <div class="nv-card pad" style="flex:1;min-width:230px">
+              <div class="ch"><span class="lbl">Report</span></div>
+              <div class="col" style="gap:0">
+                <div class="between" style="padding:7px 0"><span class="muted">Template</span><b>Quarterly Portfolio Review</b></div><hr class="hair">
+                <div class="between" style="padding:7px 0"><span class="muted">Period</span><b class="num">Apr–Jun 2026</b></div><hr class="hair">
+                <div class="between" style="padding:7px 0"><span class="muted">Format</span><b>Branded PDF</b></div><hr class="hair">
+                <div class="between" style="padding:7px 0"><span class="muted">Watermark</span><b class="chip info">Per-recipient PAN</b></div>
+              </div>
+            </div>
+            <div class="nv-card pad" style="flex:1;min-width:230px">
+              <div class="ch"><span class="lbl">Audience &amp; sender</span></div>
+              <div class="col" style="gap:0">
+                <div class="between" style="padding:7px 0"><span class="muted">Segment</span><b>Active · AUM &gt; ₹ 10 L</b></div><hr class="hair">
+                <div class="between" style="padding:7px 0"><span class="muted">Recipients</span><b class="num">64 clients</b></div><hr class="hair">
+                <div class="between" style="padding:7px 0"><span class="muted">From</span><b>Rohan Kulkarni (KWA)</b></div><hr class="hair">
+                <div class="between" style="padding:7px 0"><span class="muted">Channel</span><b>Email + in-app</b></div>
+              </div>
+            </div>
+            <div class="nv-card pad" style="flex:.9;min-width:190px">
+              <div class="ch"><span class="lbl">Progress</span></div>
+              <div class="row" style="align-items:center;gap:14px">
+                <div class="ring" style="--p:64;--sz:72px"><div class="hole"><span class="serif" style="font-size:16px">64%</span></div></div>
+                <div class="col" style="gap:4px">
+                  <span class="chip ok">✓ 41 sent</span>
+                  <span class="chip info">◷ 22 rendering</span>
+                  <span class="chip bad">1 bounced</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="nv-card pad">
+            <div class="ch"><span class="lbl">Per-recipient delivery</span><span class="chip neutral">result_url populated by worker</span></div>
+            <div class="tbl-wrap"><table class="tbl" style="min-width:760px">
+              <thead><tr><th>Client</th><th>Email</th><th>Watermark</th><th>Render</th><th>Delivery</th><th class="r">result_url</th></tr></thead>
+              <tbody>
+                <tr><td class="nm">Aditya Bhandari</td><td class="mono" style="font-size:11px">aditya.b@gmail.com</td><td class="mono">XXXXX2210H</td><td><span class="chip ok">Rendered</span></td><td><span class="chip ok">Delivered 08:14</span></td><td class="r mono" style="font-size:10.5px">/r/DR-4471/…a1f9.pdf ↗</td></tr>
+                <tr><td class="nm">Meera Iyer</td><td class="mono" style="font-size:11px">meera.iyer@outlook.com</td><td class="mono">XXXXX4471K</td><td><span class="chip ok">Rendered</span></td><td><span class="chip ok">Delivered 08:14</span></td><td class="r mono" style="font-size:10.5px">/r/DR-4471/…7c02.pdf ↗</td></tr>
+                <tr style="background:var(--danger-soft)"><td class="nm">Rahul Menon</td><td class="mono" style="font-size:11px">r.menon@yaho…</td><td class="mono">XXXXX7712P</td><td><span class="chip ok">Rendered</span></td><td><span class="chip bad">Bounced · mailbox full</span></td><td class="r"><button class="nv-btn sm">Resend ↻</button></td></tr>
+                <tr><td class="nm">Vikram Desai</td><td class="mono" style="font-size:11px">vikram.d@gmail.com</td><td class="mono">XXXXX9920L</td><td><span class="chip info">◷ Rendering</span></td><td class="muted">— queued —</td><td class="r muted">— pending —</td></tr>
+                <tr><td class="nm">Priya Nair</td><td class="mono" style="font-size:11px">priya.nair@gmail.com</td><td class="mono">XXXXX5540Q</td><td><span class="chip info">◷ Rendering</span></td><td class="muted">— queued —</td><td class="r"><span class="skel" style="display:inline-block;width:96px;height:12px"></span></td></tr>
+              </tbody>
+            </table></div>
+          </div>
+          <div class="banner info"><span class="bi">🖋</span><div>Each PDF is stamped with the recipient's <b>masked PAN watermark</b> and the KWA brand header. The render worker writes the signed <b>result_url</b> back to each row on completion; bounced rows can be re-dispatched without re-rendering.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf07-ecard">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>eVisiting Card</h3>
+    <span class="route">/v5/advisor/ecard</span>
+    <p class="desc">A shareable digital visiting card carrying the advisor's photo, firm, name, ARN and contact plus a QR to the branded onboarding link — pick from 5 templates, download as image or VCF, and share to WhatsApp/social in one tap. FR-07-04.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/advisor/ecard</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico">◎</span><span class="ico">₹</span><span class="ico on">📣</span><span class="ico">⚑</span><span class="ico">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">eVisiting card</div><div class="vsub">Links to invest.kulkarniwealth.in/start</div></div>
+          <div class="grow"></div>
+          <span class="chip ok">Published</span>
+          <button class="nv-btn sm">⤓ Download</button>
+        </div>
+        <div class="viewbody">
+          <div class="row" style="align-items:flex-start">
+            <div class="nv-card pad" style="flex:none;width:360px">
+              <div class="ch"><span class="lbl">Preview · Template 2 · Slate</span><span class="tag">1080 × 1920</span></div>
+              <div style="border:1px solid var(--line2);border-radius:16px;overflow:hidden;background:var(--s1)">
+                <div style="background:#0B5FA5;height:8px"></div>
+                <div class="pad" style="display:flex;gap:14px;align-items:center">
+                  <div style="width:66px;height:66px;border-radius:14px;background:var(--s3);display:grid;place-items:center;color:var(--ink3);font-size:22px;flex:none">🧑🏽‍💼</div>
+                  <div class="col" style="gap:2px">
+                    <div class="serif" style="font-size:22px;line-height:1.1">Rohan Kulkarni</div>
+                    <div class="muted" style="font-size:12.5px">Founder · Kulkarni Wealth Advisory</div>
+                    <div class="row" style="gap:6px;margin-top:4px"><span class="tag">ARN-115287</span><span class="tag">EUIN E-284416</span></div>
+                  </div>
+                </div>
+                <hr class="hair" style="margin:0 16px">
+                <div class="pad between" style="align-items:flex-end">
+                  <div class="col" style="gap:7px;font-size:12.5px">
+                    <div class="row" style="gap:8px;align-items:center"><span class="muted">📞</span><b class="num">+91 98220 44116</b></div>
+                    <div class="row" style="gap:8px;align-items:center"><span class="muted">✉</span><b>rohan@kulkarniwealth.in</b></div>
+                    <div class="row" style="gap:8px;align-items:center"><span class="muted">🌐</span><b>invest.kulkarniwealth.in</b></div>
+                  </div>
+                  <div style="text-align:center">
+                    <svg viewBox="0 0 60 60" width="72" height="72" style="border:1px solid var(--line2);border-radius:8px;background:#fff">
+                      <g fill="#0B5FA5">
+                        <rect x="4" y="4" width="16" height="16"/><rect x="8" y="8" width="8" height="8" fill="#fff"/><rect x="10" y="10" width="4" height="4" fill="#0B5FA5"/>
+                        <rect x="40" y="4" width="16" height="16"/><rect x="44" y="8" width="8" height="8" fill="#fff"/><rect x="46" y="10" width="4" height="4" fill="#0B5FA5"/>
+                        <rect x="4" y="40" width="16" height="16"/><rect x="8" y="44" width="8" height="8" fill="#fff"/><rect x="10" y="46" width="4" height="4" fill="#0B5FA5"/>
+                        <rect x="26" y="6" width="4" height="4"/><rect x="32" y="6" width="4" height="4"/><rect x="26" y="14" width="4" height="4"/><rect x="24" y="24" width="4" height="4"/><rect x="30" y="26" width="4" height="4"/><rect x="36" y="24" width="4" height="4"/><rect x="42" y="28" width="4" height="4"/><rect x="48" y="24" width="4" height="4"/><rect x="26" y="34" width="4" height="4"/><rect x="34" y="36" width="4" height="4"/><rect x="42" y="40" width="4" height="4"/><rect x="48" y="44" width="4" height="4"/><rect x="30" y="44" width="4" height="4"/><rect x="26" y="50" width="4" height="4"/><rect x="36" y="50" width="4" height="4"/><rect x="44" y="52" width="4" height="4"/>
+                      </g>
+                    </svg>
+                    <div class="mono muted" style="font-size:9px;margin-top:3px">Scan to start</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col" style="flex:1;min-width:280px;gap:14px">
+              <div class="nv-card pad">
+                <div class="ch"><span class="lbl">Template</span><span class="chip neutral">5 styles</span></div>
+                <div class="row" style="gap:8px">
+                  <div style="width:52px;height:70px;border-radius:9px;border:1px solid var(--line2);overflow:hidden;flex:none"><div style="height:40%;background:var(--mint)"></div></div>
+                  <div style="width:52px;height:70px;border-radius:9px;border:2px solid var(--mint);overflow:hidden;flex:none"><div style="height:8px;background:#0B5FA5"></div></div>
+                  <div style="width:52px;height:70px;border-radius:9px;border:1px solid var(--line2);overflow:hidden;flex:none;background:#12100A"><div style="height:40%;background:var(--amber)"></div></div>
+                  <div style="width:52px;height:70px;border-radius:9px;border:1px solid var(--line2);overflow:hidden;flex:none"><div style="height:100%;width:30%;background:var(--indigo)"></div></div>
+                  <div style="width:52px;height:70px;border-radius:9px;border:1px solid var(--line2);overflow:hidden;flex:none;display:grid;place-items:center;color:var(--ink4);font-size:11px">+1</div>
+                </div>
+              </div>
+              <div class="nv-card pad">
+                <div class="ch"><span class="lbl">Onboarding link</span><span class="chip ok">Live</span></div>
+                <div class="input between mono" style="font-size:12px"><span>invest.kulkarniwealth.in/start</span><span class="chip neutral">18 scans</span></div>
+                <div class="row" style="gap:8px;margin-top:12px">
+                  <button class="nv-btn sm">⤓ PNG image</button>
+                  <button class="nv-btn sm">⤓ VCF contact</button>
+                </div>
+                <hr class="hair" style="margin:14px 0 12px">
+                <div class="row" style="gap:8px">
+                  <button class="nv-btn sm primary">Share to WhatsApp</button>
+                  <button class="nv-btn sm ghost">LinkedIn</button>
+                  <button class="nv-btn sm ghost">Copy link</button>
+                </div>
+              </div>
+              <div class="banner info"><span class="bi">ⓘ</span><div>The QR and short link resolve to your <b>branded onboarding page</b>. Every scan is attributed to your ARN so leads land pre-tagged to <b>Kulkarni Wealth Advisory</b>.</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf07-social">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>Social Media Content Pack</h3>
+    <span class="route">/v5/advisor/content</span>
+    <p class="desc">A ready-to-post weekly pack delivered every Monday — 2 market graphics, 2 investor-literacy cards and 1 product card — each in IG / Story / LinkedIn / WhatsApp size variants with the MFD logo auto-applied, an editable overlay, one-click publish and a content calendar. FR-07-05.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/advisor/content</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico">◎</span><span class="ico">₹</span><span class="ico on">📣</span><span class="ico">⚑</span><span class="ico">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">Content pack</div><div class="vsub">Week of 30 Jun 2026 · 5 assets</div></div>
+          <div class="grow"></div>
+          <span class="chip ok">Logo auto-applied</span>
+          <button class="nv-btn sm ghost">Edit overlay</button>
+          <button class="nv-btn sm primary">Publish all</button>
+        </div>
+        <div class="viewbody">
+          <div class="between" style="flex-wrap:wrap;gap:10px">
+            <div class="row" style="gap:6px;align-items:center">
+              <span class="mono" style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink4)">Content calendar</span>
+              <span class="chip ok">Mon 30 · scheduled</span><span class="chip neutral">Wed 02</span><span class="chip neutral">Fri 04</span><span class="chip neutral">Mon 07 · next pack</span>
+            </div>
+            <span class="muted" style="font-size:11px">Delivered every Monday 07:00 IST</span>
+          </div>
+          <div class="grid3">
+            <div class="nv-card pad-sm">
+              <svg viewBox="0 0 300 150" style="width:100%;height:auto;border-radius:9px;background:var(--s2)">
+                <rect width="300" height="150" fill="var(--s2)"/><rect x="0" y="0" width="300" height="4" fill="#0B5FA5"/>
+                <text x="16" y="34" font-family="Georgia,serif" font-size="17" fill="var(--ink)">Nifty 50 · Weekly</text>
+                <polyline points="16,120 60,110 104,116 148,92 192,98 236,70 280,58" fill="none" stroke="var(--mint)" stroke-width="3"/>
+                <text x="16" y="140" font-family="monospace" font-size="10" fill="var(--ink3)">+2.1% · 24,180</text>
+                <rect x="250" y="118" width="34" height="20" rx="4" fill="#0B5FA5"/><text x="257" y="132" font-family="Georgia,serif" font-size="12" fill="#fff">KWA</text>
+              </svg>
+              <div class="between" style="margin-top:9px"><span class="tag">Market graphic</span><div class="row" style="gap:5px"><span class="chip info">IG</span><span class="chip neutral">Story</span></div></div>
+              <div class="row" style="gap:6px;margin-top:9px"><button class="nv-btn sm ghost wfull" style="justify-content:center">Edit</button><button class="nv-btn sm primary wfull" style="justify-content:center">Publish</button></div>
+            </div>
+            <div class="nv-card pad-sm">
+              <svg viewBox="0 0 300 150" style="width:100%;height:auto;border-radius:9px;background:var(--s2)">
+                <rect width="300" height="150" fill="var(--s2)"/><rect x="0" y="0" width="300" height="4" fill="#0B5FA5"/>
+                <text x="16" y="34" font-family="Georgia,serif" font-size="17" fill="var(--ink)">Sector heat · Jun</text>
+                <rect x="16" y="52" width="50" height="70" fill="var(--mint)" opacity="0.85"/><rect x="72" y="72" width="50" height="50" fill="var(--mint)" opacity="0.5"/><rect x="128" y="88" width="50" height="34" fill="var(--amber)" opacity="0.7"/><rect x="184" y="60" width="50" height="62" fill="var(--mint)" opacity="0.7"/><rect x="240" y="98" width="44" height="24" fill="var(--neg)" opacity="0.6"/>
+                <rect x="250" y="14" width="34" height="20" rx="4" fill="#0B5FA5"/><text x="257" y="28" font-family="Georgia,serif" font-size="12" fill="#fff">KWA</text>
+              </svg>
+              <div class="between" style="margin-top:9px"><span class="tag">Market graphic</span><div class="row" style="gap:5px"><span class="chip info">LinkedIn</span><span class="chip neutral">WA</span></div></div>
+              <div class="row" style="gap:6px;margin-top:9px"><button class="nv-btn sm ghost wfull" style="justify-content:center">Edit</button><button class="nv-btn sm primary wfull" style="justify-content:center">Publish</button></div>
+            </div>
+            <div class="nv-card pad-sm">
+              <svg viewBox="0 0 300 150" style="width:100%;height:auto;border-radius:9px;background:#0B5FA5">
+                <rect width="300" height="150" fill="#0B5FA5"/>
+                <text x="20" y="46" font-family="Georgia,serif" font-size="19" fill="#fff">The power of</text>
+                <text x="20" y="72" font-family="Georgia,serif" font-size="19" fill="#fff">₹5,000/mo SIP</text>
+                <text x="20" y="104" font-family="monospace" font-size="11" fill="#dCE9F5">₹9.3 L → ₹34 L in 20 yrs</text>
+                <text x="20" y="122" font-family="monospace" font-size="9" fill="#aCC8E5">@12% p.a. · illustrative</text>
+                <rect x="248" y="14" width="36" height="20" rx="4" fill="#fff"/><text x="255" y="28" font-family="Georgia,serif" font-size="12" fill="#0B5FA5">KWA</text>
+              </svg>
+              <div class="between" style="margin-top:9px"><span class="tag">Investor literacy</span><div class="row" style="gap:5px"><span class="chip info">IG</span><span class="chip neutral">Story</span></div></div>
+              <div class="row" style="gap:6px;margin-top:9px"><button class="nv-btn sm ghost wfull" style="justify-content:center">Edit</button><button class="nv-btn sm primary wfull" style="justify-content:center">Publish</button></div>
+            </div>
+            <div class="nv-card pad-sm">
+              <svg viewBox="0 0 300 150" style="width:100%;height:auto;border-radius:9px;background:var(--s2)">
+                <rect width="300" height="150" fill="var(--s2)"/><rect x="0" y="0" width="300" height="4" fill="#0B5FA5"/>
+                <text x="16" y="36" font-family="Georgia,serif" font-size="17" fill="var(--ink)">What is an ELSS?</text>
+                <text x="16" y="64" font-family="Inter,sans-serif" font-size="11" fill="var(--ink2)">Tax-saving equity fund · 80C</text>
+                <text x="16" y="84" font-family="Inter,sans-serif" font-size="11" fill="var(--ink2)">3-year lock-in · up to ₹1.5 L</text>
+                <text x="16" y="104" font-family="Inter,sans-serif" font-size="11" fill="var(--ink2)">Save up to ₹46,800 in tax</text>
+                <rect x="250" y="118" width="34" height="20" rx="4" fill="#0B5FA5"/><text x="257" y="132" font-family="Georgia,serif" font-size="12" fill="#fff">KWA</text>
+              </svg>
+              <div class="between" style="margin-top:9px"><span class="tag">Investor literacy</span><div class="row" style="gap:5px"><span class="chip info">WhatsApp</span><span class="chip neutral">LI</span></div></div>
+              <div class="row" style="gap:6px;margin-top:9px"><button class="nv-btn sm ghost wfull" style="justify-content:center">Edit</button><button class="nv-btn sm primary wfull" style="justify-content:center">Publish</button></div>
+            </div>
+            <div class="nv-card pad-sm">
+              <svg viewBox="0 0 300 150" style="width:100%;height:auto;border-radius:9px;background:var(--s2)">
+                <rect width="300" height="150" fill="var(--s2)"/><rect x="0" y="0" width="300" height="4" fill="var(--amber)"/>
+                <text x="16" y="34" font-family="Georgia,serif" font-size="16" fill="var(--ink)">Fund in focus</text>
+                <text x="16" y="62" font-family="Inter,sans-serif" font-size="13" fill="var(--ink)" font-weight="600">Parag Parikh Flexi Cap</text>
+                <text x="16" y="84" font-family="monospace" font-size="11" fill="var(--pos)">5Y CAGR 22.4% · ★★★★★</text>
+                <text x="16" y="106" font-family="monospace" font-size="9" fill="var(--ink3)">Past returns ≠ future · read RDD</text>
+                <rect x="250" y="118" width="34" height="20" rx="4" fill="#0B5FA5"/><text x="257" y="132" font-family="Georgia,serif" font-size="12" fill="#fff">KWA</text>
+              </svg>
+              <div class="between" style="margin-top:9px"><span class="tag">Product card</span><div class="row" style="gap:5px"><span class="chip warn">Needs edit</span></div></div>
+              <div class="row" style="gap:6px;margin-top:9px"><button class="nv-btn sm primary wfull" style="justify-content:center">Edit overlay</button><button class="nv-btn sm ghost wfull" style="justify-content:center;opacity:.5">Publish</button></div>
+            </div>
+            <div class="empty" style="min-height:0">
+              <span style="font-size:22px">＋</span>
+              <b style="color:var(--ink2)">Request a custom asset</b>
+              <span style="font-size:12px">Themed graphic for your next campaign — delivered in 24h</span>
+              <button class="nv-btn sm" style="margin-top:4px">Request</button>
+            </div>
+          </div>
+          <div class="banner info"><span class="bi">🎨</span><div><b>Logo auto-applied.</b> Your KWA mark and brand colour are stamped on every asset in each size variant. Overlays (numbers, fund names, CTAs) are editable inline before publishing; disclaimers on product cards are mandatory and locked.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf07-leads">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>Lead Management Funnel</h3>
+    <span class="route">/v5/advisor/leads</span>
+    <p class="desc">Track prospects through the conversion funnel — Prospect → Onboarding-Started → KYC → Mandate → First-Investment — with stage counts, drop-off conversion %, source attribution and a one-tap re-engage reminder on stalled leads. FR-07-06.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/advisor/leads</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico">◎</span><span class="ico">₹</span><span class="ico">📣</span><span class="ico on">⚑</span><span class="ico">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">Lead funnel</div><div class="vsub">Last 30 days · 148 prospects</div></div>
+          <div class="grow"></div>
+          <span class="chip warn">6 stalled</span>
+          <button class="nv-btn sm">+ Add lead</button>
+        </div>
+        <div class="viewbody">
+          <div class="nv-card pad">
+            <div class="ch"><span class="lbl">Conversion funnel</span><span class="chip neutral">overall 22.3% prospect → invested</span></div>
+            <div class="row" style="gap:10px;align-items:stretch">
+              <div class="nv-card-2 pad-sm col" style="flex:1;gap:7px"><span class="mono" style="font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink4)">Prospect</span><span class="serif num" style="font-size:26px">148</span><div class="bar" style="height:6px"><i style="width:100%"></i></div><span class="muted" style="font-size:11px">↓ 61% start</span></div>
+              <div class="nv-card-2 pad-sm col" style="flex:1;gap:7px"><span class="mono" style="font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink4)">Onboarding</span><span class="serif num" style="font-size:26px">90</span><div class="bar" style="height:6px"><i style="width:78%"></i></div><span class="muted" style="font-size:11px">↓ 74% to KYC</span></div>
+              <div class="nv-card-2 pad-sm col" style="flex:1;gap:7px"><span class="mono" style="font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink4)">KYC done</span><span class="serif num" style="font-size:26px">67</span><div class="bar" style="height:6px"><i style="width:58%"></i></div><span class="muted" style="font-size:11px">↓ 72% mandate</span></div>
+              <div class="nv-card-2 pad-sm col" style="flex:1;gap:7px"><span class="mono" style="font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink4)">Mandate</span><span class="serif num" style="font-size:26px">48</span><div class="bar" style="height:6px"><i style="width:42%"></i></div><span class="muted" style="font-size:11px">↓ 69% invested</span></div>
+              <div class="nv-card-2 pad-sm col" style="flex:1;gap:7px;border-color:rgba(14,138,85,.4)"><span class="mono" style="font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mint)">First invest</span><span class="serif num pos" style="font-size:26px">33</span><div class="bar" style="height:6px"><i style="width:29%"></i></div><span class="pos" style="font-size:11px">₹ 41.2 L raised</span></div>
+            </div>
+          </div>
+          <div class="nv-card pad">
+            <div class="ch"><span class="lbl">Leads · source-attributed</span><span class="chip warn">Sorted by risk of drop-off</span></div>
+            <div class="tbl-wrap"><table class="tbl" style="min-width:740px">
+              <thead><tr><th>Lead</th><th>Source</th><th>Stage</th><th>Last activity</th><th class="r">Potential</th><th class="r">Action</th></tr></thead>
+              <tbody>
+                <tr style="background:var(--danger-soft)"><td><div class="nm">Arjun Das</div><div class="sub">+91 ••••• 6621</div></td><td><span class="tag">eCard QR</span></td><td><span class="chip warn">KYC done</span></td><td class="num neg">stalled 11d</td><td class="r num">₹ 8 L</td><td class="r"><button class="nv-btn sm primary">Re-engage ↻</button></td></tr>
+                <tr style="background:var(--amber-soft)"><td><div class="nm">Neha Kulkarni</div><div class="sub">neha.k@gmail.com</div></td><td><span class="tag">Referral</span></td><td><span class="chip warn">Onboarding</span></td><td class="num">stalled 6d</td><td class="r num">₹ 12 L</td><td class="r"><button class="nv-btn sm">Send reminder</button></td></tr>
+                <tr><td><div class="nm">Kavya Nair</div><div class="sub">+91 ••••• 3390</div></td><td><span class="tag">WhatsApp pack</span></td><td><span class="chip info">Mandate</span></td><td class="num">2d ago</td><td class="r num">₹ 25 L</td><td class="r"><button class="nv-btn sm ghost">Nudge eSign</button></td></tr>
+                <tr><td><div class="nm">Rohan Mehta</div><div class="sub">rohan.m@outlook.com</div></td><td><span class="tag">LinkedIn</span></td><td><span class="chip info">Onboarding</span></td><td class="num">1d ago</td><td class="r num">₹ 15 L</td><td class="r"><button class="nv-btn sm ghost">View</button></td></tr>
+                <tr><td><div class="nm">Sana Kapoor</div><div class="sub">+91 ••••• 7745</div></td><td><span class="tag">Website</span></td><td><span class="chip ok">First invest</span></td><td class="num pos">converted</td><td class="r num pos">₹ 18 L</td><td class="r"><button class="nv-btn sm ghost">Onboard fully</button></td></tr>
+              </tbody>
+            </table></div>
+          </div>
+          <div class="banner warn"><span class="bi">↻</span><div><b>6 leads stalled &gt; 5 days.</b> Auto re-engage sends a stage-aware nudge (WhatsApp → SMS fallback) and creates a follow-up task. <b>Arjun Das</b> completed KYC but abandoned before mandate — highest-value recovery.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf07-hni">
+  <div class="cap">
+    <span class="nv-pill amber">Extend</span>
+    <h3>HNI Analytics</h3>
+    <span class="route">/v5/advisor/hni</span>
+    <p class="desc">Surfaces high-net-worth clients above a configurable AUM threshold (default ₹25 L) with product breadth, engagement, last-meeting recency and auto-generated opportunity tags — PMS Ready, Insurance Gap, NPS Not Started — plus a one-click next action per client. FR-07-08.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/advisor/hni</span>
+      <span class="nv-pill amber st">Extend</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico on">◎</span><span class="ico">₹</span><span class="ico">📣</span><span class="ico">⚑</span><span class="ico">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">HNI analytics</div><div class="vsub">28 clients above threshold · ₹ 31.6 Cr</div></div>
+          <div class="grow"></div>
+          <span class="chip info">Threshold ₹ 25 L</span>
+          <button class="nv-btn sm">⤓ Export</button>
+        </div>
+        <div class="viewbody">
+          <div class="row" style="align-items:center;gap:14px;flex-wrap:wrap">
+            <div class="nv-card-2 pad-sm" style="flex:1;min-width:280px">
+              <div class="between" style="margin-bottom:8px"><span class="mono" style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)">HNI threshold</span><b class="num">₹ 25 L</b></div>
+              <div class="slider" style="margin:6px 0"><span class="fill" style="width:25%"></span><span class="knob" style="left:25%"></span></div>
+              <div class="between"><span class="muted" style="font-size:11px">₹ 10 L</span><span class="muted" style="font-size:11px">₹ 1 Cr</span></div>
+            </div>
+            <div class="stat" style="flex:1;min-width:150px"><span class="k">Above threshold</span><span class="v num">28</span><span class="d muted">of 142 clients</span></div>
+            <div class="stat" style="flex:1;min-width:150px"><span class="k">Opportunity tags</span><span class="v num" style="color:var(--amber)">19</span><span class="d" style="color:var(--amber)">across 14 clients</span></div>
+          </div>
+          <div class="nv-card pad">
+            <div class="ch"><span class="lbl">HNI clients · sorted by AUM</span><span class="tag">tags auto-generated nightly</span></div>
+            <div class="tbl-wrap"><table class="tbl" style="min-width:820px">
+              <thead><tr><th>Client</th><th class="r">AUM</th><th class="r">Products</th><th>Engagement</th><th>Last meeting</th><th>Opportunity</th><th class="r">Action</th></tr></thead>
+              <tbody>
+                <tr><td><div class="nm">Aditya Bhandari</div><div class="sub">XXXXX2210H</div></td><td class="r num">₹ 3.84 Cr</td><td class="r num">11</td><td><span class="chip ok">High</span></td><td class="num">12 days ago</td><td><span class="chip warn">PMS Ready</span></td><td class="r"><button class="nv-btn sm primary">Pitch PMS</button></td></tr>
+                <tr><td><div class="nm">Meera Iyer</div><div class="sub">XXXXX4471K</div></td><td class="r num">₹ 2.96 Cr</td><td class="r num">9</td><td><span class="chip ok">High</span></td><td class="num">21 days ago</td><td><span class="chip bad">Insurance Gap</span></td><td class="r"><button class="nv-btn sm">Term cover</button></td></tr>
+                <tr style="background:var(--amber-soft)"><td><div class="nm">Vikram Desai</div><div class="sub">XXXXX9920L</div></td><td class="r num">₹ 2.41 Cr</td><td class="r num">8</td><td><span class="chip warn">Cooling</span></td><td class="num neg">68 days ago</td><td><span class="chip warn">NPS Not Started</span></td><td class="r"><button class="nv-btn sm primary">Book review</button></td></tr>
+                <tr><td><div class="nm">Sneha Reddy</div><div class="sub">XXXXX3388M</div></td><td class="r num">₹ 1.62 Cr</td><td class="r num">7</td><td><span class="chip ok">High</span></td><td class="num">9 days ago</td><td><span class="chip warn">PMS Ready</span></td><td class="r"><button class="nv-btn sm">Pitch PMS</button></td></tr>
+                <tr><td><div class="nm">Aarav P. Sharma</div><div class="sub">XXXXX1234F</div></td><td class="r num">₹ 1.24 Cr</td><td class="r num">6</td><td><span class="chip info">Steady</span></td><td class="num">34 days ago</td><td><span class="chip bad">Insurance Gap</span></td><td class="r"><button class="nv-btn sm">Term cover</button></td></tr>
+                <tr><td><div class="nm">Priya Nair</div><div class="sub">XXXXX5540Q</div></td><td class="r num">₹ 96.5 L</td><td class="r num">5</td><td><span class="chip info">Steady</span></td><td class="num">18 days ago</td><td><span class="chip neutral">Well covered</span></td><td class="r"><button class="nv-btn sm ghost">View</button></td></tr>
+              </tbody>
+            </table></div>
+          </div>
+          <div class="banner info"><span class="bi">🏷</span><div><b>Tags are computed nightly</b> from holdings, protection cover and retirement products. <b>PMS Ready</b> = investable surplus &gt; ₹ 50 L with equity comfort; <b>Insurance Gap</b> = term cover &lt; 10× income; <b>NPS Not Started</b> = no Tier-I account. One click drafts the relevant pitch and books a slot.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf07-segments">
+  <div class="cap">
+    <span class="nv-pill amber">Extend</span>
+    <h3>Client Segmentation</h3>
+    <span class="route">/v5/advisor/segments</span>
+    <p class="desc">Build dynamic client segments from AND/OR rules across AUM tier, risk profile, product holdings and SIP status with a live member count, save them, and reuse a segment for communications, bulk orders or campaigns. Membership refreshes automatically as client data changes. FR-07-09.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/advisor/segments</span>
+      <span class="nv-pill amber st">Extend</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico on">◎</span><span class="ico">₹</span><span class="ico">📣</span><span class="ico">⚑</span><span class="ico">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">Segment builder</div><div class="vsub">Dynamic · membership auto-refreshes</div></div>
+          <div class="grow"></div>
+          <span class="chip ok">31 members match</span>
+          <button class="nv-btn sm primary">Save segment</button>
+        </div>
+        <div class="viewbody">
+          <div class="row" style="align-items:flex-start">
+            <div class="col" style="flex:1.4;min-width:340px;gap:14px">
+              <div class="nv-card pad">
+                <div class="ch"><span class="lbl">Rules</span><div class="seg"><span class="on">Match ALL (AND)</span><span>ANY (OR)</span></div></div>
+                <div class="col" style="gap:10px">
+                  <div class="nv-card-2 pad-sm row" style="align-items:center;gap:8px;flex-wrap:nowrap">
+                    <div class="field" style="flex:1"><label>Field</label><div class="input">AUM tier</div></div>
+                    <div class="field" style="flex:none;width:88px"><label>Op</label><div class="input">is ≥</div></div>
+                    <div class="field" style="flex:1"><label>Value</label><div class="input">₹ 25 L (HNI)</div></div>
+                    <button class="nv-btn sm ghost" style="align-self:flex-end;padding:8px 10px">✕</button>
+                  </div>
+                  <div class="between" style="justify-content:center"><span class="tag">AND</span></div>
+                  <div class="nv-card-2 pad-sm row" style="align-items:center;gap:8px;flex-wrap:nowrap">
+                    <div class="field" style="flex:1"><label>Field</label><div class="input">Risk profile</div></div>
+                    <div class="field" style="flex:none;width:88px"><label>Op</label><div class="input">is</div></div>
+                    <div class="field" style="flex:1"><label>Value</label><div class="input">Moderate</div></div>
+                    <button class="nv-btn sm ghost" style="align-self:flex-end;padding:8px 10px">✕</button>
+                  </div>
+                  <div class="between" style="justify-content:center"><span class="tag">AND</span></div>
+                  <div class="nv-card-2 pad-sm row" style="align-items:center;gap:8px;flex-wrap:nowrap">
+                    <div class="field" style="flex:1"><label>Field</label><div class="input">SIP status</div></div>
+                    <div class="field" style="flex:none;width:88px"><label>Op</label><div class="input">is</div></div>
+                    <div class="field" style="flex:1"><label>Value</label><div class="input">Active</div></div>
+                    <button class="nv-btn sm ghost" style="align-self:flex-end;padding:8px 10px">✕</button>
+                  </div>
+                  <div class="between" style="justify-content:center"><span class="tag">AND</span></div>
+                  <div class="nv-card-2 pad-sm row" style="align-items:center;gap:8px;flex-wrap:nowrap">
+                    <div class="field" style="flex:1"><label>Field</label><div class="input">Product held</div></div>
+                    <div class="field" style="flex:none;width:88px"><label>Op</label><div class="input">excludes</div></div>
+                    <div class="field" style="flex:1"><label>Value</label><div class="input">ELSS</div></div>
+                    <button class="nv-btn sm ghost" style="align-self:flex-end;padding:8px 10px">✕</button>
+                  </div>
+                  <button class="nv-btn sm ghost" style="align-self:flex-start">+ Add rule</button>
+                </div>
+                <hr class="hair" style="margin:14px 0 12px">
+                <div class="between">
+                  <div class="row" style="align-items:baseline;gap:8px"><span class="serif num" style="font-size:30px">31</span><span class="muted" style="font-size:12px">clients match · 21.8% of book</span></div>
+                  <div class="row" style="gap:8px"><button class="nv-btn sm">Use for comms</button><button class="nv-btn sm ghost">Bulk order</button><button class="nv-btn sm ghost">Campaign</button></div>
+                </div>
+              </div>
+              <div class="banner info"><span class="bi">↻</span><div><b>Dynamic membership.</b> This isn't a snapshot — clients enter or leave as their AUM, risk or SIP status changes. A segment used for a campaign always targets its current members at send time.</div></div>
+            </div>
+            <div class="col" style="flex:1;min-width:250px;gap:12px">
+              <div class="nv-card pad">
+                <div class="ch"><span class="lbl">Saved segments</span><span class="chip neutral">7</span></div>
+                <div class="col" style="gap:0">
+                  <div class="lrow"><div style="flex:1"><b style="font-size:13px">HNI · Moderate · SIP</b><div class="sub muted" style="font-size:11px">Dynamic · editing now</div></div><span class="chip info">31</span></div>
+                  <div class="lrow"><div style="flex:1"><b style="font-size:13px">Aggressive · no ELSS</b><div class="sub muted" style="font-size:11px">Used in 2 campaigns</div></div><span class="chip neutral">24</span></div>
+                  <div class="lrow"><div style="flex:1"><b style="font-size:13px">Dormant &gt; 90d</b><div class="sub muted" style="font-size:11px">Re-engage list</div></div><span class="chip warn">12</span></div>
+                  <div class="lrow"><div style="flex:1"><b style="font-size:13px">First-time investors</b><div class="sub muted" style="font-size:11px">Onboarded &lt; 30d</div></div><span class="chip neutral">9</span></div>
+                  <div class="lrow"><div style="flex:1"><b style="font-size:13px">SIP top-up candidates</b><div class="sub muted" style="font-size:11px">Salary hike flag</div></div><span class="chip neutral">18</span></div>
+                </div>
+              </div>
+              <div class="nv-card-2 pad-sm">
+                <div class="field"><label>Segment name</label><div class="input">HNI · Moderate · Active SIP</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="screen" id="wf07-engagement">
+  <div class="cap">
+    <span class="nv-pill indigo">New</span>
+    <h3>Engagement Score</h3>
+    <span class="route">/v5/advisor/engagement</span>
+    <p class="desc">A weekly-refreshed 0–100 engagement score per client with a band breakdown (Highly Engaged / Engaged / At-Risk / Disengaged), a 3-month trend, the contributing factors and a one-tap re-engage action on cooling relationships. FR-07-10.</p>
+  </div>
+  <div class="frame">
+    <div class="chrome"><i></i><i></i><i></i>
+      <span class="url">staging.niveshcopilot.com/v5/advisor/engagement</span>
+      <span class="nv-pill indigo st">New</span>
+    </div>
+    <div class="app">
+      <div class="rail">
+        <span class="nv-mark" style="width:30px;height:30px;font-size:18px">न</span>
+        <span class="ico">◫</span><span class="ico on">◎</span><span class="ico">₹</span><span class="ico">📣</span><span class="ico">⚑</span><span class="ico">🛡</span>
+        <span class="sp"></span><span class="av">RK</span>
+      </div>
+      <div class="view">
+        <div class="viewbar">
+          <div><div class="vt">Engagement score</div><div class="vsub">142 clients · scored 0–100</div></div>
+          <div class="grow"></div>
+          <span class="chip neutral">Refreshed weekly · Mon</span>
+          <button class="nv-btn sm">⤓ Export</button>
+        </div>
+        <div class="viewbody">
+          <div class="grid4">
+            <div class="stat" style="border-color:rgba(14,138,85,.35)"><span class="k">Highly engaged · 80+</span><span class="v num pos">46</span><span class="d pos">▲ 3 WoW</span></div>
+            <div class="stat"><span class="k">Engaged · 60–79</span><span class="v num">61</span><span class="d muted">stable</span></div>
+            <div class="stat" style="border-color:rgba(184,106,18,.35)"><span class="k">At-risk · 40–59</span><span class="v num" style="color:var(--amber)">23</span><span class="d" style="color:var(--amber)">▲ 4 WoW</span></div>
+            <div class="stat" style="border-color:rgba(197,48,62,.35)"><span class="k">Disengaged · &lt; 40</span><span class="v num neg">12</span><span class="d neg">▲ 2 WoW · action</span></div>
+          </div>
+          <div class="nv-card pad">
+            <div class="ch"><span class="lbl">Clients · lowest score first</span><span class="chip warn">35 need attention</span></div>
+            <div class="tbl-wrap"><table class="tbl" style="min-width:780px">
+              <thead><tr><th>Client</th><th class="r">Score</th><th>Band</th><th>3-month trend</th><th>Key factor</th><th class="r">Action</th></tr></thead>
+              <tbody>
+                <tr style="background:var(--danger-soft)"><td><div class="nm">Rahul Menon</div><div class="sub">XXXXX7712P</div></td><td class="r"><b class="serif num" style="font-size:20px">28</b></td><td><span class="chip bad">Disengaged</span></td><td>
+                  <svg class="spark" viewBox="0 0 90 26" preserveAspectRatio="none" style="height:24px;width:90px"><polyline points="2,6 20,9 38,12 56,16 74,19 88,22" fill="none" stroke="var(--neg)" stroke-width="2"/></svg>
+                </td><td class="sub">No login 74d · report unopened</td><td class="r"><button class="nv-btn sm primary">Re-engage ↻</button></td></tr>
+                <tr style="background:var(--amber-soft)"><td><div class="nm">Vikram Desai</div><div class="sub">XXXXX9920L</div></td><td class="r"><b class="serif num" style="font-size:20px">44</b></td><td><span class="chip warn">At-risk</span></td><td>
+                  <svg class="spark" viewBox="0 0 90 26" preserveAspectRatio="none" style="height:24px;width:90px"><polyline points="2,8 20,10 38,9 56,14 74,15 88,17" fill="none" stroke="var(--amber)" stroke-width="2"/></svg>
+                </td><td class="sub">Comms unanswered · SIP paused</td><td class="r"><button class="nv-btn sm">Book review</button></td></tr>
+                <tr><td><div class="nm">Priya Nair</div><div class="sub">XXXXX5540Q</div></td><td class="r"><b class="serif num" style="font-size:20px">67</b></td><td><span class="chip info">Engaged</span></td><td>
+                  <svg class="spark" viewBox="0 0 90 26" preserveAspectRatio="none" style="height:24px;width:90px"><polyline points="2,16 20,14 38,15 56,12 74,11 88,10" fill="none" stroke="var(--indigo)" stroke-width="2"/></svg>
+                </td><td class="sub">Opens reports · low txn recency</td><td class="r"><button class="nv-btn sm ghost">Nudge SIP</button></td></tr>
+                <tr><td><div class="nm">Aarav P. Sharma</div><div class="sub">XXXXX1234F</div></td><td class="r"><b class="serif num pos" style="font-size:20px">82</b></td><td><span class="chip ok">Highly engaged</span></td><td>
+                  <svg class="spark" viewBox="0 0 90 26" preserveAspectRatio="none" style="height:24px;width:90px"><polyline points="2,18 20,15 38,14 56,11 74,8 88,6" fill="none" stroke="var(--mint)" stroke-width="2"/></svg>
+                </td><td class="sub">Active login · goal on track</td><td class="r"><button class="nv-btn sm ghost">Ask referral</button></td></tr>
+                <tr><td><div class="nm">Aditya Bhandari</div><div class="sub">XXXXX2210H</div></td><td class="r"><b class="serif num pos" style="font-size:20px">91</b></td><td><span class="chip ok">Highly engaged</span></td><td>
+                  <svg class="spark" viewBox="0 0 90 26" preserveAspectRatio="none" style="height:24px;width:90px"><polyline points="2,14 20,12 38,10 56,9 74,7 88,4" fill="none" stroke="var(--mint)" stroke-width="2"/></svg>
+                </td><td class="sub">Weekly login · fast comms reply</td><td class="r"><button class="nv-btn sm ghost">Ask referral</button></td></tr>
+              </tbody>
+            </table></div>
+          </div>
+          <div class="nv-card-2 pad-sm between" style="flex-wrap:wrap;gap:10px">
+            <span class="mono" style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)">Score factors</span>
+            <div class="row" style="gap:14px;font-size:12px;flex-wrap:wrap">
+              <span class="li" style="display:flex;align-items:center;gap:6px"><span class="nv-dot" style="color:var(--mint)"></span>Login recency</span>
+              <span class="li" style="display:flex;align-items:center;gap:6px"><span class="nv-dot" style="color:var(--indigo)"></span>Report opens</span>
+              <span class="li" style="display:flex;align-items:center;gap:6px"><span class="nv-dot" style="color:var(--amber)"></span>Goal activity</span>
+              <span class="li" style="display:flex;align-items:center;gap:6px"><span class="nv-dot" style="color:var(--mint2)"></span>Txn recency</span>
+              <span class="li" style="display:flex;align-items:center;gap:6px"><span class="nv-dot" style="color:var(--ink3)"></span>Comms response</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</article>

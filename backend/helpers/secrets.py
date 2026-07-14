@@ -46,6 +46,14 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
         "test_fn": None,
         "category": "auth",
     },
+    "GH_TOKEN": {
+        "display_name": "GitHub Token (auto-fix agent)",
+        "description": "Fine-grained PAT the auto-fix agent uses to push a fix branch and open a PR "
+                       "(needs repo contents R/W + pull-requests). Rotate before it expires — use the "
+                       "Rotate button. Read order: GSM → this override → env → /opt/nivesh/.gh_pat.",
+        "test_fn": "github",
+        "category": "ci",
+    },
     "CASPARSER_BASE_URL": {
         "display_name": "CAS Parser Base URL",
         "description": "Override API endpoint (default: https://api.casparser.in)",

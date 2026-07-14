@@ -43,7 +43,13 @@ from nidp.shared.storage.parsed_archive import (
     upsert_feed_snapshot as _upsert_feed_snapshot,
 )
 from nidp.shared.storage.raw_archive import store as store_raw
-from nidp.shared.trading_day import bump_market_session as _bump_market_session
+from nidp.shared.trading_day import (
+    bump_market_session as _bump_market_session,
+    is_trading_day as _is_trading_day,
+)
+from nidp.shared.sources.content_guard import (
+    detect_unsupported_content, sniff_content_type,
+)
 from nidp.shared.validation import run_validation as _run_validation
 from nidp.shared.validation.rules import FailureClass
 from nidp.shared.dq.gate1_ingestion import IngestionGate, write_dlq
@@ -116,7 +122,14 @@ class BaseIngester(abc.ABC):
                     body, source_url, http_status = await self.fetch(target_date)
                     run.source_url = source_url
                     if not body:
-                        await run.finalize("SKIPPED", error_message="empty body")
+                        _ec = _empty_skip_class(target_date)
+                        if _ec:
+                            logger.warning(
+                                "ingester %s: empty body on trading day %s — SUSPECT "
+                                "(not a holiday)", self.SERVICE_NAME, target_date,
+                            )
+                        await run.finalize("SKIPPED", error_message="empty body",
+                                           error_class=_ec)
                         INGESTER_RUNS.labels(
                             service=self.SERVICE_NAME, status="SKIPPED",
                         ).inc()
@@ -135,6 +148,45 @@ class BaseIngester(abc.ABC):
                     run.artifact_path = str(abs_path)
                     raw_archive_id = archive_id
 
+                    # 2b. Content guard — reject known bot-block / error /
+                    # maintenance pages served with HTTP 200. These are never
+                    # valid data for ANY feed, so a lenient parser would
+                    # otherwise reduce them to 0 rows and SKIP silently
+                    # (indistinguishable from a holiday). Fail LOUD instead.
+                    _bad_content = detect_unsupported_content(body)
+                    if _bad_content:
+                        logger.error(
+                            "ingester %s: source returned unsupported content "
+                            "(%s) under HTTP %s — failing run",
+                            self.SERVICE_NAME, _bad_content, http_status,
+                        )
+                        await run.finalize(
+                            "FAILED",
+                            error_message=f"unsupported content: {_bad_content}",
+                            error_class="CONTENT",
+                        )
+                        INGESTER_RUNS.labels(
+                            service=self.SERVICE_NAME, status="FAILED",
+                        ).inc()
+                        return run
+
+                    # 2c. Content-type sniff (observability) — record the actual
+                    # type from magic bytes and warn if it conflicts with the
+                    # URL-guessed type (source may have switched format, e.g. a
+                    # .csv URL now returning zip/pdf). Does NOT fail the run —
+                    # some feeds legitimately serve compressed payloads.
+                    _sniffed = sniff_content_type(body)
+                    if _sniffed:
+                        run.metadata["sniffed_content_type"] = _sniffed
+                        _guessed = _guess_content_type(source_url)
+                        if _content_type_conflict(_guessed, _sniffed):
+                            logger.warning(
+                                "ingester %s: content-type conflict — URL suggests %s but "
+                                "body is %s (source format drift?)",
+                                self.SERVICE_NAME, _guessed, _sniffed,
+                            )
+                            run.metadata["content_type_conflict"] = f"{_guessed}!={_sniffed}"
+
                     # 3. Parse
                     parsed_rows = self.parse(body, target_date)
                     run.rows_fetched = len(parsed_rows)
@@ -143,7 +195,15 @@ class BaseIngester(abc.ABC):
                     ).inc(len(parsed_rows))
 
                     if not parsed_rows:
-                        await run.finalize("SKIPPED", error_message="no rows in source")
+                        _ec = _empty_skip_class(target_date)
+                        if _ec:
+                            logger.warning(
+                                "ingester %s: 0 rows on trading day %s — SUSPECT "
+                                "(source may have silently broken)",
+                                self.SERVICE_NAME, target_date,
+                            )
+                        await run.finalize("SKIPPED", error_message="no rows in source",
+                                           error_class=_ec)
                         INGESTER_RUNS.labels(
                             service=self.SERVICE_NAME, status="SKIPPED",
                         ).inc()
@@ -353,3 +413,26 @@ def _guess_content_type(url: str) -> str:
     if p.endswith(".json"): return "application/json"
     if p.endswith(".xml"):  return "application/xml"
     return "application/octet-stream"
+
+
+# Types we expect to be text-shaped (CSV/JSON/XML). A binary/HTML body for one
+# of these is a genuine format conflict worth warning about.
+_TEXT_EXPECTED = {"text/csv", "application/json", "application/xml"}
+_BINARY_OR_HTML = {"application/zip", "application/gzip", "application/pdf",
+                   "application/vnd.ms-excel", "text/html"}
+
+
+def _content_type_conflict(guessed: str, sniffed: Optional[str]) -> bool:
+    """True if the URL-guessed type expects text but the body is binary/HTML."""
+    if not sniffed or sniffed == guessed:
+        return False
+    return guessed in _TEXT_EXPECTED and sniffed in _BINARY_OR_HTML
+
+
+def _empty_skip_class(target_date) -> Optional[str]:
+    """Classify an empty / 0-row result (WORK-0138). Returns 'SUSPECT_EMPTY'
+    when target_date is a TRADING DAY (0 rows is suspicious — a likely silent
+    break) and None for a holiday/weekend/no-date (a benign no-work SKIP). A
+    SUSPECT run is still SKIPPED but carries this error_class so it is
+    distinguishable in job_log and doesn't read as healthy."""
+    return "SUSPECT_EMPTY" if (target_date and _is_trading_day(target_date)) else None

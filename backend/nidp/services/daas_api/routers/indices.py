@@ -65,3 +65,38 @@ async def index_constituents(
         **page,
         extra={"index_name": index_name, "as_of": on_date.isoformat()},
     )
+
+
+@router.get("/{index_name}/eod", summary="Daily index level (OHLC) over a date range")
+async def index_eod(
+    index_name: str = Path(..., description="e.g. 'Nifty 50', 'Nifty 500'"),
+    start: Optional[str] = Query(None, description="Inclusive YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="Inclusive YYYY-MM-DD"),
+    page: Dict[str, int] = Depends(page_params),
+) -> Dict[str, Any]:
+    """Index close-level time series from nidp.index_eod (newest-first).
+
+    `close_price` is the headline index level — the benchmark series for
+    point-to-point / backtest return calculations. Use pagination for multi-year
+    history.
+    """
+    d_start = parse_date(start, field="start")
+    d_end = parse_date(end, field="end")
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT ON (as_of_date)
+                   as_of_date, index_name, open_price, high_price, low_price,
+                   close_price, pct_change
+              FROM nidp.index_eod
+             WHERE index_name = $1
+               AND ($2::date IS NULL OR as_of_date >= $2)
+               AND ($3::date IS NULL OR as_of_date <= $3)
+             ORDER BY as_of_date DESC
+             LIMIT $4 OFFSET $5
+            """,
+            index_name, d_start, d_end, page["limit"], page["offset"],
+        )
+    return envelope([row_to_dict(r) for r in rows], **page,
+                    extra={"index_name": index_name})

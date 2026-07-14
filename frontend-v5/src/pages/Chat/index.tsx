@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter, Sparkles, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import CopilotWorkflows from "./CopilotWorkflows";
+import CopilotReview from "./CopilotReview";
+import { useMe } from "@/hooks/use-auth";
+import { useImpersonationStore } from "@/stores/impersonation.store";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useSuggestedPrompts,
@@ -20,12 +24,13 @@ import { Markdown, prefetchStreamdown } from "@/components/chat/Markdown";
 import { useTypewriterReveal, remainingRevealMs } from "@/components/chat/useTypewriter";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useInstrumentSearch, type StockHit, type FundHit } from "@/hooks/use-instrument-search";
+import { useQuerySuggestions, type QuerySuggestion } from "@/hooks/use-query-suggestions";
 
 // `buffer` is everything received from the stream; `content` is the paced,
 // typed-out slice the user sees (see useTypewriterReveal).
 type StreamState = { buffer: string; content: string; thinking?: string; widget?: { widget_type: string; data: unknown }; error?: string };
 
-const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "instrument_detail", "mf_detail", "risk_assessment", "goal_simulation", "stock_screener", "portfolio_builder"]);
+const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "instrument_detail", "mf_detail", "market_detail", "risk_assessment", "goal_simulation", "stock_screener", "portfolio_builder", "strategy_lab", "capital_gains", "goal_basket", "backtest_comparison"]);
 
 const FALLBACK_PROMPTS = [
   "Why is my score 74?",
@@ -51,6 +56,12 @@ type Suggestion =
   | { kind: "stock"; symbol: string; name: string; sub?: string }
   | { kind: "fund"; name: string; sub?: string };
 
+// Question-bank placeholders that name an instrument — filling one switches the
+// composer to canonical stock/fund-name autocomplete.
+const _ENTITY_PH = /\{(stocks?|peer|funds?2?|etf)\}/i;
+const _entityKind = (inner: string): "stock" | "fund" =>
+  /stock|peer/i.test(inner) ? "stock" : "fund";
+
 /** Extract the entity-name query from the composer, or inactive if no starter matched.
  *  `mode: "funds"` when the user explicitly said "mutual fund" (else both kinds shown). */
 function entityQuery(text: string): { term: string; mode: "funds" | "all"; active: boolean } {
@@ -70,6 +81,21 @@ function entityQuery(text: string): { term: string; mode: "funds" | "all"; activ
 // The primitive catalog is shared with the visual Query Builder (and matches
 // the backend NL parser) — see components/chat/screenerPrimitives.ts.
 const SCREEN_STARTERS = ["screen stocks where ", "screen stocks ", "screen for ", "screen "];
+
+// Predefined backtest baskets shown when "Backtest a basket" is clicked. Each
+// `query` is a ready-to-send backtest prompt (routes to the backtest analyst via
+// "if I had invested …"); instrument names are chosen to resolve cleanly via the
+// stock symbol / MF scheme resolvers. Users can also free-type their own basket.
+const BACKTEST_BASKETS: { label: string; sub: string; query: string }[] = [
+  { label: "Large-cap leaders", sub: "5 index heavyweights",
+    query: "If I had invested 10L equally in HDFC Bank, Reliance, ICICI Bank, Infosys and TCS 1 year and 3 years ago, what's it worth today?" },
+  { label: "Top IT", sub: "5 IT majors",
+    query: "If I had invested 10L equally in TCS, Infosys, Wipro, HCL Technologies and Tech Mahindra 1 year and 3 years ago, what's it worth today?" },
+  { label: "Banking & financials", sub: "5 private + PSU banks",
+    query: "If I had invested 10L equally in HDFC Bank, ICICI Bank, SBI, Kotak Mahindra Bank and Axis Bank 1 year and 3 years ago, what's it worth today?" },
+  { label: "Popular flexi-cap funds", sub: "3 flexi-cap MFs",
+    query: "If I had invested 10L equally in Parag Parikh Flexi Cap, HDFC Flexi Cap and Quant Flexi Cap 1 year and 3 years ago, what's it worth today?" },
+];
 
 /** Screener mode + the clause currently being typed (text after the last comma).
  *  `base` is everything to keep when a primitive is inserted in place of `fragment`. */
@@ -108,7 +134,21 @@ export default function ChatPage() {
   // Visual screener query-builder panel.
   const [builderOpen, setBuilderOpen] = useState(false);
   const [analyseOpen, setAnalyseOpen] = useState(false);
+  const [backtestOpen, setBacktestOpen] = useState(false);
+  // Persona for the workflow landing (investor portfolio vs advisor book).
+  // The advisor book shows ONLY at the advisor root. While viewing a client
+  // (impersonating), the copilot answers in investor mode for that client's
+  // portfolio, so show the investor workflows to match. Prefer the store over
+  // me.activeProfileId — the backend field races the persisted store (see use-chat.ts).
+  const me = useMe();
+  const impersonatingProfileId = useImpersonationStore((s) => s.profileId);
+  const isAdvisor =
+    (me.data?.workspaceType || "").toUpperCase() === "ADVISORY" && !impersonatingProfileId;
   const [activeIdx, setActiveIdx] = useState(-1);
+  // When a picked question template has a {stock}/{fund} placeholder, we enter
+  // "entity fill" mode: instrument autocomplete suggests canonical names and a
+  // pick substitutes into the template. before/after bracket the placeholder.
+  const [entityFill, setEntityFill] = useState<{ before: string; after: string; kind: "stock" | "fund" } | null>(null);
   // `?q=` deep-link (e.g. Markets "Explore" chips) → auto-send once on mount.
   const [searchParams, setSearchParams] = useSearchParams();
   const autoSentRef = useRef(false);
@@ -150,8 +190,11 @@ export default function ChatPage() {
   // and AI messages, so when the stream ends we just refetch history and drop
   // the local streaming/optimistic state.
   const submitMessage = async (text: string) => {
-    const t = text.trim();
+    // Strip any unfilled template placeholders so "{fund} …" never reaches the
+    // backend (the user may send before filling the slot).
+    const t = text.replace(/\{[^}]*\}/g, " ").replace(/\s+/g, " ").trim();
     if (!t || isBusy) return;
+    setEntityFill(null);
     let sid = sessionId;
     if (!sid) {
       const created = await createSession.mutateAsync(undefined);
@@ -230,7 +273,7 @@ export default function ChatPage() {
     }
     return out.slice(0, 8);
   }, [instrSearch.data, eq.mode]);
-  const showSuggest = suggestOpen && eq.active && !isBusy && (suggestions.length > 0 || instrSearch.isFetching);
+  const showSuggest = suggestOpen && eq.active && !isBusy && !entityFill && (suggestions.length > 0 || instrSearch.isFetching);
 
   // Pick a suggestion → send a routing-safe research prompt for that instrument.
   const pickSuggestion = (s: Suggestion) => {
@@ -253,7 +296,7 @@ export default function ChatPage() {
       (p) => p.label.toLowerCase().includes(f) || p.qlabel.toLowerCase().includes(f) || p.key.includes(f),
     );
   }, [sq.active, sq.fragment]);
-  const showScreenSuggest = suggestOpen && sq.active && !isBusy && screenSuggestions.length > 0;
+  const showScreenSuggest = suggestOpen && sq.active && !isBusy && !entityFill && screenSuggestions.length > 0;
 
   // Insert the primitive's clause in place of the current fragment, keep focus
   // so the user types the threshold next. Does NOT submit.
@@ -268,7 +311,105 @@ export default function ChatPage() {
     });
   };
 
+  // ── Suggested questions (the curated question bank) ──
+  // Only when the composer isn't already in research (instrument) or screener
+  // mode, so the three typeaheads never compete — at most one shows at a time.
+  const genActive = !entityFill && !eq.active && !sq.active && composer.trim().length >= 2;
+  const debouncedGenTerm = useDebounce(genActive ? composer.trim() : "", 220);
+  const genSearch = useQuerySuggestions(debouncedGenTerm);
+  const genSuggestions = genSearch.data?.suggestions ?? [];
+  const showGenSuggest =
+    suggestOpen && genActive && !isBusy && !showSuggest && !showScreenSuggest &&
+    (genSuggestions.length > 0 || genSearch.isFetching);
+
+  // Pick a question suggestion. If it has an instrument placeholder ({stock}/
+  // {fund}/…), enter entity-fill mode so canonical names autocomplete; for any
+  // other placeholder ({amount}/{n}) just fill and select it; otherwise fill and
+  // drop the cursor at the end. Never auto-submits.
+  const pickQuery = (s: QuerySuggestion) => {
+    setActiveIdx(-1);
+    const ent = s.query.match(_ENTITY_PH);
+    if (ent && ent.index != null) {
+      const before = s.query.slice(0, ent.index);
+      const after = s.query.slice(ent.index + ent[0].length);
+      setEntityFill({ before, after, kind: _entityKind(ent[1]) });
+      setSuggestOpen(true);
+      setComposer(before);
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (el) { el.focus(); el.setSelectionRange(before.length, before.length); }
+      });
+      return;
+    }
+    setSuggestOpen(false);
+    setEntityFill(null);
+    setComposer(s.query);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      const m = s.query.match(/\{[^}]+\}/);
+      if (m && m.index != null) el.setSelectionRange(m.index, m.index + m[0].length);
+      else el.setSelectionRange(s.query.length, s.query.length);
+    });
+  };
+
+  // ── Entity-fill autocomplete (canonical stock / fund names) ──
+  // Active only while filling a {stock}/{fund} slot of a picked template. The
+  // term is whatever the user typed after the template's `before` prefix.
+  const entityTerm = entityFill ? composer.slice(entityFill.before.length) : "";
+  const debouncedEntityTerm = useDebounce(entityFill ? entityTerm.trim() : "", 220);
+  const entityInstr = useInstrumentSearch(debouncedEntityTerm);
+  const entitySuggestions = useMemo<Suggestion[]>(() => {
+    if (!entityFill) return [];
+    const data = entityInstr.data;
+    if (!data) return [];
+    const out: Suggestion[] = [];
+    if (entityFill.kind === "stock") {
+      for (const s of data.stocks as StockHit[]) out.push({ kind: "stock", symbol: s.symbol, name: s.name, sub: s.sector ?? undefined });
+    } else {
+      for (const f of data.funds as FundHit[]) out.push({ kind: "fund", name: f.name, sub: [f.amc, f.category].filter(Boolean).join(" · ") || undefined });
+    }
+    return out.slice(0, 8);
+  }, [entityFill, entityInstr.data]);
+  const showEntityFill = !!entityFill && suggestOpen && !isBusy;
+
+  // Pick a canonical name → substitute it into the template. If another
+  // instrument placeholder remains (e.g. "{fund} vs {fund2}"), chain to it;
+  // otherwise fill the completed query and let the user review/send.
+  const pickEntity = (s: Suggestion) => {
+    if (!entityFill) return;
+    const filled = entityFill.before + s.name + entityFill.after;
+    setActiveIdx(-1);
+    const nextPh = filled.match(_ENTITY_PH);
+    if (nextPh && nextPh.index != null) {
+      const before = filled.slice(0, nextPh.index);
+      const after = filled.slice(nextPh.index + nextPh[0].length);
+      setEntityFill({ before, after, kind: _entityKind(nextPh[1]) });
+      setComposer(before);
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (el) { el.focus(); el.setSelectionRange(before.length, before.length); }
+      });
+      return;
+    }
+    setEntityFill(null);
+    setSuggestOpen(false);
+    setComposer(filled);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (el) { el.focus(); el.setSelectionRange(filled.length, filled.length); }
+    });
+  };
+
   const onComposerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (showEntityFill) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(entitySuggestions.length - 1, i + 1)); return; }
+      if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); return; }
+      if (e.key === "Enter" && activeIdx >= 0 && entitySuggestions[activeIdx]) { e.preventDefault(); pickEntity(entitySuggestions[activeIdx]); return; }
+      // Escape exits fill mode but keeps what's typed so the user can finish manually.
+      if (e.key === "Escape")    { e.preventDefault(); setEntityFill(null); setSuggestOpen(false); return; }
+    }
     if (showSuggest) {
       if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(suggestions.length - 1, i + 1)); return; }
       if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); return; }
@@ -279,6 +420,13 @@ export default function ChatPage() {
       if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(screenSuggestions.length - 1, i + 1)); return; }
       if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); return; }
       if (e.key === "Enter" && activeIdx >= 0 && screenSuggestions[activeIdx]) { e.preventDefault(); pickPrimitive(screenSuggestions[activeIdx]); return; }
+      if (e.key === "Escape")    { e.preventDefault(); setSuggestOpen(false); return; }
+    }
+    if (showGenSuggest) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(genSuggestions.length - 1, i + 1)); return; }
+      if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); return; }
+      // Enter on a highlighted suggestion fills it; Enter with none highlighted falls through to send.
+      if (e.key === "Enter" && activeIdx >= 0 && genSuggestions[activeIdx]) { e.preventDefault(); pickQuery(genSuggestions[activeIdx]); return; }
       if (e.key === "Escape")    { e.preventDefault(); setSuggestOpen(false); return; }
     }
     if (e.key === "Enter") handleSend();
@@ -312,10 +460,13 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+
   // Widget action chips → drive a follow-up. Some send immediately; "recalc"
   // prefills the composer so the user can type their real SIP amount.
+  const navigate = useNavigate();
   const handleWidgetAction = (a: { intent?: string; query?: string; label?: string }) => {
-    if (a.intent === "review_overlap") void submitMessage("Which of my funds overlap the most?");
+    if (a.intent === "open" && a.query) navigate(a.query);        // widget deep-link → full dashboard
+    else if (a.intent === "review_overlap") void submitMessage("Which of my funds overlap the most?");
     else if (a.intent === "recalc_sip") setComposer("Recalculate my retirement plan with a monthly SIP of ₹");
     else if (a.query) void submitMessage(a.query);
     else if (a.label) void submitMessage(a.label);
@@ -468,6 +619,14 @@ export default function ChatPage() {
           </div>
         </div>
 
+        {messages.length === 0 && (
+          isAdvisor ? (
+            <CopilotWorkflows isAdvisor onLaunch={(q) => void submitMessage(q)} />
+          ) : (
+            <CopilotReview onAsk={(q) => void submitMessage(q)} />
+          )
+        )}
+
         <div className="mt-6">
           {/* My Portfolio Insights — explicit, icon-led research entry points */}
           <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">My Portfolio Insights</div>
@@ -509,6 +668,20 @@ export default function ChatPage() {
             >
               <Wand2 className="h-3.5 w-3.5 text-accent" /> Build a portfolio
             </button>
+            {/* Strategy Builder chip intentionally hidden (feature de-surfaced). */}
+            <button
+              onClick={() => setBacktestOpen((v) => !v)}
+              disabled={isBusy}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-[12.5px] transition-colors disabled:opacity-50",
+                backtestOpen
+                  ? "border-accent bg-[rgb(var(--accent)/0.10)] text-accent"
+                  : "bg-surface-1 border-hairline-2 text-ink hover:bg-surface-2",
+              )}
+              title="Backtest a basket — pick a ready-made basket or build your own; see what a lump-sum & SIP would be worth today (1y & 3y)"
+            >
+              <HistoryIcon className="h-3.5 w-3.5 text-accent" /> Backtest a basket
+            </button>
             <button
               onClick={() => setBuilderOpen((v) => !v)}
               disabled={isBusy}
@@ -543,6 +716,39 @@ export default function ChatPage() {
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Backtest a basket — predefined baskets (one-click, ready to send)
+              plus a "create your own" entry that focuses the composer with
+              instrument autocomplete. Revealed by the launcher chip above. */}
+          {backtestOpen && (
+            <div className="mt-6">
+              <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">Backtest a basket</div>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {BACKTEST_BASKETS.map((b) => (
+                  <button
+                    key={b.label}
+                    onClick={() => { setBacktestOpen(false); setComposer(b.query); }}
+                    disabled={isBusy}
+                    title={b.query}
+                    className="flex flex-col items-start px-3.5 py-2 rounded-2xl bg-surface-2 border border-hairline text-left hover:bg-surface-3 disabled:opacity-50 transition-colors"
+                  >
+                    <span className="text-[12.5px] text-ink">{b.label}</span>
+                    <span className="text-[11px] text-ink-3">{b.sub}</span>
+                  </button>
+                ))}
+                <button
+                  onClick={() => { setBacktestOpen(false); startResearch("If I had invested 10L in "); }}
+                  disabled={isBusy}
+                  title="Create your own — name the stocks/funds to backtest"
+                  className="flex flex-col items-start px-3.5 py-2 rounded-2xl bg-surface-1 border border-dashed border-hairline-2 text-left hover:bg-surface-2 disabled:opacity-50 transition-colors"
+                >
+                  <span className="text-[12.5px] text-accent">+ Create your own</span>
+                  <span className="text-[11px] text-ink-3">type stocks / funds</span>
+                </button>
+              </div>
+              <p className="text-[11px] text-ink-3 mt-2.5">Edit the amount or period before sending. Historical illustration, not a prediction.</p>
             </div>
           )}
         </div>
@@ -662,6 +868,47 @@ export default function ChatPage() {
               </ul>
             </div>
           )}
+          {/* entity-fill autocomplete — canonical stock/fund names for a picked
+              template's {stock}/{fund} slot. Opens upward above the input. */}
+          {showEntityFill && (
+            <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg bg-surface-1 border border-hairline-2 shadow-card overflow-hidden z-20">
+              <div className="px-3.5 pt-2.5 pb-1 font-mono text-[10px] uppercase tracking-[.18em] text-ink-3">
+                Pick a {entityFill?.kind === "stock" ? "stock" : "fund"} to fill in
+              </div>
+              {entitySuggestions.length === 0 ? (
+                <div className="px-4 py-3 text-[13px] text-ink-3">
+                  {entityInstr.isFetching ? "Searching…" : `Type a ${entityFill?.kind === "stock" ? "stock" : "fund"} name…`}
+                </div>
+              ) : (
+                <ul className="max-h-72 overflow-y-auto py-1">
+                  {entitySuggestions.map((s, i) => (
+                    <li key={(s.kind === "stock" ? s.symbol : s.name) + i}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); pickEntity(s); }}
+                        onMouseEnter={() => setActiveIdx(i)}
+                        className={cn(
+                          "w-full flex items-center gap-2.5 px-3.5 py-2 text-left transition-colors",
+                          i === activeIdx ? "bg-surface-2" : "hover:bg-surface-2/60",
+                        )}
+                      >
+                        {s.kind === "stock"
+                          ? <LineChart className="h-3.5 w-3.5 text-accent shrink-0" />
+                          : <PieChart className="h-3.5 w-3.5 text-accent shrink-0" />}
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13.5px] text-ink truncate">{s.name}</span>
+                          {s.sub && <span className="block text-[11.5px] text-ink-3 truncate">{s.sub}</span>}
+                        </span>
+                        <span className="shrink-0 rounded-full px-2 py-0.5 text-[9.5px] font-semibold tracking-wide" style={{ background: "#E7EEF9", color: "#3E6CA8" }}>
+                          {s.kind === "stock" ? "STOCK" : "FUND"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           {/* instrument autocomplete — opens upward above the input */}
           {showSuggest && (
             <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg bg-surface-1 border border-hairline-2 shadow-card overflow-hidden z-20">
@@ -689,6 +936,37 @@ export default function ChatPage() {
                         </span>
                         <span className="shrink-0 rounded-full px-2 py-0.5 text-[9.5px] font-semibold tracking-wide" style={{ background: "#E7EEF9", color: "#3E6CA8" }}>
                           {s.kind === "stock" ? "STOCK" : "FUND"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {/* suggested-question autocomplete — opens upward above the input */}
+          {showGenSuggest && (
+            <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg bg-surface-1 border border-hairline-2 shadow-card overflow-hidden z-20">
+              <div className="px-3.5 pt-2.5 pb-1 font-mono text-[10px] uppercase tracking-[.18em] text-ink-3">Suggested questions</div>
+              {genSearch.isFetching && genSuggestions.length === 0 ? (
+                <div className="px-4 py-3 text-[13px] text-ink-3">Searching…</div>
+              ) : (
+                <ul className="max-h-72 overflow-y-auto py-1">
+                  {genSuggestions.map((s, i) => (
+                    <li key={s.query + i}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); pickQuery(s); }}
+                        onMouseEnter={() => setActiveIdx(i)}
+                        className={cn(
+                          "w-full flex items-center gap-2.5 px-3.5 py-2 text-left transition-colors",
+                          i === activeIdx ? "bg-surface-2" : "hover:bg-surface-2/60",
+                        )}
+                      >
+                        <Sparkles className="h-3.5 w-3.5 text-accent shrink-0" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13.5px] text-ink truncate">{s.query}</span>
+                          <span className="block text-[11.5px] text-ink-3 truncate">{[s.section, s.category].filter(Boolean).join(" · ")}</span>
                         </span>
                       </button>
                     </li>

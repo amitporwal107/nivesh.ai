@@ -48,16 +48,36 @@ def _creds() -> tuple[str, str]:
     return base, key
 
 
-async def _get(path: str, params: Optional[Dict[str, Any]] = None, timeout: float = _DEFAULT_TIMEOUT) -> Any:
+def strategy_creds() -> tuple[str, str, Optional[str], bool]:
+    """(base, key, host_header, verify) for strategy-engine calls.
+
+    The strategy screen/backtest fire many/large bulk reads; the PUBLIC edge
+    (Cloudflare) intermittently drops large or concurrent responses from inside
+    the app container. When NIDP_DAAS_INTERNAL_URL is set (e.g. the NIDP VM's
+    internal VPC address), route there instead — it bypasses the edge and is
+    reliable. verify=False because we connect by internal IP (cert is for the
+    public host, passed via the Host header so nginx still routes correctly).
+    Falls back to the public base when the internal URL isn't configured.
+    """
+    key = _secrets_get("NIDP_DAAS_INTERNAL_TOKEN") or _secrets_get("NIDP_DAAS_API_KEY")
+    internal = _secrets_get("NIDP_DAAS_INTERNAL_URL").rstrip("/")
+    if internal and key:
+        host = _secrets_get("NIDP_DAAS_HOST") or None
+        return internal, key, host, False
     base, key = _creds()
+    return base, key, None, True
+
+
+async def _get(path: str, params: Optional[Dict[str, Any]] = None, timeout: float = _DEFAULT_TIMEOUT,
+               *, creds: Optional[tuple] = None) -> Any:
+    base, key, host, verify = creds if creds else (*_creds(), None, True)
     url = f"{base}/v1{path}"
+    headers = {"X-API-Key": key, "Accept": "application/json"}
+    if host:
+        headers["Host"] = host
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.get(
-                url,
-                params=params,
-                headers={"X-API-Key": key, "Accept": "application/json"},
-            )
+        async with httpx.AsyncClient(timeout=timeout, verify=verify) as client:
+            resp = await client.get(url, params=params, headers=headers)
         if resp.status_code == 404:
             return None
         if resp.status_code != 200:
@@ -72,20 +92,16 @@ async def _get(path: str, params: Optional[Dict[str, Any]] = None, timeout: floa
         raise DaasError(f"DAAS connectivity error on {path}: {exc}")
 
 
-async def _post(path: str, body: Dict[str, Any], timeout: float = _DEFAULT_TIMEOUT) -> Any:
-    base, key = _creds()
+async def _post(path: str, body: Dict[str, Any], timeout: float = _DEFAULT_TIMEOUT,
+                *, creds: Optional[tuple] = None) -> Any:
+    base, key, host, verify = creds if creds else (*_creds(), None, True)
     url = f"{base}/v1{path}"
+    headers = {"X-API-Key": key, "Accept": "application/json", "Content-Type": "application/json"}
+    if host:
+        headers["Host"] = host
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                url,
-                json=body,
-                headers={
-                    "X-API-Key": key,
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-            )
+        async with httpx.AsyncClient(timeout=timeout, verify=verify) as client:
+            resp = await client.post(url, json=body, headers=headers)
         if resp.status_code == 404:
             return None
         if resp.status_code != 200:
@@ -499,6 +515,51 @@ async def get_mf_nav_series(scheme_code: str, limit: int = 2) -> list[Dict[str, 
     return rows if isinstance(rows, list) else []
 
 
+async def get_mf_nav_history(
+    scheme_code: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    page_size: int = 500,
+    max_rows: int = 5000,
+    timeout: float = 20.0,
+) -> list[Dict[str, Any]]:
+    """Full daily NAV history for a scheme over [start, end], date-ASCENDING.
+
+    Calls GET /mf/nav/{scheme_code}?start=&end= (nidp.mf_nav_daily) and pages
+    through the newest-first envelope until the window is exhausted, then sorts
+    ascending so the backtest can snap an entry date and walk forward. Returns []
+    on 404 / connectivity failure so the caller degrades rather than fabricates.
+    """
+    code = (scheme_code or "").strip()
+    if not code:
+        return []
+    rows: list[Dict[str, Any]] = []
+    offset = 0
+    while len(rows) < max_rows:
+        params: Dict[str, Any] = {"limit": page_size, "offset": offset}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        try:
+            data = await _get(f"/mf/nav/{code}", params=params, timeout=timeout)
+        except DaasError as exc:
+            logger.debug("get_mf_nav_history(%s): %s", code, exc)
+            break
+        page = (data.get("data") or data.get("rows") or []) if isinstance(data, dict) else []
+        if not page:
+            break
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+
+    def _d(r: Dict[str, Any]) -> str:
+        return str(r.get("nav_date") or "")
+    rows.sort(key=_d)
+    return rows
+
+
 async def get_mf_holdings(
     scheme_code: str,
     instrument_type: Optional[str] = None,
@@ -783,6 +844,142 @@ async def get_v3_stock_primitives_bulk(
         return {}
     data = payload.get("data") or {}
     return data if isinstance(data, dict) else {}
+
+
+# ── Strategy engine market data (calendar + bulk features/prices + constituents) ──
+# These back DaasMarketDataProvider so the strategy screen/backtest never read
+# nidp.* over a direct PG pool. Raise on failure (no silent []) so the engine can
+# surface a real error rather than a falsely-empty screen.
+
+async def _retry(make_coro, attempts: int = 3, delay: float = 0.6):
+    """Retry a DaaS call on transient connectivity errors (e.g. Cloudflare's
+    intermittent 'incomplete chunked read'). A backtest fires many bulk calls,
+    so one flaky read shouldn't sink the whole run. Real HTTP status errors
+    (4xx/5xx) are NOT retried — only connection-level failures (status_code None)."""
+    import asyncio
+    last: Optional[DaasError] = None
+    for i in range(attempts):
+        try:
+            return await make_coro()
+        except DaasError as exc:
+            if exc.status_code is not None:
+                raise
+            last = exc
+            if i < attempts - 1:
+                await asyncio.sleep(delay * (i + 1))
+    raise last  # type: ignore[misc]
+
+async def get_trading_calendar(
+    start: Optional[str] = None, end: Optional[str] = None, timeout: float = 15.0,
+) -> List[str]:
+    """Distinct trading dates (YYYY-MM-DD, ascending) from NIDP feature snapshots."""
+    params: Dict[str, Any] = {}
+    if start:
+        params["start"] = start
+    if end:
+        params["end"] = end
+    sc = strategy_creds()
+    data = await _retry(lambda: _get("/features/calendar", params=params, timeout=timeout, creds=sc))
+    if not data:
+        return []
+    dates = data.get("dates") if isinstance(data, dict) else None
+    return dates if isinstance(dates, list) else []
+
+
+async def get_features_bulk(
+    symbols: List[str], start: Optional[str] = None, end: Optional[str] = None,
+    timeout: float = 30.0,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Bulk engineered features keyed by symbol → date-ascending rows."""
+    if not symbols:
+        return {}
+    sc = strategy_creds()
+    payload = await _retry(lambda: _post(
+        "/features/bulk",
+        {"symbols": symbols, "start": start, "end": end},
+        timeout=timeout, creds=sc,
+    ))
+    data = (payload or {}).get("data") or {}
+    return data if isinstance(data, dict) else {}
+
+
+async def get_adjusted_prices_bulk(
+    symbols: List[str], start: Optional[str] = None, end: Optional[str] = None,
+    timeout: float = 30.0,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Bulk split/bonus-adjusted OHLC keyed by symbol → date-ascending rows."""
+    if not symbols:
+        return {}
+    sc = strategy_creds()
+    payload = await _retry(lambda: _post(
+        "/prices/adjusted/bulk",
+        {"symbols": symbols, "start": start, "end": end},
+        timeout=timeout, creds=sc,
+    ))
+    data = (payload or {}).get("data") or {}
+    return data if isinstance(data, dict) else {}
+
+
+async def get_index_constituents(
+    index_name: str, on: Optional[str] = None, timeout: float = 15.0,
+) -> List[str]:
+    """Point-in-time constituent symbols for an index ('Nifty 50' … 'Nifty 500')
+    as of `on` (defaults to most recent snapshot). [] if no snapshot."""
+    import urllib.parse
+    path = f"/indices/{urllib.parse.quote(index_name)}/constituents"
+    params: Dict[str, Any] = {"limit": 1000}
+    if on:
+        params["on"] = on
+    sc = strategy_creds()
+    data = await _retry(lambda: _get(path, params=params, timeout=timeout, creds=sc))
+    rows = (data or {}).get("data") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return []
+    return [r["symbol"] for r in rows if isinstance(r, dict) and r.get("symbol")]
+
+
+async def get_index_eod_history(
+    index_name: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    page_size: int = 500,
+    max_rows: int = 5000,
+    timeout: float = 20.0,
+) -> list[Dict[str, Any]]:
+    """Full daily index-level history over [start, end], date-ASCENDING.
+
+    Calls GET /indices/{index_name}/eod (nidp.index_eod) and pages through the
+    newest-first envelope, then sorts ascending so the backtest can snap an entry
+    date. Each row carries as_of_date + close_price. Returns [] on failure so the
+    caller degrades (benchmark omitted) rather than fabricates.
+    """
+    import urllib.parse
+    name = (index_name or "").strip()
+    if not name:
+        return []
+    path = f"/indices/{urllib.parse.quote(name)}/eod"
+    rows: list[Dict[str, Any]] = []
+    offset = 0
+    while len(rows) < max_rows:
+        params: Dict[str, Any] = {"limit": page_size, "offset": offset}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        try:
+            data = await _get(path, params=params, timeout=timeout)
+        except DaasError as exc:
+            logger.debug("get_index_eod_history(%s): %s", name, exc)
+            break
+        page = (data.get("data") or data.get("rows") or []) if isinstance(data, dict) else []
+        if not page:
+            break
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+    rows.sort(key=lambda r: str(r.get("as_of_date") or ""))
+    return rows
 
 
 async def get_portfolio_risk(

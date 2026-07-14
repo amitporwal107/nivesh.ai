@@ -6,7 +6,8 @@ import { useGmailStatus, useGmailAutoImportToggle, useGmailConnect, useGmailDisc
 import { useRiskProfile } from "@/hooks/use-risk-profile";
 import { useGoals, useGoalsSnapshot, useGoalArchive, useSnapshotUpsert } from "@/hooks/use-goals";
 import { cn } from "@/lib/utils";
-import { Mail, RefreshCw, CheckCircle2, AlertCircle, ShieldCheck, Target, Pencil, Trash2 } from "lucide-react";
+import { Mail, RefreshCw, CheckCircle2, AlertCircle, ShieldCheck, Target, Pencil, Trash2, ScrollText, ChevronRight, FileText } from "lucide-react";
+import { useSessionLogging } from "@/hooks/use-session-logs";
 import { ProfileWizardModal } from "@/pages/Dashboard/ProfileWizardModal";
 import { useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +24,8 @@ export default function SettingsPage() {
   const gmailToggle = useGmailAutoImportToggle();
   const gmailConnect = useGmailConnect();
   const gmailDisconnect = useGmailDisconnect();
+
+  const logging = useSessionLogging();
 
   const { data: riskProfile } = useRiskProfile();
   const { data: goalsData } = useGoals();
@@ -290,6 +293,57 @@ export default function SettingsPage() {
         </ul>
       </Card>
 
+      {/* ── Logs & Diagnostics ────────────────────────────────────────────── */}
+      <Card className="mt-4 p-6">
+        <CardLabel>Logs &amp; Diagnostics</CardLabel>
+        <p className="text-[13.5px] text-ink-2 mt-2 leading-relaxed max-w-[480px]">
+          For troubleshooting. Turn this on to capture this session's client and server logs, then
+          open the viewer to watch them live. It's off by default and only ever shows your own
+          session.
+        </p>
+
+        <div className="mt-4 flex items-center justify-between">
+          <div>
+            <div className="text-[13.5px] font-medium">Session logging</div>
+            <div className="text-[12px] text-ink-3 mt-0.5">
+              {logging.enabled
+                ? "Capturing console, network and server logs for this session."
+                : "Not capturing — nothing is logged until you switch this on."}
+            </div>
+          </div>
+          <button
+            role="switch"
+            aria-checked={logging.enabled}
+            aria-label="Toggle session logging"
+            onClick={() => (logging.enabled ? logging.disable() : logging.enable())}
+            disabled={logging.busy}
+            className={cn(
+              "ml-6 h-6 w-10 rounded-full relative transition-colors shrink-0 disabled:opacity-60",
+              logging.enabled ? "bg-accent" : "bg-surface-3",
+            )}
+          >
+            <span className={cn(
+              "absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all shadow",
+              logging.enabled ? "left-[18px]" : "left-0.5",
+            )} />
+          </button>
+        </div>
+
+        {logging.error && (
+          <div className="mt-2 text-[12px] text-neg">{logging.error}</div>
+        )}
+
+        <Link
+          to="/settings/logs"
+          className="mt-4 flex items-center gap-2.5 rounded-md border border-hairline bg-surface-1 px-3.5 py-3 text-[13px] text-ink-2 hover:bg-surface-2 transition-colors"
+        >
+          <ScrollText className="h-4 w-4 text-accent shrink-0" />
+          <span className="flex-1">View logs</span>
+          {logging.enabled && <span className="h-2 w-2 rounded-full bg-pos animate-pulse" aria-hidden />}
+          <ChevronRight className="h-4 w-4 text-ink-4 shrink-0" />
+        </Link>
+      </Card>
+
       <Card className="mt-4 p-6">
         <CardLabel>Gmail Sync</CardLabel>
         <p className="text-[13.5px] text-ink-2 mt-2 leading-relaxed max-w-[480px]">
@@ -392,6 +446,15 @@ export default function SettingsPage() {
               </Link>
             ))}
           </div>
+          <Link
+            to="/settings/releases"
+            data-testid="settings-release-mgmt"
+            className="mt-3 flex items-center gap-2.5 rounded-md border border-hairline bg-surface-1 px-3.5 py-3 text-[13px] text-ink-2 hover:bg-surface-2 transition-colors"
+          >
+            <FileText className="h-4 w-4 text-accent shrink-0" />
+            <span className="flex-1">Release Management</span>
+            <ChevronRight className="h-4 w-4 text-ink-4 shrink-0" />
+          </Link>
         </Card>
       )}
 

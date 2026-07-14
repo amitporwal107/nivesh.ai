@@ -50,6 +50,32 @@ _TAIL = re.compile(
     r"compared\b|for\s+a\b|in\s+detail\b|across\s+periods\b).*$",
     re.IGNORECASE,
 )
+# A view/metric clause LEADING the fund name without a command verb ("top
+# holdings hdfc …", "latest nav hdfc …", "returns of hdfc …"). Anchored to the
+# START; an optional trailing of/for/in connector is consumed too. Real names
+# start with the AMC ("HDFC …", "Top 100 …") so they are never matched (a bare
+# "top" needs a following view noun to strip).
+_LEAD_VIEW = re.compile(
+    r"^\s*(?:the\s+)?(?:(?:top[\s-]?\d*|latest|current|recent|best|worst)\s+)?"
+    r"(?:overview|returns?|holdings?|ratios?|peers?|performance|summary|"
+    r"allocation|sector\s+allocation|cap\s+split|portfolio\s+turnover|concentration|"
+    r"\bnav\b|expense\s+ratio|\baum\b|rating|riskometer|sharpe|sortino|"
+    r"\bcagr\b|exit\s+load|top\s+holdings?)\s+(?:of\s+|for\s+|in\s+)?",
+    re.IGNORECASE,
+)
+# A view/metric clause TRAILING the fund name ("{fund} top holdings", "{fund}
+# latest NAV", "{fund} expense ratio"). Anchored to the END and the view noun
+# must sit at the tail, so the leading "holdings of {fund}" order (handled below)
+# and real names ending in "Fund"/"Index"/"Top 100" are never touched.
+_TRAIL_VIEW = re.compile(
+    r"\s+(?:(?:top[\s-]?\d*|latest|current|recent|best|worst)\s+|\d+[\s-]?(?:year|yr|y)s?\s+)?"
+    r"(?:overview|returns?|holdings?|ratios?|peers?|performance|summary|"
+    r"allocation|sector\s+allocation|cap\s+split|portfolio\s+turnover|concentration|"
+    r"\bnav\b|expense\s+ratio|\baum\b|rating|riskometer|sharpe|sortino|"
+    r"\bcagr\b|exit\s+load|top\s+holdings?)"
+    r"(?:\s+(?:today|now|please|breakdown|ratio|details?))?\s*$",
+    re.IGNORECASE,
+)
 # Plan/option suffixes that aren't part of the searchable canonical name.
 _PLAN_SUFFIX = re.compile(
     r"\s+(?:-\s+)?(?:growth|regular|direct|idcw|dividend|payout|reinvest\w*|"
@@ -77,6 +103,29 @@ _ALIASES = {
 }
 
 
+# Tokens that are view/metric/filler words, never part of a fund's real name.
+# Used to detect a residue that names no fund ("returns", "top holdings").
+_VIEW_TOKENS = frozenset({
+    "the", "top", "latest", "current", "recent", "best", "worst", "of", "for",
+    "in", "and", "show", "me", "my",
+    "overview", "return", "returns", "holding", "holdings", "ratio", "ratios",
+    "peer", "peers", "performance", "summary", "allocation", "sector", "cap",
+    "split", "portfolio", "turnover", "nav", "expense", "aum", "rating",
+    "riskometer", "sharpe", "sortino", "cagr", "exit", "load", "concentration",
+    "fund", "funds", "scheme", "schemes", "mf",
+})
+
+
+def _only_view(s: str) -> bool:
+    """True when every token left is a view/metric/filler word (or a bare number
+    like the "10" in "top-10") — i.e. no fund is actually named, so there is
+    nothing to resolve."""
+    toks = re.findall(r"[a-z0-9]+", s.lower())
+    return bool(toks) and all(
+        t in _VIEW_TOKENS or t.isdigit() or re.fullmatch(r"top\d+", t) for t in toks
+    )
+
+
 @dataclass
 class SchemeMatch:
     scheme_code: str
@@ -93,6 +142,12 @@ def extract_scheme_query(text: str) -> str:
     "Show the overview of HDFC Balanced Advantage Fund Growth." -> "HDFC Balanced Advantage Fund"
     """
     s = (text or "").strip()
+    if not s:
+        return ""
+    # Drop unfilled template placeholders ("{fund}", "{stock}") that a picked but
+    # un-filled suggestion left behind, so they never pollute the scheme search.
+    s = re.sub(r"\{[^}]*\}", " ", s)
+    s = re.sub(r"\s{2,}", " ", s).strip()
     if not s:
         return ""
     low = s.lower()
@@ -113,6 +168,13 @@ def extract_scheme_query(text: str) -> str:
         prev = s
         s = _FILLER_LEAD.sub("", s).strip()
 
+    # Drop a LEADING view clause with no command verb ("top holdings hdfc …",
+    # "returns of hdfc …") and a TRAILING view/metric clause ("{fund} top
+    # holdings", "{fund} latest NAV") — the MF node resolves on the whole
+    # message, so these intent words ride along on either side of the name.
+    s = _LEAD_VIEW.sub("", s).strip()
+    s = _TRAIL_VIEW.sub("", s).strip()
+
     # If a view noun remains (e.g. "the returns of HDFC …"), keep what follows
     # the last "of"; else strip a leading view noun.
     if _VIEW_NOUN.search(s):
@@ -124,6 +186,11 @@ def extract_scheme_query(text: str) -> str:
 
     s = _PLAN_SUFFIX.sub("", s).strip()    # drop "Growth / Direct / Plan" suffix
     s = re.sub(r"\s{2,}", " ", s).strip(" -")
+    # If nothing but view/filler words survive (e.g. a bare "{fund} returns" with
+    # no fund named), there is no scheme to search for — return empty so the
+    # caller resolves to None instead of searching for "returns".
+    if _only_view(s):
+        return ""
     return s
 
 

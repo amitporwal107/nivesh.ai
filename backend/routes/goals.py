@@ -25,7 +25,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from deps import get_current_user
-from services import dashboard_cache, pg_client, goal_engine, goal_fund_picker, goal_copilot
+from services import dashboard_cache, pg_client, goal_engine, goal_fund_picker, goal_copilot, goal_contract
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/goals")
@@ -449,7 +449,8 @@ async def simulate_goal(goal_id: str, request: Request):
             ev.on_track_pct, ev.expected_return_pct,
             json.dumps(ev.to_dict()),
         )
-    return {"goal_id": goal_id, **ev.to_dict()}
+    # Shape to the frontend contract (MonteCarloRes) — superset of the raw engine dict.
+    return goal_contract.monte_carlo_response(goal_id, ev.to_dict(), g)
 
 
 @router.post("/{goal_id}/what-if")
@@ -475,7 +476,9 @@ async def what_if(goal_id: str, payload: WhatIfRequest, request: Request):
         inflation_pct=g.get("inflation_pct") or 6.0,
         allocation_override=payload.allocation_override or g.get("allocation"),
     )
-    return {"goal_id": goal_id, "preview": True, **ev.to_dict()}
+    # Shape to the frontend contract (WhatIfRes) — superset of the raw engine dict.
+    _params = payload.model_dump(exclude_none=True) if hasattr(payload, "model_dump") else payload.dict(exclude_none=True)
+    return goal_contract.whatif_response(goal_id, ev.to_dict(), g, _params)
 
 
 # ── LLM Copilot ─────────────────────────────────────────────────────────

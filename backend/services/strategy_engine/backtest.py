@@ -1,15 +1,25 @@
 """Strategy backtest runner.
 
 Sweeps a date range, runs the compiled entry rule once per trading
-day, simulates entries with the spec's exit plan against forward bars
-from nidp.prices_eod_adjusted (Phase 2 — falls back to prices_eod in
-Phase 1), and records every simulated trade in strategy_trades.
+day, simulates entries with the spec's exit plan against forward bars,
+and records every simulated trade in strategy_trades.
 
-Design rules:
+Data basis (Tier-2 / R1 applied — see metrics["price_basis"] /
+metrics["universe_basis"] which the run records for audit):
 
-  • Survivorship-bias-free — universe is point-in-time, gated through
-    the same WHERE clause the live runner uses (compiler emits the
-    correct in_nifty50/100/500 / index_constituents check).
+  • Corp-action-adjusted prices. Entry uses nidp.prices_eod_adjusted
+    .adj_close (falling back to f.close only where the adjusted row is
+    missing); exits use adj_high/adj_low/adj_close from the same table.
+    Entry and exit share one adjusted basis, so a split/bonus during the
+    hold no longer fabricates a gain/loss. The features-derived ATR is
+    rescaled by cumulative_adj_factor onto that basis.
+
+  • Universe membership is point-in-time when nidp.index_constituents is
+    populated for the chosen index (survivorship-correct; real Nifty
+    50/100/200/500 distinction). When that table is empty for the index
+    the runner falls back to the legacy present-day `sm.is_nifty_100`
+    set and LOGS it — never silently empty, but that fallback path does
+    carry survivorship bias (recorded as universe_basis="present_day_fallback").
 
   • One trade per (symbol, entry_date) — once we open a position we
     don't re-enter on the next bar even if the rule still fires. Live
@@ -33,8 +43,9 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from .compiler_stock import compile_stock_query, to_asyncpg
 from .dsl import validate_strategy
+from .market_data import get_provider
+from .backtest_sql import EXIT_BARS_SQL as _EXIT_BARS_SQL  # re-exported for tests
 
 logger = logging.getLogger(__name__)
 
@@ -86,26 +97,17 @@ async def run_backtest(
     if errs:
         raise ValueError("invalid spec: " + "; ".join(str(e) for e in errs))
 
-    sql, params = compile_stock_query(spec)
-    sql_pg, base_args_template = to_asyncpg(sql, params)
-    # `to_asyncpg` will leave `:as_of_date` unmapped because it's not in
-    # params; convert manually to the next positional slot.
-    next_slot = len(base_args_template) + 1
-    sql_pg = sql_pg.replace(":as_of_date", f"${next_slot}")
+    # Market data comes through a provider (SQL on co-located dev, NIDP DaaS API
+    # on staging/prod). `prepare` prefetches the window; `screen`/`exit_bars`
+    # serve per-date candidates and adjusted bars. R1's adjusted-price +
+    # point-in-time-membership semantics live in the provider now.
+    provider = get_provider(pool)
+    await provider.prepare(spec, from_date, to_date)
 
     open_trades: Dict[str, BacktestTrade] = {}     # symbol → trade
     closed_trades: List[BacktestTrade] = []
 
-    # Iterate every trading date in range. We rely on stock_features_daily
-    # only existing on real trading days, so an inexpensive distinct query
-    # gives us the calendar.
-    async with pool.acquire() as conn:
-        date_rows = await conn.fetch(
-            "SELECT DISTINCT as_of_date FROM nidp.stock_features_daily "
-            "WHERE as_of_date BETWEEN $1 AND $2 ORDER BY as_of_date",
-            from_date, to_date,
-        )
-    trading_dates = [r["as_of_date"] for r in date_rows]
+    trading_dates = await provider.trading_dates(from_date, to_date)
     if not trading_dates:
         logger.warning("backtest window %s..%s has no feature snapshots", from_date, to_date)
         return BacktestResult(metrics={"reason": "no_data"})
@@ -117,67 +119,71 @@ async def run_backtest(
 
     equity = starting_capital
 
-    async with pool.acquire() as conn:
-        for d in trading_dates:
-            # 1) Process exits on currently-open positions first
-            if open_trades:
-                exit_rows = await _fetch_exit_bars(conn, list(open_trades), d)
-                for row in exit_rows:
-                    sym = row["symbol"]
-                    trade = open_trades.get(sym)
-                    if not trade:
-                        continue
-                    closed = _maybe_close_trade(
-                        trade, d, row, sl_pct=sl_pct, target_rr=target_rr,
-                        max_hold=max_hold, trailing_atr_mult=trailing_atr_mult,
-                        brokerage_inr=brokerage_inr, slippage_pct=slippage_pct,
-                    )
-                    if closed is not None:
-                        equity += closed.pnl_abs or 0.0
-                        closed_trades.append(closed)
-                        del open_trades[sym]
-
-            # 2) Look for new entries — only if we have capacity
-            slots = max_positions - len(open_trades)
-            if slots <= 0:
-                _record_equity(closed_trades, open_trades, equity, d)
-                continue
-
-            args = list(base_args_template) + [d]
-            rows = await conn.fetch(sql_pg, *args)
-            for r in rows[:slots]:
-                sym = r["symbol"]
-                if sym in open_trades:
+    for d in trading_dates:
+        # 1) Process exits on currently-open positions first
+        if open_trades:
+            exit_map = await provider.exit_bars(list(open_trades), d)
+            for sym, row in list(exit_map.items()):
+                trade = open_trades.get(sym)
+                if not trade:
                     continue
-                # Entry at next-bar open is more realistic; Phase-1 simplifies
-                # to same-bar close + slippage. Document this in the readout.
-                entry_price = float(r["close"]) * (1.0 + slippage_pct)
-                atr = float(r["atr14"] or 0.0) or (entry_price * 0.02)
-                stoploss = entry_price * (1.0 - sl_pct)
-                target = entry_price + (entry_price - stoploss) * target_rr
-
-                t = BacktestTrade(
-                    symbol=sym,
-                    entry_date=d,
-                    entry_price=entry_price,
-                    score=float(r["accumulation_score"] or 0.0),
-                    stoploss_price=stoploss,
-                    target_price=target,
-                    brokerage=2 * brokerage_inr,
-                    slippage_pct=slippage_pct,
+                closed = _maybe_close_trade(
+                    trade, d, row, sl_pct=sl_pct, target_rr=target_rr,
+                    max_hold=max_hold, trailing_atr_mult=trailing_atr_mult,
+                    brokerage_inr=brokerage_inr, slippage_pct=slippage_pct,
                 )
-                # Stash ATR for trailing stop bookkeeping
-                t.__dict__["_atr"] = atr
-                t.__dict__["_high_water"] = entry_price
-                open_trades[sym] = t
+                if closed is not None:
+                    equity += closed.pnl_abs or 0.0
+                    closed_trades.append(closed)
+                    del open_trades[sym]
 
+        # 2) Look for new entries — only if we have capacity
+        slots = max_positions - len(open_trades)
+        if slots <= 0:
             _record_equity(closed_trades, open_trades, equity, d)
+            continue
+
+        rows = await provider.screen(spec, d)
+        for r in rows[:slots]:
+            sym = r["symbol"]
+            if sym in open_trades:
+                continue
+            # Entry at next-bar open is more realistic; Phase-1 simplifies
+            # to same-bar close + slippage. Document this in the readout.
+            # Trade on the corp-action-adjusted close (R1); fall back to raw
+            # close only where the adjusted series is missing.
+            adj_close = r.get("adj_close")
+            base_px = float(adj_close) if adj_close is not None else float(r["close"])
+            entry_price = base_px * (1.0 + slippage_pct)
+            # features.atr14 is on a RAW-price basis; rescale to the adjusted
+            # basis (adj_close = raw_close / cumulative_adj_factor) so the
+            # trailing-stop distance is in the same units as price.
+            adj_factor = float(r["adj_factor"]) if r.get("adj_factor") else 1.0
+            raw_atr = float(r.get("atr14") or 0.0)
+            atr = (raw_atr / adj_factor) if raw_atr else (entry_price * 0.02)
+            stoploss = entry_price * (1.0 - sl_pct)
+            target = entry_price + (entry_price - stoploss) * target_rr
+
+            t = BacktestTrade(
+                symbol=sym,
+                entry_date=d,
+                entry_price=entry_price,
+                score=float(r.get("accumulation_score") or 0.0),
+                stoploss_price=stoploss,
+                target_price=target,
+                brokerage=2 * brokerage_inr,
+                slippage_pct=slippage_pct,
+            )
+            # Stash ATR for trailing stop bookkeeping
+            t.__dict__["_atr"] = atr
+            t.__dict__["_high_water"] = entry_price
+            open_trades[sym] = t
+
+        _record_equity(closed_trades, open_trades, equity, d)
 
     # Force-close any still-open positions at the last available close
     if open_trades:
-        async with pool.acquire() as conn:
-            last_bars = await _fetch_exit_bars(conn, list(open_trades), trading_dates[-1])
-        last_lookup = {r["symbol"]: r for r in last_bars}
+        last_lookup = await provider.exit_bars(list(open_trades), trading_dates[-1])
         for sym, trade in open_trades.items():
             row = last_lookup.get(sym)
             if not row:
@@ -194,37 +200,16 @@ async def run_backtest(
         open_trades.clear()
 
     metrics = _compute_metrics(closed_trades, starting_capital, equity)
+    # Self-describe the data basis so the readout / AC-7 data test can assert
+    # what actually ran rather than trust a static claim (CONTEXT §1). The
+    # provider reports the basis it actually used (price + universe membership).
+    metrics.update(provider.basis)
     equity_curve = _build_equity_curve(closed_trades, starting_capital, trading_dates)
 
     return BacktestResult(trades=closed_trades, equity_curve=equity_curve, metrics=metrics)
 
 
 # ── Internals ───────────────────────────────────────────────────────
-async def _fetch_exit_bars(conn, symbols: List[str], on_date: date) -> List[Any]:
-    """Fetch (high, low, close, atr14) for symbols on `on_date`.
-
-    Sources high/low/close from this env's stock_ohlcv; ATR comes from
-    the features snapshot. Features may be absent for symbols/dates
-    outside the snapshotter run window — we LEFT JOIN so the trade can
-    still exit on the OHLC bar (ATR-based trailing stop just won't
-    update that day, which is conservative)."""
-    return await conn.fetch(
-        """
-        SELECT o.nse_symbol AS symbol,
-               o.close_price AS close,
-               o.high_price AS high,
-               o.low_price AS low,
-               f.atr14
-          FROM stock_ohlcv o
-          LEFT JOIN nidp.stock_features_daily f
-            ON f.symbol = o.nse_symbol AND f.as_of_date = o.bar_date
-         WHERE o.nse_symbol = ANY($1::text[])
-           AND o.bar_date = $2
-        """,
-        symbols, on_date,
-    )
-
-
 def _maybe_close_trade(trade, on_date, row, *,
                        sl_pct: float, target_rr: float, max_hold: int,
                        trailing_atr_mult: Optional[float],

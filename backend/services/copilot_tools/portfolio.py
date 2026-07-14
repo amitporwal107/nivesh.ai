@@ -273,6 +273,70 @@ async def get_portfolio_summary(user_id: str) -> PortfolioResult:
     )
 
 
+# ── Portfolio health score + top recommendations ──────────────────────────
+# Called by the copilot portfolio node (nodes/portfolio.py). They were absent
+# from this module, so `port_mod.get_portfolio_health_score` /
+# `get_top_recommendations` raised AttributeError — which the node's coarse
+# except turned into "I couldn't retrieve the data needed…" for "What's my
+# portfolio health?" and "What's the one thing I should fix first?".
+async def get_portfolio_health_score(user_id: str) -> PortfolioResult:
+    """The SAME Portfolio Health score the overview/dashboard shows
+    (services.portfolio_health.build_portfolio_health) — score, grade, the four
+    component scores, and the top risk drivers. Use for "What is my portfolio
+    health score?" so the chat matches the number on screen."""
+    try:
+        from services.portfolio_health import build_portfolio_health
+        hr = await build_portfolio_health(user_id)
+        # Post-processing lives INSIDE the try so a None result or a shape change
+        # (e.g. hr.to_dict() failing) returns ok=False instead of throwing — an
+        # uncaught throw here would nuke the whole copilot answer (see the node's
+        # _fetch_portfolio_data, which preserves other tools' results too).
+        d = hr.to_dict()
+        drivers = d.get("risk_drivers") or []
+        driver_str = "; ".join(
+            str(dr.get("label") or dr.get("detail") or dr.get("component") or "") for dr in drivers[:3]
+        )
+        summary = d.get("summary") or f"Health {d.get('health_score')}/100 (Grade {d.get('grade')})."
+        if driver_str:
+            summary += f" Biggest fixes: {driver_str}."
+        if d.get("low_confidence"):
+            summary += " [some inputs are low-confidence]"
+        return PortfolioResult(ok=True, summary=summary, data=d, rows=drivers)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("health score unavailable user=%s err=%s", user_id, exc)
+        return PortfolioResult(ok=False, summary="Portfolio health score unavailable", error=str(exc))
+
+
+async def get_top_recommendations(user_id: str, limit: int = 6) -> PortfolioResult:
+    """The portfolio's top prioritised recommendations — the SAME ordered insight
+    list that powers the overview's Top-Actions card
+    (services.dashboard_recommendations.build_dashboard_recommendations). Use for
+    "What should I fix first?" / "Give me the top recommendations." so the chat
+    matches the dashboard."""
+    try:
+        from services.dashboard_recommendations import build_dashboard_recommendations
+        insights = await build_dashboard_recommendations(user_id)
+        # Post-processing lives INSIDE the try so a shape change in an insight
+        # (e.g. a non-float amount_rs) returns ok=False instead of throwing — an
+        # uncaught throw here would nuke the whole copilot answer.
+        if not insights:
+            return PortfolioResult(ok=True, summary="No outstanding recommendations — the portfolio looks aligned.", rows=[])
+        top = insights[:limit]
+        lines = []
+        for i, ins in enumerate(top, 1):
+            amt = ins.get("amount_rs")
+            amt_s = f" (~₹{float(amt):,.0f})" if amt else ""
+            lines.append(
+                f"{i}. [{ins.get('impact', '')}|{ins.get('kind', '')}] "
+                f"{ins.get('title', '')} → {ins.get('action', '')}{amt_s}"
+            )
+        summary = f"Top {len(top)} recommendations, ranked by impact: " + " | ".join(lines)
+        return PortfolioResult(ok=True, summary=summary, data={"total_count": len(insights)}, rows=top)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("top recommendations unavailable user=%s err=%s", user_id, exc)
+        return PortfolioResult(ok=False, summary="Top recommendations unavailable", error=str(exc))
+
+
 # ── Portfolio overlap ─────────────────────────────────────────────────────
 
 async def get_portfolio_overlap(user_id: str) -> PortfolioResult:
@@ -295,8 +359,14 @@ async def get_portfolio_overlap(user_id: str) -> PortfolioResult:
             "fund_a": p.get("a_name") or p.get("fund_a") or p.get("a", ""),
             "fund_b": p.get("b_name") or p.get("fund_b") or p.get("b", ""),
             "overlap_pct": round(float(p.get("overlap_pct") or 0), 1),
-            "shared_count": p.get("shared_count") or p.get("shared_stocks") or len(p.get("shared", []) or []),
-            "top_shared": (p.get("reasons") or [])[:3],
+            "shared_count": p.get("shared_count") or p.get("shared_stocks") or len(p.get("top_shared", []) or []),
+            # The actual shared stocks + each fund's weight — the holdings-level
+            # "why" behind the overlap %. PI emits these under `top_shared`; this
+            # field previously (mistakenly) carried `reasons` (SEBI-category
+            # labels), discarding the stock evidence before any widget saw it.
+            "top_shared": _shared_stocks(p.get("top_shared")),
+            # SEBI-category / severity labels — kept separate for the LLM context.
+            "reasons": (p.get("reasons") or [])[:3],
         }
         for p in pairs
     ]
@@ -395,6 +465,34 @@ def _redundancy_question(a: str, b: str) -> str:
     if "index" in t or "nifty" in t or "sensex" in t:
         return "Same index exposure, different weighting — keep both only if you want the tilt."
     return "Keep one — does the second earn its place vs the cheaper option?"
+
+
+def _pretty_stock(key: str) -> str:
+    """Re-case a stock slug/name key for display. portfolio_intelligence
+    lowercases the holding name/slug when building weight maps
+    ('reliance industries' / 'hdfc-bank'), so we title-case it back and keep
+    short tokens (<=3 chars: TCS, ITC, SBI, L&T) upper-cased."""
+    import re as _re
+    s = _re.sub(r"\s+", " ", _re.sub(r"[-_]+", " ", (key or "").strip()))
+    if not s:
+        return ""
+    return " ".join(w.upper() if len(w) <= 3 else w[:1].upper() + w[1:] for w in s.split())
+
+
+def _shared_stocks(raw: Any) -> List[Dict[str, Any]]:
+    """Normalise portfolio_intelligence's per-pair `top_shared`
+    ([{key, w_a, w_b, shared_w}]) into a compact, renderable list — the
+    holdings-level "why" behind an overlap %. Tolerant of a legacy plain
+    string list and of missing weights."""
+    out: List[Dict[str, Any]] = []
+    for s in (raw or [])[:6]:
+        if isinstance(s, dict):
+            name = _pretty_stock(s.get("key") or s.get("name") or "")
+            if name:
+                out.append({"name": name, "w_a": s.get("w_a"), "w_b": s.get("w_b")})
+        elif isinstance(s, str) and s.strip():
+            out.append({"name": _pretty_stock(s), "w_a": None, "w_b": None})
+    return out
 
 
 def build_consolidation_widget(overlap: Any) -> Dict[str, Any]:
@@ -541,7 +639,10 @@ def build_overlap_widget(overlap: Any) -> Dict[str, Any]:
             "rows": [
                 {"name": f"{_short_fund(r.get('fund_a', ''))} ↔ {_short_fund(r.get('fund_b', ''))}",
                  "overlap_pct": round(r.get("overlap_pct") or 0),
-                 "detail": _redundancy_question(r.get("fund_a", ""), r.get("fund_b", ""))}
+                 "detail": _redundancy_question(r.get("fund_a", ""), r.get("fund_b", "")),
+                 # Holdings-level evidence: the specific stocks both funds hold.
+                 "shared": r.get("top_shared") or [],
+                 "shared_count": int(r.get("shared_count") or 0)}
                 for r in shown
             ],
             "more_note": (f"+ {rest} more pair(s) in the {lo}–{hi}% range — lower priority." if rest > 0 else None),
@@ -653,7 +754,12 @@ def build_overlap_severity_widget(overlap: Any) -> Dict[str, Any]:
             "rows": [
                 {"name": (f"{_short_fund(r.get('fund_a',''))} · Regular ↔ Direct" if r.get("is_plan_duplicate")
                           else f"{_short_fund(r.get('fund_a',''))} ↔ {_short_fund(r.get('fund_b',''))}"),
-                 "overlap_pct": round(r.get("overlap_pct") or 0)}
+                 "overlap_pct": round(r.get("overlap_pct") or 0),
+                 # Shared stocks behind a cross-fund pair. Skip for plan
+                 # duplicates (Regular/Direct of ONE scheme — the whole
+                 # portfolio is "shared", which is noise, not insight).
+                 "shared": [] if r.get("is_plan_duplicate") else (r.get("top_shared") or []),
+                 "shared_count": int(r.get("shared_count") or 0)}
                 for r in top
             ],
             "note": ("All same-scheme held in two plans — a cost issue, not a diversification one. "
@@ -1684,10 +1790,33 @@ async def get_rebalance_plan(user_id: str, risk_profile: Optional[str] = None) -
     _basis = (f"{_target['risk_profile']} risk profile"
               + (f", {_target['horizon_years']:.0f}y goal horizon" if _target["horizon_source"] == "goals"
                  else ", default long-term horizon"))
+
+    # Name the exit-first funds + redeploy targets IN the summary — the LLM only
+    # sees `summary`, so without this it cannot answer "which funds to exit
+    # first?" / "what do I add?" even though both lists are computed in `data`.
+    exit_str = ""
+    if redundancy:
+        ex = "; ".join(
+            (c.get("name") or "?")
+            + (f" (exit score {c['exit_score']}/100" + (f", quality {c['quality_score']}/100)" if c.get("quality_score") is not None else ")")
+               if c.get("exit_score") is not None else "")
+            + (f" ₹{c['amount_rs']:,.0f}" if c.get("amount_rs") else "")
+            for c in redundancy[:4]
+        )
+        exit_str = f" Exit first (lowest-conviction / most redundant): {ex}."
+    add_str = ""
+    if redeploy_recs:
+        ad = "; ".join(
+            (r.get("name") or "?")
+            + (f" (rank {r['rank']}" + (f", 3y {r['return_3y']}%)" if r.get("return_3y") is not None else ")")
+               if r.get("rank") else "")
+            for r in redeploy_recs[:3]
+        )
+        add_str = f" Redeploy / add into: {ad}."
     summary = (
         f"Portfolio ₹{current_value:,.0f}: equity {equity_pct:.0f}% / debt {debt_pct:.0f}% "
         f"vs target {target_equity:.0f}/{target_debt:.0f} (from your {_basis}). "
-        f"{len(actions)} action(s) suggested."
+        f"{len(actions)} action(s) suggested." + exit_str + add_str
     )
     return PortfolioResult(
         ok=True,

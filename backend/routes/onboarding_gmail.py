@@ -460,6 +460,12 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             cas_total_value = nsdl_grand_total
         if nsdl_stmt_date:
             cas_statement_date = nsdl_stmt_date
+        # The custom NSDL / CAMS-KFin extractors give a statement date but no
+        # casparser meta, so extract_statement_period() found nothing above.
+        # Fall back to the finalized statement date so the "Last CAS" banner
+        # shows the month for every CAS type, not just the casparser path.
+        if not statement_period and cas_statement_date:
+            statement_period = cas_api_client.period_label_from_date(cas_statement_date)
         all_holdings.extend(holdings)
         used_email = email
         # Per-asset-class breakdown for reconciliation against the CAS summary.
@@ -688,6 +694,21 @@ async def upload_cas_pdf(
             "Enter your PAN (or the statement password) to unlock the CAS PDF.",
         )
 
+    return await import_cas_pdf_for_user(user_id, content, pan, filename)
+
+
+async def import_cas_pdf_for_user(
+    user_id: str, content: bytes, pan: str, filename: str,
+) -> Dict[str, Any]:
+    """Parse a CAS PDF (NSDL → CDSL → CAMS/KFintech → offline casparser) and
+    persist the reconciled holdings + portfolio-value trend for ``user_id``.
+
+    Shared by the retail self-upload endpoint (``POST /api/onboarding/upload-cas``,
+    where ``user_id`` is the logged-in user) and the advisor client-upload
+    endpoint (``POST /api/mfd/profiles/{id}/upload-cas``, where ``user_id`` is
+    the client profile's shadow user). Raises 422 when no extractor can read
+    the statement so the caller can prompt for a different PAN/password.
+    """
     # NSDL-first (custom reconciling extractor), offline casparser fallback —
     # no hosted casparser.in SDK / API key. Mirrors the Gmail auto-import path.
     holdings, raw_data = [], None
@@ -776,6 +797,10 @@ async def upload_cas_pdf(
         cas_portfolio_value = nsdl_grand_total
     if nsdl_stmt_date:
         cas_statement_date = nsdl_stmt_date
+    # Custom-extractor CAS has a statement date but no casparser meta — derive
+    # the "Last CAS" period from the date so it isn't dropped (see gmail import).
+    if not statement_period and cas_statement_date:
+        statement_period = cas_api_client.period_label_from_date(cas_statement_date)
     task_id = f"onboard_upload_{uuid.uuid4().hex[:10]}"
     await save_holdings(user_id, holdings, file_type="cas_pdf", task_id=task_id)
 

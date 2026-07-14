@@ -6,16 +6,18 @@ import { Button } from "@/components/ui/button";
 import { GoogleMark } from "@/components/shared/GoogleMark";
 import { Upload, Shield, CheckCircle2, User, Briefcase } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useCasUpload } from "@/hooks/use-cas-upload";
 import { useUpgradeToAdvisory } from "@/hooks/use-advisor";
 import { useUIStore } from "@/stores/ui.store";
 import { useToastStore } from "@/stores/toast.store";
 import { apiFetch } from "@/services/api/authed-fetch";
+import { ProfileWizardModal } from "@/pages/Dashboard/ProfileWizardModal";
+import { useQueryClient } from "@tanstack/react-query";
+import type { User as AppUser } from "@/types/user";
 
 type Method = "gmail" | "upload" | "otp";
-type Phase = "persona" | "connect";
+type Phase = "persona" | "connect" | "profile";
 
-const STEPS = ["Who are you", "Connect investments", "Goals", "Review"];
+const STEPS = ["Who are you", "Connect", "Goals & Risk", "Copilot"];
 
 // Returning from a Gmail OAuth round-trip? Skip persona and resume the connect flow.
 const returningFromOauth = () => {
@@ -25,22 +27,80 @@ const returningFromOauth = () => {
 
 export default function OnboardingPage() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [method, setMethod] = useState<Method>("gmail");
   const [phase, setPhase] = useState<Phase>(returningFromOauth() ? "connect" : "persona");
 
-  // If already onboarded (CAS imported), redirect to dashboard — the risk
-  // profile CTA lives there, not here. Only block here for brand-new users.
+  // If already onboarded (CAS imported), send them straight to the Copilot
+  // (/lite) — the lite surface is the product's primary destination. Only
+  // brand-new users continue through the onboarding steps below.
   useEffect(() => {
     apiFetch("/api/onboarding/state")
       .then(r => r.ok ? r.json() : null)
       .then((d: { onboarding_completed?: boolean } | null) => {
-        if (d?.onboarding_completed) navigate("/dashboard", { replace: true });
+        if (d?.onboarding_completed) navigate("/lite", { replace: true });
       })
       .catch(() => {});
   }, [navigate]);
 
+  const goToProfile = () => setPhase("profile");
+
+  // Terminal step of onboarding → land in the Copilot (/lite). Mark onboarding
+  // complete (connecting a portfolio already sets this server-side; this also
+  // covers the skip-through path) and refresh `useMe` BEFORE navigating, so the
+  // /lite onboarding gate (RequireOnboarded) sees the fresh flag and does not
+  // bounce the user straight back here.
+  const finishOnboarding = async () => {
+    try {
+      await apiFetch("/api/user/complete-onboarding", { method: "POST" });
+    } catch {
+      // best-effort — a connected CAS/Gmail import already flips the flag
+    }
+    // Flip the cached onboarding flag SYNCHRONOUSLY so the /lite gate
+    // (RequireOnboarded) passes immediately. /onboarding has no active `useMe`
+    // observer, so invalidate alone would leave the stale flag in the cache and
+    // the gate would bounce the user back here (useMe has refetchOnMount:false).
+    // Invalidate too, so the server value is reconciled in the background.
+    qc.setQueryData<AppUser>(["auth", "me"], (old) =>
+      old ? { ...old, onboardingCompleted: true } : old);
+    qc.invalidateQueries({ queryKey: ["auth", "me"] });
+    navigate("/lite", { replace: true });
+  };
+
   if (phase === "persona") {
     return <PersonaSelect onIndividual={() => setPhase("connect")} />;
+  }
+
+  // Step 3 — Goal & Risk. Reuses the shared ProfileWizardModal scoped to just
+  // Risk + Goal (lastStep=1). BOTH steps are optional: every step skips, and
+  // finishing OR closing the wizard lands the user in the Copilot (/lite).
+  // Per product intent, this step is never mandatory.
+  if (phase === "profile") {
+    return (
+      <div className="min-h-screen flex flex-col bg-bg">
+        <header className="flex items-center px-8 sm:px-14 h-16 border-b border-hairline">
+          <span className="grid place-items-center h-8 w-8 rounded-md bg-ink text-on-accent font-display text-[19px] leading-none">न</span>
+          <span className="font-display text-[19px] tracking-tightish ml-3">Nivesh</span>
+          <Stepper steps={STEPS} active={2} className="ml-auto hidden md:flex" />
+          <span className="font-mono text-[10px] text-ink-3 tracking-[.06em] uppercase ml-4 md:ml-6">Step 3 of 4 · optional</span>
+        </header>
+        <main className="flex-1 grid place-items-center px-8 text-center">
+          <p className="max-w-[440px] text-[14px] text-ink-2 leading-relaxed">
+            Two quick things — your goal and your risk comfort. Both are optional;
+            skip and the Copilot will ask you later.
+          </p>
+        </main>
+        <ProfileWizardModal
+          open
+          startStep={0}
+          lastStep={1}
+          completeness={{ hasRiskProfile: false, hasGoal: false, hasSnapshot: false }}
+          existingProfile={null}
+          onComplete={() => {}}
+          onClose={finishOnboarding}
+        />
+      </div>
+    );
   }
 
   return (
@@ -87,8 +147,8 @@ export default function OnboardingPage() {
         </div>
 
         <Card className="self-start">
-          {method === "gmail" && <GmailPanel />}
-          {method === "upload" && <UploadPanel />}
+          {method === "gmail" && <GmailPanel onContinue={goToProfile} />}
+          {method === "upload" && <UploadPanel onContinue={goToProfile} />}
           {method === "otp" && <OtpPanel />}
         </Card>
       </main>
@@ -96,7 +156,7 @@ export default function OnboardingPage() {
       <footer className="border-t border-hairline px-8 sm:px-14 py-4 flex items-center bg-bg">
         <Button variant="outline" onClick={() => setPhase("persona")}>‹ Back</Button>
         <span className="ml-auto font-mono text-[10px] uppercase tracking-[.08em] text-ink-3 mr-4">Skip for now · add later</span>
-        <Button variant="accent" onClick={() => navigate("/dashboard")}>Continue · Goals →</Button>
+        <Button variant="accent" data-testid="onboarding-to-profile" onClick={goToProfile}>Continue · Goals &amp; Risk →</Button>
       </footer>
     </div>
   );
@@ -230,14 +290,13 @@ function MethodCard({ no, active, onSelect, icon, title, sub, time }: MethodCard
 //   → importing (POST /api/onboarding/gmail/auto-import) → done | error
 type GmailState = "idle" | "authorizing" | "pan_entry" | "importing" | "done" | "error";
 
-function GmailPanel() {
+function GmailPanel({ onContinue }: { onContinue: () => void }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [state, setState] = useState<GmailState>("idle");
   const [pan, setPan] = useState("");
   const [panError, setPanError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ source?: string; holdings?: number; transactions?: number } | null>(null);
-  const navigate = useNavigate();
 
   // Detect return from Gmail OAuth
   useEffect(() => {
@@ -293,11 +352,25 @@ function GmailPanel() {
         method: "POST",
       });
       const data = await importRes.json() as {
-        ok?: boolean; message?: string;
+        ok?: boolean; message?: string; scanned?: number;
+        parse_error?: { kind?: string; message?: string; detail?: string };
         source_used?: string; imported_holdings?: number; imported_transactions?: number;
       };
-      if (!importRes.ok || !data.ok) {
-        throw new Error(data.message || `Import failed: ${importRes.status}`);
+      // A failed import returns HTTP 200 with ok:false and the real reason in
+      // `parse_error` (kind/message/detail). The "no CAS emails" case returns
+      // ok:true but 0 holdings with a top-level `message`. Surface the actual
+      // reason — never the bare status (that produced the useless
+      // "Import failed: 200").
+      const importedOk = data.ok && (data.imported_holdings ?? 0) > 0;
+      if (!importRes.ok || !importedOk) {
+        const reason =
+          data.parse_error?.message ||
+          data.message ||
+          (data.scanned === 0
+            ? "No CAS emails found in this inbox. Try CAS Upload instead."
+            : "We found your CAS email but couldn't read the statement. Check your PAN is correct, or use CAS Upload.");
+        const detail = data.parse_error?.detail ? ` (${data.parse_error.detail})` : "";
+        throw new Error(reason + detail);
       }
       setResult({ source: data.source_used, holdings: data.imported_holdings, transactions: data.imported_transactions });
       setState("done");
@@ -317,8 +390,8 @@ function GmailPanel() {
           {result?.holdings ?? 0} holdings
           {result?.transactions ? ` · ${result.transactions} transactions` : ""} imported from your latest CAS statement.
         </p>
-        <Button variant="accent" className="mt-2" onClick={() => navigate("/dashboard")}>
-          Go to dashboard →
+        <Button variant="accent" className="mt-2" data-testid="gmail-continue" onClick={onContinue}>
+          Set goals &amp; risk →
         </Button>
       </div>
     );
@@ -435,20 +508,58 @@ function GmailPanel() {
   );
 }
 
-function UploadPanel() {
+type UploadState = "idle" | "uploading" | "done" | "error";
+
+function UploadPanel({ onContinue }: { onContinue: () => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [password, setPassword] = useState("");
-  const upload = useCasUpload();
+  const [pan, setPan] = useState("");
+  const [state, setState] = useState<UploadState>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ holdings?: number } | null>(null);
 
-  const handleFile = (file: File | undefined) => {
+  // Retail CAS PDF upload goes to the in-house parser at
+  // POST /api/onboarding/upload-cas (NOT /api/portfolio/upload — that endpoint
+  // is CSV/Excel-only and 410s PDFs). eCAS PDFs are password-locked with the
+  // holder's PAN, which the endpoint reads from the profile — so we save the
+  // PAN first, then post the file as multipart.
+  const handleFile = async (file: File | undefined) => {
     if (!file) return;
-    upload.upload({ file, password: password || undefined });
-  };
+    const panVal = pan.trim().toUpperCase();
+    if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(panVal)) {
+      setError("Enter your PAN (e.g. ABCDE1234F) first — eCAS PDFs are locked with it.");
+      setState("error");
+      return;
+    }
+    setError(null);
+    setState("uploading");
+    try {
+      const panRes = await apiFetch("/api/onboarding/pan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pan: panVal }),
+      });
+      if (!panRes.ok) throw new Error(`Couldn't save your PAN (${panRes.status}).`);
 
-  const status = upload.status;
-  const progress = upload.progress;
-  const done = status === "COMPLETED";
-  const failed = status === "FAILED";
+      const form = new FormData();
+      form.append("file", file);
+      const res = await apiFetch("/api/onboarding/upload-cas", { method: "POST", body: form });
+      const data = await res.json().catch(() => ({})) as {
+        ok?: boolean; imported_holdings?: number;
+        detail?: string | { message?: string };
+      };
+      if (!res.ok || !data.ok) {
+        const reason =
+          (typeof data.detail === "string" ? data.detail : data.detail?.message) ||
+          "Couldn't read this CAS PDF. Check your PAN, and use a recent NSDL / CDSL / CAMS / KFintech statement.";
+        throw new Error(reason);
+      }
+      setResult({ holdings: data.imported_holdings });
+      setState("done");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+      setState("error");
+    }
+  };
 
   return (
     <div className="p-6">
@@ -475,7 +586,7 @@ function UploadPanel() {
         onChange={(e) => handleFile(e.target.files?.[0])}
       />
 
-      {!upload.started && (
+      {(state === "idle" || state === "error") && (
         <div
           className="mt-5 rounded-md border border-dashed border-hairline-2 bg-bg p-8 text-center"
           onDragOver={(e) => e.preventDefault()}
@@ -486,65 +597,58 @@ function UploadPanel() {
         >
           <div className="h-12 w-12 rounded-md bg-surface-2 grid place-items-center text-ink-2 mx-auto mb-3 text-2xl">↧</div>
           <div className="font-display text-lg tracking-tightish">Drop your eCAS PDF here</div>
-          <div className="font-mono text-[10.5px] text-ink-3 mt-1.5">PDF · up to 10 MB · password-protected accepted</div>
+          <div className="font-mono text-[10.5px] text-ink-3 mt-1.5">PDF · up to 25 MB · PAN unlocks it</div>
+
+          <div className="mt-4 text-left">
+            <label className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">Your PAN · unlocks the eCAS PDF</label>
+            <input
+              type="text"
+              value={pan}
+              onChange={(e) => setPan(e.target.value.toUpperCase())}
+              maxLength={10}
+              placeholder="e.g. ABCDE1234F"
+              data-testid="cas-pan"
+              className="mt-1.5 w-full px-3 h-10 rounded-md bg-surface-1 border border-hairline-2 font-mono text-[13px] uppercase tracking-widest outline-none focus:border-accent"
+            />
+          </div>
+
           <Button variant="outline" size="sm" className="mt-3.5" onClick={() => fileInputRef.current?.click()}>
             Browse files
           </Button>
-
-          <div className="mt-4 text-left">
-            <label className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">PAN / PDF password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="PAN (e.g. ABCDE1234F) or statement password"
-              className="mt-1.5 w-full px-3 h-10 rounded-md bg-surface-1 border border-hairline-2 text-[13px] outline-none focus:border-accent"
-            />
-            <div className="font-mono text-[10px] text-ink-3 mt-1.5">
-              NSDL / CDSL eCAS are locked with your PAN. Leave blank only if you already added your PAN.
-            </div>
-          </div>
         </div>
       )}
 
-      {upload.started && !done && !failed && (
-        <div className="mt-5 rounded-md bg-bg border border-hairline p-5">
-          <div className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">
-            Parsing your statement…
-          </div>
-          <div className="mt-2 h-2 w-full rounded-full bg-surface-2 overflow-hidden">
-            <div
-              className="h-full bg-accent transition-all"
-              style={{ width: `${Math.max(8, progress)}%` }}
-            />
-          </div>
-          <div className="font-mono text-[10.5px] text-ink-3 mt-2">
-            Status · {status ?? "QUEUED"} · {progress}%
-          </div>
+      {state === "error" && error && (
+        <div className="mt-4 text-[12.5px] text-neg bg-[rgb(var(--neg)/0.08)] border border-[rgb(var(--neg)/0.20)] rounded-md px-3.5 py-2.5">
+          {error}
         </div>
       )}
 
-      {done && (
-        <div className="mt-5 rounded-md bg-[rgb(var(--pos)/0.08)] border border-[rgb(var(--pos)/0.30)] p-4 flex items-start gap-3">
-          <CheckCircle2 className="h-5 w-5 text-pos shrink-0 mt-0.5" />
+      {state === "uploading" && (
+        <div className="mt-5 rounded-md bg-bg border border-hairline p-5 flex items-center gap-3">
+          <div className="h-8 w-8 rounded-full border-2 border-accent border-t-transparent animate-spin" />
           <div>
-            <div className="font-medium text-[14px]">Parsed successfully</div>
-            <div className="text-[12.5px] text-ink-2 mt-1">
-              {upload.result?.imported_holdings
-                ? `${upload.result.imported_holdings} holdings imported into Nivesh. Continue to set your goals.`
-                : "Your holdings are now in Nivesh. Continue to set your goals."}
-            </div>
+            <div className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">Parsing your statement…</div>
+            <div className="text-[12.5px] text-ink-2 mt-0.5">Unlocking with your PAN · reading holdings</div>
           </div>
         </div>
       )}
 
-      {failed && (
-        <div className="mt-5 rounded-md bg-[rgb(var(--neg)/0.08)] border border-[rgb(var(--neg)/0.30)] p-4">
-          <div className="font-medium text-[14px] text-neg">Parsing failed</div>
-          <div className="text-[12.5px] text-ink-2 mt-1">
-            {upload.error instanceof Error ? upload.error.message : "Try a different file or check the password."}
+      {state === "done" && (
+        <>
+          <div className="mt-5 rounded-md bg-[rgb(var(--pos)/0.08)] border border-[rgb(var(--pos)/0.30)] p-4 flex items-start gap-3">
+            <CheckCircle2 className="h-5 w-5 text-pos shrink-0 mt-0.5" />
+            <div>
+              <div className="font-medium text-[14px]">Parsed successfully</div>
+              <div className="text-[12.5px] text-ink-2 mt-1">
+                {result?.holdings ? `${result.holdings} holdings imported. ` : ""}Continue to set your goals.
+              </div>
+            </div>
           </div>
-        </div>
+          <Button variant="accent" className="w-full mt-3" data-testid="upload-continue" onClick={onContinue}>
+            Set goals &amp; risk →
+          </Button>
+        </>
       )}
 
       <div className="rounded-md bg-bg border border-hairline p-3.5 mt-3.5 flex items-center gap-3">

@@ -4,6 +4,7 @@
  */
 import { ReactNode } from "react";
 import { Mark, ScoreRing } from "../parts";
+import { useAskProps } from "../useEnterCopilot";
 
 const STATS = [
   { k: "CLIENTS", v: "128", sub: "42 ACTIVE THIS WK", c: "rgb(var(--ink))" },
@@ -93,6 +94,7 @@ const WORKFLOWS: Wf[] = [
 ];
 
 export default function Advisor() {
+  const askProps = useAskProps();
   return (
     <section id="ct-advisor" style={{ padding: "38px clamp(18px,3vw,52px) 60px" }}>
       <div className="ct-wrap" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
@@ -150,7 +152,7 @@ export default function Advisor() {
               <thead><tr>{["Client", "AUM", "Health", "Flag", "Suggested action", "₹ at stake / gain"].map((h, i) => (<th key={h} style={i === 5 ? { textAlign: "right" } : undefined}>{h}</th>))}</tr></thead>
               <tbody>
                 {CLIENTS.map((c) => (
-                  <tr key={c.name}>
+                  <tr key={c.name} {...askProps(`Brief me on ${c.name} — ${c.action.toLowerCase()}`)} style={{ cursor: "pointer" }}>
                     <td style={{ color: "rgb(var(--ink))" }}>{c.name}</td>
                     <td className="nv-num">{c.aum}</td>
                     <td><span className="ct-hp" style={hpStyle(c.hp.color)}><span className="nv-dot" style={{ background: c.hp.color }} />{c.score}</span></td>
@@ -172,7 +174,7 @@ export default function Advisor() {
           </div>
           <div className="ct-cardgrid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(380px,1fr))" }}>
             {WORKFLOWS.map((w) => (
-              <div key={w.title} className="nv-card ct-wf">
+              <div key={w.title} className="nv-card ct-wf" {...askProps(w.prompt)}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                   <span className="nv-eyebrow" style={{ fontSize: 9 }}>{w.eyebrow}</span>{w.badge}
                 </div>

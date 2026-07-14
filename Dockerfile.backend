@@ -20,6 +20,7 @@ WORKDIR /app/backend
 #   - libpq-dev:                psycopg / asyncpg
 #   - libxml2-dev / libxslt-dev:lxml (NIDP scrapers)
 #   - curl + jq:                in-container healthchecks / debugging
+#   - git:                      auto-fix agent clone/push (fix_agent / fix_agent_runner)
 #   - tzdata:                   TZ=Asia/Kolkata
 #   - libmagic1 + poppler-utils:document_parser ingester
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -27,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         libpq-dev \
         libxml2-dev libxslt-dev \
-        curl jq tzdata \
+        curl jq git tzdata \
         libmagic1 poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 

@@ -6,6 +6,7 @@
  * Contracts in advisor.contract.ts mirror the running handlers exactly.
  */
 import { http } from "@/services/api/http";
+import { apiFetch } from "@/services/api/authed-fetch";
 import { ApiError } from "@/services/api/errors";
 import {
   ClientProfileC,
@@ -42,6 +43,11 @@ export interface AdvisorAdapter {
 
   activate(profileId: string): Promise<{ ok: true; profile_id: string; name: string }>;
   deactivate(): Promise<{ ok: true }>;
+
+  /** Upload a client's CAS PDF directly and attach the holdings to their
+   *  profile (advisor-driven onboarding). `password` overrides the client's
+   *  PAN for statements locked with a custom mailback password. */
+  uploadClientCas(profileId: string, file: File, password?: string): Promise<{ ok: boolean; imported_holdings: number; statement_period?: string | null; filename?: string }>;
 
   summary(): Promise<{ book_aum_rs: number; avg_health_score: number; needs_attention_count: number; actions_open_count: number; clients_total: number }>;
   sipBoard(state?: string, cycle?: string): Promise<{ cycle: string; queues: { failed: unknown[]; expiring: unknown[]; step_up: unknown[]; healthy: unknown[] } }>;
@@ -124,6 +130,19 @@ export const realAdvisorAdapter: AdvisorAdapter = {
   async deactivate() {
     await http({ method: "POST", path: "/api/mfd/profiles/deactivate" });
     return { ok: true };
+  },
+
+  async uploadClientCas(profileId, file, password) {
+    const form = new FormData();
+    form.append("file", file);
+    if (password && password.trim()) form.append("password", password.trim());
+    const res = await apiFetch(
+      `/api/mfd/profiles/${encodeURIComponent(profileId)}/upload-cas`,
+      { method: "POST", body: form, credentials: "include" },
+    );
+    const body = await res.json().catch(() => undefined);
+    if (!res.ok) throw ApiError.fromResponse(res, body, "");
+    return body as { ok: boolean; imported_holdings: number; statement_period?: string | null; filename?: string };
   },
 
   async summary() {

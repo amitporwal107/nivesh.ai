@@ -71,8 +71,11 @@ export default function HomepagePage() {
   const h = health as any;
   const liveScore: number | null =
     h?.health?.health_score ?? h?.health?.score ?? (summary as any)?.healthScore ?? null;
-  const isLive = liveScore != null;
-  const targetScore = liveScore ?? SAMPLE_SCORE;
+  // A score of 0 is the backend's empty-portfolio sentinel (build_portfolio_health
+  // returns 0/F when there are no holdings to score), not a real grade — treat it
+  // as "no live score" and fall back to the PREVIEW sample, like the chat path does.
+  const isLive = liveScore != null && liveScore > 0;
+  const targetScore = isLive ? liveScore : SAMPLE_SCORE;
 
   const liveBreakdown = h?.health?.breakdown as Record<string, number> | undefined;
   const liveDims: Array<{ label: string; v: number }> | null = liveBreakdown
@@ -187,6 +190,9 @@ export default function HomepagePage() {
               </button>
               <button className="btn-ghost btn-lg" onClick={() => setShowDemo(true)}>
                 Watch the 90-second tour
+              </button>
+              <button className="btn-ghost btn-lg" data-testid="home-learn-link" onClick={() => navigate("/learn")}>
+                Explore Nivesh Learn →
               </button>
             </div>
             <div className="trust h-rv d3">
