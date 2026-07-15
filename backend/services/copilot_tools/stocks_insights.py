@@ -34,12 +34,49 @@ DISCLAIMER = "AI-generated from exchange filings. Verify against the original fi
 # little across /v1/announcements, /v1/events, /v1/intelligence/events/search).
 _HEADLINE_KEYS = ("headline", "subject", "title", "summary", "description")
 _CATEGORY_KEYS = ("category", "event_category", "event_type", "type")
+# The exchange's OWN filing category (BSE CATEGORYNAME / NSE subject) — Phase-1
+# taxonomy, distinct from the AI-derived event_category (Phase-2). Surfaced so the
+# card can offer the "Exchange Categories" filter (AGM/EGM, Board Meeting, …).
+_EXCHANGE_CATEGORY_KEYS = ("raw_category", "exchange_category", "strcat", "categoryname")
 _IMPACT_KEYS = ("ai_impact", "impact", "materiality")
 _FILED_KEYS = ("filed_at", "filed_date", "as_of", "date", "event_date", "published_at", "when")
 _URL_KEYS = ("url", "attachment_url", "source_url", "pdf_url", "filing_url", "link")
 _SYMBOL_KEYS = ("symbol", "nse_symbol", "ticker", "security_symbol")
 _ID_KEYS = ("announcement_id", "event_id", "id")
 _SUMMARY_KEYS = ("summary", "description", "body", "ai_summary", "excerpt")
+
+# Canonical Phase-1 exchange categories (mirror the BSE/NSE filter list users see).
+# We normalise the messy raw_category + headline into ONE of these buckets so the
+# same taxonomy works across both exchanges (BSE gives clean CATEGORYNAMEs; NSE's
+# raw_category is often the industry, so we also sniff the headline text).
+_EXCHANGE_CATEGORY_RULES = (
+    ("agm_egm",        ("agm", "egm", "annual general meeting", "extraordinary general")),
+    ("board_meeting",  ("board meeting",)),
+    ("result",         ("result", "financial result", "quarterly result", "unaudited", "audited financ")),
+    ("insider_sast",   ("insider", "sast", "pledge", "reg. 7", "reg 7", "acquisition of shares", "disclosure under")),
+    ("integrated",     ("integrated filing", "integrated governance", "integrated_filing")),
+    ("listing",        ("new listing", "listing of", "commencement of trading", "further issue")),
+    ("corp_action",    ("corp. action", "corporate action", "dividend", "bonus", "stock split",
+                        "sub-division", "buyback", "buy back", "rights issue", "record date", "scheme of arrangement")),
+    ("company_update", ("company update", "comp. update", "press release", "clarification",
+                        "intimation", "investor presentation", "analyst", "media release", "update")),
+)
+_EXCHANGE_CATEGORY_LABELS = {
+    "agm_egm": "AGM/EGM", "board_meeting": "Board Meeting", "result": "Result",
+    "insider_sast": "Insider/SAST", "integrated": "Integrated", "listing": "Listing",
+    "corp_action": "Corp Action", "company_update": "Company Update", "others": "Others",
+}
+
+
+def _normalize_exchange_category(raw: Any, headline: str = "") -> str:
+    """Map a raw BSE/NSE category (+ headline fallback) to one Phase-1 bucket."""
+    hay = f"{raw or ''} {headline or ''}".lower()
+    if not hay.strip():
+        return "others"
+    for bucket, needles in _EXCHANGE_CATEGORY_RULES:
+        if any(n in hay for n in needles):
+            return bucket
+    return "others"
 
 
 @dataclass
@@ -102,11 +139,15 @@ def _shape_event(row: Dict[str, Any]) -> Dict[str, Any]:
     /v1/events/{symbol} and /v1/intelligence/events/search rows.
     """
     cat = _first(row, _CATEGORY_KEYS, "other")
+    headline = _first(row, _HEADLINE_KEYS, "")
+    exch = _normalize_exchange_category(_first(row, _EXCHANGE_CATEGORY_KEYS), headline)
     return {
         "id": _first(row, _ID_KEYS),
         "symbol": _first(row, _SYMBOL_KEYS),
-        "category": str(cat).lower().replace(" ", "_") if cat else "other",
-        "headline": _first(row, _HEADLINE_KEYS, ""),
+        "category": str(cat).lower().replace(" ", "_") if cat else "other",  # AI event_category (Phase 2)
+        "exchange_category": exch,                                            # BSE/NSE native (Phase 1)
+        "exchange_category_label": _EXCHANGE_CATEGORY_LABELS.get(exch, "Others"),
+        "headline": headline,
         "impact": _first(row, _IMPACT_KEYS),
         "filed_at": _first(row, _FILED_KEYS),
         "url": _first(row, _URL_KEYS),
