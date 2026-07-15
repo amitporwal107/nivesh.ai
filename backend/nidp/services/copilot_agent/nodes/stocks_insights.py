@@ -16,6 +16,7 @@ found, the answer refuses ("no recent filings found") rather than inventing.
 from __future__ import annotations
 
 import logging
+import re
 
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
