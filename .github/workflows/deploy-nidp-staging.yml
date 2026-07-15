@@ -79,6 +79,20 @@ jobs:
             "${GIT[@]}" -C "$DEV_REPO" reset --hard --quiet "origin/$BRANCH"
             ok "Code updated → $("${GIT[@]}" -C $DEV_REPO log -1 --oneline)"
 
+            # Ensure OCR binaries for the document_parser image/scanned-PDF fallback.
+            # Idempotent — only installs when missing, so it costs nothing once present.
+            if ! command -v tesseract >/dev/null 2>&1 || ! command -v pdftoppm >/dev/null 2>&1; then
+              log "installing OCR deps (tesseract-ocr + poppler-utils)..."
+              sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq || true
+              if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tesseract-ocr poppler-utils; then
+                ok "OCR deps installed — parser will now OCR scanned/image filing PDFs"
+              else
+                log "OCR dep install failed — parser keeps skipping image PDFs (no breakage)"
+              fi
+            else
+              log "OCR deps already present"
+            fi
+
             # Reinstall deps if requirements.txt changed.
             if "${GIT[@]}" -C "$DEV_REPO" diff HEAD~1 HEAD --name-only 2>/dev/null | \
                 grep -q 'backend/nidp/deploy/requirements.txt'; then
