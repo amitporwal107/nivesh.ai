@@ -80,6 +80,27 @@ def _resolve_symbol(text: str):
         return None
 
 
+# Cross-company / thematic questions ("which companies…", "who are the
+# beneficiaries…") must run the thematic cross-company search, NOT collapse to a
+# single ticker even when the resolver finds one (a stray acronym or sector word).
+# When the phrasing is clearly about *a set of companies*, force thematic mode.
+_THEMATIC_RE = re.compile(
+    r"\bwhich\s+(?:\w+\s+){0,3}(?:companies|company|stocks?|firms?|players?|names|"
+    r"smallcaps?|midcaps?|largecaps?|makers?|exporters?|beneficiar\w*)\b"
+    r"|\bwhat\s+companies\b"
+    r"|\bcompan(?:y|ies)\s+(?:that|which|are|is|investing|talking|mention\w*|"
+    r"announc\w*|expand\w*|winning|won|affected|exposed|involved|adding)\b"
+    r"|\bwho\s+(?:are|is)\s+(?:the\s+)?(?:beneficiar\w*|companies|players)\b"
+    r"|\blist\s+(?:of\s+|me\s+)?(?:the\s+)?compan(?:y|ies)\b"
+    r"|\bbeneficiar\w*\s+of\b|\bacross\s+(?:the\s+)?(?:sector|companies|market)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_thematic(text: str) -> bool:
+    return bool(_THEMATIC_RE.search(text or ""))
+
+
 async def stocks_insights_node(state: CopilotState) -> dict:
     user_msg = next(
         (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
@@ -90,6 +111,11 @@ async def stocks_insights_node(state: CopilotState) -> dict:
     resolved = _resolve_symbol(user_msg)
     symbol = getattr(resolved, "symbol", None) if resolved else None
     company = getattr(resolved, "name", None) if resolved else None
+    # A clearly cross-company question overrides a spurious single-ticker match
+    # (e.g. "AI" mis-resolving to a ticker) so it runs the thematic search.
+    if symbol and _is_thematic(user_msg):
+        symbol = None
+        company = None
 
     tool_results: list[ToolResult] = []
     widget_type = WidgetType.NONE

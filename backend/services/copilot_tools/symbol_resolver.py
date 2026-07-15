@@ -72,6 +72,14 @@ _PASSTHROUGH_STOPWORDS: Set[str] = {
     "HOW", "WHAT", "WHY", "WHEN", "WHO", "THE", "AND", "FOR", "ARE", "WAS",
     "BUY", "SELL", "HOLD", "STOCK", "SHARE", "PRICE", "TARGET", "LOOKING",
     "DOING", "TODAY", "ABOUT", "TELL", "GOOD", "GREAT", "OVER", "INTO",
+    # Research-domain acronyms that appear in thematic/research questions and are
+    # NOT NSE tickers — without this a question like "which companies talk about
+    # AI" or "US FDA inspections" wrongly resolves "AI"/"US"/"FDA" to a ticker and
+    # collapses a cross-company question to a single (wrong) company.
+    "AI", "ML", "US", "USA", "UK", "EU", "FDA", "USFDA", "DGTR", "GST", "RBI",
+    "SEBI", "GDP", "CEO", "CFO", "COO", "ESG", "YOY", "QOQ", "EBITDA", "USD",
+    "INR", "AUM", "SIP", "NAV", "ETF", "FII", "DII", "IPO", "QIP", "NCD",
+    "EPS", "ROE", "ROCE", "NPA", "CAPEX", "OPEX", "IBC", "NCLT", "LODR",
 }
 
 _WORD_RE = re.compile(r"[a-z0-9&]+")
