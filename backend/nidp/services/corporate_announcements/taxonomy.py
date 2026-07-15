@@ -1,86 +1,68 @@
 """BSE announcement category / subcategory taxonomy.
 
-Adopted from the BSE Announcements API suite (docs/bse-announcements-suite). These
-strings are passed verbatim to the BSE ``AnnSubCategoryGetData/w`` API's ``strCat``
-and ``subcategory`` params and mirror the dropdowns on
-https://www.bseindia.com/corporates/ann.html
+Adopted from the BSE Announcements API suite (docs/bse-announcements-suite) and
+then CORRECTED against the live API (bseindia AnnSubCategoryGetData/w), verified
+2026-07-15 from the NIDP VM.
 
-IMPORTANT (from the suite's README, caveat 1): these strings and field names are
-from observation of the live site + community libraries and were NOT verifiable
-from the build environment. If a (category, subcategory) slice returns zero rows
-unexpectedly, open ann.html, apply the filter, and copy the exact strCat /
-subcategory values from the browser's Network tab. Only this file needs editing.
-
-The ``SUBCATEGORY_DOC_TYPE`` map is OURS (not BSE's): it lets the document_parser
-tag an attachment's ``doc_type`` from the filing's subcategory, so concall
-transcripts and investor presentations become first-class corpus documents
-instead of a generic ``announcement_attachment``.
+Key correction vs the suite: the suite placed "Presentation" and "Earnings Call
+Transcript" under the "Result" category — but live BSE files them under
+"Company Update" as SUBCATNAME "Investor Presentation" (50 rows/30d) and
+"Earnings Call Transcript" (27 rows/30d). Rather than keep guessing subcategory
+filter strings (the README's caveat 1), we now sweep each CATEGORY with an EMPTY
+subcategory: that returns ALL of the category's filings with SUBCATNAME populated,
+so we read the real subcategory off each row. The strCat value must be a real
+category name — strCat=-1 returns {} on this endpoint (verified).
 """
 from __future__ import annotations
 
-# strCat value for "All"
+# strCat value for "All" (works on AnnGetData/w, NOT on AnnSubCategoryGetData/w).
 ALL_CATEGORIES = "-1"
 
-# Category -> known subcategories (empty list = fetch the category without a
-# subcategory filter, i.e. a single "-1" pass).
+# Category -> observed subcategories. Reference/priority only — the sweep fetches
+# each category with an empty subcategory and reads SUBCATNAME off each row, so
+# these lists don't need to be exhaustive. Strings marked "live" are verified.
 CATEGORIES: dict[str, list[str]] = {
-    "AGM/EGM": [
-        "AGM",
-        "Book Closure / AGM",
-        "Court Convened Meeting",
-        "EGM",
-        "Postal Ballot",
-    ],
-    "Board Meeting": [
-        "Board Meeting",
-        "Outcome of Board Meeting",
-        "Change in Board Meeting Date",
-    ],
+    "AGM/EGM": ["AGM", "Book Closure / AGM", "Court Convened Meeting", "EGM", "Postal Ballot"],
+    "Board Meeting": ["Board Meeting", "Outcome of Board Meeting", "Change in Board Meeting Date"],
     "Company Update": [
         "Acquisition",
         "Amalgamation / Merger",
-        "Award of Order / Receipt of Order",
-        "Buy Back",
-        "Delisting",
-        "Joint Venture",
-        "New Product",
-        "Expansion / Diversification",
-        "Press Release / Media Release",
-        "Analyst / Investor Meet",
-        "Credit Rating",
-        "Clarification",
-        "Debt Securities",
-        "Scheme of Arrangement",
-        "Change in Directors / KMP / Auditor",
+        "Award of Order / Receipt of Order",   # live (47 rows/5d)
+        "Investor Presentation",               # live (50 rows/30d) — RAG corpus
+        "Earnings Call Transcript",            # live (27 rows/30d) — RAG corpus
+        "Analyst / Investor Meet",             # live (50 rows/30d)
+        "Credit Rating",                       # live
+        "Press Release / Media Release",       # live
+        "Change in Management",                # live
+        "Buy Back", "Delisting", "Joint Venture", "New Product",
+        "Expansion / Diversification", "Clarification", "Debt Securities",
+        "Scheme of Arrangement", "Change in Directors / KMP / Auditor",
         "Disruption of Operations",
     ],
-    "Corp. Action": [
-        "Dividend",
-        "Bonus",
-        "Stock Split",
-        "Rights Issue",
-        "Record Date",
-        "Book Closure",
-    ],
-    "Insider Trading / SAST": [
-        "Insider Trading",
-        "SAST",
-        "Pledge / Revoke",
-    ],
+    "Corp. Action": ["Dividend", "Bonus", "Stock Split", "Rights Issue", "Record Date", "Book Closure"],
+    "Insider Trading / SAST": ["Insider Trading", "SAST", "Pledge / Revoke"],
     "New Listing": [],
-    "Result": [
-        "Financial Results",
-        "Results Press Release",
-        "Presentation",
-        "Earnings Call Transcript",
-    ],
+    "Result": ["Financial Results"],           # live (only Financial Results under Result)
     "Integrated Filing": [],
     "Others": [],
 }
 
-# High-value subcategories our copilot feed prioritises (order wins, M&A, results,
-# transcripts, presentations, credit-rating, buyback, bonus). Used to run the
-# priority slices first / more often. This is our layer, not BSE's.
+# Sweep order — most RAG/event-valuable categories first, so the highest-value
+# filings (transcripts, presentations, order-wins, results) land first even if a
+# later category is throttled.
+CATEGORY_ORDER = [
+    "Company Update",            # Investor Presentation, Earnings Call Transcript, Award of Order, M&A
+    "Result",                    # Financial Results
+    "Board Meeting",
+    "Corp. Action",
+    "AGM/EGM",
+    "Insider Trading / SAST",
+    "New Listing",
+    "Integrated Filing",
+    "Others",
+]
+
+# High-value subcategories our copilot feed prioritises (SUBCATNAME values, live-checked).
 HIGH_PRIORITY_SUBCATEGORIES = {
     "Award of Order / Receipt of Order",
     "Acquisition",
@@ -88,21 +70,20 @@ HIGH_PRIORITY_SUBCATEGORIES = {
     "Joint Venture",
     "Financial Results",
     "Earnings Call Transcript",
-    "Presentation",
+    "Investor Presentation",
+    "Analyst / Investor Meet",
     "Credit Rating",
     "Buy Back",
     "Bonus",
 }
 
-# OUR mapping: filing subcategory -> corpus doc_type for the document_parser.
-# Anything not listed defaults to "announcement_attachment" (the parser's status
-# quo). This is what makes transcripts/presentations first-class RAG documents.
+# OUR mapping: filing SUBCATNAME -> corpus doc_type for the document_parser.
+# Anything not listed defaults to "announcement_attachment". These two strings
+# are the live BSE SUBCATNAME values (verified) — this is what makes transcripts
+# and presentations first-class RAG documents.
 SUBCATEGORY_DOC_TYPE: dict[str, str] = {
     "Earnings Call Transcript": "concall_transcript",
-    "Presentation": "investor_presentation",
-    # "Results Press Release" / "Financial Results" attachments stay generic —
-    # the structured numbers come from the XBRL (nse_financials) feed, and the
-    # PDF is just a results deck; keep it searchable as an attachment.
+    "Investor Presentation": "investor_presentation",
 }
 
 
@@ -114,22 +95,17 @@ def validate_category(category: str) -> None:
 
 
 def iter_slices(priority_first: bool = True):
-    """Yield (category, subcategory) pairs for a full taxonomy sweep.
+    """Yield (category, subcategory) pairs for the sweep.
 
-    Categories with no known subcategories yield a single (category, "-1") pass.
-    When priority_first, high-priority subcategories are emitted before the rest
-    so the most valuable filings land first even if a later slice is throttled.
+    Design: one pass per CATEGORY with an EMPTY subcategory. BSE returns every
+    filing in that category with SUBCATNAME populated, so the parser reads the
+    real subcategory off each row — no guessing filter strings. Ordered by
+    CATEGORY_ORDER when priority_first.
     """
-    pairs: list[tuple[str, str]] = []
-    for category, subcats in CATEGORIES.items():
-        if not subcats:
-            pairs.append((category, "-1"))
-            continue
-        for sub in subcats:
-            pairs.append((category, sub))
+    cats = list(CATEGORIES.keys())
     if priority_first:
-        pairs.sort(key=lambda p: p[1] not in HIGH_PRIORITY_SUBCATEGORIES)
-    return pairs
+        cats.sort(key=lambda c: CATEGORY_ORDER.index(c) if c in CATEGORY_ORDER else 99)
+    return [(c, "") for c in cats]
 
 
 def doc_type_for_subcategory(subcategory: str | None) -> str:

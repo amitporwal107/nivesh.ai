@@ -62,7 +62,7 @@ def _bse_subcat_url(category: str, subcategory: str, d: str, page: int) -> str:
         "strscrip": "",
         "strSearch": "P",
         "strType": "C",
-        "subcategory": subcategory or "-1",
+        "subcategory": subcategory,   # empty "" = ALL subcategories in this category (returns SUBCATNAME per row)
     })
 
 
