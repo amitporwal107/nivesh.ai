@@ -150,7 +150,22 @@ _P_STOCK_INSIGHTS = re.compile(
     r"\b(?:margin|revenue|profit|earnings)\s+guidance\b|\bguidance\s+(?:for|on|did|given)\b|"
     r"\border\s+book\b|\bcapex\s+plan|\bcapacity\s+expansion\b|"
     r"\bwhy\s+did\b[^?]{0,40}\b(?:revenue|profit|margin|sales|net\s+profit)\b|"
-    r"\bsummar(?:y|ize|ise)\b[^?]{0,30}(?:concall|earnings\s+call|\bcall\b)",
+    r"\bsummar(?:y|ize|ise)\b[^?]{0,30}(?:concall|earnings\s+call|\bcall\b)|"
+    # event lookups (C) — route to the tool (announcements feed), not the stock analyst
+    r"\borders?\b[^?]{0,25}\b(?:win|won)\b|\b(?:win|won|bagged?)\b[^?]{0,20}\borders?\b|\bwin\s+(?:any\s+)?(?:new\s+)?orders?\b|"
+    r"\bacquisitions?\b|\bacquire[ds]?\b|\bmerger\b|\bamalgamation\b|\bstake\s+(?:buy|sale|purchase)\b|"
+    r"\bdid\s+\w+\s+file\b|\bfile[ds]?\s+(?:anything|today)\b|\bfiled?\s+anything\b|"
+    r"\bbonus\s+issue\b|\bstock\s+split\b|\bbuy\s*back\b|\brights?\s+issue\b|"
+    # results / numbers (D) — the tool has XBRL financials AND is no-advice
+    r"\bresults?\s+(?:compare|vs|versus|date|announce)\b|\bq[1-4]\s+(?:fy\s*\d+\s+)?results?\b|"
+    r"\bnext\s+results?\s+date\b|\bresults?\s+date\b|\bone[\s-]?offs?\b|\bexceptional\s+items?\b|"
+    r"\bcompare[ds]?\b[^?]{0,30}\b(?:last\s+year|prior\s+year|yoy)\b|"
+    # verification (F)
+    r"\brumou?r\b|\bfake\s+news\b|\bis\s+(?:it|this|that)\s+true\b|\bactually\s+announce\w*\b|\bdid\s+\w+\s+(?:actually\s+)?announce\b|"
+    # advice questions (G) → the tool's no-advice deflection (never the stock analyst's buy/sell)
+    r"\bshould\s+i\s+(?:buy|sell|invest|book|exit)\b|\btarget\s+price\b|\bprice\s+target\b|\bworth\s+buying\b|"
+    r"\bwhether\s+to\s+(?:buy|sell)\b|\bgood\s+time\s+to\s+(?:buy|sell)\b|"
+    r"\bwill\s+(?:it|the\s+stock|\$?[A-Za-z]+)\s+(?:go\s+up|go\s+down|rise|fall|drop)\b",
     re.IGNORECASE,
 )
 
