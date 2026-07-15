@@ -20,12 +20,12 @@ SOURCE_NAME = "NSE_ANN"
 _UPSERT_SQL = """
 INSERT INTO nidp.corporate_announcements (
     announcement_id, source, ticker_symbol, isin, scrip_code, company_name,
-    filed_at, broadcast_at, subject, description, raw_category, attachment_url,
+    filed_at, broadcast_at, subject, description, raw_category, subcategory, attachment_url,
     source_run_id, raw_payload
 ) VALUES (
     $1,$2,$3,$4,$5,$6,
-    $7,$8,$9,$10,$11,$12,
-    $13,$14::jsonb
+    $7,$8,$9,$10,$11,$12,$13,
+    $14,$15::jsonb
 )
 ON CONFLICT (announcement_id, source) DO UPDATE SET
     ticker_symbol  = EXCLUDED.ticker_symbol,
@@ -36,6 +36,8 @@ ON CONFLICT (announcement_id, source) DO UPDATE SET
     subject        = EXCLUDED.subject,
     description    = COALESCE(EXCLUDED.description, nidp.corporate_announcements.description),
     raw_category   = EXCLUDED.raw_category,
+    -- keep an existing (subcategory-sweep) value if a later coarse sweep re-upserts NULL
+    subcategory    = COALESCE(EXCLUDED.subcategory, nidp.corporate_announcements.subcategory),
     attachment_url = EXCLUDED.attachment_url,
     source_run_id  = EXCLUDED.source_run_id,
     raw_payload    = EXCLUDED.raw_payload,
@@ -65,6 +67,7 @@ async def upsert_announcements(rows: Iterable[dict], source_run_id: UUID) -> int
                     r.get("subject"),
                     r.get("description"),
                     r.get("raw_category"),
+                    r.get("subcategory"),
                     r.get("attachment_url"),
                     source_run_id,
                     json.dumps(r.get("raw_payload") or {}, default=str),

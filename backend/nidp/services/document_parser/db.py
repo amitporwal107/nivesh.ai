@@ -17,12 +17,13 @@ from typing import Any
 from uuid import UUID
 
 from nidp.shared.storage.pg import get_pool
+from nidp.services.corporate_announcements.taxonomy import doc_type_for_subcategory
 
 logger = logging.getLogger(__name__)
 
 _DISCOVER_SQL = """
 SELECT announcement_id, source AS announcement_source, ticker_symbol, isin,
-       scrip_code, company_name, attachment_url, filed_at
+       scrip_code, company_name, attachment_url, filed_at, subcategory
   FROM nidp.v_announcements_needing_documents
  ORDER BY filed_at DESC
  LIMIT $1
@@ -34,7 +35,7 @@ INSERT INTO nidp.documents (
     ticker_symbol, isin, scrip_code, company_name, filed_at,
     parse_status, source_run_id
 ) VALUES (
-    $1, 'announcement_attachment', $2, $3,
+    $1, $10, $2, $3,
     $4, $5, $6, $7, $8,
     'pending', $9
 )
@@ -87,6 +88,10 @@ async def discover_pending(limit: int, source_run_id: UUID) -> int:
         anns = await conn.fetch(_DISCOVER_SQL, limit)
         async with conn.transaction():
             for a in anns:
+                # Type the attachment from the filing's BSE subcategory so concall
+                # transcripts / investor presentations become first-class corpus
+                # docs (default 'announcement_attachment' for everything else).
+                doc_type = doc_type_for_subcategory(a.get("subcategory"))
                 row = await conn.fetchrow(
                     _INSERT_DOC_SQL,
                     a["attachment_url"],
@@ -94,6 +99,7 @@ async def discover_pending(limit: int, source_run_id: UUID) -> int:
                     a["ticker_symbol"], a["isin"], a["scrip_code"], a["company_name"],
                     a["filed_at"],
                     source_run_id,
+                    doc_type,
                 )
                 if row and row["parse_status"] == "pending":
                     inserted += 1
