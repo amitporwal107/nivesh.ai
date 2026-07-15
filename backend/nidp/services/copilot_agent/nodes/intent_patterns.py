@@ -163,8 +163,9 @@ _P_STOCK_INSIGHTS = re.compile(
     # verification (F)
     r"\brumou?r\b|\bfake\s+news\b|\bis\s+(?:it|this|that)\s+true\b|\bactually\s+announce\w*\b|\bdid\s+\w+\s+(?:actually\s+)?announce\b|"
     # advice questions (G) → the tool's no-advice deflection (never the stock analyst's buy/sell)
-    r"\bshould\s+i\s+(?:buy|sell|invest|book|exit)\b|\btarget\s+price\b|\bprice\s+target\b|\bworth\s+buying\b|"
-    r"\bwhether\s+to\s+(?:buy|sell)\b|\bgood\s+time\s+to\s+(?:buy|sell)\b|"
+    r"\bshould\s+(?:i|we|one)\s+(?:buy|sell|invest|book|exit)\b|\b(?:i|we)\s+should\s+(?:buy|sell|invest|book|exit)\b|"
+    r"\bwhether\s+(?:i|we|to|one)\s+(?:should\s+)?(?:buy|sell|invest)\b|"
+    r"\btarget\s+price\b|\bprice\s+target\b|\bworth\s+buying\b|\bgood\s+time\s+to\s+(?:buy|sell)\b|"
     r"\bwill\s+(?:it|the\s+stock|\$?[A-Za-z]+)\s+(?:go\s+up|go\s+down|rise|fall|drop)\b",
     re.IGNORECASE,
 )
