@@ -43,7 +43,8 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq \
     python3.11 python3.11-venv python3-pip \
-    git curl jq postgresql-client logrotate cron ca-certificates tzdata
+    git curl jq postgresql-client logrotate cron ca-certificates tzdata \
+    tesseract-ocr poppler-utils   # OCR fallback for image/scanned filing PDFs (document_parser)
 
 # ── 2. Service user ───────────────────────────────────────────────
 if ! id -u "$NIDP_USER" >/dev/null 2>&1; then

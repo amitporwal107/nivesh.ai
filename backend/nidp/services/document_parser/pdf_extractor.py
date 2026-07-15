@@ -1,15 +1,60 @@
-"""Extract text from PDF bytes using pypdf.
+"""Extract text from PDF bytes using pypdf, with an OCR fallback.
 
-Most NSE/BSE filings are text-PDFs (extractable layer present). Scanned
-PDFs land as parse_status='skipped_non_text' — OCR is a follow-up sprint.
+Most NSE/BSE filings are text-PDFs (extractable layer present) → pypdf. Scanned /
+image-rendered PDFs (many investor presentations, some transcripts/annual reports)
+have no text layer; for those we rasterize (pdftoppm) + OCR (tesseract). If the OCR
+binaries aren't installed, we degrade to the old behaviour (raise → caller marks
+parse_status='skipped_non_text'), so this never breaks the pipeline.
 """
 from __future__ import annotations
 
 import io
 import logging
+import os
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+# OCR is slow (~1-3s/page); cap pages so the */15 parser cron doesn't stall.
+_OCR_MAX_PAGES = int(os.environ.get("NIDP_OCR_MAX_PAGES", "60"))
+_OCR_DPI = os.environ.get("NIDP_OCR_DPI", "200")
+
+
+def _ocr_pdf(body: bytes, max_pages: int = _OCR_MAX_PAGES) -> list[str] | None:
+    """Rasterize + OCR a scanned/image PDF → per-page text. Returns None when the
+    OCR tooling (poppler `pdftoppm` + `tesseract`) is unavailable (graceful skip)."""
+    import shutil
+    import subprocess
+    import tempfile
+
+    if not (shutil.which("pdftoppm") and shutil.which("tesseract")):
+        logger.info("OCR skipped — pdftoppm/tesseract not installed")
+        return None
+    pages: list[str] = []
+    with tempfile.TemporaryDirectory() as td:
+        pdf_path = os.path.join(td, "doc.pdf")
+        with open(pdf_path, "wb") as fh:
+            fh.write(body)
+        try:
+            subprocess.run(
+                ["pdftoppm", "-png", "-r", _OCR_DPI, "-l", str(max_pages),
+                 pdf_path, os.path.join(td, "pg")],
+                check=True, timeout=600, capture_output=True,
+            )
+        except Exception as e:  # noqa: BLE001 — rasterize failure → give up on OCR
+            logger.warning("OCR rasterize (pdftoppm) failed: %s", e)
+            return None
+        for img in sorted(f for f in os.listdir(td) if f.endswith(".png")):
+            try:
+                out = subprocess.run(
+                    ["tesseract", os.path.join(td, img), "stdout", "-l", "eng"],
+                    check=True, timeout=120, capture_output=True, text=True,
+                )
+                pages.append(out.stdout or "")
+            except Exception as e:  # noqa: BLE001 — one bad page shouldn't kill the doc
+                logger.warning("OCR (tesseract) failed on %s: %s", img, e)
+                pages.append("")
+    return pages
 
 
 @dataclass
@@ -47,5 +92,12 @@ def extract_text_from_pdf(body: bytes) -> ExtractedDoc:
 
     full = "\n\n".join(p for p in pages if p.strip())
     if not full.strip():
-        raise RuntimeError("zero extractable text — likely scanned/image PDF")
+        # No text layer → scanned/image PDF. Try OCR before giving up.
+        ocr_pages = _ocr_pdf(body)
+        if ocr_pages and any(p.strip() for p in ocr_pages):
+            n = sum(1 for p in ocr_pages if p.strip())
+            logger.info("OCR fallback extracted text from %d/%d pages", n, len(ocr_pages))
+            ocr_full = "\n\n".join(p for p in ocr_pages if p.strip())
+            return ExtractedDoc(full_text=ocr_full, pages=ocr_pages, page_count=len(ocr_pages))
+        raise RuntimeError("zero extractable text — scanned/image PDF and OCR unavailable/empty")
     return ExtractedDoc(full_text=full, pages=pages, page_count=len(pages))
