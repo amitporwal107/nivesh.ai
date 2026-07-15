@@ -34,7 +34,7 @@ async def announcements(
         rows = await conn.fetch(
             """
             SELECT announcement_id, source, ticker_symbol, isin, scrip_code,
-                   company_name, filed_at, broadcast_at, subject, raw_category,
+                   company_name, filed_at, broadcast_at, subject, description, raw_category,
                    attachment_url, event_category, impact_score, sentiment,
                    classifier_version, classified_at
               FROM nidp.corporate_announcements
