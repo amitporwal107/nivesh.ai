@@ -60,6 +60,48 @@ async def documents_search(
                     extra={"query": q, "doc_types": doc_types or "all"})
 
 
+@router.get("/filing", summary="Full text of the latest matching filing (per-filing content)")
+async def filing_content(
+    symbol: str = Query(..., description="ticker"),
+    doc_type: Optional[str] = Query(None, description="narrow to a doc_type; default = most recent parsed filing"),
+    page: Dict[str, int] = Depends(page_params),
+) -> Dict[str, Any]:
+    """Per-filing full text: the most recent PARSED document for the ticker (optionally
+    of a given doc_type), with its chunks in order + a joined full_text — for deep-context
+    reading once search has identified the company/filing."""
+    sym = normalise_symbol(symbol)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        doc = await conn.fetchrow(
+            """
+            SELECT doc_id, doc_type, ticker_symbol, company_name, filed_at, source_url, page_count
+              FROM nidp.documents
+             WHERE parse_status = 'parsed' AND ticker_symbol = $1
+               AND ($2::text IS NULL OR doc_type = $2)
+             ORDER BY filed_at DESC NULLS LAST
+             LIMIT 1
+            """,
+            sym, doc_type,
+        )
+        if doc is None:
+            return {"data": None, "error": "no_parsed_filing"}
+        chunks = await conn.fetch(
+            """
+            SELECT chunk_index, text, page_start, page_end
+              FROM nidp.document_chunks
+             WHERE doc_id = $1
+             ORDER BY chunk_index
+             LIMIT $2
+            """,
+            doc["doc_id"], page["limit"],
+        )
+    return {"data": {
+        **row_to_dict(doc),
+        "chunks": [row_to_dict(c) for c in chunks],
+        "full_text": "\n\n".join((c["text"] or "") for c in chunks),
+    }}
+
+
 @router.get("/coverage", summary="Corpus coverage — chunk/doc counts by doc_type (diagnostic)")
 async def documents_coverage() -> Dict[str, Any]:
     """Quick diagnostic so the answer layer (and ops) can see whether the

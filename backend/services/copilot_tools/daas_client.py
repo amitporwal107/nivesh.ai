@@ -367,6 +367,19 @@ async def documents_coverage() -> Optional[Dict[str, Any]]:
         return None
 
 
+async def get_filing_content(symbol: str, doc_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Per-filing full text: latest parsed filing for a ticker (DAAS /v1/documents/filing).
+    Returns {"data": {doc metadata, chunks:[…], full_text}} or None."""
+    params: Dict[str, Any] = {"symbol": symbol}
+    if doc_type:
+        params["doc_type"] = doc_type
+    try:
+        return await _get("/documents/filing", params=params)
+    except DaasError as exc:
+        logger.debug("get_filing_content: %s", exc)
+        return None
+
+
 async def get_market_pulse_movers(cap: str = "large") -> Optional[Dict[str, Any]]:
     try:
         data = await _get("/market-pulse/movers", params={"cap": cap})

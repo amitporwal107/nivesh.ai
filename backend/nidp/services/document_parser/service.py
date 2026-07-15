@@ -69,8 +69,14 @@ async def _parse_one(doc: dict[str, Any]) -> None:
         )
         return
     except RuntimeError as e:
+        # No extractable text. If OCR is installed it was already tried (see
+        # pdf_extractor), so this is genuinely unreadable → terminal 'failed'
+        # (prevents an infinite retry loop once skipped docs are re-queued).
+        # If OCR is NOT installed, keep 'skipped_non_text' so it retries when it is.
+        from .pdf_extractor import ocr_available
+        status = "failed" if ocr_available() else "skipped_non_text"
         await store_parse_result(
-            doc_id, parse_status="skipped_non_text", parse_error=str(e),
+            doc_id, parse_status=status, parse_error=str(e),
             raw_sha256=sha, raw_size_bytes=len(body), text_size_chars=None,
             page_count=None, chunks=None,
         )

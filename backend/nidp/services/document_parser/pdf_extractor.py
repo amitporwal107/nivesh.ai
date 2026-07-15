@@ -20,6 +20,14 @@ _OCR_MAX_PAGES = int(os.environ.get("NIDP_OCR_MAX_PAGES", "60"))
 _OCR_DPI = os.environ.get("NIDP_OCR_DPI", "200")
 
 
+def ocr_available() -> bool:
+    """True when the OCR tooling (poppler pdftoppm + tesseract) is installed.
+    The nidp-staging deploy workflow apt-installs these; ops can check this to
+    confirm image/scanned filing PDFs will be OCR'd rather than skipped."""
+    import shutil
+    return bool(shutil.which("pdftoppm") and shutil.which("tesseract"))
+
+
 def _ocr_pdf(body: bytes, max_pages: int = _OCR_MAX_PAGES) -> list[str] | None:
     """Rasterize + OCR a scanned/image PDF → per-page text. Returns None when the
     OCR tooling (poppler `pdftoppm` + `tesseract`) is unavailable (graceful skip)."""

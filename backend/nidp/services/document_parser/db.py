@@ -47,8 +47,8 @@ RETURNING doc_id, parse_status
 _FETCH_PENDING_SQL = """
 SELECT doc_id, source_url, ticker_symbol, isin, scrip_code, company_name
   FROM nidp.documents
- WHERE parse_status = 'pending'
- ORDER BY ingested_at ASC
+ WHERE parse_status = ANY($2::text[])
+ ORDER BY (parse_status = 'pending') DESC, ingested_at ASC   -- new docs before backlog retries
  LIMIT $1
 """
 
@@ -101,9 +101,14 @@ async def discover_pending(limit: int, source_run_id: UUID) -> int:
 
 
 async def fetch_pending_docs(limit: int) -> list[dict[str, Any]]:
+    # Once OCR is installed, also retry the backlog of image PDFs previously marked
+    # 'skipped_non_text' — they will now be OCR'd (or marked terminal 'failed' if OCR
+    # can't read them either). Without OCR, only 'pending' so we don't loop forever.
+    from .pdf_extractor import ocr_available
+    statuses = ["pending", "skipped_non_text"] if ocr_available() else ["pending"]
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(_FETCH_PENDING_SQL, limit)
+        rows = await conn.fetch(_FETCH_PENDING_SQL, limit, statuses)
     return [dict(r) for r in rows]
 
 
