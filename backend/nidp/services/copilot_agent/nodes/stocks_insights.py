@@ -140,16 +140,37 @@ async def stocks_insights_node(state: CopilotState) -> dict:
 
     # Compose the grounded answer over the retrieved filings.
     tool_context = "TOOL_DATA:\n" + (result.as_llm_context() if result else "recent_filings: UNAVAILABLE")
-    llm = ChatOpenAI(
-        model=COPILOT_LLM_MODEL,
-        temperature=temperature_for(0.1),
-        api_key=get_openai_api_key(),
-    )
-    resp = await llm.ainvoke([
-        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
-        {"role": "user", "content": user_msg},
-    ])
-    answer_text = (resp.content or "").strip()
+    # Honest empty-case for a thematic (cross-company) query: finding nothing means
+    # "no match in the current, still-building corpus" — NOT a system failure. Without
+    # this, the shared ANTI_HALLUCINATION rule #4 makes the LLM emit a misleading
+    # "please try again or contact support" line on empty thematic data. Deterministic,
+    # and skips a pointless LLM call. (A real failure leaves result=None → generic path.)
+    forced_answer = None
+    if (result is not None and result.mode == "thematic"
+            and not result.events and not result.commentary and not result.financials
+            and (result.error or "") == "no_filings"):
+        forced_answer = (
+            "I searched recent exchange filings and management commentary across companies "
+            "for that, but nothing matched in the current window yet. Cross-company thematic "
+            "answers lean on concall transcripts and investor presentations, which are still "
+            "being added to our sources — so coverage is partial here for now.\n\n"
+            "For a specific company, type its ticker (e.g. $INFY) — its filed disclosures, "
+            "results and announcements are fully covered."
+        )
+
+    if forced_answer is not None:
+        answer_text = forced_answer
+    else:
+        llm = ChatOpenAI(
+            model=COPILOT_LLM_MODEL,
+            temperature=temperature_for(0.1),
+            api_key=get_openai_api_key(),
+        )
+        resp = await llm.ainvoke([
+            {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
+            {"role": "user", "content": user_msg},
+        ])
+        answer_text = (resp.content or "").strip()
 
     # Guard against citing a filing number that doesn't exist (zero-fabrication):
     # strip any [n] whose n is out of range of the sources list.
