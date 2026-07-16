@@ -62,6 +62,29 @@ nidp/tests/test_doctype.py .............. 19 passed
 ```
 **PASS**
 
+### TC2b — Lone surrogates do not fail the parse (found by the REAL backfill)
+The 18,655-doc run died after 4,472 docs (2,930 parsed) on a single filing:
+```
+asyncpg.exceptions.DataError: invalid input for query argument $3:
+"TBO Tek Limited  \n CIN: L74999DL2006PL..."
+('utf-8' codec can't encode characters in position 63-67: surrogates not allowed)
+```
+Same class as TC2, different characters: the NUL-only strip missed pypdf's LONE
+surrogates (broken CMaps). Replaced with `_pg_safe()` — a utf-8 encode/decode
+round-trip that removes the whole non-encodable class at once. Verified it does
+NOT over-strip: emoji/astral chars are surrogate *pairs* and survive intact.
+
+Second, independent defect found at the same time: `_parse_one` guards download
+and parse, but the success path's `store_parse_result()` sits outside every
+`except`, and `gather()` had no `return_exceptions` — so one storage error
+aborted all 18k. `_bounded` now logs (never swallows) and continues; proven with
+a simulated poison doc (6 given, 1 poisoned → 5 completed; previously 0).
+```
+nidp/tests/parsers/test_pdf_extractor.py ... 6 passed
+nidp/tests/test_doctype.py ............... 19 passed
+```
+**PASS** (fix `fa7be8a5`, deployed; backfill relaunched as pid 1987034)
+
 ### TC3 — Downloads recover (the 403 bot-block)
 Pilot, 60 docs, concurrency 4, no discovery, no OpenAI spend:
 ```json
@@ -114,8 +137,16 @@ chunks 1066 | docs_with_chunks 89
    slice; `AttachLive` URLs expire, and they now 404. Not recoverable from stored URLs —
    would need BSE's archival `AttachHis` equivalents. Separate work.
    The other **16,637 (89%)** are `nsearchives.nseindia.com` and ARE recovering.
-2. **Full 18,655-doc backfill is IN PROGRESS**, detached (pid 1771337), not complete at
-   time of writing. Progress at last read: `parsed 173+`, climbing.
+2. **Full 18,655-doc backfill is IN PROGRESS** (relaunched as pid 1987034 after the
+   surrogate crash; the first run died at 4,472 docs). Measured on staging:
+   **52 parsed/min**, ETA ~4h. It is CPU/GIL-bound at ~1 of 4 cores — pypdf is pure
+   Python, so `asyncio.to_thread` cannot spread it across cores and raising
+   `--concurrency` would not help (93.8% CPU = compute-bound, not I/O-bound).
+   Multi-process sharding would give ~3x but the work queue has NO claiming
+   (`_FETCH_PENDING_SQL` is a plain SELECT — no FOR UPDATE SKIP LOCKED), so parallel
+   processes would duplicate every download. Deliberately NOT done: this VM also hosts
+   prod Postgres at 90% disk. Progress at last read: parsed 2,930+, 57,031 chunks.
+   TRUE recovery rate (attempted only): **NSE nsearchives 94.9%**, BSE AttachLive 29.1%.
 3. **UNVERIFIED: staging `OPENAI_API_KEY` is invalid** (`401 Incorrect API key provided`).
    Vision + embeddings are graceful-by-contract, so the pipeline is unaffected, but the
    vision tier is silently degraded (on prod too). Backfill run with `OPENAI_API_KEY=""`
