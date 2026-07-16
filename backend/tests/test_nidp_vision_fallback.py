@@ -33,12 +33,12 @@ def test_low_text_pages_default_threshold():
 # ── vision_available gate (graceful) ─────────────────────────────────
 
 def test_vision_unavailable_without_key(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert ve.vision_available() is False
 
 
 def test_extract_pages_noop_when_unavailable(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     # Even with page numbers, returns {} (never raises) when the fallback is off.
     assert ve.extract_pages(b"%PDF-1.4 fake", [1, 2, 3]) == {}
 

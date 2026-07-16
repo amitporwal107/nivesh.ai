@@ -49,5 +49,12 @@ pypdf>=4,<6
 pymupdf>=1.24,<2
 
 # ── S4 announcement_classifier ──
-# Anthropic SDK for Haiku-based event/impact/sentiment classification.
+# Anthropic SDK — historic; the classifier now runs on OpenAI (see openai below).
 anthropic>=0.40,<1
+
+# ── OpenAI SDK ──
+# Used by: announcement_classifier (event/impact/sentiment classification),
+# document_parser embedder (text-embedding-3-small → document_chunks.embedding),
+# and document_parser vision fallback (gpt-4o transcription of image-heavy pages).
+# Pinned to the same major as the main backend image (openai==1.99.9).
+openai>=1.40,<2

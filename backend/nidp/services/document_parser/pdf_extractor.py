@@ -108,7 +108,7 @@ def extract_text_from_pdf(body: bytes) -> ExtractedDoc:
             text = ""
         pages.append(text)
 
-    # Per-page Claude-vision fallback: investor decks and mixed PDFs often have
+    # Per-page OpenAI-vision fallback: investor decks and mixed PDFs often have
     # slides that are image/chart-only with little or no text layer. Escalate
     # just those low-text pages to vision (bounded + graceful; no-op when the
     # fallback is unavailable). Fully-scanned docs (no page has text) still fall
