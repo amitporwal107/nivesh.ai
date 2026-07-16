@@ -307,15 +307,50 @@ _ADVISOR_BOOK_INTENT_RE = re.compile(
 )
 
 
+# Generic stock / market / filing / announcement / thematic questions (the
+# Copilot stocks_insights space) are ALSO mode-agnostic — they ask about
+# instruments and public disclosures, not the advisor's client book — so in
+# advisor mode they must run the investor engine (which routes to the
+# stocks_insights RAG tool) instead of the cross-client book path. Reuse the
+# canonical detector the NIDP engine already uses (regex-only module, safe to
+# import); degrade gracefully if it can't be imported.
+try:
+    from nidp.services.copilot_agent.nodes.intent_patterns import (
+        _P_STOCK_INSIGHTS as _STOCK_INSIGHTS_RE,
+    )
+except Exception:  # noqa: BLE001 - an optional import must never break routing
+    _STOCK_INSIGHTS_RE = None
+
+# Supplement for generic market / policy / regulatory questions the canonical
+# stocks_insights detector doesn't cover (Tier-3 policy, board meetings, YoY
+# profit screens, "new products/capacity", broad "which companies …" thematic).
+# All are about instruments/markets/policy — not the advisor's client book,
+# which is caught first by _ADVISOR_BOOK_INTENT_RE.
+_GENERIC_MARKET_RE = re.compile(
+    r"\b(?:gst|anti[\s-]?dumping|customs\s+dut\w*|import\s+dut\w*|tariffs?|"
+    r"sebi|insolvenc\w*|\bibc\b|\bnclt\b|union\s+budget|dgtr)\b|"
+    r"\bboard\s+meeting\b|"
+    r"\bnew\s+products?\b|\b(?:adding|new|expand\w*)\s+capacity\b|\bcapacity\s+(?:expansion|addition|adding)\b|"
+    r"\bprofit\b[^?]{0,25}\b(?:yoy|year[\s-]?on[\s-]?year|grew|growth|more\s+than)\b|"
+    r"\bwhich\s+(?:[a-z0-9]+\s+){0,3}(?:companies|sectors?|stocks?|firms|makers?|exporters?|players|beneficiar\w*)\b",
+    re.IGNORECASE,
+)
+
+
 def _is_research_tool_intent(message: str) -> bool:
-    """True when an advisor-mode message is one of the four mode-agnostic
-    research tools (stock/fund research, portfolio builder, stock
-    screener) and should therefore run the investor engine so the answer
-    matches client mode. Cross-client book questions are excluded."""
+    """True when an advisor-mode message is a mode-agnostic research query —
+    the stock/fund research, portfolio-builder, screener, or Strategy-Lab
+    tools, OR a generic stock/market/filing/announcement/thematic question
+    (stocks_insights) — and should therefore run the investor engine so the
+    answer matches client mode. Cross-client *book* questions are excluded."""
     m = message or ""
     if _ADVISOR_BOOK_INTENT_RE.search(m):
         return False
-    return bool(_RESEARCH_INTENT_RE.search(m))
+    if _RESEARCH_INTENT_RE.search(m):
+        return True
+    if _STOCK_INSIGHTS_RE is not None and _STOCK_INSIGHTS_RE.search(m):
+        return True
+    return bool(_GENERIC_MARKET_RE.search(m))
 
 
 async def _advisor_book_block(owner_user_id: str) -> str:
