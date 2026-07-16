@@ -95,6 +95,7 @@ Agents:
 - goal_planner: financial goals, retirement, SIP adequacy
 - recommendation: buy/invest recommendations, stock screener
 - stocks_insights: a company's corporate disclosures/filings, order wins, results, M&A, concall/management commentary, AND regulatory/legal events it disclosed (SEBI action, RBI/IRDAI order, insolvency, NCLT, IBC, litigation)
+- policy_analyst: how a tax/trade/budget POLICY affects a sector or which companies it affects (GST rate change, anti-dumping/safeguard duty, import/export tariffs, Union Budget, PLI/subsidy)
 
 Return JSON: {"agent": "<agent_name>", "confidence": 0.9, "symbol": null, "scheme_code": null}
 """

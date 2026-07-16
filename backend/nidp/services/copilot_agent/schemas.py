@@ -39,6 +39,7 @@ class AgentName(str, Enum):
     RECOMMENDATION = "recommendation"
     BACKTEST = "backtest_analyst"
     STOCKS_INSIGHTS = "stocks_insights"   # corporate-filings insights (Nivesh Copilot)
+    POLICY = "policy_analyst"             # tax/trade/budget policy → sector impact (curated)
     ADVISOR = "advisor"
     COMPLIANCE = "compliance"
 

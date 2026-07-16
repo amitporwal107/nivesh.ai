@@ -23,6 +23,7 @@ GOAL = "goal_planner"
 RECOMMENDATION = "recommendation"
 BACKTEST = "backtest_analyst"
 STOCKS_INSIGHTS = "stocks_insights"
+POLICY = "policy_analyst"
 
 
 # Historical "what-if" backtest — "if I'd invested ₹10L in X and Y 3 years ago,
@@ -194,6 +195,26 @@ _P_REGULATORY_EVENT = re.compile(
     # litigation directed at a company
     r"\b(?:lawsuit|litigation|court\s+(?:case|order)|legal\s+(?:case|proceeding|action))\b"
     r"[^?]{0,25}\b(?:against|filed|on)\b",
+    re.IGNORECASE,
+)
+
+# Tax / trade / budget POLICY → sector impact (R5-B): "how does the GST change affect
+# auto component makers", "which companies are affected by the anti-dumping duty on
+# steel", "US tariffs on Indian pharma exporters", "what did the Budget change for
+# renewables". Routes to the policy node, which answers from a CURATED directional
+# rule set (never invents policy→company links). Anchored on a policy term + an
+# impact/company context. Checked in _PRE (after _P_STOCK_INSIGHTS so a clear
+# disclosure query still wins) and before _P_MARKET (which grabs "budget"/"tariff").
+_P_POLICY_IMPACT = re.compile(
+    r"\b(?:gst|anti[\s-]?dumping|safeguard\s+dut\w*|customs\s+dut\w*|import\s+dut\w*|"
+    r"import\s+tariffs?|export\s+dut\w*|\btariffs?\b|\bdgtr\b|\bcbic\b|"
+    r"union\s+budget|\bpli\b|production[\s-]?linked|subsid\w*)\b"
+    r"[^?]{0,70}\b(?:affect\w*|impact\w*|benefit\w*|hurt|hit|gain\w*|help\w*|exposure|"
+    r"makers?|manufacturers?|producers?|exporters?|importers?|"
+    r"companies|firms|stocks?|sectors?|industry|industries)\b|"
+    r"\b(?:which|what)\s+(?:companies|stocks?|sectors?|makers?|firms|exporters?)\b"
+    r"[^?]{0,55}\b(?:gst|anti[\s-]?dumping|\btariffs?\b|union\s+budget|import\s+dut\w*|"
+    r"customs\s+dut\w*|duty|subsid\w*|\bpli\b)\b",
     re.IGNORECASE,
 )
 
@@ -437,6 +458,7 @@ _PRE_PATTERNS: List[Tuple[re.Pattern, str]] = [
     (_P_STOCK_OWNERSHIP,  STOCK),    # per-stock FII/DII/promoter holding → stock (before MARKET grabs "fii"/"dii")
     (_P_REGULATORY_EVENT, STOCKS_INSIGHTS),  # SEBI/insolvency/NCLT action against a company → stocks_insights (before stock-lookup gate grabs "promoter" & before MARKET grabs "rbi")
     (_P_STOCK_INSIGHTS,   STOCKS_INSIGHTS),  # recent filings/news/order-wins/thematic → stocks_insights (before stock-lookup gate)
+    (_P_POLICY_IMPACT,    POLICY),           # GST/anti-dumping/tariff/budget → sector impact → policy node (after disclosures; before MARKET grabs "budget"/"tariff")
 ]
 # The entity-aware stock-lookup gate runs HERE — between _PRE and _POST.
 _POST_PATTERNS: List[Tuple[re.Pattern, str]] = [

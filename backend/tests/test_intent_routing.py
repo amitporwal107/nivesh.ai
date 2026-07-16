@@ -17,7 +17,7 @@ import pytest
 
 from nidp.services.copilot_agent.nodes.intent_patterns import (
     match_agent, MARKET, STOCK, MF, PORTFOLIO, RISK, RECOMMENDATION,
-    STOCKS_INSIGHTS,
+    STOCKS_INSIGHTS, POLICY,
 )
 from services.copilot_tools.symbol_resolver import resolve_symbol
 
@@ -69,6 +69,28 @@ def test_numeric_screen_routes_to_recommendation(text):
     ("which stocks in my portfolio fell more than 20%?", PORTFOLIO),
 ])
 def test_numeric_screen_does_not_oversteal(text, agent):
+    assert match_agent(text) == agent
+
+
+# ── R5-B: tax/trade/budget policy → policy node ──────────────────────────────
+@pytest.mark.parametrize("text", [
+    "How does the latest GST rate change affect auto component makers?",
+    "Which companies are affected by the new anti-dumping duty on steel imports?",
+    "What did the Union Budget change for renewable energy companies?",
+    "How do the new US tariffs affect Indian pharma exporters?",
+    "anti-dumping duty on steel — who benefits?",
+])
+def test_policy_impact_routes_to_policy(text):
+    assert match_agent(text) == POLICY
+
+
+@pytest.mark.parametrize("text,agent", [
+    # disclosure verb wins over a bare policy word
+    ("Which companies announced buybacks this month?", STOCKS_INSIGHTS),
+    # numeric screen (has a number) still wins
+    ("Which Nifty 500 companies grew profit more than 30% YoY?", RECOMMENDATION),
+])
+def test_policy_pattern_does_not_oversteal(text, agent):
     assert match_agent(text) == agent
 
 
