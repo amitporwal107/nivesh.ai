@@ -81,6 +81,15 @@ class ExtractedDoc:
     pages: list[str]                      # page-indexed text (1-based meaning index 0 = page 1)
     page_count: int
 
+    def __post_init__(self) -> None:
+        # Strip NUL bytes at the source. Every extraction path (pypdf, OCR,
+        # vision) can emit them, and Postgres TEXT cannot store NUL —
+        # asyncpg raises CharacterNotInRepertoireError on insert. Sanitising
+        # here (rather than at the DB) keeps full_text, pages, and the chunk
+        # offsets derived from them consistent with what is stored.
+        self.full_text = self.full_text.replace("\x00", "")
+        self.pages = [(p or "").replace("\x00", "") for p in self.pages]
+
 
 def extract_text_from_pdf(body: bytes) -> ExtractedDoc:
     """Return ExtractedDoc with full_text + per-page text.
