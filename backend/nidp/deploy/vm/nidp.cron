@@ -75,7 +75,17 @@ MAILTO=""
 */30 *    * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh announcement_classifier
 
 # ── S5: document parser (every 15 min, all day) ───────────────────
+# Types each attachment from its own content at parse time (doctype.classify):
+# concall_transcript / investor_presentation / annual_report / financial_results.
+# Also retries previously-'failed' docs up to NIDP_MAX_PARSE_ATTEMPTS so a transient
+# download blip no longer kills a document permanently.
 */15 *    * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh document_parser
+
+# ── S5: annual reports (BSE AnnualReport_New sweep) ───────────────
+# ARs cluster Jun–Sep (FY-end Mar + AGM window). --latest-only keeps it cheap
+# (newest AR per company); the document_parser above then ingests the PDFs.
+# Weekly Sunday 21:00 IST is plenty for a slow-moving, idempotent feed.
+0  21 * * 0    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh annual_reports --latest-only
 
 # ── Mutual fund feeds ─────────────────────────────────────────────
 0  20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh amfi_nav

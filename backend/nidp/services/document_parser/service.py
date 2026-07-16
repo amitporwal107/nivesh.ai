@@ -16,8 +16,11 @@ import hashlib
 import logging
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 import aiohttp
+
+from nidp.services.corporate_announcements.doctype import classify
 
 from .chunker import chunk_text
 from .db import discover_pending, embed_pending, fetch_pending_docs, store_parse_result
@@ -26,17 +29,34 @@ from .pdf_extractor import extract_text_from_pdf
 logger = logging.getLogger(__name__)
 
 _HTTP_TIMEOUT = aiohttp.ClientTimeout(total=60)
-_USER_AGENT = "nidp-document-parser/1.0 (+ops@nivesh.example)"
+# BSE/NSE archive hosts (www.bseindia.com/xml-data, nsearchives.nseindia.com)
+# 403 any request that looks like a bot — missing a browser User-Agent and a
+# same-origin Referer. The old "nidp-document-parser/1.0" UA got 403 on ~2.1k
+# filings (verified: parser-UA -> 403, browser-UA+referer -> 200 %PDF). Send a
+# browser UA + the host's own referer.
+_BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
 # Cap PDF size so a single corrupt 100MB filing can't OOM the worker.
 _MAX_PDF_BYTES = 32 * 1024 * 1024
 
 
+def _download_headers(url: str) -> dict[str, str]:
+    """Browser-like headers with a same-origin Referer chosen from the URL host —
+    BSE/NSE archive hosts reject downloads without them (HTTP 403)."""
+    headers = {"User-Agent": _BROWSER_UA, "Accept": "application/pdf,*/*"}
+    host = urlparse(url).netloc.lower()
+    if "bseindia.com" in host:
+        headers["Referer"] = "https://www.bseindia.com/"
+        headers["Origin"] = "https://www.bseindia.com"
+    elif "nseindia.com" in host:
+        headers["Referer"] = "https://www.nseindia.com/"
+    return headers
+
+
 async def _download(url: str) -> tuple[bytes, str]:
-    async with aiohttp.ClientSession(
-        timeout=_HTTP_TIMEOUT, headers={"User-Agent": _USER_AGENT},
-    ) as sess:
-        async with sess.get(url) as resp:
+    async with aiohttp.ClientSession(timeout=_HTTP_TIMEOUT) as sess:
+        async with sess.get(url, headers=_download_headers(url)) as resp:
             resp.raise_for_status()
             body = await resp.read()
     if len(body) > _MAX_PDF_BYTES:
@@ -103,14 +123,30 @@ async def _parse_one(doc: dict[str, Any]) -> None:
         }
         for c in chunks
     ]
+
+    # Type the document from its OWN content (first two pages — a transcript's
+    # page 1 is often a cover letter), overriding the discover-time subcategory
+    # guess whenever the content is a confident match. Falls back to the existing
+    # doc_type when the content yields no signal (score 0).
+    head_text = "\n".join(extracted.pages[:2]) if extracted.pages else extracted.full_text[:6000]
+    content_type, dt_score, _ = classify(
+        headline=doc.get("subject") or "",
+        first_page_text=head_text[:6000],
+        subcategory=doc.get("subcategory") or "",
+    )
+    existing_type = doc.get("doc_type") or "announcement_attachment"
+    final_type = content_type if content_type != "announcement_attachment" else existing_type
+
     await store_parse_result(
         doc_id, parse_status="parsed", parse_error=None,
         raw_sha256=sha, raw_size_bytes=len(body),
         text_size_chars=len(extracted.full_text),
         page_count=extracted.page_count, chunks=chunk_rows,
+        doc_type=final_type, doc_type_confidence=dt_score,
     )
-    logger.info("parsed doc=%s pages=%d chars=%d chunks=%d",
-                doc_id, extracted.page_count, len(extracted.full_text), len(chunks))
+    logger.info("parsed doc=%s pages=%d chars=%d chunks=%d type=%s(%d)",
+                doc_id, extracted.page_count, len(extracted.full_text), len(chunks),
+                final_type, dt_score)
 
 
 async def run_once(discover_limit: int = 500, parse_limit: int = 50,

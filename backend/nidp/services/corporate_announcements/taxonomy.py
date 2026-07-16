@@ -77,13 +77,15 @@ HIGH_PRIORITY_SUBCATEGORIES = {
     "Bonus",
 }
 
-# OUR mapping: filing SUBCATNAME -> corpus doc_type for the document_parser.
-# Anything not listed defaults to "announcement_attachment". These two strings
-# are the live BSE SUBCATNAME values (verified) — this is what makes transcripts
-# and presentations first-class RAG documents.
+# OUR mapping: filing SUBCATNAME -> corpus doc_type. This is only the
+# discover-time FLOOR: the document_parser re-types each doc from its OWN content
+# at parse time (see corporate_announcements/doctype.py), which is authoritative.
+# Anything not listed defaults to "announcement_attachment". Strings are live BSE
+# SUBCATNAME values (verified 2026-07).
 SUBCATEGORY_DOC_TYPE: dict[str, str] = {
     "Earnings Call Transcript": "concall_transcript",
     "Investor Presentation": "investor_presentation",
+    "Reg. 34 (1) Annual Report": "annual_report",   # BSE files AR under the "Others" category
 }
 
 
