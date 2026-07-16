@@ -150,13 +150,15 @@ async def _parse_one(doc: dict[str, Any]) -> None:
 
 
 async def run_once(discover_limit: int = 500, parse_limit: int = 50,
-                   concurrency: int = 4, embed_limit: int = 200) -> dict:
+                   concurrency: int = 4, embed_limit: int = 200,
+                   shards: int = 1, shard: int = 0) -> dict:
     run_id = uuid.uuid4()
-    logger.info("doc parser run=%s discover_limit=%d parse_limit=%d concurrency=%d embed_limit=%d",
-                run_id, discover_limit, parse_limit, concurrency, embed_limit)
+    logger.info("doc parser run=%s discover_limit=%d parse_limit=%d concurrency=%d "
+                "embed_limit=%d shard=%d/%d",
+                run_id, discover_limit, parse_limit, concurrency, embed_limit, shard, shards)
 
     discovered = await discover_pending(discover_limit, source_run_id=run_id)
-    pending = await fetch_pending_docs(parse_limit)
+    pending = await fetch_pending_docs(parse_limit, shards=shards, shard=shard)
     if pending:
         sem = asyncio.Semaphore(concurrency)
 

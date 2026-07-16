@@ -64,6 +64,13 @@ SELECT d.doc_id, d.source_url, d.ticker_symbol, d.isin, d.scrip_code, d.company_
         -- must self-heal instead of killing the doc forever; bounded by the cap so
         -- permanently-gone URLs (404) stop retrying.
         OR (d.parse_status = 'failed' AND d.parse_attempts < $3))
+   -- Shard predicate. The queue has no row claiming, so two workers would
+   -- otherwise fetch identical rows and download every PDF twice. Hashing
+   -- doc_id gives each worker a disjoint, stable slice with no coordination.
+   -- mod(mod(h,n)+n,n) is the safe positive-modulo idiom: hashtext() returns a
+   -- signed int, and abs() would error on INT_MIN. Defaults ($4=1,$5=0) match
+   -- every row, so the cron's unsharded call is unaffected.
+   AND mod(mod(hashtext(d.doc_id::text), $4::int) + $4::int, $4::int) = $5::int
  ORDER BY (d.parse_status = 'pending') DESC, d.ingested_at ASC   -- new docs before backlog retries
  LIMIT $1
 """
@@ -125,9 +132,15 @@ async def discover_pending(limit: int, source_run_id: UUID) -> int:
 
 
 async def fetch_pending_docs(limit: int,
-                             max_attempts: int = _MAX_PARSE_ATTEMPTS) -> list[dict[str, Any]]:
+                             max_attempts: int = _MAX_PARSE_ATTEMPTS,
+                             shards: int = 1,
+                             shard: int = 0) -> list[dict[str, Any]]:
     """Documents awaiting parse: new ('pending'), OCR-retryable ('skipped_non_text'),
     and previously-'failed' docs still under the attempt cap.
+
+    `shards`/`shard` split the queue across parallel worker processes — needed
+    because pypdf is pure Python, so the GIL caps a single process at ~1 core.
+    Each worker takes a disjoint hash slice. Defaults are a no-op (every row).
 
     The 'failed' re-queue is the fix for the terminal-failure bug: a transient
     download blip used to kill a document permanently (18,574 of 18,579 stuck on
@@ -139,9 +152,12 @@ async def fetch_pending_docs(limit: int,
     # can't read them either). Without OCR, only 'pending' so we don't loop forever.
     from .pdf_extractor import ocr_available
     statuses = ["pending", "skipped_non_text"] if ocr_available() else ["pending"]
+    if not 0 <= shard < shards:
+        raise ValueError(f"shard {shard} out of range for shards={shards}")
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(_FETCH_PENDING_SQL, limit, statuses, max_attempts)
+        rows = await conn.fetch(_FETCH_PENDING_SQL, limit, statuses, max_attempts,
+                                shards, shard)
     return [dict(r) for r in rows]
 
 
