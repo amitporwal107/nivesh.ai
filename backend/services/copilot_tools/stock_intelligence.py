@@ -372,6 +372,10 @@ async def nidp_stock_screener(
     max_rsi: Optional[float] = None,
     min_rsi: Optional[float] = None,
     max_pe_vs_sector: Optional[float] = None,
+    min_pat_growth_yoy: Optional[float] = None,
+    min_rev_growth_yoy: Optional[float] = None,
+    min_eps_growth_yoy: Optional[float] = None,
+    universe: Optional[str] = None,
     sort_by: str = "roe_pct",
     limit: int = 60,
 ) -> Dict[str, Any]:
@@ -392,6 +396,10 @@ async def nidp_stock_screener(
     if max_rsi is not None:            params["max_rsi"] = max_rsi
     if min_rsi is not None:            params["min_rsi"] = min_rsi
     if max_pe_vs_sector is not None:   params["max_pe_vs_sector"] = max_pe_vs_sector
+    if min_pat_growth_yoy is not None: params["min_pat_growth_yoy"] = min_pat_growth_yoy
+    if min_rev_growth_yoy is not None: params["min_rev_growth_yoy"] = min_rev_growth_yoy
+    if min_eps_growth_yoy is not None: params["min_eps_growth_yoy"] = min_eps_growth_yoy
+    if universe:                       params["universe"] = universe
 
     resp = await _daas_get("/v1/stocks/screener", params, timeout=20.0)
     # _daas_get returns {} on any non-200/error; a successful call is an

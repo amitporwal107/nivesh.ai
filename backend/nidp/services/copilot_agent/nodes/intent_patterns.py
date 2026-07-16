@@ -267,6 +267,27 @@ _P_SCREENER = re.compile(
     re.IGNORECASE,
 )
 
+# Cross-sectional NUMERIC screen (R4): "which Nifty 500 companies grew profit more
+# than 30% YoY?" — a screening SUBJECT (companies/stocks/firms) + a numeric
+# comparator/threshold. Routes to the screener (RECOMMENDATION) node, which now runs
+# the profit/rev/EPS-YoY filter + index universe server-side. Distinct from the
+# _P_STOCK_INSIGHTS thematic clause (which needs a disclosure verb like
+# "announced/filed" and has NO number). Gated by _is_numeric_screen so the user's
+# own book ("stocks in my portfolio down >20%") stays with _P_PORTFOLIO.
+_P_NUMERIC_SCREEN = re.compile(
+    # "which [≤4 words] companies/stocks … <grow|move|comparator> … <number>%"
+    r"\bwhich\s+(?:[a-z0-9&]+\s+){0,4}(?:companies|stocks?|firms|names|scrips?|counters?)\b"
+    r"[^?]{0,70}?\b(?:grew|grow|grown|growing|rose|gained|jumped|surged|increased|"
+    r"declined|fell|dropped|"
+    r"over|above|more\s+than|greater\s+than|at\s+least|higher\s+than|under|below|"
+    r"less\s+than|lower\s+than|>|<)\b[^?]{0,30}?\d+(?:\.\d+)?\s*%?|"
+    # "[list/show/find] companies/stocks with <metric> <comparator> <number>"
+    r"\b(?:companies|stocks?|firms)\s+with\b[^?]{0,45}"
+    r"\b(?:over|above|more\s+than|greater\s+than|at\s+least|higher\s+than|under|below|"
+    r"less\s+than|lower\s+than|>|<)\b[^?]{0,20}\d+(?:\.\d+)?\s*%?",
+    re.IGNORECASE,
+)
+
 _P_RECOMMENDATION = re.compile(
     r"\b(recommend|recommendation|suggest|what\s+(?:should|can)\s+i\s+(?:buy|invest)|"
     r"what\s+stocks?\s+should\s+(?:i|we)\s+(?:buy|invest)|"
@@ -371,6 +392,15 @@ _STOCK_ONLY_CUE = re.compile(
 )
 
 
+def _is_numeric_screen(text: str) -> bool:
+    """True for a cross-sectional numeric screen ("which Nifty 500 companies grew
+    profit > 30%") — a screening subject + a numeric comparator. Excludes the
+    user's OWN book (portfolio/holdings/"my"), which _P_PORTFOLIO owns."""
+    if _PORT_HINT.search(text):
+        return False
+    return bool(_P_NUMERIC_SCREEN.search(text))
+
+
 def _is_stock_lookup(text: str) -> bool:
     """True when the query is a single-stock metric/analysis lookup that should
     route to the stock analyst (see module note above)."""
@@ -430,6 +460,11 @@ def match_agent(text: str) -> Optional[str]:
     for pattern, agent in _PRE_PATTERNS:
         if pattern.search(text):
             return agent
+    # Cross-sectional numeric screen — after _PRE (so a disclosure/thematic query
+    # still wins) but before the single-stock gate and _P_MARKET (which would grab
+    # "nifty"). Gated so the user's own portfolio stays with _P_PORTFOLIO.
+    if _is_numeric_screen(text):
+        return RECOMMENDATION
     if _is_stock_lookup(text):
         return STOCK
     for pattern, agent in _POST_PATTERNS:

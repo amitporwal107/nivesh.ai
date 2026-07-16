@@ -47,6 +47,31 @@ def test_regulatory_pattern_does_not_oversteal(text, agent):
     assert match_agent(text) == agent
 
 
+# ── R4: cross-sectional numeric screen → recommendation (screener) ───────────
+# ("which Nifty 500 companies grew profit >30%" needs the universe-wide screener,
+#  NOT market_analyst (grabbed by "nifty") or the single-stock gate.)
+@pytest.mark.parametrize("text", [
+    "Which Nifty 500 companies grew profit more than 30% YoY this quarter?",
+    "Which companies grew profit over 30%?",
+    "Which Nifty 50 stocks have ROE above 20%?",
+    "companies with revenue growth over 25%",
+    "Which stocks grew EPS more than 40% this year",
+])
+def test_numeric_screen_routes_to_recommendation(text):
+    assert match_agent(text) == RECOMMENDATION
+
+
+@pytest.mark.parametrize("text,agent", [
+    # thematic disclosure (no number) stays with the disclosures tool
+    ("Which companies announced buybacks this month?", STOCKS_INSIGHTS),
+    ("Which companies are investing in data centers?", STOCKS_INSIGHTS),
+    # the user's own book (has "my"/"portfolio") stays with portfolio
+    ("which stocks in my portfolio fell more than 20%?", PORTFOLIO),
+])
+def test_numeric_screen_does_not_oversteal(text, agent):
+    assert match_agent(text) == agent
+
+
 # ── The reported bug: per-stock FII/DII holding → stock analyst ──────────────
 
 def test_fii_dii_holding_in_stock_routes_to_stock():

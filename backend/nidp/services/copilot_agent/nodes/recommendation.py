@@ -53,9 +53,11 @@ _SCREEN_METRICS = [
     ("interestCoverage", r"interest\s+cover(?:age)?"),
     ("earningsConsistency", r"earnings\s+consistency"),
     # Growth
-    ("salesGyoy",    r"sales\s+growth\s+yoy|revenue\s+growth\s+yoy|sales\s+yoy|revenue\s+yoy"),
-    ("profitGyoy",   r"profit\s+growth\s+yoy|pat\s+growth\s+yoy|profit\s+yoy|pat\s+yoy"),
-    ("epsGyoy",      r"eps\s+growth\s+yoy|eps\s+yoy"),
+    ("salesGyoy",    r"sales\s+growth\s+yoy|revenue\s+growth\s+yoy|sales\s+yoy|revenue\s+yoy|"
+                     r"grew\s+(?:its\s+)?(?:revenue|sales|topline)|(?:revenue|sales|topline)\s+(?:grew|grown|rose|jumped|surged|increased)"),
+    ("profitGyoy",   r"profit\s+growth\s+yoy|pat\s+growth\s+yoy|profit\s+yoy|pat\s+yoy|"
+                     r"grew\s+(?:its\s+)?(?:net\s+)?(?:profit|pat|earnings)|(?:net\s+)?(?:profit|pat|earnings)\s+(?:grew|grown|rose|jumped|surged|increased)"),
+    ("epsGyoy",      r"eps\s+growth\s+yoy|eps\s+yoy|grew\s+(?:its\s+)?eps|eps\s+(?:grew|grown|rose|jumped|surged|increased)"),
     ("salesG",       r"sales\s+growth|revenue\s+growth|topline\s+growth"),
     ("profitG",      r"profit\s+growth|earnings\s+growth|eps\s+growth|pat\s+growth"),
     ("marginTrend",  r"margin\s+trend"),
@@ -114,9 +116,21 @@ def _parse_screen_filters(text: str) -> dict:
     elif re.search(r"small[\s-]*cap", tl):   market_cap = "SMALL_CAP"
     elif re.search(r"micro[\s-]*cap", tl):   market_cap = "MICRO_CAP"
 
+    # Index universe ("which Nifty 500 companies …") → bound the screen server-side.
+    universe = None
+    um = re.search(r"\bnifty\s*(500|200|100|50)\b", tl)
+    if um:
+        universe = f"Nifty {um.group(1)}"
+    elif re.search(r"\b(?:nifty\s*bank|bank\s*nifty)\b", tl):
+        universe = "Nifty Bank"
+    elif re.search(r"\bnifty\s*it\b", tl):
+        universe = "Nifty IT"
+
     # Only the params the /v1/stocks/screener endpoint supports go server-side;
     # every other parsed filter rides along as a client_filter (the widget
-    # applies it over the returned rows).
+    # applies it over the returned rows). Latest-quarter YoY growth + the index
+    # universe now run server-side so "which Nifty 500 companies grew profit >30%"
+    # screens the WHOLE universe, not a client-side slice of the top-60-by-mcap.
     server = {
         "min_roe": client.get("roe_min"),
         "max_de": client.get("de_max"),
@@ -125,9 +139,21 @@ def _parse_screen_filters(text: str) -> dict:
         "max_rsi": client.get("rsi_max"),
         "min_rsi": client.get("rsi_min"),
         "max_pe_vs_sector": client.get("peVsSector_max"),
+        "min_pat_growth_yoy": client.get("profitGyoy_min"),
+        "min_rev_growth_yoy": client.get("salesGyoy_min"),
+        "min_eps_growth_yoy": client.get("epsGyoy_min"),
         "market_cap": market_cap,
+        "universe": universe,
     }
-    if client.get("roe_min") is not None:
+    # Sort so the top rows are the strongest on the primary constraint. YoY-growth
+    # screens sort by the YoY column (else the "which grew >30%" list is mcap-ordered).
+    if client.get("profitGyoy_min") is not None:
+        server["sort_by"] = "pat_growth_yoy_pct"
+    elif client.get("salesGyoy_min") is not None:
+        server["sort_by"] = "revenue_growth_yoy_pct"
+    elif client.get("epsGyoy_min") is not None:
+        server["sort_by"] = "eps_growth_yoy_pct"
+    elif client.get("roe_min") is not None:
         server["sort_by"] = "roe_pct"
     elif client.get("salesG_min") is not None:
         server["sort_by"] = "revenue_growth_3y_cagr_pct"
@@ -314,8 +340,11 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
             intel_mod = importlib.import_module("services.copilot_tools.stock_intelligence")
             parsed = _parse_screen_filters(user_msg)
 
+            # A bounded index universe (≤500 names) is screened in full so a
+            # "which Nifty 500 companies …" count is complete, not a top-60 slice.
+            _screen_limit = 500 if parsed["server"].get("universe") else 60
             fetched = await intel_mod.nidp_stock_screener(
-                limit=60, **{k: v for k, v in parsed["server"].items() if v is not None},
+                limit=_screen_limit, **{k: v for k, v in parsed["server"].items() if v is not None},
             )
             fetch_ok = fetched.get("ok", True)   # False only when the source is unreachable
             raw_rows = fetched.get("rows", [])
