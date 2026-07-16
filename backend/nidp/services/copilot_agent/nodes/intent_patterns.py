@@ -170,6 +170,33 @@ _P_STOCK_INSIGHTS = re.compile(
     re.IGNORECASE,
 )
 
+# Company-specific REGULATORY / LEGAL events (R5-A): SEBI/RBI/IRDAI orders & actions,
+# insolvency / NCLT / IBC / winding-up cases against a company or its promoters.
+# These are corporate disclosures the stocks_insights tool surfaces from exchange
+# filings (event_category regulatory/litigation), so route them there — NOT the
+# stock-lookup gate (which grabs "promoter"→stock_analyst) or _P_MARKET (which
+# grabs "rbi"→market_analyst). Checked in _PRE so it beats both. The node caveats
+# that coverage is LODR self-disclosure only (authoritative SEBI/NCLT feeds are not
+# ingested), so "nothing found" is never stated as "no case exists".
+_P_REGULATORY_EVENT = re.compile(
+    # <regulator> ... <enforcement verb>
+    r"\b(?:sebi|\brbi\b|irdai?|\bsat\b|\bmca\b|\bnfra\b|\bcci\b|\bed\b|enforcement\s+directorate)\b"
+    r"[^?]{0,45}\b(?:actions?|orders?|penalt\w*|fine[ds]?|show[\s-]?cause|notices?|probes?|"
+    r"investigat\w*|\bbans?\b|barr(?:ed|ing)?|debarr\w*|settlements?|adjudicat\w*|"
+    r"crackdowns?|proceedings?|raids?|summon\w*)\b|"
+    # <enforcement verb> ... by <regulator>
+    r"\b(?:actions?|orders?|penalt\w*|show[\s-]?cause|notices?|probes?|investigat\w*|raids?|summon\w*)\b"
+    r"[^?]{0,25}\bby\s+(?:sebi|\brbi\b|irdai?|\bsat\b|\bmca\b|\bcci\b)\b|"
+    # insolvency / bankruptcy / NCLT track
+    r"\b(?:insolvenc\w*|\bnclt\b|\bnclat\b|\bibc\b|\bibbi\b|bankruptc\w*|"
+    r"winding[\s-]?up|wind[\s-]?up|liquidat\w*|\bcirp\b|moratorium|"
+    r"insolvency\s+(?:case|petition|plea|proceeding))\b|"
+    # litigation directed at a company
+    r"\b(?:lawsuit|litigation|court\s+(?:case|order)|legal\s+(?:case|proceeding|action))\b"
+    r"[^?]{0,25}\b(?:against|filed|on)\b",
+    re.IGNORECASE,
+)
+
 _P_PORTFOLIO = re.compile(
     r"\b((?:my\s+)?portfolio|my\s+investments?|my\s+holdings?|"
     r"xirr|portfolio\s+(?:return|performance|summary|health|snapshot)|"
@@ -378,6 +405,7 @@ _PRE_PATTERNS: List[Tuple[re.Pattern, str]] = [
     (_P_CAP,              MF),       # cap-category education → mf (cap_education widget) before others
     (_P_FUND_OVERLAP,     MF),       # fund overlap/consolidation → mf (widgets) before PORTFOLIO grabs "overlap"
     (_P_STOCK_OWNERSHIP,  STOCK),    # per-stock FII/DII/promoter holding → stock (before MARKET grabs "fii"/"dii")
+    (_P_REGULATORY_EVENT, STOCKS_INSIGHTS),  # SEBI/insolvency/NCLT action against a company → stocks_insights (before stock-lookup gate grabs "promoter" & before MARKET grabs "rbi")
     (_P_STOCK_INSIGHTS,   STOCKS_INSIGHTS),  # recent filings/news/order-wins/thematic → stocks_insights (before stock-lookup gate)
 ]
 # The entity-aware stock-lookup gate runs HERE — between _PRE and _POST.

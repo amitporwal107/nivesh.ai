@@ -52,7 +52,7 @@ Taxonomy — pick exactly ONE event_category:
 - buyback    : share buyback announcements, buyback offers, buyback closure
 - qip        : QIP, preferential allotment, rights issue, FPO, equity raise
 - rating     : credit-rating actions (upgrade/downgrade/affirmation) by CRISIL/ICRA/CARE/Fitch/Moody
-- litigation : lawsuits filed, settlements, court orders
+- litigation : lawsuits filed, settlements, court orders, insolvency/bankruptcy proceedings (NCLT/NCLAT/IBC/CIRP petitions, winding-up, liquidation, moratorium)
 - other      : everything else (newspaper publications, postal ballots, scrutinizer reports, AGM notices, investor presentations without earnings)
 
 impact_score:

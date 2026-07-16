@@ -94,6 +94,7 @@ Agents:
 - risk_analyst: risk suitability, VaR, portfolio risk assessment
 - goal_planner: financial goals, retirement, SIP adequacy
 - recommendation: buy/invest recommendations, stock screener
+- stocks_insights: a company's corporate disclosures/filings, order wins, results, M&A, concall/management commentary, AND regulatory/legal events it disclosed (SEBI action, RBI/IRDAI order, insolvency, NCLT, IBC, litigation)
 
 Return JSON: {"agent": "<agent_name>", "confidence": 0.9, "symbol": null, "scheme_code": null}
 """

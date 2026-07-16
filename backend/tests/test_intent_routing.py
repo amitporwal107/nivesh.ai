@@ -17,8 +17,34 @@ import pytest
 
 from nidp.services.copilot_agent.nodes.intent_patterns import (
     match_agent, MARKET, STOCK, MF, PORTFOLIO, RISK, RECOMMENDATION,
+    STOCKS_INSIGHTS,
 )
 from services.copilot_tools.symbol_resolver import resolve_symbol
+
+
+# ── R5-A: company-specific regulatory/legal events → stocks_insights ─────────
+# (SEBI action / insolvency / NCLT / IBC against a company or its promoters must
+#  reach the disclosures tool, NOT the stock-lookup gate ("promoter") or MARKET
+#  ("rbi"). The node then caveats self-disclosure-only scope.)
+@pytest.mark.parametrize("text", [
+    "Any recent SEBI actions against $RELIANCE or its promoters?",
+    "Has SEBI passed any order against Adani promoters?",
+    "SEBI penalty on $ZEEL",
+    "RBI penalty on $HDFCBANK?",
+    "Is there any insolvency case filed against $RCOM?",
+    "Any IBC proceedings against $JPASSOCIAT?",
+    "NCLT winding-up petition against the company",
+])
+def test_regulatory_events_route_to_stocks_insights(text):
+    assert match_agent(text) == STOCKS_INSIGHTS
+
+
+@pytest.mark.parametrize("text,agent", [
+    ("What is the RBI repo rate?", MARKET),      # regulator word alone ≠ enforcement
+    ("SEBI new mutual fund regulation", MF),     # rule-making, not an action; MF wins
+])
+def test_regulatory_pattern_does_not_oversteal(text, agent):
+    assert match_agent(text) == agent
 
 
 # ── The reported bug: per-stock FII/DII holding → stock analyst ──────────────
