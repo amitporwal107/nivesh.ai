@@ -36,6 +36,10 @@ from nidp.shared.storage.pg import close_pool, get_pool
 
 logger = logging.getLogger(__name__)
 
+# Per-command timeout for `migrate`. Bounded (not None) so a genuinely stuck
+# migration still fails rather than hanging a deploy forever.
+MIGRATION_TIMEOUT_SEC = 600
+
 # Service registry — maps CLI name → module path.
 SERVICES: dict[str, str] = {
     "bulk_deals":               "nidp.services.bulk_deals.service",
@@ -109,10 +113,16 @@ async def cmd_migrate(args: argparse.Namespace) -> int:
             sql = f.read_text()
             try:
                 async with conn.transaction():
-                    await conn.execute(sql)
+                    # The shared pool sets command_timeout=30 for app queries.
+                    # Migrations are bulk DDL/backfills that legitimately run
+                    # longer (122 repopulates stock_features_daily in ~30s), so
+                    # they need an explicit, generous per-command override.
+                    await conn.execute(sql, timeout=MIGRATION_TIMEOUT_SEC)
                 print(f"  ✅ {f.name} applied")
             except Exception as e:                                 # noqa: BLE001
-                print(f"  ❌ {f.name} FAILED: {e}")
+                # asyncio.TimeoutError stringifies to '', which prints a blank
+                # reason — always show the exception type.
+                print(f"  ❌ {f.name} FAILED: {type(e).__name__}: {e}")
                 return 1
     return 0
 
