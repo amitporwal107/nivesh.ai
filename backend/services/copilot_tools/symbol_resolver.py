@@ -64,6 +64,15 @@ _ALIASES: Dict[str, str] = {
     "d-mart": "DMART",
     "bajaj finance": "BAJFINANCE",
     "bajaj finserv": "BAJAJFINSV",
+    # Renamed / rebranded entities — the old name still dominates user queries.
+    "zomato": "ETERNAL",   # Zomato Ltd renamed to Eternal Ltd (ticker ETERNAL)
+}
+
+# Renamed/merged TICKERS — when the user types the OLD ticker ($ZOMATO), map it
+# to the current symbol. Applied on the ticker + pass-through paths (the name
+# alias above only covers the lowercase name form, e.g. "zomato").
+_TICKER_RENAMES: Dict[str, str] = {
+    "ZOMATO": "ETERNAL",   # Zomato Ltd → Eternal Ltd
 }
 
 # Uppercase tokens that look like tickers but are common English words — guard
@@ -133,7 +142,8 @@ def resolve_symbol(text: str) -> Resolution:
     upper_tokens = _TICKER_RE.findall(text)
     for tok in upper_tokens:
         if tok in _TICKERS:
-            return Resolution(symbol=_TICKERS[tok], display_name=tok, source="ticker")
+            sym = _TICKER_RENAMES.get(_TICKERS[tok], _TICKERS[tok])
+            return Resolution(symbol=sym, display_name=tok, source="ticker")
 
     toks = _norm_tokens(text)
 
@@ -164,6 +174,6 @@ def resolve_symbol(text: str) -> Resolution:
     # 5. pass-through: an uppercase ticker-shaped token not in the curated list
     for tok in upper_tokens:
         if tok not in _PASSTHROUGH_STOPWORDS:
-            return Resolution(symbol=tok, display_name=tok, source="passthrough")
+            return Resolution(symbol=_TICKER_RENAMES.get(tok, tok), display_name=tok, source="passthrough")
 
     return Resolution()
