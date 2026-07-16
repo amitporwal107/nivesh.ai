@@ -375,6 +375,33 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
             picks_str = "; ".join(pick_lines)
             count = widget_data.get("count", 0)
 
+            # Data-quality guard for YoY-growth screens. A tiny/depressed
+            # same-quarter-last-year base (or a standalone-vs-consolidated basis
+            # mismatch) inflates the %, so a "grew >30%" list can be topped by
+            # optically huge, low-base figures (e.g. cyclical steel/OMC recovery).
+            # Surface that so the narrative never states an unvalidated 600% as a
+            # clean fact. Truthful whether the base is low-but-real or contaminated.
+            _yoy_col = parsed["server"].get("sort_by")
+            _yoy_caveat = ""
+            if _yoy_col in ("pat_growth_yoy_pct", "revenue_growth_yoy_pct", "eps_growth_yoy_pct"):
+                _vals = []
+                for r in raw_rows:
+                    v = r.get(_yoy_col)
+                    if v is not None:
+                        try: _vals.append(float(v))
+                        except (TypeError, ValueError): pass
+                if _vals and max(_vals) >= 150:
+                    _yoy_caveat = (
+                        " DATA-QUALITY NOTE: some matches show very high YoY growth — "
+                        "a small/depressed base-year quarter (or a standalone-vs-"
+                        "consolidated basis difference) inflates the %. State the exact "
+                        "figures as indicative, not precise, and suggest verifying the "
+                        "base quarter."
+                    )
+                    widget_data["data_quality_note"] = (
+                        "Very high YoY figures can reflect a low base-year quarter — treat as indicative."
+                    )
+
             if not fetch_ok:
                 # Source unreachable → no widget; LLM emits the "couldn't retrieve" line.
                 summary = f"Stock screen ({parsed['title']}): screener data source unavailable"
@@ -387,6 +414,7 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
                     f"Stock screen ({parsed['title']}): {count} matches"
                     + (f" — {picks_str}" if picks_str else "")
                     + (f" [as of {fetched.get('as_of_date')}]" if fetched.get("as_of_date") else "")
+                    + _yoy_caveat
                 )
 
             results.append(ToolResult(
