@@ -137,22 +137,35 @@ chunks 1066 | docs_with_chunks 89
    slice; `AttachLive` URLs expire, and they now 404. Not recoverable from stored URLs —
    would need BSE's archival `AttachHis` equivalents. Separate work.
    The other **16,637 (89%)** are `nsearchives.nseindia.com` and ARE recovering.
-2. **Full 18,655-doc backfill is IN PROGRESS** (relaunched as pid 1987034 after the
-   surrogate crash; the first run died at 4,472 docs). Measured on staging:
-   **52 parsed/min**, ETA ~4h. It is CPU/GIL-bound at ~1 of 4 cores — pypdf is pure
-   Python, so `asyncio.to_thread` cannot spread it across cores and raising
-   `--concurrency` would not help (93.8% CPU = compute-bound, not I/O-bound).
-   Multi-process sharding would give ~3x but the work queue has NO claiming
-   (`_FETCH_PENDING_SQL` is a plain SELECT — no FOR UPDATE SKIP LOCKED), so parallel
-   processes would duplicate every download. Deliberately NOT done: this VM also hosts
-   prod Postgres at 90% disk. Progress at last read: parsed 2,930+, 57,031 chunks.
-   TRUE recovery rate (attempted only): **NSE nsearchives 94.9%**, BSE AttachLive 29.1%.
-3. **UNVERIFIED: staging `OPENAI_API_KEY` is invalid** (`401 Incorrect API key provided`).
+2. **Full backfill COMPLETE** — all 3 shards exited cleanly, `never_tried = 0`.
+   Final: **parsed 16,521 (87.2%)** / failed 1,774 (9.4%) / skipped_non_text 654 (3.5%),
+   from a baseline of 5 parsed. **292,442 chunks** now in the RAG corpus (was ~0).
+   Shards split evenly as the hash predicate promised: 3,828 / 3,856 / 3,836.
+   TRUE recovery rate: **NSE nsearchives 93.3%** (15,725/478) · BSE AttachLive 37.9%
+   (796/1,296) — the shortfall is entirely the expired BSE slice, as predicted (~89%).
+   Residual failures are all legitimate: 917 expired 404s, 323 ZIPs mislabelled as PDF,
+   95 corrupt PDFs, 32 empty files.
+   **COST OF THE 3x SPEED-UP: ~379 rate-limit 403s** (10 at 1x concurrency). Tripling the
+   crawl rate provoked the throttling the original bug was about. NOT lost — they carry
+   parse_attempts < 5 so the 15-min cron retries them — but a real cost, recorded honestly.
+   Throughput note: pypdf is pure Python, so one process is GIL-capped at ~1 of 4 cores
+   (93.8% CPU, compute-bound — raising --concurrency does nothing). Sharding (33878098)
+   took it to ~257% CPU / ~120 parsed/min. The queue has NO claiming, so shards were
+   mandatory to avoid duplicate downloads.
+   **Parser accuracy measured separately** — see `parser_accuracy_pypdf_vs_vision.md`:
+   pypdf is ~99% faithful on content pages vs a gpt-4o vision reference.
+3. **staging `OPENAI_API_KEY` was invalid** (`401 Incorrect API key provided`) during the run.
    Vision + embeddings are graceful-by-contract, so the pipeline is unaffected, but the
    vision tier is silently degraded (on prod too). Backfill run with `OPENAI_API_KEY=""`
    to avoid ~6h of wasted 401 round-trips; embeddings deliberately skipped (`--embed-limit 0`),
    so chunks are keyword-searchable but not yet semantically searchable.
-4. **UNVERIFIED on prod.** All evidence above is staging-only. Prod tracks `main` and still
-   carries both the download bug and the NUL bug.
+4. **654 scanned docs extract at 0%** — `pdftoppm` is present on the VM but `tesseract` is
+   MISSING, so `ocr_available()` is False and they park as `skipped_non_text`. The code
+   auto-requeues them once tesseract is installed. One package, measured return.
+5. **Disk pressure: 91% used, 4.6G free** (was 90% / 5.1G before the 292k chunks). This VM's
+   known failure mode is disk-full crash-looping Postgres. Watch it.
+6. **UNVERIFIED on prod.** All evidence above is staging-only. Prod tracks `main` and still
+   carries the download bug, BOTH encoding bugs (NUL + lone surrogate), and the batch-abort
+   bug. Landing them is a PR, not a push.
 
 ## Verdict: PASS
