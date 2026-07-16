@@ -19,6 +19,16 @@ logger = logging.getLogger(__name__)
 _OCR_MAX_PAGES = int(os.environ.get("NIDP_OCR_MAX_PAGES", "60"))
 _OCR_DPI = os.environ.get("NIDP_OCR_DPI", "200")
 
+# A page with fewer than this many extracted characters is treated as
+# image-heavy and eligible for the Claude-vision fallback (see vision_extractor).
+_VISION_MIN_CHARS = int(os.environ.get("NIDP_VISION_MIN_CHARS", "200"))
+
+
+def _low_text_pages(pages: list[str], min_chars: int = _VISION_MIN_CHARS) -> list[int]:
+    """0-based indices of pages whose extracted text is below `min_chars`
+    (image-heavy slides). Pure helper — unit-testable without any PDF."""
+    return [i for i, p in enumerate(pages) if len((p or "").strip()) < min_chars]
+
 
 def ocr_available() -> bool:
     """True when the OCR tooling (poppler pdftoppm + tesseract) is installed.
@@ -97,6 +107,21 @@ def extract_text_from_pdf(body: bytes) -> ExtractedDoc:
             logger.warning("page %d extraction failed: %s", i + 1, e)
             text = ""
         pages.append(text)
+
+    # Per-page Claude-vision fallback: investor decks and mixed PDFs often have
+    # slides that are image/chart-only with little or no text layer. Escalate
+    # just those low-text pages to vision (bounded + graceful; no-op when the
+    # fallback is unavailable). Fully-scanned docs (no page has text) still fall
+    # to the cheaper whole-doc OCR path below.
+    low = _low_text_pages(pages)
+    if low:
+        from .vision_extractor import vision_available, extract_pages as _vision_pages
+        if vision_available():
+            vis = _vision_pages(body, [i + 1 for i in low])   # vision uses 1-based page numbers
+            for i in low:
+                vtext = vis.get(i + 1, "")
+                if len(vtext) > len((pages[i] or "").strip()):
+                    pages[i] = vtext
 
     full = "\n\n".join(p for p in pages if p.strip())
     if not full.strip():
