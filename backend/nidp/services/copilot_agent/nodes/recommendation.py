@@ -167,8 +167,11 @@ def _parse_screen_filters(text: str) -> dict:
         "pe": "P/E", "pb": "P/B", "evEbitda": "EV/EBITDA", "peVsSector": "P/E vs sector",
         "divYield": "Div Yield", "roe": "ROE", "roce": "ROCE", "profitMargin": "Net margin",
         "interestCoverage": "Int cover", "earningsConsistency": "Earnings consistency",
-        "salesG": "Sales 3Y", "profitG": "Profit 3Y", "salesGyoy": "Sales YoY",
-        "profitGyoy": "Profit YoY", "epsGyoy": "EPS YoY", "marginTrend": "Margin trend",
+        # *Gyoy metrics are served on a TTM-vs-prior-TTM basis (trailing 12 months vs
+        # the 12 before it) — NOT single-quarter YoY. Label them as such or the number
+        # is misleading even when it is numerically correct. See migration 122.
+        "salesG": "Sales 3Y", "profitG": "Profit 3Y", "salesGyoy": "Sales TTM",
+        "profitGyoy": "Profit TTM", "epsGyoy": "EPS TTM", "marginTrend": "Margin trend",
         "de": "D/E", "debtTrend": "Debt trend", "liquidity": "Liquidity", "mcap": "Mkt Cap",
         "return1y": "1Y return", "volatility": "Volatility", "beta": "Beta",
         "maxDrawdown": "Max drawdown", "rsi": "RSI", "momentum": "Momentum",
@@ -384,22 +387,31 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
             _yoy_col = parsed["server"].get("sort_by")
             _yoy_caveat = ""
             if _yoy_col in ("pat_growth_yoy_pct", "revenue_growth_yoy_pct", "eps_growth_yoy_pct"):
+                # BASIS (always state it): these columns are TTM-vs-prior-TTM — the
+                # trailing 12 months vs the 12 before — NOT single-quarter YoY. Saying
+                # "this quarter" over a TTM number is misleading even when it's correct.
+                _yoy_caveat = (
+                    " BASIS: this growth figure is TTM (trailing 12 months) vs the prior "
+                    "12 months, NOT a single quarter — say so plainly. Names whose "
+                    "financials fail data-quality checks are excluded rather than shown "
+                    "with an unreliable number."
+                )
+                widget_data["basis_note"] = "TTM (trailing 12m) vs prior 12m — not single-quarter."
+                # Backstop: migration 122 NULLs contaminated/low-base rows upstream, so
+                # extremes should be rare. If one still lands, flag it rather than trust it.
                 _vals = []
                 for r in raw_rows:
                     v = r.get(_yoy_col)
                     if v is not None:
                         try: _vals.append(float(v))
                         except (TypeError, ValueError): pass
-                if _vals and max(_vals) >= 150:
-                    _yoy_caveat = (
-                        " DATA-QUALITY NOTE: some matches show very high YoY growth — "
-                        "a small/depressed base-year quarter (or a standalone-vs-"
-                        "consolidated basis difference) inflates the %. State the exact "
-                        "figures as indicative, not precise, and suggest verifying the "
-                        "base quarter."
+                if _vals and max(_vals) >= 300:
+                    _yoy_caveat += (
+                        " DATA-QUALITY NOTE: a match still shows very high growth — treat "
+                        "the exact figure as indicative, not precise."
                     )
                     widget_data["data_quality_note"] = (
-                        "Very high YoY figures can reflect a low base-year quarter — treat as indicative."
+                        "Very high growth can reflect a depressed base year — treat as indicative."
                     )
 
             if not fetch_ok:
