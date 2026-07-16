@@ -327,8 +327,10 @@ except Exception:  # noqa: BLE001 - an optional import must never break routing
 # All are about instruments/markets/policy — not the advisor's client book,
 # which is caught first by _ADVISOR_BOOK_INTENT_RE.
 _GENERIC_MARKET_RE = re.compile(
-    r"\b(?:gst|anti[\s-]?dumping|customs\s+dut\w*|import\s+dut\w*|tariffs?|"
-    r"sebi|insolvenc\w*|\bibc\b|\bnclt\b|union\s+budget|dgtr)\b|"
+    r"\b(?:gst|anti[\s-]?dumping|safeguard\s+dut\w*|customs\s+dut\w*|import\s+dut\w*|"
+    r"export\s+dut\w*|tariffs?|\bpli\b|production[\s-]?linked|subsid\w*|"
+    r"sebi|\bsat\b|irdai?|insolvenc\w*|\bibc\b|\bnclt\b|nclat|\bcirp\b|"
+    r"union\s+budget|dgtr|cbic)\b|"
     r"\bboard\s+meeting\b|"
     r"\bnew\s+products?\b|\b(?:adding|new|expand\w*)\s+capacity\b|\bcapacity\s+(?:expansion|addition|adding)\b|"
     r"\bprofit\b[^?]{0,25}\b(?:yoy|year[\s-]?on[\s-]?year|grew|growth|more\s+than)\b|"
