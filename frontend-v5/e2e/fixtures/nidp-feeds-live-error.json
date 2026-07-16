@@ -1,0 +1,7 @@
+{
+  "generated_at": "2026-07-14T12:00:00+00:00",
+  "last_trading_day": "2026-07-14",
+  "summary": { "total": 0, "healthy": 0, "failing": 0, "stale": 0, "never_run": 0, "running": 0 },
+  "feeds": [],
+  "db_error": "NIDP Query API returned 503: v_feed_status unavailable"
+}

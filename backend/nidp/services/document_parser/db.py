@@ -17,6 +17,7 @@ from typing import Any
 from uuid import UUID
 
 from nidp.shared.storage.pg import get_pool
+from nidp.shared import embeddings as _emb
 from nidp.services.corporate_announcements.taxonomy import doc_type_for_subcategory
 
 logger = logging.getLogger(__name__)
@@ -144,3 +145,63 @@ async def store_parse_result(
                         c["char_start"], c["char_end"],
                         c["page_start"], c["page_end"], c["token_count"],
                     )
+
+
+# ── Embedding pass ──────────────────────────────────────────────────
+# Decoupled from parsing so it also backfills any pre-existing chunk with a
+# NULL embedding. Runs after parse in the same invocation; the HNSW index
+# (migration 119) makes the resulting vectors searchable.
+_FETCH_UNEMBEDDED_SQL = """
+SELECT chunk_id, text
+  FROM nidp.document_chunks
+ WHERE embedding IS NULL
+   AND text IS NOT NULL AND length(btrim(text)) > 0
+ ORDER BY ingested_at ASC
+ LIMIT $1
+"""
+
+_UPDATE_CHUNK_EMBEDDING_SQL = """
+UPDATE nidp.document_chunks
+   SET embedding       = $2::vector,
+       embedding_model = $3,
+       embedded_at     = NOW()
+ WHERE chunk_id = $1
+"""
+
+
+async def embed_pending(limit: int) -> dict[str, int]:
+    """Embed up to `limit` chunks that don't yet have an embedding.
+
+    Graceful by design: if OPENAI_API_KEY is absent or the embedding call
+    fails, it logs and returns embedded=0 so the parser keeps running — the
+    chunks remain retrievable via full-text search until embeddings land.
+    """
+    if not _emb.is_configured():
+        logger.warning("embed_pending: OPENAI_API_KEY not set — skipping embedding pass")
+        return {"embedded": 0, "candidates": 0}
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(_FETCH_UNEMBEDDED_SQL, limit)
+    if not rows:
+        return {"embedded": 0, "candidates": 0}
+
+    try:
+        vectors = await _emb.embed_texts([r["text"] for r in rows])
+    except _emb.EmbeddingError as e:
+        logger.warning("embed_pending: embedding call failed: %s", e)
+        return {"embedded": 0, "candidates": len(rows)}
+
+    embedded = 0
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            for r, vec in zip(rows, vectors):
+                await conn.execute(
+                    _UPDATE_CHUNK_EMBEDDING_SQL,
+                    r["chunk_id"], _emb.to_pgvector_literal(vec), _emb.EMBED_MODEL,
+                )
+                embedded += 1
+    logger.info("embed_pending: embedded %d/%d chunks (model=%s)",
+                embedded, len(rows), _emb.EMBED_MODEL)
+    return {"embedded": embedded, "candidates": len(rows)}

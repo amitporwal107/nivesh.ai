@@ -26,6 +26,7 @@ async def _main(args: argparse.Namespace) -> None:
             discover_limit=args.discover_limit,
             parse_limit=args.parse_limit,
             concurrency=args.concurrency,
+            embed_limit=args.embed_limit,
         )
     finally:
         await close_pool()
@@ -40,6 +41,8 @@ def main() -> None:
                    help="Max pending documents to actually download+parse per invocation.")
     p.add_argument("--concurrency", type=int, default=4,
                    help="Parallel PDF download/parse workers.")
+    p.add_argument("--embed-limit", type=int, default=200,
+                   help="Max chunks to embed (OpenAI) per invocation; backfills NULL embeddings.")
     p.add_argument("--metrics", action="store_true")
     a = p.parse_args()
     setup_logging(service="document_parser")

@@ -20,7 +20,7 @@ from typing import Any
 import aiohttp
 
 from .chunker import chunk_text
-from .db import discover_pending, fetch_pending_docs, store_parse_result
+from .db import discover_pending, embed_pending, fetch_pending_docs, store_parse_result
 from .pdf_extractor import extract_text_from_pdf
 
 logger = logging.getLogger(__name__)
@@ -114,43 +114,51 @@ async def _parse_one(doc: dict[str, Any]) -> None:
 
 
 async def run_once(discover_limit: int = 500, parse_limit: int = 50,
-                   concurrency: int = 4) -> dict:
+                   concurrency: int = 4, embed_limit: int = 200) -> dict:
     run_id = uuid.uuid4()
-    logger.info("doc parser run=%s discover_limit=%d parse_limit=%d concurrency=%d",
-                run_id, discover_limit, parse_limit, concurrency)
+    logger.info("doc parser run=%s discover_limit=%d parse_limit=%d concurrency=%d embed_limit=%d",
+                run_id, discover_limit, parse_limit, concurrency, embed_limit)
 
     discovered = await discover_pending(discover_limit, source_run_id=run_id)
     pending = await fetch_pending_docs(parse_limit)
-    if not pending:
+    if pending:
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _bounded(d: dict) -> None:
+            async with sem:
+                await _parse_one(d)
+
+        await asyncio.gather(*[_bounded(d) for d in pending])
+    else:
         logger.info("no pending documents")
-        return {"discovered": discovered, "parsed": 0, "failed": 0, "skipped_non_text": 0}
-
-    sem = asyncio.Semaphore(concurrency)
-
-    async def _bounded(d: dict) -> None:
-        async with sem:
-            await _parse_one(d)
-
-    await asyncio.gather(*[_bounded(d) for d in pending])
 
     # Summary derived from a follow-up SELECT — cheap and authoritative.
-    from nidp.shared.storage.pg import get_pool
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        summary = await conn.fetchrow(
-            """
-            SELECT
-              COUNT(*) FILTER (WHERE parse_status = 'parsed')              AS parsed,
-              COUNT(*) FILTER (WHERE parse_status = 'failed')              AS failed,
-              COUNT(*) FILTER (WHERE parse_status = 'skipped_non_text')    AS skipped
-              FROM nidp.documents
-             WHERE doc_id = ANY($1::uuid[])
-            """,
-            [d["doc_id"] for d in pending],
-        )
+    parsed = failed = skipped = 0
+    if pending:
+        from nidp.shared.storage.pg import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            summary = await conn.fetchrow(
+                """
+                SELECT
+                  COUNT(*) FILTER (WHERE parse_status = 'parsed')              AS parsed,
+                  COUNT(*) FILTER (WHERE parse_status = 'failed')              AS failed,
+                  COUNT(*) FILTER (WHERE parse_status = 'skipped_non_text')    AS skipped
+                  FROM nidp.documents
+                 WHERE doc_id = ANY($1::uuid[])
+                """,
+                [d["doc_id"] for d in pending],
+            )
+        parsed, failed, skipped = summary["parsed"], summary["failed"], summary["skipped"]
+
+    # Embedding pass — always runs (backfills any NULL-embedding chunk, not just
+    # the ones parsed this invocation) so the semantic index stays populated.
+    embed_summary = await embed_pending(embed_limit)
+
     return {
         "discovered": discovered,
-        "parsed": summary["parsed"],
-        "failed": summary["failed"],
-        "skipped_non_text": summary["skipped"],
+        "parsed": parsed,
+        "failed": failed,
+        "skipped_non_text": skipped,
+        "embedded": embed_summary["embedded"],
     }

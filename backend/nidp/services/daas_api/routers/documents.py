@@ -1,11 +1,13 @@
-"""Full-text search over ingested document CHUNKS — concall transcripts, investor
+"""Hybrid search over ingested document CHUNKS — concall transcripts, investor
 presentations, annual reports. Returns the matching passage plus its page span and
-source PDF, so an answer layer can quote what management said with a page-level
+source PDF, so the answer layer can quote what management said with a page-level
 citation. Complements /announcements (filing metadata) with document *content*.
 
-No FTS index exists yet (see migration 031); this uses on-the-fly
-`to_tsvector('simple', text)`. Cheap when a symbol filter narrows to one company's
-docs; a GIN index is the follow-up for heavy thematic (no-symbol) scans.
+Retrieval is HYBRID: pgvector cosine (OpenAI text-embedding-3-small) fused with
+Postgres full-text via Reciprocal Rank Fusion. When the query can't be embedded
+(no OPENAI_API_KEY) or no chunk is embedded yet, it degrades cleanly to FTS-only.
+Both legs use the `english` tsvector config, matching the GIN + HNSW indexes from
+migration 119.
 """
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query
 
 from nidp.shared.storage.pg import get_pool
+from nidp.shared import embeddings as _emb
 from nidp.services.daas_api.auth import require_api_key
 from nidp.services.daas_api.responses import envelope, normalise_symbol, page_params, row_to_dict
 
@@ -21,12 +24,78 @@ from nidp.services.daas_api.responses import envelope, normalise_symbol, page_pa
 router = APIRouter(prefix="/documents", tags=["documents"],
                    dependencies=[Depends(require_api_key)])
 
+# RRF fuses two rankings scale-free: score = Σ 1/(K + rank). K=60 is the standard
+# constant. Each leg pulls a candidate pool larger than the final page so fusion
+# has room to reorder.
+_RRF_K = 60
+
+_HYBRID_SQL = """
+WITH vec AS (
+    SELECT c.chunk_id,
+           row_number() OVER (ORDER BY c.embedding <=> $1::vector) AS rnk
+      FROM nidp.document_chunks c
+      JOIN nidp.documents d USING (doc_id)
+     WHERE d.parse_status = 'parsed'
+       AND c.embedding IS NOT NULL
+       AND ($3::text[] IS NULL OR d.doc_type = ANY($3::text[]))
+       AND ($4::text   IS NULL OR d.ticker_symbol = $4)
+     ORDER BY c.embedding <=> $1::vector
+     LIMIT $7
+),
+fts AS (
+    SELECT c.chunk_id,
+           row_number() OVER (
+               ORDER BY ts_rank(to_tsvector('english', c.text),
+                                plainto_tsquery('english', $2)) DESC
+           ) AS rnk
+      FROM nidp.document_chunks c
+      JOIN nidp.documents d USING (doc_id)
+     WHERE d.parse_status = 'parsed'
+       AND ($3::text[] IS NULL OR d.doc_type = ANY($3::text[]))
+       AND ($4::text   IS NULL OR d.ticker_symbol = $4)
+       AND to_tsvector('english', c.text) @@ plainto_tsquery('english', $2)
+     ORDER BY rnk
+     LIMIT $7
+),
+fused AS (
+    SELECT chunk_id,
+           COALESCE(1.0 / ($8 + vec.rnk), 0) + COALESCE(1.0 / ($8 + fts.rnk), 0) AS score
+      FROM vec FULL OUTER JOIN fts USING (chunk_id)
+)
+SELECT c.chunk_id, c.doc_id, c.chunk_index, c.text,
+       c.page_start, c.page_end,
+       d.doc_type, d.ticker_symbol, d.company_name, d.filed_at, d.source_url,
+       f.score AS rank
+  FROM fused f
+  JOIN nidp.document_chunks c USING (chunk_id)
+  JOIN nidp.documents d USING (doc_id)
+ ORDER BY f.score DESC, d.filed_at DESC NULLS LAST
+ LIMIT $5 OFFSET $6
+"""
+
+_FTS_SQL = """
+SELECT c.chunk_id, c.doc_id, c.chunk_index, c.text,
+       c.page_start, c.page_end,
+       d.doc_type, d.ticker_symbol, d.company_name, d.filed_at, d.source_url,
+       ts_rank(to_tsvector('english', c.text),
+               plainto_tsquery('english', $1)) AS rank
+  FROM nidp.document_chunks c
+  JOIN nidp.documents d USING (doc_id)
+ WHERE d.parse_status = 'parsed'
+   AND ($2::text[] IS NULL OR d.doc_type = ANY($2::text[]))
+   AND ($3::text   IS NULL OR d.ticker_symbol = $3)
+   AND to_tsvector('english', c.text) @@ plainto_tsquery('english', $1)
+ ORDER BY rank DESC, d.filed_at DESC NULLS LAST
+ LIMIT $4 OFFSET $5
+"""
+
+
 # doc_parser tags ALL auto-ingested PDFs as 'announcement_attachment' — and in
 # India, earnings-call transcripts + investor presentations are FILED as
 # announcements, so their chunks live under that doc_type too. Therefore the
 # default search spans ALL doc_types (announcement_attachment / concall_transcript
 # / investor_presentation / annual_report); pass ?doc_type= to narrow.
-@router.get("/search", summary="Full-text search over document chunks (all doc types)")
+@router.get("/search", summary="Hybrid (vector + keyword) search over document chunks")
 async def documents_search(
     q: str = Query(..., min_length=2, max_length=256, description="free-text query"),
     symbol: Optional[str] = Query(None, description="restrict to one ticker"),
@@ -35,29 +104,39 @@ async def documents_search(
 ) -> Dict[str, Any]:
     sym = normalise_symbol(symbol) if symbol else None
     doc_types: Optional[List[str]] = [doc_type] if doc_type else None  # None → all types
+
+    # Embed the query for the vector leg (graceful: None → FTS-only path).
+    qvec: Optional[List[float]] = None
+    if _emb.is_configured():
+        try:
+            qvec = await _emb.embed_query(q)
+        except _emb.EmbeddingError:
+            qvec = None
+
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT c.chunk_id, c.doc_id, c.chunk_index, c.text,
-                   c.page_start, c.page_end,
-                   d.doc_type, d.ticker_symbol, d.company_name,
-                   d.filed_at, d.source_url,
-                   ts_rank(to_tsvector('simple', c.text),
-                           plainto_tsquery('simple', $1)) AS rank
-              FROM nidp.document_chunks c
-              JOIN nidp.documents d USING (doc_id)
-             WHERE d.parse_status = 'parsed'
-               AND ($2::text[] IS NULL OR d.doc_type = ANY($2::text[]))
-               AND ($3::text IS NULL OR d.ticker_symbol = $3)
-               AND to_tsvector('simple', c.text) @@ plainto_tsquery('simple', $1)
-             ORDER BY rank DESC, d.filed_at DESC NULLS LAST
-             LIMIT $4 OFFSET $5
-            """,
-            q, doc_types, sym, page["limit"], page["offset"],
-        )
+        if qvec is not None:
+            candidate_pool = min(200, max(50, page["limit"] + page["offset"]))
+            rows = await conn.fetch(
+                _HYBRID_SQL,
+                _emb.to_pgvector_literal(qvec),         # $1
+                q,                                       # $2
+                doc_types,                               # $3
+                sym,                                     # $4
+                page["limit"],                           # $5
+                page["offset"],                          # $6
+                candidate_pool,                          # $7
+                _RRF_K,                                  # $8
+            )
+            mode = "hybrid"
+        else:
+            rows = await conn.fetch(
+                _FTS_SQL, q, doc_types, sym, page["limit"], page["offset"],
+            )
+            mode = "fts"
+
     return envelope([row_to_dict(r) for r in rows], **page,
-                    extra={"query": q, "doc_types": doc_types or "all"})
+                    extra={"query": q, "doc_types": doc_types or "all", "mode": mode})
 
 
 @router.get("/filing", summary="Full text of the latest matching filing (per-filing content)")

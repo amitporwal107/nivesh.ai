@@ -1,0 +1,49 @@
+{
+  "generated_at": "2026-07-14T12:00:00+00:00",
+  "last_trading_day": "2026-07-14",
+  "summary": { "total": 4, "healthy": 1, "failing": 1, "stale": 1, "never_run": 1, "running": 0 },
+  "feeds": [
+    {
+      "ingester": "bhavcopy", "source_class": "A", "expected_freq": "daily",
+      "schedule_cron": "0 13 * * 1-5", "is_primary": true,
+      "last_run_status": "FAILED", "consecutive_failures": 2,
+      "last_run_at": "2026-07-14T13:05:00+00:00", "last_success_at": "2026-07-11T13:00:00+00:00",
+      "last_failure_at": "2026-07-14T13:05:00+00:00", "last_rows_inserted": 0,
+      "last_run_duration_ms": 4200, "success_count": 40, "failure_count": 3,
+      "last_error_message": "HTTP 403 from archives.nseindia.com",
+      "cloud_logs_url": "https://console.cloud.google.com/logs",
+      "last_7_days": [], "freshness_state": "failing", "hours_since_success": 71.0, "missed_last_trading_day": false
+    },
+    {
+      "ingester": "amfi_nav", "source_class": "A", "expected_freq": "daily",
+      "schedule_cron": "0 20 * * *", "is_primary": true,
+      "last_run_status": "OK", "consecutive_failures": 0,
+      "last_run_at": "2026-07-11T20:00:00+00:00", "last_success_at": "2026-07-11T20:00:00+00:00",
+      "last_failure_at": null, "last_rows_inserted": 12000,
+      "last_run_duration_ms": 8000, "success_count": 30, "failure_count": 1,
+      "last_error_message": null, "cloud_logs_url": null,
+      "last_7_days": [], "freshness_state": "stale", "hours_since_success": 64.0, "missed_last_trading_day": true
+    },
+    {
+      "ingester": "yfinance_backfill", "source_class": "C", "expected_freq": "event",
+      "schedule_cron": null, "is_primary": false,
+      "last_run_status": null, "consecutive_failures": 0,
+      "last_run_at": null, "last_success_at": null,
+      "last_failure_at": null, "last_rows_inserted": null,
+      "last_run_duration_ms": null, "success_count": 0, "failure_count": 0,
+      "last_error_message": null, "cloud_logs_url": null,
+      "last_7_days": [], "freshness_state": "never_run", "hours_since_success": null, "missed_last_trading_day": false
+    },
+    {
+      "ingester": "fii_dii", "source_class": "B", "expected_freq": "daily",
+      "schedule_cron": "45 13 * * 1-5", "is_primary": true,
+      "last_run_status": "OK", "consecutive_failures": 0,
+      "last_run_at": "2026-07-14T13:45:00+00:00", "last_success_at": "2026-07-14T13:45:00+00:00",
+      "last_failure_at": null, "last_rows_inserted": 2,
+      "last_run_duration_ms": 3000, "success_count": 50, "failure_count": 0,
+      "last_error_message": null, "cloud_logs_url": null,
+      "last_7_days": [], "freshness_state": "healthy", "hours_since_success": 1.0, "missed_last_trading_day": false
+    }
+  ],
+  "db_error": null
+}
