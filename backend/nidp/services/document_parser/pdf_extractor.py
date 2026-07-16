@@ -75,6 +75,17 @@ def _ocr_pdf(body: bytes, max_pages: int = _OCR_MAX_PAGES) -> list[str] | None:
     return pages
 
 
+def _pg_safe(text: str | None) -> str:
+    """Return `text` with everything Postgres TEXT cannot store removed.
+
+    Encoding round-trip catches the whole class at once (lone surrogates and
+    any other non-encodable code point) rather than one character at a time;
+    NUL is valid UTF-8 so it needs its own strip. Text that is already clean
+    round-trips byte-for-byte, so ordinary filings are untouched.
+    """
+    return (text or "").replace("\x00", "").encode("utf-8", "ignore").decode("utf-8")
+
+
 @dataclass
 class ExtractedDoc:
     full_text: str
@@ -82,13 +93,16 @@ class ExtractedDoc:
     page_count: int
 
     def __post_init__(self) -> None:
-        # Strip NUL bytes at the source. Every extraction path (pypdf, OCR,
-        # vision) can emit them, and Postgres TEXT cannot store NUL —
-        # asyncpg raises CharacterNotInRepertoireError on insert. Sanitising
-        # here (rather than at the DB) keeps full_text, pages, and the chunk
-        # offsets derived from them consistent with what is stored.
-        self.full_text = self.full_text.replace("\x00", "")
-        self.pages = [(p or "").replace("\x00", "") for p in self.pages]
+        # Sanitise at the source. Every extraction path (pypdf, OCR, vision)
+        # can emit text that Postgres TEXT cannot store, and asyncpg then
+        # fails the whole document:
+        #   • NUL (0x00)        -> CharacterNotInRepertoireError
+        #   • lone surrogates   -> DataError ("surrogates not allowed"), seen
+        #                          from pypdf on filings with broken CMaps
+        # Doing it here (rather than at the DB) keeps full_text, pages, and the
+        # chunk offsets derived from them consistent with what is stored.
+        self.full_text = _pg_safe(self.full_text)
+        self.pages = [_pg_safe(p) for p in self.pages]
 
 
 def extract_text_from_pdf(body: bytes) -> ExtractedDoc:

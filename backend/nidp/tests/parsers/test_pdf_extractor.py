@@ -38,3 +38,34 @@ def test_clean_text_is_left_byte_for_byte_unchanged():
     doc = ExtractedDoc(full_text=text, pages=list(pages), page_count=2)
     assert doc.full_text == text
     assert doc.pages == pages
+
+
+def test_lone_surrogates_are_stripped():
+    # The real 18k backfill died here: pypdf emitted a LONE surrogate (\ud800 —
+    # not a valid astral char, which is a surrogate *pair*) from a filing with a
+    # broken CMap, and asyncpg raised
+    #   DataError: ... 'utf-8' codec can't encode characters ... surrogates not allowed
+    raw = "TBO Tek Limited \ud800 CIN: L74999DL2006PLC155233"
+    doc = ExtractedDoc(full_text=raw, pages=[raw], page_count=1)
+    assert "\ud800" not in doc.full_text
+    assert doc.full_text == "TBO Tek Limited  CIN: L74999DL2006PLC155233"
+    assert doc.pages[0] == doc.full_text
+
+
+def test_valid_astral_characters_are_NOT_stripped():
+    # Guard against over-sanitising: an emoji/astral char is a surrogate *pair*
+    # and is perfectly storable — only LONE surrogates are the problem.
+    doc = ExtractedDoc(full_text="Profit 😀 ₹1cr 𐀀", pages=["😀"], page_count=1)
+    assert doc.full_text == "Profit 😀 ₹1cr 𐀀"
+    assert doc.pages[0] == "😀"
+
+
+def test_sanitised_text_survives_the_encode_that_asyncpg_performs():
+    # The precise operation that threw inside asyncpg's bind_execute. If this
+    # raises, the document fails to store — so assert it cannot.
+    nasty = "Board\x00 Meeting \ud800 Outcome \udfff ₹1,234"
+    doc = ExtractedDoc(full_text=nasty, pages=[nasty], page_count=1)
+    doc.full_text.encode("utf-8")          # must not raise
+    for p in doc.pages:
+        p.encode("utf-8")                  # must not raise
+    assert "₹1,234" in doc.full_text       # real content preserved

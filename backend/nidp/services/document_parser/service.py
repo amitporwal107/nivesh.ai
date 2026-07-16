@@ -162,7 +162,17 @@ async def run_once(discover_limit: int = 500, parse_limit: int = 50,
 
         async def _bounded(d: dict) -> None:
             async with sem:
-                await _parse_one(d)
+                try:
+                    await _parse_one(d)
+                except Exception:                              # noqa: BLE001
+                    # _parse_one records its own download/parse failures, so
+                    # reaching here means storing a SUCCESSFUL parse failed —
+                    # e.g. extracted text Postgres rejects. Logged, not
+                    # swallowed: the document is left for the next run rather
+                    # than aborting the batch. An 18k backfill was lost this
+                    # way to one filing containing a lone surrogate.
+                    logger.exception("doc=%s could not be stored — skipped, batch continues",
+                                     d.get("doc_id"))
 
         await asyncio.gather(*[_bounded(d) for d in pending])
     else:
