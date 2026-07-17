@@ -4,7 +4,7 @@ pypdf extracts a text layer; tesseract OCR handles fully-scanned docs. Neither
 handles the common middle case — investor-presentation slides that are mostly
 images/charts with little or no extractable text. For those low-text pages we
 rasterize the single page (poppler `pdftoppm`, already used for OCR) and ask
-OpenAI vision (gpt-4o) to transcribe it verbatim. Mirrors the existing OpenAI
+OpenAI vision (gpt-4o-mini by default) to transcribe it verbatim. Mirrors the OpenAI
 vision path in services/cas_summary_vision.py.
 
 Graceful by contract: if openai isn't installed, OPENAI_API_KEY is unset, or
@@ -13,7 +13,7 @@ path — the pipeline never breaks.
 
 Deploy note: OPENAI_API_KEY is already required on the VM (embedder + classifier
 use it), and `openai` is in nidp/deploy/requirements.txt — so vision needs no
-extra key. Model defaults to gpt-4o; set NIDP_VISION_MODEL=gpt-4o-mini to cut
+extra key. Model defaults to gpt-4o-mini (cost); set NIDP_VISION_MODEL=gpt-4o to
 cost on a large corpus (this is a high-volume, transcription-only task).
 """
 from __future__ import annotations
@@ -29,7 +29,16 @@ import tempfile
 
 logger = logging.getLogger(__name__)
 
-VISION_MODEL = os.environ.get("NIDP_VISION_MODEL", "gpt-4o")
+# Cheap by DEFAULT, expensive by choice. This tier fires per low-text page with
+# no corpus-level budget cap: at VISION_MAX_PAGES=20 a single deck can cost ~20
+# calls, and the corpus is ~16.5k documents. gpt-4o-mini is ~10x cheaper, and the
+# job here is transcribing chart-heavy slides — not the reasoning task that would
+# justify gpt-4o. Measured context: pypdf already recovers ~99% of material
+# figures on content pages, so vision is a thin top-up, not the main source.
+# Until 2026-07 this defaulted to gpt-4o and prod was protected only by the API
+# key being invalid; a key rotated into GSM would have silently started billing
+# gpt-4o on every low-text page. Set NIDP_VISION_MODEL=gpt-4o to opt back in.
+VISION_MODEL = os.environ.get("NIDP_VISION_MODEL", "gpt-4o-mini")
 VISION_DPI = os.environ.get("NIDP_VISION_DPI", "150")
 # Per-page vision calls cost money; cap how many pages of one doc we escalate.
 VISION_MAX_PAGES = int(os.environ.get("NIDP_VISION_MAX_PAGES", "20"))
