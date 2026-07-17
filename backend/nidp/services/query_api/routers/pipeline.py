@@ -23,6 +23,7 @@ report a plausible-looking guess.
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -37,6 +38,14 @@ router = APIRouter(prefix="", tags=["pipeline"], dependencies=[Depends(require_b
 # WHERE event_category IS NULL AND filed_at >= NOW() - INTERVAL '30 days'.
 # Anything older that is unclassified is not "pending" — it is unreachable.
 _CLASSIFY_WINDOW_DAYS = 30
+
+# The backfill's operational window (ray_day_backfill --since-days). Documents
+# filed outside it are NOT going to be parsed, so reporting them as "pending"
+# claims a queue is draining when nothing will ever touch it — the same lie the
+# classify tile avoids by splitting out 'unreachable'. Kept equal to the classify
+# window on purpose: parsing a document whose announcement can never be
+# classified produces a corpus row nothing can reason about.
+_BACKFILL_WINDOW_DAYS = int(os.environ.get("NIDP_BACKFILL_WINDOW_DAYS", "30"))
 
 # Freshness budgets, in hours, per stage. Deliberately generous: these catch
 # "this stage is dead", not "this stage is a bit behind".
@@ -152,7 +161,8 @@ async def pipeline_stages() -> Dict[str, Any]:
             })
 
             # ---- 3+4. DISCOVER / PARSE -------------------------------------
-            r = await conn.fetchrow("""
+            r = await conn.fetchrow(f"""
+                WITH w AS (SELECT now() - interval '{_BACKFILL_WINDOW_DAYS} days' AS floor)
                 SELECT count(*) AS total,
                        count(*) FILTER (WHERE parse_status='pending')          AS pending,
                        count(*) FILTER (WHERE parse_status='parsed')           AS parsed,
@@ -160,6 +170,13 @@ async def pipeline_stages() -> Dict[str, Any]:
                        count(*) FILTER (WHERE parse_status='skipped_non_text') AS skipped,
                        count(*) FILTER (WHERE parse_status='failed'
                                           AND parse_attempts >= 5)             AS exhausted,
+                       -- In the backfill's window = actually queued to be parsed.
+                       count(*) FILTER (WHERE parse_status='pending'
+                                          AND filed_at >= (SELECT floor FROM w)) AS pending_in_window,
+                       -- Outside it = nothing will ever pick these up under the
+                       -- current --since-days cap. Not pending. Out of scope.
+                       count(*) FILTER (WHERE parse_status='pending'
+                                          AND filed_at <  (SELECT floor FROM w)) AS pending_out_of_scope,
                        max(ingested_at) AS latest_discovered,
                        max(parsed_at)   AS latest_parsed
                   FROM nidp.documents""")
@@ -177,19 +194,30 @@ async def pipeline_stages() -> Dict[str, Any]:
                 "id": "parse", "label": "Parse", "order": 4,
                 "table": "nidp.documents.parse_status",
                 "total": r["total"], "done": r["parsed"],
-                "pending": r["pending"], "problem": r["exhausted"],
+                # 'pending' is the IN-WINDOW queue only — the work that will
+                # actually happen. Reporting the raw pending count here would
+                # imply 84k docs are draining when the cap means they are not.
+                "pending": r["pending_in_window"],
+                "problem": r["exhausted"],
                 "latest_at": r["latest_parsed"].isoformat() if r["latest_parsed"] else None,
                 "age_hours": _age_h(r["latest_parsed"], now),
-                "state": _state(_age_h(r["latest_parsed"], now), has_backlog=r["pending"] > 0),
+                "state": _state(_age_h(r["latest_parsed"], now),
+                                has_backlog=r["pending_in_window"] > 0),
                 "breakdown": [
                     {"label": "parsed", "count": r["parsed"], "tone": "ok"},
-                    {"label": "pending", "count": r["pending"], "tone": "warn"},
+                    {"label": f"pending (last {_BACKFILL_WINDOW_DAYS}d)",
+                     "count": r["pending_in_window"], "tone": "warn"},
+                    {"label": f"out of scope (>{_BACKFILL_WINDOW_DAYS}d)",
+                     "count": r["pending_out_of_scope"], "tone": "bad"},
                     {"label": "failed (retrying)", "count": r["failed"] - r["exhausted"], "tone": "warn"},
                     # Burned the attempt cap: these will never be retried again.
                     {"label": "exhausted (>=5 tries)", "count": r["exhausted"], "tone": "bad"},
                     {"label": "skipped (no OCR)", "count": r["skipped"], "tone": "warn"},
                 ],
-                "note": "'failed' is retried while parse_attempts < 5; 'exhausted' never is.",
+                "note": (f"Backfill is capped at --since-days {_BACKFILL_WINDOW_DAYS}, matching the "
+                         f"classifier window. 'out of scope' docs are NOT queued — nothing will "
+                         f"parse them while the cap holds. 'failed' retries while parse_attempts "
+                         f"< 5; 'exhausted' never does."),
             })
 
             # ---- 5. CHUNK ---------------------------------------------------
