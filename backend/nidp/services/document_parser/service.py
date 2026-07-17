@@ -24,7 +24,9 @@ from nidp.services.corporate_announcements.doctype import classify
 
 from .chunker import chunk_text
 from .db import discover_pending, embed_pending, fetch_pending_docs, store_parse_result
-from .pdf_extractor import extract_text_from_pdf
+from .audio_extractor import (audio_available, find_media_urls,
+                              looks_like_audio_disclosure, transcribe_url)
+from .pdf_extractor import ExtractedDoc, extract_text_from_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +112,26 @@ async def _parse_one(doc: dict[str, Any]) -> None:
         )
         return
 
+    # Audio-disclosure recovery. Many issuers file a one-page letter pointing at
+    # an mp3 instead of publishing a transcript — the letter parses fine and
+    # carries no content, and its "earnings conference call" wording makes the
+    # classifier type it concall_transcript (35% of typed transcripts on staging
+    # are these). If this is that letter and it names a media URL, transcribe the
+    # recording and use THAT as the document's text. Graceful: unavailable
+    # transcription just stores the letter, exactly as today.
+    audio_transcript = None
+    if looks_like_audio_disclosure(extracted.full_text) and audio_available():
+        for media_url in find_media_urls(extracted.full_text, body):
+            audio_transcript = await asyncio.to_thread(transcribe_url, media_url)
+            if audio_transcript:
+                logger.info("doc=%s recovered %d chars of transcript from audio %s",
+                            doc_id, len(audio_transcript), media_url[:80])
+                # The transcript IS the document now: chunk/type/store it as one
+                # page, so retrieval cites the call rather than the letterhead.
+                extracted = ExtractedDoc(full_text=audio_transcript,
+                                         pages=[audio_transcript], page_count=1)
+                break
+
     chunks = chunk_text(extracted.full_text, extracted.pages)
     chunk_rows = [
         {
@@ -136,6 +158,10 @@ async def _parse_one(doc: dict[str, Any]) -> None:
     )
     existing_type = doc.get("doc_type") or "announcement_attachment"
     final_type = content_type if content_type != "announcement_attachment" else existing_type
+    if audio_transcript:
+        # We transcribed the actual call: this is a transcript by construction,
+        # not by classifier guess. Confidence is certainty, not a content score.
+        final_type, dt_score = "concall_transcript", 100
 
     await store_parse_result(
         doc_id, parse_status="parsed", parse_error=None,
