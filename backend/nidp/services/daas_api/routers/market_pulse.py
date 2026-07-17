@@ -198,7 +198,17 @@ async def articles(
            AND ($4::text IS NULL OR sentiment = $4)
            AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
            AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
-         ORDER BY (impact_score='high') DESC, filed_at DESC
+         -- NULLS LAST is load-bearing — see routes/markets.py::_articles, which
+         -- carries a byte-identical copy of this query as the DaaS fallback.
+         -- `impact_score='high'` is NULL for an unclassified row and Postgres
+         -- DESC defaults to NULLS FIRST, so the un-triaged backlog sorted ABOVE
+         -- every classified row and filled the LIMIT. This router is the PRIMARY
+         -- path (app calls it via _daas_first), so this copy is the one that was
+         -- actually serving the bug: measured on staging 2026-07-17, page 1 was
+         -- 60/60 unclassified while 610 material filings existed in the window.
+         -- 126,994 of 146,102 announcements are permanently unclassified (the
+         -- classifier's 30-day queue floor), so NULLs are 87% of the table.
+         ORDER BY (impact_score='high') DESC NULLS LAST, filed_at DESC
          LIMIT $6 OFFSET $7
     """
     cat_sql = """
