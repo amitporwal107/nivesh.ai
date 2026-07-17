@@ -2,7 +2,7 @@
 #
 # Mirrors docker-compose.prod.yml except:
 #   • container_name:  nidp-postgres-staging
-#   • host port:       10.160.0.3:5434:5432  (VPC-bound; prod uses 5433)
+#   • host port:       127.0.0.1 + 10.160.0.3 :5434:5432  (prod uses 5433)
 #   • data volume:     /opt/nidp-staging/data/postgres
 #   • networks:        nidp-staging-default + nidp-staging-bridge
 #
@@ -33,6 +33,14 @@ services:
       # No firewall change is needed: default-allow-internal already permits
       # tcp:0-65535 within 10.128.0.0/9. This is STAGING only; prod postgres is
       # a separate container on 5433 with its own local volume.
+      # BOTH interfaces, deliberately:
+      #   127.0.0.1 — every existing consumer on this host reads
+      #               NIDP_POSTGRES_URL=...@localhost:5434 from nidp.env (the
+      #               cron feeds, run_service.sh). Binding ONLY the VPC address
+      #               silently broke all of them.
+      #   10.160.0.3 — distributed workers on nivesh-app-vm (10.160.0.5) need to
+      #               reach the queue; default-allow-internal already permits it.
+      - "127.0.0.1:5434:5432"
       - "10.160.0.3:5434:5432"
     volumes:
       - /opt/nidp-staging/data/postgres:/var/lib/postgresql/data
