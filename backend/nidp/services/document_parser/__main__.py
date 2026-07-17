@@ -29,10 +29,17 @@ async def _main(args: argparse.Namespace) -> None:
             embed_limit=args.embed_limit,
             shards=args.shards,
             shard=args.shard,
+            from_date=args.from_date,
+            to_date=args.to_date,
         )
     finally:
         await close_pool()
     print(json.dumps(summary, indent=2, default=str))
+
+
+def _ymd(v: str):
+    from datetime import datetime
+    return datetime.strptime(v, "%Y-%m-%d").date()
 
 
 def main() -> None:
@@ -53,10 +60,21 @@ def main() -> None:
                    help="Total number of parallel worker processes splitting the queue.")
     p.add_argument("--shard", type=int, default=0,
                    help="This worker's index, 0-based, must be < --shards.")
+    # Month-by-month backfill. Months are naturally disjoint, so each worker can
+    # own a month on any machine with no coordination and no hash sharding — and
+    # every month is a checkpoint you can stop at and resume from. --to-date is
+    # EXCLUSIVE so --from-date 2026-01-01 --to-date 2026-02-01 is exactly January
+    # with no overlap into the next window.
+    p.add_argument("--from-date", type=_ymd, default=None,
+                   help="Only parse documents filed on/after this date (YYYY-MM-DD).")
+    p.add_argument("--to-date", type=_ymd, default=None,
+                   help="Only parse documents filed BEFORE this date (YYYY-MM-DD, exclusive).")
     p.add_argument("--metrics", action="store_true")
     a = p.parse_args()
     if not 0 <= a.shard < a.shards:
         p.error(f"--shard {a.shard} out of range for --shards {a.shards}")
+    if a.from_date and a.to_date and a.from_date >= a.to_date:
+        p.error(f"--from-date {a.from_date} must be before --to-date {a.to_date} (exclusive)")
     setup_logging(service="document_parser")
     if a.metrics:
         start_metrics_server()

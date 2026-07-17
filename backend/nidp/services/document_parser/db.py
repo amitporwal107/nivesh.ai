@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import date
 from typing import Any
 from uuid import UUID
 
@@ -71,6 +72,13 @@ SELECT d.doc_id, d.source_url, d.ticker_symbol, d.isin, d.scrip_code, d.company_
    -- signed int, and abs() would error on INT_MIN. Defaults ($4=1,$5=0) match
    -- every row, so the cron's unsharded call is unaffected.
    AND mod(mod(hashtext(d.doc_id::text), $4::int) + $4::int, $4::int) = $5::int
+   -- Date window. Months are naturally disjoint, so partitioning a backfill by
+   -- month lets workers run on different machines with no coordination and no
+   -- hash sharding — and each month is a checkpoint you can stop and resume at.
+   -- filed_at (not ingested_at): the filing's own date is what a month means to
+   -- a user, and it stays stable across re-ingestion. NULLs match everything.
+   AND ($6::date IS NULL OR d.filed_at >= $6::date)
+   AND ($7::date IS NULL OR d.filed_at <  $7::date)
  ORDER BY (d.parse_status = 'pending') DESC, d.ingested_at ASC   -- new docs before backlog retries
  LIMIT $1
 """
@@ -134,7 +142,9 @@ async def discover_pending(limit: int, source_run_id: UUID) -> int:
 async def fetch_pending_docs(limit: int,
                              max_attempts: int = _MAX_PARSE_ATTEMPTS,
                              shards: int = 1,
-                             shard: int = 0) -> list[dict[str, Any]]:
+                             shard: int = 0,
+                             from_date: date | None = None,
+                             to_date: date | None = None) -> list[dict[str, Any]]:
     """Documents awaiting parse: new ('pending'), OCR-retryable ('skipped_non_text'),
     and previously-'failed' docs still under the attempt cap.
 
@@ -157,7 +167,7 @@ async def fetch_pending_docs(limit: int,
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(_FETCH_PENDING_SQL, limit, statuses, max_attempts,
-                                shards, shard)
+                                shards, shard, from_date, to_date)
     return [dict(r) for r in rows]
 
 

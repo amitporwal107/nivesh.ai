@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import logging
 import uuid
+from datetime import date
 from typing import Any
 from urllib.parse import urlparse
 
@@ -177,14 +178,17 @@ async def _parse_one(doc: dict[str, Any]) -> None:
 
 async def run_once(discover_limit: int = 500, parse_limit: int = 50,
                    concurrency: int = 4, embed_limit: int = 200,
-                   shards: int = 1, shard: int = 0) -> dict:
+                   shards: int = 1, shard: int = 0,
+                   from_date: date | None = None, to_date: date | None = None) -> dict:
     run_id = uuid.uuid4()
     logger.info("doc parser run=%s discover_limit=%d parse_limit=%d concurrency=%d "
-                "embed_limit=%d shard=%d/%d",
-                run_id, discover_limit, parse_limit, concurrency, embed_limit, shard, shards)
+                "embed_limit=%d shard=%d/%d window=%s..%s",
+                run_id, discover_limit, parse_limit, concurrency, embed_limit, shard, shards,
+                from_date or "-", to_date or "-")
 
     discovered = await discover_pending(discover_limit, source_run_id=run_id)
-    pending = await fetch_pending_docs(parse_limit, shards=shards, shard=shard)
+    pending = await fetch_pending_docs(parse_limit, shards=shards, shard=shard,
+                                      from_date=from_date, to_date=to_date)
     if pending:
         sem = asyncio.Semaphore(concurrency)
 
