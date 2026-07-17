@@ -701,7 +701,21 @@ async def _articles(pool, days: int, category: Optional[str], impact: Optional[s
            AND ($4::text IS NULL OR sentiment = $4)
            AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
            AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
-         ORDER BY (impact_score='high') DESC, filed_at DESC
+         -- NULLS LAST is load-bearing. `impact_score='high'` is NULL for an
+         -- unclassified row, and Postgres DESC defaults to NULLS FIRST — so
+         -- without this the un-triaged backlog sorted to the TOP and filled the
+         -- whole LIMIT. Measured on staging 2026-07-17: this list returned
+         -- 60/60 rows with event_category NULL (rendered as category "Markets",
+         -- impact null) while the endpoint's own facet counts reported 610
+         -- material filings in the same 7d window — i.e. the feed was 100%
+         -- noise and every material filing was invisible.
+         --
+         -- Why NULLs dominate: the classifier's queue has a 30-day floor
+         -- (announcement_classifier/db.py), so 126,994 of 146,102 announcements
+         -- are permanently unclassified — see /pipeline/stages "unreachable".
+         -- Any window reaching past 30 days is mostly NULL, and NULLS FIRST put
+         -- exactly those rows on page 1.
+         ORDER BY (impact_score='high') DESC NULLS LAST, filed_at DESC
          LIMIT $6 OFFSET $7
     """
     cat_sql = """
