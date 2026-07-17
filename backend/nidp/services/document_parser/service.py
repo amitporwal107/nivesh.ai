@@ -17,7 +17,7 @@ import logging
 import uuid
 from datetime import date
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import aiohttp
 
@@ -57,11 +57,43 @@ def _download_headers(url: str) -> dict[str, str]:
     return headers
 
 
+def _bse_archive_url(url: str) -> str | None:
+    """BSE's historical-archive twin of an AttachLive URL, or None if N/A.
+
+    BSE serves a filing's attachment from .../corpfiling/AttachLive/<file> only
+    while it is recent, then MOVES the object to .../corpfiling/AttachHis/<file>
+    — same filename. Once moved, the AttachLive path 404s. That 404 means "not at
+    this path", NOT "destroyed": verified 3/3 on ~5-month-old filings that
+    AttachLive -> 404 while AttachHis -> 200 with the real PDF. Since only
+    AttachLive is ever constructed (parser_bse.py), every BSE attachment older
+    than the live window needs this fallback or it is wrongly written off as
+    permanently gone.
+    """
+    parts = urlparse(url)
+    if "bseindia.com" not in parts.netloc.lower():
+        return None
+    if "/AttachLive/" not in parts.path:
+        return None
+    return urlunparse(parts._replace(path=parts.path.replace("/AttachLive/", "/AttachHis/", 1)))
+
+
+async def _get(sess: aiohttp.ClientSession, url: str) -> bytes:
+    async with sess.get(url, headers=_download_headers(url)) as resp:
+        resp.raise_for_status()
+        return await resp.read()
+
+
 async def _download(url: str) -> tuple[bytes, str]:
     async with aiohttp.ClientSession(timeout=_HTTP_TIMEOUT) as sess:
-        async with sess.get(url, headers=_download_headers(url)) as resp:
-            resp.raise_for_status()
-            body = await resp.read()
+        try:
+            body = await _get(sess, url)
+        except aiohttp.ClientResponseError as e:
+            archive_url = _bse_archive_url(url) if e.status == 404 else None
+            if archive_url is None:
+                raise
+            # Aged out of the live bucket — re-fetch from the historical one.
+            logger.info("AttachLive 404, retrying via AttachHis url=%s", archive_url)
+            body = await _get(sess, archive_url)
     if len(body) > _MAX_PDF_BYTES:
         raise ValueError(f"PDF too large: {len(body)} bytes (cap {_MAX_PDF_BYTES})")
     return body, hashlib.sha256(body).hexdigest()
