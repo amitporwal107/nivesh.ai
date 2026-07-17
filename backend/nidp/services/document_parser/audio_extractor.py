@@ -44,7 +44,11 @@ logger = logging.getLogger(__name__)
 _MAX_AUDIO_BYTES = int(os.environ.get("NIDP_MAX_AUDIO_BYTES", str(200 * 1024 * 1024)))
 _TRANSCRIBE_TIMEOUT_S = int(os.environ.get("NIDP_TRANSCRIBE_TIMEOUT_S", "5400"))  # 1.5h
 _WHISPER_IMAGE = os.environ.get("NIDP_WHISPER_IMAGE", "nidp-whisper:small")
-_WHISPER_TAR = os.environ.get("NIDP_WHISPER_TAR", "/mnt/nidp-nfs/whisper/nidp-whisper-small.tar")
+# Root disk, NOT the NFS share: /mnt/nidp-nfs is where the staging Postgres data
+# directory actually lives (via a symlink from /opt/nidp-staging/data/postgres),
+# so every megabyte parked there competes with the database. Root has the room.
+_WHISPER_TAR = os.environ.get("NIDP_WHISPER_TAR",
+                              "/opt/nidp-staging/whisper/nidp-whisper-small.tar")
 _WHISPER_CPUS = os.environ.get("NIDP_WHISPER_CPUS", "2")
 # Hard memory ceiling per transcription. Measured ~1.4GB RSS for a 45-min call.
 # The cap turns "the host OOMs" into "this container dies and the doc retries" —
