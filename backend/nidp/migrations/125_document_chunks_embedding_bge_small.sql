@@ -8,7 +8,7 @@
 -- — no embedder ran". OpenAI was the expedient substitute for an embedder nobody
 -- had built. Two things measured on 2026-07-17 make 1536 the wrong answer here:
 --
---   1. IT DOES NOT FIT. Vectors alone, at float4 x dims x 669,470 rows:
+--   1. IT DOES NOT FIT. Vectors alone, at float4 x dims x ~695,000 rows:
 --          384 -> 981MB      1536 -> 3923MB
 --      plus an HNSW index of comparable size, on top of the existing 1.7GB
 --      table, against 8.5G free on the NFS share that holds this database. This
@@ -34,32 +34,24 @@ BEGIN;
 SET search_path TO nidp, public;
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- 1. Drop the HNSW index BEFORE the type change. Altering a column type under a
---    live vector index is what corrupts it; rebuilding after is cheap because
---    the column is empty at that point anyway.
-DROP INDEX IF EXISTS nidp.idx_chunk_embedding_hnsw;
-
--- 2. Clear the OpenAI vectors. This is the step that makes the ALTER legal (and
---    is exactly the precondition 119 relied on in the other direction).
+-- 1. Clear the OpenAI bookkeeping. The vectors themselves go with the column
+--    in step 2; this is just the metadata columns that survive it.
 UPDATE nidp.document_chunks
-   SET embedding = NULL, embedding_model = NULL, embedded_at = NULL
- WHERE embedding IS NOT NULL;
+   SET embedding_model = NULL, embedded_at = NULL
+ WHERE embedding_model IS NOT NULL;
 
--- 3. Narrow 1536 -> 384. Guarded so a re-run on an already-384 column is a no-op.
--- format_type() renders the declared type as 'vector(1536)' / 'vector(384)' —
--- the only portable way to read a pgvector dimension from the catalog. (Do not
--- reach for information_schema.character_maximum_length: it is NULL for vector.)
-DO $$
-BEGIN
-    IF (SELECT format_type(a.atttypid, a.atttypmod)
-          FROM pg_attribute a
-         WHERE a.attrelid = 'nidp.document_chunks'::regclass
-           AND a.attname  = 'embedding'
-           AND NOT a.attisdropped) IS DISTINCT FROM 'vector(384)' THEN
-        ALTER TABLE nidp.document_chunks
-            ALTER COLUMN embedding TYPE vector(384);
-    END IF;
-END $$;
+-- 2. DROP + ADD, not ALTER ... TYPE.
+--    ALTER COLUMN TYPE forces a full table rewrite — 694k rows / 1.8GB over NFS.
+--    Measured: it blew past the 600s per-statement migration budget (cli.py
+--    MIGRATION_TIMEOUT_SEC) and rolled back, twice. And the rewrite is pointless:
+--    it would copy 1.8GB to retype a column whose every value we are discarding.
+--    DROP COLUMN is metadata-only; ADD COLUMN with no default is metadata-only on
+--    PG11+. Both are instant regardless of table size.
+--    DROP cascades to idx_chunk_embedding_hnsw, which step 3 rebuilds. The
+--    column reappears at the end of the tuple — nothing here reads by ordinal
+--    (asyncpg returns rows by name), so that is cosmetic.
+ALTER TABLE nidp.document_chunks DROP COLUMN IF EXISTS embedding;
+ALTER TABLE nidp.document_chunks ADD  COLUMN embedding vector(384);
 
 COMMENT ON COLUMN nidp.document_chunks.embedding IS
     'bge-small-en-v1.5 (384-dim), self-hosted ONNX on CPU. Populated by '
