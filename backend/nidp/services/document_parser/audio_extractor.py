@@ -26,6 +26,8 @@ also means no API key, no per-call bill, and no silent 401 degradation.
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import io
 import logging
 import os
@@ -33,6 +35,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,17 @@ _TRANSCRIBE_TIMEOUT_S = int(os.environ.get("NIDP_TRANSCRIBE_TIMEOUT_S", "5400"))
 _WHISPER_IMAGE = os.environ.get("NIDP_WHISPER_IMAGE", "nidp-whisper:small")
 _WHISPER_TAR = os.environ.get("NIDP_WHISPER_TAR", "/mnt/nidp-nfs/whisper/nidp-whisper-small.tar")
 _WHISPER_CPUS = os.environ.get("NIDP_WHISPER_CPUS", "2")
+# Hard memory ceiling per transcription. Measured ~1.4GB RSS for a 45-min call.
+# The cap turns "the host OOMs" into "this container dies and the doc retries" —
+# the kernel OOM-killer is not a scheduling strategy.
+_WHISPER_MEM = os.environ.get("NIDP_WHISPER_MEM", "3g")
+# System-wide concurrency gate. Transcriptions are spawned by MULTIPLE processes
+# — the 15-min cron and every parser shard — so an in-process semaphore sees
+# nothing. A file lock is the only thing they all share. Default 1: on 2026-07-17
+# this VM was OOM-killed with unbounded 1.4GB/110%-CPU containers stacking up
+# beside prod Postgres, taking SSH and the IDE down with it.
+_TRANSCRIBE_LOCK = os.environ.get("NIDP_TRANSCRIBE_LOCK", "/var/tmp/nidp-transcribe.lock")
+_LOCK_WAIT_S = int(os.environ.get("NIDP_TRANSCRIBE_LOCK_WAIT_S", "2700"))
 
 _AUDIO_EXT = (".mp3", ".m4a", ".wav", ".aac", ".ogg", ".mp4", ".m4v")
 
@@ -162,6 +176,39 @@ def _download(url: str, dest: str) -> int:
     return size
 
 
+@contextlib.contextmanager
+def _transcribe_slot():
+    """Serialise transcriptions across every process on this host.
+
+    Blocking rather than skip-on-contention: a skipped audio letter would be
+    stored as the letterhead it appears to be, silently recreating the 35%
+    false-positive rate this path exists to remove. Waiting costs one of
+    --concurrency workers; the rest keep parsing.
+
+    Yields False on timeout so the caller leaves the document for a later run
+    instead of finalising it as a letter.
+    """
+    fd = os.open(_TRANSCRIBE_LOCK, os.O_CREAT | os.O_RDWR, 0o666)
+    acquired = False
+    try:
+        deadline = time.time() + _LOCK_WAIT_S
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+                break
+            except BlockingIOError:
+                if time.time() >= deadline:
+                    logger.warning("transcribe slot busy >%ss — deferring this doc", _LOCK_WAIT_S)
+                    break
+                time.sleep(5)
+        yield acquired
+    finally:
+        if acquired:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
 def transcribe_url(url: str) -> str | None:
     """Download and transcribe. Returns None on any failure — never raises.
 
@@ -185,17 +232,21 @@ def transcribe_url(url: str) -> str | None:
             return None
 
         os.chmod(work, 0o777)  # the container runs as its own uid
-        try:
-            r = subprocess.run(
-                ["docker", "run", "--rm", "--network=none", f"--cpus={_WHISPER_CPUS}",
-                 "-v", f"{work}:/work", _WHISPER_IMAGE, "/work/call.mp3", "/work/call.txt"],
-                capture_output=True, timeout=_TRANSCRIBE_TIMEOUT_S)
-        except subprocess.TimeoutExpired:
-            logger.warning("transcription timed out after %ss: %s", _TRANSCRIBE_TIMEOUT_S, url[:90])
-            return None
-        if r.returncode != 0:
-            logger.warning("transcriber exited %s: %s", r.returncode, r.stderr[-300:])
-            return None
+        with _transcribe_slot() as got_slot:
+            if not got_slot:
+                return None  # host already transcribing; leave this doc pending
+            try:
+                r = subprocess.run(
+                    ["docker", "run", "--rm", "--network=none",
+                     f"--cpus={_WHISPER_CPUS}", f"--memory={_WHISPER_MEM}",
+                     "-v", f"{work}:/work", _WHISPER_IMAGE, "/work/call.mp3", "/work/call.txt"],
+                    capture_output=True, timeout=_TRANSCRIBE_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                logger.warning("transcription timed out after %ss: %s", _TRANSCRIBE_TIMEOUT_S, url[:90])
+                return None
+            if r.returncode != 0:
+                logger.warning("transcriber exited %s: %s", r.returncode, r.stderr[-300:])
+                return None
         try:
             text = open(out, encoding="utf-8").read().strip()
         except OSError as e:
