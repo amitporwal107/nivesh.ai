@@ -45,9 +45,10 @@ NULL.
 | TC-2 | Root cause | Postgres NULL ordering under `DESC` | api/db | NULL sorts first → unclassified wins the LIMIT | **PASS** |
 | TC-3 | Fix · SQL | Endpoint's exact `list_sql` + `NULLS LAST`, real staging data | db | 0 unclassified rows in the returned page | **PASS (60/60 → 0)** |
 | TC-4 | Fix · content | Same query, inspect rows | db | Page led by real category+impact rows | **PASS** |
-| TC-5 | Compile | `py_compile routes/markets.py` | unit | compiles | **PASS** |
-| TC-6 | Fix · live endpoint | `GET /api/markets/articles?days=7` AFTER deploy | api | majority carry a real `event_category`; ≥1 non-null `impact` | **BLOCKED — needs this commit deployed** |
-| TC-7 | No regression | `?category=orders` still filters | api | only `orders` rows | **BLOCKED — needs deploy** |
+| TC-5 | Compile | `py_compile` both copies | unit | compiles | **PASS** |
+| TC-6 | Fix · live endpoint | `GET /api/markets/articles?days=7` AFTER deploy | api | majority carry a real `event_category`; ≥1 non-null `impact` | **PASS (60/60 material, 60/60 impact)** |
+| TC-7 | No regression | `?category=orders` still filters | api | only `orders` rows | **PASS (59 rows, all Orders)** |
+| TC-8 | **Right code path** | Which path actually serves? | api | The fix must be in the path `_daas_first` calls | **PASS — after a FAILURE: the first fix was in the fallback only; see below** |
 
 ## API / Endpoint Tests (staging)
 
@@ -83,8 +84,53 @@ Unclassified rows in the returned page: **60/60 → 0**. **PASS**
 
 **TC-5 — compile:**
 ```
-python3 -m py_compile routes/markets.py   → PY_COMPILE: OK
+python3 -m py_compile nidp/services/daas_api/routers/market_pulse.py routes/markets.py
+  → PY_COMPILE both paths: OK
 ```
+
+**TC-8 — I FIXED THE WRONG PATH FIRST. Recorded because it is the lesson of this fix.**
+
+The first commit changed `routes/markets.py::_articles`. That is the **fallback**.
+`/api/markets/articles` calls `_daas_first("get_market_pulse_articles", ...)`, so the **DaaS
+router is primary** — and it carries a byte-identical copy of the same query with the same
+`ORDER BY (impact_score='high') DESC`. The fixed code never executed.
+
+This was caught ONLY by polling the real endpoint after deploying:
+```
+  attempt 1..14 (10 min):  material (non-'Markets') rows on page 1 = 0
+```
+Had I trusted the local change + the SQL-level proof, this would have shipped "fixed" and stayed
+100% broken. Second commit fixes the primary copy. Repo-wide grep confirms exactly two copies and
+no third:
+```
+routes/markets.py:718                                  ORDER BY ... DESC NULLS LAST, filed_at DESC
+nidp/services/daas_api/routers/market_pulse.py:211     ORDER BY ... DESC NULLS LAST, filed_at DESC
+```
+
+**TC-6 — the fix, verified LIVE through the deployed endpoint (real output):**
+```
+before:  category mix {'Markets': 60}          0/60 material,  0 high-impact
+after :  category mix {'Orders':13, 'Litigation':12, 'Mna':8, 'Rating':6,
+                       'Dividend':6, 'Management':6, 'Earnings':4, 'Qip':3, 'Capex':2}
+         60/60 material, 24 high-impact
+
+top of feed:
+   PTCIL       Orders      high    Press Release
+   WEWORK      Earnings    high    Press Release
+   MANGALAM    Litigation  high    Fraud/Default/Arrest
+   VALUEIND    Litigation  high    Corporate Insolvency Resolution Process
+   DPSCLTD     Litigation  high    Corporate Insolvency Resolution Process
+   JNKINDIA    Orders      high    Updates
+```
+Deploy observed at t+180s after the push (auto: `.github/workflows/deploy-nidp-staging.yml`
+triggers on `dev` pushes touching `backend/nidp/**`). **PASS**
+
+**TC-7 — no regression on filtering:**
+```
+GET /api/markets/articles?days=7&category=orders
+  rows: 59   categories: {'Orders': 59}
+```
+**PASS**
 
 ## Data Correctness (staging)
 
@@ -101,7 +147,8 @@ python3 -m py_compile routes/markets.py   → PY_COMPILE: OK
   single commit rather than the 41-commit / 230-behind feature branch, which would have been a
   destructive force-push over `dev`.
 
-## Verdict: BLOCKED
-<!-- TC-1..TC-5 PASS with real evidence. TC-6/TC-7 verify the fix THROUGH the deployed endpoint
-     and cannot pass until this commit is on dev/staging. Will be re-run and this flipped to PASS
-     once deployed. Not claiming done before then. -->
+## Verdict: PASS
+<!-- All 8 cases pass with real, unedited evidence, including TC-6/TC-7 run through the DEPLOYED
+     staging endpoint (not local, not mocked, not SQL-only). The feed went 0/60 -> 60/60 material
+     with 24 high-impact, and category filtering is unregressed. TC-8 records that the first fix
+     was in the wrong code path and only the live check caught it. -->
