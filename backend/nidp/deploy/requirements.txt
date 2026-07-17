@@ -43,6 +43,15 @@ lxml>=5,<6
 # pandas read_html fallback for fii_dii html variant
 pandas>=2,<3
 
+# ── Embeddings (self-hosted bge-small-en-v1.5, ONNX on CPU) ──
+# onnxruntime + tokenizers, NOT sentence-transformers: the latter pulls torch
+# (multi-GB) for a 33M-param model. These two are ~50MB and torch-free.
+# The model weights are NOT pip-installed — they live at NIDP_EMBED_MODEL_DIR
+# (see nidp/shared/embeddings_local.py); is_available() returns False without
+# them and callers degrade to keyword search rather than crashing.
+onnxruntime>=1.17,<2
+tokenizers>=0.15,<1
+
 # ── S5 document_parser ──
 # pypdf for text extraction from NSE/BSE filing PDFs (text-PDFs only;
 # scanned PDFs fall through to parse_status='skipped_non_text').

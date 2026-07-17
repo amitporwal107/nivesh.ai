@@ -1,9 +1,16 @@
-"""OpenAI embedding client for document-chunk semantic search.
+"""Embedding client for document-chunk semantic search — local bge or OpenAI.
 
 Shared by the write side (document_parser fills nidp.document_chunks.embedding)
 and the read side (feed_rag vector retriever + daas_api /documents/search embed
-the user query). Model: text-embedding-3-small (1536-dim), matching the
-nidp.document_chunks.embedding VECTOR(1536) column (migration 119).
+the user query). BOTH sides resolve NIDP_EMBED_MODEL through this module, which
+is what makes switching backends safe: queries and passages can never end up in
+different vector spaces because there is one switch, not two.
+
+Default: bge-small-en-v1.5, self-hosted via ONNX on CPU (384-dim), matching the
+document_chunks.embedding VECTOR(384) column (migration 125). Set
+NIDP_EMBED_MODEL=text-embedding-3-small to route to OpenAI instead — but note
+the column dimension must match the model, so switching models is a migration,
+not just an env change.
 
 Key handling mirrors the announcement classifier: OPENAI_API_KEY from env
 (set in /opt/nidp/nidp.env on the VM; present on the API tier too). The openai
@@ -22,8 +29,19 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-EMBED_MODEL = os.environ.get("NIDP_EMBED_MODEL", "text-embedding-3-small")
-EMBED_DIM = 1536                 # text-embedding-3-small native dimension
+EMBED_MODEL = os.environ.get("NIDP_EMBED_MODEL", "bge-small-en-v1.5")
+
+# Any bge-* model routes to the self-hosted ONNX backend; anything else is
+# treated as an OpenAI model name. The dimension MUST match the
+# document_chunks.embedding column or every insert fails on the cast.
+_LOCAL_PREFIXES = ("bge-",)
+
+
+def _use_local() -> bool:
+    return EMBED_MODEL.startswith(_LOCAL_PREFIXES)
+
+
+EMBED_DIM = 384 if _use_local() else 1536   # 384 = bge-small; 1536 = text-embedding-3-small
 _MAX_BATCH = 128                 # inputs per embeddings.create call
 _MAX_INPUT_CHARS = 24_000        # ~6k tokens; well under the 8191-token model limit
 
@@ -36,11 +54,15 @@ class EmbeddingError(RuntimeError):
 
 
 def is_configured() -> bool:
-    """True when an embedding call can be attempted (key resolvable).
+    """True when an embedding call can be attempted.
 
-    Resolves via GSM/admin/env — not os.environ alone, which is blind to a key
-    rotated in Secret Manager.
+    Local backend: needs the model files + onnxruntime on disk — no key, no
+    quota, no network. OpenAI backend: resolves the key via GSM/admin/env, not
+    os.environ alone, which is blind to a key rotated in Secret Manager.
     """
+    if _use_local():
+        from nidp.shared.embeddings_local import is_available
+        return is_available()
     return openai_configured()
 
 
@@ -62,14 +84,25 @@ def _get_client():
     return _client
 
 
-def _embed_sync(texts: List[str]) -> List[List[float]]:
+def _embed_sync(texts: List[str], *, is_query: bool = False) -> List[List[float]]:
     """Embed a list of texts in batches, preserving input order.
 
     Empty/blank inputs are sent as a single space so the API returns a vector
     for every position (callers rely on positional alignment with their rows).
+
+    is_query only matters for the local bge backend, which prefixes queries with
+    a retrieval instruction and passages with nothing. OpenAI has no such split.
     """
     if not texts:
         return []
+    if _use_local():
+        from nidp.shared.embeddings_local import LocalEmbeddingError, embed_texts_local
+        try:
+            return embed_texts_local(texts, is_query=is_query)
+        except LocalEmbeddingError as e:
+            # Same contract as the OpenAI path: callers catch EmbeddingError and
+            # degrade to keyword search rather than failing the parse.
+            raise EmbeddingError(f"local embedding failed: {e}") from e
     client = _get_client()
     out: List[List[float]] = []
     for start in range(0, len(texts), _MAX_BATCH):
@@ -93,10 +126,16 @@ async def embed_texts(texts: List[str]) -> List[List[float]]:
 
 
 async def embed_query(text: str) -> Optional[List[float]]:
-    """Async: embed a single query string; None for empty input."""
+    """Async: embed a single SEARCH QUERY; None for empty input.
+
+    Distinct from embed_texts() on purpose: bge is asymmetric. A query carries a
+    retrieval instruction, a passage does not. Embedding a query as a passage
+    (or vice versa) puts the two in different spaces — no error, just quietly
+    broken recall — so the query/passage split must stay at this boundary.
+    """
     if not text or not text.strip():
         return None
-    vecs = await asyncio.to_thread(_embed_sync, [text])
+    vecs = await asyncio.to_thread(_embed_sync, [text], is_query=True)
     return vecs[0] if vecs else None
 
 
