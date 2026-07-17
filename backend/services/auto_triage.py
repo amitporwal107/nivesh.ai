@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import os
+from helpers.openai_key import get_openai_api_key
 import re
 import urllib.request
 from datetime import datetime, timezone
@@ -81,7 +82,7 @@ def _llm_key() -> Optional[str]:
     return (
         _gsm.get_for_env("OPENAI_API_KEY")
         or (_secrets.get("OPENAI_API_KEY") or None)
-        or (os.environ.get("OPENAI_API_KEY") or None)
+        or (get_openai_api_key() or None)
     )
 
 

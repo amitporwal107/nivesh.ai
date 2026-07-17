@@ -27,6 +27,7 @@ import io
 import json
 import logging
 import os
+from helpers.openai_key import get_openai_api_key
 import re
 from typing import Any, Dict, List, Optional
 
@@ -161,7 +162,7 @@ def _api_key() -> Optional[str]:
             return key
     except ImportError:
         pass
-    return os.environ.get("OPENAI_API_KEY")
+    return get_openai_api_key() or None
 
 
 def _model() -> str:

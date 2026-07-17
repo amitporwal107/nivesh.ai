@@ -44,14 +44,11 @@ def _get_openai_key() -> str:
             return key
     except Exception:  # noqa: BLE001
         pass
-    try:
-        from helpers import secrets as _secrets
-        key = _secrets.get("OPENAI_API_KEY")
-        if key:
-            return key
-    except Exception:  # noqa: BLE001
-        pass
-    return os.environ.get("OPENAI_API_KEY", "")
+    # GSM -> admin override -> env, via the one shared resolver. This used to
+    # skip GSM entirely, so a key rotated in Secret Manager never reached the
+    # copilot.
+    from helpers.openai_key import get_openai_api_key as _resolve
+    return _resolve()
 
 
 MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {

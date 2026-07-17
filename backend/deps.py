@@ -3,6 +3,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from fastapi import HTTPException, Request
 from datetime import datetime, timezone
 import os
+from helpers.openai_key import get_openai_api_key
 import logging
 
 from repository import UserRepository, SessionRepository, PortfolioRepository, HoldingRepository
@@ -18,7 +19,11 @@ db = client[os.environ['DB_NAME']]
 
 # Config
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+# Resolved via GSM -> admin -> env at import. NOTE: this is a module-level
+# constant consumed by AIEngine below, so it is captured once at process
+# start — a key rotated in GSM lands on the next restart, not instantly.
+# Callers that can resolve per-call should use helpers.openai_key directly.
+OPENAI_API_KEY = get_openai_api_key()
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
 GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
 GMAIL_REDIRECT_URI = os.environ.get("GMAIL_REDIRECT_URI", "")
