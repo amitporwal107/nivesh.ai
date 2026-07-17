@@ -324,9 +324,9 @@ async def get_market_pulse_corporate_actions(
 async def get_market_pulse_articles(
     days: int = 7, category: Optional[str] = None, impact: Optional[str] = None,
     sentiment: Optional[str] = None, q: Optional[str] = None,
-    limit: int = 60, offset: int = 0,
+    limit: int = 60, offset: int = 0, sort: str = "material",
 ) -> Optional[Dict[str, Any]]:
-    params: Dict[str, Any] = {"days": days, "limit": limit, "offset": offset}
+    params: Dict[str, Any] = {"days": days, "limit": limit, "offset": offset, "sort": sort}
     if category:  params["category"] = category
     if impact:    params["impact"] = impact
     if sentiment: params["sentiment"] = sentiment

@@ -180,14 +180,28 @@ async def articles(
     q: Optional[str] = Query(None),
     limit: int = Query(60, ge=1, le=120),
     offset: int = Query(0, ge=0),
+    sort: str = Query("material", pattern="^(material|latest)$"),
 ):
+    """Classified NSE/BSE filings as a feed.
+
+    `sort` (added for the Filings Home — docs/FILINGS_HOME_SPEC.md):
+      material — high impact first, then recency. The default, and the previous
+                 (only) behaviour, so existing callers are unaffected.
+      latest   — pure recency.
+    `total` is the unfiltered-by-paging count for the SAME predicate as the list,
+    so the client can paginate. It is NOT len(articles).
+    """
     since = date.today() - timedelta(days=days)
     category = category.lower() if category else None
     impact = impact.lower() if impact else None
     sentiment = sentiment.lower() if sentiment else None
     like = f"%{q}%" if q else None
+    # Interpolated, not bound: it is regex-validated by Query(pattern=...) to one
+    # of two literals, so it can never carry caller input into the SQL.
+    order_by = ("(impact_score='high') DESC NULLS LAST, filed_at DESC"
+                if sort == "material" else "filed_at DESC")
 
-    list_sql = """
+    list_sql = f"""
         SELECT announcement_id, source, ticker_symbol, company_name, subject,
                description, event_category, impact_score, sentiment,
                filed_at, attachment_url
@@ -198,6 +212,7 @@ async def articles(
            AND ($4::text IS NULL OR sentiment = $4)
            AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
            AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
+         -- {order_by} is one of two validated literals — see the note above.
          -- NULLS LAST is load-bearing — see routes/markets.py::_articles, which
          -- carries a byte-identical copy of this query as the DaaS fallback.
          -- `impact_score='high'` is NULL for an unclassified row and Postgres
@@ -208,8 +223,20 @@ async def articles(
          -- 60/60 unclassified while 610 material filings existed in the window.
          -- 126,994 of 146,102 announcements are permanently unclassified (the
          -- classifier's 30-day queue floor), so NULLs are 87% of the table.
-         ORDER BY (impact_score='high') DESC NULLS LAST, filed_at DESC
+         ORDER BY {order_by}
          LIMIT $6 OFFSET $7
+    """
+    # Same predicate as list_sql, minus paging/ordering — this is the count the
+    # client paginates against. Never len(articles), which is just the page size.
+    total_sql = """
+        SELECT count(*) AS n
+          FROM nidp.corporate_announcements
+         WHERE filed_at >= $1::date
+           AND ($2::text IS NULL OR event_category = $2)
+           AND ($3::text IS NULL OR impact_score = $3)
+           AND ($4::text IS NULL OR sentiment = $4)
+           AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
+           AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
     """
     cat_sql = """
         SELECT event_category, count(*) AS n
@@ -222,6 +249,7 @@ async def articles(
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(list_sql, since, category, impact, sentiment, like, limit, offset)
+        total = await conn.fetchval(total_sql, since, category, impact, sentiment, like)
         cats = await conn.fetch(cat_sql, since)
 
     out = []
@@ -242,7 +270,8 @@ async def articles(
             "url":       r["attachment_url"],
             "read_min":  _read_min(subject, desc),
         })
-    return {"articles": out, "categories": {r["event_category"]: int(r["n"]) for r in cats}}
+    return {"articles": out, "total": int(total or 0),
+            "categories": {r["event_category"]: int(r["n"]) for r in cats}}
 
 
 # ════════════════════════════════════════════════════════════════════════

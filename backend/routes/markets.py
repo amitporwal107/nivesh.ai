@@ -684,13 +684,17 @@ def _read_min(subject: Optional[str], description: Optional[str]) -> int:
 
 async def _articles(pool, days: int, category: Optional[str], impact: Optional[str],
                     sentiment: Optional[str], q: Optional[str],
-                    limit: int, offset: int) -> Dict[str, Any]:
+                    limit: int, offset: int, sort: str = "material") -> Dict[str, Any]:
     """Classified NSE/BSE announcements as an article feed. Real data only —
     no LLM, no fabrication. When no category filter is set we hide the routine
     'regulatory'/'other' noise so it reads like market news, not a filing log."""
     since = date.today() - timedelta(days=days)   # asyncpg $1::date needs a date obj, not a str
     like = f"%{q}%" if q else None
-    list_sql = """
+    # Validated against a two-literal allowlist by the route before we get here,
+    # so it cannot carry caller input into the SQL.
+    order_by = ("(impact_score='high') DESC NULLS LAST, filed_at DESC"
+                if sort == "material" else "filed_at DESC")
+    list_sql = f"""
         SELECT announcement_id, source, ticker_symbol, company_name, subject,
                description, event_category, impact_score, sentiment,
                filed_at, attachment_url
@@ -715,8 +719,20 @@ async def _articles(pool, days: int, category: Optional[str], impact: Optional[s
          -- are permanently unclassified — see /pipeline/stages "unreachable".
          -- Any window reaching past 30 days is mostly NULL, and NULLS FIRST put
          -- exactly those rows on page 1.
-         ORDER BY (impact_score='high') DESC NULLS LAST, filed_at DESC
+         ORDER BY {order_by}
          LIMIT $6 OFFSET $7
+    """
+    # Same predicate as list_sql minus paging/order — what the client paginates
+    # against. Never len(articles).
+    total_sql = """
+        SELECT count(*) AS n
+          FROM nidp.corporate_announcements
+         WHERE filed_at >= $1::date
+           AND ($2::text IS NULL OR event_category = $2)
+           AND ($3::text IS NULL OR impact_score = $3)
+           AND ($4::text IS NULL OR sentiment = $4)
+           AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
+           AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
     """
     cat_sql = """
         SELECT event_category, count(*) AS n
@@ -729,10 +745,11 @@ async def _articles(pool, days: int, category: Optional[str], impact: Optional[s
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(list_sql, since, category, impact, sentiment, like, limit, offset)
+            total = await conn.fetchval(total_sql, since, category, impact, sentiment, like)
             cats = await conn.fetch(cat_sql, since)
     except Exception as e:  # noqa: BLE001
         logger.warning("markets.articles failed: %s", e)
-        return {"articles": [], "categories": {}}
+        return {"articles": [], "total": 0, "categories": {}}
 
     articles = []
     for r in rows:
@@ -753,7 +770,7 @@ async def _articles(pool, days: int, category: Optional[str], impact: Optional[s
             "read_min":  _read_min(subject, desc),
         })
     categories = {r["event_category"]: int(r["n"]) for r in cats}
-    return {"articles": articles, "categories": categories}
+    return {"articles": articles, "total": int(total or 0), "categories": categories}
 
 
 @router.get("/articles")
@@ -766,23 +783,39 @@ async def markets_articles(
     q: Optional[str] = None,
     limit: int = 60,
     offset: int = 0,
+    sort: str = "material",
 ):
     """Stock-market news & analysis — classified NSE/BSE filings as an article
     grid, filterable by category / impact / sentiment / search. Real data only.
+
+    `sort` (Filings Home — docs/FILINGS_HOME_SPEC.md):
+      material (default) — high impact first, then recency. Identical to the
+                           previous, only behaviour, so existing callers are
+                           unaffected.
+      latest             — pure recency.
+    `total` is the full count for the same predicate (NOT len(articles)), so the
+    client can paginate.
     """
     await get_current_user(request)
+    sort = (sort or "material").lower()
+    if sort not in ("material", "latest"):
+        # 400 rather than silently falling back: a caller that asked for an order
+        # and quietly got a different one would mis-rank the feed.
+        raise HTTPException(status_code=400, detail="sort must be 'material' or 'latest'")
     days = max(1, min(int(days or 7), 30))
     limit = max(1, min(int(limit or 60), 120))
     offset = max(0, int(offset or 0))
     impact = impact.lower() if impact else None
     sentiment = sentiment.lower() if sentiment else None
     category = category.lower() if category else None
-    key = f"articles:{days}:{category}:{impact}:{sentiment}:{q}:{limit}:{offset}"
+    # `sort` MUST be in the cache key — without it the two orderings would share
+    # a cached entry and serve each other's rows.
+    key = f"articles:{days}:{category}:{impact}:{sentiment}:{q}:{limit}:{offset}:{sort}"
     data = await _aux_cached(key, lambda: _daas_first(
         "get_market_pulse_articles",
-        {"days": days, "category": category, "impact": impact, "sentiment": sentiment, "q": q, "limit": limit, "offset": offset},
-        lambda pool: _articles(pool, days, category, impact, sentiment, q, limit, offset),
-        {"articles": [], "categories": {}},
+        {"days": days, "category": category, "impact": impact, "sentiment": sentiment, "q": q, "limit": limit, "offset": offset, "sort": sort},
+        lambda pool: _articles(pool, days, category, impact, sentiment, q, limit, offset, sort),
+        {"articles": [], "total": 0, "categories": {}},
     ))
     return {"ok": True, **data}
 
