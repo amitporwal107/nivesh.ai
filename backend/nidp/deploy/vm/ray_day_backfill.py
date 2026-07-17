@@ -20,9 +20,10 @@ distribution — and the parsing stays in the code that has been debugged.
 
 THE QUEUE IS THE DATABASE, NOT THIS SCRIPT
 ------------------------------------------
-`pending_days()` reads days that still have parse_status='pending' documents.
-Nothing here is authoritative: kill this driver at any point and re-run it, and
-it picks up exactly what is left. That property is what made the 2026-07-17
+`pending_days()` reads the days the parser would still act on, mirroring
+fetch_pending_docs() exactly (new 'pending', OCR-retryable 'skipped_non_text',
+and 'failed' docs under the attempt cap). Nothing here is authoritative: kill
+this driver at any point and re-run it, and it picks up exactly what is left. That property is what made the 2026-07-17
 InterfaceError incident (below) a waste of an hour rather than a data loss.
 
 RESOURCE DECLARATIONS ARE THE POINT
@@ -149,17 +150,40 @@ def parse_day(day_iso: str) -> dict:
 
 
 async def pending_days() -> list[str]:
-    """Days with pending documents, oldest first. The DB is the queue."""
+    """Days holding documents the parser would still act on, oldest first.
+
+    MUST mirror fetch_pending_docs()'s predicate: this is the day-level twin of
+    that doc-level queue, and the two disagreeing is a silent skip. So it reuses
+    the same statuses list and attempt cap rather than restating them.
+
+    An earlier version selected only parse_status='pending'. But fetch_pending_docs
+    ALSO retries 'skipped_non_text' (once OCR exists) and 'failed' docs still under
+    the attempt cap. Measured 2026-07-17: day 2026-01-30 ended 6 parsed / 1,164
+    'failed' (BSE AttachLive 404s) — so the day dropped out of this list entirely,
+    and the AttachHis fallback written to recover exactly those documents would
+    never have been handed them. The driver would have reported a clean run.
+    """
     sys.path.insert(0, BACKEND)
-    from nidp.shared.storage.pg import get_pool
-    pool = await get_pool()
-    async with pool.acquire() as c:
-        rows = await c.fetch("""
-            SELECT DISTINCT filed_at::date AS d
-              FROM nidp.documents
-             WHERE parse_status = 'pending' AND filed_at IS NOT NULL
-             ORDER BY 1""")
-    return [r["d"].isoformat() for r in rows]
+    from nidp.shared.storage import pg
+    from nidp.services.document_parser.db import _MAX_PARSE_ATTEMPTS
+    from nidp.services.document_parser.pdf_extractor import ocr_available
+
+    statuses = ["pending", "skipped_non_text"] if ocr_available() else ["pending"]
+    try:
+        pool = await pg.get_pool()
+        async with pool.acquire() as c:
+            rows = await c.fetch("""
+                SELECT DISTINCT filed_at::date AS d
+                  FROM nidp.documents
+                 WHERE filed_at IS NOT NULL
+                   AND (parse_status = ANY($1::text[])
+                        OR (parse_status = 'failed' AND parse_attempts < $2))
+                 ORDER BY 1""", statuses, _MAX_PARSE_ATTEMPTS)
+        return [r["d"].isoformat() for r in rows]
+    finally:
+        # Same lesson as parse_day: never leave a pool bound to a loop that is
+        # about to close. main() opens another loop after this one.
+        await pg.close_pool()
 
 
 def main() -> int:
@@ -280,8 +304,8 @@ def main() -> int:
         # clean one — that is exactly how 32 lost days went unnoticed for an hour.
         print(f"\n!! {len(lost)} DAYS NOT PARSED after {MAX_DAY_RETRIES} retries:", flush=True)
         print(f"   {', '.join(lost)}", flush=True)
-        print("   Their documents are still parse_status='pending' — re-run to pick them up.",
-              flush=True)
+        print("   Their documents remain queued (pending, or failed under the attempt "
+              "cap) — re-run to pick them up.", flush=True)
         return 1
     return 0
 
