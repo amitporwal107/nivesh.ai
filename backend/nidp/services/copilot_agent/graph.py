@@ -59,8 +59,12 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _route_after_intent(state: CopilotState) -> str:
-    """Map the classified intent to the appropriate specialist node name."""
-    agent = (state.intent.agent if state.intent else AgentName.MARKET)
+    """Map the classified intent to the appropriate specialist node name.
+
+    A `pinned_agent` wins outright: intent_node already emits the pin, so this
+    is belt-and-braces — routing cannot drift even if `intent` is set elsewhere.
+    """
+    agent = state.pinned_agent or (state.intent.agent if state.intent else AgentName.MARKET)
     _MAP = {
         AgentName.MARKET:          "market_node",
         AgentName.STOCK:           "stock_node",

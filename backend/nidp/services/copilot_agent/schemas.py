@@ -199,6 +199,14 @@ class CopilotState(BaseModel):
     # intent routing (filled by intent node)
     intent: Optional[IntentClassification] = None
 
+    # Agent pin — set by a dedicated single-purpose surface (the Filings Home's
+    # ask bar) to bypass intent classification entirely. When set, intent_node
+    # skips BOTH the regex table and the LLM classify call and emits this agent
+    # with confidence 1.0, and _route_after_intent routes to it. Left None by
+    # the general /chat surface, which classifies exactly as before.
+    # See docs/FILINGS_HOME_SPEC.md §3.4.
+    pinned_agent: Optional[AgentName] = None
+
     # tool outputs (filled by specialist nodes)
     tool_results: List[ToolResult] = Field(default_factory=list)
 
