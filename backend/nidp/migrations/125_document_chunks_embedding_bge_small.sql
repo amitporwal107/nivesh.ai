@@ -34,6 +34,19 @@ BEGIN;
 SET search_path TO nidp, public;
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- The postgres container runs with Docker's default 64MB /dev/shm. A parallel
+-- worker on this 696k-row table asked for a 2GB shared segment and the
+-- migration died with:
+--     DiskFullError: could not resize shared memory segment ... to 2094047776
+--     bytes: No space left on device
+-- That is /dev/shm, NOT the disk (nfs had 23G free at the time) — an easy error
+-- to misread. Nothing below benefits from parallelism, so force it serial.
+-- The durable fix is shm_size on the postgres service in
+-- docker-compose.staging.yml; that needs a DB restart, so it is deliberately
+-- not bundled into a migration.
+SET max_parallel_workers_per_gather = 0;
+SET maintenance_work_mem = '256MB';
+
 -- 1. Clear the OpenAI bookkeeping. The vectors themselves go with the column
 --    in step 2; this is just the metadata columns that survive it.
 UPDATE nidp.document_chunks
