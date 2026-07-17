@@ -29,11 +29,14 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-EMBED_MODEL = os.environ.get("NIDP_EMBED_MODEL", "bge-small-en-v1.5")
+EMBED_MODEL = os.environ.get("NIDP_EMBED_MODEL", "text-embedding-3-small")
 
 # Any bge-* model routes to the self-hosted ONNX backend; anything else is
 # treated as an OpenAI model name. The dimension MUST match the
-# document_chunks.embedding column or every insert fails on the cast.
+# document_chunks.embedding column or every insert fails on the cast — the
+# column is vector(1536), so the OpenAI default (1536-dim) is the one that fits.
+# The bge-small path (384-dim) is a dormant opt-in: switching to it needs a
+# column migration + full re-embed, since 384 and 1536 cannot share one index.
 _LOCAL_PREFIXES = ("bge-",)
 
 
@@ -80,7 +83,12 @@ def _get_client():
         key = get_openai_api_key()
         if not key:
             raise EmbeddingError("OPENAI_API_KEY not set — required for chunk embeddings")
-        _client, _client_key = OpenAI(api_key=key), key
+        # max_retries=5 (SDK default is 2): the SDK retries 429/408/409/5xx with
+        # exponential backoff and honours Retry-After, so a transient rate-limit
+        # blip during a 710k-chunk drain self-heals instead of dropping a batch.
+        # Note this does NOT rescue insufficient_quota (also a 429): those retries
+        # all fail, so the drain must hard-stop on them rather than spin.
+        _client, _client_key = OpenAI(api_key=key, max_retries=5, timeout=60.0), key
     return _client
 
 
