@@ -12,7 +12,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from nidp.shared.storage.pg import get_pool, close_pool
-from nidp.services.query_api.routers import catalog, feeds, validation, health, quality, vm_ops, archive
+from nidp.services.query_api.routers import (catalog, feeds, validation, health, quality,
+                                              vm_ops, archive, pipeline)
 
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ app = FastAPI(
 
 app.include_router(health.router)
 app.include_router(catalog.router)
+app.include_router(pipeline.router)
 app.include_router(feeds.router)
 app.include_router(validation.router)
 app.include_router(quality.router)
