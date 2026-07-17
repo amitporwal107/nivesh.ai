@@ -22,7 +22,14 @@ THE QUEUE IS THE DATABASE, NOT THIS SCRIPT
 ------------------------------------------
 `pending_days()` reads the days the parser would still act on, mirroring
 fetch_pending_docs() exactly (new 'pending', OCR-retryable 'skipped_non_text',
-and 'failed' docs under the attempt cap). Nothing here is authoritative: kill
+and 'failed' docs under the attempt cap).
+
+Ordered NEWEST-FIRST, and --since-days bounds how far back it goes. Both exist
+for the same reason: announcement_classifier only queues filed_at >= now()-30d,
+so a document older than that is parsed into a corpus whose announcement can
+never be classified. Measured 2026-07-17: a 6-month backfill left 126,994 of
+146,091 announcements permanently unclassifiable. Oldest-first spent its effort
+on exactly the days that yield the least. --since-days 30 matches the window. Nothing here is authoritative: kill
 this driver at any point and re-run it, and it picks up exactly what is left. That property is what made the 2026-07-17
 InterfaceError incident (below) a waste of an hour rather than a data loss.
 
@@ -149,7 +156,7 @@ def parse_day(day_iso: str) -> dict:
                 "error": f"{type(e).__name__}: {e}", "secs": round(time.time() - t0, 1)}
 
 
-async def pending_days() -> list[str]:
+async def pending_days(since_days: int | None = None) -> list[str]:
     """Days holding documents the parser would still act on, oldest first.
 
     MUST mirror fetch_pending_docs()'s predicate: this is the day-level twin of
@@ -176,9 +183,11 @@ async def pending_days() -> list[str]:
                 SELECT DISTINCT filed_at::date AS d
                   FROM nidp.documents
                  WHERE filed_at IS NOT NULL
+                   AND ($3::int IS NULL
+                        OR filed_at >= (now() - make_interval(days => $3::int)))
                    AND (parse_status = ANY($1::text[])
                         OR (parse_status = 'failed' AND parse_attempts < $2))
-                 ORDER BY 1""", statuses, _MAX_PARSE_ATTEMPTS)
+                 ORDER BY 1 DESC""", statuses, _MAX_PARSE_ATTEMPTS, since_days)
         return [r["d"].isoformat() for r in rows]
     finally:
         # Same lesson as parse_day: never leave a pool bound to a loop that is
@@ -189,18 +198,23 @@ async def pending_days() -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit-days", type=int, default=None, help="Only the first N days.")
+    ap.add_argument("--since-days", type=int, default=None,
+                    help="Only days with filed_at within the last N days. Use 30 to match "
+                         "the classifier window — older documents parse into a corpus whose "
+                         "announcements can never be classified.")
     ap.add_argument("--dry-run", action="store_true", help="List the plan, run nothing.")
     a = ap.parse_args()
 
     sys.path.insert(0, BACKEND)
-    days = asyncio.run(pending_days())
+    days = asyncio.run(pending_days(a.since_days))
     if a.limit_days:
         days = days[: a.limit_days]
     if not days:
         print("nothing pending", flush=True)
         return 0
 
-    print(f"{len(days)} days pending: {days[0]} .. {days[-1]}", flush=True)
+    scope = f" (last {a.since_days}d)" if a.since_days else " (ALL history)"
+    print(f"{len(days)} days pending{scope}: {days[0]} .. {days[-1]}", flush=True)
     if a.dry_run:
         for d in days[:10]:
             print(f"  would parse {d}")
