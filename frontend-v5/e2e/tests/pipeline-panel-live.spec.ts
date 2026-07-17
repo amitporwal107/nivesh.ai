@@ -15,7 +15,8 @@ import { expect, test } from "@playwright/test";
 const STAGES = ["ingest", "classify", "discover", "parse", "chunk", "embed"];
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/nidp", { waitUntil: "domcontentloaded" });
+  // The v5 app is served under /v5/ — /nidp alone 404s.
+  await page.goto("/v5/nidp", { waitUntil: "domcontentloaded" });
   await page.getByRole("tab", { name: /Pipeline/i }).click();
   await expect(page.getByTestId("pipeline-panel")).toBeVisible({ timeout: 30_000 });
 });
