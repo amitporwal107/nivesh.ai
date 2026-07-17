@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from nidp.shared.openai_key import get_openai_api_key, openai_configured
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,8 @@ EMBED_DIM = 1536                 # text-embedding-3-small native dimension
 _MAX_BATCH = 128                 # inputs per embeddings.create call
 _MAX_INPUT_CHARS = 24_000        # ~6k tokens; well under the 8191-token model limit
 
-_client = None                   # lazily constructed OpenAI() (or an injected fake in tests)
+_client = None
+_client_key: str | None = None                   # lazily constructed OpenAI() (or an injected fake in tests)
 
 
 class EmbeddingError(RuntimeError):
@@ -34,21 +36,29 @@ class EmbeddingError(RuntimeError):
 
 
 def is_configured() -> bool:
-    """True when an embedding call can be attempted (key present)."""
-    return bool(os.environ.get("OPENAI_API_KEY"))
+    """True when an embedding call can be attempted (key resolvable).
+
+    Resolves via GSM/admin/env — not os.environ alone, which is blind to a key
+    rotated in Secret Manager.
+    """
+    return openai_configured()
 
 
 def _get_client():
-    global _client
+    # Re-create when the key changes: a cached client pins the key it was built
+    # with, so a GSM rotation would otherwise need a process restart to apply.
+    global _client, _client_key
+    if _client is not None and _client_key != get_openai_api_key():
+        _client = None
     if _client is None:
         try:
             from openai import OpenAI
         except ImportError as e:                       # pragma: no cover - env-dependent
             raise EmbeddingError("openai package not installed") from e
-        key = os.environ.get("OPENAI_API_KEY")
+        key = get_openai_api_key()
         if not key:
             raise EmbeddingError("OPENAI_API_KEY not set — required for chunk embeddings")
-        _client = OpenAI(api_key=key)
+        _client, _client_key = OpenAI(api_key=key), key
     return _client
 
 

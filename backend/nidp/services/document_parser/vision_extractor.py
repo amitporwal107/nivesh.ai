@@ -23,6 +23,7 @@ import glob
 import logging
 import os
 import shutil
+from nidp.shared.openai_key import get_openai_api_key, openai_configured
 import subprocess
 import tempfile
 
@@ -45,7 +46,7 @@ def vision_available() -> bool:
     """True when the vision fallback can run: pdftoppm + openai SDK + API key."""
     if not shutil.which("pdftoppm"):
         return False
-    if not os.environ.get("OPENAI_API_KEY"):
+    if not openai_configured():
         return False
     try:
         import openai  # noqa: F401
@@ -80,7 +81,7 @@ def _transcribe_sync(png_bytes: bytes) -> str:
     """Single OpenAI-vision call transcribing one page image. '' on failure."""
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        client = OpenAI(api_key=get_openai_api_key())
         b64 = base64.b64encode(png_bytes).decode()
         resp = client.chat.completions.create(
             model=VISION_MODEL,

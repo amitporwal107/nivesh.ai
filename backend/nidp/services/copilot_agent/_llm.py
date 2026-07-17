@@ -33,33 +33,12 @@ def temperature_for(requested: float) -> float:
 
 
 def get_openai_api_key() -> str:
-    """Resolve the OpenAI API key at call time (NFR-09 order):
-
-      1. Google Secret Manager (``helpers.gsm`` — secret ``OPENAI_API_KEY``)
-      2. DB-backed admin override (``helpers.secrets``)
-      3. ``OPENAI_API_KEY`` env var
-
-    Every specialist node must use this rather than reading os.environ
-    directly, so the key can be rotated via GSM / the admin console
-    without a redeploy and without an env var being present on the box.
-    Returns "" if no source has it — the caller's LLM call then fails
-    loudly, which the node surfaces as an error (no silent fallback).
+    """Resolve the OpenAI API key at call time (NFR-09 order): GSM -> admin
+    override -> env. Delegates to nidp.shared.openai_key, which is the single
+    implementation every caller shares — see that module for why.
     """
-    try:
-        from helpers import gsm as _gsm  # type: ignore
-        k = _gsm.get("OPENAI_API_KEY")
-        if k:
-            return k
-    except Exception:  # noqa: BLE001 — GSM unavailable in local dev; fall through
-        pass
-    try:
-        from helpers import secrets as _secrets  # type: ignore
-        k = _secrets.get("OPENAI_API_KEY")
-        if k:
-            return k
-    except Exception:  # noqa: BLE001
-        pass
-    return os.environ.get("OPENAI_API_KEY", "")
+    from nidp.shared.openai_key import get_openai_api_key as _resolve
+    return _resolve()
 
 
 # Appended verbatim to every specialist agent's system prompt. Kept

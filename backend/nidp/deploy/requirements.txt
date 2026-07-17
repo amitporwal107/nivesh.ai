@@ -24,6 +24,12 @@ confluent-kafka[avro,schema-registry]>=2.3,<3
 # runtime: local | s3 | gcs.
 boto3>=1.34,<2
 google-cloud-storage>=2.14,<3
+# google-cloud-secret-manager: OPENAI_API_KEY is resolved from Secret Manager
+# first (see nidp/shared/openai_key.py). Without this the helpers.gsm import
+# fails, resolution silently falls through to a stale env var, and a rotated key
+# never takes effect — which is exactly how the vision tier ended up 401'ing on
+# every page while GSM held a valid key. Pinned to match backend/requirements.txt.
+google-cloud-secret-manager==2.20.2
 
 # ── Parsers ──
 # fii_dii: openpyxl for XLSX, xlrd<2 for legacy XLS.

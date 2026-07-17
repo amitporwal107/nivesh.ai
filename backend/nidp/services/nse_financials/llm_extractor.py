@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from nidp.shared.openai_key import get_openai_api_key
 import re
 from typing import Any, Optional
 
@@ -71,7 +72,7 @@ Return JSON with exactly this structure:
 
 def _provider() -> str:
     """Return 'openai' or 'anthropic' based on which key is set."""
-    if os.environ.get("OPENAI_API_KEY"):
+    if get_openai_api_key():
         return "openai"
     return "anthropic"
 
@@ -95,7 +96,7 @@ async def extract_financials(
     try:
         if _provider() == "openai":
             from openai import OpenAI
-            client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+            client = OpenAI(api_key=get_openai_api_key())
             resp = client.chat.completions.create(
                 model=_OPENAI_MODEL,
                 max_tokens=1024,

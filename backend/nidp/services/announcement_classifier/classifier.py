@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import os
+from nidp.shared.openai_key import get_openai_api_key
 from dataclasses import dataclass
 from typing import Any
 
@@ -134,7 +135,7 @@ class HaikuClassifier:
     """Class name retained for back-compat; powered by GPT now."""
 
     def __init__(self, api_key: str | None = None) -> None:
-        key = api_key or os.environ.get("OPENAI_API_KEY")
+        key = api_key or get_openai_api_key()
         if not key:
             raise RuntimeError(
                 "OPENAI_API_KEY not set — required for the corporate-"

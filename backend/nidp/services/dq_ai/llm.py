@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from nidp.shared.openai_key import get_openai_api_key
 from typing import Any, Dict, Optional
 
 from openai import OpenAI
@@ -23,7 +24,7 @@ class LlmClient:
     def __init__(self, api_key: Optional[str] = None, model: str = DEFAULT_MODEL):
         key = (
             api_key
-            or os.environ.get("OPENAI_API_KEY")
+            or get_openai_api_key()
             or os.environ.get("EMERGENT_LLM_KEY")
         )
         if not key:
