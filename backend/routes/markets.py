@@ -773,6 +773,54 @@ async def _articles(pool, days: int, category: Optional[str], impact: Optional[s
     return {"articles": articles, "total": int(total or 0), "categories": categories}
 
 
+async def _filing_insights_pg(pool, ids: List[str]) -> Dict[str, Any]:
+    """App-PG fallback for filing insights (parity with the DaaS
+    /market-pulse/filing-insights endpoint). Same shape: {"insights": {id: {...}}}.
+    On staging the app's own PG carries the nidp.* schema but no rows, so DaaS is
+    the real source there; this fallback matters on prod / where the app PG has data."""
+    id_list = [x for x in (ids or []) if x][:200]
+    if not id_list:
+        return {"insights": {}}
+    sql = """
+        SELECT announcement_ref, period,
+               signal_json->>'summary'         AS one,
+               signal_json->'headline_metric'  AS metric_json,
+               signal_json->>'sentiment'       AS sentiment,
+               (signal_json->>'confidence')::numeric AS confidence,
+               signal_json->>'doc_type'        AS doc_type,
+               signal_json->>'model'           AS model,
+               analysed_at
+          FROM nidp.corporate_event_signals
+         WHERE signal_type = 'filing_insight' AND announcement_ref = ANY($1::text[])
+    """
+    insights: Dict[str, Any] = {}
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(sql, id_list)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("filing_insights fallback failed: %s", e)
+        return {"insights": {}}
+    for r in rows:
+        mj = r["metric_json"]
+        if isinstance(mj, str):
+            import json as _json
+            try:
+                mj = _json.loads(mj)
+            except ValueError:
+                mj = None
+        insights[r["announcement_ref"]] = {
+            "one":        r["one"],
+            "period":     r["period"],
+            "metric":     mj,
+            "sentiment":  r["sentiment"],
+            "confidence": float(r["confidence"]) if r["confidence"] is not None else None,
+            "docType":    r["doc_type"],
+            "model":      r["model"],
+            "generatedAt": r["analysed_at"].isoformat() if r["analysed_at"] else None,
+        }
+    return {"insights": insights}
+
+
 @router.get("/articles")
 async def markets_articles(
     request: Request,

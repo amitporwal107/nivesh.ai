@@ -339,6 +339,22 @@ async def get_market_pulse_articles(
     return data if isinstance(data, dict) else None
 
 
+async def get_filing_insights(ids: list) -> Optional[Dict[str, Any]]:
+    """Batch-fetch generated filing insights for a set of announcement ids.
+    Returns {"insights": {id: {...}}} or None on failure (caller then treats
+    every row as having no insight yet)."""
+    id_list = [x for x in (ids or []) if x]
+    if not id_list:
+        return {"insights": {}}
+    try:
+        data = await _get("/market-pulse/filing-insights",
+                          params={"ids": ",".join(id_list[:200])})
+    except DaasError as exc:
+        logger.debug("get_filing_insights: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
 async def search_documents(
     q: str, symbol: Optional[str] = None, doc_type: Optional[str] = None, limit: int = 6,
 ) -> Optional[Dict[str, Any]]:

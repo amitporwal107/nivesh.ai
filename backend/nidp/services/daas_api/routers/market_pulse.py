@@ -274,6 +274,58 @@ async def articles(
             "categories": {r["event_category"]: int(r["n"]) for r in cats}}
 
 
+@router.get("/filing-insights", summary="Generated insights for a set of filings")
+async def filing_insights(ids: str = Query(..., description="comma-separated announcement ids")):
+    """Batch lookup of filing_insights rows for the given announcement ids.
+
+    Returns a map keyed by announcement id → the fields the Filings Home feed
+    renders (one-liner, period, headline metric). Only filings the stage-7
+    generator has already processed appear in the map; the caller treats a
+    missing id as "no insight yet" (hasInsights=false). Fields are extracted in
+    SQL to avoid depending on how asyncpg surfaces jsonb.
+    """
+    id_list = [x for x in (ids or "").split(",") if x][:200]
+    if not id_list:
+        return {"insights": {}}
+    sql = """
+        SELECT announcement_ref,
+               period,
+               signal_json->>'summary'         AS one,
+               signal_json->'headline_metric'  AS metric_json,
+               signal_json->>'sentiment'       AS sentiment,
+               (signal_json->>'confidence')::numeric AS confidence,
+               signal_json->>'doc_type'        AS doc_type,
+               signal_json->>'model'           AS model,
+               analysed_at
+          FROM nidp.corporate_event_signals
+         WHERE signal_type = 'filing_insight'
+           AND announcement_ref = ANY($1::text[])
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(sql, id_list)
+    insights: Dict[str, Any] = {}
+    for r in rows:
+        mj = r["metric_json"]
+        if isinstance(mj, str):
+            import json as _json
+            try:
+                mj = _json.loads(mj)
+            except ValueError:
+                mj = None
+        insights[r["announcement_ref"]] = {
+            "one":        r["one"],
+            "period":     r["period"],
+            "metric":     mj,                       # {label,value,unit} or null
+            "sentiment":  r["sentiment"],
+            "confidence": float(r["confidence"]) if r["confidence"] is not None else None,
+            "docType":    r["doc_type"],
+            "model":      r["model"],
+            "generatedAt": r["analysed_at"].isoformat() if r["analysed_at"] else None,
+        }
+    return {"insights": insights}
+
+
 # ════════════════════════════════════════════════════════════════════════
 # Movers by market-cap segment (Nifty-500 EOD bucketed by market_cap_bucket)
 # ════════════════════════════════════════════════════════════════════════
