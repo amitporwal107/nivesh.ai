@@ -43,6 +43,7 @@ from routes.admin_nidp import router as admin_nidp_router, router_static as admi
 from routes.admin_allocation_bands import router as admin_allocation_bands_router  # allocation band config
 from routes.admin_nidp_replay import router as admin_nidp_replay_router  # NIDP 90-day replay engine
 from routes.admin_nidp_backfill import router as admin_nidp_backfill_router  # NIDP backfill status proxy
+from routes.admin_nidp_pipeline import router as admin_nidp_pipeline_router  # NIDP 6-stage pipeline health
 from routes.copilot_prompts import router as copilot_prompts_router
 from routes.copilot import router as copilot_router  # Nivesh Copilot (CIO Assistant)
 from routes.gmail import router as gmail_router
@@ -147,6 +148,7 @@ app.include_router(admin_nidp_router)
 app.include_router(admin_nidp_static_router)
 app.include_router(admin_nidp_replay_router)
 app.include_router(admin_nidp_backfill_router)
+app.include_router(admin_nidp_pipeline_router)
 app.include_router(copilot_prompts_router)
 app.include_router(copilot_router)
 app.include_router(gmail_router)
