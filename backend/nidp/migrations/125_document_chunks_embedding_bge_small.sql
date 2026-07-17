@@ -28,6 +28,12 @@
 
 BEGIN;
 
+-- The `vector` type lives in public, not nidp. Without this the ALTER below
+-- fails with `type "vector" does not exist` even though the column is already a
+-- vector — every migration in this tree opens the same way (see 031, 119).
+SET search_path TO nidp, public;
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- 1. Drop the HNSW index BEFORE the type change. Altering a column type under a
 --    live vector index is what corrupts it; rebuilding after is cheap because
 --    the column is empty at that point anyway.
