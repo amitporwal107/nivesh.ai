@@ -1380,10 +1380,15 @@ async def stream_chat(request: Request):
                         "messages": lg_messages,
                         "user_id": user_id,
                         "session_id": session_id,
+                        # ALWAYS send the pin, including None. CopilotState is
+                        # checkpointed per session, and LangGraph merges the input
+                        # over the checkpoint — so omitting this key on an unpinned
+                        # turn leaves an EARLIER turn's pin in place and silently
+                        # pins the rest of the session to that agent. Writing None
+                        # explicitly is what clears it.
+                        "pinned_agent": pinned_agent,
                         **persona_ctx,
                     }
-                    if pinned_agent is not None:
-                        lg_input["pinned_agent"] = pinned_agent
                     prose = ""
                     streamed_any = False  # True once real LLM tokens are emitted
                     widget_streamed = False  # True once a widget frame is emitted (early or final)
