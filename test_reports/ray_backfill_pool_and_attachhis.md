@@ -1,7 +1,7 @@
 # Functionality verification — Ray backfill: pool-per-loop, real retries, BSE AttachHis
 
 - **Date:** 2026-07-17
-- **Branch / commits:** `dev` @ `9d491ae3` (pool + retries), `859b2faa` (AttachHis)
+- **Branch / commits:** `dev` @ `9d491ae3` (pool + retries), `859b2faa` (AttachHis), `996777eb` (day-list predicate)
 - **Environment:** STAGING — `nidp-stack-vm` + `nivesh-app-vm`, DB `nidp_staging`
 - **Changed areas:** `backend/nidp/deploy/vm/ray_day_backfill.py` (new to VCS),
   `backend/nidp/services/document_parser/service.py`
@@ -82,7 +82,17 @@ Tested against the two URLs that **actually failed in the halted run**:
 ```
 Both return real PDFs. `_download()` now falls back to the archive twin on a 404; the
 fallback is BSE-only and AttachLive-only, so a genuine 404 elsewhere still raises.
-**PASS at the URL level** — see limitation 1: not yet exercised in-pipeline.
+
+Then verified IN-PIPELINE after deploy (`996777eb`). Note the log cannot show this —
+`"retrying via AttachHis"` is `logger.info` and the run emits **0 INFO lines**, so its
+absence proves nothing. The DB is the evidence:
+
+```
+BSE docs parsed in last 5 min : 390   (of 391 parsed in total -> 99.7%)
+day 2026-01-19: parsed=517 failed=721   [old run's comparable old day: parsed=6 failed=1164]
+```
+The BSE slice that was 404ing is now the overwhelming majority of what parses.
+**PASS**
 
 ## TC4 — vision tier off for bulk backfill
 
@@ -93,14 +103,33 @@ a page (`pdftoppm`, ~89% CPU) and is then refused, dragging throughput 511 -> 30
 `skipped_non_text` and stay re-runnable in a later, rate-aware pass.
 **PASS**
 
+## TC5 — the day list must mirror the doc queue
+
+Found while relaunching, and it would have silently defeated TC3. `pending_days()` selected
+only `parse_status='pending'`, but `fetch_pending_docs()` — the real doc-level queue — also
+retries `'skipped_non_text'` and `'failed'` docs under the attempt cap. So a day whose
+documents had all already FAILED dropped out of the day list entirely: day 2026-01-30 ended
+6 parsed / 1,164 failed, meaning the AttachHis fallback written to recover exactly those
+1,164 documents would never have been handed one of them.
+
+Effect of mirroring the predicate (and reusing the same statuses list + `_MAX_PARSE_ATTEMPTS`
+rather than restating them, so they cannot drift apart again):
+
+```
+day list BEFORE : 69 days   (2026-01-30 .. 2026-07-17)
+day list AFTER  : 112 days  (2026-01-19 .. 2026-07-17)
+```
+**43 days — 38% of the backfill — were being silently skipped.**
+**PASS**
+
 ---
 
 ## Known limitations (honest scope)
 
-1. **The AttachHis fix has NOT run in the pipeline.** TC3 proves the URLs resolve and the
-   code compiles; it does **not** prove the deployed parser stores those PDFs. The redeploy
-   + relaunch is blocked on an expired `/app/.gcp-token`. Until that runs, the expected
-   recovery of the ~1,164/day BSE slice is a **projection, not a result**.
+1. **721 of 1,238 documents on 2026-01-19 still fail** even with the fallback. AttachHis
+   recovers a large majority of the BSE slice, not all of it. Those residual failures are
+   uncategorised — they may be genuinely absent upstream, ZIPs mislabelled as PDF, or a
+   further defect. Not yet investigated; do not read TC3 as "BSE is solved".
 2. **~1,164 documents burned one of five `parse_attempts`** on day 2026-01-30 during the
    halted run. Re-fetch is gated at `parse_attempts < 5`, so four remain — no loss, but the
    budget is not infinite and each un-fixed pass costs a fifth of it.
