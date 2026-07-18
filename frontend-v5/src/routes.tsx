@@ -111,6 +111,11 @@ export function AppRoutes() {
         <Route path="/lite" element={<RouteErrorBoundary pageName="Copilot (Lite)"><ChatPage /></RouteErrorBoundary>} />
       </Route>
 
+      {/* Filings Intelligence (Design B) — standalone & full-bleed: it is its own
+          app surface (own header + ask bar), so it renders OUTSIDE AppLayout to
+          avoid doubled chrome / the portfolio Copilot drawer. Login-gated only. */}
+      <Route path="/research" element={<RequireAuth><RouteErrorBoundary pageName="Research"><ResearchPage /></RouteErrorBoundary></RequireAuth>} />
+
       {/* Authenticated app — sidebar layout */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
         <Route path="/dashboard"        element={<RouteErrorBoundary pageName="Dashboard"><DashboardPage /></RouteErrorBoundary>} />
@@ -139,9 +144,6 @@ export function AppRoutes() {
         <Route path="/composition"      element={<RouteErrorBoundary pageName="Composition"><CompositionPage /></RouteErrorBoundary>} />
         <Route path="/recommendations"  element={<RouteErrorBoundary pageName="Recommendations"><RecommendationsPage /></RouteErrorBoundary>} />
         <Route path="/chat"             element={<RouteErrorBoundary pageName="Chat"><ChatPage /></RouteErrorBoundary>} />
-        {/* Filings Intelligence (Design B) — standalone, mobile-first, pinned to the
-            stocks_insights agent. See pages/Research. Additive: /chat is unchanged. */}
-        <Route path="/research"         element={<RouteErrorBoundary pageName="Research"><ResearchPage /></RouteErrorBoundary>} />
         <Route path="/goals"            element={<RouteErrorBoundary pageName="Goals"><GoalsPage /></RouteErrorBoundary>} />
         <Route path="/tax"              element={<RouteErrorBoundary pageName="Tax"><TaxPage /></RouteErrorBoundary>} />
         <Route path="/plan"             element={<RouteErrorBoundary pageName="Plan"><PlanPage /></RouteErrorBoundary>} />
