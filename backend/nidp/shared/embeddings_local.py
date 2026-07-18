@@ -39,11 +39,26 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = "bge-small-en-v1.5"
-EMBED_DIM = 384                       # matches VECTOR(384); asserted at load
-_MAX_SEQ = 512                        # model_type=bert, max_position_embeddings=512
+# The bge-*-en-v1.5 family shares one ONNX/tokenizer shape (BERT, 512-token cap,
+# CLS pooling); only the output dimension differs. Verified from each model's own
+# 1_Pooling/config.json: small=384, base=768, large=1024, all cls=True/mean=False.
+# base is the current choice: ~on par with OpenAI text-embedding-3-small on MTEB
+# retrieval, and its 768-dim vectors fit the disk that OpenAI's 1536 no longer did
+# (1.72M chunks: 768-dim ~5GB vs 1536-dim ~10GB, + a same-sized HNSW index each).
+_DIM_BY_MODEL = {
+    "bge-small-en-v1.5": 384,
+    "bge-base-en-v1.5": 768,
+    "bge-large-en-v1.5": 1024,
+}
+MODEL_NAME = os.environ.get("NIDP_EMBED_MODEL", "bge-base-en-v1.5")
+if MODEL_NAME not in _DIM_BY_MODEL:
+    # Fail loud rather than silently embed at the wrong dimension.
+    raise ValueError(f"unsupported local embed model {MODEL_NAME!r}; "
+                     f"known: {sorted(_DIM_BY_MODEL)}")
+EMBED_DIM = _DIM_BY_MODEL[MODEL_NAME]     # matches the vector(N) column; asserted at load
+_MAX_SEQ = 512                            # model_type=bert, max_position_embeddings=512
 _MAX_BATCH = int(os.environ.get("NIDP_EMBED_BATCH", "32"))
-_MODEL_DIR = os.environ.get("NIDP_EMBED_MODEL_DIR", "/opt/nidp-staging/models/bge-small-en-v1.5")
+_MODEL_DIR = os.environ.get("NIDP_EMBED_MODEL_DIR", f"/opt/nidp-staging/models/{MODEL_NAME}")
 
 # The box runs prod Postgres + 13 containers + whisper and sits at load ~15.
 # Left unbounded, onnxruntime grabs every core and starves them.

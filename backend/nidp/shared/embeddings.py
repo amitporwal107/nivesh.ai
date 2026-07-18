@@ -44,7 +44,18 @@ def _use_local() -> bool:
     return EMBED_MODEL.startswith(_LOCAL_PREFIXES)
 
 
-EMBED_DIM = 384 if _use_local() else 1536   # 384 = bge-small; 1536 = text-embedding-3-small
+# Dimension MUST match the document_chunks.embedding vector(N) column, or every
+# insert fails on the $n::vector cast. bge-base is the local default (768-dim,
+# ~on par with OpenAI on retrieval, fits disk); OpenAI text-embedding-3-small is
+# 1536. Keyed by model so small/base/large and OpenAI can't be confused.
+_DIM_BY_MODEL = {
+    "bge-small-en-v1.5": 384,
+    "bge-base-en-v1.5": 768,
+    "bge-large-en-v1.5": 1024,
+    "text-embedding-3-small": 1536,
+    "text-embedding-3-large": 3072,
+}
+EMBED_DIM = _DIM_BY_MODEL.get(EMBED_MODEL, 768 if _use_local() else 1536)
 _MAX_BATCH = 128                 # inputs per embeddings.create call
 _MAX_INPUT_CHARS = 24_000        # ~6k tokens; well under the 8191-token model limit
 
