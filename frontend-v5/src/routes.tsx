@@ -29,6 +29,7 @@ import LogsPage from "./pages/Logs";
 import ReleasesPage from "./pages/Releases";
 import ReleaseDetailPage from "./pages/Releases/ReleaseDetail";
 import ChatPage from "./pages/Chat";
+import ResearchPage from "./pages/Research";
 import LoginPage from "./pages/Login";
 import OnboardingPage from "./pages/Onboarding";
 import CasCallbackPage from "./pages/CasCallback";
@@ -138,6 +139,9 @@ export function AppRoutes() {
         <Route path="/composition"      element={<RouteErrorBoundary pageName="Composition"><CompositionPage /></RouteErrorBoundary>} />
         <Route path="/recommendations"  element={<RouteErrorBoundary pageName="Recommendations"><RecommendationsPage /></RouteErrorBoundary>} />
         <Route path="/chat"             element={<RouteErrorBoundary pageName="Chat"><ChatPage /></RouteErrorBoundary>} />
+        {/* Filings Intelligence (Design B) — standalone, mobile-first, pinned to the
+            stocks_insights agent. See pages/Research. Additive: /chat is unchanged. */}
+        <Route path="/research"         element={<RouteErrorBoundary pageName="Research"><ResearchPage /></RouteErrorBoundary>} />
         <Route path="/goals"            element={<RouteErrorBoundary pageName="Goals"><GoalsPage /></RouteErrorBoundary>} />
         <Route path="/tax"              element={<RouteErrorBoundary pageName="Tax"><TaxPage /></RouteErrorBoundary>} />
         <Route path="/plan"             element={<RouteErrorBoundary pageName="Plan"><PlanPage /></RouteErrorBoundary>} />
