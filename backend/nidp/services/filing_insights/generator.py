@@ -27,6 +27,28 @@ logger = logging.getLogger(__name__)
 
 MODEL = os.environ.get("FILING_INSIGHTS_MODEL", "gpt-4o-mini")
 
+# Provider indirection — this generator speaks the OpenAI chat-completions +
+# function-calling protocol, which most hosted open-weight providers
+# (Together / Fireworks / Groq / DeepInfra / OpenRouter) expose verbatim. To run
+# an open model instead of OpenAI, set:
+#   FILING_INSIGHTS_BASE_URL   the provider's OpenAI-compatible endpoint
+#   FILING_INSIGHTS_API_KEY    that provider's key (falls back to OPENAI_API_KEY)
+#   FILING_INSIGHTS_MODEL      e.g. "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+# Unset base_url → plain OpenAI, unchanged. Nothing else in the pipeline changes:
+# insights are independent per filing, so switching the model here carries none of
+# the vector-space lock-in that made the embedding model hard to switch.
+_BASE_URL = os.environ.get("FILING_INSIGHTS_BASE_URL") or None
+
+# strict-mode function-calling is an OpenAI extension; some open-weight providers
+# support tools but reject `strict`. Default on (OpenAI), set FILING_INSIGHTS_STRICT=0
+# for a provider that 400s on it — tool-calling still forces structured output.
+_STRICT = os.environ.get("FILING_INSIGHTS_STRICT", "1").lower() not in ("0", "false", "no")
+
+
+def _resolve_key() -> str:
+    """Provider key first (for a non-OpenAI endpoint), else the OpenAI key."""
+    return os.environ.get("FILING_INSIGHTS_API_KEY") or get_openai_api_key() or ""
+
 # Cap the document text fed to the model. ~24k chars ≈ ~6k tokens — plenty for a
 # results/press-release filing, and a hard bound on cost + latency for the rare
 # 200-page annual report (which we truncate rather than skip).
@@ -74,7 +96,7 @@ _EMIT_TOOL: dict[str, Any] = {
             "required": ["one_liner", "period", "headline_metric", "sentiment", "confidence"],
             "additionalProperties": False,
         },
-        "strict": True,
+        "strict": _STRICT,
     },
 }
 
@@ -94,13 +116,17 @@ def _model_version() -> str:
 
 class InsightGenerator:
     def __init__(self, api_key: str | None = None) -> None:
-        key = api_key or get_openai_api_key()
+        key = api_key or _resolve_key()
         if not key:
             raise RuntimeError(
-                "OPENAI_API_KEY not set — required for filing_insights. "
-                "Set it in /opt/nidp/nidp.env (or GSM)."
+                "No API key for filing_insights. Set FILING_INSIGHTS_API_KEY "
+                "(open-weight provider) or OPENAI_API_KEY in /opt/nidp/nidp.env (or GSM)."
             )
-        self._client = OpenAI(api_key=key)
+        # base_url=None → OpenAI; set FILING_INSIGHTS_BASE_URL for an open-weight
+        # provider's OpenAI-compatible endpoint.
+        self._client = OpenAI(api_key=key, base_url=_BASE_URL)
+        logger.info("filing_insights model=%s endpoint=%s strict=%s",
+                    MODEL, _BASE_URL or "openai-default", _STRICT)
 
     def generate(self, *, company: str, ticker: str, event_category: str,
                  doc_type: str, subject: str, text: str) -> Insight:
