@@ -6,11 +6,12 @@ the user query). BOTH sides resolve NIDP_EMBED_MODEL through this module, which
 is what makes switching backends safe: queries and passages can never end up in
 different vector spaces because there is one switch, not two.
 
-Default: bge-small-en-v1.5, self-hosted via ONNX on CPU (384-dim), matching the
-document_chunks.embedding VECTOR(384) column (migration 125). Set
-NIDP_EMBED_MODEL=text-embedding-3-small to route to OpenAI instead — but note
-the column dimension must match the model, so switching models is a migration,
-not just an env change.
+Default: bge-base-en-v1.5, self-hosted via ONNX on CPU (768-dim), matching the
+document_chunks.embedding VECTOR(768) column (migration 125). ~on par with OpenAI
+text-embedding-3-small on retrieval, at $0 and no quota. Set
+NIDP_EMBED_MODEL=text-embedding-3-small to route to OpenAI instead — but the
+column dimension must match the model, so switching models is a migration + full
+re-embed, not just an env change.
 
 Key handling mirrors the announcement classifier: OPENAI_API_KEY from env
 (set in /opt/nidp/nidp.env on the VM; present on the API tier too). The openai
@@ -29,14 +30,14 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-EMBED_MODEL = os.environ.get("NIDP_EMBED_MODEL", "text-embedding-3-small")
+EMBED_MODEL = os.environ.get("NIDP_EMBED_MODEL", "bge-base-en-v1.5")
 
 # Any bge-* model routes to the self-hosted ONNX backend; anything else is
 # treated as an OpenAI model name. The dimension MUST match the
 # document_chunks.embedding column or every insert fails on the cast — the
-# column is vector(1536), so the OpenAI default (1536-dim) is the one that fits.
-# The bge-small path (384-dim) is a dormant opt-in: switching to it needs a
-# column migration + full re-embed, since 384 and 1536 cannot share one index.
+# column is vector(768) (migration 125), matching the bge-base default. OpenAI
+# (1536) is an opt-in that would need a column migration + full re-embed, since
+# two different dimensions/spaces cannot share one HNSW index.
 _LOCAL_PREFIXES = ("bge-",)
 
 

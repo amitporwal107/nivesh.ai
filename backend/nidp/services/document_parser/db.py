@@ -211,6 +211,13 @@ SELECT chunk_id, text
   FROM nidp.document_chunks
  WHERE embedding IS NULL
    AND text IS NOT NULL AND length(btrim(text)) > 0
+   -- Shard predicate: with $2=1 (the default) this is always true and behaves
+   -- exactly as before. With $2=N>1, each of N parallel embed workers takes a
+   -- disjoint hash slice, so they never fetch the same chunk. mod(mod(h,N)+N,N)
+   -- is the positive-modulo idiom — plain mod() is negative for negative
+   -- hashtext() values and would collapse two shards onto one.
+   AND ($2::int = 1
+        OR mod(mod(hashtext(chunk_id::text), $2::int) + $2::int, $2::int) = $3::int)
  ORDER BY ingested_at ASC
  LIMIT $1
 """
@@ -224,20 +231,27 @@ UPDATE nidp.document_chunks
 """
 
 
-async def embed_pending(limit: int) -> dict[str, int]:
+async def embed_pending(limit: int, shards: int = 1, shard: int = 0) -> dict[str, int]:
     """Embed up to `limit` chunks that don't yet have an embedding.
 
-    Graceful by design: if OPENAI_API_KEY is absent or the embedding call
-    fails, it logs and returns embedded=0 so the parser keeps running — the
-    chunks remain retrievable via full-text search until embeddings land.
+    Graceful by design: if the embedder is unavailable (no key / no local model)
+    or the embedding call fails, it logs and returns embedded=0 so the parser
+    keeps running — the chunks remain retrievable via full-text search until
+    embeddings land.
+
+    shards/shard: for parallel drains. Pass shards=N, shard=0..N-1 to give each
+    worker a disjoint hash slice of the unembedded chunks so N processes can run
+    at once without double-embedding. Default (1, 0) = no sharding, unchanged.
     """
     if not _emb.is_configured():
-        logger.warning("embed_pending: OPENAI_API_KEY not set — skipping embedding pass")
+        logger.warning("embed_pending: embedder not configured — skipping embedding pass")
         return {"embedded": 0, "candidates": 0}
+    if not 0 <= shard < shards:
+        raise ValueError(f"shard {shard} out of range for shards={shards}")
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(_FETCH_UNEMBEDDED_SQL, limit)
+        rows = await conn.fetch(_FETCH_UNEMBEDDED_SQL, limit, shards, shard)
     if not rows:
         return {"embedded": 0, "candidates": 0}
 

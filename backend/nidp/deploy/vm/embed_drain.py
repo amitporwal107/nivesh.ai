@@ -33,6 +33,8 @@ sys.path.insert(0, "/opt/nidp/dev-repo/nivesh.ai/backend")
 
 BATCH = int(os.environ.get("EMBED_BATCH", "500"))    # commit granularity: a failed
                                                      # batch re-queues only this many
+SHARDS = int(os.environ.get("EMBED_SHARDS", "1"))    # parallel-worker fan-out
+SHARD = int(os.environ.get("EMBED_SHARD", "0"))      # this worker's slice 0..SHARDS-1
 IDLE_EXIT = int(os.environ.get("EMBED_IDLE_EXIT", "3"))     # empty passes -> truly done
 REFUSE_STOP = int(os.environ.get("EMBED_REFUSE_STOP", "5")) # refusal passes -> hard stop
 
@@ -49,7 +51,7 @@ async def main() -> int:
     try:
         while True:
             try:
-                r = await embed_pending(BATCH)
+                r = await embed_pending(BATCH, shards=SHARDS, shard=SHARD)
             except Exception as e:                       # noqa: BLE001
                 # A transport hiccup, not a definitive refusal — log and retry.
                 print(f"  batch error: {type(e).__name__}: {e}", flush=True)
@@ -63,7 +65,7 @@ async def main() -> int:
             if n > 0:
                 idle = refused = 0
                 el = time.time() - t0
-                print(f"  embedded {total:,} in {el/60:.1f}m "
+                print(f"  [s{SHARD}/{SHARDS}] embedded {total:,} in {el/60:.1f}m "
                       f"({total/max(el,1)*3600:,.0f}/hr)", flush=True)
                 continue
 
