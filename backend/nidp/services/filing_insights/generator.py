@@ -56,6 +56,11 @@ MAX_TEXT_CHARS = 24_000
 
 SENTIMENTS = ("positive", "neutral", "negative")
 
+# Placeholder VALUES a model may return instead of a real figure — treated as "no
+# metric" so the card never shows a non-number in the number slot.
+_METRIC_NULLS = {"null", "none", "n/a", "na", "nil", "not disclosed", "undisclosed",
+                 "not specified", "not applicable", "-", "--", ""}
+
 _SYSTEM_PROMPT = """You summarise a single Indian-market corporate filing (an NSE/BSE disclosure) for an investor feed.
 
 You are given the company, the filing's event category, and the FULL PARSED TEXT of the filing's PDF. Produce a tight, factual insight grounded ONLY in that text.
@@ -63,7 +68,7 @@ You are given the company, the filing's event category, and the FULL PARSED TEXT
 Hard rules:
 - Ground every word in the provided document text. Do NOT use outside knowledge, and do NOT infer from the company name or category alone.
 - one_liner: ONE sentence, <= 200 chars, stating what actually happened and the concrete detail an investor cares about (e.g. the order value and client, the revenue/PAT and its change, the rating action and agency). No hype, no recommendation.
-- headline_metric: the single most important NUMBER explicitly stated in the filing (order value, revenue, PAT, dividend/share, rating). If the document does not state a clear headline number, return null. NEVER estimate, round from nothing, or fabricate a figure.
+- headline_metric: the single most important FINANCIAL figure explicitly stated in the filing — money (order value, revenue, PAT, default amount), shares, a percentage/ratio, a dividend per share, or a credit-rating grade. It must be an actual figure. Return null if the filing states no such figure, OR only says a value exists without the amount (e.g. an "undisclosed" order). Do NOT return procedural numbers (meeting/notice/agenda numbers, dates, clause numbers) and do NOT put words like "Not disclosed" in the value — those mean null. NEVER estimate, round from nothing, or fabricate a figure.
 - period: the reporting/effective period if the filing states one (e.g. "Q1 FY26", "FY25", "for the quarter ended June 30, 2026"); else null.
 - sentiment: market-impact directionality for shareholders (positive/neutral/negative), from the facts in the document.
 - confidence: 0-100 — how well the document supports this insight. Low if the text is thin, garbled, or off-topic (e.g. only a cover letter linking an audio recording).
@@ -162,6 +167,11 @@ class InsightGenerator:
                 # normalise: a metric missing any field is treated as absent
                 # rather than half-populated (honesty: no partial numbers).
                 if metric and not all(metric.get(k) for k in ("label", "value", "unit")):
+                    metric = None
+                # ...and a placeholder VALUE means "no figure", not a figure. Some
+                # models fill value with "Not disclosed"/"null"/"N/A" instead of
+                # returning null, which would surface junk on the card.
+                if metric and str(metric.get("value")).strip().lower() in _METRIC_NULLS:
                     metric = None
                 return Insight(
                     one_liner=(p.get("one_liner") or "").strip(),
