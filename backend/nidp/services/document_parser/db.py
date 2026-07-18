@@ -218,7 +218,10 @@ SELECT chunk_id, text
    -- hashtext() values and would collapse two shards onto one.
    AND ($2::int = 1
         OR mod(mod(hashtext(chunk_id::text), $2::int) + $2::int, $2::int) = $3::int)
- ORDER BY ingested_at ASC
+ -- No ORDER BY: embedding is order-independent, and ORDER BY ingested_at forced a
+ -- sort of every unembedded row (575k/shard) to find the top LIMIT — measured 63s,
+ -- past the pool's 30s command_timeout, so every batch died with asyncio.TimeoutError
+ -- (which stringifies to ''). Without the sort the LIMIT stops early on the scan.
  LIMIT $1
 """
 
