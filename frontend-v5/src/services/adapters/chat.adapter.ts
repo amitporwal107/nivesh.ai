@@ -59,7 +59,9 @@ export interface ChatAdapter {
     message: string,
     sessionId: string | undefined,
     onEvent: (ev: StreamEvent) => void,
-    opts?: { page?: string; signal?: AbortSignal },
+    // `agent` pins the copilot to one specialist (backend _PINNABLE_AGENTS),
+    // bypassing intent routing — used by the filings-first /research surface.
+    opts?: { page?: string; signal?: AbortSignal; agent?: string },
   ): Promise<void>;
   listSessions(): Promise<ChatSession[]>;
   createSession(title?: string): Promise<{ id: string }>;
@@ -110,7 +112,12 @@ export const realChatAdapter: ChatAdapter = {
         ...(activeProfileId ? { "X-Active-Profile": activeProfileId } : {}),
       },
       credentials: "include",
-      body: JSON.stringify({ message, session_id: sessionId, page: opts?.page }),
+      body: JSON.stringify({
+        message,
+        session_id: sessionId,
+        page: opts?.page,
+        ...(opts?.agent ? { agent: opts.agent } : {}),
+      }),
       signal: opts?.signal,
     });
     if (!res.ok || !res.body) {
