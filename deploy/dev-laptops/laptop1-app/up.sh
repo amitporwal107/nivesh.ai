@@ -14,6 +14,23 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# ── Safe .env reading ────────────────────────────────────────────────────
+# A .env file is NOT a shell script. `source .env` shell-evaluates it, so a
+# perfectly valid value breaks bring-up:
+#   SMTP_FROM=Nivesh Copilot <noreply@niveshcopilot.com>
+#   -> .env: line 63: syntax error near unexpected token `newline'
+# Same for values containing ( ) | ' " & ; $ backticks. docker compose does
+# NOT shell-evaluate .env, so anything compose accepts must work here too.
+#
+# env_get reads one key literally, mirroring compose's own semantics:
+# an inline comment must be preceded by whitespace.
+env_get() {
+    sed -n "s/^$1=//p" .env | head -1 \
+        | sed -e 's/[[:space:]]\+#.*$//' \
+              -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+              -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+}
+
 COMPOSE_FILE=docker-compose.app.yml
 MIGRATE_ONLY=false
 DO_BUILD=true
@@ -41,7 +58,7 @@ missing=()
 for v in NIDP_HOST NIDP_DAAS_INTERNAL_TOKEN NIDP_QUERY_API_TOKEN \
          PI_POSTGRES_PASSWORD PI_MONGO_PASSWORD PI_REDIS_PASSWORD \
          OPENAI_API_KEY; do
-    val=$(grep -E "^${v}=" .env | cut -d= -f2- || true)
+    val=$(env_get "$v")
     [[ -z "$val" ]] && missing+=("$v")
 done
 if (( ${#missing[@]} )); then
@@ -57,7 +74,10 @@ if (( ${#missing[@]} )); then
     exit 1
 fi
 
-set -a; source .env; set +a
+# Read only the few values this script needs — never source the file.
+NIDP_HOST=$(env_get NIDP_HOST)
+NIDP_EDGE_PORT=$(env_get NIDP_EDGE_PORT); NIDP_EDGE_PORT=${NIDP_EDGE_PORT:-8080}
+APP_PUBLIC_URL=$(env_get APP_PUBLIC_URL); APP_PUBLIC_URL=${APP_PUBLIC_URL:-http://localhost:3000}
 
 # Reachability check for laptop 2 — a wrong NIDP_HOST is the single most
 # likely setup mistake, and it otherwise shows up much later as empty data.

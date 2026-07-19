@@ -12,6 +12,23 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# ── Safe .env reading ────────────────────────────────────────────────────
+# A .env file is NOT a shell script. `source .env` shell-evaluates it, so a
+# perfectly valid value breaks bring-up:
+#   SMTP_FROM=Nivesh Copilot <noreply@niveshcopilot.com>
+#   -> .env: line 63: syntax error near unexpected token `newline'
+# Same for values containing ( ) | ' " & ; $ backticks. docker compose does
+# NOT shell-evaluate .env, so anything compose accepts must work here too.
+#
+# env_get reads one key literally, mirroring compose's own semantics:
+# an inline comment must be preceded by whitespace.
+env_get() {
+    sed -n "s/^$1=//p" .env | head -1 \
+        | sed -e 's/[[:space:]]\+#.*$//' \
+              -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+              -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+}
+
 COMPOSE_FILE=docker-compose.nidp.yml
 PROFILES=()
 MIGRATE_ONLY=false
@@ -36,7 +53,7 @@ fi
 missing=()
 for v in NIDP_PG_PASSWORD NIDP_DAAS_INTERNAL_TOKEN NIDP_QUERY_API_TOKEN \
          MINIO_ROOT_PASSWORD GRAFANA_ADMIN_PASSWORD; do
-    val=$(grep -E "^${v}=" .env | cut -d= -f2- || true)
+    val=$(env_get "$v")
     [[ -z "$val" ]] && missing+=("$v")
 done
 if (( ${#missing[@]} )); then
