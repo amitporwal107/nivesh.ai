@@ -8,7 +8,7 @@ Replicates the two GCP VMs as Docker Compose stacks on two Windows laptops.
 | Directory | [`laptop1-app/`](laptop1-app/) | [`laptop2-nidp/`](laptop2-nidp/) |
 | Serves | app on **:3000** (cloudflared origin) | NIDP APIs on **:8080** |
 | Stores | Mongo, Postgres, Redis | TimescaleDB, MinIO, Redis |
-| Also runs | V2 + v5 frontends, FastAPI | 49 feed jobs, AI tier, Grafana/Prom/Loki |
+| Also runs | frontend-v5 + FastAPI (V2 optional) | 49 feed jobs, AI tier, Grafana/Prom/Loki |
 
 Reconstructed from the **live VMs** (`docker inspect`, `/etc/cron.d/nidp`,
 systemd units, `/opt/nidp/docker-compose.dev.yml`) and the repo's real
@@ -171,7 +171,30 @@ cp .env.example .env
 `up.sh` probes laptop 2 before starting and warns loudly if it is unreachable —
 a wrong `NIDP_HOST` otherwise surfaces much later as silently empty screens.
 
-Endpoints: `:3000/` (V2) · `:3000/v5/` · `:3000/api/docs` · `:8001/docs`.
+Endpoints: `:3000/` (302 → `/v5/work`) · `:3000/v5/` · `:3000/api/docs` ·
+`:8001/docs`.
+
+### This stack is v5-only
+
+The V2 frontend is behind the `v2` compose profile and is **not built or
+started** by default; nginx 302s `/` to `/v5/work`, the same thing prod's
+v5-only vhost does. v5 has no dependency on V2 — verified at three levels:
+the v5 Dockerfile copies only `frontend-v5/`, there are no `/v2` links in
+`frontend-v5/src`, and there are no cross-imports. Bring V2 back with
+`./up.sh --with-v2` (and see the note in `nginx/edge.conf`).
+
+### `OPENAI_API_KEY` is required to BOOT
+
+Not optional, despite being an "AI" key. `backend/deps.py:41` constructs
+`AIEngine(OPENAI_API_KEY)` at **import** time, so an unset value crashes the
+backend before it serves anything:
+
+```
+openai.OpenAIError: Missing credentials. Please pass an `api_key` ...
+```
+
+Any non-empty string boots it; a real key is needed for LLM features to work.
+`up.sh` fails fast on this rather than letting you discover it in a crash log.
 
 ---
 
@@ -249,10 +272,29 @@ between the two `.env` files. They must match exactly.
 
 **Frontend calls the wrong API host.** `APP_PUBLIC_URL` is baked in at build
 time. Change it, then:
-`docker compose -f docker-compose.app.yml build app-frontend app-frontend-v5`
+`docker compose -f docker-compose.app.yml build app-frontend-v5`
 
 **`uvicorn --reload` never fires.** The repo is on `/mnt/c/...`. Move it into
 the WSL filesystem — inotify does not cross that boundary.
+
+**`.env: line N: syntax error near unexpected token`.** You are on an old
+`up.sh` that shell-sourced `.env`. Pull `dev` and re-copy `.env.example` — a
+`.env` is not a shell script, and values containing `< > ( ) | ' " ; &` (an
+`SMTP_FROM` like `Nivesh <noreply@…>`, say) broke it. Current `up.sh` reads
+keys literally and never evaluates the file.
+
+**`pull access denied for nivesh/backend ... may require 'docker login'`.**
+Harmless, and fixed on current `dev`. Those images are built locally by design
+— there is no registry. `pull_policy: build` now stops compose from trying to
+pull them. Use `./up.sh` (which builds) rather than `docker compose up`.
+
+**`No such image: redis:7-alpine` right after it says `Pulled`.** Not a compose
+problem — that is the Docker daemon's containerd image store getting out of
+sync during concurrent pulls, and it shows up as unrelated services failing on
+another service's image. Pull the stock images serially first
+(`docker pull redis:7-alpine`, then postgres/mongo/nginx), then `./up.sh`. If
+it persists, restart Docker Desktop; if it still persists, turn off
+**Settings → General → "Use containerd for pulling and storing images"**.
 
 **Postgres crash-loops after restore.** Almost always disk. Check with
 `docker system df`; reclaim with `docker builder prune -af`.
