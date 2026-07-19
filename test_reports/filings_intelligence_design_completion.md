@@ -256,6 +256,105 @@ usually misses.
 - **TC-19** — proven by construction (no bare `var(--ink)` remains on this
   screen; `--c-*` aliases are used). Not visually diffed in light mode.
 
+---
+
+## Increment 2 — company type-ahead, scoped taxonomy, document library (2026-07-19)
+
+Three asks from the live screen. All verified on staging with a user-supplied
+session token.
+
+| ID | Scenario | Result |
+|----|----------|--------|
+| TC-22 | typing suggests companies; selecting one scopes the feed (`?symbol=`) | **PASS** (e2e + staging) |
+| TC-23 | clearing the company resets to ALL | **PASS** (e2e) |
+| TC-24 | document library lists downloadable filings grouped by type | **PASS** (e2e + staging) |
+| TC-25 | a company with no documents says so | **PASS** (e2e) |
+| TC-26 | keyboard ArrowDown + Enter selects a suggestion | **PASS** (e2e) |
+| TC-27 | facets follow the scope (the reported bug) | **PASS** (staging, below) |
+| TC-28 | a listed download URL actually resolves to a PDF | **PASS** (staging) |
+
+### Ask 1 — type-ahead
+
+```
+$ curl '…/api/filings/companies/search?q=infy'
+  INFY           Infosys Limited  [Information Technology]
+
+$ curl '…/api/filings/companies/search?q=reliance'
+  RELIANCE       Reliance Industries Limited
+  RCOM           Reliance Communications Limited
+  RELCHEMQ       Reliance Chemotex Industries Limited
+  RELINFRA       Reliance Infrastructure Limited
+```
+
+First attempt returned `{"companies": []}` — the DaaS `reference` router is
+mounted with `prefix=""`, so the path is `/v1/symbols/search`, not
+`/v1/reference/symbols/search`. `_get` turns a 404 into `None`, which
+`_daas_first` reads as "DaaS unavailable" and falls back to the app PG (no rows
+on staging). Silent empty dropdown, nothing in the logs. Fixed, plus a warning
+log so this shape is visible next time.
+
+### Ask 2 — scoped taxonomy (the reported bug)
+
+```
+UNSCOPED  total 16804   facets {management:313, dividend:115, mna:112, rating:96, orders:92, earnings:86}
+RELIANCE  total    13   facets {earnings:2}          tickers on page: ['RELIANCE']
+```
+
+`cat_sql` bound only `$1` (since), so the facet chips always counted the whole
+tape — searching a company still showed the full taxonomy. Fixed in BOTH copies
+(DaaS primary + app-PG fallback), and on the frontend, which only replaced
+facets when the response was non-empty.
+
+### Ask 3 — document library
+
+```
+RELIANCE · Reliance Industries Limited · 72 documents
+  Investor presentations   1   (parsed 1)
+  Quarterly results        5   (parsed 5)
+  Press releases          17   (parsed 17)
+  Announcement Attachment 49   (parsed 39)
+
+PERSISTENT · Persistent Systems Limited · 143 documents
+  Earnings transcripts     3   (parsed 3)
+  Investor presentations  52   (parsed 52)
+  Quarterly results        6   (parsed 6)
+  Press releases          17   (parsed 17)
+  Announcement Attachment 65   (parsed 51)
+```
+
+A listed URL really resolves (TC-28):
+
+```
+$ curl -I <transcript url>
+HTTP/2 200
+content-type: application/pdf
+content-length: 754602
+```
+
+### CI fixes made along the way
+
+- **Android APK build** (run 29691137497): `npm ci` died with EACCES on a
+  root-owned `~/.npm`. The cache was not organically poisoned — it held 4
+  entries created in one second on 2026-07-09, including a 0-byte file named
+  `root-owned`. Re-owned (not deleted); workflow now heals it before `npm ci`.
+- **APK verify step** (run 29691991721): failed on `HTTP 403, len 5438` while
+  the APK was live at 35,980,913 bytes — Cloudflare blocks GitHub runner egress.
+  The assertion moved onto the VM and now also matches the published sha256
+  against the freshly built one, so a stale copy cannot pass.
+- **Shared-clone race** (runs 29691137497, 29694426973): four workflows drive
+  `/opt/nidp/dev-repo/nivesh.ai` with separate concurrency groups, so a commit
+  touching both `backend/nidp/**` and `frontend-v5/**` raced them on the same
+  git index. One shared group now serialises them.
+
+### Still open
+
+- Alert **delivery** remains unbuilt (preferences only) — unchanged.
+- `nidp-run-service.yml` reports **success when the service never ran** (it uses
+  the prod path for `environment=staging` and swallows the failure). Not fixed —
+  flagged only.
+- Stored insights still carry `sections: []` until the generator re-runs; the
+  queue was drained by the pre-change run.
+
 ## Verdict: PASS
 
 19 of 21 test cases pass with real, unedited evidence above — including every
