@@ -299,6 +299,19 @@ services:
         AI_TIER: "true"
     image: nidp/runtime-ai:laptop
     container_name: nidp-lt-scheduler
+    # init:true runs docker-init (tini) as PID 1. REQUIRED — without it
+    # supercronic becomes PID 1, enables its own process reaper, and dies
+    # immediately on ANY crontab:
+    #     level=info  msg="reaping dead processes"
+    #     level=fatal msg="Failed to fork exec: no such file or directory"
+    # Verified this fires even for a one-line `* * * * * echo hello` crontab,
+    # so it is the reaper, not the schedule.
+    #
+    # init:true is preferred over supercronic's -no-reap because the feed jobs
+    # fork subprocesses; tini still reaps them, whereas -no-reap alone would
+    # let zombies accumulate. With tini as PID 1, supercronic logs:
+    #     level=warning msg="process reaping disabled, not pid 1"
+    init: true
     command: ["supercronic", "-passthrough-logs", "/etc/nidp/nidp.crontab"]
     environment:
       <<: *nidp-env
