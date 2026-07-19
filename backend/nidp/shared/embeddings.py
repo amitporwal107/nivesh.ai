@@ -31,7 +31,7 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-EMBED_MODEL = os.environ.get("NIDP_EMBED_MODEL", "bge-base-en-v1.5")
+EMBED_MODEL = os.environ.get("NIDP_EMBED_MODEL", "text-embedding-3-small")
 
 # Any bge-* model routes to the self-hosted ONNX backend; anything else is
 # treated as an OpenAI model name. The dimension MUST match the
