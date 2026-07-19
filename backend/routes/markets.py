@@ -684,12 +684,14 @@ def _read_min(subject: Optional[str], description: Optional[str]) -> int:
 
 async def _articles(pool, days: int, category: Optional[str], impact: Optional[str],
                     sentiment: Optional[str], q: Optional[str],
-                    limit: int, offset: int, sort: str = "material") -> Dict[str, Any]:
+                    limit: int, offset: int, sort: str = "material",
+                    symbol: Optional[str] = None) -> Dict[str, Any]:
     """Classified NSE/BSE announcements as an article feed. Real data only —
     no LLM, no fabrication. When no category filter is set we hide the routine
     'regulatory'/'other' noise so it reads like market news, not a filing log."""
     since = date.today() - timedelta(days=days)   # asyncpg $1::date needs a date obj, not a str
     like = f"%{q}%" if q else None
+    sym = symbol.strip().upper() if symbol and symbol.strip() else None
     # Validated against a two-literal allowlist by the route before we get here,
     # so it cannot carry caller input into the SQL.
     order_by = ("(impact_score='high') DESC NULLS LAST, filed_at DESC"
@@ -704,6 +706,7 @@ async def _articles(pool, days: int, category: Optional[str], impact: Optional[s
            AND ($3::text IS NULL OR impact_score = $3)
            AND ($4::text IS NULL OR sentiment = $4)
            AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
+           AND ($8::text IS NULL OR UPPER(ticker_symbol) = $8)
            AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
          -- NULLS LAST is load-bearing. `impact_score='high'` is NULL for an
          -- unclassified row, and Postgres DESC defaults to NULLS FIRST — so
@@ -732,21 +735,29 @@ async def _articles(pool, days: int, category: Optional[str], impact: Optional[s
            AND ($3::text IS NULL OR impact_score = $3)
            AND ($4::text IS NULL OR sentiment = $4)
            AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
+           AND ($6::text IS NULL OR UPPER(ticker_symbol) = $6)
            AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
     """
+    # Facets carry the SAME predicate as the list (impact/sentiment/q/symbol) but
+    # NOT `category` itself — see the parity note in the DaaS copy. Binding only
+    # $1 here meant a company search still showed whole-feed taxonomy.
     cat_sql = """
         SELECT event_category, count(*) AS n
           FROM nidp.corporate_announcements
          WHERE filed_at >= $1::date AND event_category IS NOT NULL
            AND event_category NOT IN ('regulatory', 'other')
+           AND ($2::text IS NULL OR impact_score = $2)
+           AND ($3::text IS NULL OR sentiment = $3)
+           AND ($4::text IS NULL OR subject ILIKE $4 OR company_name ILIKE $4 OR ticker_symbol ILIKE $4)
+           AND ($5::text IS NULL OR UPPER(ticker_symbol) = $5)
          GROUP BY event_category
          ORDER BY n DESC
     """
     try:
         async with pool.acquire() as conn:
-            rows = await conn.fetch(list_sql, since, category, impact, sentiment, like, limit, offset)
-            total = await conn.fetchval(total_sql, since, category, impact, sentiment, like)
-            cats = await conn.fetch(cat_sql, since)
+            rows = await conn.fetch(list_sql, since, category, impact, sentiment, like, limit, offset, sym)
+            total = await conn.fetchval(total_sql, since, category, impact, sentiment, like, sym)
+            cats = await conn.fetch(cat_sql, since, impact, sentiment, like, sym)
     except Exception as e:  # noqa: BLE001
         logger.warning("markets.articles failed: %s", e)
         return {"articles": [], "total": 0, "categories": {}}

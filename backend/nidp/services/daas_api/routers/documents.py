@@ -202,3 +202,55 @@ async def documents_coverage() -> Dict[str, Any]:
             """,
         )
     return {"data": [row_to_dict(r) for r in rows]}
+
+
+@router.get("/by-symbol", summary="All source documents for one company, newest first")
+async def documents_by_symbol(
+    symbol: str = Query(..., min_length=1, max_length=32,
+                        description="NSE ticker, e.g. INFY"),
+    doc_type: Optional[str] = Query(None, description="filter to one doc_type"),
+    limit: int = Query(200, ge=1, le=500),
+) -> Dict[str, Any]:
+    """The company's filing library — what the Filings Intelligence screen offers
+    for download (transcripts, investor presentations, annual reports, quarterly
+    results and any other attachment).
+
+    Returns the SOURCE URL as filed with the exchange; we never re-host the PDF.
+    Rows with no `source_url` are omitted because a download entry the user
+    cannot open is worse than an absent one. `parse_status` is surfaced so the UI
+    can say whether Nivesh has actually read a document or is only linking it.
+    """
+    sym = symbol.strip().upper()
+    dt = doc_type.strip() if doc_type and doc_type.strip() else None
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT doc_id, doc_type, company_name, ticker_symbol,
+                   filed_at, source_url, page_count, parse_status,
+                   raw_size_bytes, announcement_id, announcement_source
+              FROM nidp.documents
+             WHERE UPPER(ticker_symbol) = $1
+               AND source_url IS NOT NULL
+               AND ($2::text IS NULL OR doc_type = $2)
+             ORDER BY filed_at DESC NULLS LAST
+             LIMIT $3
+            """,
+            sym, dt, limit,
+        )
+        counts = await conn.fetch(
+            """
+            SELECT doc_type, count(*) AS n
+              FROM nidp.documents
+             WHERE UPPER(ticker_symbol) = $1 AND source_url IS NOT NULL
+             GROUP BY doc_type
+             ORDER BY n DESC
+            """,
+            sym,
+        )
+    return {
+        "symbol": sym,
+        "data": [row_to_dict(r) for r in rows],
+        "count": len(rows),
+        "by_type": {r["doc_type"]: r["n"] for r in counts},
+    }

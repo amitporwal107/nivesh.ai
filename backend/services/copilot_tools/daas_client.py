@@ -325,12 +325,15 @@ async def get_market_pulse_articles(
     days: int = 7, category: Optional[str] = None, impact: Optional[str] = None,
     sentiment: Optional[str] = None, q: Optional[str] = None,
     limit: int = 60, offset: int = 0, sort: str = "material",
+    symbol: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     params: Dict[str, Any] = {"days": days, "limit": limit, "offset": offset, "sort": sort}
     if category:  params["category"] = category
     if impact:    params["impact"] = impact
     if sentiment: params["sentiment"] = sentiment
     if q:         params["q"] = q
+    # Exact-ticker scope: narrows the rows AND the facet counts to one company.
+    if symbol:    params["symbol"] = symbol
     try:
         data = await _get("/market-pulse/articles", params=params)
     except DaasError as exc:
@@ -1174,3 +1177,28 @@ async def get_debt_sleeve_funds(
             "max_drawdown_pct": p.get("max_drawdown_pct"),
         })
     return out
+
+
+async def search_symbols(q: str, limit: int = 8) -> Optional[Dict[str, Any]]:
+    """Type-ahead over the symbol master (DAAS /v1/reference/symbols/search).
+    Returns {"data": [{symbol, company_name, sector, industry, isin}]} or None."""
+    if not (q or "").strip():
+        return {"data": []}
+    try:
+        return await _get("/reference/symbols/search", params={"q": q.strip(), "limit": limit})
+    except DaasError as exc:
+        logger.debug("search_symbols: %s", exc)
+        return None
+
+
+async def documents_by_symbol(symbol: str, doc_type: Optional[str] = None,
+                              limit: int = 200) -> Optional[Dict[str, Any]]:
+    """A company's downloadable filing library (DAAS /v1/documents/by-symbol)."""
+    params: Dict[str, Any] = {"symbol": symbol, "limit": limit}
+    if doc_type:
+        params["doc_type"] = doc_type
+    try:
+        return await _get("/documents/by-symbol", params=params)
+    except DaasError as exc:
+        logger.debug("documents_by_symbol: %s", exc)
+        return None

@@ -74,14 +74,21 @@ _DELIVERY_ACTIVE = False
 
 async def _feed(days: int, category: Optional[str], impact: Optional[str],
                 sentiment: Optional[str], q: Optional[str],
-                limit: int, offset: int, sort: str) -> Dict[str, Any]:
-    """Fetch the articles payload (DaaS primary, app PG fallback)."""
-    key = f"filings:feed:{days}:{category}:{impact}:{sentiment}:{q}:{limit}:{offset}:{sort}"
+                limit: int, offset: int, sort: str,
+                symbol: Optional[str] = None) -> Dict[str, Any]:
+    """Fetch the articles payload (DaaS primary, app PG fallback).
+
+    `symbol` scopes the feed AND its facets to one company (exact ticker), which
+    is what selecting a type-ahead suggestion does. `q` stays a fuzzy free-text
+    match for the case where the user just types.
+    """
+    key = f"filings:feed:{days}:{category}:{impact}:{sentiment}:{q}:{limit}:{offset}:{sort}:{symbol}"
     return await _aux_cached(key, lambda: _daas_first(
         "get_market_pulse_articles",
         {"days": days, "category": category, "impact": impact, "sentiment": sentiment,
-         "q": q, "limit": limit, "offset": offset, "sort": sort},
-        lambda pool: _articles(pool, days, category, impact, sentiment, q, limit, offset, sort),
+         "q": q, "limit": limit, "offset": offset, "sort": sort, "symbol": symbol},
+        lambda pool: _articles(pool, days, category, impact, sentiment, q, limit, offset,
+                               sort, symbol),
         {"articles": [], "total": 0, "categories": {}},
     ))
 
@@ -183,6 +190,7 @@ async def filings_feed(
     limit: int = 60,
     offset: int = 0,
     sort: str = "material",
+    symbol: Optional[str] = None,
 ):
     """The Filings Home feed (spec §3.1).
 
@@ -195,7 +203,8 @@ async def filings_feed(
     impact = impact.lower() if impact else None
     sentiment = sentiment.lower() if sentiment else None
 
-    data = await _feed(days, category, impact, sentiment, q, limit, offset, sort)
+    data = await _feed(days, category, impact, sentiment, q, limit, offset, sort,
+                       (symbol or "").strip().upper() or None)
     articles = data.get("articles") or []
     ins_map = await _insights_for([a.get("id") for a in articles])
     return {
@@ -237,6 +246,139 @@ async def filings_signals(request: Request, days: int = 1):
             "sentiment": a.get("sentiment"),
         })
     return {"ok": True, "signals": signals}
+
+
+# The document types the UI offers as downloads, in the order the design lists
+# them. Anything else the pipeline stored still appears, after these.
+_DOC_LABELS: Dict[str, str] = {
+    "concall_transcript":    "Earnings transcripts",
+    "investor_presentation": "Investor presentations",
+    "financial_results":     "Quarterly results",
+    "annual_report":         "Annual reports",
+    "press_release":         "Press releases",
+}
+
+
+async def _companies_pg(pool, q: str, limit: int) -> Dict[str, Any]:
+    """App-PG fallback for symbol type-ahead."""
+    like = f"%{q.strip().upper()}%"
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT ON (ticker_symbol) ticker_symbol AS symbol, company_name
+                  FROM nidp.corporate_announcements
+                 WHERE ticker_symbol IS NOT NULL
+                   AND (UPPER(ticker_symbol) LIKE $1 OR UPPER(company_name) LIKE $1)
+                 ORDER BY ticker_symbol
+                 LIMIT $2
+                """,
+                like, limit,
+            )
+    except Exception as e:  # noqa: BLE001 — type-ahead must never 500 the screen
+        logger.warning("company search fallback failed: %s", e)
+        return {"data": []}
+    return {"data": [dict(r) for r in rows]}
+
+
+async def _documents_by_symbol_pg(pool, sym: str, limit: int) -> Dict[str, Any]:
+    """App-PG fallback for the company document library."""
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT doc_id, doc_type, company_name, ticker_symbol, filed_at,
+                       source_url, page_count, parse_status, raw_size_bytes
+                  FROM nidp.documents
+                 WHERE UPPER(ticker_symbol) = $1 AND source_url IS NOT NULL
+                 ORDER BY filed_at DESC NULLS LAST
+                 LIMIT $2
+                """,
+                sym, limit,
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("company documents fallback failed: %s", e)
+        return {"data": []}
+    return {"data": [dict(r) for r in rows]}
+
+
+@router.get("/companies/search")
+async def companies_search(request: Request, q: str = "", limit: int = 8):
+    """Type-ahead over companies (design: the header search suggests as you type).
+
+    A query shorter than 2 chars returns an empty list rather than the whole
+    master — a blank dropdown is the right answer to "no input", not 20
+    arbitrary tickers.
+    """
+    await get_current_user(request)
+    q = (q or "").strip()
+    limit = max(1, min(int(limit or 8), 25))
+    if len(q) < 2:
+        return {"ok": True, "companies": []}
+
+    data = await _daas_first(
+        "search_symbols", {"q": q, "limit": limit},
+        lambda pool: _companies_pg(pool, q, limit),
+        {"data": []},
+    )
+    seen, out = set(), []
+    for r in (data or {}).get("data") or []:
+        s = (r.get("symbol") or "").strip().upper()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append({"symbol": s,
+                    "name": r.get("company_name") or s,
+                    "sector": r.get("sector")})
+    return {"ok": True, "companies": out[:limit]}
+
+
+@router.get("/companies/{symbol}/documents")
+async def company_documents(request: Request, symbol: str, limit: int = 200):
+    """A company's source documents, grouped by type, for download.
+
+    Every entry links to the document AS FILED with the exchange — we do not
+    re-host PDFs. `parsed` says whether Nivesh actually read it, so the UI can
+    distinguish "we analysed this" from "here is the filing".
+    """
+    await get_current_user(request)
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        raise HTTPException(status_code=400, detail="symbol is required")
+    limit = max(1, min(int(limit or 200), 500))
+
+    data = await _daas_first(
+        "documents_by_symbol", {"symbol": sym, "limit": limit},
+        lambda pool: _documents_by_symbol_pg(pool, sym, limit),
+        {"data": []},
+    )
+    rows = (data or {}).get("data") or []
+
+    groups: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        dt = r.get("doc_type") or "other"
+        g = groups.setdefault(dt, {"key": dt,
+                                   "label": _DOC_LABELS.get(dt, dt.replace("_", " ").title()),
+                                   "documents": []})
+        filed = r.get("filed_at")
+        g["documents"].append({
+            "docId":   str(r.get("doc_id")) if r.get("doc_id") else None,
+            "url":     r.get("source_url"),
+            "filedAt": filed.isoformat() if hasattr(filed, "isoformat") else filed,
+            "pages":   r.get("page_count"),
+            "bytes":   r.get("raw_size_bytes"),
+            "parsed":  (r.get("parse_status") == "parsed"),
+        })
+
+    # Design order first, then anything else — so the named types always lead and
+    # a new pipeline doc_type still surfaces instead of being dropped.
+    order = list(_DOC_LABELS)
+    ordered = sorted(groups.values(),
+                     key=lambda g: (order.index(g["key"]) if g["key"] in order else len(order),
+                                    g["label"]))
+    name = next((r.get("company_name") for r in rows if r.get("company_name")), None)
+    return {"ok": True, "symbol": sym, "name": name or sym,
+            "total": len(rows), "groups": ordered}
 
 
 def _alerts_payload(prefs: Dict[str, Any]) -> Dict[str, Any]:

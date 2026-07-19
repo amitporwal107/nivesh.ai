@@ -31,13 +31,13 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Search, FileText, ExternalLink, Sparkles, Loader2, Bell, Bookmark,
-  ChevronLeft, ChevronRight, MoreVertical, Megaphone,
+  ChevronLeft, ChevronRight, MoreVertical, Megaphone, X, Download,
 } from "lucide-react";
 import { chatService } from "@/services";
 import { Markdown } from "@/components/chat/Markdown";
 import { filingsService } from "@/services/adapters/filings.adapter";
 import type {
-  FilingRow, Signal, Insight, InsightSection, Alerts,
+  FilingRow, Signal, Insight, InsightSection, Alerts, Company, CompanyDocs,
 } from "@/services/adapters/filings.adapter";
 import "./research.css";
 
@@ -103,6 +103,17 @@ export default function ResearchPage() {
   const [feedError, setFeedError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
+  // ── company scope (type-ahead selection) ────────────────────────────────
+  // `company` is an EXACT ticker scope; `query` is the fuzzy free-text box.
+  // Selecting a suggestion sets the former and clears the latter, so the feed,
+  // the facet counts and the documents panel all describe one company.
+  const [company, setCompany] = useState<Company | null>(null);
+  const [suggestions, setSuggestions] = useState<Company[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestIdx, setSuggestIdx] = useState(-1);
+  const [docs, setDocs] = useState<CompanyDocs | null>(null);
+  const [docsLoading, setDocsLoading] = useState(false);
+
   // ── signals ─────────────────────────────────────────────────────────────
   const [signals, setSignals] = useState<Signal[]>([]);
 
@@ -130,26 +141,89 @@ export default function ResearchPage() {
       const data = await filingsService.getFeed({
         days: FEED_DAYS,
         category: category ?? undefined,
-        q: query.trim() || undefined,
+        // An exact company scope supersedes the fuzzy text box.
+        symbol: company?.symbol,
+        q: company ? undefined : (query.trim() || undefined),
         sort,
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
       });
       setRows(data.rows);
       setTotal(data.total ?? data.rows.length);
-      if (data.facets && Object.keys(data.facets).length) setFacets(data.facets);
+      // Always take the response's facets, even when empty. Keeping the previous
+      // map "to avoid flicker" would leave whole-feed taxonomy on screen after
+      // scoping to a company that has none of it — the exact thing this change
+      // set out to fix.
+      setFacets(data.facets ?? {});
     } catch {
       setFeedError("Couldn't load filings right now.");
       setRows([]);
     } finally {
       setFeedLoading(false);
     }
-  }, [category, sort, page, query]);
+  }, [category, sort, page, query, company]);
 
   useEffect(() => { loadFeed(); }, [loadFeed]);
   useEffect(() => {
     filingsService.getSignals(1).then(setSignals).catch(() => setSignals([]));
   }, []);
+
+  // ── company type-ahead ──────────────────────────────────────────────────
+  // Debounced so a fast typist fires one request, not one per keystroke. The
+  // `cancelled` guard drops a slow in-flight response that resolves after a
+  // newer one, which would otherwise repopulate the list with stale matches.
+  useEffect(() => {
+    const term = query.trim();
+    if (company || term.length < 2) { setSuggestions([]); return; }
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      filingsService.searchCompanies(term)
+        .then((list) => { if (!cancelled) { setSuggestions(list); setSuggestIdx(-1); } })
+        .catch(() => { if (!cancelled) setSuggestions([]); });
+    }, 220);
+    return () => { cancelled = true; window.clearTimeout(t); };
+  }, [query, company]);
+
+  /** Scope everything to one company: feed, facets and the document library. */
+  const selectCompany = useCallback((c: Company) => {
+    setCompany(c);
+    setQuery("");
+    setSuggestions([]);
+    setSuggestOpen(false);
+    setSuggestIdx(-1);
+    setCategory(null);      // its taxonomy is different — do not carry a stale facet
+    setPage(1);
+    setExpanded(null);
+    setDocsLoading(true);
+    setDocs(null);
+    filingsService.getCompanyDocuments(c.symbol)
+      .then(setDocs)
+      .catch(() => setDocs(null))
+      .finally(() => setDocsLoading(false));
+  }, []);
+
+  /** Reset back to ALL — the whole tape, whole taxonomy. */
+  const clearCompany = useCallback(() => {
+    setCompany(null);
+    setDocs(null);
+    setQuery("");
+    setSuggestions([]);
+    setSuggestOpen(false);
+    setCategory(null);
+    setPage(1);
+    setExpanded(null);
+  }, []);
+
+  const onSearchKey = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!suggestions.length) {
+      if (e.key === "Escape") setSuggestOpen(false);
+      return;
+    }
+    if (e.key === "ArrowDown") { e.preventDefault(); setSuggestIdx((i) => (i + 1) % suggestions.length); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setSuggestIdx((i) => (i <= 0 ? suggestions.length : i) - 1); }
+    else if (e.key === "Enter") { e.preventDefault(); selectCompany(suggestions[suggestIdx >= 0 ? suggestIdx : 0]); }
+    else if (e.key === "Escape") { setSuggestOpen(false); setSuggestIdx(-1); }
+  }, [suggestions, suggestIdx, selectCompany]);
 
   const loadInsight = useCallback((id: string) => {
     if (insights[id] !== undefined) return;
@@ -287,26 +361,112 @@ export default function ResearchPage() {
             <span className="hidden lg:inline">Nivesh</span>
             <span className="lg:hidden">Filings</span>
           </span>
-          <div
-            className="hidden sm:flex"
-            style={{
-              flex: 1, minWidth: 0, maxWidth: 560, margin: "0 auto", alignItems: "center", gap: 8,
-              background: "var(--bg-2)", border: "1px solid var(--c-line)", borderRadius: 999,
-              padding: "8px 14px", color: "var(--c-ink-3)",
-            }}
-          >
-            <Search size={15} />
-            <input
-              value={query}
-              onChange={(e) => { setQuery(e.target.value); setPage(1); }}
-              placeholder="Search companies · TCS, HDFC AMC, JSW Steel…"
-              aria-label="Search companies"
-              data-testid="filings-search"
-              style={{
-                flex: 1, minWidth: 0, border: 0, background: "none",
-                fontSize: 13.5, color: "var(--c-ink)", outline: "none", fontFamily: "var(--sans)",
-              }}
-            />
+          <div className="hidden sm:block" style={{ flex: 1, minWidth: 0, maxWidth: 560, margin: "0 auto", position: "relative" }}>
+            {company ? (
+              // Scoped: the box becomes a removable company chip. One click back to ALL.
+              <div
+                data-testid="company-scope"
+                style={{
+                  display: "flex", alignItems: "center", gap: 10, background: "var(--mint-soft)",
+                  border: "1px solid var(--mint-line)", borderRadius: 999, padding: "7px 8px 7px 14px",
+                }}
+              >
+                <span className="nv-mono" style={{ fontSize: 11, color: "var(--mint)", fontWeight: 500 }}>
+                  {company.symbol}
+                </span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: "var(--c-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {company.name}
+                </span>
+                <button
+                  onClick={clearCompany}
+                  aria-label="Clear company filter — show all filings"
+                  title="Show all filings"
+                  data-testid="clear-company"
+                  className="rail-ico"
+                  style={{ width: 26, height: 26, borderRadius: 999, flex: "none" }}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  background: "var(--bg-2)", border: "1px solid var(--c-line)", borderRadius: 999,
+                  padding: "8px 14px", color: "var(--c-ink-3)",
+                }}
+              >
+                <Search size={15} />
+                <input
+                  value={query}
+                  onChange={(e) => { setQuery(e.target.value); setPage(1); setSuggestOpen(true); }}
+                  onFocus={() => setSuggestOpen(true)}
+                  onBlur={() => window.setTimeout(() => setSuggestOpen(false), 120)}
+                  onKeyDown={onSearchKey}
+                  placeholder="Search companies · TCS, HDFC AMC, JSW Steel…"
+                  aria-label="Search companies"
+                  aria-autocomplete="list"
+                  aria-expanded={suggestOpen && suggestions.length > 0}
+                  role="combobox"
+                  aria-controls="company-suggestions"
+                  data-testid="filings-search"
+                  style={{
+                    flex: 1, minWidth: 0, border: 0, background: "none",
+                    fontSize: 13.5, color: "var(--c-ink)", outline: "none", fontFamily: "var(--sans)",
+                  }}
+                />
+                {query && (
+                  <button onClick={() => { setQuery(""); setPage(1); }} aria-label="Clear search"
+                          className="rail-ico" style={{ width: 22, height: 22, borderRadius: 999, flex: "none" }}>
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!company && suggestOpen && suggestions.length > 0 && (
+              <ul
+                id="company-suggestions"
+                role="listbox"
+                data-testid="company-suggestions"
+                className="nv-card"
+                style={{
+                  position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 40,
+                  listStyle: "none", margin: 0, padding: 4, maxHeight: 320, overflowY: "auto",
+                  boxShadow: "var(--shadow-pop)",
+                }}
+              >
+                {suggestions.map((c, i) => (
+                  <li key={c.symbol} role="option" aria-selected={i === suggestIdx}>
+                    <button
+                      // onMouseDown, not onClick: the input's onBlur closes the list
+                      // first and a click would never land.
+                      onMouseDown={(e) => { e.preventDefault(); selectCompany(c); }}
+                      onMouseEnter={() => setSuggestIdx(i)}
+                      data-testid="company-suggestion"
+                      style={{
+                        display: "flex", alignItems: "center", gap: 10, width: "100%",
+                        padding: "9px 11px", borderRadius: 9, border: 0, cursor: "pointer",
+                        textAlign: "left", fontFamily: "var(--sans)",
+                        background: i === suggestIdx ? "var(--bg-3)" : "transparent",
+                      }}
+                    >
+                      <span className="nv-mono" style={{ fontSize: 11, color: "var(--mint)", flex: "none", minWidth: 62 }}>
+                        {c.symbol}
+                      </span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: "var(--c-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {c.name}
+                      </span>
+                      {c.sector && (
+                        <span className="nv-mono" style={{ fontSize: 9.5, color: "var(--c-ink-4)", flex: "none" }}>
+                          {c.sector}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           <span className="nv-pill nv-pill-indigo lg:hidden" style={{ marginLeft: "auto", flex: "none" }}>
             FILINGS
@@ -322,6 +482,7 @@ export default function ResearchPage() {
                 total, sort, setSort, setPage, facetChips, category, setCategory,
                 setExpanded, feedError, feedLoading, rows, expanded, insights,
                 insightLoading, tab, setTab, toggleExpand, page, pageCount, flashed, rowRefs,
+                company, clearCompany, docs, docsLoading,
               }}
             />
           ) : (
@@ -383,6 +544,10 @@ interface FeedProps {
   page: number; pageCount: number;
   flashed: string | null;
   rowRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
+  company: Company | null;
+  clearCompany: () => void;
+  docs: CompanyDocs | null;
+  docsLoading: boolean;
 }
 
 function FeedScreen(p: FeedProps) {
@@ -469,8 +634,10 @@ function FeedScreen(p: FeedProps) {
         </div>
       )}
 
-      {/* ── read for you today (top-3 signals) ── */}
-      {p.signals.length > 0 && (
+      {/* ── read for you today (top-3 signals) ──
+          Hidden under a company scope: it ranks the WHOLE tape, so showing it
+          next to one company's filings would imply these are that company's. */}
+      {!p.company && p.signals.length > 0 && (
         <>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "30px 0 12px" }}>
             <p className="nv-eyebrow" style={{ margin: 0 }}>Read for you today · ranked by materiality</p>
@@ -516,9 +683,16 @@ function FeedScreen(p: FeedProps) {
         </>
       )}
 
+      {/* ── company scope: documents library ── */}
+      {p.company && (
+        <DocumentsPanel company={p.company} docs={p.docs} loading={p.docsLoading} onClear={p.clearCompany} />
+      )}
+
       {/* ── all filings ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "30px 0 12px", flexWrap: "wrap", gap: 10 }}>
-        <p className="nv-eyebrow" style={{ margin: 0 }}>All filings · {p.total} results</p>
+        <p className="nv-eyebrow" style={{ margin: 0 }}>
+          {p.company ? `${p.company.symbol} filings` : "All filings"} · {p.total} results
+        </p>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span className="nv-mono" style={{ fontSize: 10, letterSpacing: ".08em", color: "var(--c-ink-4)" }}>SORT</span>
           <button onClick={() => { p.setSort("material"); p.setPage(1); }} className={`pg ${p.sort === "material" ? "on" : ""}`} data-testid="sort-material" style={{ minWidth: "auto", padding: "0 12px", letterSpacing: ".06em" }}>MATERIAL</button>
@@ -565,7 +739,9 @@ function FeedScreen(p: FeedProps) {
           ))}
           {!p.rows.length && !p.feedError && (
             <div style={{ padding: "24px 4px", color: "var(--c-ink-3)", fontSize: 13.5 }}>
-              No filings match this filter in the last {FEED_DAYS} days.
+              {p.company
+                ? `No ${p.company.symbol} filings match this filter in the last ${FEED_DAYS} days.`
+                : `No filings match this filter in the last ${FEED_DAYS} days.`}
             </div>
           )}
         </div>
@@ -578,6 +754,94 @@ function FeedScreen(p: FeedProps) {
           <span className="nv-mono" style={{ fontSize: 12, color: "var(--c-ink-3)" }}>{p.page} / {p.pageCount}</span>
           <button onClick={() => p.setPage((x) => Math.min(p.pageCount, x + 1))} disabled={p.page >= p.pageCount} className="pg" aria-label="Next page"><ChevronRight size={15} /></button>
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   COMPANY DOCUMENT LIBRARY — every supporting filing, downloadable
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function fmtBytes(b?: number | null): string {
+  if (!b || b <= 0) return "";
+  const mb = b / (1024 * 1024);
+  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
+}
+
+function DocumentsPanel({
+  company, docs, loading, onClear,
+}: {
+  company: Company; docs: CompanyDocs | null; loading: boolean; onClear: () => void;
+}) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  // Default to the first group that actually has documents.
+  const groups = docs?.groups ?? [];
+  const active = openKey && groups.some((g) => g.key === openKey) ? openKey : groups[0]?.key;
+
+  return (
+    <div data-testid="documents-panel" style={{ marginTop: 24 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <p className="nv-eyebrow" style={{ margin: 0, color: "var(--mint)" }}>
+          ◆ {company.symbol} · source documents
+        </p>
+        <button onClick={onClear} className="lk" data-testid="back-to-all"
+                style={{ marginLeft: "auto", border: 0, background: "none", cursor: "pointer",
+                         fontFamily: "var(--mono)", fontSize: 10.5, letterSpacing: ".08em",
+                         textTransform: "uppercase", color: "var(--c-ink-3)" }}>
+          ← All filings
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--c-ink-3)", fontSize: 13.5, padding: "8px 2px" }}>
+          <Loader2 size={15} className="animate-spin" /> Loading {company.symbol}'s documents…
+        </div>
+      ) : !groups.length ? (
+        <div className="nv-card" style={{ padding: 16, fontSize: 13.5, color: "var(--c-ink-3)" }} data-testid="no-documents">
+          No source documents on file for {company.symbol} yet. Documents appear here once the
+          exchange filing carries a downloadable attachment.
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 12 }}>
+            {groups.map((g) => (
+              <button key={g.key} onClick={() => setOpenKey(g.key)}
+                      className={`facet ${active === g.key ? "on" : ""}`}
+                      data-testid="doc-group-tab" style={{ flex: "none" }}>
+                {g.label} · {g.documents.length}
+              </button>
+            ))}
+          </div>
+
+          <div className="nv-card" style={{ padding: "2px 16px" }}>
+            {groups.filter((g) => g.key === active).flatMap((g) => g.documents).map((d, i) => (
+              <div key={d.docId || `${d.url}-${i}`} data-testid="doc-row"
+                   style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0",
+                            borderTop: i === 0 ? "none" : "1px solid var(--c-line)" }}>
+                <FileText size={15} style={{ flex: "none", color: "var(--c-ink-4)" }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, color: "var(--c-ink)" }}>{fmtDate(d.filedAt)}</div>
+                  <div className="nv-mono" style={{ fontSize: 10, color: "var(--c-ink-4)", marginTop: 2 }}>
+                    {[d.pages ? `${d.pages} pages` : "", fmtBytes(d.bytes)].filter(Boolean).join(" · ")}
+                    {/* Say plainly whether the AI actually read this document. */}
+                    {d.parsed ? " · read by Nivesh" : " · not parsed"}
+                  </div>
+                </div>
+                {d.url ? (
+                  <a href={d.url} target="_blank" rel="noreferrer" className="lk" data-testid="doc-download"
+                     download
+                     style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: 6,
+                              fontSize: 12.5, fontWeight: 500, color: "var(--mint)", textDecoration: "none" }}>
+                    <Download size={13} /> Download
+                  </a>
+                ) : (
+                  <span className="nv-mono" style={{ fontSize: 10, color: "var(--c-ink-4)" }}>no file</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

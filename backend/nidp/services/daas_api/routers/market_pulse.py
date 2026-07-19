@@ -191,6 +191,7 @@ async def articles(
     impact: Optional[str] = Query(None),
     sentiment: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
+    symbol: Optional[str] = Query(None, description="exact NSE ticker — scopes the feed AND the facets to one company"),
     limit: int = Query(60, ge=1, le=120),
     offset: int = Query(0, ge=0),
     sort: str = Query("material", pattern="^(material|latest)$"),
@@ -209,6 +210,7 @@ async def articles(
     impact = impact.lower() if impact else None
     sentiment = sentiment.lower() if sentiment else None
     like = f"%{q}%" if q else None
+    sym = symbol.strip().upper() if symbol and symbol.strip() else None
     # Interpolated, not bound: it is regex-validated by Query(pattern=...) to one
     # of two literals, so it can never carry caller input into the SQL.
     order_by = ("(impact_score='high') DESC NULLS LAST, filed_at DESC"
@@ -224,6 +226,7 @@ async def articles(
            AND ($3::text IS NULL OR impact_score = $3)
            AND ($4::text IS NULL OR sentiment = $4)
            AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
+           AND ($8::text IS NULL OR UPPER(ticker_symbol) = $8)
            AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
          -- {order_by} is one of two validated literals — see the note above.
          -- NULLS LAST is load-bearing — see routes/markets.py::_articles, which
@@ -249,21 +252,34 @@ async def articles(
            AND ($3::text IS NULL OR impact_score = $3)
            AND ($4::text IS NULL OR sentiment = $4)
            AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
+           AND ($6::text IS NULL OR UPPER(ticker_symbol) = $6)
            AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
     """
+    # Facets must answer "what else is there UNDER THE CURRENT SEARCH", so they
+    # carry the same predicate as the list — impact, sentiment, free-text and
+    # symbol — but deliberately NOT `category` itself (filtering by the facet you
+    # are counting would zero every other chip and strand the user).
+    #
+    # This previously bound only $1, so selecting a company still showed
+    # whole-feed taxonomy: searching INFY reported "MANAGEMENT 216" from the
+    # entire tape rather than Infosys's own filings.
     cat_sql = """
         SELECT event_category, count(*) AS n
           FROM nidp.corporate_announcements
          WHERE filed_at >= $1::date AND event_category IS NOT NULL
            AND event_category NOT IN ('regulatory', 'other')
+           AND ($2::text IS NULL OR impact_score = $2)
+           AND ($3::text IS NULL OR sentiment = $3)
+           AND ($4::text IS NULL OR subject ILIKE $4 OR company_name ILIKE $4 OR ticker_symbol ILIKE $4)
+           AND ($5::text IS NULL OR UPPER(ticker_symbol) = $5)
          GROUP BY event_category
          ORDER BY n DESC
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(list_sql, since, category, impact, sentiment, like, limit, offset)
-        total = await conn.fetchval(total_sql, since, category, impact, sentiment, like)
-        cats = await conn.fetch(cat_sql, since)
+        rows = await conn.fetch(list_sql, since, category, impact, sentiment, like, limit, offset, sym)
+        total = await conn.fetchval(total_sql, since, category, impact, sentiment, like, sym)
+        cats = await conn.fetch(cat_sql, since, impact, sentiment, like, sym)
 
     out = []
     for r in rows:

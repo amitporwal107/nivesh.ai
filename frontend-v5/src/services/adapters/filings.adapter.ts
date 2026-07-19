@@ -97,6 +97,39 @@ export const AlertsC = z.object({
 }).passthrough();
 export type Alerts = z.infer<typeof AlertsC>;
 
+/** A company suggestion from the header type-ahead. */
+export const CompanyC = z.object({
+  symbol: z.string(),
+  name: z.string(),
+  sector: z.string().nullable().optional(),
+});
+export type Company = z.infer<typeof CompanyC>;
+
+/** One downloadable source document as filed with the exchange. */
+export const DocC = z.object({
+  docId: z.string().nullable().optional(),
+  url: z.string().nullable().optional(),
+  filedAt: z.string().nullable().optional(),
+  pages: z.number().nullable().optional(),
+  bytes: z.number().nullable().optional(),
+  /** true = Nivesh parsed it; false = we are only linking the filing. */
+  parsed: z.boolean().optional(),
+});
+export const DocGroupC = z.object({
+  key: z.string(),
+  label: z.string(),
+  documents: z.array(DocC).default([]),
+});
+export const CompanyDocsC = z.object({
+  ok: z.boolean().optional(),
+  symbol: z.string(),
+  name: z.string().nullable().optional(),
+  total: z.number().default(0),
+  groups: z.array(DocGroupC).default([]),
+});
+export type CompanyDocs = z.infer<typeof CompanyDocsC>;
+export type DocGroup = z.infer<typeof DocGroupC>;
+
 export interface FeedParams {
   days?: number;
   category?: string;
@@ -106,6 +139,8 @@ export interface FeedParams {
   limit?: number;
   offset?: number;
   sort?: "material" | "latest";
+  /** Exact ticker — scopes the rows AND the facet counts to one company. */
+  symbol?: string;
 }
 
 export const filingsService = {
@@ -132,6 +167,20 @@ export const filingsService = {
       // 404 (no insight generated yet) or a transient error — degrade to "no insight".
       return null;
     }
+  },
+
+  /** Company type-ahead. Returns [] for a query under 2 chars (the backend
+   *  refuses to answer "no input" with arbitrary tickers). */
+  async searchCompanies(q: string, limit = 8): Promise<Company[]> {
+    const res = await http({ path: "/api/filings/companies/search", query: { q, limit } });
+    return z.object({ ok: z.boolean().optional(), companies: z.array(CompanyC).default([]) })
+      .parse(res.data).companies;
+  },
+
+  /** A company's source documents grouped by type, for download. */
+  async getCompanyDocuments(symbol: string): Promise<CompanyDocs> {
+    const res = await http({ path: `/api/filings/companies/${encodeURIComponent(symbol)}/documents` });
+    return CompanyDocsC.parse(res.data);
   },
 
   /** The signed-in user's filing-alert preferences. Never 404s — the backend

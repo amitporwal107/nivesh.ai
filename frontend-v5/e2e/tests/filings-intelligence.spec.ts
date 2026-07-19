@@ -115,6 +115,35 @@ const ALERTS_DEFAULT = {
   updatedAt: null,
 };
 
+const COMPANIES = {
+  ok: true,
+  companies: [
+    { symbol: "INFY", name: "Infosys Limited", sector: "IT" },
+    { symbol: "INFIBEAM", name: "Infibeam Avenues Limited", sector: "IT" },
+  ],
+};
+
+const DOCS = {
+  ok: true, symbol: "INFY", name: "Infosys Limited", total: 3,
+  groups: [
+    { key: "concall_transcript", label: "Earnings transcripts", documents: [
+      { docId: "d1", url: "https://example.test/infy-call.pdf", filedAt: "2026-07-14T00:00:00Z",
+        pages: 22, bytes: 2400000, parsed: true },
+    ] },
+    { key: "investor_presentation", label: "Investor presentations", documents: [
+      { docId: "d2", url: "https://example.test/infy-ppt.pdf", filedAt: "2026-07-14T00:00:00Z",
+        pages: 30, bytes: 5100000, parsed: true },
+      { docId: "d3", url: null, filedAt: "2026-04-10T00:00:00Z", pages: null, bytes: null, parsed: false },
+    ] },
+  ],
+};
+
+/** Scoped feed: fewer rows AND a narrower taxonomy than the unscoped feed. */
+const FEED_SCOPED = {
+  ok: true, total: 1, facets: { earnings: 1 },
+  rows: [{ ...FEED.rows[0], ticker: "INFY", code: "INFY", name: "Infosys Limited" }],
+};
+
 const json = (body: unknown, status = 200) => ({
   status, contentType: "application/json", body: JSON.stringify(body),
 });
@@ -126,6 +155,8 @@ async function mockFilings(page: Page) {
   await page.route("**/api/filings/signals**", (r) => r.fulfill(json(SIGNALS)));
   await page.route("**/api/filings/ANN-1/insights**", (r) => r.fulfill(json(INSIGHT_TRANSCRIPT)));
   await page.route("**/api/filings/ANN-2/insights**", (r) => r.fulfill(json(INSIGHT_ANNUAL)));
+  await page.route("**/api/filings/companies/search**", (r) => r.fulfill(json(COMPANIES)));
+  await page.route("**/api/filings/companies/INFY/documents**", (r) => r.fulfill(json(DOCS)));
 }
 
 test.describe("Filings Intelligence — feed", () => {
@@ -290,5 +321,117 @@ test.describe("Filings Intelligence — alerts", () => {
     await whatsapp.click();
     await expect(whatsapp).toHaveAttribute("aria-checked", "false");
     await expect(page.getByText("Couldn't save that")).toBeVisible();
+  });
+});
+
+
+test.describe("Filings Intelligence — company search & documents", () => {
+  test.beforeEach(async ({ page }) => { await mockFilings(page); });
+
+  test("TC-22 · typing suggests companies and selecting one scopes the feed", async ({ page }) => {
+    // The scoped feed must be served only when ?symbol= is present, so this
+    // asserts the request is actually parameterised — not just that the UI changed.
+    await page.route("**/api/filings/feed**", (route) => {
+      const url = new URL(route.request().url());
+      return route.fulfill(json(url.searchParams.get("symbol") === "INFY" ? FEED_SCOPED : FEED));
+    });
+
+    await page.goto("/v5/research");
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByTestId("filing-row")).toHaveCount(2);
+
+    await page.getByTestId("filings-search").fill("infy");
+    const list = page.getByTestId("company-suggestions");
+    await expect(list).toBeVisible();
+    await expect(page.getByTestId("company-suggestion")).toHaveCount(2);
+
+    await page.getByTestId("company-suggestion").first().click();
+
+    // scoped: chip replaces the box, feed narrows, taxonomy narrows with it
+    await expect(page.getByTestId("company-scope")).toContainText("INFY");
+    await expect(page.getByTestId("filing-row")).toHaveCount(1);
+    await expect(page.getByText("INFY filings · 1 results")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Earnings", exact: true })).toBeVisible();
+    // ORDERS belonged to the whole-tape taxonomy (FEED.facets) and is absent from
+    // FEED_SCOPED.facets — it must disappear, proving facets follow the scope.
+    await expect(page.getByRole("button", { name: "Orders", exact: true })).toHaveCount(0);
+  });
+
+  test("TC-23 · clearing the company resets to ALL", async ({ page }) => {
+    await page.route("**/api/filings/feed**", (route) => {
+      const url = new URL(route.request().url());
+      return route.fulfill(json(url.searchParams.get("symbol") === "INFY" ? FEED_SCOPED : FEED));
+    });
+
+    await page.goto("/v5/research");
+    await page.waitForLoadState("networkidle");
+    await page.getByTestId("filings-search").fill("infy");
+    // The type-ahead is debounced (220ms) + async; wait for the list rather than
+    // racing it — under parallel workers this is the difference between a stable
+    // test and an intermittent one.
+    await expect(page.getByTestId("company-suggestions")).toBeVisible();
+    await page.getByTestId("company-suggestion").first().click();
+    await expect(page.getByTestId("filing-row")).toHaveCount(1);
+
+    await page.getByTestId("clear-company").click();
+    await expect(page.getByTestId("company-scope")).toHaveCount(0);
+    await expect(page.getByTestId("filing-row")).toHaveCount(2);
+    // the whole-tape taxonomy is back
+    await expect(page.getByRole("button", { name: "Orders", exact: true })).toBeVisible();
+  });
+
+  test("TC-24 · the document library lists downloadable filings by type", async ({ page }) => {
+    await page.goto("/v5/research");
+    await page.waitForLoadState("networkidle");
+    await page.getByTestId("filings-search").fill("infy");
+    // The type-ahead is debounced (220ms) + async; wait for the list rather than
+    // racing it — under parallel workers this is the difference between a stable
+    // test and an intermittent one.
+    await expect(page.getByTestId("company-suggestions")).toBeVisible();
+    await page.getByTestId("company-suggestion").first().click();
+
+    const panel = page.getByTestId("documents-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByTestId("doc-group-tab")).toHaveCount(2);
+    await expect(panel.getByTestId("doc-group-tab").first()).toContainText("Earnings transcripts · 1");
+
+    const dl = panel.getByTestId("doc-download").first();
+    await expect(dl).toHaveAttribute("href", "https://example.test/infy-call.pdf");
+    await expect(panel.getByTestId("doc-row").first()).toContainText("read by Nivesh");
+
+    // switch group — the second one carries a document with no URL
+    await panel.getByTestId("doc-group-tab").nth(1).click();
+    await expect(panel.getByTestId("doc-row")).toHaveCount(2);
+    await expect(panel.getByText("no file")).toBeVisible();
+    await expect(panel.getByText("not parsed")).toBeVisible();
+  });
+
+  test("TC-25 · a company with no documents says so instead of showing an empty shell", async ({ page }) => {
+    await page.route("**/api/filings/companies/INFY/documents**", (r) =>
+      r.fulfill(json({ ok: true, symbol: "INFY", name: "Infosys Limited", total: 0, groups: [] })));
+
+    await page.goto("/v5/research");
+    await page.waitForLoadState("networkidle");
+    await page.getByTestId("filings-search").fill("infy");
+    // The type-ahead is debounced (220ms) + async; wait for the list rather than
+    // racing it — under parallel workers this is the difference between a stable
+    // test and an intermittent one.
+    await expect(page.getByTestId("company-suggestions")).toBeVisible();
+    await page.getByTestId("company-suggestion").first().click();
+
+    await expect(page.getByTestId("no-documents")).toContainText("No source documents on file");
+    await expect(page.getByTestId("doc-row")).toHaveCount(0);
+  });
+
+  test("TC-26 · keyboard: ArrowDown + Enter selects a suggestion", async ({ page }) => {
+    await page.goto("/v5/research");
+    await page.waitForLoadState("networkidle");
+    const box = page.getByTestId("filings-search");
+    await box.fill("inf");
+    await expect(page.getByTestId("company-suggestions")).toBeVisible();
+    await box.press("ArrowDown");
+    await box.press("ArrowDown");
+    await box.press("Enter");
+    await expect(page.getByTestId("company-scope")).toContainText("INFIBEAM");
   });
 });
