@@ -17,9 +17,10 @@ from typing import Optional
 from services.feed_rag.base import Citation, FeedRetriever, RetrieverContext
 
 try:
-    from nidp.shared.storage.pg import get_pool      # type: ignore
+    from nidp.shared.storage.pg import get_pool, prepare_vector_search  # type: ignore
 except ImportError:
     get_pool = None  # type: ignore[assignment]
+    prepare_vector_search = None  # type: ignore[assignment]
 
 try:
     from nidp.shared import embeddings as _emb        # type: ignore
@@ -124,6 +125,10 @@ class FilingDocumentsRetriever(FeedRetriever):
         pool = await get_pool()
         async with pool.acquire() as conn:
             if qvec is not None:
+                # Filtered HNSW returns 0 rows without this when `tickers` is
+                # set — and the FTS leg hides it. See prepare_vector_search().
+                if prepare_vector_search is not None:
+                    await prepare_vector_search(conn)
                 rows = await conn.fetch(
                     _HYBRID_SQL,
                     _emb.to_pgvector_literal(qvec),      # $1

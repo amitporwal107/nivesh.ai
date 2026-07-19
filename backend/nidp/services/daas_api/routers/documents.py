@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from nidp.shared.storage.pg import get_pool
+from nidp.shared.storage.pg import get_pool, prepare_vector_search
 from nidp.shared import embeddings as _emb
 from nidp.services.daas_api.auth import require_api_key
 from nidp.services.daas_api.responses import envelope, normalise_symbol, page_params, row_to_dict
@@ -116,6 +116,9 @@ async def documents_search(
     pool = await get_pool()
     async with pool.acquire() as conn:
         if qvec is not None:
+            # Without this the vector leg returns 0 rows whenever `symbol` or
+            # `doc_type` is set — see prepare_vector_search() for the measurement.
+            await prepare_vector_search(conn)
             candidate_pool = min(200, max(50, page["limit"] + page["offset"]))
             rows = await conn.fetch(
                 _HYBRID_SQL,
