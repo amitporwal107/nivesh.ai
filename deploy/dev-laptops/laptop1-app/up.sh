@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # up.sh — bring up the laptop 1 (nivesh-app-vm replica) stack.
 #
-#   ./up.sh              build + start everything
+#   ./up.sh              build + start everything (v5-only)
 #   ./up.sh --migrate    run the app Postgres migrations, then exit
 #   ./up.sh --no-build   start without rebuilding (fast restart)
+#   ./up.sh --with-v2    also build/start the legacy V2 frontend
+#
+# This stack is v5-only by default: the V2 frontend is behind the `v2`
+# compose profile and nginx 302s / to /v5/work. v5 does not depend on V2.
 #
 # On Windows run from WSL2 (Ubuntu) with Docker Desktop's WSL2 backend.
 
@@ -13,11 +17,13 @@ cd "$(dirname "$0")"
 COMPOSE_FILE=docker-compose.app.yml
 MIGRATE_ONLY=false
 DO_BUILD=true
+PROFILES=()
 
 for arg in "$@"; do
     case "$arg" in
         --migrate)  MIGRATE_ONLY=true ;;
         --no-build) DO_BUILD=false ;;
+        --with-v2)  PROFILES+=(--profile v2) ;;
         *) echo "unknown flag: $arg" >&2; exit 2 ;;
     esac
 done
@@ -70,11 +76,11 @@ fi
 
 if $DO_BUILD; then
     echo "==> Building (frontends bake APP_PUBLIC_URL=${APP_PUBLIC_URL:-http://localhost:3000})"
-    docker compose -f "$COMPOSE_FILE" build
+    docker compose -f "$COMPOSE_FILE" "${PROFILES[@]+"${PROFILES[@]}"}" build
 fi
 
 echo "==> Starting stack"
-docker compose -f "$COMPOSE_FILE" up -d
+docker compose -f "$COMPOSE_FILE" "${PROFILES[@]+"${PROFILES[@]}"}" up -d
 sleep 5
 docker compose -f "$COMPOSE_FILE" ps
 
@@ -83,7 +89,7 @@ cat <<EOF
 ─────────────────────────────────────────────────────────────
 Laptop 1 (app) is up.
 
-  http://localhost:3000/          V2 frontend
+  http://localhost:3000/          -> redirects to /v5/work
   http://localhost:3000/v5/       frontend-v5
   http://localhost:3000/api/docs  FastAPI docs
   http://localhost:8001/docs      backend direct
