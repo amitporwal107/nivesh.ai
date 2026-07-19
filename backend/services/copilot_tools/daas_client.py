@@ -1185,10 +1185,22 @@ async def search_symbols(q: str, limit: int = 8) -> Optional[Dict[str, Any]]:
     if not (q or "").strip():
         return {"data": []}
     try:
-        return await _get("/reference/symbols/search", params={"q": q.strip(), "limit": limit})
+        # NOTE the path: the DaaS `reference` router is mounted with prefix=""
+        # (routers/reference.py), so its routes live at /v1/symbols/... — there is
+        # no /v1/reference/ segment despite the module name. Getting this wrong
+        # 404s, and _get turns a 404 into None, which _daas_first silently treats
+        # as "DaaS unavailable" and falls back to the app PG — empty on staging.
+        # The symptom is an always-empty type-ahead, with nothing in the logs.
+        data = await _get("/symbols/search", params={"q": q.strip(), "limit": limit})
     except DaasError as exc:
         logger.debug("search_symbols: %s", exc)
         return None
+    if data is None:
+        # 404 from a path we believe exists — loud, because the caller's fallback
+        # turns this into a silently empty result rather than an error.
+        logger.warning("search_symbols: DaaS returned no data for /v1/symbols/search "
+                       "(404?) — type-ahead will fall back to the app PG")
+    return data
 
 
 async def documents_by_symbol(symbol: str, doc_type: Optional[str] = None,
