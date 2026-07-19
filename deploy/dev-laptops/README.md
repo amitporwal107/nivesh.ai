@@ -289,12 +289,26 @@ Harmless, and fixed on current `dev`. Those images are built locally by design
 pull them. Use `./up.sh` (which builds) rather than `docker compose up`.
 
 **`No such image: redis:7-alpine` right after it says `Pulled`.** Not a compose
-problem — that is the Docker daemon's containerd image store getting out of
-sync during concurrent pulls, and it shows up as unrelated services failing on
-another service's image. Pull the stock images serially first
-(`docker pull redis:7-alpine`, then postgres/mongo/nginx), then `./up.sh`. If
-it persists, restart Docker Desktop; if it still persists, turn off
-**Settings → General → "Use containerd for pulling and storing images"**.
+problem — the Docker daemon's image store is in a split state. Confirm it:
+
+```bash
+docker pull redis:7-alpine                              # "Image is up to date"
+docker image inspect redis:7-alpine --format '{{.Id}}'  # "No such image"
+```
+
+If those two disagree, the CLI is reading one image store and the daemon
+another. Seen in the wild after toggling **Settings → General → "Use
+containerd for pulling and storing images"**: unchecking it does NOT take
+effect until the daemon restarts, which leaves the install *between* stores.
+
+Fix: **fully quit Docker Desktop** (tray → Quit, not "Restart"), relaunch,
+then re-pull. Re-pulling is required — images in the old store are invisible
+to the new one. `docker image inspect` must return an ID before `./up.sh`
+will work. If it still fails, **Troubleshoot → Clean / Purge data** forces a
+single consistent store.
+
+Note the containerd snapshotter is not itself the problem — it works fine
+when the store is consistent; it is the half-applied toggle that breaks.
 
 **Postgres crash-loops after restore.** Almost always disk. Check with
 `docker system df`; reclaim with `docker builder prune -af`.
