@@ -112,22 +112,45 @@ jobs:
             sudo bash "$FE/scripts/build-android-apk.sh"
             ok "APK build script finished."
 
-      - name: Verify published APK is live
+            # ── Verify the publish ON THE VM, where the truth is ──
+            # This assertion used to live in a runner step that fetched the
+            # public URL, but Cloudflare answers GitHub-hosted runner egress with
+            # HTTP 403 (a 5,438-byte block page), so the step failed even when the
+            # APK published perfectly — run 29691991721 failed this way while the
+            # file was live and 35,980,913 bytes to any normal client. Checking the
+            # webroot directly tests what this workflow is actually responsible
+            # for: that a freshly built APK reached the download directory.
+            WEBROOT=/var/www/nidp-downloads
+            APK="$WEBROOT/nivesh-v5-staging-debug.apk"
+
+            log "Verifying published APK at $APK ..."
+            sudo test -f "$APK" || { echo "::error::APK missing from $WEBROOT"; exit 1; }
+
+            SIZE=$(sudo stat -c %s "$APK")
+            [ "$SIZE" -gt 1000000 ] || { echo "::error::Published APK is only ${SIZE}B — build produced a stub"; exit 1; }
+
+            # Must be THIS run's artefact, not a stale copy from a previous build
+            # that silently failed to overwrite.
+            BUILT_SUM=$(sudo sha256sum "$FE/android/app/build/outputs/apk/debug/app-debug.apk" | cut -d' ' -f1)
+            PUB_SUM=$(sudo sha256sum "$APK" | cut -d' ' -f1)
+            if [ "$BUILT_SUM" != "$PUB_SUM" ]; then
+              echo "::error::Published APK does not match the one just built (stale copy?)"
+              echo "  built=$BUILT_SUM"
+              echo "  published=$PUB_SUM"
+              exit 1
+            fi
+            ok "APK published: ${SIZE} bytes, sha256=${PUB_SUM}"
+
+      - name: Check public download URL (advisory)
+        # Cloudflare blocks GitHub runner egress with a 403, so this CANNOT be a
+        # gate — the authoritative check runs on the VM above. Reported so a real
+        # edge outage is still visible in the log.
+        continue-on-error: true
         run: |
           URL="https://data.niveshcopilot.com/downloads/nivesh-v5-staging-debug.apk"
-          echo "Checking $URL ..."
-          # Retry briefly in case the edge cache lags right after publish.
-          for i in 1 2 3 4 5; do
-            HTTP=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$URL" 2>/dev/null || echo "000")
-            LEN=$(curl -sSI --max-time 20 "$URL" 2>/dev/null \
-              | tr -d '\r' | awk 'tolower($1)=="content-length:"{print $2}')
-            LEN=${LEN:-0}
-            echo "  attempt $i → HTTP $HTTP, content-length=$LEN"
-            if [[ "$HTTP" == "200" && "$LEN" -gt 1000000 ]]; then
-              echo "APK is live ($LEN bytes)."
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "::error::Published APK not reachable (HTTP $HTTP, len $LEN) — build step may have failed to publish."
-          exit 1
+          HTTP=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 25 "$URL" 2>/dev/null || echo "000")
+          case "$HTTP" in
+            200) echo "✅ Public URL serving the APK (HTTP 200)." ;;
+            403) echo "ℹ️  HTTP 403 — Cloudflare blocked this runner, not an APK problem. VM-side check above is authoritative." ;;
+            *)   echo "::warning::Public URL returned HTTP $HTTP — worth a look, but the APK is verified published on the VM." ;;
+          esac
