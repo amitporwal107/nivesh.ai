@@ -219,14 +219,28 @@ SELECT chunk_id, text
    AND ($2::int = 1
         OR mod(mod(hashtext(chunk_id::text), $2::int) + $2::int, $2::int) = $3::int)
    -- Age scope. The classifier only reaches filed_at >= now()-30d, so embedding
-   -- older chunks produces vectors for material nothing downstream can reason
-   -- about. Measured 2026-07-18: 30d = 290k unembedded vs 1.65M all-time — an
-   -- 82% cut (~12h instead of ~3 days on this box). EXISTS hits the documents
-   -- PK, so it is an index lookup per candidate and the LIMIT still stops early.
+   -- chunks for material nothing downstream can reason about is wasted work.
+   -- Measured 2026-07-18: 30d = 290k unembedded vs 1.65M all-time — an 82% cut
+   -- (~12h instead of ~3 days on this box). With GREATEST() the planner hashes
+   -- the EXISTS into a one-off seq scan of documents (~57k rows, cost ~12k) and
+   -- probes that hash per candidate, rather than the per-row PK lookup the plain
+   -- filed_at form produced. Verified by EXPLAIN on staging 2026-07-19: the LIMIT
+   -- still stops early (cost 2055 for the first 100 rows).
+   --
+   -- The age is GREATEST(filed_at, ingested_at), NOT filed_at alone. A backfill
+   -- supplies documents with an OLD filing date and a NEW ingestion date; keying
+   -- on filed_at alone made every backfilled document permanently unembeddable —
+   -- it is parsed, chunked, and then never selected here, so the drain reports
+   -- zero pending while the material silently has no vectors. Measured on staging
+   -- 2026-07-19: 1,336,164 chunks across 125,648 documents were in exactly that
+   -- state, ingested within 30 days but filed outside it — 94% of the entire
+   -- unembedded backlog. GREATEST() ignores NULLs in Postgres, so a document with
+   -- only one of the two timestamps still scopes correctly.
    AND ($4::int IS NULL OR EXISTS (
           SELECT 1 FROM nidp.documents d
            WHERE d.doc_id = nidp.document_chunks.doc_id
-             AND d.filed_at >= now() - make_interval(days => $4::int)))
+             AND GREATEST(d.filed_at, d.ingested_at)
+                   >= now() - make_interval(days => $4::int)))
  -- No ORDER BY: embedding is order-independent, and ORDER BY ingested_at forced a
  -- sort of every unembedded row (575k/shard) to find the top LIMIT — measured 63s,
  -- past the pool's 30s command_timeout, so every batch died with asyncio.TimeoutError
