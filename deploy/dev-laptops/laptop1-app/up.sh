@@ -35,8 +35,12 @@ fi
 
 # Fail fast with a useful message instead of a container dying opaquely.
 missing=()
+# OPENAI_API_KEY is in this list because backend/deps.py:41 builds
+# AIEngine(OPENAI_API_KEY) at import time — unset means the backend crashes
+# on startup, not that an AI feature is quietly disabled.
 for v in NIDP_HOST NIDP_DAAS_INTERNAL_TOKEN NIDP_QUERY_API_TOKEN \
-         PI_POSTGRES_PASSWORD PI_MONGO_PASSWORD PI_REDIS_PASSWORD; do
+         PI_POSTGRES_PASSWORD PI_MONGO_PASSWORD PI_REDIS_PASSWORD \
+         OPENAI_API_KEY; do
     val=$(grep -E "^${v}=" .env | cut -d= -f2- || true)
     [[ -z "$val" ]] && missing+=("$v")
 done
@@ -46,6 +50,10 @@ if (( ${#missing[@]} )); then
     echo "" >&2
     echo "NIDP_HOST is laptop 2's LAN IP. The two NIDP_*_TOKEN values must" >&2
     echo "match laptop 2's .env exactly, or every NIDP call returns 401." >&2
+    echo "" >&2
+    echo "OPENAI_API_KEY must be set or the backend CRASHES on startup" >&2
+    echo "(deps.py builds the OpenAI client at import time). Any non-empty" >&2
+    echo "string boots it; a real key is needed for LLM features to work." >&2
     exit 1
 fi
 
