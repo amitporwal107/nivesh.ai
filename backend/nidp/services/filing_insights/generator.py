@@ -66,10 +66,19 @@ _GENERIC_TABS = ("Quick Summary", "Sentiment", "Business Outlook", "Potential Ri
 def tabs_for(doc_type: Optional[str]) -> tuple[str, ...]:
     return _AR_TABS if (doc_type or "") == "annual_report" else _GENERIC_TABS
 
-# Placeholder VALUES a model may return instead of a real figure — treated as "no
-# metric" so the card never shows a non-number in the number slot.
-_METRIC_NULLS = {"null", "none", "n/a", "na", "nil", "not disclosed", "undisclosed",
-                 "not specified", "not applicable", "-", "--", ""}
+# Placeholder strings a model may return INSTEAD of a real JSON null. Measured on
+# staging 2026-07-19: the open-weight provider (Llama-3.3-70B) returns the literal
+# string "null" for nullable union fields rather than a null — 79/120 live rows had
+# period == "null", and units like "null" were being concatenated onto the metric
+# ("Acquisition: Hyatt Regency Mumbai hotel null"). Any nullable text field coming
+# back from the model must go through _nullish, not just the metric value.
+_NULLISH = {"null", "none", "nan", "n/a", "na", "nil", "not disclosed", "undisclosed",
+            "not specified", "not applicable", "not available", "unknown", "-", "--", ""}
+
+
+def _nullish(v: Any) -> bool:
+    """True when a model returned a placeholder where it should have sent null."""
+    return v is None or str(v).strip().lower() in _NULLISH
 
 _SYSTEM_PROMPT = """You summarise a single Indian-market corporate filing (an NSE/BSE disclosure) for an investor feed.
 
@@ -242,18 +251,23 @@ class InsightGenerator:
                 except json.JSONDecodeError as e:
                     raise RuntimeError(f"generator returned invalid JSON: {e}")
                 metric = p.get("headline_metric")
-                # normalise: a metric missing any field is treated as absent
-                # rather than half-populated (honesty: no partial numbers).
-                if metric and not all(metric.get(k) for k in ("label", "value", "unit")):
+                # A metric needs a label AND a value to mean anything; either one
+                # missing or placeholder means "no figure", not a partial figure.
+                if metric and (_nullish(metric.get("label")) or _nullish(metric.get("value"))):
                     metric = None
-                # ...and a placeholder VALUE means "no figure", not a figure. Some
-                # models fill value with "Not disclosed"/"null"/"N/A" instead of
-                # returning null, which would surface junk on the card.
-                if metric and str(metric.get("value")).strip().lower() in _METRIC_NULLS:
-                    metric = None
+                # The unit is optional: a placeholder unit is blanked rather than
+                # sinking the whole metric, so a real number keeps its label
+                # instead of rendering as "... null".
+                if metric:
+                    metric = {
+                        "label": str(metric["label"]).strip(),
+                        "value": str(metric["value"]).strip(),
+                        "unit": "" if _nullish(metric.get("unit")) else str(metric["unit"]).strip(),
+                    }
+                period = p.get("period")
                 return Insight(
                     one_liner=(p.get("one_liner") or "").strip(),
-                    period=(p.get("period") or None),
+                    period=None if _nullish(period) else str(period).strip(),
                     headline_metric=metric,
                     sentiment=p.get("sentiment") or "neutral",
                     confidence=float(p.get("confidence") or 0),

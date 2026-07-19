@@ -102,15 +102,38 @@ async def _insights_for(ids: List[str]) -> Dict[str, Any]:
     return (data or {}).get("insights") or {}
 
 
+# Placeholder strings a model returns instead of a real JSON null. The generator
+# now normalises these at write time, but ~66% of the insights already stored on
+# staging predate that fix (measured 2026-07-19: 79/120 rows had period == "null",
+# and units of "null" were being concatenated onto the metric). Normalising on
+# READ as well means those rows display honestly without a full regeneration.
+_NULLISH = {"null", "none", "nan", "n/a", "na", "nil", "not disclosed", "undisclosed",
+            "not specified", "not applicable", "not available", "unknown", "-", "--", ""}
+
+
+def _nullish(v: Any) -> bool:
+    return v is None or str(v).strip().lower() in _NULLISH
+
+
+def _clean(v: Any) -> Optional[str]:
+    """A stored text field, or None when it is a placeholder rather than a value."""
+    return None if _nullish(v) else str(v).strip()
+
+
 def _fmt_metric(m: Optional[Dict[str, Any]]) -> Optional[str]:
-    """Format a headline metric {label,value,unit} for display, or None. A metric
-    missing its label or value is treated as absent (no partial numbers)."""
+    """Format a headline metric {label,value,unit} for display, or None.
+
+    A metric without a label or value is absent, not partial. A placeholder UNIT
+    is dropped rather than sinking the metric — otherwise a real figure renders
+    as "PAT: 8.4 null".
+    """
     if not m:
         return None
-    label, value, unit = m.get("label"), m.get("value"), m.get("unit")
+    label, value = _clean(m.get("label")), _clean(m.get("value"))
     if not (label and value):
         return None
-    return f"{label}: {value} {unit or ''}".strip()
+    unit = _clean(m.get("unit")) or ""
+    return f"{label}: {value} {unit}".strip()
 
 
 def _row(a: Dict[str, Any], ins: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -130,8 +153,8 @@ def _row(a: Dict[str, Any], ins: Optional[Dict[str, Any]] = None) -> Dict[str, A
         # Presentation"). NOT a summary — see the honesty note above.
         "docLabel":   a.get("title"),
         "url":        a.get("url"),
-        "one":        ins.get("one"),
-        "period":     ins.get("period"),
+        "one":        _clean(ins.get("one")),
+        "period":     _clean(ins.get("period")),
         "metric":     _fmt_metric(ins.get("metric")),
         "hasInsights": bool(ins),
     }
@@ -208,7 +231,7 @@ async def filings_signals(request: Request, days: int = 1):
             "rank":      i,
             "ticker":    a.get("symbol"),
             "type":      a.get("category"),
-            "one":       ins.get("one"),
+            "one":       _clean(ins.get("one")),
             "metric":    _fmt_metric(ins.get("metric")),
             "date":      a.get("when"),
             "sentiment": a.get("sentiment"),
@@ -363,8 +386,8 @@ async def filing_insight_detail(request: Request, announcement_id: str):
     return {
         "ok": True,
         "id": announcement_id,
-        "one": ins.get("one"),
-        "period": ins.get("period"),
+        "one": _clean(ins.get("one")),
+        "period": _clean(ins.get("period")),
         "metric": _fmt_metric(ins.get("metric")),
         "metricRaw": ins.get("metric"),
         "sentiment": ins.get("sentiment"),

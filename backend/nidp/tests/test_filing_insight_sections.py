@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from nidp.services.filing_insights.generator import (
-    _AR_TABS, _GENERIC_TABS, _clean_sections, tabs_for,
+    _AR_TABS, _GENERIC_TABS, _clean_sections, _nullish, tabs_for,
 )
 
 
@@ -100,3 +100,25 @@ class TestSectionValidity:
     @pytest.mark.parametrize("raw", [None, [], "not a list", [None], ["str"], [123]])
     def test_malformed_payloads_yield_no_sections(self, raw):
         assert _clean_sections(raw, tabs=_GENERIC_TABS, max_page=10) == []
+
+
+class TestPlaceholderNormalisation:
+    """Measured on staging 2026-07-19: the open-weight provider returns the STRING
+    "null" for nullable union fields. 79/120 live rows had period == "null" and
+    metrics rendered as "Acquisition: Hyatt Regency Mumbai hotel null"."""
+
+    @pytest.mark.parametrize("v", ["null", "NULL", " null ", "None", "n/a", "N/A",
+                                   "nil", "not disclosed", "Undisclosed", "-", "--",
+                                   "", "   ", None, "unknown", "not available"])
+    def test_placeholders_are_recognised(self, v):
+        assert _nullish(v) is True
+
+    @pytest.mark.parametrize("v", ["Q1 FY27", "FY25", "8.4", "0", "AA+", "nullify",
+                                   "None of the above"])
+    def test_real_values_are_not_placeholders(self, v):
+        assert _nullish(v) is False
+
+    def test_zero_is_a_real_value_not_a_placeholder(self):
+        """A metric value of 0 must survive — `or None` style checks would drop it."""
+        assert _nullish(0) is False
+        assert _nullish("0") is False
