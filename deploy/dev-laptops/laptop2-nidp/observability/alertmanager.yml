@@ -1,0 +1,35 @@
+# Alertmanager — laptop 2 replica.
+#
+# The VM routes alerts to Telegram (NIDP_TELEGRAM_BOT_TOKEN/CHAT_ID) and
+# email (NIDP_ALERT_SMTP_*). A laptop dev environment firing real alerts into
+# the production Telegram channel would be actively harmful — on-call would
+# be paged by someone's laptop. So the default here is a null receiver:
+# alerts are visible in the Alertmanager UI (http://localhost:9093) and
+# nowhere else.
+#
+# To route somewhere real, uncomment the webhook receiver and point it at a
+# local sink of your own.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: 'null'
+  group_by: ['alertname', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+
+receivers:
+  - name: 'null'
+    # Intentionally empty: swallow everything. See note above.
+
+  # - name: 'local-webhook'
+  #   webhook_configs:
+  #     - url: 'http://host.docker.internal:9999/alerts'
+  #       send_resolved: true
+
+inhibit_rules:
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: ['alertname', 'service']

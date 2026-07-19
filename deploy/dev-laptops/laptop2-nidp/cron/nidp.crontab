@@ -1,0 +1,92 @@
+# NIDP feed schedule — laptop replica of /etc/cron.d/nidp on nidp-stack-vm.
+#
+# Read by supercronic in the `nidp-scheduler` container (NOT system cron).
+# Format is standard crontab minus the user column — supercronic runs
+# everything as the container user.
+#
+# Timezone: the container sets TZ=Asia/Kolkata, matching CRON_TZ on the VM,
+# so these IST times mean the same thing here as in production.
+#
+# Captured from the live VM on 2026-07-19 (49 feed jobs). Verify drift with:
+#   docker compose exec nidp-scheduler crontab-diff
+#
+# ⚠️  These jobs scrape NSE / BSE / AMFI / RBI / FRED from YOUR home IP.
+#     The scheduler is behind the `feeds` compose profile and is OFF by
+#     default. Turn it on deliberately:  ./up.sh --with-feeds
+
+# ── Market data: EOD prices, indices, flows ──────────────────────────────
+0  19 * * 1-5  run-feed.sh bhavcopy
+0  19 * * 1-5  run-feed.sh index_close
+30 19 * * 1-5  run-feed.sh fii_dii
+30 19 * * 1-5  run-feed.sh bulk_deals
+30 19 * * 1-5  run-feed.sh block_deals
+30 10 * * 2-6  run-feed.sh delivery
+30 19 * * 1-5  run-feed.sh fno_bhavcopy
+0  20 * * *    run-feed.sh corporate_actions
+30 20 * * 1-5  run-feed.sh rbi_yields
+0  21 * * *    run-feed.sh fred_macro
+
+# ── Reference data ───────────────────────────────────────────────────────
+0  6  1 * *    run-feed.sh nse_calendar
+30 6  1 * *    run-feed.sh index_constituents
+0  7  * * 0    run-feed.sh nse_equity_master
+
+# ── Fundamentals ─────────────────────────────────────────────────────────
+30 20 * * *    run-feed.sh nse_financials
+0  21 * * *    run-feed.sh nse_financials.bank_npa_patch
+0  21 * * *    run-feed.sh nse_shareholding
+
+# ── Derived / engines ────────────────────────────────────────────────────
+30 22 * * 1-5  run-feed.sh price_adjuster
+0  22 * * 1-5  run-feed.sh snapshot_builder
+30 20 * * 1-5  run-feed.sh mf_analytics_engine
+0  21 * * 1-5  run-feed.sh mf_category_ranking
+35 22 * * 1-5  run-feed.sh technical_indicator_engine
+5  23 * * 1-5  run-feed.sh fundamental_engine
+30 21 * * *    run-feed.sh bank_scoring
+55 23 * * 1-5  run-feed.sh v3_scores_engine
+10 0  * * 2-6  run-feed.sh analytics_refresh
+
+# ── Corporate announcements + document pipeline (AI tier) ────────────────
+# These two are the highest-frequency jobs on the VM.
+*/10 9-23 * * 1-5  run-feed.sh corporate_announcements_nse
+*/10 9-23 * * 1-5  run-feed.sh corporate_announcements_bse
+*/30 *    * * *    run-feed.sh announcement_classifier
+*/15 *    * * *    run-feed.sh document_parser
+
+# ── Mutual funds ─────────────────────────────────────────────────────────
+0  20 * * 1-5  run-feed.sh amfi_nav
+0  9  * * *    run-feed.sh amfi_circulars
+0  10 12 * *   run-feed.sh mf_disclosure_snapshot
+0  11 12 * *   run-feed.sh mf_holdings
+50 23 * * 1-5  run-feed.sh mf_derived_refresh
+0  8  * * *    run-feed.sh amc_urls_drift_check
+
+# ── Events ───────────────────────────────────────────────────────────────
+30 6  * * 1-5  run-feed.sh event_calendar
+30 20 * * 1-5  run-feed.sh event_calendar
+*/5 9-16 * * 1-5  run-feed.sh event_day_poller
+
+# ── Intelligence / portfolio sync ────────────────────────────────────────
+# NOTE: d1_prep + intelligence are the Claude-era services. Per the project's
+# OpenAI-only licence they have never actually produced rows; they are kept
+# here for parity with the VM crontab, not because they do work.
+0  19 * * 1-5  run-feed.sh d1_prep
+0  20 * * 1-5  run-feed.sh intelligence
+30 22 * * 1-5  run-feed.sh quality_gate
+0  23 * * 1-5  run-feed.sh portfolio_holdings_sync
+10 23 * * 1-5  run-feed.sh portfolio_transactions_sync
+15 23 * * 1-5  run-feed.sh portfolio_goals_sync
+20 23 * * 1-5  run-feed.sh intelligence_layer
+30 23 * * 1-5  run-feed.sh portfolio_intelligence_sync
+45 23 * * 1-5  run-feed.sh pra_engine
+30 0  * * 2-6  run-feed.sh parquet_exporter
+
+# ── Health / ops ─────────────────────────────────────────────────────────
+# The VM also runs run_collector.sh, service_health_collector.py and
+# gate4_replication_check.py every minute. The first collects *host* docker
+# stats and is meaningless on a laptop; the latter two are kept but at a
+# gentler cadence so they don't spin a laptop fan for no reason.
+*/5 * * * *   python3 /app/backend/nidp/deploy/vm/service_health_collector.py
+*/30 * * * *  run-feed.sh feed_health_check
+*/30 * * * *  run-feed.sh disk_monitor
