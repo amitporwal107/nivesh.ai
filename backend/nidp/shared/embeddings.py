@@ -6,12 +6,18 @@ the user query). BOTH sides resolve NIDP_EMBED_MODEL through this module, which
 is what makes switching backends safe: queries and passages can never end up in
 different vector spaces because there is one switch, not two.
 
-Default: bge-base-en-v1.5, self-hosted via ONNX on CPU (768-dim), matching the
-document_chunks.embedding VECTOR(768) column (migration 125). ~on par with OpenAI
-text-embedding-3-small on retrieval, at $0 and no quota. Set
-NIDP_EMBED_MODEL=text-embedding-3-small to route to OpenAI instead — but the
-column dimension must match the model, so switching models is a migration + full
-re-embed, not just an env change.
+Default: OpenAI text-embedding-3-small at dimensions=768 (Matryoshka-truncated
+from its native 1536), matching the document_chunks.embedding VECTOR(768) column
+(migration 125). The 30-day corpus (311,868 chunks) is embedded with exactly this
+config; changing EITHER the model or the dimension invalidates every stored vector,
+because two models' 768-dim outputs are different spaces that Postgres will happily
+compare and silently return garbage similarity for. That is not hypothetical: a
+`*/15` cron briefly ran with the bge default and wrote 600 bge vectors into this
+same column — no error, just meaningless scores. Switching backends is a full
+re-embed, never an env flip.
+
+The self-hosted bge-base-en-v1.5 backend (embeddings_local.py) is kept DORMANT as a
+no-quota fallback; set NIDP_EMBED_MODEL=bge-base-en-v1.5 to opt in, and re-embed.
 
 Key handling mirrors the announcement classifier: OPENAI_API_KEY from env
 (set in /opt/nidp/nidp.env on the VM; present on the API tier too). The openai
@@ -35,10 +41,9 @@ EMBED_MODEL = os.environ.get("NIDP_EMBED_MODEL", "text-embedding-3-small")
 
 # Any bge-* model routes to the self-hosted ONNX backend; anything else is
 # treated as an OpenAI model name. The dimension MUST match the
-# document_chunks.embedding column or every insert fails on the cast — the
-# column is vector(768) (migration 125), matching the bge-base default. OpenAI
-# (1536) is an opt-in that would need a column migration + full re-embed, since
-# two different dimensions/spaces cannot share one HNSW index.
+# document_chunks.embedding column (vector(768), migration 125) or every insert
+# fails on the cast. Note a mismatched *width* fails loudly, but a mismatched
+# *model* at the same width does not fail at all — see the module docstring.
 _LOCAL_PREFIXES = ("bge-",)
 
 

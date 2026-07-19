@@ -1,4 +1,11 @@
-"""Self-hosted bge-small-en-v1.5 embeddings — ONNX on CPU, no API, no quota.
+"""Self-hosted bge-*-en-v1.5 embeddings — ONNX on CPU, no API, no quota.
+
+STATUS: DORMANT. The active embedder is OpenAI text-embedding-3-small @ 768 dims
+(see embeddings.py). This module runs only when NIDP_EMBED_MODEL=bge-*, and doing
+that requires re-embedding the whole corpus — bge and OpenAI vectors are different
+spaces at the same 768 width, so mixing them produces meaningless similarity with
+no error raised. Kept because it needs no key, no quota and no network, which is
+the failure mode that stalled the corpus for days.
 
 WHY LOCAL
 ---------
