@@ -31,6 +31,9 @@ def _signal_json(*, insight, row) -> str:
         "headline_metric": insight.headline_metric,   # {label,value,unit} or null
         "sentiment":       insight.sentiment,
         "confidence":      insight.confidence,
+        # Expanded-panel tabs. Page citations here are already validated against
+        # the document's real page count, so the read path can render them as-is.
+        "sections":        insight.sections,
         "event_category":  row["event_category"],
         "doc_type":        row["doc_type"],
         "generated_by":    "filing_insights",
@@ -48,13 +51,14 @@ async def run_once(limit: int = 100, dry_run: bool = False) -> dict:
     processed = 0
     errors = 0
     with_metric = 0
+    with_sections = 0
     empty_text = 0
     sent_counts: Counter[str] = Counter()
     t0 = time.monotonic()
 
     for row in rows:
         try:
-            text = await fetch_doc_text(row["doc_id"], _MAX_CHUNKS)
+            text, max_page = await fetch_doc_text(row["doc_id"], _MAX_CHUNKS)
             if not text.strip():
                 # Parsed doc exists but has no usable chunk text (e.g. a scanned
                 # cover letter). Skip honestly rather than prompt on nothing.
@@ -67,6 +71,7 @@ async def run_once(limit: int = 100, dry_run: bool = False) -> dict:
                 doc_type=row["doc_type"],
                 subject=row["subject"] or "",
                 text=text,
+                max_page=max_page,
             )
         except Exception as e:  # noqa: BLE001 — one filing must not kill the batch
             logger.warning("insight failed id=%s source=%s err=%s",
@@ -77,6 +82,8 @@ async def run_once(limit: int = 100, dry_run: bool = False) -> dict:
         sent_counts[insight.sentiment] += 1
         if insight.headline_metric:
             with_metric += 1
+        if insight.sections:
+            with_sections += 1
 
         if dry_run:
             m = insight.headline_metric
@@ -103,8 +110,8 @@ async def run_once(limit: int = 100, dry_run: bool = False) -> dict:
     duration = time.monotonic() - t0
     logger.info(
         "filing_insights done: processed=%d errors=%d empty_text=%d with_metric=%d "
-        "duration=%.1fs model=%s sentiment=%s",
-        processed, errors, empty_text, with_metric, duration,
+        "with_sections=%d duration=%.1fs model=%s sentiment=%s",
+        processed, errors, empty_text, with_metric, with_sections, duration,
         _model_version(), dict(sent_counts),
     )
     return {
@@ -112,6 +119,7 @@ async def run_once(limit: int = 100, dry_run: bool = False) -> dict:
         "errors": errors,
         "empty_text": empty_text,
         "with_metric": with_metric,
+        "with_sections": with_sections,
         "duration_s": round(duration, 1),
         "sentiment": dict(sent_counts),
     }

@@ -25,6 +25,19 @@ def _f(v) -> Optional[float]:
     return round(float(v), 2) if v is not None else None
 
 
+def _as_json(v):
+    """asyncpg may hand back a jsonb column already decoded or still as text
+    (it depends on codec registration). Normalise both, and treat undecodable
+    text as absent rather than letting a string leak into a dict/list field."""
+    if isinstance(v, str):
+        import json as _json
+        try:
+            return _json.loads(v)
+        except ValueError:
+            return None
+    return v
+
+
 # ════════════════════════════════════════════════════════════════════════
 # FII / DII — daily series + monthly aggregates (EQUITY_CASH), ₹ crore
 # ════════════════════════════════════════════════════════════════════════
@@ -288,39 +301,47 @@ async def filing_insights(ids: str = Query(..., description="comma-separated ann
     if not id_list:
         return {"insights": {}}
     sql = """
-        SELECT announcement_ref,
-               period,
-               signal_json->>'summary'         AS one,
-               signal_json->'headline_metric'  AS metric_json,
-               signal_json->>'sentiment'       AS sentiment,
-               (signal_json->>'confidence')::numeric AS confidence,
-               signal_json->>'doc_type'        AS doc_type,
-               signal_json->>'model'           AS model,
-               analysed_at
-          FROM nidp.corporate_event_signals
-         WHERE signal_type = 'filing_insight'
-           AND announcement_ref = ANY($1::text[])
+        SELECT s.announcement_ref,
+               s.period,
+               s.signal_json->>'summary'         AS one,
+               s.signal_json->'headline_metric'  AS metric_json,
+               s.signal_json->'sections'         AS sections_json,
+               s.signal_json->>'sentiment'       AS sentiment,
+               (s.signal_json->>'confidence')::numeric AS confidence,
+               s.signal_json->>'doc_type'        AS doc_type,
+               s.signal_json->>'model'           AS model,
+               s.analysed_at,
+               d.source_url
+          FROM nidp.corporate_event_signals s
+          LEFT JOIN LATERAL (
+                SELECT dd.source_url
+                  FROM nidp.documents dd
+                 WHERE dd.announcement_id = s.announcement_ref
+                   AND dd.announcement_source = s.announcement_source
+                   AND dd.parse_status = 'parsed'
+                 ORDER BY dd.filed_at DESC NULLS LAST
+                 LIMIT 1
+               ) d ON TRUE
+         WHERE s.signal_type = 'filing_insight'
+           AND s.announcement_ref = ANY($1::text[])
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql, id_list)
     insights: Dict[str, Any] = {}
     for r in rows:
-        mj = r["metric_json"]
-        if isinstance(mj, str):
-            import json as _json
-            try:
-                mj = _json.loads(mj)
-            except ValueError:
-                mj = None
         insights[r["announcement_ref"]] = {
             "one":        r["one"],
             "period":     r["period"],
-            "metric":     mj,                       # {label,value,unit} or null
+            "metric":     _as_json(r["metric_json"]),   # {label,value,unit} or null
+            # [{tab,h,items[],cite_page_start,cite_page_end}] — [] for insights
+            # generated before the sectioned generator shipped.
+            "sections":   _as_json(r["sections_json"]) or [],
             "sentiment":  r["sentiment"],
             "confidence": float(r["confidence"]) if r["confidence"] is not None else None,
             "docType":    r["doc_type"],
             "model":      r["model"],
+            "sourceUrl":  r["source_url"],
             "generatedAt": r["analysed_at"].isoformat() if r["analysed_at"] else None,
         }
     return {"insights": insights}

@@ -1,73 +1,144 @@
-/* Research — "Filings Intelligence" (Design B) screen styles.
+/* Research — "Filings Intelligence" screen styles.
  *
- * These are the screen-specific classes from the Design B prototype's own
- * <style> block (they are NOT part of the global nivesh-tokens design system in
- * index.css). They are scoped under `.research-screen` so nothing leaks onto
- * other pages that may use generic names like .tab / .pg / .facet. All values
- * reference the global design tokens (--mint, --bg-1, …) defined in index.css.
+ * Screen-specific classes from the Filings Intelligence designs
+ * (docs/ai_research/designs/, desktop + mobile). Scoped under `.research-screen`
+ * so generic names like .tab / .pg / .facet never leak onto other pages.
+ *
+ * ── Why the --c-* aliases below exist ──
+ * index.css stores --ink, --ink-2..4 and --line as bare RGB TRIPLES ("245 247
+ * 255") so Tailwind can do `rgb(var(--ink) / <alpha>)`. The design prototypes,
+ * however, use them as finished colours (`color: var(--ink)`). Those two
+ * conventions are not interchangeable: `color: var(--ink)` resolves to
+ * `color: 245 247 255`, which is invalid, so the browser DROPS the declaration
+ * silently. That is why this screen previously rendered every muted label at
+ * full ink and lost its hairline borders.
+ *
+ * Rather than change the global tokens (Tailwind depends on the triple form),
+ * this screen defines finished-colour aliases once and uses those everywhere.
  */
 
-/* keyframe is global (can't be scoped under a class) but the name is unique */
-@keyframes nvpulse { 50% { opacity: .3; } }
-
-/* design-system helpers the prototype uses but index.css doesn't ship */
-.research-screen .nv-glass {
-  background: var(--bg-glass);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
-  border: 1px solid var(--line-2);
-  border-radius: var(--radius-md);
+.research-screen {
+  --c-ink:    rgb(var(--ink));
+  --c-ink-2:  rgb(var(--ink-2));
+  --c-ink-3:  rgb(var(--ink-3));
+  --c-ink-4:  rgb(var(--ink-4));
+  --c-line:   rgb(var(--line) / 0.10);
+  --c-line-strong: rgb(var(--line) / 0.18);
 }
-.research-screen .nv-eyebrow { font-family: var(--mono); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-3); }
-.research-screen .nv-prose   { font-family: var(--sans); font-weight: 400; font-size: 15px; line-height: 1.6; color: var(--ink-2); }
-.research-screen .nv-body    { font-family: var(--sans); font-weight: 400; font-size: 14px; line-height: 1.55; color: var(--ink-2); }
-.research-screen .nv-num     { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 
-/* pager / sort buttons */
+/* ── shell: desktop icon rail ───────────────────────────────────────────── */
+.research-screen .rail-ico {
+  width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px;
+  color: var(--c-ink-3); background: transparent; border: 1px solid transparent;
+  cursor: pointer; transition: all .15s ease;
+}
+.research-screen .rail-ico:hover { color: var(--c-ink); background: var(--bg-2); }
+.research-screen .rail-ico.on {
+  color: var(--mint); background: var(--mint-soft); border-color: var(--mint-line);
+}
+
+/* ── shell: mobile bottom tab bar ───────────────────────────────────────── */
+.research-screen .mnav {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 8px 0 2px; border: 0; background: none; cursor: pointer;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--c-ink-4); transition: color .15s ease;
+}
+.research-screen .mnav.on { color: var(--mint); }
+
+/* ── pager / sort buttons ───────────────────────────────────────────────── */
 .research-screen .pg {
   min-width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px;
-  font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+  font-family: var(--mono); font-size: 12px; color: var(--c-ink-3);
   border: 1px solid var(--line-2); background: transparent; cursor: pointer; transition: all .15s ease;
 }
-.research-screen .pg:hover { color: var(--ink); border-color: var(--line-3); }
+.research-screen .pg:hover { color: var(--c-ink); border-color: var(--line-3); }
 .research-screen .pg.on { color: #06120B; background: var(--mint); border-color: var(--mint); }
 .research-screen .pg:disabled { opacity: .4; cursor: default; }
 
-/* facet chips */
+/* ── facet chips ────────────────────────────────────────────────────────── */
 .research-screen .facet {
   font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
   padding: 7px 13px; border-radius: 999px; border: 1px solid var(--line-2);
-  color: var(--ink-3); background: transparent; cursor: pointer; transition: all .15s ease; white-space: nowrap;
+  color: var(--c-ink-3); background: transparent; cursor: pointer; transition: all .15s ease; white-space: nowrap;
 }
-.research-screen .facet:hover { color: var(--ink-2); border-color: var(--line-3); }
+.research-screen .facet:hover { color: var(--c-ink-2); border-color: var(--line-3); }
 .research-screen .facet.on { color: #06120B; background: var(--mint); border-color: var(--mint); }
 
-/* insight-panel tabs */
+/* ── insight-panel tabs ─────────────────────────────────────────────────── */
 .research-screen .tab {
-  font-family: var(--sans); font-size: 13px; font-weight: 500; padding: 9px 2px; color: var(--ink-3);
+  font-family: var(--sans); font-size: 13px; font-weight: 500; padding: 9px 2px; color: var(--c-ink-3);
   cursor: pointer; border: 0; background: none; border-bottom: 2px solid transparent; transition: color .15s ease; white-space: nowrap;
 }
-.research-screen .tab:hover { color: var(--ink-2); }
-.research-screen .tab.on { color: var(--ink); border-bottom-color: var(--mint); }
+.research-screen .tab:hover { color: var(--c-ink-2); }
+.research-screen .tab.on { color: var(--c-ink); border-bottom-color: var(--mint); }
 
-/* filing row */
-.research-screen .frow { border-bottom: 1px solid var(--line); transition: background .15s ease; }
+/* ── insight sections (the expanded panel's real content) ───────────────── */
+.research-screen .isec + .isec { margin-top: 18px; }
+.research-screen .isec h4 {
+  font-family: var(--sans); font-size: 13px; font-weight: 600; color: var(--c-ink);
+  margin: 0 0 2px; display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+.research-screen .isec .cite {
+  font-family: var(--mono); font-size: 10px; color: var(--c-ink-4);
+  text-decoration: none; transition: color .15s ease; white-space: nowrap;
+}
+.research-screen .isec a.cite:hover { color: var(--mint); }
+.research-screen .isec ul { margin: 8px 0 0; padding: 0 0 0 16px; list-style: none; }
+.research-screen .isec li {
+  position: relative; font-family: var(--sans); font-size: 13.5px; line-height: 1.6;
+  color: var(--c-ink-2); padding-left: 2px;
+}
+.research-screen .isec li + li { margin-top: 6px; }
+.research-screen .isec li::before {
+  content: ""; position: absolute; left: -12px; top: 8px;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--mint); opacity: .55;
+}
+
+/* ── filing row ─────────────────────────────────────────────────────────── */
+.research-screen .frow { border-bottom: 1px solid var(--c-line); transition: background .15s ease; }
 .research-screen .frow:hover { background: var(--bg-1); }
+.research-screen .frow.flash { animation: nvflash 1.4s ease-out 1; }
+@keyframes nvflash {
+  0%, 40% { background: var(--mint-soft); }
+  100%    { background: transparent; }
+}
 
-/* small interactive helpers */
+/* ── alerts screen: toggle switch ───────────────────────────────────────── */
+.research-screen .sw {
+  width: 42px; height: 24px; border-radius: 999px; flex: none; cursor: pointer;
+  border: 1px solid var(--line-2); background: var(--bg-3); position: relative;
+  transition: background .18s ease, border-color .18s ease;
+}
+.research-screen .sw::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+  border-radius: 50%; background: var(--c-ink-3); transition: transform .18s ease, background .18s ease;
+}
+.research-screen .sw.on { background: var(--mint-soft); border-color: var(--mint-line); }
+.research-screen .sw.on::after { transform: translateX(18px); background: var(--mint); }
+.research-screen .sw:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ── small interactive helpers ──────────────────────────────────────────── */
 .research-screen .ask-chip { transition: all .15s ease; }
-.research-screen .ask-chip:hover { border-color: var(--mint-line); color: var(--ink); }
+.research-screen .ask-chip:hover { border-color: var(--mint-line); color: var(--c-ink); }
 .research-screen .lk { transition: all .15s ease; }
 .research-screen .lk:hover { color: var(--mint); }
 .research-screen .softbtn { transition: all .15s ease; }
 .research-screen .softbtn:hover { border-color: var(--line-3); }
+.research-screen .refchip {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em;
+  padding: 5px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--mint-line); background: var(--mint-soft); color: var(--mint);
+  transition: all .15s ease;
+}
+.research-screen .refchip:hover { background: var(--mint); color: #06120B; }
 
-/* signal / metric accents */
-.research-screen .sig-good  { color: var(--mint);   background: var(--mint-soft);   border-color: var(--mint-line); }
-.research-screen .sig-watch { color: var(--amber);  background: var(--amber-soft);  border-color: var(--amber-line); }
-.research-screen .sig-info  { color: var(--indigo); background: var(--indigo-soft); border-color: var(--indigo-line); }
-.research-screen .sig-risk  { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-line); }
+/* ── signal / metric accents ────────────────────────────────────────────── */
+.research-screen .sig-good  { color: var(--mint);       background: var(--mint-soft);   border-color: var(--mint-line); }
+.research-screen .sig-watch { color: var(--amber);      background: var(--amber-soft);  border-color: var(--amber-line); }
+.research-screen .sig-info  { color: var(--indigo-hex); background: var(--indigo-soft); border-color: var(--indigo-line); }
+.research-screen .sig-risk  { color: var(--danger-hex); background: var(--danger-soft); border-color: var(--danger-line); }
 .research-screen .dot-good  { background: var(--mint); }
 .research-screen .dot-watch { background: var(--amber); }
-.research-screen .dot-info  { background: var(--indigo); }
-.research-screen .dot-risk  { background: var(--danger); }
+.research-screen .dot-info  { background: var(--indigo-hex); }
+.research-screen .dot-risk  { background: var(--danger-hex); }

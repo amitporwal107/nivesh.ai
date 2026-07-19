@@ -82,6 +82,23 @@
     --display: "Instrument Serif", Georgia, serif;
     --sans: "Inter Tight", "Inter", system-ui, sans-serif;
     --mono: "JetBrains Mono", ui-monospace, monospace;
+
+    /* Tokens the ported designs reference that were never defined here — a
+       missing custom property fails SILENTLY (the declaration is dropped), which
+       is why .research-screen's var(--shadow-card)/var(--mint-line) had no
+       effect. Values are nivesh-tokens.css verbatim. */
+    --bg-glass: rgba(255, 255, 255, 0.65);
+    --bg-spot-a: rgba(36, 158, 100, 0.07);
+    --bg-spot-b: rgba(214, 122, 28, 0.06);
+    --mint-line: rgba(14, 138, 85, 0.28);
+    --amber-line: rgba(184, 106, 18, 0.28);
+    --indigo-line: rgba(79, 88, 214, 0.28);
+    --danger-line: rgba(197, 48, 62, 0.28);
+    --rose: #C25092;
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.5) inset, 0 18px 36px -20px rgba(40,30,10,0.18);
+    --shadow-pop: 0 1px 0 rgba(255,255,255,0.6) inset, 0 32px 60px -28px rgba(40,30,10,0.24), 0 0 0 1px rgba(0,0,0,0.04);
+    --radius-xs: 6px; --radius-sm: 10px; --radius-md: 14px;
+    --radius-lg: 20px; --radius-xl: 28px;
   }
   :root[data-theme="dark"] {
     --bg-0: #06080F; --bg-1: #0A0E1A; --bg-2: #10162A; --bg-3: #181F38; --bg-4: #232B48;
@@ -94,6 +111,20 @@
     --display: "Instrument Serif", Georgia, serif;
     --sans: "Inter Tight", "Inter", system-ui, sans-serif;
     --mono: "JetBrains Mono", ui-monospace, monospace;
+
+    /* dark counterparts of the block above */
+    --bg-glass: rgba(18, 26, 50, 0.55);
+    --bg-spot-a: rgba(106, 240, 168, 0.06);
+    --bg-spot-b: rgba(255, 181, 71, 0.05);
+    --mint-line: rgba(106, 240, 168, 0.28);
+    --amber-line: rgba(255, 181, 71, 0.30);
+    --indigo-line: rgba(142, 151, 255, 0.30);
+    --danger-line: rgba(255, 107, 122, 0.30);
+    --rose: #FF8DC7;
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 24px 48px -24px rgba(0,0,0,0.6);
+    --shadow-pop: 0 1px 0 rgba(255,255,255,0.06) inset, 0 40px 80px -32px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04);
+    --radius-xs: 6px; --radius-sm: 10px; --radius-md: 14px;
+    --radius-lg: 20px; --radius-xl: 28px;
   }
 
   html, body, #root {
@@ -165,6 +196,38 @@
 
   .nv-serif { font-family: var(--display); font-weight: 400; letter-spacing: -0.02em; }
   .nv-mono { font-family: var(--mono); }
+
+  /* ─── Design-system helpers used by ported prototype screens ───
+     These existed only as page-scoped copies in research.css / copilot.css, so
+     the SAME class names used unscoped elsewhere (.nv-hr in
+     Chat/CopilotWorkflows.tsx and Copilot/sections/AdvisoryFlow.tsx) silently
+     rendered nothing. Defining them globally fixes those and lets the ported
+     Filings screens drop their duplicates. Page-scoped rules still win on
+     specificity, so no existing screen changes appearance. */
+  .nv-glass {
+    background: var(--bg-glass);
+    border: 1px solid var(--line-2);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    border-radius: var(--radius-md);
+  }
+  .nv-eyebrow {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: rgb(var(--ink-3));
+  }
+  .nv-num { font-family: var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .nv-metric { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13px; color: rgb(var(--ink-2)); }
+  .nv-h1 { font-family: var(--display); font-weight: 400; letter-spacing: -0.02em; font-size: 30px; line-height: 1.15; }
+  .nv-body { font-family: var(--sans); font-size: 14px; line-height: 1.6; color: rgb(var(--ink-2)); }
+  .nv-prose { font-family: var(--sans); font-size: 14.5px; line-height: 1.68; color: rgb(var(--ink-2)); }
+  .nv-prose p + p { margin-top: 0.7em; }
+  .nv-hr { height: 1px; border: 0; background: var(--line-2); margin: 14px 0; }
+  .nv-live-dot { animation: nvpulse 2s ease-in-out infinite; }
+  @keyframes nvpulse { 50% { opacity: 0.3; } }
+  @media (prefers-reduced-motion: reduce) {
+    .nv-live-dot { animation: none !important; }
+  }
 
   .nv-btn {
     font-family: var(--sans); font-size: 14px; font-weight: 500;

@@ -68,7 +68,7 @@ SELECT a.announcement_id,
 # documents router uses). Bounded so a pathological filing can't send an
 # unbounded prompt to the model.
 _CHUNKS_SQL = """
-SELECT text
+SELECT text, page_start, page_end
   FROM nidp.document_chunks
  WHERE doc_id = $1
  ORDER BY chunk_index
@@ -106,11 +106,33 @@ async def fetch_material_pending(limit: int) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-async def fetch_doc_text(doc_id, max_chunks: int) -> str:
+async def fetch_doc_text(doc_id, max_chunks: int) -> tuple[str, Optional[int]]:
+    """Reassemble the parsed PDF in reading order, annotated with `[[page N]]`
+    rules at each page boundary, plus the highest page number present.
+
+    The markers are what let the generator cite a real page range instead of
+    guessing one, and `max_page` is what lets us throw away a citation that
+    points past the end of the document (generator._clean_sections).
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(_CHUNKS_SQL, doc_id, max_chunks)
-    return "\n\n".join(r["text"] for r in rows if r["text"])
+
+    parts: list[str] = []
+    max_page: Optional[int] = None
+    last_page: Optional[int] = None
+    for r in rows:
+        if not r["text"]:
+            continue
+        start, end = r["page_start"], r["page_end"]
+        if start is not None and start != last_page:
+            parts.append(f"[[page {start}]]")
+            last_page = start
+        for p in (start, end):
+            if p is not None and (max_page is None or p > max_page):
+                max_page = p
+        parts.append(r["text"])
+    return "\n\n".join(parts), max_page
 
 
 async def store_insight(

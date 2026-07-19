@@ -59,13 +59,43 @@ export const InsightC = z.object({
   sentiment: z.string().nullable().optional(),
   confidence: z.number().nullable().optional(),
   docType: z.string().nullable().optional(),
+  docLabel: z.string().nullable().optional(),
   model: z.string().nullable().optional(),
   generatedAt: z.string().nullable().optional(),
   grounded: z.boolean().optional(),
   disclaimer: z.string().optional(),
   reason: z.string().optional(),
+  sourceUrl: z.string().nullable().optional(),
+  /** Only tabs that actually carry a section — never an empty tab. */
+  tabs: z.array(z.object({ key: z.string(), label: z.string() })).default([]),
+  /** Grouped under `tab`; `cite` is null when the generator could not point at
+   *  a page (an unverifiable page range is dropped server-side, not shown). */
+  sections: z.array(
+    z.object({
+      tab: z.string(),
+      h: z.string(),
+      items: z.array(z.string()).default([]),
+      cite: z.string().nullable().optional(),
+      cite_url: z.string().nullable().optional(),
+    }),
+  ).default([]),
 }).passthrough();
 export type Insight = z.infer<typeof InsightC>;
+export type InsightSection = Insight["sections"][number];
+
+/** Filing-alert preferences (Alerts screen). */
+export const AlertsC = z.object({
+  ok: z.boolean().optional(),
+  types: z.record(z.boolean()).default({}),
+  channels: z.record(z.boolean()).default({}),
+  catalog: z.array(z.object({ key: z.string(), label: z.string() })).default([]),
+  delivery: z.object({
+    active: z.boolean().default(false),
+    note: z.string().optional(),
+  }).optional(),
+  updatedAt: z.string().nullable().optional(),
+}).passthrough();
+export type Alerts = z.infer<typeof AlertsC>;
 
 export interface FeedParams {
   days?: number;
@@ -102,5 +132,20 @@ export const filingsService = {
       // 404 (no insight generated yet) or a transient error — degrade to "no insight".
       return null;
     }
+  },
+
+  /** The signed-in user's filing-alert preferences. Never 404s — the backend
+   *  returns documented defaults for a user who has not saved any. */
+  async getAlerts(): Promise<Alerts> {
+    const res = await http({ path: "/api/filings/alerts" });
+    return AlertsC.parse(res.data);
+  },
+
+  /** Replace the alert preferences; returns the stored state. Errors propagate
+   *  so the screen can revert its optimistic toggle rather than lie about a
+   *  save that did not happen. */
+  async putAlerts(body: { types?: Record<string, boolean>; channels?: Record<string, boolean> }): Promise<Alerts> {
+    const res = await http({ path: "/api/filings/alerts", method: "PUT", body });
+    return AlertsC.parse(res.data);
   },
 };
