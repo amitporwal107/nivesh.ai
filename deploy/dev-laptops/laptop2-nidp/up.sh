@@ -63,6 +63,26 @@ if (( ${#missing[@]} )); then
     exit 1
 fi
 
+# MinIO refuses to start on a short root password, and the failure surfaces
+# as the confusing "dependency minio failed to start" on minio-init rather
+# than anything mentioning credentials:
+#   FATAL Unable to validate credentials inherited from the shell environment
+#   HINT: MINIO_ROOT_USER length should be at least 3, and
+#         MINIO_ROOT_PASSWORD length at least 8 characters
+minio_pw=$(env_get MINIO_ROOT_PASSWORD)
+minio_user=$(env_get MINIO_ROOT_USER); minio_user=${minio_user:-nidp-dev}
+if (( ${#minio_pw} < 8 )); then
+    echo "FATAL: MINIO_ROOT_PASSWORD is ${#minio_pw} characters; MinIO requires 8+." >&2
+    echo "       MinIO will exit on startup and minio-init will report" >&2
+    echo "       'dependency minio failed to start', which does not mention" >&2
+    echo "       the password at all. Set a longer value in .env." >&2
+    exit 1
+fi
+if (( ${#minio_user} < 3 )); then
+    echo "FATAL: MINIO_ROOT_USER is ${#minio_user} characters; MinIO requires 3+." >&2
+    exit 1
+fi
+
 # Docker Desktop on Windows defaults to 2GB RAM for WSL2, which is not enough
 # for TimescaleDB + 10 containers. Warn early with a real number.
 if command -v docker >/dev/null; then
