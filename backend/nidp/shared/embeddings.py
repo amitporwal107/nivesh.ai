@@ -56,7 +56,20 @@ _DIM_BY_MODEL = {
     "text-embedding-3-small": 1536,
     "text-embedding-3-large": 3072,
 }
-EMBED_DIM = _DIM_BY_MODEL.get(EMBED_MODEL, 768 if _use_local() else 1536)
+# NIDP_EMBED_DIM overrides the model's native width. text-embedding-3-* are
+# Matryoshka-trained, so asking for fewer dimensions truncates with ~1-2% retrieval
+# loss at 512d. We use 768 because the column is ALREADY vector(768) — that avoids a
+# schema migration entirely and halves vector storage (311k x 768 x 4B = ~0.95GB).
+_DIM_ENV = os.environ.get("NIDP_EMBED_DIM", "").strip()
+EMBED_DIM = (int(_DIM_ENV) if _DIM_ENV
+             else _DIM_BY_MODEL.get(EMBED_MODEL, 768 if _use_local() else 1536))
+
+# Only send `dimensions` when it actually differs from the model's native width —
+# the param is rejected by older embedding models.
+_NATIVE_DIM = _DIM_BY_MODEL.get(EMBED_MODEL)
+_SEND_DIMENSIONS = (not _use_local()
+                    and EMBED_MODEL.startswith("text-embedding-3")
+                    and _NATIVE_DIM is not None and EMBED_DIM != _NATIVE_DIM)
 _MAX_BATCH = 128                 # inputs per embeddings.create call
 _MAX_INPUT_CHARS = 24_000        # ~6k tokens; well under the 8191-token model limit
 
@@ -130,8 +143,11 @@ def _embed_sync(texts: List[str], *, is_query: bool = False) -> List[List[float]
             (t.strip()[:_MAX_INPUT_CHARS] if (t and t.strip()) else " ")
             for t in texts[start:start + _MAX_BATCH]
         ]
+        kwargs = {"model": EMBED_MODEL, "input": batch}
+        if _SEND_DIMENSIONS:
+            kwargs["dimensions"] = EMBED_DIM
         try:
-            resp = client.embeddings.create(model=EMBED_MODEL, input=batch)
+            resp = client.embeddings.create(**kwargs)
         except Exception as e:                          # noqa: BLE001 - surface as EmbeddingError
             raise EmbeddingError(f"embeddings.create failed: {e}") from e
         # Realign by .index in case the API reorders (it shouldn't, but be safe).
