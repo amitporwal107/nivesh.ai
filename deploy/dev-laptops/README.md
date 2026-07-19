@@ -46,6 +46,35 @@ self-signed cert. HTTP is simpler and no less secure here.
 
 ---
 
+## Which branch to build from
+
+**Build from `dev`.** Both stacks bind-mount / build from a repo checkout, and
+the branch you are on decides whether the images build at all.
+
+```bash
+git checkout dev && git pull
+```
+
+This is not a style preference:
+
+- `dev` is the integration branch that feeds staging, so it is what the
+  laptops should mirror.
+- `main` has **diverged** from `dev` (main is not an ancestor of dev), so
+  building from main gives you a different application than staging runs.
+- A feature branch may be missing files its own code imports. Building
+  `app-frontend-v5` from `feat/copilot-backtest` fails with:
+
+  ```
+  src/routes.tsx(29,26): error TS2307: Cannot find module './pages/Releases'
+  ```
+
+  because `routes.tsx` there imports `./pages/Releases`, which exists on
+  `dev` and `main` but is untracked on that branch. Same Dockerfile, same
+  compose — only the branch differs. The v5 build succeeds from `dev`.
+
+If a frontend build fails on `Cannot find module`, check your branch before
+suspecting the Docker setup.
+
 ## Prerequisites (both laptops)
 
 - **Docker Desktop** with the **WSL2 backend** enabled
