@@ -35,6 +35,9 @@ BATCH = int(os.environ.get("EMBED_BATCH", "500"))    # commit granularity: a fai
                                                      # batch re-queues only this many
 SHARDS = int(os.environ.get("EMBED_SHARDS", "1"))    # parallel-worker fan-out
 SHARD = int(os.environ.get("EMBED_SHARD", "0"))      # this worker's slice 0..SHARDS-1
+# Age scope, default 30d to match the classifier's reach. "" or 0 = all time.
+_sd = os.environ.get("EMBED_SINCE_DAYS", "30").strip()
+SINCE_DAYS = int(_sd) if _sd and _sd != "0" else None
 IDLE_EXIT = int(os.environ.get("EMBED_IDLE_EXIT", "3"))     # empty passes -> truly done
 REFUSE_STOP = int(os.environ.get("EMBED_REFUSE_STOP", "5")) # refusal passes -> hard stop
 
@@ -51,7 +54,7 @@ async def main() -> int:
     try:
         while True:
             try:
-                r = await embed_pending(BATCH, shards=SHARDS, shard=SHARD)
+                r = await embed_pending(BATCH, shards=SHARDS, shard=SHARD, since_days=SINCE_DAYS)
             except Exception as e:                       # noqa: BLE001
                 # A transport hiccup, not a definitive refusal — log and retry.
                 print(f"  batch error: {type(e).__name__}: {e}", flush=True)

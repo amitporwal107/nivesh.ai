@@ -218,6 +218,15 @@ SELECT chunk_id, text
    -- hashtext() values and would collapse two shards onto one.
    AND ($2::int = 1
         OR mod(mod(hashtext(chunk_id::text), $2::int) + $2::int, $2::int) = $3::int)
+   -- Age scope. The classifier only reaches filed_at >= now()-30d, so embedding
+   -- older chunks produces vectors for material nothing downstream can reason
+   -- about. Measured 2026-07-18: 30d = 290k unembedded vs 1.65M all-time — an
+   -- 82% cut (~12h instead of ~3 days on this box). EXISTS hits the documents
+   -- PK, so it is an index lookup per candidate and the LIMIT still stops early.
+   AND ($4::int IS NULL OR EXISTS (
+          SELECT 1 FROM nidp.documents d
+           WHERE d.doc_id = nidp.document_chunks.doc_id
+             AND d.filed_at >= now() - make_interval(days => $4::int)))
  -- No ORDER BY: embedding is order-independent, and ORDER BY ingested_at forced a
  -- sort of every unembedded row (575k/shard) to find the top LIMIT — measured 63s,
  -- past the pool's 30s command_timeout, so every batch died with asyncio.TimeoutError
@@ -234,7 +243,8 @@ UPDATE nidp.document_chunks
 """
 
 
-async def embed_pending(limit: int, shards: int = 1, shard: int = 0) -> dict[str, int]:
+async def embed_pending(limit: int, shards: int = 1, shard: int = 0,
+                        since_days: int | None = None) -> dict[str, int]:
     """Embed up to `limit` chunks that don't yet have an embedding.
 
     Graceful by design: if the embedder is unavailable (no key / no local model)
@@ -245,6 +255,9 @@ async def embed_pending(limit: int, shards: int = 1, shard: int = 0) -> dict[str
     shards/shard: for parallel drains. Pass shards=N, shard=0..N-1 to give each
     worker a disjoint hash slice of the unembedded chunks so N processes can run
     at once without double-embedding. Default (1, 0) = no sharding, unchanged.
+
+    since_days: only embed chunks whose DOCUMENT was filed within N days —
+    matches the classifier's 30-day reach. None = no age limit (unchanged).
     """
     if not _emb.is_configured():
         logger.warning("embed_pending: embedder not configured — skipping embedding pass")
@@ -254,7 +267,7 @@ async def embed_pending(limit: int, shards: int = 1, shard: int = 0) -> dict[str
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(_FETCH_UNEMBEDDED_SQL, limit, shards, shard)
+        rows = await conn.fetch(_FETCH_UNEMBEDDED_SQL, limit, shards, shard, since_days)
     if not rows:
         return {"embedded": 0, "candidates": 0}
 
