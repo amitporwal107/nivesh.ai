@@ -1,0 +1,185 @@
+# Deploy → dev laptops (over Cloudflare Tunnel + Access)
+#
+# Unlike the VM deploy workflows, the laptops have no public IP and sit behind
+# Cloudflare Access. The runner therefore:
+#   1. installs cloudflared
+#   2. authenticates with an Access SERVICE TOKEN (a CI runner cannot do the
+#      interactive browser login that `cloudflared access ssh` normally uses)
+#   3. reaches sshd through a ProxyCommand
+#
+# MANUAL ONLY, deliberately. A laptop is often asleep, offline or on a
+# different network — triggering this on every push to dev would produce a
+# stream of red builds that mean nothing. Run it when the laptop is actually on.
+#
+# Setup: deploy/dev-laptops/docs/SSH_OVER_TUNNEL.md
+#
+# Required repo secrets:
+#   LAPTOP_SSH_USER           Windows username on both laptops
+#   LAPTOP_SSH_KEY            private key whose public half is in
+#                             administrators_authorized_keys (admin accounts)
+#                             or .ssh/authorized_keys
+#   LAPTOP1_SSH_HOST          e.g. ssh.dev.niveshcopilot.com
+#   LAPTOP2_SSH_HOST          e.g. ssh.nidp.niveshcopilot.com
+#   LAPTOP1_REPO_PATH         e.g. /c/Users/amitp/localdeployment/nivesh.ai
+#   LAPTOP2_REPO_PATH         e.g. /c/Users/amitp/localdeployment/nivesh.ai
+#   CF_ACCESS_CLIENT_ID       Access service token Client ID
+#   CF_ACCESS_CLIENT_SECRET   Access service token Client Secret
+
+name: Deploy → dev laptops
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which laptop to deploy'
+        required: true
+        default: 'both'
+        type: choice
+        options: [laptop1, laptop2, both]
+      rebuild:
+        description: 'Rebuild images (slower; needed after Dockerfile or frontend changes)'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: deploy-laptops-${{ github.event.inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout dev
+        uses: actions/checkout@v4
+        with:
+          # The laptops track dev, not main — see the README's
+          # "Which branch to build from".
+          ref: dev
+
+      - name: Install cloudflared
+        run: |
+          curl -fsSL -o cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          sudo mv cloudflared /usr/local/bin/
+          cloudflared --version
+
+      - name: Configure SSH through Access
+        env:
+          SSH_KEY:   ${{ secrets.LAPTOP_SSH_KEY }}
+          CF_ID:     ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          L1_HOST:   ${{ secrets.LAPTOP1_SSH_HOST }}
+          L2_HOST:   ${{ secrets.LAPTOP2_SSH_HOST }}
+          SSH_USER:  ${{ secrets.LAPTOP_SSH_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          # printf, not a heredoc: inside a YAML block scalar every line is
+          # indented, and an indented terminator does NOT close an unquoted
+          # heredoc — bash reads to end-of-file and dies with
+          # "syntax error: unexpected end of file".
+          #
+          # Service-token auth: the runner has no browser, so the interactive
+          # `cloudflared access login` flow is unusable. %%h stays literal so
+          # ssh substitutes the hostname itself.
+          write_host() {
+            {
+              printf '\nHost %s\n' "$1"
+              printf '    HostName %s\n' "$2"
+              printf '    User %s\n' "$SSH_USER"
+              printf '    IdentityFile ~/.ssh/id_ed25519\n'
+              printf '    StrictHostKeyChecking accept-new\n'
+              printf '    ServerAliveInterval 30\n'
+              printf '    ProxyCommand cloudflared access ssh --hostname %%h --service-token-id %s --service-token-secret %s\n' "$CF_ID" "$CF_SECRET"
+            } >> ~/.ssh/config
+          }
+
+          configured=""
+          if [ -n "${L1_HOST:-}" ]; then write_host laptop1 "$L1_HOST"; configured="$configured laptop1"; fi
+          if [ -n "${L2_HOST:-}" ]; then write_host laptop2 "$L2_HOST"; configured="$configured laptop2"; fi
+          chmod 600 ~/.ssh/config
+
+          if [ -z "$configured" ]; then
+            echo "::error::Neither LAPTOP1_SSH_HOST nor LAPTOP2_SSH_HOST is set"
+            exit 1
+          fi
+          echo "ssh config written for:$configured"
+
+      - name: Reachability check
+        id: reach
+        env:
+          TARGET: ${{ github.event.inputs.target }}
+        run: |
+          set -uo pipefail
+          check() {
+            if timeout 45 ssh -o BatchMode=yes "$1" 'echo ok' 2>/dev/null | grep -q ok; then
+              echo "$1: reachable"
+              return 0
+            fi
+            echo "::error::$1 is unreachable — powered on? online? sshd running? Access policy allowing the service token?"
+            return 1
+          }
+          rc=0
+          if [ "$TARGET" = "laptop1" ] || [ "$TARGET" = "both" ]; then check laptop1 || rc=1; fi
+          if [ "$TARGET" = "laptop2" ] || [ "$TARGET" = "both" ]; then check laptop2 || rc=1; fi
+          exit $rc
+
+      - name: Deploy laptop 1 (app stack)
+        if: ${{ github.event.inputs.target == 'laptop1' || github.event.inputs.target == 'both' }}
+        env:
+          REPO:    ${{ secrets.LAPTOP1_REPO_PATH }}
+          REBUILD: ${{ github.event.inputs.rebuild }}
+        run: |
+          set -euo pipefail
+          ssh laptop1 bash -lc "'
+            set -euo pipefail
+            cd \"$REPO\"
+            git fetch origin dev && git checkout dev && git reset --hard origin/dev
+            cd deploy/dev-laptops/laptop1-app
+            if [ \"$REBUILD\" = \"true\" ]; then ./up.sh; else ./up.sh --no-build; fi
+          '"
+
+      - name: Deploy laptop 2 (NIDP stack)
+        if: ${{ github.event.inputs.target == 'laptop2' || github.event.inputs.target == 'both' }}
+        env:
+          REPO:    ${{ secrets.LAPTOP2_REPO_PATH }}
+          REBUILD: ${{ github.event.inputs.rebuild }}
+        run: |
+          set -euo pipefail
+          ssh laptop2 bash -lc "'
+            set -euo pipefail
+            cd \"$REPO\"
+            git fetch origin dev && git checkout dev && git reset --hard origin/dev
+            cd deploy/dev-laptops/laptop2-nidp
+            if [ \"$REBUILD\" = \"true\" ]; then ./up.sh; else ./up.sh --no-build 2>/dev/null || ./up.sh; fi
+          '"
+
+      - name: Verify laptop 1
+        if: ${{ github.event.inputs.target == 'laptop1' || github.event.inputs.target == 'both' }}
+        run: |
+          set -euo pipefail
+          echo "--- containers ---"
+          ssh laptop1 'cd '"${{ secrets.LAPTOP1_REPO_PATH }}"'/deploy/dev-laptops/laptop1-app && docker compose -f docker-compose.app.yml ps'
+          echo "--- edge health ---"
+          ssh laptop1 'curl -sf -o /dev/null -w "edge /healthz: HTTP %{http_code}\n" http://localhost:3000/healthz'
+          ssh laptop1 'curl -sf -o /dev/null -w "v5:          HTTP %{http_code}\n" http://localhost:3000/v5/'
+
+      - name: Verify laptop 2
+        if: ${{ github.event.inputs.target == 'laptop2' || github.event.inputs.target == 'both' }}
+        run: |
+          set -euo pipefail
+          echo "--- containers ---"
+          ssh laptop2 'cd '"${{ secrets.LAPTOP2_REPO_PATH }}"'/deploy/dev-laptops/laptop2-nidp && docker compose -f docker-compose.nidp.yml ps'
+          echo "--- edge health ---"
+          ssh laptop2 'curl -sf -o /dev/null -w "edge /healthz: HTTP %{http_code}\n" http://localhost:8000/healthz'
+
+      - name: Scrub credentials
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519 ~/.ssh/config
