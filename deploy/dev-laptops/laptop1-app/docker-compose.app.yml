@@ -1,0 +1,303 @@
+# ─────────────────────────────────────────────────────────────────────────
+# LAPTOP 1 — nivesh-app-vm replica
+# ─────────────────────────────────────────────────────────────────────────
+# Modelled on deploy/nivesh-staging/docker-compose.staging.yml (the app VM's
+# real staging stack) rather than reinvented, so behaviour matches what you
+# already run. Reuses the SAME prod Dockerfiles the VM builds from.
+#
+# Topology (v5-only by default):
+#   cloudflared (on this laptop) --> http://localhost:3000 --> nginx (edge)
+#     nginx  /            -> 302 /v5/work     (same as prod's v5-only vhost)
+#            /v5/         -> app-frontend-v5  (Vite/React 18)
+#            /api/        -> app-backend:8001 (FastAPI)
+#            /webhooks/   -> app-backend:8001
+#
+# V2 (app-frontend) is behind the `v2` profile and is NOT built or started by
+# default. v5 has no dependency on it — verified at the Dockerfile, link and
+# import level. Enable with ./up.sh --with-v2 if you ever need it.
+#
+#   app-backend --LAN--> laptop 2 NIDP edge at http://$NIDP_HOST:8080/{daas,query}
+#
+# ⚠️  YOUR CLOUDFLARE TUNNEL CURRENTLY POINTS AT https://localhost:3000.
+#     This stack serves PLAIN HTTP on 3000 (there is no cert to use on a
+#     laptop). Change the tunnel's service to http://localhost:3000, or set
+#     noTLSVerify and enable the tls profile. See README "Cloudflare tunnel".
+#
+# ⚠️  The tunnel screenshot showed 2 replicas of one tunnel both advertising
+#     dev.niveshcopilot.com -> localhost:3000. With laptop 2 running NIDP
+#     (nothing on 3000), roughly half of all requests will 502. Give each
+#     laptop its OWN tunnel + hostname. See README "Tunnel topology".
+
+name: nivesh-laptop
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+
+  # ── Data stores ────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: nivesh-lt-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${PI_POSTGRES_USER:-nivesh}
+      POSTGRES_PASSWORD: ${PI_POSTGRES_PASSWORD:-}
+      POSTGRES_DB:       ${PI_POSTGRES_DB:-portfolio_ingestion}
+    ports: ["${APP_PG_PORT:-5432}:5432"]
+    volumes:
+      - app-pg-data:/var/lib/postgresql/data
+      - ./dumps:/dumps
+    networks: [nivesh-local]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  mongo:
+    image: mongo:7
+    container_name: nivesh-lt-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${PI_MONGO_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${PI_MONGO_PASSWORD:-}
+      MONGO_INITDB_DATABASE:      ${MONGO_DB:-nivesh_local}
+    ports: ["${APP_MONGO_PORT:-27017}:27017"]
+    volumes:
+      - app-mongo-data:/data/db
+      # Same init script the VM uses — creates the `nivesh` application user.
+      - ../../nivesh-app/mongo-init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks: [nivesh-local]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    container_name: nivesh-lt-redis
+    restart: unless-stopped
+    command: >
+      redis-server --requirepass ${PI_REDIS_PASSWORD:-}
+                   --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports: ["${APP_REDIS_PORT:-6379}:6379"]
+    volumes: [app-redis-data:/data]
+    networks: [nivesh-local]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${PI_REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  # ── Backend ────────────────────────────────────────────────────────────
+
+  app-backend:
+    build:
+      context: ../../../
+      dockerfile: deploy/nivesh-app/Dockerfile.backend.prod
+    image: nivesh/backend:laptop
+    container_name: nivesh-lt-backend
+    restart: unless-stopped
+    # required:false so `docker compose build` / `config` work before the
+    # developer has created .env. up.sh is the gate that enforces real values.
+    env_file:
+      - path: ./.env
+        required: false
+    # --reload: source is bind-mounted below, so edits restart uvicorn.
+    # The VM runs without --reload; this is the "customised to dev" bit.
+    command:
+      - uvicorn
+      - server:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8001"
+      - --reload
+      - --reload-dir
+      - /app/backend
+    environment:
+      APP_ENV: dev
+      # Mongo: connect as the application user created by mongo-init.js,
+      # exactly as staging does.
+      MONGO_URL:    mongodb://${PI_MONGO_USER:-root}:${PI_MONGO_PASSWORD}@mongo:27017/${MONGO_DB:-nivesh_local}?authSource=admin
+      DB_NAME:      ${MONGO_DB:-nivesh_local}
+      POSTGRES_URL: postgresql://${PI_POSTGRES_USER:-nivesh}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB:-portfolio_ingestion}
+      REDIS_URL:    redis://:${PI_REDIS_PASSWORD}@redis:6379/0
+
+      # ── Cross-laptop wiring ──────────────────────────────────────────
+      # NIDP_HOST is laptop 2's LAN IP. One variable, referenced everywhere,
+      # so a DHCP change is a single edit. Static-lease laptop 2 on your
+      # router and this never moves.
+      NIDP_DAAS_BASE_URL:       http://${NIDP_HOST:-}:${NIDP_EDGE_PORT:-8080}/daas
+      NIDP_QUERY_API_URL:       http://${NIDP_HOST}:${NIDP_EDGE_PORT:-8080}/query
+      NIDP_GRAFANA_URL:         http://${NIDP_HOST}:${NIDP_EDGE_PORT:-8080}/grafana
+      # These MUST match laptop 2's .env exactly or every NIDP call 401s.
+      NIDP_DAAS_INTERNAL_TOKEN: ${NIDP_DAAS_INTERNAL_TOKEN:-}
+      NIDP_QUERY_API_TOKEN:     ${NIDP_QUERY_API_TOKEN:-}
+
+      # ── Public URL / cookies ─────────────────────────────────────────
+      CORS_ORIGINS:    ${APP_PUBLIC_URL:-http://localhost:3000}
+      COOKIE_SECURE:   ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: lax
+      GMAIL_REDIRECT_URI: ${APP_PUBLIC_URL:-http://localhost:3000}/api/oauth/gmail/callback
+
+      # ── CAS ingestion module (in-process, same as staging) ───────────
+      PI_POSTGRES_URL:       postgresql://${PI_POSTGRES_USER:-nivesh}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB:-portfolio_ingestion}
+      PI_MONGO_URL:          mongodb://${PI_MONGO_USER:-root}:${PI_MONGO_PASSWORD}@mongo:27017/${PI_MONGO_DB:-portfolio_ingestion}?authSource=admin
+      PI_REDIS_URL:          redis://:${PI_REDIS_PASSWORD}@redis:6379/0
+      PI_PAN_ENCRYPTION_KEY: ${PI_PAN_ENCRYPTION_KEY:-pi-local-dev-pan-key-change-me}
+      PI_GCS_STUB:           "true"      # no GCS on a laptop; stub the uploads
+      PI_WEBHOOK_ENABLED:    "false"
+      PI_WEBHOOK_SECRET:     ${PI_WEBHOOK_SECRET:-local-dev-webhook-secret}
+      PI_ADMIN_TOKEN:        ${PI_ADMIN_TOKEN:-local-dev-admin-token}
+      PI_CASPARSER_API_KEY:  ${CASPARSER_API_KEY:-}
+
+      PYTHONPATH: /app/backend
+      TZ:         Asia/Kolkata
+      LOG_LEVEL:  ${LOG_LEVEL:-info}
+    ports: ["${APP_BACKEND_PORT:-8001}:8001"]
+    volumes:
+      # Source mounted so --reload works; mirrors the VM's mount pattern.
+      - ../../../backend:/app/backend
+      - app-data:/app/data
+    networks: [nivesh-local]
+    logging: *default-logging
+    depends_on:
+      postgres: { condition: service_healthy }
+      mongo:    { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # ── Frontends ──────────────────────────────────────────────────────────
+  # frontend-v5 is the one that matters; it is BUILT (nginx-served static),
+  # matching staging. The API URL is baked in at build time, so changing
+  # APP_PUBLIC_URL requires a rebuild:
+  #   docker compose -f docker-compose.app.yml build app-frontend-v5
+  #
+  # V2 (app-frontend) is behind the `v2` profile and is NOT built or started
+  # by default — this stack is v5-only. v5 does not depend on V2: the v5
+  # Dockerfile copies only frontend-v5/, frontend-v5/src contains no /v2
+  # links, and there are no cross-imports (the single reference to
+  # frontend/src/v4/api/portfolioIngestion.js is a doc comment).
+  #
+  # To bring V2 back:  ./up.sh --with-v2   (and see the note in nginx/edge.conf,
+  # whose `location /` currently 302s to /v5/work instead of proxying to it).
+
+  app-frontend:
+    profiles: ["v2"]
+    build:
+      context: ../../../
+      dockerfile: deploy/nivesh-app/Dockerfile.frontend.prod
+      args:
+        REACT_APP_BACKEND_URL: ${APP_PUBLIC_URL:-http://localhost:3000}
+        PUBLIC_URL: /v2
+    image: nivesh/frontend:laptop
+    container_name: nivesh-lt-frontend
+    restart: unless-stopped
+    # The prod image's baked nginx.conf does an HTTP->HTTPS 308 redirect,
+    # which would loop behind our plain-HTTP edge. Override with a plain
+    # static-server config, exactly as the staging stack does.
+    volumes:
+      - ./nginx/app-frontend.conf:/etc/nginx/conf.d/app.conf:ro
+    networks: [nivesh-local]
+    logging: *default-logging
+    depends_on:
+      app-backend: { condition: service_healthy }
+
+  app-frontend-v5:
+    build:
+      context: ../../../
+      dockerfile: deploy/nivesh-app/Dockerfile.frontend-v5.prod
+      args:
+        VITE_BASE: /v5/
+        VITE_API_URL: ${APP_PUBLIC_URL:-http://localhost:3000}
+        VITE_USE_MOCK_API: "false"
+    image: nivesh/frontend-v5:laptop
+    container_name: nivesh-lt-frontend-v5
+    restart: unless-stopped
+    networks: [nivesh-local]
+    logging: *default-logging
+    depends_on:
+      app-backend: { condition: service_healthy }
+
+  # ── Edge (cloudflared origin) ──────────────────────────────────────────
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: nivesh-lt-nginx
+    restart: unless-stopped
+    # 3000 is what the cloudflared route points at.
+    ports: ["${APP_EDGE_PORT:-3000}:3000"]
+    volumes:
+      - ./nginx/edge.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [nivesh-local]
+    logging: *default-logging
+    depends_on:
+      # app-frontend (V2) intentionally omitted — it lives behind the `v2`
+      # profile, and depending on it would block nginx from starting.
+      app-backend:     { condition: service_started }
+      app-frontend-v5: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  # ── App Postgres migrations (one-shot, `migrate` profile) ──────────────
+  # Same two-pass approach as the staging stack: backend/migrations/*.sql,
+  # then the nidp/* migrations that target the main app's public schema.
+  app-migrate:
+    image: postgres:16-alpine
+    container_name: nivesh-lt-migrate
+    restart: "no"
+    environment:
+      POSTGRES_URL: postgresql://${PI_POSTGRES_USER:-nivesh}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB:-portfolio_ingestion}
+    volumes:
+      - ../../../backend/migrations:/migrations:ro
+      - ../../../backend/nidp/migrations:/nidp-migrations:ro
+    command: >
+      sh -c "
+        set -e;
+        echo 'Applying main-app migrations...';
+        for f in /migrations/*.sql; do
+          echo \"  $$f\";
+          psql \"$$POSTGRES_URL\" -v ON_ERROR_STOP=0 -f \"$$f\" 2>&1 | grep -v 'already exists' || true;
+        done;
+        echo 'Applying nidp/* migrations that target the app public schema...';
+        for f in /nidp-migrations/*.sql; do
+          if head -20 \"$$f\" | grep -q 'SET search_path TO public;'; then
+            echo \"  $$f\";
+            psql \"$$POSTGRES_URL\" -v ON_ERROR_STOP=0 -f \"$$f\" 2>&1 | grep -v 'already exists' || true;
+          fi;
+        done;
+        echo 'Migrations done.'
+      "
+    networks: [nivesh-local]
+    depends_on:
+      postgres: { condition: service_healthy }
+    profiles: ["migrate"]
+
+volumes:
+  app-pg-data:
+  app-mongo-data:
+  app-redis-data:
+  app-data:
+
+networks:
+  nivesh-local:
+    name: nivesh-local
+    driver: bridge

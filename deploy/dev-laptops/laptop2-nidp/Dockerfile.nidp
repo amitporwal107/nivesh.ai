@@ -1,0 +1,104 @@
+# NIDP runtime image — laptop replica of nidp-stack-vm's Python environment.
+#
+# On the real VM the NIDP services do NOT run in this image: DaaS API and
+# Query API run as systemd units against a host venv at /opt/nidp*/venv, and
+# the feed jobs run from /etc/cron.d/nidp via run_service.sh. We containerise
+# all of it here (user asked for a Docker install) which also removes the
+# host-venv drift that bit the VM before.
+#
+# One image serves four roles, selected by `command:` in the compose file:
+#   1. DaaS API      — uvicorn nidp.services.daas_api.app:app
+#   2. Query API     — uvicorn nidp.services.query_api.app:app
+#   3. Scheduler     — supercronic running the replicated nidp crontab
+#   4. Feed jobs     — one-shot `python -m nidp.services.<name>`
+#
+# Build arg AI_TIER=true adds the heavy OCR/ASR layer (tesseract, poppler,
+# ffmpeg, faster-whisper). Keep it false for the API-only containers so they
+# stay small and boot fast.
+
+ARG AI_TIER=false
+
+FROM python:3.11-slim AS base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app/backend \
+    TZ=Asia/Kolkata
+
+WORKDIR /app/backend
+
+# OS deps mirroring Dockerfile.backend, minus the app-only extras.
+#   build-essential/gcc      — asyncpg, lxml, pyyaml C extensions
+#   libpq-dev                — asyncpg / psycopg
+#   libxml2-dev/libxslt-dev  — lxml (NSE/BSE scrapers)
+#   poppler-utils            — document_parser PDF → text/image
+#   libmagic1                — document_parser content sniffing
+#   curl/jq                  — healthchecks + debugging
+#   tzdata                   — CRON_TZ=Asia/Kolkata parity with the VM
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential gcc \
+        libpq-dev \
+        libxml2-dev libxslt-dev \
+        libmagic1 poppler-utils \
+        postgresql-client \
+        curl jq tzdata ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# supercronic: cron for containers. Real cron needs PID 1 + syslog and
+# swallows env vars; supercronic reads a standard crontab, logs to stdout,
+# and keeps the container's env — which is what we need for the feed jobs.
+ARG SUPERCRONIC_VERSION=v0.2.33
+ARG SUPERCRONIC_SHA1SUM=71b0d58cc53f6bd72cf2f293e09e294b79c666d8
+RUN curl -fsSLO "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-amd64" \
+    && echo "${SUPERCRONIC_SHA1SUM}  supercronic-linux-amd64" | sha1sum -c - \
+    && chmod +x supercronic-linux-amd64 \
+    && mv supercronic-linux-amd64 /usr/local/bin/supercronic
+
+# Python deps: NIDP runtime requirements (the same file the VM venv uses).
+COPY backend/nidp/deploy/requirements.txt /tmp/nidp-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/nidp-requirements.txt
+
+# ── AI tier ──────────────────────────────────────────────────────────────
+# Split into its own stage so API containers don't pay for ~1.5GB of OCR/ASR
+# dependencies they never touch.
+FROM base AS ai-true
+
+# tesseract — OCR for scanned filing PDFs (document_parser OCR fallback).
+#   eng + osd; the corpus is English-language exchange filings.
+# ffmpeg    — audio decode for the earnings-call MP3 → transcript tier.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        tesseract-ocr tesseract-ocr-eng tesseract-ocr-osd \
+        ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# faster-whisper (CTranslate2) — self-hosted ASR, CPU-only.
+# Laptops have no CUDA guarantee, so we pin the CPU wheel path and let the
+# compose file set WHISPER_DEVICE=cpu / WHISPER_COMPUTE_TYPE=int8.
+# Models are NOT baked into the image (they are hundreds of MB and change);
+# they download on first use into the whisper-models volume.
+RUN pip install --no-cache-dir \
+        "faster-whisper>=1.0,<2" \
+        "pytesseract>=0.3.10,<0.4" \
+        "pdf2image>=1.17,<2" \
+        "Pillow>=10,<12"
+
+ENV HF_HOME=/models/hf \
+    XDG_CACHE_HOME=/models/cache \
+    WHISPER_DEVICE=cpu \
+    WHISPER_COMPUTE_TYPE=int8
+
+FROM base AS ai-false
+# no-op: API/scheduler containers use the lean base.
+
+# Final stage selected by the AI_TIER build arg.
+FROM ai-${AI_TIER} AS final
+
+# Code is bind-mounted at runtime (matches the VM, which mounts
+# /opt/nidp/repo/backend read-only into the DaaS container) so edits are
+# live without a rebuild.
+
+EXPOSE 8083 8090
+
+CMD ["python3", "-c", "print('set an explicit command: in the compose service')"]

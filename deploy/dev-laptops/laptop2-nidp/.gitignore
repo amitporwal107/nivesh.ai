@@ -1,0 +1,6 @@
+# Local secrets — never commit.
+.env
+
+# Database dumps: multi-GB, production-derived. Keep out of git.
+dumps/*
+!dumps/.gitkeep

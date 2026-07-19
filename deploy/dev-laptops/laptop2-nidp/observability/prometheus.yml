@@ -1,0 +1,64 @@
+# Prometheus scrape config — laptop 2 replica.
+# Adapted from /opt/nidp/prometheus.yml on nidp-stack-vm.
+#
+# Changes from the VM config, and why:
+#   - external_labels cluster: nidp-laptop (not nidp-prod) so if you ever
+#     ship these metrics anywhere they don't masquerade as production.
+#   - The VM scrapes host-side ingesters on 172.18.0.1:9100-9109 (they run as
+#     native processes there). Here the ingesters live in the scheduler
+#     container, so we scrape it by service name instead.
+#   - Dropped the 10.160.0.5 (nivesh-app-vm) node target — laptop 1 is not on
+#     a GCP VPC. Add it back pointing at laptop 1's LAN IP if you want
+#     cross-laptop host metrics.
+#   - node_exporter is on 9200, matching the VM (9100-9109 are ingester ports).
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 30s
+  external_labels:
+    cluster: nidp-laptop
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          vm: laptop2-nidp
+
+  # Feed ingesters expose prometheus-client metrics while a job runs. They
+  # are short-lived, so most scrapes will fail between runs — that is normal
+  # and matches the VM's behaviour.
+  - job_name: nidp-ingesters
+    static_configs:
+      - targets:
+          - "scheduler:9100"
+          - "scheduler:9101"
+          - "scheduler:9102"
+          - "scheduler:9103"
+          - "scheduler:9104"
+          - "scheduler:9105"
+          - "scheduler:9106"
+          - "scheduler:9107"
+          - "scheduler:9108"
+          - "scheduler:9109"
+
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]
+
+  - job_name: nidp-apis
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "daas-api:8083"
+          - "query-api:8090"
