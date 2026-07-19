@@ -89,6 +89,17 @@ jobs:
             # Install deps for the build (node/npm are at /usr/bin on the VM).
             # `npm ci` is clean and lockfile-exact; the build script does not do
             # it itself.
+            #
+            # Heal a root-owned npm cache before installing. `npm ci` runs as the
+            # deploy user but the next step runs the build script under sudo, so
+            # anything that ever touches ~/.npm as root leaves entries this user
+            # cannot write — npm then dies with EACCES on _cacache/tmp and the
+            # whole build fails. (Run 29691137497 died exactly this way; the cache
+            # had been root-owned since 2026-07-09.) Cheap, idempotent, and it
+            # turns a hard failure into a no-op.
+            log "Ensuring npm cache is writable by $ME..."
+            sudo chown -R "$(id -u):$(id -g)" "$HOME/.npm" 2>/dev/null || true
+
             log "Installing web deps (npm ci)..."
             cd "$FE"
             npm ci --no-audit --no-fund
