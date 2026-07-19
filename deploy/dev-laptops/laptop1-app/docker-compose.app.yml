@@ -42,7 +42,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER:     ${PI_POSTGRES_USER:-nivesh}
-      POSTGRES_PASSWORD: ${PI_POSTGRES_PASSWORD:?set PI_POSTGRES_PASSWORD in .env}
+      POSTGRES_PASSWORD: ${PI_POSTGRES_PASSWORD:-}
       POSTGRES_DB:       ${PI_POSTGRES_DB:-portfolio_ingestion}
     ports: ["${APP_PG_PORT:-5432}:5432"]
     volumes:
@@ -62,7 +62,7 @@ services:
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${PI_MONGO_USER:-root}
-      MONGO_INITDB_ROOT_PASSWORD: ${PI_MONGO_PASSWORD:?set PI_MONGO_PASSWORD in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${PI_MONGO_PASSWORD:-}
       MONGO_INITDB_DATABASE:      ${MONGO_DB:-nivesh_local}
     ports: ["${APP_MONGO_PORT:-27017}:27017"]
     volumes:
@@ -82,7 +82,7 @@ services:
     container_name: nivesh-lt-redis
     restart: unless-stopped
     command: >
-      redis-server --requirepass ${PI_REDIS_PASSWORD:?set PI_REDIS_PASSWORD in .env}
+      redis-server --requirepass ${PI_REDIS_PASSWORD:-}
                    --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports: ["${APP_REDIS_PORT:-6379}:6379"]
     volumes: [app-redis-data:/data]
@@ -103,7 +103,11 @@ services:
     image: nivesh/backend:laptop
     container_name: nivesh-lt-backend
     restart: unless-stopped
-    env_file: ./.env
+    # required:false so `docker compose build` / `config` work before the
+    # developer has created .env. up.sh is the gate that enforces real values.
+    env_file:
+      - path: ./.env
+        required: false
     # --reload: source is bind-mounted below, so edits restart uvicorn.
     # The VM runs without --reload; this is the "customised to dev" bit.
     command:
@@ -129,12 +133,12 @@ services:
       # NIDP_HOST is laptop 2's LAN IP. One variable, referenced everywhere,
       # so a DHCP change is a single edit. Static-lease laptop 2 on your
       # router and this never moves.
-      NIDP_DAAS_BASE_URL:       http://${NIDP_HOST:?set NIDP_HOST to laptop 2's LAN IP}:${NIDP_EDGE_PORT:-8080}/daas
+      NIDP_DAAS_BASE_URL:       http://${NIDP_HOST:-}:${NIDP_EDGE_PORT:-8080}/daas
       NIDP_QUERY_API_URL:       http://${NIDP_HOST}:${NIDP_EDGE_PORT:-8080}/query
       NIDP_GRAFANA_URL:         http://${NIDP_HOST}:${NIDP_EDGE_PORT:-8080}/grafana
       # These MUST match laptop 2's .env exactly or every NIDP call 401s.
-      NIDP_DAAS_INTERNAL_TOKEN: ${NIDP_DAAS_INTERNAL_TOKEN:?must match laptop 2}
-      NIDP_QUERY_API_TOKEN:     ${NIDP_QUERY_API_TOKEN:?must match laptop 2}
+      NIDP_DAAS_INTERNAL_TOKEN: ${NIDP_DAAS_INTERNAL_TOKEN:-}
+      NIDP_QUERY_API_TOKEN:     ${NIDP_QUERY_API_TOKEN:-}
 
       # ── Public URL / cookies ─────────────────────────────────────────
       CORS_ORIGINS:    ${APP_PUBLIC_URL:-http://localhost:3000}
