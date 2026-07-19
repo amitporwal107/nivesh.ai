@@ -23,6 +23,7 @@ Vectors are passed to Postgres as a pgvector *string literal* cast with
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 from nidp.shared.openai_key import get_openai_api_key, openai_configured
@@ -173,6 +174,21 @@ async def embed_query(text: str) -> Optional[List[float]]:
         return None
     vecs = await asyncio.to_thread(_embed_sync, [text], is_query=True)
     return vecs[0] if vecs else None
+
+
+def content_hash(text: str) -> str:
+    """Cache key for an embedding: sha256(model:dims:normalized_text).
+
+    Baking model+dims into the key means a model or dimension change simply stops
+    hitting old rows — no invalidation logic and no risk of serving a vector from
+    the wrong model. The normalization policy (collapse whitespace, casefold) is
+    fixed ON PURPOSE: changing it silently invalidates the entire cache, so it must
+    never be "improved" casually.
+    """
+    normalized = " ".join((text or "").split()).casefold()
+    return hashlib.sha256(
+        f"{EMBED_MODEL}:{EMBED_DIM}:{normalized}".encode("utf-8", "ignore")
+    ).hexdigest()
 
 
 def to_pgvector_literal(vec: List[float]) -> str:

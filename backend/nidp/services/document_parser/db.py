@@ -271,22 +271,64 @@ async def embed_pending(limit: int, shards: int = 1, shard: int = 0,
     if not rows:
         return {"embedded": 0, "candidates": 0}
 
-    try:
-        vectors = await _emb.embed_texts([r["text"] for r in rows])
-    except _emb.EmbeddingError as e:
-        logger.warning("embed_pending: embedding call failed: %s", e)
-        return {"embedded": 0, "candidates": len(rows)}
+    # ---- content-addressed memoization -----------------------------------
+    # An embedding is a pure function of (normalized_text, model, dims), so we key
+    # on the CONTENT, never chunk_id. Measured 2026-07-19: 28.0% of the 30-day
+    # backfill is duplicate text (289,628 chunks -> 208,437 unique), and a re-parse
+    # of the same source regenerates identical text — both hit the cache.
+    hashes = [_emb.content_hash(r["text"]) for r in rows]
 
-    embedded = 0
+    # 1. Bulk lookup — ONE query keyed by PK, never per-chunk round trips.
+    #    embedding::text returns the pgvector literal, which we can write straight
+    #    back into document_chunks without parsing floats.
     pool = await get_pool()
     async with pool.acquire() as conn:
-        async with conn.transaction():
-            for r, vec in zip(rows, vectors):
-                await conn.execute(
-                    _UPDATE_CHUNK_EMBEDDING_SQL,
-                    r["chunk_id"], _emb.to_pgvector_literal(vec), _emb.EMBED_MODEL,
+        cached = {
+            r["content_hash"]: r["lit"]
+            for r in await conn.fetch(
+                "SELECT content_hash, embedding::text AS lit "
+                "  FROM nidp.embedding_cache WHERE content_hash = ANY($1::text[])",
+                list(set(hashes)),
+            )
+        }
+
+    # 2. Misses, deduped WITHIN this batch too — the same text appearing 40 times
+    #    in one parser run is embedded once.
+    misses: dict[str, str] = {}
+    for h, r in zip(hashes, rows):
+        if h not in cached and h not in misses:
+            misses[h] = r["text"]
+
+    if misses:
+        try:
+            vectors = await _emb.embed_texts(list(misses.values()))
+        except _emb.EmbeddingError as e:
+            logger.warning("embed_pending: embedding call failed: %s", e)
+            return {"embedded": 0, "candidates": len(rows)}
+        lits = [_emb.to_pgvector_literal(v) for v in vectors]
+        # 3. Idempotent upsert — ON CONFLICT DO NOTHING makes concurrent workers
+        #    and retries safe; worst case two workers embed the same text once each.
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.executemany(
+                    "INSERT INTO nidp.embedding_cache"
+                    " (content_hash, embedding, model, dims) "
+                    "VALUES ($1, $2::vector, $3, $4) ON CONFLICT DO NOTHING",
+                    [(h, lit, _emb.EMBED_MODEL, _emb.EMBED_DIM)
+                     for h, lit in zip(misses.keys(), lits)],
                 )
-                embedded += 1
-    logger.info("embed_pending: embedded %d/%d chunks (model=%s)",
-                embedded, len(rows), _emb.EMBED_MODEL)
+        cached.update(dict(zip(misses.keys(), lits)))
+
+    # 4. Write every fetched chunk from the cache map (hits + newly embedded).
+    embedded = 0
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.executemany(
+                _UPDATE_CHUNK_EMBEDDING_SQL,
+                [(r["chunk_id"], cached[h], _emb.EMBED_MODEL)
+                 for h, r in zip(hashes, rows) if h in cached],
+            )
+            embedded = sum(1 for h in hashes if h in cached)
+    logger.info("embed_pending: %d chunks -> %d cache hits, %d embedded (model=%s)",
+                len(rows), len(rows) - len(misses), len(misses), _emb.EMBED_MODEL)
     return {"embedded": embedded, "candidates": len(rows)}
