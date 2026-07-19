@@ -15,8 +15,9 @@ name: Build & release Android APK → nidp-stack-vm [staging]
 # frontend-v5/scripts/build-android-apk.sh (which bakes VITE_API_BASE_URL to
 # staging, assembles the debug APK, and publishes it).
 #
-# Runs independently of the app deploy (own concurrency group) so a broken APK
-# build never fails the staging app rollout, and vice-versa.
+# Independent of the nivesh-app-vm rollout, so a broken APK build never fails the
+# staging app deploy and vice-versa. It DOES share a concurrency group with the
+# other workflows that drive the same dev checkout on this VM — see below.
 #
 # Secrets required (same as the NIDP staging deploy):
 #   DEVOPS_SSH_KEY   Ed25519 private key for the devops Linux user
@@ -36,7 +37,15 @@ name: Build & release Android APK → nidp-stack-vm [staging]
         default: dev
 
 concurrency:
-  group: deploy-android-staging
+  # SHARED across every workflow that drives /opt/nidp/dev-repo/nivesh.ai on
+  # nidp-stack-vm. They each used to serialise only against THEMSELVES, so a
+  # commit touching both backend/nidp/** and frontend-v5/** fired two of them at
+  # once and they raced on the same clone:
+  #   run 29691137497 — cannot lock ref 'refs/remotes/origin/dev'
+  #   run 29694426973 — Unable to create '.git/index.lock': File exists
+  # One group name means they queue instead. cancel-in-progress stays false:
+  # these are deploys, and cancelling one half-done is worse than waiting.
+  group: nidp-stack-vm-dev-repo
   cancel-in-progress: false
 
 jobs:
