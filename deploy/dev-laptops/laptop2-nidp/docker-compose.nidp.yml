@@ -53,6 +53,8 @@ x-nidp-common: &nidp-common
       AI_TIER: "false"
   # required:false so `docker compose build` / `config` work before the
   # developer has created .env. up.sh is the gate that enforces real values.
+  # Built locally from Dockerfile.nidp — never pulled from a registry.
+  pull_policy: build
   env_file:
     - path: ./.env
       required: false
@@ -298,6 +300,9 @@ services:
       args:
         AI_TIER: "true"
     image: nidp/runtime-ai:laptop
+    # Built locally — never in a registry. Without this, `docker compose up`
+    # emits a confusing "pull access denied ... may require 'docker login'".
+    pull_policy: build
     container_name: nidp-lt-scheduler
     # init:true runs docker-init (tini) as PID 1. REQUIRED — without it
     # supercronic becomes PID 1, enables its own process reaper, and dies
