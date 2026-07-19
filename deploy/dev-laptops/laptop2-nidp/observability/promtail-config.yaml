@@ -1,0 +1,62 @@
+# Promtail config — laptop 2 replica.
+# Based on /opt/nidp/loki/promtail-config.yaml on nidp-stack-vm.
+#
+# Two scrape jobs:
+#   1. nidp_services — per-feed log files written by run-feed.sh, identical
+#      in shape to the VM (/opt/nidp/logs/<service>/<service>.log).
+#   2. docker — container stdout. The VM does not need this (its services are
+#      systemd units journald already captures); on the laptop everything is
+#      a container, so without this job you would lose all API logs.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: nidp_services
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: nidp_services
+          host: laptop2-nidp
+          __path__: /nidp/logs/*/*.log
+    pipeline_stages:
+      - regex:
+          expression: '/nidp/logs/(?P<service>[^/]+)/[^/]+\.log'
+          source: filename
+      - labels:
+          service:
+      - match:
+          selector: '{job="nidp_services"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+                  logger: logger
+                  run_id: run_id
+                  source: source
+            - labels:
+                level:
+
+  # Container stdout for the whole laptop stack.
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: container
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: stream
+      - target_label: job
+        replacement: docker
+      - target_label: host
+        replacement: laptop2-nidp
