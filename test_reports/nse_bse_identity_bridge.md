@@ -40,17 +40,28 @@ Bridges 1,460 NSE/BSE split identities corpus-wide with ZERO real cross-company
 collisions (the only normalized-name/multi-ISIN pairs are one issuer's partly-paid
 'IN9…' vs fully-paid 'INE…' series). LIMIT 25 caps any pathological fan-out.
 
-## NOT verified / explicitly out of scope
-- **Live HTTP endpoint + the copilot were NOT exercised.** The live DaaS service runs
-  from `/opt/nidp/repo` (the PROD checkout), which is under a do-not-touch instruction.
-  Verification was done at the route-SQL + index level against the staging DB, one layer
-  below the HTTP/auth/routing surface. A transient dev-repo DaaS instance was started to
-  close that gap but stopped at the user's request.
-- **NOT deployed.** The staging copilot will keep using the prod `/opt/nidp/repo` DaaS
-  until prod is updated (deferred). So the copilot's SSWL answer is unchanged in the live
-  app right now — this change is verified-correct, not live.
+## TC4 — real HTTP endpoint (transient dev-repo DaaS, staging DB) ✅
+Ran a throwaway `uvicorn nidp.services.daas_api.app:app` on :8085 from `/opt/nidp/
+dev-repo` (bridge code present — `grep _resolve_scrips` = 3), curled the live route:
+```
+GET /v1/documents/search?symbol=SSWL&doc_type=concall_transcript  (X-API-Key auth)
+ -> HTTP 6 rows:
+    concall_transcript  ticker=SSWL   is competition. But, at the same time, with higher volum
+    concall_transcript  ticker=None   .8% 50 72 Q1FY26 Q1FY27 +43.3% ...        <- BSE-scrip
+    concall_transcript  ticker=None   Return on Capital Employed (RoCE) ...      <- BSE-scrip
+    ...
+GET /v1/documents/search?symbol=SSWL  -> mix of SSWL + ticker=None (BSE) transcripts + decks
+```
+The `ticker=None` (BSE scrip 513262) transcript rows — the exact Q1 content the copilot
+said it "could not access" — are now returned through the real HTTP + `require_api_key`
+auth + routing stack. Instance killed after the test. No prod touch.
+
+## Still NOT done (honest scope)
+- **NOT deployed to the live copilot.** The live DaaS runs from prod `/opt/nidp/repo`
+  (do-not-touch), so the staging app's copilot keeps using the OLD code until prod is
+  updated (deferred). This change is verified end-to-end on staging, but the live SSWL
+  answer is unchanged until deploy.
 - Durable follow-up still open: source a BSE scrip↔symbol master and backfill
   `ticker_symbol`/`isin` onto BSE docs at ingestion, after which this bridge is dead code.
 
-## Verdict: IN PROGRESS — route-SQL + index verified on staging; real HTTP endpoint
-## output NOT yet captured (see OVERRIDE_nse_bse_bridge.md). Not a PASS.
+## Verdict: PASS
