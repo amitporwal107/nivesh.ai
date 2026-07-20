@@ -519,3 +519,7 @@ docs/.OPENAI_API_KEY
 docs/OPEN_API_KEY
 *API_KEY
 *_api_key
+
+# local deploy checkouts (not part of the repo)
+.deploy-dev
+.deploy-main
