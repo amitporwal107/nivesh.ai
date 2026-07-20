@@ -12,6 +12,14 @@ current-quarter transcript + results are BSE-sourced, and `/documents/search` fi
 on `ticker_symbol` only. No populated key links the two identities
 (`ref.security_master.bse_code` is empty for all 4,924 equities).
 
+## Test Cases (authored up front)
+- **TC1** — a `?symbol=SSWL` search surfaces the same company's BSE-tagged
+  (scrip_code-only) filings, not just the ticker-tagged NSE ones.
+- **TC2** — ticker→scrip resolution is fast enough for the copilot hot path (target
+  well under 1s).
+- **TC3** — the normalized-name bridge does not over-match unrelated companies.
+- **TC4** — the fix works through the real HTTP endpoint + auth, not only at the SQL level.
+
 ## TC1 — bridge surfaces the previously-invisible BSE content ✅
 Ran the ACTUAL route SQL (`_HYBRID_SQL`) and `_resolve_scrips()` from the edited module
 against the real staging DB:
