@@ -1,0 +1,3 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/web-CAuaNNkr.js","assets/index-CORHPzof.js","assets/index-bnmVKR05.css"])))=>i.map(i=>d[i]);
+import{e as a,_ as i}from"./index-CORHPzof.js";var t;(function(e){e.Documents="DOCUMENTS",e.Data="DATA",e.Library="LIBRARY",e.Cache="CACHE",e.External="EXTERNAL",e.ExternalStorage="EXTERNAL_STORAGE"})(t||(t={}));var s;(function(e){e.UTF8="utf8",e.ASCII="ascii",e.UTF16="utf16"})(s||(s={}));const E=t,o=s,l=a("Filesystem",{web:()=>i(()=>import("./web-CAuaNNkr.js"),__vite__mapDeps([0,1,2])).then(e=>new e.FilesystemWeb)});export{t as Directory,s as Encoding,l as Filesystem,E as FilesystemDirectory,o as FilesystemEncoding};
+//# sourceMappingURL=index-PIMz1uLE.js.map

@@ -1,0 +1,2 @@
+import{R as d,L as x,A as f}from"./mermaid-GHXKKRXX-fs1I1C8O.js";import{d as r,j as p}from"./index-Cc8RviFQ.js";var R=({code:i,language:e,raw:a,className:u,startLine:m,lineNumbers:n,...g})=>{let{shikiTheme:l}=r.useContext(d),s=x(),[h,t]=r.useState(a);return r.useEffect(()=>{if(!s){t(a);return}let o=s.highlight({code:i,language:e,themes:l},c=>{t(c)});o&&t(o)},[i,e,l,s,a]),p.jsx(f,{className:u,language:e,lineNumbers:n,result:h,startLine:m,...g})};export{R as HighlightedCodeBlockBody};
+//# sourceMappingURL=highlighted-body-OFNGDK62-B_rTobve.js.map

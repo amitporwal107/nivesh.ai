@@ -1,0 +1,22 @@
+[
+    {
+        "merged": "ai.nivesh.app-merged_res-4:/mipmap_ic_launcher.xml.flat",
+        "source": "ai.nivesh.app-main-6:/mipmap/ic_launcher.xml"
+    },
+    {
+        "merged": "ai.nivesh.app-merged_res-4:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "ai.nivesh.app-main-6:/mipmap-anydpi-v26/ic_launcher_round.xml"
+    },
+    {
+        "merged": "ai.nivesh.app-merged_res-4:/mipmap_ic_launcher_round.xml.flat",
+        "source": "ai.nivesh.app-main-6:/mipmap/ic_launcher_round.xml"
+    },
+    {
+        "merged": "ai.nivesh.app-merged_res-4:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "ai.nivesh.app-main-6:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "ai.nivesh.app-merged_res-4:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "ai.nivesh.app-main-6:/mipmap-anydpi-v26/ic_launcher.xml"
+    }
+]

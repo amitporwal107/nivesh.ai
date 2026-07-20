@@ -29,6 +29,58 @@ router = APIRouter(prefix="/documents", tags=["documents"],
 # has room to reorder.
 _RRF_K = 60
 
+
+# ── NSE/BSE identity bridge (STOPGAP) ─────────────────────────────────────
+# A company's NSE filings carry ticker_symbol (e.g. 'SSWL'); its BSE filings
+# carry ONLY scrip_code (e.g. '513262') with ticker_symbol NULL and no ISIN — so
+# ?symbol=SSWL silently misses the BSE-sourced transcript/results (that is why the
+# copilot could not quote SSWL's Q1 concall). No populated key links the two:
+# ref.security_master.bse_code is empty for all 4,924 equities, and the BSE docs
+# have no ISIN. We therefore bridge on a normalized company name. Measured on
+# staging 2026-07-20: this links 1,460 split identities with ZERO cross-company
+# collisions — the only normalized-name/multi-ISIN cases are one issuer's
+# partly-paid ('IN9…') vs fully-paid ('INE…') series. DOCUMENTED STOPGAP: the
+# durable fix is to source a BSE scrip↔symbol master and backfill ticker_symbol/
+# isin onto BSE documents at ingestion, after which this bridge becomes dead code.
+def _norm(col: str) -> str:
+    """SQL expr: lowercase → strip punctuation (incl. the BSE '-$' marker) →
+    collapse spaces → drop trailing legal suffixes, so 'Steel Strips Wheels
+    Limited' and 'Steel Strips Wheels Ltd-$' both become 'steel strips wheels'."""
+    return (
+        "btrim(regexp_replace(regexp_replace(regexp_replace("
+        f"lower({col}),'[^a-z0-9]+',' ','g'),'\\s+',' ','g'),"
+        "'(\\s+(limited|ltd|pvt|private|the|company))+\\s*$','','g'))"
+    )
+
+# Resolve a ticker to the BSE scrip_codes of the SAME company via normalized name.
+# TWO steps ON PURPOSE, not one `norm(col) IN (subquery)`: the planner cannot use
+# the functional index (idx_documents_norm_company) for a subquery IN — it hash
+# semi-joins and recomputes norm() for every row (~13s measured). Fetching the
+# ticker's normalized names as CONSTANTS first lets step 2 use `norm(col) = ANY
+# (constants)`, which the index satisfies with per-value probes (<50ms).
+_RESOLVE_NAMES_SQL = (
+    f"SELECT DISTINCT {_norm('company_name')} AS nn "
+    "FROM nidp.documents WHERE ticker_symbol = $1"
+)
+# LIMIT 25 caps a pathological fan-out; an empty result leaves the search filter
+# ticker-only (unchanged behaviour).
+_RESOLVE_SCRIPS_SQL = (
+    "SELECT DISTINCT scrip_code FROM nidp.documents "
+    f"WHERE scrip_code IS NOT NULL AND {_norm('company_name')} = ANY($1::text[]) "
+    "LIMIT 25"
+)
+
+
+async def _resolve_scrips(conn, sym: Optional[str]) -> List[str]:
+    """BSE scrip_codes belonging to the same company as ticker `sym` ([] if none)."""
+    if not sym:
+        return []
+    names = [r["nn"] for r in await conn.fetch(_RESOLVE_NAMES_SQL, sym) if r["nn"]]
+    if not names:
+        return []
+    rows = await conn.fetch(_RESOLVE_SCRIPS_SQL, names)
+    return [r["scrip_code"] for r in rows if r["scrip_code"]]
+
 _HYBRID_SQL = """
 WITH vec AS (
     SELECT c.chunk_id,
@@ -38,7 +90,8 @@ WITH vec AS (
      WHERE d.parse_status = 'parsed'
        AND c.embedding IS NOT NULL
        AND ($3::text[] IS NULL OR d.doc_type = ANY($3::text[]))
-       AND ($4::text   IS NULL OR d.ticker_symbol = $4)
+       AND ($4::text   IS NULL OR d.ticker_symbol = $4
+                               OR d.scrip_code::text = ANY($9::text[]))
      ORDER BY c.embedding <=> $1::vector
      LIMIT $7
 ),
@@ -52,7 +105,8 @@ fts AS (
       JOIN nidp.documents d USING (doc_id)
      WHERE d.parse_status = 'parsed'
        AND ($3::text[] IS NULL OR d.doc_type = ANY($3::text[]))
-       AND ($4::text   IS NULL OR d.ticker_symbol = $4)
+       AND ($4::text   IS NULL OR d.ticker_symbol = $4
+                               OR d.scrip_code::text = ANY($9::text[]))
        AND to_tsvector('english', c.text) @@ plainto_tsquery('english', $2)
      ORDER BY rnk
      LIMIT $7
@@ -83,7 +137,8 @@ SELECT c.chunk_id, c.doc_id, c.chunk_index, c.text,
   JOIN nidp.documents d USING (doc_id)
  WHERE d.parse_status = 'parsed'
    AND ($2::text[] IS NULL OR d.doc_type = ANY($2::text[]))
-   AND ($3::text   IS NULL OR d.ticker_symbol = $3)
+   AND ($3::text   IS NULL OR d.ticker_symbol = $3
+                           OR d.scrip_code::text = ANY($6::text[]))
    AND to_tsvector('english', c.text) @@ plainto_tsquery('english', $1)
  ORDER BY rank DESC, d.filed_at DESC NULLS LAST
  LIMIT $4 OFFSET $5
@@ -115,6 +170,9 @@ async def documents_search(
 
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # NSE/BSE bridge: a ?symbol=NSE_TICKER must also reach the same company's
+        # BSE-tagged (scrip_code-only) filings — see _resolve_scrips().
+        scrips = await _resolve_scrips(conn, sym)
         if qvec is not None:
             # Without this the vector leg returns 0 rows whenever `symbol` or
             # `doc_type` is set — see prepare_vector_search() for the measurement.
@@ -130,11 +188,13 @@ async def documents_search(
                 page["offset"],                          # $6
                 candidate_pool,                          # $7
                 _RRF_K,                                  # $8
+                scrips,                                  # $9
             )
             mode = "hybrid"
         else:
             rows = await conn.fetch(
                 _FTS_SQL, q, doc_types, sym, page["limit"], page["offset"],
+                scrips,                                  # $6
             )
             mode = "fts"
 

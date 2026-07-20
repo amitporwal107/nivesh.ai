@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand_mint">#0E8A55</color>
+    <color name="brand_mint_dark">#0A6B42</color>
+    <color name="ic_launcher_background">#0E8A55</color>
+    <color name="splash_bg">#06080F</color>
+    <string name="app_name">Nivesh</string>
+    <style name="Theme.Nivesh.Starting" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/splash_bg</item>
+        <item name="android:statusBarColor">@color/splash_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
