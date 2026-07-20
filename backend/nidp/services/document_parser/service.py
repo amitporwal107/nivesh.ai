@@ -204,17 +204,28 @@ async def _parse_one(doc: dict[str, Any]) -> None:
     # recording and use THAT as the document's text. Graceful: unavailable
     # transcription just stores the letter, exactly as today.
     audio_transcript = None
-    if looks_like_audio_disclosure(extracted.full_text) and audio_available():
-        for media_url in find_media_urls(extracted.full_text, body):
-            audio_transcript = await asyncio.to_thread(transcribe_url, media_url)
-            if audio_transcript:
-                logger.info("doc=%s recovered %d chars of transcript from audio %s",
-                            doc_id, len(audio_transcript), media_url[:80])
-                # The transcript IS the document now: chunk/type/store it as one
-                # page, so retrieval cites the call rather than the letterhead.
-                extracted = ExtractedDoc(full_text=audio_transcript,
-                                         pages=[audio_transcript], page_count=1)
-                break
+    if looks_like_audio_disclosure(extracted.full_text):
+        # Audio recovery is a BONUS and must never crash a parse — an unavailable
+        # transcriber, an unreachable media URL, a whisper error, or (observed on
+        # staging) a root-owned /var/tmp/nidp-transcribe.lock that a nidp-staging
+        # worker can't acquire, must all degrade to "store the document text as-is",
+        # not raise. This wrapper is why a lock-permission error stopped killing
+        # otherwise-fine financial_results re-parses.
+        try:
+            if audio_available():
+                for media_url in find_media_urls(extracted.full_text, body):
+                    audio_transcript = await asyncio.to_thread(transcribe_url, media_url)
+                    if audio_transcript:
+                        logger.info("doc=%s recovered %d chars of transcript from audio %s",
+                                    doc_id, len(audio_transcript), media_url[:80])
+                        # The transcript IS the document now: chunk/type/store it as
+                        # one page, so retrieval cites the call not the letterhead.
+                        extracted = ExtractedDoc(full_text=audio_transcript,
+                                                 pages=[audio_transcript], page_count=1)
+                        break
+        except Exception as e:  # noqa: BLE001 — audio failure must not fail the parse
+            logger.warning("doc=%s audio recovery failed (%s); using document text",
+                           doc_id, e)
 
     # Scanned-results recovery. Mirrors the audio-disclosure block above:
     # content-detect the results-table pages, escalate them to vision, replace the
