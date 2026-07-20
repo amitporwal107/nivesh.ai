@@ -52,4 +52,5 @@ collisions (the only normalized-name/multi-ISIN pairs are one issuer's partly-pa
 - Durable follow-up still open: source a BSE scrip↔symbol master and backfill
   `ticker_symbol`/`isin` onto BSE docs at ingestion, after which this bridge is dead code.
 
-## Verdict: PASS (route logic + index on staging; live HTTP/deploy explicitly out of scope above)
+## Verdict: IN PROGRESS — route-SQL + index verified on staging; real HTTP endpoint
+## output NOT yet captured (see OVERRIDE_nse_bse_bridge.md). Not a PASS.
