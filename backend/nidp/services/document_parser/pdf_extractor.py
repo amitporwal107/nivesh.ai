@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,18 @@ logger = logging.getLogger(__name__)
 # OCR is slow (~1-3s/page); cap pages so the */15 parser cron doesn't stall.
 _OCR_MAX_PAGES = int(os.environ.get("NIDP_OCR_MAX_PAGES", "60"))
 _OCR_DPI = os.environ.get("NIDP_OCR_DPI", "200")
+
+# Layout-preserving re-extraction of TABLE pages. pypdf reads a multi-column
+# financial table as two jumbled streams — the row labels ("Revenue from
+# operations", "Profit for the period") separated from their numbers — so every
+# results table in the corpus was stored unusable. poppler `pdftotext -layout`
+# preserves column alignment, keeping each row intact. Default on; set
+# NIDP_LAYOUT_TABLES=0 to disable.
+_LAYOUT_TABLES = os.environ.get("NIDP_LAYOUT_TABLES", "1").lower() not in ("0", "false", "no")
+# A "numeric column value": 3+ run-together digits, or grouped with commas/decimals
+# (1,50,981.83 / 72,275 / 13.9). Two-digit years/counts don't qualify, so prose
+# with a stray figure won't trip the tabular test.
+_NUMCOL = re.compile(r"\d[\d,]{2,}(?:\.\d+)?")
 
 # A page with fewer than this many extracted characters is treated as
 # image-heavy and eligible for the Claude-vision fallback (see vision_extractor).
@@ -75,6 +88,73 @@ def _ocr_pdf(body: bytes, max_pages: int = _OCR_MAX_PAGES) -> list[str] | None:
     return pages
 
 
+def _pdftotext_layout(body: bytes) -> list[str] | None:
+    """Per-page text via poppler `pdftotext -layout` (column-aligned). Returns
+    None when pdftotext is unavailable or errors — the caller then keeps pypdf,
+    so this can only improve extraction, never break it."""
+    import shutil
+    import subprocess
+    import tempfile
+
+    if not shutil.which("pdftotext"):
+        return None
+    with tempfile.TemporaryDirectory() as td:
+        pdf_path = os.path.join(td, "doc.pdf")
+        with open(pdf_path, "wb") as fh:
+            fh.write(body)
+        try:
+            out = subprocess.run(
+                ["pdftotext", "-layout", pdf_path, "-"],
+                check=True, timeout=120, capture_output=True, text=True,
+            ).stdout
+        except Exception as e:  # noqa: BLE001 — any failure → fall back to pypdf
+            logger.warning("pdftotext -layout failed: %s", e)
+            return None
+    # pdftotext delimits pages with form-feed (\x0c); a trailing one yields an
+    # empty final element, which is harmless (we index by pypdf's page list).
+    return out.split("\x0c")
+
+
+def _looks_tabular(text: str, min_rows: int = 4) -> bool:
+    """True when a page reads like a NUMERIC TABLE: several lines each carrying 3+
+    number columns. Deliberately selective — narrative prose (even a page that
+    mentions a few figures) and 2-column text won't reach `min_rows` lines of 3+
+    aligned numbers, so layout mode is applied ONLY where it helps and never onto
+    prose (where -layout would interleave columns and read worse)."""
+    rows = 0
+    for line in text.splitlines():
+        if len(_NUMCOL.findall(line)) >= 3:
+            rows += 1
+            if rows >= min_rows:
+                return True
+    return False
+
+
+def _apply_layout_tables(body: bytes, pages: list[str]) -> None:
+    """In place: replace a page's pypdf text with the `pdftotext -layout` text
+    wherever that page is a numeric table AND the layout version didn't lose
+    numbers vs pypdf. No-op if pdftotext is unavailable or nothing qualifies."""
+    if not _LAYOUT_TABLES:
+        return
+    layout = _pdftotext_layout(body)
+    if not layout:
+        return
+    swapped = 0
+    for i in range(len(pages)):
+        if i >= len(layout):
+            break
+        lp = layout[i] or ""
+        if not _looks_tabular(lp):
+            continue
+        # Guard: only swap if layout kept ~all the numbers pypdf found (never trade
+        # a jumbled-but-complete page for a truncated layout extraction).
+        if len(_NUMCOL.findall(lp)) >= 0.8 * len(_NUMCOL.findall(pages[i] or "")):
+            pages[i] = lp
+            swapped += 1
+    if swapped:
+        logger.info("layout-extracted %d table page(s)", swapped)
+
+
 def _pg_safe(text: str | None) -> str:
     """Return `text` with everything Postgres TEXT cannot store removed.
 
@@ -130,6 +210,11 @@ def extract_text_from_pdf(body: bytes) -> ExtractedDoc:
             logger.warning("page %d extraction failed: %s", i + 1, e)
             text = ""
         pages.append(text)
+
+    # Table pages: re-extract with layout preservation so multi-column financial
+    # tables aren't stored as jumbled label/number streams (see _apply_layout_tables).
+    # Runs before the vision/OCR fallbacks; prose pages are left on pypdf.
+    _apply_layout_tables(body, pages)
 
     # Per-page OpenAI-vision fallback: investor decks and mixed PDFs often have
     # slides that are image/chart-only with little or no text layer. Escalate
