@@ -322,27 +322,41 @@ async def embed_pending(limit: int, shards: int = 1, shard: int = 0,
         lits = [_emb.to_pgvector_literal(v) for v in vectors]
         # 3. Idempotent upsert — ON CONFLICT DO NOTHING makes concurrent workers
         #    and retries safe; worst case two workers embed the same text once each.
+        #    Sort by content_hash so EVERY shard locks these rows in the SAME order.
+        #    Shards split by chunk_id, but content_hash is a hash of TEXT: two shards
+        #    processing different chunks with identical text produce the same key and,
+        #    inserting overlapping keys in per-shard (dict) order, deadlock. Measured
+        #    2026-07-20: 3 shards hit a ShareLock cycle on embedding_cache on the very
+        #    first batch. A consistent lock order across shards removes the cycle.
+        cache_params = sorted(
+            ((h, lit, _emb.EMBED_MODEL, _emb.EMBED_DIM)
+             for h, lit in zip(misses.keys(), lits)),
+            key=lambda t: t[0],
+        )
         async with pool.acquire() as conn:
             async with conn.transaction():
                 await conn.executemany(
                     "INSERT INTO nidp.embedding_cache"
                     " (content_hash, embedding, model, dims) "
                     "VALUES ($1, $2::vector, $3, $4) ON CONFLICT DO NOTHING",
-                    [(h, lit, _emb.EMBED_MODEL, _emb.EMBED_DIM)
-                     for h, lit in zip(misses.keys(), lits)],
+                    cache_params,
                 )
         cached.update(dict(zip(misses.keys(), lits)))
 
     # 4. Write every fetched chunk from the cache map (hits + newly embedded).
+    #    Sort by chunk_id for a consistent lock order too: sharded drains hold
+    #    disjoint chunk_ids, but the unsharded */15 cron pass can overlap any of
+    #    them, so ordering here keeps a drain and the cron from deadlocking.
+    update_params = sorted(
+        ((r["chunk_id"], cached[h], _emb.EMBED_MODEL)
+         for h, r in zip(hashes, rows) if h in cached),
+        key=lambda t: t[0],
+    )
     embedded = 0
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await conn.executemany(
-                _UPDATE_CHUNK_EMBEDDING_SQL,
-                [(r["chunk_id"], cached[h], _emb.EMBED_MODEL)
-                 for h, r in zip(hashes, rows) if h in cached],
-            )
-            embedded = sum(1 for h in hashes if h in cached)
+            await conn.executemany(_UPDATE_CHUNK_EMBEDDING_SQL, update_params)
+            embedded = len(update_params)
     logger.info("embed_pending: %d chunks -> %d cache hits, %d embedded (model=%s)",
                 len(rows), len(rows) - len(misses), len(misses), _emb.EMBED_MODEL)
     return {"embedded": embedded, "candidates": len(rows)}
