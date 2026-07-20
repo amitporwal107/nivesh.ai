@@ -110,28 +110,40 @@ async def _download(url: str) -> tuple[bytes, str]:
 # re-transcribe them with OpenAI vision (which reads the rendered image, not the bad
 # text layer) — vision returned the SSWL table clean, matching the filing's own
 # arithmetic, where the pypdf text layer did not.
-_RESULTS_HDR = re.compile(
-    r"revenue from oper|total income|total expenses|profit before tax|"
-    r"profit for the period|earnings per|comprehensive income", re.I)
-_RESULTS_PERIOD = re.compile(
-    r"quarter ended|standalone financial results|consolidated financial results|"
-    r"3[01][./-]0[0-9][./-]20\d\d", re.I)
+# A results-statement page co-locates MANY of these line-item concepts; ordinary
+# prose hits only a couple. We score rather than match a fixed header string, because
+# a scanned filing's OCR mangles individual terms unpredictably ("revenue lrom
+# operatrons", "Profit/(loss) Derore tax", garbled dates) — but 5+ of the ten signals
+# still survive on a real table, while an auditor's letter or a notes page does not
+# reach that. Measured on the SSWL filing: the two table pages scored >=5, the four
+# cover/auditor/notes pages scored <=4.
+_RESULTS_SIGNAL_RES = [re.compile(p, re.I) for p in (
+    r"revenue",
+    r"total\s+inco",                       # total income
+    r"total\s+expen",                      # total expenses
+    r"profit",
+    r"\btax\b",
+    r"earnings?\s+per|per\s+equity\s+share|\beps\b",
+    r"comprehensive",
+    r"deprec",                             # depreciation
+    r"finance\s+cost|interest",
+    r"quarter|standalone|consolidated|3[01][.,/ ]?0[0-9][.,/ ]?20\d\d",
+)]
+_RESULTS_MIN_SIGNALS = 5
 
 
 def _results_table_pages(pages: list[str], limit: int) -> list[int]:
     """1-based indices of pages that look like a formal quarterly-results statement.
 
-    Requires the HEADER CLUSTER (>=2 distinct results line-item headers) AND a period
-    signal, so a passing mention of "revenue" in prose does not qualify — only an
-    actual results table. Survives garbled OCR: the strong headers ("total income",
-    "earnings per", "total expenses") stay matchable even when the numbers around them
-    are mangled.
+    Scores each page against the results-line-item signal set (see above) and selects
+    pages hitting >= _RESULTS_MIN_SIGNALS. Robust to OCR garble; specific enough that a
+    passing mention of "revenue"/"profit" in prose does not qualify.
     """
     out: list[int] = []
     for i, txt in enumerate(pages, start=1):
         t = txt or ""
-        headers = {m.group(0).lower() for m in _RESULTS_HDR.finditer(t)}
-        if len(headers) >= 2 and _RESULTS_PERIOD.search(t):
+        score = sum(1 for rx in _RESULTS_SIGNAL_RES if rx.search(t))
+        if score >= _RESULTS_MIN_SIGNALS:
             out.append(i)
             if len(out) >= limit:
                 break
