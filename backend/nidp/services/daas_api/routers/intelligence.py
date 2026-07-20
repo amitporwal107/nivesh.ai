@@ -249,14 +249,50 @@ async def intelligence_events_search(
     q: str = Query(..., min_length=1, max_length=128),
     page: Dict[str, int] = Depends(page_params),
 ) -> Dict[str, Any]:
+    # The events.* schema (normalized_events / v_search_documents) was never
+    # populated — 0 rows — so this endpoint returned nothing for every thematic
+    # query while the copilot's cross-company "Ask" leans on it. The real filings
+    # (with AI event_category + the filing_insight summary/metric) live in
+    # nidp.corporate_announcements. Query THAT: full-text over subject + category
+    # so "dividends declared this quarter" / "biggest orders" match, joined to the
+    # insight for a summary and headline number, ranked material-and-recent.
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT doc_id, entity_name, event_type, event_date
-              FROM events.v_search_documents
-             WHERE document_tsv @@ plainto_tsquery('simple', $1)
-             ORDER BY event_date DESC NULLS LAST
+            SELECT a.announcement_id            AS doc_id,
+                   a.company_name               AS entity_name,
+                   a.event_category             AS event_type,
+                   a.event_category,
+                   a.filed_at                   AS event_date,
+                   a.filed_at,
+                   a.subject                    AS headline,
+                   a.subject,
+                   a.ticker_symbol,
+                   a.impact_score,
+                   s.signal_json->>'summary'        AS summary,
+                   s.signal_json->'headline_metric' AS headline_metric,
+                   d.source_url
+              FROM nidp.corporate_announcements a
+              LEFT JOIN nidp.corporate_event_signals s
+                     ON s.signal_type = 'filing_insight'
+                    AND s.announcement_ref    = a.announcement_id
+                    AND s.announcement_source = a.source
+              LEFT JOIN LATERAL (
+                    SELECT dd.source_url FROM nidp.documents dd
+                     WHERE dd.announcement_id = a.announcement_id
+                       AND dd.announcement_source = a.source
+                       AND dd.parse_status = 'parsed'
+                     ORDER BY dd.filed_at DESC NULLS LAST LIMIT 1
+                  ) d ON TRUE
+             WHERE a.filed_at >= now() - interval '30 days'
+               AND a.event_category IS NOT NULL
+               AND a.event_category NOT IN ('other', 'regulatory')
+               AND ( to_tsvector('simple',
+                        coalesce(a.subject,'') || ' ' || coalesce(replace(a.event_category,'_',' '),''))
+                        @@ plainto_tsquery('simple', $1)
+                     OR a.event_category = lower(btrim($1)) )
+             ORDER BY (a.impact_score = 'high') DESC NULLS LAST, a.filed_at DESC
              LIMIT $2 OFFSET $3
             """,
             q, page["limit"], page["offset"],
