@@ -79,7 +79,14 @@ SELECT d.doc_id, d.source_url, d.ticker_symbol, d.isin, d.scrip_code, d.company_
    -- a user, and it stays stable across re-ingestion. NULLs match everything.
    AND ($6::date IS NULL OR d.filed_at >= $6::date)
    AND ($7::date IS NULL OR d.filed_at <  $7::date)
- ORDER BY (d.parse_status = 'pending') DESC, d.ingested_at ASC   -- new docs before backlog retries
+ -- Priority: fresh 'pending' before 'failed' retries, then MOST RECENT FILING first.
+ -- Was ingested_at ASC (oldest-ingested first), which starved today's material
+ -- filings behind a large backfill/discovery backlog — measured 2026-07-20: ~16.6k
+ -- pending docs, 3 days deep, so a filing ingested tonight waited ~3 days at ~200/hr,
+ -- and its AI insight (which needs parsed text) never appeared. filed_at DESC parses
+ -- what users are actually looking at now; the old low-value backlog drains behind it
+ -- (and during quiet periods). NULLS LAST so a null-dated doc can't jump the queue.
+ ORDER BY (d.parse_status = 'pending') DESC, d.filed_at DESC NULLS LAST
  LIMIT $1
 """
 
