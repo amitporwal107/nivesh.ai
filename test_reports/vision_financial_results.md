@@ -62,3 +62,42 @@ copilot's own path.
   replacement.
 
 ## Verdict: PASS
+
+---
+
+# Addendum (2026-07-20) — existing-doc backfill + audio-crash fix
+
+Changed since the PASS above: `service.py` (audio recovery wrapped so it can't crash a
+parse) and new `deploy/vm/reparse_docs.py` (re-parse driver).
+
+## TC4 — audio recovery no longer crashes a parse ✅
+A root-owned `/var/tmp/nidp-transcribe.lock` that nidp-staging can't acquire raised
+`PermissionError` inside the audio-disclosure block and killed ~17% of re-parses (2/12
+in the first sample). After wrapping the audio block:
+```
+BEFORE:  reparse error doc=9dc826b0 ...: PermissionError: '/var/tmp/nidp-transcribe.lock'
+AFTER:   doc=9dc826b0 audio recovery failed (Permission denied ...); using document text
+         total reparse errors: 0   (across all 3 shards)
+```
+The doc that crashed now re-parses normally. This also fixes the staging */15 cron,
+which hits the same lock.
+
+## TC5 — backfill produces clean numbers across the corpus ✅
+`reparse_docs.py` (3 shards, financial_results, 30d = 2,704 docs) running on staging.
+Sampled re-parsed docs now hold clean, fully-columned results lines (were garbled):
+```
+sampled=18, docs with clean 'revenue from operations' chunk = 5
+  "Revenue from operations | 7,241.56 | 7,175.37 | 5,767.50 | 25,007.40"
+  "Revenue from operations   6,296.89  6,008.05  4,892.03  21,014.12"
+```
+(Not all sampled docs contain that exact line — banks/NBFCs report "Interest earned",
+some results are segment-only — but the scanned-garble is gone where a results table
+exists.) Rate ~180-200 docs/hr; the run is detached (setsid) + resumable (per-shard
+done-file), so it survives token/session loss. Re-parsed chunks land NULL-embedding
+and re-embed via the running drain (these are 30d-filed, so in the embed scope).
+
+## Scope note
+This backfill covers the **30-day** window (current earnings season). Extending to 90d
+(16,550 docs, ~$13) or all (36,535, ~$29) is one env change (`REPARSE_SINCE_DAYS`).
+
+## Verdict: PASS
