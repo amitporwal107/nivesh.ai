@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 import uuid
 from datetime import date
 from typing import Any
@@ -28,6 +29,7 @@ from .db import discover_pending, embed_pending, fetch_pending_docs, store_parse
 from .audio_extractor import (audio_available, find_media_urls,
                               looks_like_audio_disclosure, transcribe_url)
 from .pdf_extractor import ExtractedDoc, extract_text_from_pdf
+from .vision_extractor import VISION_MAX_PAGES, extract_pages, vision_available
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +101,43 @@ async def _download(url: str) -> tuple[bytes, str]:
     return body, hashlib.sha256(body).hexdigest()
 
 
+# Financial-results statements are frequently SCANNED and carry a GARBLED embedded
+# text layer — pypdf reads "incom€/(loi6)" for "income/(loss)" and "1/s1,066.06" for
+# "1,51,066.06" — so the numbers land in the corpus unusable and the copilot cannot
+# quote Revenue/PAT (verified 2026-07-20 on SSWL). Unlike the low-text vision path in
+# pdf_extractor, these pages are NOT low-text: they are FULL of garbled text, so that
+# path never fires. Detect the results-table pages by their header cluster and
+# re-transcribe them with OpenAI vision (which reads the rendered image, not the bad
+# text layer) — vision returned the SSWL table clean, matching the filing's own
+# arithmetic, where the pypdf text layer did not.
+_RESULTS_HDR = re.compile(
+    r"revenue from oper|total income|total expenses|profit before tax|"
+    r"profit for the period|earnings per|comprehensive income", re.I)
+_RESULTS_PERIOD = re.compile(
+    r"quarter ended|standalone financial results|consolidated financial results|"
+    r"3[01][./-]0[0-9][./-]20\d\d", re.I)
+
+
+def _results_table_pages(pages: list[str], limit: int) -> list[int]:
+    """1-based indices of pages that look like a formal quarterly-results statement.
+
+    Requires the HEADER CLUSTER (>=2 distinct results line-item headers) AND a period
+    signal, so a passing mention of "revenue" in prose does not qualify — only an
+    actual results table. Survives garbled OCR: the strong headers ("total income",
+    "earnings per", "total expenses") stay matchable even when the numbers around them
+    are mangled.
+    """
+    out: list[int] = []
+    for i, txt in enumerate(pages, start=1):
+        t = txt or ""
+        headers = {m.group(0).lower() for m in _RESULTS_HDR.finditer(t)}
+        if len(headers) >= 2 and _RESULTS_PERIOD.search(t):
+            out.append(i)
+            if len(out) >= limit:
+                break
+    return out
+
+
 async def _parse_one(doc: dict[str, Any]) -> None:
     doc_id = doc["doc_id"]
     url = doc["source_url"]
@@ -164,6 +203,35 @@ async def _parse_one(doc: dict[str, Any]) -> None:
                 extracted = ExtractedDoc(full_text=audio_transcript,
                                          pages=[audio_transcript], page_count=1)
                 break
+
+    # Scanned-results recovery. Mirrors the audio-disclosure block above:
+    # content-detect the results-table pages, escalate them to vision, replace the
+    # garbled page text with the clean transcription, then chunk/type/store the
+    # clean text. Never fails the parse — vision unavailable or erroring just leaves
+    # the original text (graceful, exactly like today). Bounded to a few pages/doc.
+    if audio_transcript is None and vision_available() and extracted.pages:
+        table_pages = _results_table_pages(extracted.pages, min(6, VISION_MAX_PAGES))
+        if table_pages:
+            try:
+                vis = await asyncio.to_thread(extract_pages, body, table_pages)
+            except Exception as e:  # noqa: BLE001 — vision must never break a parse
+                logger.warning("doc=%s vision results-transcription failed: %s", doc_id, e)
+                vis = {}
+            new_pages = list(extracted.pages)
+            replaced = 0
+            for pno, vtext in vis.items():
+                # Only replace when vision actually returned substantive text, so a
+                # blank/refused transcription can't wipe the (garbled but present)
+                # original.
+                if vtext and len(vtext) >= 40 and 1 <= pno <= len(new_pages):
+                    new_pages[pno - 1] = vtext
+                    replaced += 1
+            if replaced:
+                extracted = ExtractedDoc(full_text="\n".join(new_pages),
+                                         pages=new_pages,
+                                         page_count=extracted.page_count)
+                logger.info("doc=%s vision-transcribed %d results-table page(s)",
+                            doc_id, replaced)
 
     chunks = chunk_text(extracted.full_text, extracted.pages)
     chunk_rows = [
