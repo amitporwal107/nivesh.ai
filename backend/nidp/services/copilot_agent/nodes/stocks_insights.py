@@ -112,6 +112,25 @@ def _is_thematic(text: str) -> bool:
     return bool(_THEMATIC_RE.search(text or ""))
 
 
+# A SECTOR mention ("pharma sector", "IT companies", "banking stocks") is a
+# cross-company question. The lexical symbol resolver would collapse the sector
+# word to one ticker ("pharma" → SUNPHARMA, "IT" → a ticker), so force thematic
+# whenever a sector word is followed by a set-noun. The DaaS events/search then
+# resolves the sector to its constituents from nidp.sector_master (keyed on ISIN).
+_SECTOR_RE = re.compile(
+    r"\b(?:it|information technology|software|infotech|pharma|pharmaceutical|healthcare|"
+    r"bank(?:s|ing)?|nbfc|financ\w*|auto\w*|fmcg|metal\w*|steel|mining|power|energy|"
+    r"oil|gas|cement|realty|real estate|telecom\w*|chemical\w*|media|textile\w*|"
+    r"capital goods|infra\w*|consumer\s+\w+)\s+"
+    r"(?:sector|space|companies|company|stocks?|shares?|firms?|players?|majors?|names|pack|index|industry)\b",
+    re.IGNORECASE,
+)
+
+
+def _names_sector(text: str) -> bool:
+    return bool(_SECTOR_RE.search(text or ""))
+
+
 async def stocks_insights_node(state: CopilotState) -> dict:
     user_msg = next(
         (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
@@ -122,9 +141,11 @@ async def stocks_insights_node(state: CopilotState) -> dict:
     resolved = _resolve_symbol(user_msg)
     symbol = getattr(resolved, "symbol", None) if resolved else None
     company = getattr(resolved, "name", None) if resolved else None
-    # A clearly cross-company question overrides a spurious single-ticker match
-    # (e.g. "AI" mis-resolving to a ticker) so it runs the thematic search.
-    if symbol and _is_thematic(user_msg):
+    # A clearly cross-company question — explicit "which companies…" phrasing or a
+    # SECTOR mention ("pharma sector", "IT companies") — overrides a spurious
+    # single-ticker match (e.g. "pharma"→SUNPHARMA, "AI"→a ticker) so it runs the
+    # thematic / sector search instead of collapsing to one company.
+    if symbol and (_is_thematic(user_msg) or _names_sector(user_msg)):
         symbol = None
         company = None
 
