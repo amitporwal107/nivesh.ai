@@ -94,32 +94,47 @@ class StocksInsightsResult:
     def as_llm_context(self) -> str:
         """Numbered filings + management commentary passages (concall/presentation
         text) + optional quarterly financials. Filings and commentary share ONE [n]
-        numbering (matches the card's Sources register). Financials stated plainly."""
+        numbering (MUST match build_widget_data's Sources register — including the
+        commentary-first ordering below). Financials stated plainly."""
         parts: List[str] = []
-        n = 0
-        if self.events:
-            lines = ["recent_filings (cite as [n]):"]
-            for e in self.events:
-                n += 1
-                filed = (e.get("filed_at") or "")[:10]
-                line = (f"  [{n}] {filed} [{e.get('category') or 'other'}] "
-                        f"{(e.get('headline') or '')[:120]}")
-                if e.get("summary"):
-                    line += f" — {str(e['summary'])[:200]}"
-                lines.append(line)
-            parts.append("\n".join(lines))
+        self._n = 0
+
+        def _events_block() -> None:
+            if self.events:
+                lines = ["recent_filings (cite as [n]):"]
+                for e in self.events:
+                    self._n += 1
+                    filed = (e.get("filed_at") or "")[:10]
+                    line = (f"  [{self._n}] {filed} [{e.get('category') or 'other'}] "
+                            f"{(e.get('headline') or '')[:120]}")
+                    if e.get("summary"):
+                        line += f" — {str(e['summary'])[:200]}"
+                    lines.append(line)
+                parts.append("\n".join(lines))
+            elif not self.commentary:
+                parts.append("recent_filings: NONE FOUND")
+
+        def _commentary_block() -> None:
+            if self.commentary:
+                lines = ["management_commentary — ACTUAL transcript/presentation text. Quote it, "
+                         "attribute to management, and cite [n]:"]
+                for c in self.commentary:
+                    self._n += 1
+                    label = (c.get("company") or "").strip()
+                    dt = (c.get("doc_type") or "document").replace("_", " ")
+                    pg = f", p.{c['page']}" if c.get("page") else ""
+                    lines.append(f"  [{self._n}] ({label} {dt}{pg}) \"{(c.get('text') or '')[:320]}\"")
+                parts.append("\n".join(lines))
+
+        # Thematic "who said/flagged X" → lead with commentary (it IS the answer;
+        # announcements are supporting context). Ticker mode → the company's filings
+        # lead. build_widget_data uses this same condition so [n] markers align.
+        if _commentary_leads(self.mode, self.commentary):
+            _commentary_block()
+            _events_block()
         else:
-            parts.append("recent_filings: NONE FOUND")
-        if self.commentary:
-            lines = ["management_commentary — ACTUAL transcript/presentation text. Quote it, "
-                     "attribute to management, and cite [n]:"]
-            for c in self.commentary:
-                n += 1
-                label = (c.get("company") or "").strip()
-                dt = (c.get("doc_type") or "document").replace("_", " ")
-                pg = f", p.{c['page']}" if c.get("page") else ""
-                lines.append(f"  [{n}] ({label} {dt}{pg}) \"{(c.get('text') or '')[:320]}\"")
-            parts.append("\n".join(lines))
+            _events_block()
+            _commentary_block()
         if self.financials:
             parts.append("quarterly_financials (state plainly; no [n] needed):\n  " + str(self.financials)[:700])
         return "\n\n".join(parts)
@@ -244,31 +259,36 @@ def _shape_commentary(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-# Categorise the query to the artifact type(s) worth searching. The corpus stores
-# each filing under a doc_type; a commentary/thematic question should search ONLY the
-# relevant category, not the ~23k newspaper/regulatory 'announcement_attachment'
-# chunks that otherwise dominate the ranking. First explicit-intent match wins; the
-# default is the three artifacts where management commentary actually lives.
+# Artifact scoping. By default a thematic ask searches ALL document types: a
+# company's relevant commentary can live in its concall, presentation, annual report,
+# results filing OR a mis-typed announcement attachment, and narrowing to one category
+# silently drops companies (e.g. Heritage/Elecon flag margin pressure in their annual
+# report, having no concall). We narrow ONLY when the user explicitly asks for a single
+# artifact type. None -> search everything.
 _ARTIFACT_INTENT = [
-    (re.compile(r"concall|con-call|conference call|earnings call|analyst call|transcript|"
-                r"management (?:said|commentary|comment|remark|guidance|view)|on the (?:call|concall)", re.I),
-     "concall_transcript,investor_presentation"),
-    (re.compile(r"investor presentation|presentation|investor deck|\bdeck\b|\bslides?\b", re.I),
-     "investor_presentation"),
-    (re.compile(r"annual report|annual-report|integrated report|\bmd&a\b|director'?s report", re.I),
+    (re.compile(r"only (?:in|the).{0,20}annual report|integrated report", re.I),
      "annual_report"),
-    (re.compile(r"quarterly results?|\bresults\b|revenue|topline|bottom ?line|\bpat\b|net profit|ebitda|\byoy\b|\bqoq\b", re.I),
-     "financial_results,concall_transcript"),
+    (re.compile(r"only (?:in|the).{0,20}presentation|investor deck\b", re.I),
+     "investor_presentation"),
+    (re.compile(r"only (?:in|the).{0,20}(?:concall|transcript)|in the transcript\b", re.I),
+     "concall_transcript"),
 ]
-_DEFAULT_COMMENTARY_TYPES = "concall_transcript,investor_presentation,annual_report"
 
 
-def _classify_artifacts(query: str) -> str:
-    """Free-text query → comma-separated doc_type set for /documents/search."""
+def _classify_artifacts(query):
+    """Free-text query -> doc_type set for /documents/search, or None for ALL types.
+    Only an EXPLICIT single-artifact request narrows it; otherwise search everything."""
     for rx, types in _ARTIFACT_INTENT:
         if rx.search(query or ""):
             return types
-    return _DEFAULT_COMMENTARY_TYPES
+    return None
+
+
+def _commentary_leads(mode: Optional[str], commentary: List[Dict[str, Any]]) -> bool:
+    """Thematic cross-company answers lead with management commentary (it IS the
+    answer); ticker mode leads with the company's own filings. as_llm_context and
+    build_widget_data BOTH call this so the [n] citation numbering stays aligned."""
+    return mode == "thematic" and bool(commentary)
 
 
 async def _fetch_commentary(q: str, symbol: Optional[str], limit: int = 5) -> List[Dict[str, Any]]:
@@ -318,7 +338,7 @@ async def get_stocks_insights(
     else:
         events, commentary = await asyncio.gather(
             _fetch_filings(query, limit, ticker=False),
-            _fetch_commentary(query, None),
+            _fetch_commentary(query, None, limit=12),  # thematic: broader cross-company recall
         )
         mode = "thematic"
         ticker = None
@@ -349,34 +369,48 @@ def build_widget_data(
     ``sources`` is the numbered filing register [1..N] the answer's [n] markers
     resolve to (filing-level "View Source"). Always includes the AI disclaimer.
     """
-    # Filings and commentary share ONE continuous [n] numbering (matches as_llm_context).
+    # Filings and commentary share ONE continuous [n] numbering (MUST match
+    # as_llm_context — including the commentary-first order for thematic answers).
     sources: List[Dict[str, Any]] = []
     n = 0
-    for e in result.events:
-        n += 1
-        sources.append({
-            "n": n,
-            "title": e.get("headline") or f"Filing {n}",
-            "category": e.get("category") or "other",
-            "filed_at": e.get("filed_at"),
-            "url": e.get("url"),
-            "symbol": e.get("symbol") or result.ticker,
-        })
-    for c in result.commentary:
-        n += 1
-        url = c.get("url")
-        if url and c.get("page"):
-            url = f"{url}#page={c['page']}"
-        dt = (c.get("doc_type") or "document").replace("_", " ")
-        pg = f" · p.{c['page']}" if c.get("page") else ""
-        sources.append({
-            "n": n,
-            "title": f"{c.get('company') or result.ticker or 'Document'} — {dt}{pg}",
-            "category": c.get("doc_type") or "document",
-            "filed_at": c.get("filed_at"),
-            "url": url,
-            "symbol": c.get("symbol") or result.ticker,
-        })
+
+    def _add_events() -> None:
+        nonlocal n
+        for e in result.events:
+            n += 1
+            sources.append({
+                "n": n,
+                "title": e.get("headline") or f"Filing {n}",
+                "category": e.get("category") or "other",
+                "filed_at": e.get("filed_at"),
+                "url": e.get("url"),
+                "symbol": e.get("symbol") or result.ticker,
+            })
+
+    def _add_commentary() -> None:
+        nonlocal n
+        for c in result.commentary:
+            n += 1
+            url = c.get("url")
+            if url and c.get("page"):
+                url = f"{url}#page={c['page']}"
+            dt = (c.get("doc_type") or "document").replace("_", " ")
+            pg = f" · p.{c['page']}" if c.get("page") else ""
+            sources.append({
+                "n": n,
+                "title": f"{c.get('company') or result.ticker or 'Document'} — {dt}{pg}",
+                "category": c.get("doc_type") or "document",
+                "filed_at": c.get("filed_at"),
+                "url": url,
+                "symbol": c.get("symbol") or result.ticker,
+            })
+
+    if _commentary_leads(getattr(result, "mode", None), result.commentary):
+        _add_commentary()
+        _add_events()
+    else:
+        _add_events()
+        _add_commentary()
     return {
         "ticker": result.ticker,
         "company": company or result.ticker,
