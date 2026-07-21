@@ -309,6 +309,21 @@ async def _fetch_commentary(q: str, symbol: Optional[str], limit: int = 5) -> Li
     return [_shape_commentary(r) for r in rows if isinstance(r, dict) and r.get("text")][:limit]
 
 
+async def _fetch_thematic_commentary(q: str, limit: int = 12) -> List[Dict[str, Any]]:
+    """Cross-company 'who flagged X?' commentary via the LLM-curated DAAS endpoint —
+    keeps only companies whose management genuinely flagged the theme. Falls back to []
+    (caller still has the plain commentary search)."""
+    try:
+        data = await daas_client.thematic_commentary(q=q, limit=limit)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("thematic commentary failed for %r: %s", q, exc)
+        return []
+    rows = data.get("data") if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        return []
+    return [_shape_commentary(r) for r in rows if isinstance(r, dict) and r.get("text")][:limit]
+
+
 async def get_stocks_insights(
     query: str,
     symbol: Optional[str] = None,
@@ -338,7 +353,7 @@ async def get_stocks_insights(
     else:
         events, commentary = await asyncio.gather(
             _fetch_filings(query, limit, ticker=False),
-            _fetch_commentary(query, None, limit=12),  # thematic: broader cross-company recall
+            _fetch_thematic_commentary(query, limit=12),  # LLM-curated cross-company commentary
         )
         mode = "thematic"
         ticker = None

@@ -377,6 +377,18 @@ async def search_documents(
     return data if isinstance(data, dict) else None
 
 
+async def thematic_commentary(q: str, depth: int = 300, limit: int = 12) -> Optional[Dict[str, Any]]:
+    """LLM-curated cross-company commentary — DAAS /v1/intelligence/thematic-commentary.
+    Casts a wide keyword net over the chunk corpus, then an LLM keeps only the companies
+    whose management genuinely flagged the theme. Returns {"data": [rows]} or None."""
+    try:
+        return await _get("/intelligence/thematic-commentary",
+                          {"q": q, "depth": depth, "limit": limit}, timeout=45.0)
+    except DaasError as exc:
+        logger.debug("thematic_commentary: %s", exc)
+        return None
+
+
 async def documents_coverage() -> Optional[Dict[str, Any]]:
     """Corpus diagnostic — chunk/doc counts by doc_type (DAAS /v1/documents/coverage)."""
     try:
