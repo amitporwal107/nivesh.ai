@@ -84,19 +84,22 @@ def _build_tsquery(pivot: List[str], context: List[str]) -> str:
 
 
 def _build_tsquery_multi(variations: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
-    """OR the per-variation (pivot) & (context) clauses into ONE tsquery, so a single GIN
-    scan covers every semantic variation of the query (we do not miss a company that phrased
-    the theme differently). Returns (tsquery, human-readable variation labels)."""
-    clauses: List[str] = []
+    """UNION every variation's pivot+context terms into ONE broad (pivots) & (contexts)
+    tsquery. Union — not per-variation clauses — because the LLM's variation set is not
+    stable run-to-run: if it omits a specific pairing (e.g. "raw material" one call), the
+    union still matches any pivot with any context, so a company that phrased the theme with
+    a cost driver the LLM didn't pair is still caught. The LLM extraction step re-imposes
+    precision. Returns (tsquery, human labels of the variations fired)."""
+    pivots: set = set()
+    contexts: set = set()
     labels: List[str] = []
     for v in variations or []:
-        cl = _build_tsquery(v.get("pivot") or [], v.get("context") or [])
-        if cl:
-            clauses.append(f"({cl})")
-            piv = "/".join(v.get("pivot") or []) or "-"
-            ctx = "/".join(v.get("context") or []) or "-"
-            labels.append(f"{piv} ~ {ctx}")
-    return " | ".join(clauses), labels
+        pivots.update(_lexeme(w) for w in (v.get("pivot") or []) if _lexeme(w))
+        contexts.update(_lexeme(w) for w in (v.get("context") or []) if _lexeme(w))
+        piv = "/".join(v.get("pivot") or []) or "-"
+        ctx = "/".join(v.get("context") or []) or "-"
+        labels.append(f"{piv} ~ {ctx}")
+    return _build_tsquery(sorted(pivots), sorted(contexts)), labels
 
 
 _CLASSIFY_SYS = (
@@ -105,13 +108,13 @@ _CLASSIFY_SYS = (
     "filing text does not miss a company that phrases the theme differently. Return STRICT "
     'JSON: {"theme": "..", "variations": [{"pivot": [..], "context": [..]}, ...]}. '
     "For EACH variation: pivot = the core subject noun(s) that MUST appear; context = words "
-    "signalling the angle/qualifier. Singular stems, lowercase, no phrases. Cover synonyms and "
-    "related framings — e.g. for margin pressure: {pivot:[margin],context:[pressure]}, "
-    "{pivot:[margin,gross],context:[compression,decline]}, "
-    "{pivot:[input,cost],context:[inflation,rising]}, "
-    "{pivot:[raw,material],context:[price,increase]}, "
-    "{pivot:[profitability],context:[headwind,squeeze]}. "
-    "Give 3-5 variations (at least 2 if the query has any clear subject). theme = short human label."
+    "signalling the angle/qualifier. Singular stems, lowercase, no phrases. BE EXHAUSTIVE: "
+    "cover synonyms AND the specific real-world drivers a company might cite. For a margins/"
+    "costs theme the pivots MUST include the cost drivers themselves — raw material, input, "
+    "commodity, energy, power, fuel, freight, logistics, packaging, wage, forex — alongside "
+    "margin/profitability/gross/ebitda; contexts cover pressure, squeeze, compression, "
+    "decline, inflation, rising, increase, escalation, surge, hike, headwind, volatility. "
+    "Give 5-8 variations (at least 2 if the query has any clear subject). theme = short human label."
 )
 
 
