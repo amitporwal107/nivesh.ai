@@ -112,6 +112,9 @@ export default function ResearchPage() {
 
   // ── signals ─────────────────────────────────────────────────────────────
   const [signals, setSignals] = useState<Signal[]>([]);
+  const [todayOnly, setTodayOnly] = useState(true);
+  const [held, setHeld] = useState<{ names: Set<string>; isins: Set<string>; symbols: Set<string> }>(
+    { names: new Set(), isins: new Set(), symbols: new Set() });
 
   // ── expanded insight ────────────────────────────────────────────────────
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -161,7 +164,12 @@ export default function ResearchPage() {
 
   useEffect(() => { loadFeed(); }, [loadFeed]);
   useEffect(() => {
-    filingsService.getSignals(1).then(setSignals).catch(() => setSignals([]));
+    filingsService.getSignals(1, todayOnly).then(setSignals).catch(() => setSignals([]));
+  }, [todayOnly]);
+  useEffect(() => {
+    filingsService.getPortfolioHeld()
+      .then((h) => setHeld({ names: new Set(h.names), isins: new Set(h.isins), symbols: new Set(h.symbols) }))
+      .catch(() => { /* not signed in / no holdings */ });
   }, []);
 
   // ── company type-ahead ──────────────────────────────────────────────────
@@ -483,6 +491,7 @@ export default function ResearchPage() {
                 setExpanded, feedError, feedLoading, rows, expanded, insights,
                 insightLoading, tab, setTab, toggleExpand, page, pageCount, flashed, rowRefs,
                 company, clearCompany, docs, docsLoading,
+                held, todayOnly, setTodayOnly,
               }}
             />
           ) : (
@@ -529,6 +538,8 @@ interface FeedProps {
   runAsk: (q?: string) => void; asking: boolean;
   answer: Answer | null; gotoRef: (t: string) => void;
   signals: Signal[]; total: number;
+  held: { names: Set<string>; isins: Set<string>; symbols: Set<string> };
+  todayOnly: boolean; setTodayOnly: (v: boolean) => void;
   sort: "material" | "latest"; setSort: (s: "material" | "latest") => void;
   setPage: React.Dispatch<React.SetStateAction<number>>;
   facetChips: Array<{ key: string | null; label: string }>;
@@ -560,6 +571,29 @@ function FeedScreen(p: FeedProps) {
     p.runAsk(query);
   };
   const starterLeft = THEMATIC_STARTERS.length - starterCount;
+
+  // ── portfolio-impact match + detail drawer ──────────────────────────────
+  const normName = (x?: string | null) =>
+    (x || "").toLowerCase().replace(/\b(limited|ltd|corporation|corp|company|co|pvt|private)\b/g, "").replace(/[^a-z0-9]/g, "");
+  const isHeld = (company?: string | null, ticker?: string | null): boolean => {
+    if (ticker && p.held.symbols.has(ticker.toUpperCase())) return true;
+    const n = normName(company);
+    return !!n && p.held.names.has(n);
+  };
+  const [drawer, setDrawer] = useState<Signal | null>(null);
+  const [drawerInsight, setDrawerInsight] = useState<Insight | null>(null);
+  const [drawerLoading, setDrawerLoading] = useState(false);
+  useEffect(() => {
+    if (!drawer?.id) { setDrawerInsight(null); return; }
+    let alive = true;
+    setDrawerLoading(true);
+    filingsService.getInsight(String(drawer.id))
+      .then((ins) => { if (alive) setDrawerInsight(ins); })
+      .catch(() => { if (alive) setDrawerInsight(null); })
+      .finally(() => { if (alive) setDrawerLoading(false); });
+    return () => { alive = false; };
+  }, [drawer?.id]);
+
   return (
     <div style={{ maxWidth: 1080, margin: "0 auto", padding: "20px 16px 40px" }}>
       {/* ── ask bar ── */}
@@ -720,52 +754,85 @@ function FeedScreen(p: FeedProps) {
         </div>
       )}
 
-      {/* ── read for you today (top-3 signals) ──
-          Hidden under a company scope: it ranks the WHOLE tape, so showing it
-          next to one company's filings would imply these are that company's. */}
-      {!p.company && p.signals.length > 0 && (
+      {/* ── read for you today — Bloomberg-style, today-strict, click → drawer ──
+          Hidden under a company scope: it ranks the WHOLE tape. */}
+      {!p.company && (
         <>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "30px 0 12px" }}>
-            <p className="nv-eyebrow" style={{ margin: 0 }}>Read for you today · ranked by materiality</p>
-            <span className="nv-mono" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10, letterSpacing: ".1em", color: "var(--mint)" }}>
-              <span className="nv-live-dot" style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--mint)" }} />
-              NSE · BSE
-            </span>
-          </div>
-          <div
-            style={{
-              display: "grid", gap: 12, gridAutoFlow: "column", gridAutoColumns: "82%",
-              overflowX: "auto", paddingBottom: 4, scrollSnapType: "x mandatory",
-            }}
-            className="lg:!grid-flow-row lg:!grid-cols-3 lg:!auto-cols-auto lg:!overflow-visible"
-          >
-            {p.signals.map((s, i) => (
-              <div
-                key={`${s.ticker}-${i}`}
-                style={{
-                  scrollSnapAlign: "start",
-                  background: "var(--bg-1)", border: "1px solid var(--c-line)", borderRadius: 14,
-                  padding: "16px 16px 14px", boxShadow: "var(--shadow-card)",
-                  display: "flex", flexDirection: "column", minHeight: 160,
-                }}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "30px 0 12px", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+              <p className="nv-eyebrow" style={{ margin: 0 }}>{p.todayOnly ? "Read for you today" : "Read for you · latest"}</p>
+              <span className="nv-mono" style={{ fontSize: 10, color: "var(--c-ink-4)", letterSpacing: ".08em" }}>RANKED BY MATERIALITY</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <button
+                onClick={() => p.setTodayOnly(!p.todayOnly)}
+                data-testid="today-toggle"
+                style={{ background: "none", border: "1px solid var(--line-2)", borderRadius: 999, padding: "4px 11px", fontSize: 11, fontWeight: 600, color: "var(--c-ink-3)", cursor: "pointer" }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                  <span className="nv-serif" style={{ fontSize: 20, color: "var(--c-ink-3)", lineHeight: 1 }}>{`0${s.rank ?? i + 1}`}</span>
-                  <span className="nv-mono nv-num" style={{ fontSize: 11, color: "var(--c-ink)", fontWeight: 500 }}>{s.ticker || "—"}</span>
-                  <span className={`nv-pill ${pill(s.sentiment)}`} style={{ marginLeft: "auto" }}>{titleCase(s.type) || "Filing"}</span>
-                </div>
-                <div className="nv-serif" style={{ fontSize: 16, lineHeight: 1.28, color: "var(--c-ink)", marginBottom: 12, flex: 1 }}>
-                  {s.one || "Material filing — open for the AI insight."}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {s.metric && (
-                    <span className={`nv-mono ${sig(s.sentiment).cls}`} style={{ fontSize: 10, padding: "4px 9px", borderRadius: 999, border: "1px solid" }}>{s.metric}</span>
-                  )}
-                  <span className="nv-mono" style={{ marginLeft: "auto", fontSize: 10, color: "var(--c-ink-4)" }}>{fmtDate(s.date)}</span>
-                </div>
-              </div>
-            ))}
+                {p.todayOnly ? "Show latest" : "Today only"}
+              </button>
+              <span className="nv-mono" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10, letterSpacing: ".1em", color: "var(--mint)" }}>
+                <span className="nv-live-dot" style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--mint)" }} />
+                NSE · BSE
+              </span>
+            </div>
           </div>
+
+          {p.signals.length === 0 ? (
+            <div data-testid="signals-empty" style={{ border: "1px dashed var(--c-line)", borderRadius: 14, padding: "22px 18px", textAlign: "center", background: "var(--bg-1)" }}>
+              <p className="nv-serif" style={{ fontSize: 16, color: "var(--c-ink)", margin: "0 0 4px" }}>Markets quiet so far today</p>
+              <p style={{ fontSize: 12.5, color: "var(--c-ink-4)", margin: 0 }}>
+                New material disclosures appear here as they're filed.{" "}
+                <button onClick={() => p.setTodayOnly(false)} style={{ background: "none", border: 0, color: "var(--mint)", cursor: "pointer", fontWeight: 600, padding: 0 }}>Show the latest instead →</button>
+              </p>
+            </div>
+          ) : (
+            <div
+              style={{ display: "grid", gap: 12, gridAutoFlow: "column", gridAutoColumns: "82%", overflowX: "auto", paddingBottom: 4, scrollSnapType: "x mandatory" }}
+              className="lg:!grid-flow-row lg:!grid-cols-3 lg:!auto-cols-auto lg:!overflow-visible"
+            >
+              {p.signals.map((s, i) => {
+                const mine = isHeld(s.company, s.ticker);
+                return (
+                  <button
+                    key={`${s.ticker}-${i}`}
+                    onClick={() => setDrawer(s)}
+                    data-testid="signal-card"
+                    style={{
+                      scrollSnapAlign: "start", textAlign: "left", cursor: "pointer",
+                      background: "var(--bg-1)", border: `1px solid ${mine ? "var(--mint-line)" : "var(--c-line)"}`, borderRadius: 14,
+                      padding: "16px 16px 14px", boxShadow: "var(--shadow-card)",
+                      display: "flex", flexDirection: "column", minHeight: 178,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <span className="nv-serif" style={{ fontSize: 20, color: "var(--c-ink-3)", lineHeight: 1 }}>{`0${s.rank ?? i + 1}`}</span>
+                      <span className="nv-mono nv-num" style={{ fontSize: 11, color: "var(--c-ink)", fontWeight: 600 }}>{s.ticker || "—"}</span>
+                      <span className={`nv-pill ${pill(s.sentiment)}`} style={{ marginLeft: "auto" }}>{titleCase(s.type) || "Filing"}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 9, minHeight: 16 }}>
+                      <span style={{ fontSize: 11.5, color: "var(--c-ink-4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.company || ""}</span>
+                      {mine && (
+                        <span data-testid="portfolio-badge" style={{ marginLeft: "auto", flex: "none", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5, fontWeight: 700, letterSpacing: ".03em", color: "var(--mint)", background: "var(--mint-soft)", border: "1px solid var(--mint-line)", borderRadius: 999, padding: "2px 7px" }}>
+                          <Bookmark size={10} style={{ fill: "var(--mint)" }} /> IN YOUR PORTFOLIO
+                        </span>
+                      )}
+                    </div>
+                    <div className="nv-serif" style={{ fontSize: 16, lineHeight: 1.3, color: "var(--c-ink)", marginBottom: 12, flex: 1 }}>
+                      {s.one || "Material filing — open for the AI insight."}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {s.metric && (
+                        <span className={`nv-mono ${sig(s.sentiment).cls}`} style={{ fontSize: 10, padding: "4px 9px", borderRadius: 999, border: "1px solid" }}>{s.metric}</span>
+                      )}
+                      <span className="nv-mono" style={{ fontSize: 10, color: "var(--c-ink-4)" }}>{fmtDate(s.date)}</span>
+                      <span className="nv-mono" style={{ marginLeft: "auto", fontSize: 10, color: "var(--mint)", fontWeight: 600 }}>Open →</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </>
       )}
 
@@ -840,6 +907,83 @@ function FeedScreen(p: FeedProps) {
           <span className="nv-mono" style={{ fontSize: 12, color: "var(--c-ink-3)" }}>{p.page} / {p.pageCount}</span>
           <button onClick={() => p.setPage((x) => Math.min(p.pageCount, x + 1))} disabled={p.page >= p.pageCount} className="pg" aria-label="Next page"><ChevronRight size={15} /></button>
         </div>
+      )}
+
+      {/* ── detail drawer (in-page slide-over) ── */}
+      {drawer && (
+        <>
+          <div onClick={() => setDrawer(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.42)", zIndex: 60 }} />
+          <aside
+            data-testid="signal-drawer"
+            style={{
+              position: "fixed", top: 0, right: 0, bottom: 0, width: "min(560px, 94vw)",
+              background: "var(--bg-1)", borderLeft: "1px solid var(--c-line)", boxShadow: "var(--shadow-pop)",
+              zIndex: 61, display: "flex", flexDirection: "column",
+            }}
+          >
+            <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--c-line)", display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, flexWrap: "wrap" }}>
+                  <span className="nv-mono nv-num" style={{ fontSize: 12, color: "var(--c-ink)", fontWeight: 600 }}>{drawer.ticker || "—"}</span>
+                  <span className={`nv-pill ${pill(drawer.sentiment)}`}>{titleCase(drawer.type) || "Filing"}</span>
+                  {isHeld(drawer.company, drawer.ticker) && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5, fontWeight: 700, color: "var(--mint)", background: "var(--mint-soft)", border: "1px solid var(--mint-line)", borderRadius: 999, padding: "2px 7px" }}>
+                      <Bookmark size={10} style={{ fill: "var(--mint)" }} /> IN YOUR PORTFOLIO
+                    </span>
+                  )}
+                </div>
+                <div className="nv-serif" style={{ fontSize: 18, color: "var(--c-ink)", lineHeight: 1.25 }}>{drawer.company || drawer.ticker}</div>
+                <div className="nv-mono" style={{ fontSize: 10.5, color: "var(--c-ink-4)", marginTop: 3 }}>{fmtDate(drawer.date)}</div>
+              </div>
+              <button onClick={() => setDrawer(null)} aria-label="Close" className="rail-ico" style={{ width: 30, height: 30, borderRadius: 999, flex: "none" }}><X size={16} /></button>
+            </div>
+
+            <div style={{ padding: "16px 18px", overflowY: "auto", flex: 1 }}>
+              {isHeld(drawer.company, drawer.ticker) && (
+                <div style={{ background: "var(--mint-soft)", border: "1px solid var(--mint-line)", borderRadius: 10, padding: "10px 12px", marginBottom: 14, fontSize: 12.5, color: "var(--c-ink-2)" }}>
+                  You hold <b>{drawer.ticker}</b> — this filing may affect your position.
+                </div>
+              )}
+              {drawer.one && <p className="nv-serif" style={{ fontSize: 16, lineHeight: 1.4, color: "var(--c-ink)", margin: "0 0 12px" }}>{drawer.one}</p>}
+              {drawer.metric && <span className={`nv-mono ${sig(drawer.sentiment).cls}`} style={{ fontSize: 11, padding: "5px 10px", borderRadius: 999, border: "1px solid" }}>{drawer.metric}</span>}
+
+              <div style={{ marginTop: 18 }}>
+                <p className="nv-eyebrow" style={{ margin: "0 0 8px" }}>AI insight</p>
+                {drawerLoading ? (
+                  <p style={{ fontSize: 12.5, color: "var(--c-ink-4)" }}><Loader2 size={13} className="animate-spin" style={{ display: "inline", marginRight: 6, verticalAlign: "middle" }} /> Reading the filing…</p>
+                ) : drawerInsight ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+                    {(drawerInsight.sections || []).map((sec, si) => (
+                      <div key={si}>
+                        <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: "var(--c-ink-3)", margin: "0 0 5px" }}>{sec.h}</p>
+                        <ul style={{ margin: 0, paddingLeft: 16 }}>
+                          {(sec.items || []).map((it, ii) => (
+                            <li key={ii} style={{ fontSize: 13, color: "var(--c-ink-2)", lineHeight: 1.45, marginBottom: 3 }}>
+                              {it}
+                              {sec.cite_url && ii === 0 ? <> <a href={sec.cite_url} target="_blank" rel="noreferrer" style={{ color: "var(--mint)", fontSize: 11 }}>{sec.cite || "source"}</a></> : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                    {(!drawerInsight.sections || drawerInsight.sections.length === 0) && drawerInsight.one && (
+                      <p style={{ fontSize: 13, color: "var(--c-ink-2)", lineHeight: 1.45 }}>{drawerInsight.one}</p>
+                    )}
+                    {drawerInsight.disclaimer && <p style={{ fontSize: 10.5, color: "var(--c-ink-4)", marginTop: 4 }}>{drawerInsight.disclaimer}</p>}
+                  </div>
+                ) : (
+                  <p style={{ fontSize: 12.5, color: "var(--c-ink-4)" }}>No AI insight generated for this filing yet.</p>
+                )}
+              </div>
+
+              {drawerInsight?.sourceUrl && (
+                <a href={drawerInsight.sourceUrl} target="_blank" rel="noreferrer" style={{ marginTop: 18, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--mint)", fontWeight: 600 }}>
+                  Open source PDF <ExternalLink size={13} />
+                </a>
+              )}
+            </div>
+          </aside>
+        </>
       )}
     </div>
   );
@@ -1073,6 +1217,7 @@ function FilingRowItem({
           </div>
         </div>
       )}
+
     </div>
   );
 }

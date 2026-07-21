@@ -41,6 +41,8 @@ export type FeedResp = z.infer<typeof FeedRespC>;
 
 export const SignalC = z.object({
   rank: z.number().optional(),
+  id: z.string().nullable().optional(),
+  company: z.string().nullable().optional(),
   ticker: z.string().nullable().optional(),
   type: z.string().nullable().optional(),
   one: z.string().nullable().optional(),
@@ -149,12 +151,28 @@ export const filingsService = {
     return FeedRespC.parse(res.data);
   },
 
-  async getSignals(days = 1): Promise<Signal[]> {
-    const res = await http({ path: "/api/filings/signals", query: { days } });
+  async getSignals(days = 1, todayOnly = true): Promise<Signal[]> {
+    const res = await http({ path: "/api/filings/signals", query: { days, today_only: todayOnly } });
     const parsed = z
       .object({ ok: z.boolean().optional(), signals: z.array(SignalC).default([]) })
       .parse(res.data);
     return parsed.signals;
+  },
+
+  /** The user's held companies as normalized match keys (names + ISINs + symbols),
+   *  for the 'In your portfolio' badge. Returns empty sets when not signed in / no holdings. */
+  async getPortfolioHeld(): Promise<{ names: string[]; isins: string[]; symbols: string[] }> {
+    try {
+      const res = await http({ path: "/api/filings/portfolio-held" });
+      const parsed = z.object({
+        names: z.array(z.string()).default([]),
+        isins: z.array(z.string()).default([]),
+        symbols: z.array(z.string()).default([]),
+      }).parse(res.data);
+      return parsed;
+    } catch {
+      return { names: [], isins: [], symbols: [] };
+    }
   },
 
   /** Returns the generated insight, or null when none exists yet (404 no_insight_yet). */
