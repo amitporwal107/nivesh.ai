@@ -437,7 +437,7 @@ async def thematic_commentary(
     import asyncio
     from nidp.services.daas_api import thematic_search as _ts
 
-    tsq, theme = await asyncio.to_thread(_ts.classify_theme, q)
+    tsq, theme, variations = await asyncio.to_thread(_ts.classify_theme, q)
     if not tsq:
         return envelope([], **page, extra={"query": q, "theme": theme, "note": "no searchable terms"})
 
@@ -458,7 +458,7 @@ async def thematic_commentary(
 
     window = flagged[page["offset"]: page["offset"] + page["limit"]]
     return envelope(window, **page, extra={
-        "query": q, "theme": theme, "curated": used_llm,
+        "query": q, "theme": theme, "variations": variations, "curated": used_llm,
         "candidates_scanned": len(candidates), "matches": len(flagged),
     })
 

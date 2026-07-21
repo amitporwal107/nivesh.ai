@@ -83,21 +83,42 @@ def _build_tsquery(pivot: List[str], context: List[str]) -> str:
     return f"({p or c})" if (p or c) else ""
 
 
+def _build_tsquery_multi(variations: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
+    """OR the per-variation (pivot) & (context) clauses into ONE tsquery, so a single GIN
+    scan covers every semantic variation of the query (we do not miss a company that phrased
+    the theme differently). Returns (tsquery, human-readable variation labels)."""
+    clauses: List[str] = []
+    labels: List[str] = []
+    for v in variations or []:
+        cl = _build_tsquery(v.get("pivot") or [], v.get("context") or [])
+        if cl:
+            clauses.append(f"({cl})")
+            piv = "/".join(v.get("pivot") or []) or "-"
+            ctx = "/".join(v.get("context") or []) or "-"
+            labels.append(f"{piv} ~ {ctx}")
+    return " | ".join(clauses), labels
+
+
 _CLASSIFY_SYS = (
-    "You convert a user's thematic question about Indian-listed-company disclosures into "
-    "keyword sets for a full-text search over filing text. Return STRICT JSON: "
-    '{"pivot": [..], "context": [..], "theme": ".."}. '
-    "pivot = the core subject noun(s) that MUST appear (e.g. for margin pressure: "
-    '["margin","profitability"]). context = words signalling the angle/qualifier '
-    '(e.g. ["pressure","inflation","cost","headwind","squeeze","rising","input","hike"]). '
-    "Use singular stems, lowercase, no phrases. theme = a short human label of what to "
-    'look for (e.g. "management flagging margin pressure / rising input costs"). '
-    "If the query names no clear subject, put the salient nouns in pivot and leave context empty."
+    "You expand a user's thematic question about Indian-listed-company disclosures into up to "
+    "5 SEMANTIC VARIATIONS (same intent, DIFFERENT vocabulary) so a full-text search over "
+    "filing text does not miss a company that phrases the theme differently. Return STRICT "
+    'JSON: {"theme": "..", "variations": [{"pivot": [..], "context": [..]}, ...]}. '
+    "For EACH variation: pivot = the core subject noun(s) that MUST appear; context = words "
+    "signalling the angle/qualifier. Singular stems, lowercase, no phrases. Cover synonyms and "
+    "related framings — e.g. for margin pressure: {pivot:[margin],context:[pressure]}, "
+    "{pivot:[margin,gross],context:[compression,decline]}, "
+    "{pivot:[input,cost],context:[inflation,rising]}, "
+    "{pivot:[raw,material],context:[price,increase]}, "
+    "{pivot:[profitability],context:[headwind,squeeze]}. "
+    "Give 3-5 variations (at least 2 if the query has any clear subject). theme = short human label."
 )
 
 
-def classify_theme(q: str) -> Tuple[str, str]:
-    """Query → (tsquery_string, theme_label). Heuristic fallback if the LLM is absent."""
+def classify_theme(q: str) -> Tuple[str, str, List[str]]:
+    """Query → (combined_tsquery, theme_label, variation_labels). The tsquery ORs up to 5
+    semantic variations so different phrasings are all searched in one scan. Heuristic
+    single-query fallback if the LLM is unavailable."""
     client = _openai_client()
     if client is not None:
         try:
@@ -111,10 +132,10 @@ def classify_theme(q: str) -> Tuple[str, str]:
                 ],
             )
             data = json.loads(resp.choices[0].message.content or "{}")
-            tsq = _build_tsquery(data.get("pivot") or [], data.get("context") or [])
+            tsq, labels = _build_tsquery_multi(data.get("variations") or [])
             theme = (data.get("theme") or q).strip()[:200]
             if tsq:
-                return tsq, theme
+                return tsq, theme, labels
         except Exception as exc:  # noqa: BLE001
             logger.warning("thematic: classify LLM failed (%s) — heuristic fallback", exc)
     # Heuristic: OR the query's content lexemes (drop short stopwords).
@@ -123,7 +144,7 @@ def classify_theme(q: str) -> Tuple[str, str]:
             "this", "that", "any", "recent", "quarter", "q1", "q2", "q3", "q4", "fy",
             "concall", "concalls", "call", "calls"}
     toks = [t for t in re.findall(r"[a-z]+", q.lower()) if len(t) > 2 and t not in stop]
-    return _build_tsquery(toks, []), q.strip()[:200]
+    return _build_tsquery(toks, []), q.strip()[:200], []
 
 
 # ── Step 2: candidate retrieval (GIN-indexed, deduped by company) ───────────
