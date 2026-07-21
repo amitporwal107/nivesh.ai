@@ -288,9 +288,15 @@ async def intelligence_events_search(
              WHERE a.filed_at >= now() - interval '30 days'
                AND a.event_category IS NOT NULL
                AND a.event_category NOT IN ('other', 'regulatory')
-               AND ( to_tsvector('simple',
+               -- 'english' (not 'simple') so the query STEMS: a natural-language ask
+               -- like "Dividends declared this quarter" -> {dividend, declar, quarter}
+               -- matches a subject "Declaration of Dividend", and "biggest orders this
+               -- week" -> {order} matches "Bagging/Receiving of orders". 'simple' only
+               -- lowercases (no stemming), so the plural/verb forms users actually type
+               -- never matched and every thematic ask returned zero.
+               AND ( to_tsvector('english',
                         coalesce(a.subject,'') || ' ' || coalesce(replace(a.event_category,'_',' '),''))
-                        @@ plainto_tsquery('simple', $1)
+                        @@ plainto_tsquery('english', $1)
                      OR a.event_category = lower(btrim($1)) )
              ORDER BY (a.impact_score = 'high') DESC NULLS LAST, a.filed_at DESC
              LIMIT $2 OFFSET $3
