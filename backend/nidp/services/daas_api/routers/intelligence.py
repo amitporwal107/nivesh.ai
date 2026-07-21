@@ -426,6 +426,8 @@ async def thematic_commentary(
     q: str = Query(..., min_length=3, max_length=200),
     depth: int = Query(150, ge=20, le=1500,
                        description="candidate companies the LLM reads (deeper = better recall, more latency)"),
+    show_all: bool = Query(False, alias="all",
+                           description="true = the full keyword-matched company list (paginated), skipping LLM curation"),
     page: Dict[str, int] = Depends(page_params),
 ) -> Dict[str, Any]:
     """Precise cross-company thematic commentary. A wide keyword net over the chunk
@@ -454,10 +456,15 @@ async def thematic_commentary(
     ) if batches else []
 
     used_llm = any(r is not None for r in results)
-    rows_out = [row for r in results if r for row in r] if used_llm else candidates
+    # show_all=true (or LLM unavailable) → the full keyword-matched list, not just the
+    # LLM-curated flaggers. Either way, collapse to one row per company (a company can
+    # appear in several passages), keeping its strongest (highest-intensity) hit.
+    curated = used_llm and not show_all
+    rows_out = ([row for r in results if r for row in r]
+                if curated else candidates)
+    if curated:  # strongest passage first so dedup keeps it
+        rows_out = sorted(rows_out, key=lambda r: (r.get("intensity") or 0), reverse=True)
 
-    # A company can appear in more than one passage (we hand the LLM its top-N chunks) —
-    # collapse to one row per company, keeping the first (best-ranked) hit.
     flagged: List[Dict[str, Any]] = []
     seen: set = set()
     for row in rows_out:
@@ -468,10 +475,26 @@ async def thematic_commentary(
             seen.add(key)
             flagged.append(row)
 
+    # Ranking: market-cap tier first (large -> mid -> small -> micro -> unknown) UNLESS the
+    # user explicitly asked for a segment, then intensity (curated) / breadth (show-all)
+    # within tier. "Explicitly asked" = the query names a cap segment.
+    ql = q.lower()
+    only_tier = ("LARGE_CAP" if re.search(r"large[- ]?cap|bluechip|blue chip", ql)
+                 else "MID_CAP" if re.search(r"mid[- ]?cap", ql)
+                 else "SMALL_CAP" if re.search(r"small[- ]?cap", ql)
+                 else "MICRO_CAP" if re.search(r"micro[- ]?cap", ql)
+                 else None)
+    if only_tier:
+        flagged = [r for r in flagged if (r.get("market_cap_bucket") or "").upper() == only_tier]
+    flagged.sort(key=lambda r: (
+        _ts.cap_rank(r.get("market_cap_bucket")),
+        -(r.get("intensity") or 0) if curated else -(r.get("hits") or 0),
+    ))
+
     window = flagged[page["offset"]: page["offset"] + page["limit"]]
     return envelope(window, **page, extra={
-        "query": q, "theme": theme, "variations": variations, "curated": used_llm,
-        "candidates_scanned": len(candidates), "matches": len(flagged),
+        "query": q, "theme": theme, "variations": variations, "curated": curated,
+        "cap_filter": only_tier, "candidates_scanned": len(candidates), "matches": len(flagged),
     })
 
 

@@ -161,6 +161,15 @@ def classify_theme(q: str) -> Tuple[str, str, List[str]]:
 # while its actual margin flag sits in a 2nd chunk). announcement_attachment excluded
 # (newspaper/regulatory noise). $1 tsquery · $2 window-days · $3 company limit.
 _PASSAGES_PER_CO = int(os.environ.get("THEMATIC_PASSAGES_PER_CO", "2"))
+
+# Market-cap tier ordering (large first, then mid, small, micro; unknown last) — the
+# default ranking after intensity is applied WITHIN each tier. Overridable when the user
+# explicitly asks for a segment (see the endpoint's cap-preference detection).
+_CAP_ORDER = {"LARGE_CAP": 0, "MID_CAP": 1, "SMALL_CAP": 2, "MICRO_CAP": 3}
+
+
+def cap_rank(bucket: Optional[str]) -> int:
+    return _CAP_ORDER.get((bucket or "").upper(), 4)
 CANDIDATE_SQL = """
     WITH q AS (SELECT $1::tsquery AS tsq),
     matched AS (
@@ -170,9 +179,11 @@ CANDIDATE_SQL = """
                  '[^a-z0-9]', '', 'g') AS norm,
                d.company_name, d.ticker_symbol, d.doc_type, d.filed_at, d.source_url,
                c.text, c.page_start, c.page_end,
-               ts_rank(to_tsvector('english', c.text), q.tsq) AS rk
+               ts_rank(to_tsvector('english', c.text), q.tsq) AS rk,
+               sc.market_cap_bucket
           FROM nidp.document_chunks c
           JOIN nidp.documents d ON d.doc_id = c.doc_id, q
+          LEFT JOIN nidp.v_v3_stock_scores_latest sc ON sc.symbol = d.ticker_symbol
          WHERE d.filed_at >= now() - make_interval(days => $2)
            AND d.doc_type IN ('concall_transcript','investor_presentation','annual_report','financial_results','press_release')
            AND to_tsvector('english', c.text) @@ q.tsq
@@ -185,7 +196,7 @@ CANDIDATE_SQL = """
           FROM matched m JOIN topco t USING (norm)
     )
     SELECT company_name, ticker_symbol, doc_type, filed_at, source_url,
-           text, page_start, page_end, hits
+           text, page_start, page_end, hits, market_cap_bucket
       FROM ranked
      WHERE prn <= %d
      ORDER BY hits DESC, rk DESC
@@ -197,10 +208,16 @@ _EXTRACT_SYS = (
     "You are given a THEME and a numbered list of passages from Indian-listed-company "
     "filings (concall transcripts, presentations, annual reports). Identify ONLY the "
     "companies where MANAGEMENT genuinely expresses / flags the theme — not passages that "
-    "merely contain the words, and not analyst questions. For each qualifying company return "
-    "the company name, the passage number, and a one-sentence paraphrase of what management "
-    'said. Return STRICT JSON: {"matches":[{"company":"..","n":<int>,"statement":".."}]}. '
-    "If none qualify, return an empty list. Never invent companies or statements."
+    "merely contain the words, and not analyst questions. For each qualifying company return: "
+    "company, n (the passage number), statement (a one-sentence paraphrase of what management "
+    "said), metric (the single most telling NUMBER management cited about the theme — e.g. "
+    "'input cost +15%', 'gross margin -300bps', 'raw material Rs.1.50/sq.ft'; null if none), "
+    "and intensity (integer 0-100 = how STRONGLY they flagged it: weight the MAGNITUDE of any "
+    "number cited AND the strength of the language — sharp/steep/significant/severe/"
+    "unprecedented/distress = high; slight/marginal/modest/manageable = low; no number + mild "
+    'wording = low). Return STRICT JSON: {"matches":[{"company":"..","n":<int>,"statement":".."'
+    ',"metric":"..","intensity":<int>}]}. If none qualify, return an empty list. Never invent '
+    "companies, numbers, or statements."
 )
 
 
@@ -237,5 +254,10 @@ def extract_flagged(theme: str, candidates: List[Dict[str, Any]]) -> Optional[Li
             continue
         row = dict(candidates[n - 1])
         row["statement"] = (m.get("statement") or "").strip()
+        row["metric"] = (m.get("metric") or None) or None
+        try:
+            row["intensity"] = max(0, min(100, int(m.get("intensity"))))
+        except (TypeError, ValueError):
+            row["intensity"] = 0
         out.append(row)
     return out
