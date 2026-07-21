@@ -112,6 +112,11 @@ _NAME_STOPWORDS: Set[str] = {
 _WORD_RE = re.compile(r"[a-z0-9&]+")
 _TICKER_RE = re.compile(r"\b[A-Z][A-Z0-9&]{1,9}\b")
 
+# Uppercase tokens that are period / fiscal markers, not tickers: Q1, H2, FY27,
+# CY26, Q1FY27, bare years (2026). These appear constantly in filing questions
+# ("margin in Q1 FY27") and must never pass through as a symbol.
+_PERIOD_TOKEN_RE = re.compile(r"^(Q[1-4]|H[12]|FY\d{2,4}|CY\d{2,4}|Q[1-4]FY\d{2,4}|\d{2,4})$")
+
 
 def _norm_tokens(text: str) -> List[str]:
     """Lowercase, keep alphanumerics + '&', tokens of length ≥ 1."""
@@ -191,7 +196,7 @@ def resolve_symbol(text: str) -> Resolution:
 
     # 5. pass-through: an uppercase ticker-shaped token not in the curated list
     for tok in upper_tokens:
-        if tok not in _PASSTHROUGH_STOPWORDS:
+        if tok not in _PASSTHROUGH_STOPWORDS and not _PERIOD_TOKEN_RE.match(tok):
             return Resolution(symbol=_TICKER_RENAMES.get(tok, tok), display_name=tok, source="passthrough")
 
     return Resolution()

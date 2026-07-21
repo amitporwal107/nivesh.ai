@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -243,12 +244,42 @@ def _shape_commentary(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# Categorise the query to the artifact type(s) worth searching. The corpus stores
+# each filing under a doc_type; a commentary/thematic question should search ONLY the
+# relevant category, not the ~23k newspaper/regulatory 'announcement_attachment'
+# chunks that otherwise dominate the ranking. First explicit-intent match wins; the
+# default is the three artifacts where management commentary actually lives.
+_ARTIFACT_INTENT = [
+    (re.compile(r"concall|con-call|conference call|earnings call|analyst call|transcript|"
+                r"management (?:said|commentary|comment|remark|guidance|view)|on the (?:call|concall)", re.I),
+     "concall_transcript,investor_presentation"),
+    (re.compile(r"investor presentation|presentation|investor deck|\bdeck\b|\bslides?\b", re.I),
+     "investor_presentation"),
+    (re.compile(r"annual report|annual-report|integrated report|\bmd&a\b|director'?s report", re.I),
+     "annual_report"),
+    (re.compile(r"quarterly results?|\bresults\b|revenue|topline|bottom ?line|\bpat\b|net profit|ebitda|\byoy\b|\bqoq\b", re.I),
+     "financial_results,concall_transcript"),
+]
+_DEFAULT_COMMENTARY_TYPES = "concall_transcript,investor_presentation,annual_report"
+
+
+def _classify_artifacts(query: str) -> str:
+    """Free-text query → comma-separated doc_type set for /documents/search."""
+    for rx, types in _ARTIFACT_INTENT:
+        if rx.search(query or ""):
+            return types
+    return _DEFAULT_COMMENTARY_TYPES
+
+
 async def _fetch_commentary(q: str, symbol: Optional[str], limit: int = 5) -> List[Dict[str, Any]]:
     """Retrieve management-commentary passages (concall transcripts / investor
-    presentations / annual reports) matching the query — DAAS /v1/documents/search.
+    presentations / annual reports) matching the query — DAAS /v1/documents/search,
+    scoped to the artifact category the query is about (see _classify_artifacts) so
+    newspaper/regulatory attachments don't crowd out real commentary.
     Returns [] when the corpus has no match (or isn't populated yet)."""
+    doc_types = _classify_artifacts(q)
     try:
-        data = await daas_client.search_documents(q=q, symbol=symbol, limit=limit)
+        data = await daas_client.search_documents(q=q, symbol=symbol, doc_type=doc_types, limit=limit)
     except Exception as exc:  # noqa: BLE001
         logger.warning("commentary search failed for %r: %s", q, exc)
         return []

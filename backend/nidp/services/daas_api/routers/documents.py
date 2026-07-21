@@ -154,11 +154,18 @@ SELECT c.chunk_id, c.doc_id, c.chunk_index, c.text,
 async def documents_search(
     q: str = Query(..., min_length=2, max_length=256, description="free-text query"),
     symbol: Optional[str] = Query(None, description="restrict to one ticker"),
-    doc_type: Optional[str] = Query(None, description="announcement_attachment | concall_transcript | investor_presentation | annual_report"),
+    doc_type: Optional[str] = Query(None, description="one type, or a comma-separated set: concall_transcript,investor_presentation,annual_report,financial_results,announcement_attachment"),
     page: Dict[str, int] = Depends(page_params),
 ) -> Dict[str, Any]:
     sym = normalise_symbol(symbol) if symbol else None
-    doc_types: Optional[List[str]] = [doc_type] if doc_type else None  # None → all types
+    # `doc_type` accepts a single value or a comma-separated set so the copilot can
+    # scope a thematic query to just the relevant artifact category (e.g. commentary
+    # → concall_transcript,investor_presentation,annual_report) — otherwise the ~23k
+    # newspaper/regulatory 'announcement_attachment' chunks drown out the 292 concall
+    # transcripts + 487 presentations. None → all types (unchanged default).
+    doc_types: Optional[List[str]] = (
+        [d.strip() for d in doc_type.split(",") if d.strip()] if doc_type else None
+    )
 
     # Embed the query for the vector leg (graceful: None → FTS-only path).
     qvec: Optional[List[float]] = None
