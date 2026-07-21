@@ -1,8 +1,9 @@
 """Intelligence-layer APIs over ref/dq/features/graph/events/analytics schemas."""
 from __future__ import annotations
 
+import re
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
@@ -244,6 +245,95 @@ async def intelligence_events(
     return envelope([row_to_dict(r) for r in rows], **page)
 
 
+# ── Sector resolution via the master tables ─────────────────────────────────
+# A thematic ask often names a SECTOR ("how are IT companies doing", "PSU banks",
+# "pharma M&A") rather than one ticker. We resolve the sector to its constituents
+# from nidp.sector_master — the golden table that carries {isin, nse_symbol,
+# canonical name, sector} — then pull those companies' filings from
+# corporate_announcements. Join key is ISIN (NSE filings carry it 100%); BSE
+# filings carry neither ISIN nor ticker, so they fall back to a canonical
+# (normalised) company-name match. Values below are the exact sector labels in
+# nidp.sector_master; phrases are ordered most-specific-first so
+# "construction materials"/"consumer durables" win over a bare "construction"/
+# "consumer". 'IT' is handled separately (uppercase token / explicit "IT sector")
+# so the pronoun "it" never triggers the Information-Technology sector.
+_SECTOR_SYNONYMS: List[Tuple[str, List[str]]] = [
+    ("Information Technology", ["information technology", "infotech", "software", "it services"]),
+    ("Healthcare", ["healthcare", "health care", "pharma", "pharmaceutical", "drugmaker", "hospital", "diagnostic"]),
+    ("Finance", ["banking", "bank", "banks", "nbfc", "financial services", "financials", "lender", "lending", "insurance", "insurer"]),
+    ("Automobile", ["automobile", "automotive", "auto ancillary", "two-wheeler", "carmaker", "auto sector", "auto stocks", "autos"]),
+    ("FMCG", ["fmcg", "consumer staples", "consumer goods"]),
+    ("Metals", ["metals", "metal", "steel", "mining", "aluminium", "zinc", "copper"]),
+    ("Power", ["power sector", "power compan", "power stock", "power utilit", "electricity", "renewable energy", "thermal power"]),
+    ("Oil Gas", ["oil & gas", "oil and gas", "petroleum", "refiner", "refinery", "upstream"]),
+    ("Chemicals", ["chemical", "chemicals", "agrochem", "specialty chem"]),
+    ("Realty", ["realty", "real estate", "property develop", "housing develop"]),
+    ("Telecommunication", ["telecom", "telecommunication", "telco"]),
+    ("Construction Materials", ["cement"]),
+    ("Capital Goods", ["capital goods", "engineering", "machinery", "defence", "defense"]),
+    ("Consumer Durables", ["consumer durable", "durables", "appliance"]),
+    ("Consumer Services", ["consumer services", "hospitality", "hotels", "airlines", "aviation"]),
+    ("Construction", ["construction", "infrastructure", "epc"]),
+    ("Textiles", ["textile", "apparel", "garment"]),
+    ("Media", ["media", "broadcast", "entertainment"]),
+]
+
+
+def _detect_sector(q: str) -> Optional[str]:
+    """Map a free-text query to a canonical nidp.sector_master sector, else None."""
+    if re.search(r"\bIT\b", q) or re.search(r"\bit (sector|compan|stock|space|firm|player|major)", q.lower()):
+        return "Information Technology"
+    ql = q.lower()
+    for sector, kws in _SECTOR_SYNONYMS:
+        for kw in kws:
+            if re.search(r"(?<![a-z])" + re.escape(kw) + r"(?![a-z])", ql):
+                return sector
+    return None
+
+
+_SECTOR_EVENTS_SQL = """
+    WITH secs AS (
+        SELECT isin,
+               lower(regexp_replace(company_name, '[^a-z0-9]', '', 'gi')) AS norm
+          FROM nidp.sector_master
+         WHERE sector = $1 AND isin IS NOT NULL AND isin <> ''
+    )
+    SELECT a.announcement_id            AS doc_id,
+           a.company_name               AS entity_name,
+           a.event_category             AS event_type,
+           a.event_category,
+           a.filed_at                   AS event_date,
+           a.filed_at,
+           a.subject                    AS headline,
+           a.subject,
+           a.ticker_symbol,
+           a.impact_score,
+           s.signal_json->>'summary'        AS summary,
+           s.signal_json->'headline_metric' AS headline_metric,
+           d.source_url
+      FROM nidp.corporate_announcements a
+      JOIN secs
+        ON ( (a.isin IS NOT NULL AND a.isin <> '' AND a.isin = secs.isin)
+             OR lower(regexp_replace(a.company_name, '[^a-z0-9]', '', 'gi')) = secs.norm )
+      LEFT JOIN nidp.corporate_event_signals s
+             ON s.signal_type = 'filing_insight'
+            AND s.announcement_ref    = a.announcement_id
+            AND s.announcement_source = a.source
+      LEFT JOIN LATERAL (
+            SELECT dd.source_url FROM nidp.documents dd
+             WHERE dd.announcement_id = a.announcement_id
+               AND dd.announcement_source = a.source
+               AND dd.parse_status = 'parsed'
+             ORDER BY dd.filed_at DESC NULLS LAST LIMIT 1
+          ) d ON TRUE
+     WHERE a.filed_at >= now() - interval '30 days'
+       AND a.event_category IS NOT NULL
+       AND a.event_category NOT IN ('other', 'regulatory')
+     ORDER BY (a.impact_score = 'high') DESC NULLS LAST, a.filed_at DESC
+     LIMIT $2 OFFSET $3
+"""
+
+
 @router.get("/events/search", summary="Search normalized intelligence events")
 async def intelligence_events_search(
     q: str = Query(..., min_length=1, max_length=128),
@@ -255,6 +345,18 @@ async def intelligence_events_search(
     # (with AI event_category + the filing_insight summary/metric) live in
     # nidp.corporate_announcements. Query THAT.
     #
+    # A sector query ("how are IT companies doing", "pharma M&A") resolves to its
+    # constituents via nidp.sector_master (ISIN + canonical name) and returns their
+    # material filings — see _SECTOR_EVENTS_SQL. This is the golden-data path the
+    # copilot relies on for cross-company sector asks.
+    sector = _detect_sector(q)
+    if sector:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(_SECTOR_EVENTS_SQL, sector, page["limit"], page["offset"])
+        return envelope([row_to_dict(r) for r in rows], **page, extra={"query": q, "sector": sector})
+
+    # Otherwise, free-text match over the announcement subject + category.
     # Matching: plainto_tsquery ANDs every term ('dividend' & 'declar' & 'quarter'),
     # so a natural-language ask like "Dividends declared this quarter" matched NO
     # subject (a filing reads just "Dividend" / "Record Date" — it has 'dividend'
