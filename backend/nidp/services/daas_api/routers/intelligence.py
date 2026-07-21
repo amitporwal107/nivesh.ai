@@ -454,7 +454,19 @@ async def thematic_commentary(
     ) if batches else []
 
     used_llm = any(r is not None for r in results)
-    flagged = [row for r in results if r for row in r] if used_llm else candidates
+    rows_out = [row for r in results if r for row in r] if used_llm else candidates
+
+    # A company can appear in more than one passage (we hand the LLM its top-N chunks) —
+    # collapse to one row per company, keeping the first (best-ranked) hit.
+    flagged: List[Dict[str, Any]] = []
+    seen: set = set()
+    for row in rows_out:
+        key = re.sub(r"[^a-z0-9]", "",
+                     re.sub(r"\b(limited|ltd|corporation|corp|company|co|pvt|private)\b", "",
+                            (row.get("company_name") or "").lower()))
+        if key and key not in seen:
+            seen.add(key)
+            flagged.append(row)
 
     window = flagged[page["offset"]: page["offset"] + page["limit"]]
     return envelope(window, **page, extra={

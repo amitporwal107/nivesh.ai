@@ -152,9 +152,12 @@ def classify_theme(q: str) -> Tuple[str, str, List[str]]:
 # single dense chunk's ts_rank — a company that genuinely discusses margin pressure
 # hits the theme across many chunks, whereas ts_rank rewards keyword repetition in one.
 # Dedup on a suffix-stripped name so "Elecon … Ltd" and "Elecon … Limited" (and the
-# NSE/BSE name variants) count as ONE company. Return each company's single best
-# passage (highest ts_rank) for the LLM to read. announcement_attachment excluded
-# (newspaper/regulatory noise). $1 tsquery · $2 window-days · $3 candidate limit.
+# NSE/BSE name variants) count as ONE company. Rank companies by breadth of discussion
+# (hit count), take the top $3, and hand the LLM the top _PASSAGES_PER_CO passages of
+# EACH — one chunk isn't enough (a company's best-ranked chunk can be a product blurb
+# while its actual margin flag sits in a 2nd chunk). announcement_attachment excluded
+# (newspaper/regulatory noise). $1 tsquery · $2 window-days · $3 company limit.
+_PASSAGES_PER_CO = int(os.environ.get("THEMATIC_PASSAGES_PER_CO", "2"))
 CANDIDATE_SQL = """
     WITH q AS (SELECT $1::tsquery AS tsq),
     matched AS (
@@ -171,14 +174,19 @@ CANDIDATE_SQL = """
            AND d.doc_type IN ('concall_transcript','investor_presentation','annual_report','financial_results','press_release')
            AND to_tsvector('english', c.text) @@ q.tsq
     ),
-    agg  AS (SELECT norm, count(*) AS hits FROM matched GROUP BY norm),
-    best AS (SELECT DISTINCT ON (norm) * FROM matched ORDER BY norm, rk DESC)
-    SELECT b.company_name, b.ticker_symbol, b.doc_type, b.filed_at, b.source_url,
-           b.text, b.page_start, b.page_end, a.hits
-      FROM best b JOIN agg a USING (norm)
-     ORDER BY a.hits DESC, b.rk DESC
-     LIMIT $3
-"""
+    agg   AS (SELECT norm, count(*) AS hits FROM matched GROUP BY norm),
+    topco AS (SELECT norm, hits FROM agg ORDER BY hits DESC LIMIT $3),
+    ranked AS (
+        SELECT m.*, t.hits,
+               row_number() OVER (PARTITION BY m.norm ORDER BY m.rk DESC) AS prn
+          FROM matched m JOIN topco t USING (norm)
+    )
+    SELECT company_name, ticker_symbol, doc_type, filed_at, source_url,
+           text, page_start, page_end, hits
+      FROM ranked
+     WHERE prn <= %d
+     ORDER BY hits DESC, rk DESC
+""" % _PASSAGES_PER_CO
 
 
 # ── Step 3: LLM extraction (keep only genuine flaggers) ─────────────────────
