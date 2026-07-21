@@ -253,13 +253,25 @@ async def intelligence_events_search(
     # populated — 0 rows — so this endpoint returned nothing for every thematic
     # query while the copilot's cross-company "Ask" leans on it. The real filings
     # (with AI event_category + the filing_insight summary/metric) live in
-    # nidp.corporate_announcements. Query THAT: full-text over subject + category
-    # so "dividends declared this quarter" / "biggest orders" match, joined to the
-    # insight for a summary and headline number, ranked material-and-recent.
+    # nidp.corporate_announcements. Query THAT.
+    #
+    # Matching: plainto_tsquery ANDs every term ('dividend' & 'declar' & 'quarter'),
+    # so a natural-language ask like "Dividends declared this quarter" matched NO
+    # subject (a filing reads just "Dividend" / "Record Date" — it has 'dividend'
+    # but not 'declar' AND 'quarter'). Users type intent as a phrase, not the exact
+    # subject line, so AND-of-all-terms is wrong here. Rewrite the AND-query to an
+    # OR-query (share ANY stemmed term) via replace(::text,' & ',' | '), rank by
+    # ts_rank so the filings hitting the most terms surface first, then break ties
+    # material-and-recent. 'english' config stems (dividends->dividend, orders->order)
+    # and drops stopwords. Empty tsquery (all-stopword input) matches nothing safely.
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
+            WITH qq AS (
+                SELECT NULLIF(replace(plainto_tsquery('english', $1)::text, ' & ', ' | '), '')::tsquery AS tsq,
+                       lower(btrim($1)) AS cat
+            )
             SELECT a.announcement_id            AS doc_id,
                    a.company_name               AS entity_name,
                    a.event_category             AS event_type,
@@ -274,6 +286,7 @@ async def intelligence_events_search(
                    s.signal_json->'headline_metric' AS headline_metric,
                    d.source_url
               FROM nidp.corporate_announcements a
+              CROSS JOIN qq
               LEFT JOIN nidp.corporate_event_signals s
                      ON s.signal_type = 'filing_insight'
                     AND s.announcement_ref    = a.announcement_id
@@ -288,17 +301,16 @@ async def intelligence_events_search(
              WHERE a.filed_at >= now() - interval '30 days'
                AND a.event_category IS NOT NULL
                AND a.event_category NOT IN ('other', 'regulatory')
-               -- 'english' (not 'simple') so the query STEMS: a natural-language ask
-               -- like "Dividends declared this quarter" -> {dividend, declar, quarter}
-               -- matches a subject "Declaration of Dividend", and "biggest orders this
-               -- week" -> {order} matches "Bagging/Receiving of orders". 'simple' only
-               -- lowercases (no stemming), so the plural/verb forms users actually type
-               -- never matched and every thematic ask returned zero.
                AND ( to_tsvector('english',
                         coalesce(a.subject,'') || ' ' || coalesce(replace(a.event_category,'_',' '),''))
-                        @@ plainto_tsquery('english', $1)
-                     OR a.event_category = lower(btrim($1)) )
-             ORDER BY (a.impact_score = 'high') DESC NULLS LAST, a.filed_at DESC
+                        @@ qq.tsq
+                     OR a.event_category = qq.cat )
+             ORDER BY ts_rank(
+                        to_tsvector('english',
+                          coalesce(a.subject,'') || ' ' || coalesce(replace(a.event_category,'_',' '),'')),
+                        qq.tsq) DESC NULLS LAST,
+                      (a.impact_score = 'high') DESC NULLS LAST,
+                      a.filed_at DESC
              LIMIT $2 OFFSET $3
             """,
             q, page["limit"], page["offset"],
