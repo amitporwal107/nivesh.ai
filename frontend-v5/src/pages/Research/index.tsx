@@ -32,7 +32,9 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Search, FileText, ExternalLink, Sparkles, Loader2, Bell, Bookmark,
   ChevronLeft, ChevronRight, MoreVertical, Megaphone, X, Download, Star,
+  ClipboardCheck,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { chatService } from "@/services";
 import { Markdown } from "@/components/chat/Markdown";
 import { filingsService } from "@/services/adapters/filings.adapter";
@@ -351,6 +353,10 @@ export default function ResearchPage() {
                 style={{ opacity: 0.4, cursor: "not-allowed" }}>
           <Bookmark size={19} />
         </button>
+        <Link to="/research/qa" className="rail-ico" title="QA validation exercise"
+              aria-label="QA validation exercise" data-testid="rail-qa">
+          <ClipboardCheck size={19} />
+        </Link>
         <span style={{ flex: 1 }} />
         <button className="rail-ico" title="More" aria-label="More"><MoreVertical size={19} /></button>
       </nav>
