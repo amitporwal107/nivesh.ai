@@ -122,4 +122,17 @@ margins POSITIVELY (e.g. "margin improvements") as a flagger — the prompt shou
 "flagged PRESSURE" from "mentioned margins". Ranking is correct; extraction precision is the
 next tuning lever.
 
+---
+## Update 2026-07-21 (3) — extraction precision (direction-aware)
+
+Tightened the extraction prompt to require the theme's DIRECTION: qualify only when
+management flags the theme as a concern in the direction implied (margins under pressure / a
+cost rising), and EXCLUDE the opposite (margins improving/easing/fully-offset), generic
+risk-factor boilerplate, bare word matches, and analyst questions ("when unsure, exclude").
+Verified live (DaaS @ b4ca7194): the prior false positives (Lenskart "margin improvements",
+Dabur "growth") are gone; the curated set is now genuine flaggers only — MRF "significant
+headwinds", ITC "increased cost pressure", JK Lakshmi "concern over margin sustainability",
+Jain Irrigation "sharp rise in polymer prices", Bajel "persistent supply chain".
+
+
 ## Verdict: PASS
