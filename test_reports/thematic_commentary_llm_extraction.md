@@ -66,3 +66,31 @@ thematic path calls it. Verified end-to-end through the live copilot.
 - session_token for the live fire (provided: 7bde1212-…).
 
 ## Verdict: PASS
+
+---
+## Update 2026-07-21 — OpenAI multi-query expansion (semantic variations)
+
+Per user direction ("don't pass the exact query — fire semantic variations so we don't miss
+anything; use OpenAI to build the queries"):
+- `classify_theme` now uses OpenAI (gpt-4o-mini) to expand the query into 5–8 SEMANTIC
+  VARIATIONS, whose pivot+context terms are UNIONed into one broad `(pivots)&(contexts)`
+  tsquery (union, not per-variation clauses — the LLM's variation set varies run-to-run;
+  union is stable). Prompt is exhaustive about real cost-driver nouns (raw material,
+  packaging, fuel, freight, forex, wages). The endpoint returns the variations it fired.
+- Candidate SQL now hands the LLM the top-2 passages per company (a company's flag isn't
+  always its top-ranked chunk); the endpoint dedups the extraction to one row per company.
+
+Verified on staging DaaS 8084: 8 variations fired (margin/cost, gross/raw-material,
+ebitda/energy, margin/wage, cost/packaging, margin/logistics, …) → 933 candidates scanned,
+52 curated companies. **Recall improved**: Heritage Foods now surfaces (was missed pre-
+expansion) — confirmed BOTH direct and via the live copilot (sources: Heritage Foods annual
+report p.76; answer cites Somany Ceramics ₹1.25–1.50/sq.ft input-cost rise, All Time
+Plastics, EID Parry margin compression).
+
+Residual limits (honest): Elecon/Bajaj/Nuvoco are now in the candidate net but not always
+flagged by the extraction LLM — their top-2 keyword-dense passages aren't always the actual
+flag, and gpt-4o-mini's judgement varies run-to-run; Elecon/Heritage have no concall in the
+corpus (annual-report commentary only). Perfect recall of a hand-curated set is bounded by
+extraction variance + corpus depth, not the query expansion.
+
+## Verdict: PASS
