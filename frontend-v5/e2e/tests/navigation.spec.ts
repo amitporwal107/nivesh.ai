@@ -91,6 +91,63 @@ test.describe("Mobile navigation (<1024px)", () => {
       await expect(sidebar).toBeHidden();
     }
   });
+
+  // ── Mobile bottom nav — personal (non-advisory) user gets PERSONAL_TABS,
+  //    which now carries a "Research" tab inserted directly after "Tips".
+  //    Scope the queries to the bottom <nav aria-label="Primary"> so they can't
+  //    collide with the desktop sidebar (also aria-label="Primary", but hidden).
+  test.describe("bottom nav Research tab", () => {
+    const bottomNav = (page: import("@playwright/test").Page) =>
+      page.locator('nav[aria-label="Primary"]').last();
+
+    test("bottom nav shows Home · Portfolio · Tips · Research · Chat in order", async ({ page }) => {
+      await mockApi(page, "populated");
+      await page.goto("/v5/dashboard");
+
+      // Wait for the nav to settle before the one-shot allInnerTexts() read.
+      const nav = bottomNav(page);
+      await expect(nav.getByRole("link", { name: "Research" })).toBeVisible();
+
+      const labels = (await nav.getByRole("link").allInnerTexts()).map((t) => t.trim());
+      expect(labels).toEqual(["Home", "Portfolio", "Tips", "Research", "Chat"]);
+    });
+
+    test('"Research" sits immediately after "Tips"', async ({ page }) => {
+      await mockApi(page, "populated");
+      await page.goto("/v5/dashboard");
+
+      const nav = bottomNav(page);
+      await expect(nav.getByRole("link", { name: "Research" })).toBeVisible();
+
+      const labels = (await nav.getByRole("link").allInnerTexts()).map((t) => t.trim());
+      expect(labels.indexOf("Research")).toBe(labels.indexOf("Tips") + 1);
+    });
+
+    test('"Research" tab links to /research', async ({ page }) => {
+      await mockApi(page, "populated");
+      await page.goto("/v5/dashboard");
+
+      const research = bottomNav(page).getByRole("link", { name: "Research" });
+      await expect(research).toBeVisible();
+      await expect(research).toHaveAttribute("href", /\/research$/);
+    });
+
+    test('tapping "Research" navigates to /research', async ({ page }) => {
+      await mockApi(page, "populated");
+      await page.goto("/v5/dashboard");
+
+      await bottomNav(page).getByRole("link", { name: "Research" }).click();
+      await expect(page).toHaveURL(/\/research$/);
+    });
+
+    test('existing "Tips" tab still links to /recommendations (regression)', async ({ page }) => {
+      await mockApi(page, "populated");
+      await page.goto("/v5/dashboard");
+
+      const tips = bottomNav(page).getByRole("link", { name: "Tips" });
+      await expect(tips).toHaveAttribute("href", /\/recommendations$/);
+    });
+  });
 });
 
 test.describe("Unauthenticated access — 401 handling", () => {

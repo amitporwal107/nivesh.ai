@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, PieChart, Sparkles, MessageSquare, Users, Contact } from "lucide-react";
+import { LayoutDashboard, PieChart, Sparkles, FileSearch, MessageSquare, Users, Contact } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMe } from "@/hooks/use-auth";
 import { useImpersonationStore } from "@/stores/impersonation.store";
@@ -8,6 +8,10 @@ const PERSONAL_TABS = [
   { to: "/dashboard",       label: "Home",     icon: LayoutDashboard },
   { to: "/portfolio",       label: "Portfolio", icon: PieChart },
   { to: "/recommendations", label: "Tips",     icon: Sparkles },
+  // Filings Intelligence — a standalone, full-bleed surface (renders OUTSIDE
+  // AppLayout, so tapping in is a one-way entry; return via the device/browser
+  // back gesture). See the /research route in routes.tsx.
+  { to: "/research",        label: "Research", icon: FileSearch },
   { to: "/chat",            label: "Chat",     icon: MessageSquare },
 ];
 
