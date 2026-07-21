@@ -439,62 +439,83 @@ async def thematic_commentary(
     import asyncio
     from nidp.services.daas_api import thematic_search as _ts
 
-    tsq, theme, variations = await asyncio.to_thread(_ts.classify_theme, q)
-    if not tsq:
-        return envelope([], **page, extra={"query": q, "theme": theme, "note": "no searchable terms"})
-
+    # Daily result cache: thematic results are market-wide and expensive, so serve the
+    # cached full list for (query, depth, all) if it was computed today; a new day misses
+    # and recomputes ("refresh next day"). Pagination slices the cached list.
+    ckey = _ts.cache_key(q, depth, show_all)
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(_ts.CANDIDATE_SQL, tsq, _ts._WINDOW_DAYS, depth)
-    candidates = [row_to_dict(r) for r in rows]
+        await _ts.ensure_cache(conn)
+        cached = await _ts.cache_get(conn, ckey)
 
-    # LLM extraction over the candidate set, batched and run concurrently.
-    BATCH = 50
-    batches = [candidates[i:i + BATCH] for i in range(0, len(candidates), BATCH)]
-    results = await asyncio.gather(
-        *[asyncio.to_thread(_ts.extract_flagged, theme, b) for b in batches]
-    ) if batches else []
+    if cached is None:
+        tsq, theme, variations = await asyncio.to_thread(_ts.classify_theme, q)
+        if not tsq:
+            return envelope([], **page, extra={"query": q, "theme": theme, "note": "no searchable terms"})
 
-    used_llm = any(r is not None for r in results)
-    # show_all=true (or LLM unavailable) → the full keyword-matched list, not just the
-    # LLM-curated flaggers. Either way, collapse to one row per company (a company can
-    # appear in several passages), keeping its strongest (highest-intensity) hit.
-    curated = used_llm and not show_all
-    rows_out = ([row for r in results if r for row in r]
-                if curated else candidates)
-    if curated:  # strongest passage first so dedup keeps it
-        rows_out = sorted(rows_out, key=lambda r: (r.get("intensity") or 0), reverse=True)
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(_ts.CANDIDATE_SQL, tsq, _ts._WINDOW_DAYS, depth)
+        candidates = [row_to_dict(r) for r in rows]
 
-    flagged: List[Dict[str, Any]] = []
-    seen: set = set()
-    for row in rows_out:
-        key = re.sub(r"[^a-z0-9]", "",
-                     re.sub(r"\b(limited|ltd|corporation|corp|company|co|pvt|private)\b", "",
-                            (row.get("company_name") or "").lower()))
-        if key and key not in seen:
-            seen.add(key)
-            flagged.append(row)
+        # LLM extraction over the candidate set, batched and run concurrently.
+        BATCH = 50
+        batches = [candidates[i:i + BATCH] for i in range(0, len(candidates), BATCH)]
+        results = await asyncio.gather(
+            *[asyncio.to_thread(_ts.extract_flagged, theme, b) for b in batches]
+        ) if batches else []
 
-    # Ranking: market-cap tier first (large -> mid -> small -> micro -> unknown) UNLESS the
-    # user explicitly asked for a segment, then intensity (curated) / breadth (show-all)
-    # within tier. "Explicitly asked" = the query names a cap segment.
-    ql = q.lower()
-    only_tier = ("LARGE_CAP" if re.search(r"large[- ]?cap|bluechip|blue chip", ql)
-                 else "MID_CAP" if re.search(r"mid[- ]?cap", ql)
-                 else "SMALL_CAP" if re.search(r"small[- ]?cap", ql)
-                 else "MICRO_CAP" if re.search(r"micro[- ]?cap", ql)
-                 else None)
-    if only_tier:
-        flagged = [r for r in flagged if (r.get("market_cap_bucket") or "").upper() == only_tier]
-    flagged.sort(key=lambda r: (
-        _ts.cap_rank(r.get("market_cap_bucket")),
-        -(r.get("intensity") or 0) if curated else -(r.get("hits") or 0),
-    ))
+        used_llm = any(r is not None for r in results)
+        # show_all=true (or LLM unavailable) → the full keyword-matched list, not just the
+        # LLM-curated flaggers. Either way, collapse to one row per company (a company can
+        # appear in several passages), keeping its strongest (highest-intensity) hit.
+        curated = used_llm and not show_all
+        rows_out = ([row for r in results if r for row in r]
+                    if curated else candidates)
+        if curated:  # strongest passage first so dedup keeps it
+            rows_out = sorted(rows_out, key=lambda r: (r.get("intensity") or 0), reverse=True)
 
+        flagged: List[Dict[str, Any]] = []
+        seen: set = set()
+        for row in rows_out:
+            dk = re.sub(r"[^a-z0-9]", "",
+                        re.sub(r"\b(limited|ltd|corporation|corp|company|co|pvt|private)\b", "",
+                               (row.get("company_name") or "").lower()))
+            if dk and dk not in seen:
+                seen.add(dk)
+                flagged.append(row)
+
+        # Ranking: market-cap tier first (large -> mid -> small -> micro -> unknown) UNLESS
+        # the user explicitly asked for a segment, then intensity (curated) / breadth
+        # (show-all) within tier. "Explicitly asked" = the query names a cap segment.
+        ql = q.lower()
+        only_tier = ("LARGE_CAP" if re.search(r"large[- ]?cap|bluechip|blue chip", ql)
+                     else "MID_CAP" if re.search(r"mid[- ]?cap", ql)
+                     else "SMALL_CAP" if re.search(r"small[- ]?cap", ql)
+                     else "MICRO_CAP" if re.search(r"micro[- ]?cap", ql)
+                     else None)
+        if only_tier:
+            flagged = [r for r in flagged if (r.get("market_cap_bucket") or "").upper() == only_tier]
+        flagged.sort(key=lambda r: (
+            _ts.cap_rank(r.get("market_cap_bucket")),
+            -(r.get("intensity") or 0) if curated else -(r.get("hits") or 0),
+        ))
+
+        payload = {
+            "theme": theme, "variations": variations, "curated": curated,
+            "cap_filter": only_tier, "candidates_scanned": len(candidates), "flagged": flagged,
+        }
+        async with pool.acquire() as conn:
+            await _ts.cache_put(conn, ckey, q, payload)
+    else:
+        payload = cached
+
+    flagged = payload.get("flagged") or []
     window = flagged[page["offset"]: page["offset"] + page["limit"]]
     return envelope(window, **page, extra={
-        "query": q, "theme": theme, "variations": variations, "curated": curated,
-        "cap_filter": only_tier, "candidates_scanned": len(candidates), "matches": len(flagged),
+        "query": q, "theme": payload.get("theme"), "variations": payload.get("variations"),
+        "curated": payload.get("curated"), "cap_filter": payload.get("cap_filter"),
+        "candidates_scanned": payload.get("candidates_scanned"), "matches": len(flagged),
+        "cached": cached is not None,
     })
 
 

@@ -27,6 +27,7 @@ endpoint never hard-fails — it just becomes the "comprehensive list" instead o
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -170,6 +171,61 @@ _CAP_ORDER = {"LARGE_CAP": 0, "MID_CAP": 1, "SMALL_CAP": 2, "MICRO_CAP": 3}
 
 def cap_rank(bucket: Optional[str]) -> int:
     return _CAP_ORDER.get((bucket or "").upper(), 4)
+
+
+# ── Daily result cache ──────────────────────────────────────────────────────
+# Thematic results are market-wide (not per-user) and expensive (~40s + LLM cost),
+# so cache the full ranked list per (query, depth, all) for the DAY. A new day is a
+# cache miss -> recompute, giving the "refresh next day" behaviour. Best-effort: any
+# cache error degrades to a live compute. The table is created lazily (no migration).
+_CACHE_DDL = """
+CREATE TABLE IF NOT EXISTS nidp.thematic_cache (
+  cache_key   text        NOT NULL,
+  day         date        NOT NULL DEFAULT CURRENT_DATE,
+  query       text        NOT NULL,
+  payload     jsonb       NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (cache_key, day)
+)
+"""
+
+
+def cache_key(q: str, depth: int, show_all: bool) -> str:
+    norm = " ".join((q or "").lower().split())
+    return hashlib.sha256(f"{norm}|{depth}|{int(bool(show_all))}".encode()).hexdigest()
+
+
+async def ensure_cache(conn) -> None:
+    try:
+        await conn.execute(_CACHE_DDL)
+    except Exception as exc:  # noqa: BLE001 — cache is best-effort
+        logger.warning("thematic: ensure_cache failed (%s)", exc)
+
+
+async def cache_get(conn, key: str) -> Optional[Any]:
+    try:
+        row = await conn.fetchrow(
+            "SELECT payload FROM nidp.thematic_cache WHERE cache_key=$1 AND day=CURRENT_DATE", key)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("thematic: cache_get failed (%s)", exc)
+        return None
+    if not row:
+        return None
+    p = row["payload"]
+    return json.loads(p) if isinstance(p, str) else p
+
+
+async def cache_put(conn, key: str, query: str, payload: Any) -> None:
+    try:
+        await conn.execute(
+            """INSERT INTO nidp.thematic_cache (cache_key, query, payload)
+                    VALUES ($1, $2, $3::jsonb)
+               ON CONFLICT (cache_key, day)
+                    DO UPDATE SET payload = EXCLUDED.payload, created_at = now()""",
+            key, query, json.dumps(payload, default=str))
+        await conn.execute("DELETE FROM nidp.thematic_cache WHERE day < CURRENT_DATE - 7")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("thematic: cache_put failed (%s)", exc)
 CANDIDATE_SQL = """
     WITH q AS (SELECT $1::tsquery AS tsq),
     matched AS (
