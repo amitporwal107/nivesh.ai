@@ -104,9 +104,14 @@ class StocksInsightsResult:
                 lines = ["recent_filings (cite as [n]):"]
                 for e in self.events:
                     self._n += 1
-                    filed = (e.get("filed_at") or "")[:10]
+                    # DAAS field types vary across endpoints (the thematic
+                    # market-pulse / events-search feed can return filed_at as a
+                    # numeric epoch rather than an ISO string). str()-coerce
+                    # before slicing so a non-string value can never raise
+                    # TypeError and abort the whole answer.
+                    filed = str(e.get("filed_at") or "")[:10]
                     line = (f"  [{self._n}] {filed} [{e.get('category') or 'other'}] "
-                            f"{(e.get('headline') or '')[:120]}")
+                            f"{str(e.get('headline') or '')[:120]}")
                     if e.get("summary"):
                         line += f" — {str(e['summary'])[:200]}"
                     lines.append(line)
@@ -120,10 +125,12 @@ class StocksInsightsResult:
                          "attribute to management, and cite [n]:"]
                 for c in self.commentary:
                     self._n += 1
-                    label = (c.get("company") or "").strip()
-                    dt = (c.get("doc_type") or "document").replace("_", " ")
+                    # Same str()-coercion discipline as the events block — never
+                    # let an unexpected non-string DAAS value abort the answer.
+                    label = str(c.get("company") or "").strip()
+                    dt = str(c.get("doc_type") or "document").replace("_", " ")
                     pg = f", p.{c['page']}" if c.get("page") else ""
-                    lines.append(f"  [{self._n}] ({label} {dt}{pg}) \"{(c.get('text') or '')[:320]}\"")
+                    lines.append(f"  [{self._n}] ({label} {dt}{pg}) \"{str(c.get('text') or '')[:320]}\"")
                 parts.append("\n".join(lines))
 
         # Thematic "who said/flagged X" → lead with commentary (it IS the answer;

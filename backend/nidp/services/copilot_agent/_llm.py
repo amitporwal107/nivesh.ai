@@ -12,12 +12,15 @@ from __future__ import annotations
 import os
 
 
-# Copilot model. Set to gpt-5.5 per product direction (2026-06). NOTE: this
-# id is unverified against the live OpenAI account from CI — if the account's
-# exact id differs (e.g. a dated snapshot) or lacks gpt-5.5 access, the nodes
-# will 'model_not_found' and surface "trouble connecting to my AI engine".
-# Override without a code change via the COPILOT_LLM_MODEL env var / GSM.
-COPILOT_LLM_MODEL: str = os.environ.get("COPILOT_LLM_MODEL", "gpt-5.5")
+# Copilot model. Default is gpt-4o-mini — the model this OpenAI account is known
+# to have access to (per COPILOT_CHATBOT.prd §7: "gpt-4o-mini — cheapest, fast").
+# A prior gpt-5.5 default (and gpt-5 before it) broke EVERY copilot node: the live
+# account lacks that id, so each node's LLM call returned 'model_not_found', which
+# the stream handler surfaces to the user as "Something went wrong answering that."
+# Because all nodes share this constant, one bad id takes the whole copilot down.
+# Ops can pin any snapshot the account actually has (e.g. a gpt-5.x id, once access
+# is confirmed) via the COPILOT_LLM_MODEL env var / GSM — no code change needed.
+COPILOT_LLM_MODEL: str = os.environ.get("COPILOT_LLM_MODEL", "gpt-4o-mini")
 
 
 def temperature_for(requested: float) -> float:

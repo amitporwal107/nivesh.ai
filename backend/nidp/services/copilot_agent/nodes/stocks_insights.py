@@ -169,8 +169,6 @@ async def stocks_insights_node(state: CopilotState) -> dict:
             summary="Corporate filings unavailable", error=str(exc),
         ))
 
-    # Compose the grounded answer over the retrieved filings.
-    tool_context = "TOOL_DATA:\n" + (result.as_llm_context() if result else "recent_filings: UNAVAILABLE")
     # Honest empty-case for a thematic (cross-company) query: finding nothing means
     # "no match in the current, still-building corpus" — NOT a system failure. Without
     # this, the shared ANTI_HALLUCINATION rule #4 makes the LLM emit a misleading
@@ -192,16 +190,32 @@ async def stocks_insights_node(state: CopilotState) -> dict:
     if forced_answer is not None:
         answer_text = forced_answer
     else:
-        llm = ChatOpenAI(
-            model=COPILOT_LLM_MODEL,
-            temperature=temperature_for(0.1),
-            api_key=get_openai_api_key(),
-        )
-        resp = await llm.ainvoke([
-            {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
-            {"role": "user", "content": user_msg},
-        ])
-        answer_text = (resp.content or "").strip()
+        # Compose the grounded answer over the retrieved filings. Guard the WHOLE
+        # compose step (context build + LLM call): any failure here must degrade to
+        # an honest fallback, never propagate out of the node and abort the turn
+        # with a raw SSE `error` frame (the user then sees "Something went wrong"
+        # with no answer at all). Same never-break-the-turn discipline the tool
+        # call above already follows.
+        try:
+            tool_context = "TOOL_DATA:\n" + (
+                result.as_llm_context() if result else "recent_filings: UNAVAILABLE")
+            llm = ChatOpenAI(
+                model=COPILOT_LLM_MODEL,
+                temperature=temperature_for(0.1),
+                api_key=get_openai_api_key(),
+            )
+            resp = await llm.ainvoke([
+                {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
+                {"role": "user", "content": user_msg},
+            ])
+            answer_text = (resp.content or "").strip()
+        except Exception as exc:  # noqa: BLE001 — never abort the turn on a compose failure
+            logger.error("stocks_insights compose failed: %s", exc, exc_info=True)
+            answer_text = (
+                "I hit a snag composing the answer just now — please try again in a moment. "
+                "For a specific company, type its ticker (e.g. $INFY) and I'll pull its filed "
+                "disclosures, results and announcements."
+            )
 
     # Guard against citing a filing number that doesn't exist (zero-fabrication):
     # strip any [n] whose n is out of range of the sources list.
