@@ -231,6 +231,11 @@ async def get_me(request: Request):
     # (e.g. after re-login) and show a phantom client view while the backend is
     # actually at the advisor root.
     user["active_profile_id"] = user.get("_active_profile_id")
+    # Per-user feature entitlements (same source as GET /api/user/profile). The V5
+    # route guards read `features` off /auth/me (via useMe) to decide surface access
+    # — notably `research` (can reach /research) and `research_only` (CONFINED to it).
+    import feature_flags
+    user["features"] = feature_flags.user_feature_map(user.get("email"))
     return user
 
 

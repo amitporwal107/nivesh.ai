@@ -67,6 +67,30 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "default_mode": "everyone",
         "default_allowlist": [],
     },
+    "research": {
+        "display_name": "Research (Filings Intelligence)",
+        "description": (
+            "Grants access to the standalone Research / Filings Intelligence surface "
+            "(/research) and shows its entry in the primary nav (desktop sidebar + "
+            "mobile bottom bar). Default = everyone; flip to 'allowlist' to make the "
+            "surface grant-only. Independent of `research_only` (which CONFINES a user "
+            "to just this surface)."
+        ),
+        "default_mode": "everyone",
+        "default_allowlist": [],
+    },
+    "research_only": {
+        "display_name": "Research-only access (confined to /research)",
+        "description": (
+            "When ON for a user, they can ONLY use the Research surface (/research): "
+            "every authenticated app route redirects there, onboarding is skipped, and "
+            "sign-in lands on /research. Use for research-pilot accounts. Default = "
+            "allowlist with NO emails, so nobody is confined until explicitly added "
+            "here (Admin → Feature Flags). Implies `research` access."
+        ),
+        "default_mode": "allowlist",
+        "default_allowlist": [],
+    },
 }
 
 # In-memory state — {flag: {mode, allowlist}}

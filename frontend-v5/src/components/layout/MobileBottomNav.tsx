@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import { LayoutDashboard, PieChart, Sparkles, FileSearch, MessageSquare, Users, Contact } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMe } from "@/hooks/use-auth";
+import { hasResearchAccess } from "@/types/user";
 import { useImpersonationStore } from "@/stores/impersonation.store";
 
 const PERSONAL_TABS = [
@@ -27,7 +28,10 @@ const ADVISOR_TABS = [
 export function MobileBottomNav({ className }: { className?: string }) {
   const { data: me } = useMe();
   const activeProfileId = useImpersonationStore((s) => s.profileId);
-  const TABS = (me?.workspaceType || "").toUpperCase() === "ADVISORY" && !activeProfileId ? ADVISOR_TABS : PERSONAL_TABS;
+  const base = (me?.workspaceType || "").toUpperCase() === "ADVISORY" && !activeProfileId ? ADVISOR_TABS : PERSONAL_TABS;
+  // The Research tab appears only when the user has the `research` feature (the
+  // flag governs its visibility). Absent features (older backend) → hidden.
+  const TABS = hasResearchAccess(me) ? base : base.filter((t) => t.to !== "/research");
   return (
     <nav
       aria-label="Primary"

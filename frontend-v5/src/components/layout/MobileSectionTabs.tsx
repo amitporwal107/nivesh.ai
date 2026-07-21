@@ -20,7 +20,7 @@ export function MobileSectionTabs({ className }: { className?: string }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
 
   const activeProfileId = useImpersonationStore((s) => s.profileId);
-  const items = getSectionNav(me?.workspaceType, activeProfileId);
+  const items = getSectionNav(me?.workspaceType, activeProfileId, me?.features);
 
   // Keep the active tab visible: scroll it into the centre when the route changes.
   useEffect(() => {

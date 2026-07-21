@@ -4,6 +4,7 @@ import { Capacitor } from "@capacitor/core";
 import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
 import { dlog } from "@/lib/device-log";
 import { useGoogleSignIn, useRequestOtp, useVerifyOtp } from "@/hooks/use-auth";
+import { isResearchOnly } from "@/types/user";
 import { useGoogleIdentity } from "@/hooks/use-google-identity";
 import { authService } from "@/services";
 import { useToastStore } from "@/stores/toast.store";
@@ -51,9 +52,14 @@ export default function LoginPage() {
     // in the persisted store from a previous session so the advisor doesn't
     // land inside a stale client view (full nav + banner).
     useImpersonationStore.getState().clear();
+    // Research-only pilots (research_only flag) are confined to /research: land
+    // them there directly, SKIPPING onboarding entirely. Checked first so it wins
+    // over the onboarding/advisor/dashboard routing below. If the /auth/me probe
+    // failed (meCheck null) they still get caught by RequireAppAccess post-nav.
     // Advisors land on their workspace (reduced advisor nav), not their own
     // portfolio dashboard. To view their own book they open the SELF profile.
-    const dest = !user.onboardingCompleted ? "/onboarding"
+    const dest = isResearchOnly(meCheck) ? "/research"
+      : !user.onboardingCompleted ? "/onboarding"
       : (meCheck?.workspaceType || "").toUpperCase() === "ADVISORY" ? "/advisor"
       : "/dashboard";
     navigate(dest);

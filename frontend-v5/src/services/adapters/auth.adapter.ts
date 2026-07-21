@@ -107,6 +107,7 @@ function mapUser(c: import("@/services/contracts/auth.contract").UserProfileC): 
     is_admin: c.is_admin,
     workspaceType: c.workspace_type ?? null,
     activeProfileId: c.active_profile_id ?? null,
+    features: c.features,
   };
 }
 
