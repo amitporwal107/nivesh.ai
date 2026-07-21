@@ -31,7 +31,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Search, FileText, ExternalLink, Sparkles, Loader2, Bell, Bookmark,
-  ChevronLeft, ChevronRight, MoreVertical, Megaphone, X, Download,
+  ChevronLeft, ChevronRight, MoreVertical, Megaphone, X, Download, Star,
 } from "lucide-react";
 import { chatService } from "@/services";
 import { Markdown } from "@/components/chat/Markdown";
@@ -40,18 +40,13 @@ import type {
   FilingRow, Signal, Insight, InsightSection, Alerts, Company, CompanyDocs,
 } from "@/services/adapters/filings.adapter";
 import "./research.css";
+import { THEMATIC_STARTERS, STARTERS_PAGE } from "@/data/thematicStarters";
 
 /** The one agent this surface is allowed to reach (backend _PINNABLE_AGENTS). */
 const PINNED_AGENT = "stocks_insights";
 /** The classifier's queue floor (spec §4.1) — the feed window is honest at 30d. */
 const FEED_DAYS = 30;
 const PAGE_SIZE = 20;
-
-const ASK_CHIPS = [
-  "Who flagged debt-fund outflows?",
-  "Which IT names capped FY27 guidance?",
-  "Biggest orders on the tape this week",
-];
 
 type Screen = "feed" | "alerts";
 
@@ -551,6 +546,8 @@ interface FeedProps {
 }
 
 function FeedScreen(p: FeedProps) {
+  const [starterCount, setStarterCount] = useState(STARTERS_PAGE);
+  const starterLeft = THEMATIC_STARTERS.length - starterCount;
   return (
     <div style={{ maxWidth: 1080, margin: "0 auto", padding: "20px 16px 40px" }}>
       {/* ── ask bar ── */}
@@ -578,20 +575,61 @@ function FeedScreen(p: FeedProps) {
           {p.asking ? <Loader2 size={15} className="animate-spin" /> : "Ask →"}
         </button>
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-        {ASK_CHIPS.map((c) => (
-          <button
-            key={c}
-            onClick={() => p.runAsk(c)}
-            className="ask-chip"
-            style={{
-              fontSize: 12.5, color: "var(--c-ink-3)", background: "transparent",
-              border: "1px solid var(--line-2)", borderRadius: 999, padding: "6px 12px", cursor: "pointer",
-            }}
-          >
-            {c}
-          </button>
-        ))}
+      {/* curated thematic starters — 5 at a time (see data/thematicStarters) */}
+      <div style={{ marginTop: 12 }} data-testid="thematic-starters">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--c-ink-3)" }}>Curated themes — tap to run</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--c-ink-4)" }}>
+            <Star size={12} style={{ color: "var(--mint)", fill: "var(--mint)" }} /> featured
+          </span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
+          {THEMATIC_STARTERS.slice(0, starterCount).map((item) => (
+            <button
+              key={item.q}
+              onClick={() => p.runAsk(item.q)}
+              className="ask-chip"
+              data-testid="thematic-starter"
+              style={{
+                textAlign: "left", display: "flex", alignItems: "flex-start", gap: 8,
+                background: "transparent", border: "1px solid var(--line-2)", borderRadius: 12,
+                padding: "9px 12px", cursor: "pointer",
+              }}
+            >
+              {item.featured && (
+                <Star size={13} style={{ color: "var(--mint)", fill: "var(--mint)", flex: "none", marginTop: 2 }} />
+              )}
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--c-ink-4)", marginBottom: 2 }}>
+                  {item.category}
+                </span>
+                <span style={{ display: "block", fontSize: 13, color: "var(--c-ink-2)", lineHeight: 1.35 }}>{item.q}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+        {(starterLeft > 0 || starterCount > STARTERS_PAGE) && (
+          <div style={{ marginTop: 10 }}>
+            {starterLeft > 0 ? (
+              <button
+                onClick={() => setStarterCount((c) => Math.min(c + STARTERS_PAGE, THEMATIC_STARTERS.length))}
+                className="ask-chip"
+                data-testid="starters-more"
+                style={{ fontSize: 12.5, fontWeight: 600, color: "var(--c-ink-2)", background: "transparent", border: "1px solid var(--line-2)", borderRadius: 999, padding: "6px 14px", cursor: "pointer" }}
+              >
+                Show {Math.min(STARTERS_PAGE, starterLeft)} more · {starterLeft} left
+              </button>
+            ) : (
+              <button
+                onClick={() => setStarterCount(STARTERS_PAGE)}
+                className="ask-chip"
+                style={{ fontSize: 12.5, fontWeight: 600, color: "var(--c-ink-3)", background: "transparent", border: "1px solid var(--line-2)", borderRadius: 999, padding: "6px 14px", cursor: "pointer" }}
+              >
+                Show less
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── copilot answer ── */}

@@ -2,98 +2,14 @@
  * Stocks Insight — company-research landing surface (Nivesh Copilot).
  * Revealed by the "Stocks Insight" launcher chip. Hero + a $ticker-aware input +
  * a curated welcome card of thematic starter queries (grouped by theme, revealed
- * 5 at a time). Every prompt/submit routes through the chat's submitMessage:
- * filings/thematic questions hit the stocks_insights node (corporate disclosures,
- * cited to the source filing); financials questions (segment revenue, margins/OPM)
- * route to the stock analyst.
+ * 5 at a time — see data/thematicStarters). Every prompt/submit routes through the
+ * chat's submitMessage: filings/thematic questions hit the stocks_insights node
+ * (corporate disclosures, cited to the source filing); financials questions
+ * (segment revenue, margins/OPM) route to the stock analyst.
  */
 import { useState } from "react";
 import { ArrowUp, Building2, Star } from "lucide-react";
-
-// Curated thematic starters, grouped. `featured` (the "*" picks) are surfaced with
-// a star. Rendered as one flat list (category shown per item) revealed 5 at a time.
-type Starter = { q: string; featured?: boolean };
-const THEMATIC_GROUPS: { title: string; queries: Starter[] }[] = [
-  {
-    title: "Growth & order momentum",
-    queries: [
-      { q: "Biggest order wins this fortnight — by value, sector, and counterparty (govt/PSU/private)", featured: true },
-      { q: "Which companies won their largest-ever order this year?" },
-      { q: "Companies whose order book grew fastest per their own concall disclosures" },
-      { q: "Which smallcaps entered new export markets or won first international orders?" },
-    ],
-  },
-  {
-    title: "Capex cycle — both ends of it",
-    queries: [
-      { q: "Major capacity expansions or new-plant announcements this quarter", featured: true },
-      { q: "Whose capex is turning into revenue — plants commissioned in the last two quarters?", featured: true },
-      { q: "Who deferred or shelved capex (the hidden demand warning)?" },
-      { q: "Which companies announced expansion but are funding it with equity dilution?" },
-    ],
-  },
-  {
-    title: "Quality of earnings & results season",
-    queries: [
-      { q: "Who swung to a loss or saw profit fall despite higher revenue?", featured: true },
-      { q: "Which companies beat on headline PAT only because of one-off/exceptional gains?" },
-      { q: "Who flagged margin pressure or input-cost inflation in their concalls this quarter?", featured: true },
-      { q: "Which companies missed or lowered their own previously stated guidance?" },
-      { q: "Results accompanied by auditor qualifications or emphasis-of-matter this season" },
-    ],
-  },
-  {
-    title: "Stress & governance radar",
-    queries: [
-      { q: "Which companies are showing combined stress signals — pledge increases + rating downgrades + auditor changes + delayed filings?", featured: true },
-      { q: "Governance red flags this month: auditor resignations, abrupt CFO exits, defeated AGM resolutions", featured: true },
-      { q: "Fresh insolvency petitions or debt-default disclosures across the market" },
-      { q: 'Which companies moved to "Issuer Not Cooperating" rating status?' },
-      { q: "Who's under new exchange surveillance (ASM/GSM) this week?" },
-    ],
-  },
-  {
-    title: "Ownership & conviction signals",
-    queries: [
-      { q: "Where are promoters buying from the open market or releasing pledges?", featured: true },
-      { q: "Where are promoters selling or pledging more?" },
-      { q: "Which companies had preferential allotments to promoters at near-floor pricing?" },
-      { q: "Where did FIIs/DIIs meaningfully raise stake per the latest shareholding patterns?" },
-    ],
-  },
-  {
-    title: "Capital returns & balance sheet",
-    queries: [
-      { q: "Dividends raised, cut, or specials declared vs last year", featured: true },
-      { q: "Buybacks announced this quarter — size, premium, promoter participation" },
-      { q: "Who's deleveraging — debt prepayments and improving leverage commentary?", featured: true },
-    ],
-  },
-  {
-    title: "Theme & technology exposure",
-    queries: [
-      { q: "Which companies put hard numbers on AI/GenAI revenue — and who declines to disclose?", featured: true },
-      { q: "AI data-centre and compute-infrastructure buildout — who's investing, at what scale?" },
-      { q: "Which companies are manufacturing under PLI schemes or citing China+1 order flows?" },
-      { q: "Renewable/green-energy capacity announcements and commissioning" },
-    ],
-  },
-  {
-    title: "Sector-regulatory pulse",
-    queries: [
-      { q: "USFDA scorecard — clean EIRs vs 483s vs Warning Letters, by company and facility", featured: true },
-      { q: "Which IT companies are cautious vs constructive on FY27 demand?" },
-      { q: "M&A pipeline board — announced → CCI → NCLT → completed, with stage dates", featured: true },
-      { q: "Which companies are directly named in new anti-dumping/tariff actions?" },
-    ],
-  },
-];
-
-// Flatten to a single ordered list, carrying the category label per item.
-const ALL_STARTERS: { q: string; featured?: boolean; category: string }[] =
-  THEMATIC_GROUPS.flatMap((g) => g.queries.map((s) => ({ ...s, category: g.title })));
-
-const PAGE = 5;
+import { THEMATIC_STARTERS as ALL_STARTERS, STARTERS_PAGE as PAGE } from "../../data/thematicStarters";
 
 export default function StockInsightsLanding({ onLaunch }: { onLaunch: (q: string) => void }) {
   const [q, setQ] = useState("");
