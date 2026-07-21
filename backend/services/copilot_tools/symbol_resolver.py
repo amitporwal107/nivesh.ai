@@ -89,6 +89,24 @@ _PASSTHROUGH_STOPWORDS: Set[str] = {
     "SEBI", "GDP", "CEO", "CFO", "COO", "ESG", "YOY", "QOQ", "EBITDA", "USD",
     "INR", "AUM", "SIP", "NAV", "ETF", "FII", "DII", "IPO", "QIP", "NCD",
     "EPS", "ROE", "ROCE", "NPA", "CAPEX", "OPEX", "IBC", "NCLT", "LODR",
+    # Sector / corporate acronyms that read as ALL-CAPS in thematic questions
+    # ("each IT company", "PSU banks", "SME listings") but are NOT NSE tickers.
+    "IT", "HR", "PSU", "SME", "NBFC", "AGM", "EGM", "MOU", "JV", "PAT", "PBT",
+}
+
+# Generic corporate-suffix / filler words that must NEVER resolve a company on
+# their own. The curated universe is small (~115 names), so a common word like
+# "company" becomes a UNIQUE single-token key (only "Titan Company Ltd" carries
+# it) and any thematic question containing "… company …" collapsed to TITAN.
+# Multi-word name phrases ("titan company", "tata motors") still resolve via the
+# phrase step, so banning these as standalone keys only removes false matches.
+_NAME_STOPWORDS: Set[str] = {
+    "company", "companies", "industries", "industry", "limited", "ltd",
+    "corporation", "corp", "enterprises", "enterprise", "technologies",
+    "technology", "solutions", "services", "products", "international",
+    "global", "india", "indian", "group", "holdings", "ventures", "systems",
+    "infrastructure", "infra", "consultancy", "consultants", "finance",
+    "financial", "capital", "resources", "projects", "trading",
 }
 
 _WORD_RE = re.compile(r"[a-z0-9&]+")
@@ -121,7 +139,7 @@ def _build_index():
             # so "tata motors" resolves even though name starts with "tata".
             grams = [" ".join(toks[i:i + n]) for i in range(len(toks) - n + 1)]
             for g in grams:
-                if n == 1 and len(g) < 3:
+                if n == 1 and (len(g) < 3 or g in _NAME_STOPWORDS):
                     continue
                 phrase_tmp[g].add(ticker)
     # keep only phrases that map to exactly one instrument
