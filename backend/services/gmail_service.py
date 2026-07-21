@@ -2,6 +2,7 @@
 extracts PDF attachments, and feeds them into the CAS parser."""
 import logging
 import base64
+import os
 import warnings
 from datetime import datetime, timezone
 from google_auth_oauthlib.flow import Flow
@@ -140,6 +141,44 @@ _SOURCE_QUERIES: list[tuple[str, str]] = [
     ("kfintech", "from:karvy has:attachment filename:pdf"),
 ]
 
+# ── OAuth-verification sender bypass (TEST MAILBOXES ONLY) ─────────────────
+# CAS statements arrive from fixed depository senders, so the scan above is
+# sender-scoped. For OAuth-review *test* mailboxes we ALSO accept a CAS PDF
+# from any sender, so a Google reviewer can drop a sample statement into the
+# inbox from a normal account. Gated strictly to the *connected mailbox's own
+# address* being in the allowlist below — a real user's scan is never touched.
+# Extendable via the CAS_SCAN_BYPASS_EMAILS env (comma-separated).
+# TODO: remove once Google OAuth verification is complete.
+_DEFAULT_BYPASS_EMAILS = {"nnivesssh@gmail.com"}
+_ANY_SENDER_QUERY: tuple[str, str] = ("upload", "has:attachment filename:pdf newer_than:2y")
+
+
+def _bypass_emails() -> set:
+    """Allowlist of mailboxes exempt from sender validation (test accounts)."""
+    extra = os.environ.get("CAS_SCAN_BYPASS_EMAILS", "")
+    return {e.lower() for e in _DEFAULT_BYPASS_EMAILS} | {
+        e.strip().lower() for e in extra.split(",") if e.strip()
+    }
+
+
+def _connected_mailbox(service) -> str:
+    """Address of the Gmail account being scanned — used only for the gate."""
+    try:
+        prof = service.users().getProfile(userId="me").execute()
+        return (prof.get("emailAddress") or "").strip().lower()
+    except Exception as e:  # noqa: BLE001 — a profile hiccup must never break scan
+        logger.warning("getProfile failed during CAS scan: %s", type(e).__name__)
+        return ""
+
+
+def _scan_queries(service) -> list:
+    """Sender-scoped CAS queries, plus an any-sender query ONLY when the
+    connected mailbox is an allowlisted OAuth-review test account."""
+    if _connected_mailbox(service) in _bypass_emails():
+        logger.info("CAS sender-bypass ACTIVE for connected test mailbox")
+        return [_ANY_SENDER_QUERY, *_SOURCE_QUERIES]
+    return list(_SOURCE_QUERIES)
+
 
 def _classify_source(sender: str, subject: str) -> str:
     """Return the canonical source key for an email."""
@@ -188,7 +227,7 @@ def scan_for_cas_emails(service, max_results: int = 30) -> list:  # noqa: ARG001
     # latest_by_source[source] = best email dict found so far
     latest_by_source: dict[str, dict] = {}
 
-    for source, query in _SOURCE_QUERIES:
+    for source, query in _scan_queries(service):
         try:
             results = service.users().messages().list(
                 userId="me",
