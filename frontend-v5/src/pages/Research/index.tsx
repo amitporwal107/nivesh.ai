@@ -253,11 +253,15 @@ export default function ResearchPage() {
 
   // ── ask the pinned copilot ──────────────────────────────────────────────
   const runAsk = useCallback((qArg?: string) => {
-    const q = (typeof qArg === "string" ? qArg : draft).trim();
-    if (!q || asking) return;
+    const raw = (typeof qArg === "string" ? qArg : draft).trim();
+    if (!raw || asking) return;
+    // Scope the ask to the company selected in the top-level search — so the ask bar
+    // AND the curated/thematic starters answer for that company (ticker mode) — unless
+    // the question already names a $ticker. The visible question stays as typed.
+    const q = company && !/\$[A-Za-z]/.test(raw) ? `${raw} for $${company.symbol}` : raw;
     setScreen("feed");
-    setDraft(q);
-    setAnswer({ q, text: "", confidence: undefined, streaming: true, refs: [] });
+    setDraft(raw);
+    setAnswer({ q: raw, text: "", confidence: undefined, streaming: true, refs: [] });
     let acc = "";
     chatService
       .streamSend(
@@ -290,7 +294,7 @@ export default function ResearchPage() {
         { agent: PINNED_AGENT, page: "research" },
       )
       .finally(() => setAnswer((a) => (a ? { ...a, streaming: false } : a)));
-  }, [draft, asking]);
+  }, [draft, asking, company]);
 
   // ── derived facet chips (real event-category counts) ────────────────────
   const facetChips = useMemo(() => [
