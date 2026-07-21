@@ -41,6 +41,7 @@ import type {
 } from "@/services/adapters/filings.adapter";
 import "./research.css";
 import { THEMATIC_STARTERS, STARTERS_PAGE } from "@/data/thematicStarters";
+import { useThematicQueries } from "@/hooks/useThematicQueries";
 
 /** The one agent this surface is allowed to reach (backend _PINNABLE_AGENTS). */
 const PINNED_AGENT = "stocks_insights";
@@ -547,6 +548,13 @@ interface FeedProps {
 
 function FeedScreen(p: FeedProps) {
   const [starterCount, setStarterCount] = useState(STARTERS_PAGE);
+  const [tab, setTab] = useState<"curated" | "history" | "favorites">("curated");
+  const tq = useThematicQueries();
+  const run = (query?: string) => {
+    const t = (query ?? p.draft ?? "").trim();
+    if (t) tq.addHistory(t);
+    p.runAsk(query);
+  };
   const starterLeft = THEMATIC_STARTERS.length - starterCount;
   return (
     <div style={{ maxWidth: 1080, margin: "0 auto", padding: "20px 16px 40px" }}>
@@ -559,14 +567,14 @@ function FeedScreen(p: FeedProps) {
         <input
           value={p.draft}
           onChange={(e) => p.setDraft(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && p.runAsk()}
+          onKeyDown={(e) => e.key === "Enter" && run()}
           placeholder="Ask a question across all filings…"
           aria-label="Ask a question across all filings"
           data-testid="ask-input"
           style={{ flex: 1, minWidth: 0, border: 0, background: "none", fontSize: 15, color: "var(--c-ink)", outline: "none", fontFamily: "var(--sans)" }}
         />
         <button
-          onClick={() => p.runAsk()}
+          onClick={() => run()}
           disabled={p.asking}
           className="nv-btn nv-btn-primary"
           data-testid="ask-submit"
@@ -575,60 +583,96 @@ function FeedScreen(p: FeedProps) {
           {p.asking ? <Loader2 size={15} className="animate-spin" /> : "Ask →"}
         </button>
       </div>
-      {/* curated thematic starters — 5 at a time (see data/thematicStarters) */}
+      {/* thematic starters + history + favourites */}
       <div style={{ marginTop: 12 }} data-testid="thematic-starters">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--c-ink-3)" }}>Curated themes — tap to run</span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--c-ink-4)" }}>
-            <Star size={12} style={{ color: "var(--mint)", fill: "var(--mint)" }} /> featured
-          </span>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
-          {THEMATIC_STARTERS.slice(0, starterCount).map((item) => (
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10, borderBottom: "1px solid var(--line-2)" }}>
+          {([["curated", "Curated themes"], ["history", `History${tq.history.length ? ` (${tq.history.length})` : ""}`], ["favorites", `Favorites${tq.favorites.length ? ` (${tq.favorites.length})` : ""}`]] as const).map(([key, label]) => (
             <button
-              key={item.q}
-              onClick={() => p.runAsk(item.q)}
-              className="ask-chip"
-              data-testid="thematic-starter"
-              style={{
-                textAlign: "left", display: "flex", alignItems: "flex-start", gap: 8,
-                background: "transparent", border: "1px solid var(--line-2)", borderRadius: 12,
-                padding: "9px 12px", cursor: "pointer",
-              }}
+              key={key}
+              onClick={() => setTab(key)}
+              data-testid={`tab-${key}`}
+              style={{ background: "none", border: 0, cursor: "pointer", padding: "6px 2px", fontSize: 12.5, fontWeight: 600, color: tab === key ? "var(--c-ink)" : "var(--c-ink-3)", borderBottom: tab === key ? "2px solid var(--mint)" : "2px solid transparent" }}
             >
-              {item.featured && (
-                <Star size={13} style={{ color: "var(--mint)", fill: "var(--mint)", flex: "none", marginTop: 2 }} />
-              )}
-              <span style={{ minWidth: 0 }}>
-                <span style={{ display: "block", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--c-ink-4)", marginBottom: 2 }}>
-                  {item.category}
-                </span>
-                <span style={{ display: "block", fontSize: 13, color: "var(--c-ink-2)", lineHeight: 1.35 }}>{item.q}</span>
-              </span>
+              {label}
             </button>
           ))}
+          {tab === "curated" && (
+            <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--c-ink-4)" }}>
+              <Star size={12} style={{ color: "var(--mint)", fill: "var(--mint)" }} /> featured
+            </span>
+          )}
+          {tab === "history" && tq.history.length > 0 && (
+            <button onClick={() => tq.clearHistory()} style={{ marginLeft: "auto", background: "none", border: 0, cursor: "pointer", fontSize: 11.5, color: "var(--c-ink-4)" }}>Clear</button>
+          )}
         </div>
-        {(starterLeft > 0 || starterCount > STARTERS_PAGE) && (
-          <div style={{ marginTop: 10 }}>
-            {starterLeft > 0 ? (
-              <button
-                onClick={() => setStarterCount((c) => Math.min(c + STARTERS_PAGE, THEMATIC_STARTERS.length))}
-                className="ask-chip"
-                data-testid="starters-more"
-                style={{ fontSize: 12.5, fontWeight: 600, color: "var(--c-ink-2)", background: "transparent", border: "1px solid var(--line-2)", borderRadius: 999, padding: "6px 14px", cursor: "pointer" }}
-              >
-                Show {Math.min(STARTERS_PAGE, starterLeft)} more · {starterLeft} left
-              </button>
-            ) : (
-              <button
-                onClick={() => setStarterCount(STARTERS_PAGE)}
-                className="ask-chip"
-                style={{ fontSize: 12.5, fontWeight: 600, color: "var(--c-ink-3)", background: "transparent", border: "1px solid var(--line-2)", borderRadius: 999, padding: "6px 14px", cursor: "pointer" }}
-              >
-                Show less
-              </button>
+
+        {tab === "curated" && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
+              {THEMATIC_STARTERS.slice(0, starterCount).map((item) => (
+                <div key={item.q} className="ask-chip" data-testid="thematic-starter" style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "transparent", border: "1px solid var(--line-2)", borderRadius: 12, padding: "9px 12px" }}>
+                  {item.featured && <Star size={13} style={{ color: "var(--mint)", fill: "var(--mint)", flex: "none", marginTop: 2 }} />}
+                  <button onClick={() => run(item.q)} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "none", border: 0, cursor: "pointer", padding: 0 }}>
+                    <span style={{ display: "block", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--c-ink-4)", marginBottom: 2 }}>{item.category}</span>
+                    <span style={{ display: "block", fontSize: 13, color: "var(--c-ink-2)", lineHeight: 1.35 }}>{item.q}</span>
+                  </button>
+                  <button onClick={() => tq.toggleFavorite(item.q)} title={tq.isFavorite(item.q) ? "Remove from favourites" : "Save to favourites"} aria-label="Toggle favourite" data-testid="fav-toggle" style={{ background: "none", border: 0, cursor: "pointer", flex: "none", padding: 2, marginTop: 1 }}>
+                    <Bookmark size={14} style={{ color: tq.isFavorite(item.q) ? "var(--mint)" : "var(--c-ink-4)", fill: tq.isFavorite(item.q) ? "var(--mint)" : "none" }} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            {(starterLeft > 0 || starterCount > STARTERS_PAGE) && (
+              <div style={{ marginTop: 10 }}>
+                {starterLeft > 0 ? (
+                  <button onClick={() => setStarterCount((c) => Math.min(c + STARTERS_PAGE, THEMATIC_STARTERS.length))} className="ask-chip" data-testid="starters-more" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--c-ink-2)", background: "transparent", border: "1px solid var(--line-2)", borderRadius: 999, padding: "6px 14px", cursor: "pointer" }}>
+                    Show {Math.min(STARTERS_PAGE, starterLeft)} more · {starterLeft} left
+                  </button>
+                ) : (
+                  <button onClick={() => setStarterCount(STARTERS_PAGE)} className="ask-chip" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--c-ink-3)", background: "transparent", border: "1px solid var(--line-2)", borderRadius: 999, padding: "6px 14px", cursor: "pointer" }}>
+                    Show less
+                  </button>
+                )}
+              </div>
             )}
-          </div>
+          </>
+        )}
+
+        {tab === "history" && (
+          tq.history.length === 0 ? (
+            <p style={{ fontSize: 12.5, color: "var(--c-ink-4)", padding: "8px 2px" }}>No queries yet — run a theme and it will appear here.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {tq.history.map((qh) => (
+                <div key={qh} className="ask-chip" data-testid="history-item" style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--line-2)", borderRadius: 10, padding: "7px 10px" }}>
+                  <button onClick={() => run(qh)} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "none", border: 0, cursor: "pointer", fontSize: 13, color: "var(--c-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: 0 }}>{qh}</button>
+                  <button onClick={() => tq.toggleFavorite(qh)} aria-label="Toggle favourite" style={{ background: "none", border: 0, cursor: "pointer", flex: "none" }}>
+                    <Bookmark size={14} style={{ color: tq.isFavorite(qh) ? "var(--mint)" : "var(--c-ink-4)", fill: tq.isFavorite(qh) ? "var(--mint)" : "none" }} />
+                  </button>
+                  <button onClick={() => tq.removeHistory(qh)} aria-label="Remove from history" style={{ background: "none", border: 0, cursor: "pointer", flex: "none", color: "var(--c-ink-4)" }}>
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )
+        )}
+
+        {tab === "favorites" && (
+          tq.favorites.length === 0 ? (
+            <p style={{ fontSize: 12.5, color: "var(--c-ink-4)", padding: "8px 2px" }}>No favourites yet — tap the bookmark on any theme to save it.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {tq.favorites.map((qf) => (
+                <div key={qf} className="ask-chip" data-testid="favorite-item" style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--line-2)", borderRadius: 10, padding: "7px 10px" }}>
+                  <button onClick={() => run(qf)} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "none", border: 0, cursor: "pointer", fontSize: 13, color: "var(--c-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: 0 }}>{qf}</button>
+                  <button onClick={() => tq.toggleFavorite(qf)} aria-label="Remove favourite" style={{ background: "none", border: 0, cursor: "pointer", flex: "none" }}>
+                    <Bookmark size={14} style={{ color: "var(--mint)", fill: "var(--mint)" }} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )
         )}
       </div>
 
