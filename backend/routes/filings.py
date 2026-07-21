@@ -216,7 +216,7 @@ async def filings_feed(
 
 
 @router.get("/signals")
-async def filings_signals(request: Request, days: int = 1):
+async def filings_signals(request: Request, days: int = 1, today_only: bool = True):
     """Today's top-3 material filings (spec §3.2).
 
     `rank` is the DISPLAY POSITION in the impact-ordered list (1,2,3) — it is
@@ -228,24 +228,33 @@ async def filings_signals(request: Request, days: int = 1):
     await get_current_user(request)
     days = max(1, min(int(days or 1), _MAX_DAYS))
 
-    # Top of the impact-ordered feed for the window — same ordering as the feed,
-    # so the two surfaces can never disagree about what "most material" means.
-    data = await _feed(days, None, None, None, None, 3, 0, "material")
+    # Impact-ordered feed for a short window, then keep STRICTLY today's (IST) filings —
+    # "today's read" must be honestly today's corporate events (empty early in the day is
+    # expected; the UI says so). `today_only=false` falls back to the rolling window.
+    data = await _feed(max(days, 2), None, None, None, None, 12, 0, "material")
     articles = data.get("articles") or []
+    from datetime import timedelta
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today = datetime.now(ist).date().isoformat()
+    if today_only:
+        articles = [a for a in articles if str(a.get("when") or "")[:10] == today]
+    articles = articles[:3]
     ins_map = await _insights_for([a.get("id") for a in articles])
     signals: List[Dict[str, Any]] = []
     for i, a in enumerate(articles, start=1):
         ins = ins_map.get(a.get("id")) or {}
         signals.append({
             "rank":      i,
+            "id":        a.get("id"),
             "ticker":    a.get("symbol"),
+            "company":   a.get("company"),
             "type":      a.get("category"),
             "one":       _clean(ins.get("one")),
             "metric":    _fmt_metric(ins.get("metric")),
             "date":      a.get("when"),
             "sentiment": a.get("sentiment"),
         })
-    return {"ok": True, "signals": signals}
+    return {"ok": True, "signals": signals, "today": today, "today_only": today_only}
 
 
 # The document types the UI offers as downloads, in the order the design lists
@@ -481,6 +490,39 @@ def _cite_url(source_url: Optional[str], sec: Dict[str, Any]) -> Optional[str]:
     if not (source_url and start):
         return source_url or None
     return f"{source_url}#page={start}"
+
+
+import re as _held_re
+
+
+@router.get("/portfolio-held")
+async def portfolio_held(request: Request):
+    """The current user's held companies as normalized match keys, so the research feed
+    can badge 'In your portfolio'. Holdings carry a name + an ISIN (in `ticker`); we return
+    normalized names + ISINs + any NSE symbols for client-side matching against filings."""
+    user = await get_current_user(request)
+
+    def _norm(x: Any) -> str:
+        t = _held_re.sub(r"\b(limited|ltd|corporation|corp|company|co|pvt|private)\b", "", (x or "").lower())
+        return _held_re.sub(r"[^a-z0-9]", "", t)
+
+    names, isins, symbols = set(), set(), set()
+    cur = db.holdings.find({"user_id": user["user_id"]},
+                           {"_id": 0, "name": 1, "ticker": 1, "isin": 1, "nse_symbol": 1, "symbol": 1})
+    async for h in cur:
+        if h.get("name"):
+            n = _norm(h["name"])
+            if n:
+                names.add(n)
+        for k in ("ticker", "isin"):
+            v = h.get(k)
+            if isinstance(v, str) and v.upper().startswith("INE"):
+                isins.add(v.upper())
+        for k in ("nse_symbol", "symbol"):
+            v = h.get(k)
+            if v:
+                symbols.add(str(v).upper())
+    return {"ok": True, "names": sorted(names), "isins": sorted(isins), "symbols": sorted(symbols)}
 
 
 @router.get("/{announcement_id}/insights")
