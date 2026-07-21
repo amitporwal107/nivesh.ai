@@ -94,3 +94,32 @@ corpus (annual-report commentary only). Perfect recall of a hand-curated set is 
 extraction variance + corpus depth, not the query expansion.
 
 ## Verdict: PASS
+
+---
+## Update 2026-07-21 (2) — intensity + market-cap-tier ranking + show-all
+
+Per user direction (rank by intensity of numbers / strong words; large-cap first then mid/
+small unless explicitly asked; give a show-all option with pagination):
+- **Intensity**: the extraction LLM scores each flagger 0-100 (magnitude of any number cited
+  + strength of language) and returns the key metric. Verified live: metrics like "3.5-4% RM
+  impact" (Bajaj Auto), "crude oil price +60%" (JM Financial), "price hike 4.35%" (Globus).
+- **Cap tier**: join market_cap_bucket (nidp.v_v3_stock_scores_latest) by NSE symbol; sort
+  LARGE→MID→SMALL→MICRO→unknown, intensity within tier. Verified: curated list leads with
+  LARGE_CAP (UPL/Bajaj Auto/Dabur), then MID (KEI), SMALL (Vesuvius), unknown. Overridable —
+  a query naming a segment ("smallcap …") filters to it (cap_filter in the response).
+- **Show-all**: `?all=true` returns the full keyword-matched company list (no LLM curation),
+  cap-ranked, paginated. Verified: matches=514, pagination.next_offset=8.
+- Copilot end-to-end: sources now lead with large caps (Cholamandalam, Bajaj Auto, Hyundai,
+  UPL) then smaller. DaaS @ e5e94efd.
+
+Fixed in this pass: a SQL scoping bug (the cap-bucket LEFT JOIN sat after ', q' so table d
+was out of scope → HTTP 500) — moved the tsquery CTE to an explicit CROSS JOIN. Also note a
+transient staging-DB crash-recovery window (~205s checkpoint) that 500'd the endpoint until
+Postgres finished WAL replay — infra, not code.
+
+Known precision gap (honest): the extraction still occasionally flags a company that mentions
+margins POSITIVELY (e.g. "margin improvements") as a flagger — the prompt should distinguish
+"flagged PRESSURE" from "mentioned margins". Ranking is correct; extraction precision is the
+next tuning lever.
+
+## Verdict: PASS
