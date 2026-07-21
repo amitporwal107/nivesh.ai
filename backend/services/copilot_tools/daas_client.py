@@ -380,13 +380,41 @@ async def search_documents(
 async def thematic_commentary(q: str, depth: int = 300, limit: int = 12) -> Optional[Dict[str, Any]]:
     """LLM-curated cross-company commentary — DAAS /v1/intelligence/thematic-commentary.
     Casts a wide keyword net over the chunk corpus, then an LLM keeps only the companies
-    whose management genuinely flagged the theme. Returns {"data": [rows]} or None."""
+    whose management genuinely flagged the theme. Returns {"data": [rows]} or None.
+
+    Cached in Redis for the DAY (key by query+params) — the result is market-wide and the
+    DAAS call is ~40s + LLM cost. TTL runs to the next IST midnight so it refreshes next day.
+    Cache is best-effort: any Redis error falls through to a live call."""
+    import hashlib
+    from datetime import datetime, timedelta, timezone
+    norm = " ".join((q or "").lower().split())
+    ckey = "thematic:" + hashlib.sha256(f"{norm}|{depth}|{limit}".encode()).hexdigest()
     try:
-        return await _get("/intelligence/thematic-commentary",
+        from services import redis_client as _rc
+        hit = await _rc.cache_get(ckey)
+        if hit is not None:
+            return hit
+    except Exception as exc:  # noqa: BLE001 — cache read is best-effort
+        logger.debug("thematic_commentary cache_get: %s", exc)
+
+    try:
+        data = await _get("/intelligence/thematic-commentary",
                           {"q": q, "depth": depth, "limit": limit}, timeout=45.0)
     except DaasError as exc:
         logger.debug("thematic_commentary: %s", exc)
         return None
+
+    if isinstance(data, dict) and data.get("data") is not None:
+        try:
+            from services import redis_client as _rc
+            ist = timezone(timedelta(hours=5, minutes=30))
+            now = datetime.now(ist)
+            midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            ttl = max(60, int((midnight - now).total_seconds()))
+            await _rc.cache_set(ckey, data, ttl_s=ttl)
+        except Exception as exc:  # noqa: BLE001 — cache write is best-effort
+            logger.debug("thematic_commentary cache_set: %s", exc)
+    return data if isinstance(data, dict) else None
 
 
 async def documents_coverage() -> Optional[Dict[str, Any]]:

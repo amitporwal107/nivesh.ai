@@ -1,49 +1,77 @@
 /**
- * Per-device history + favourites for thematic research queries (localStorage).
- * History logs every query fired (newest first, deduped, capped); favourites is a
- * user-curated saved set. Kept client-side for now — no backend dependency; can be
- * promoted to a server-backed store later without changing callers.
+ * Per-USER history + favourites for thematic research queries, server-backed
+ * (Mongo via /api/thematic/*). Follows the user across devices. Optimistic local
+ * updates keep the UI snappy; the server response reconciles. If the API is
+ * unreachable the local optimistic state still works for the session.
  */
 import { useState, useEffect, useCallback } from "react";
+import { apiFetch } from "@/services/api/authed-fetch";
 
-const HISTORY_KEY = "nv_thematic_history";
-const FAVORITES_KEY = "nv_thematic_favorites";
-const HISTORY_CAP = 40;
+const CAP = 40;
+type Prefs = { history: string[]; favorites: string[] };
 
-function read(key: string): string[] {
+async function post(path: string, body: object): Promise<Prefs | null> {
   try {
-    const v = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    const r = await apiFetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) return null;
+    return (await r.json()) as Prefs;
   } catch {
-    return [];
+    return null;
   }
-}
-function write(key: string, v: string[]) {
-  try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* quota / private mode */ }
 }
 
 export function useThematicQueries() {
-  const [history, setHistory] = useState<string[]>(() => read(HISTORY_KEY));
-  const [favorites, setFavorites] = useState<string[]>(() => read(FAVORITES_KEY));
+  const [history, setHistory] = useState<string[]>([]);
+  const [favorites, setFavorites] = useState<string[]>([]);
 
-  useEffect(() => write(HISTORY_KEY, history), [history]);
-  useEffect(() => write(FAVORITES_KEY, favorites), [favorites]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await apiFetch("/api/thematic/prefs");
+        if (!r.ok) return;
+        const d = (await r.json()) as Prefs;
+        if (alive) {
+          setHistory(Array.isArray(d.history) ? d.history : []);
+          setFavorites(Array.isArray(d.favorites) ? d.favorites : []);
+        }
+      } catch {
+        /* not signed in / offline — keep session-local state */
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   const addHistory = useCallback((q: string) => {
     const t = (q || "").trim();
     if (!t) return;
-    setHistory((h) => [t, ...h.filter((x) => x !== t)].slice(0, HISTORY_CAP));
+    setHistory((h) => [t, ...h.filter((x) => x !== t)].slice(0, CAP)); // optimistic
+    post("/api/thematic/history", { query: t }).then((d) => {
+      if (d) { setHistory(d.history); setFavorites(d.favorites); }
+    });
   }, []);
+
   const removeHistory = useCallback((q: string) => {
     setHistory((h) => h.filter((x) => x !== q));
+    post("/api/thematic/history/remove", { query: q }).then((d) => { if (d) setHistory(d.history); });
   }, []);
-  const clearHistory = useCallback(() => setHistory([]), []);
+
+  const clearHistory = useCallback(() => {
+    setHistory([]);
+    post("/api/thematic/history/remove", { clear: true });
+  }, []);
 
   const isFavorite = useCallback((q: string) => favorites.includes((q || "").trim()), [favorites]);
+
   const toggleFavorite = useCallback((q: string) => {
     const t = (q || "").trim();
     if (!t) return;
-    setFavorites((f) => (f.includes(t) ? f.filter((x) => x !== t) : [t, ...f]));
+    setFavorites((f) => (f.includes(t) ? f.filter((x) => x !== t) : [t, ...f])); // optimistic
+    post("/api/thematic/favorites/toggle", { query: t }).then((d) => { if (d) setFavorites(d.favorites); });
   }, []);
 
   return { history, favorites, addHistory, removeHistory, clearHistory, isFavorite, toggleFavorite };
