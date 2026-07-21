@@ -30,6 +30,7 @@ import ReleasesPage from "./pages/Releases";
 import ReleaseDetailPage from "./pages/Releases/ReleaseDetail";
 import ChatPage from "./pages/Chat";
 import ResearchPage from "./pages/Research";
+import ResearchQAPage from "./pages/Research/QAExercise";
 import LoginPage from "./pages/Login";
 import OnboardingPage from "./pages/Onboarding";
 import CasCallbackPage from "./pages/CasCallback";
@@ -115,6 +116,9 @@ export function AppRoutes() {
           app surface (own header + ask bar), so it renders OUTSIDE AppLayout to
           avoid doubled chrome / the portfolio Copilot drawer. Login-gated only. */}
       <Route path="/research" element={<RequireAuth><RouteErrorBoundary pageName="Research"><ResearchPage /></RouteErrorBoundary></RequireAuth>} />
+      {/* QA validation exercise — an in-app, fill-in version of the two onboarding
+          docs. Same standalone, login-gated treatment as /research. */}
+      <Route path="/research/qa" element={<RequireAuth><RouteErrorBoundary pageName="Research QA"><ResearchQAPage /></RouteErrorBoundary></RequireAuth>} />
 
       {/* Authenticated app — sidebar layout */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
