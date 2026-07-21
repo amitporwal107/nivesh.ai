@@ -420,6 +420,49 @@ async def intelligence_events_search(
     return envelope([row_to_dict(r) for r in rows], **page, extra={"query": q})
 
 
+@router.get("/thematic-commentary",
+            summary="Cross-company 'who flagged X?' — LLM-curated management commentary")
+async def thematic_commentary(
+    q: str = Query(..., min_length=3, max_length=200),
+    depth: int = Query(150, ge=20, le=1500,
+                       description="candidate companies the LLM reads (deeper = better recall, more latency)"),
+    page: Dict[str, int] = Depends(page_params),
+) -> Dict[str, Any]:
+    """Precise cross-company thematic commentary. A wide keyword net over the chunk
+    corpus (GIN-indexed, deduped by company, ranked by breadth of discussion) yields
+    the candidates; an LLM then reads the passages and keeps ONLY the companies whose
+    management genuinely flagged the theme — the curated 'who flagged X?' answer that
+    keyword/vector ranking alone cannot produce. Degrades to the comprehensive
+    keyword-ranked list if the LLM is unavailable. See daas_api.thematic_search."""
+    import asyncio
+    from nidp.services.daas_api import thematic_search as _ts
+
+    tsq, theme = await asyncio.to_thread(_ts.classify_theme, q)
+    if not tsq:
+        return envelope([], **page, extra={"query": q, "theme": theme, "note": "no searchable terms"})
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(_ts.CANDIDATE_SQL, tsq, _ts._WINDOW_DAYS, depth)
+    candidates = [row_to_dict(r) for r in rows]
+
+    # LLM extraction over the candidate set, batched and run concurrently.
+    BATCH = 50
+    batches = [candidates[i:i + BATCH] for i in range(0, len(candidates), BATCH)]
+    results = await asyncio.gather(
+        *[asyncio.to_thread(_ts.extract_flagged, theme, b) for b in batches]
+    ) if batches else []
+
+    used_llm = any(r is not None for r in results)
+    flagged = [row for r in results if r for row in r] if used_llm else candidates
+
+    window = flagged[page["offset"]: page["offset"] + page["limit"]]
+    return envelope(window, **page, extra={
+        "query": q, "theme": theme, "curated": used_llm,
+        "candidates_scanned": len(candidates), "matches": len(flagged),
+    })
+
+
 @router.get("/events/{event_id}", summary="Single normalized event")
 async def intelligence_event_detail(event_id: str) -> Dict[str, Any]:
     pool = await get_pool()
