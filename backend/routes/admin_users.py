@@ -611,16 +611,13 @@ async def datastore_isolation(request: Request):
 async def whitelist_repair(request: Request) -> Dict[str, Any]:
     """Check and repair whitelist entry for a user by email.
     If the user exists in `users` but not in `whitelisted_users`, re-adds them.
-    Protected by a static secret key (X-Admin-Key header).
+    Requires an authenticated admin session.
 
     curl -X POST https://niveshcopilot.com/api/admin/whitelist-repair \
          -H 'Content-Type: application/json' \
-         -H 'X-Admin-Key: niv3sh-reset-2026' \
          -d '{"email": "user@example.com"}'
     """
-    key = request.headers.get("X-Admin-Key", "")
-    if key != "niv3sh-reset-2026":
-        raise HTTPException(status_code=403, detail="Invalid admin key")
+    await require_admin(request)
 
     body = await request.json()
     email = (body.get("email") or "").strip().lower()
@@ -660,15 +657,12 @@ async def whitelist_repair(request: Request) -> Dict[str, Any]:
 @router.post("/reset-onboarding")
 async def reset_onboarding_by_email(request: Request) -> Dict[str, Any]:
     """Reset onboarding flags for a user by email.
-    Protected by a static secret key (X-Admin-Key header).
+    Requires an authenticated admin session.
     curl -X POST https://niveshcopilot.com/api/admin/reset-onboarding \
          -H 'Content-Type: application/json' \
-         -H 'X-Admin-Key: niv3sh-reset-2026' \
          -d '{"email": "user@example.com"}'
     """
-    key = request.headers.get("X-Admin-Key", "")
-    if key != "niv3sh-reset-2026":
-        raise HTTPException(status_code=403, detail="Invalid admin key")
+    await require_admin(request)
 
     body = await request.json()
     email = (body.get("email") or "").strip().lower()
@@ -697,16 +691,13 @@ async def reset_portfolio_by_email(request: Request) -> Dict[str, Any]:
     transactions, cache, and redis keys, then resets onboarding flags so
     the user sees the upload screen on next login.
 
-    Protected by the static X-Admin-Key (same as /reset-onboarding).
+    Requires an authenticated admin session.
 
     curl -X POST https://niveshcopilot.com/api/admin/reset-portfolio-by-email \\
          -H 'Content-Type: application/json' \\
-         -H 'X-Admin-Key: niv3sh-reset-2026' \\
          -d '{"email": "user@example.com"}'
     """
-    key = request.headers.get("X-Admin-Key", "")
-    if key != "niv3sh-reset-2026":
-        raise HTTPException(status_code=403, detail="Invalid admin key")
+    await require_admin(request)
 
     body = await request.json()
     email = (body.get("email") or "").strip().lower()
@@ -762,12 +753,9 @@ async def mark_onboarded_by_email(request: Request) -> Dict[str, Any]:
 
     curl -X POST https://niveshcopilot.com/api/admin/mark-onboarded \\
          -H 'Content-Type: application/json' \\
-         -H 'X-Admin-Key: niv3sh-reset-2026' \\
          -d '{"email": "user@example.com"}'
     """
-    key = request.headers.get("X-Admin-Key", "")
-    if key != "niv3sh-reset-2026":
-        raise HTTPException(status_code=403, detail="Invalid admin key")
+    await require_admin(request)
 
     body = await request.json()
     email = (body.get("email") or "").strip().lower()
@@ -798,16 +786,13 @@ async def mark_onboarded_by_email(request: Request) -> Dict[str, Any]:
 @router.post("/gmail-scan")
 async def admin_gmail_scan(request: Request) -> Dict[str, Any]:
     """Scan Gmail for CAS emails using stored tokens for a user.
-    Protected by X-Admin-Key header. Bypasses OAuth UI for testing.
+    Requires an authenticated admin session. Bypasses the OAuth UI for support use.
 
     curl -X POST https://niveshcopilot.com/api/admin/gmail-scan \\
-         -H 'X-Admin-Key: niv3sh-reset-2026' \\
          -H 'Content-Type: application/json' \\
          -d '{"email": "user@example.com"}'
     """
-    key = request.headers.get("X-Admin-Key", "")
-    if key != "niv3sh-reset-2026":
-        raise HTTPException(status_code=403, detail="Invalid admin key")
+    await require_admin(request)
 
     body = await request.json()
     email = (body.get("email") or "").strip().lower()
@@ -860,17 +845,14 @@ async def admin_gmail_scan(request: Request) -> Dict[str, Any]:
 @router.post("/gmail-import")
 async def admin_gmail_import(request: Request) -> Dict[str, Any]:
     """Import a specific CAS email for a user using stored Gmail tokens.
-    Protected by X-Admin-Key header.
+    Requires an authenticated admin session.
 
     curl -X POST https://niveshcopilot.com/api/admin/gmail-import \\
-         -H 'X-Admin-Key: niv3sh-reset-2026' \\
          -H 'Content-Type: application/json' \\
          -d '{"email": "user@example.com", "message_id": "...", "attachment_id": "...", "filename": "CAS.pdf", "password": "PANXXXX"}'
     """
     from fastapi import BackgroundTasks
-    key = request.headers.get("X-Admin-Key", "")
-    if key != "niv3sh-reset-2026":
-        raise HTTPException(status_code=403, detail="Invalid admin key")
+    await require_admin(request)
 
     body = await request.json()
     email = (body.get("email") or "").strip().lower()
