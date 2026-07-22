@@ -12,54 +12,105 @@ from __future__ import annotations
 import os
 
 
-# Copilot model. Set to gpt-5.5 per product direction (2026-06). NOTE: this
-# id is unverified against the live OpenAI account from CI — if the account's
-# exact id differs (e.g. a dated snapshot) or lacks gpt-5.5 access, the nodes
-# will 'model_not_found' and surface "trouble connecting to my AI engine".
-# Override without a code change via the COPILOT_LLM_MODEL env var / GSM.
-COPILOT_LLM_MODEL: str = os.environ.get("COPILOT_LLM_MODEL", "gpt-5.5")
+# ── Provider + model ─────────────────────────────────────────────────────────
+# Two OpenAI-wire-compatible providers are wired, selected via env (no code change):
+#   • openai (default) — the OpenAI account; key resolved via nidp.shared.openai_key.
+#   • groq             — Groq's OpenAI-compatible endpoint, used to run a FREE open
+#                        model (openai/gpt-oss-120b) while OpenAI model access is
+#                        being sorted out (an inaccessible gpt-5.x default broke the
+#                        whole copilot — see git history).
+# Groq is AUTO-selected whenever GROQ_API_KEY is set (or force COPILOT_LLM_PROVIDER).
+# Because Groq speaks the OpenAI wire format we reuse langchain_openai.ChatOpenAI
+# with a Groq base_url — NO new dependency — and ONLY the copilot chat nodes are
+# redirected (embeddings / other OpenAI calls elsewhere in the app are untouched).
+_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+_GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"   # free on Groq (product choice, 2026-07)
+_OPENAI_DEFAULT_MODEL = "gpt-4o-mini"         # known-good OpenAI default
+
+
+def get_groq_api_key() -> str:
+    """Resolve GROQ_API_KEY the same layered way as the OpenAI key
+    (helpers/openai_key.py): GSM -> admin (secrets) override -> env, at CALL time.
+    Store it in Google Secret Manager (secret name GROQ_API_KEY) for a deployed
+    environment; backend/.env is the local fallback. "" when nothing has it."""
+    try:
+        from helpers import gsm as _gsm
+        k = _gsm.get("GROQ_API_KEY")
+        if k:
+            return k.strip()
+    except Exception:  # noqa: BLE001 — no GCP creds locally; fall through
+        pass
+    try:
+        from helpers import secrets as _secrets
+        k = _secrets.get("GROQ_API_KEY")
+        if k:
+            return k.strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return os.environ.get("GROQ_API_KEY", "").strip()
+
+
+def llm_provider() -> str:
+    """'groq' or 'openai' (default). An explicit COPILOT_LLM_PROVIDER wins; otherwise
+    Groq is auto-selected whenever a GROQ_API_KEY is resolvable (GSM / admin / env)."""
+    p = os.environ.get("COPILOT_LLM_PROVIDER", "").strip().lower()
+    if p in ("groq", "openai"):
+        return p
+    return "groq" if get_groq_api_key() else "openai"
+
+
+def resolve_model() -> str:
+    """The chat-model id for the active provider (resolved at call time, so env wins).
+
+    On Groq we use GROQ_MODEL / the free default and deliberately IGNORE
+    COPILOT_LLM_MODEL — a stale OpenAI id left there (e.g. a `gpt-5.5` pin in the
+    deployed env) would be rejected by Groq. On OpenAI, COPILOT_LLM_MODEL pins the
+    model, defaulting to the known-good gpt-4o-mini."""
+    if llm_provider() == "groq":
+        return os.environ.get("GROQ_MODEL", "").strip() or _GROQ_DEFAULT_MODEL
+    return os.environ.get("COPILOT_LLM_MODEL", "").strip() or _OPENAI_DEFAULT_MODEL
+
+
+# Back-compat: a few call sites / tests import this. It reflects the resolved model
+# for the active provider at import time.
+COPILOT_LLM_MODEL: str = resolve_model()
 
 
 def temperature_for(requested: float) -> float:
-    """Return a temperature the configured model will accept.
-
-    gpt-5.x reasoning models only support the default temperature (1) — any
-    other value returns a 400 ("Only the default (1) value is supported"),
-    which the nodes catch and surface as "trouble connecting to my AI engine".
-    For those models we force 1.0; for others (e.g. gpt-4o) we honour the
-    node's requested value so determinism tuning still applies.
-    """
-    return 1.0 if COPILOT_LLM_MODEL.startswith("gpt-5") else requested
+    """Return a temperature the active model accepts. gpt-5.x reasoning models only
+    support the default (1) — any other value 400s; gpt-4o and Groq's gpt-oss/llama
+    honour the requested value, so determinism tuning still applies."""
+    return 1.0 if resolve_model().startswith("gpt-5") else requested
 
 
 def get_openai_api_key() -> str:
-    """Resolve the OpenAI API key at call time (NFR-09 order):
-
-      1. Google Secret Manager (``helpers.gsm`` — secret ``OPENAI_API_KEY``)
-      2. DB-backed admin override (``helpers.secrets``)
-      3. ``OPENAI_API_KEY`` env var
-
-    Every specialist node must use this rather than reading os.environ
-    directly, so the key can be rotated via GSM / the admin console
-    without a redeploy and without an env var being present on the box.
-    Returns "" if no source has it — the caller's LLM call then fails
-    loudly, which the node surfaces as an error (no silent fallback).
+    """Resolve the OpenAI API key at call time (NFR-09 order): GSM -> admin
+    override -> env. Delegates to nidp.shared.openai_key, which is the single
+    implementation every caller shares — see that module for why.
     """
-    try:
-        from helpers import gsm as _gsm  # type: ignore
-        k = _gsm.get("OPENAI_API_KEY")
-        if k:
-            return k
-    except Exception:  # noqa: BLE001 — GSM unavailable in local dev; fall through
-        pass
-    try:
-        from helpers import secrets as _secrets  # type: ignore
-        k = _secrets.get("OPENAI_API_KEY")
-        if k:
-            return k
-    except Exception:  # noqa: BLE001
-        pass
-    return os.environ.get("OPENAI_API_KEY", "")
+    from nidp.shared.openai_key import get_openai_api_key as _resolve
+    return _resolve()
+
+
+def make_chat_llm(temperature: float, **kwargs):
+    """The single chat-model constructor every copilot node uses, so the provider
+    (OpenAI vs Groq) is decided in exactly ONE place. Groq reuses ChatOpenAI against
+    Groq's OpenAI-compatible base_url."""
+    from langchain_openai import ChatOpenAI
+    if llm_provider() == "groq":
+        return ChatOpenAI(
+            model=resolve_model(),
+            temperature=temperature,
+            api_key=get_groq_api_key(),
+            base_url=_GROQ_BASE_URL,
+            **kwargs,
+        )
+    return ChatOpenAI(
+        model=resolve_model(),
+        temperature=temperature,
+        api_key=get_openai_api_key(),
+        **kwargs,
+    )
 
 
 # Appended verbatim to every specialist agent's system prompt. Kept

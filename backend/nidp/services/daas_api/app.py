@@ -46,6 +46,7 @@ from nidp.services.daas_api.routers import (
     backfill,
     catalog,
     corporate_actions,
+    documents,
     dq_ai,
     events,
     features,
@@ -315,6 +316,7 @@ app.include_router(financials.router, prefix=v1_prefix)
 app.include_router(fno.router, prefix=v1_prefix)
 app.include_router(flows.router, prefix=v1_prefix)
 app.include_router(announcements.router, prefix=v1_prefix)
+app.include_router(documents.router, prefix=v1_prefix)
 app.include_router(macro.router, prefix=v1_prefix)
 app.include_router(snapshots.router, prefix=v1_prefix)
 app.include_router(features.router, prefix=v1_prefix)

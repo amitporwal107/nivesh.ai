@@ -24,6 +24,12 @@ confluent-kafka[avro,schema-registry]>=2.3,<3
 # runtime: local | s3 | gcs.
 boto3>=1.34,<2
 google-cloud-storage>=2.14,<3
+# google-cloud-secret-manager: OPENAI_API_KEY is resolved from Secret Manager
+# first (see nidp/shared/openai_key.py). Without this the helpers.gsm import
+# fails, resolution silently falls through to a stale env var, and a rotated key
+# never takes effect — which is exactly how the vision tier ended up 401'ing on
+# every page while GSM held a valid key. Pinned to match backend/requirements.txt.
+google-cloud-secret-manager==2.20.2
 
 # ── Parsers ──
 # fii_dii: openpyxl for XLSX, xlrd<2 for legacy XLS.
@@ -37,6 +43,13 @@ lxml>=5,<6
 # pandas read_html fallback for fii_dii html variant
 pandas>=2,<3
 
+# ── Embeddings (self-hosted bge-base-en-v1.5, ONNX on CPU) ──
+# onnxruntime + tokenizers, NOT sentence-transformers (which pulls multi-GB
+# torch). Model weights live at NIDP_EMBED_MODEL_DIR, not pip-installed.
+# is_available() returns False without these, degrading to keyword search.
+onnxruntime>=1.17,<2
+tokenizers>=0.15,<1
+
 # ── S5 document_parser ──
 # pypdf for text extraction from NSE/BSE filing PDFs (text-PDFs only;
 # scanned PDFs fall through to parse_status='skipped_non_text').
@@ -49,5 +62,12 @@ pypdf>=4,<6
 pymupdf>=1.24,<2
 
 # ── S4 announcement_classifier ──
-# Anthropic SDK for Haiku-based event/impact/sentiment classification.
+# Anthropic SDK — historic; the classifier now runs on OpenAI (see openai below).
 anthropic>=0.40,<1
+
+# ── OpenAI SDK ──
+# Used by: announcement_classifier (event/impact/sentiment classification),
+# document_parser embedder (text-embedding-3-small → document_chunks.embedding),
+# and document_parser vision fallback (gpt-4o transcription of image-heavy pages).
+# Pinned to the same major as the main backend image (openai==1.99.9).
+openai>=1.40,<2

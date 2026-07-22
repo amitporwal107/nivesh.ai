@@ -34,9 +34,14 @@ export default defineConfig({
     timeout: 60_000,
   },
   projects: [
-    // Auth setup — writes a minimal storageState (no real cookie needed for mocked tests)
+    // Auth setup — writes a minimal storageState (no real cookie needed for mocked tests).
+    // Needs its own testDir: auth.setup.ts lives at e2e/, OUTSIDE the top-level
+    // testDir of e2e/tests, so without this the project matches no files, never
+    // writes e2e/.auth/session.json, and every mocked project then fails to start
+    // with ENOENT on that file.
     {
       name: "auth-setup",
+      testDir: "./e2e",
       testMatch: /auth\.setup\.ts/,
     },
 

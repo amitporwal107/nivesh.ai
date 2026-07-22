@@ -80,6 +80,13 @@ SPECS: list[ServiceSpec] = [
     ServiceSpec("delivery",            "nidp.services.delivery.service",           True,  1.0),
     ServiceSpec("index_close",         "nidp.services.index_close.service",        True,  1.0),
     ServiceSpec("fii_dii",             "nidp.services.fii_dii.service",            True,  1.0),
+    # Per-day filings. run() drives NSE + BSE coarse + BSE subcategory, each
+    # independently. Document discovery keys off these rows, so corpus depth can
+    # never exceed this feed's history — backfilling it is what makes historical
+    # filings reachable at all. polite_gap 1.5s: three sources per date against
+    # exchange endpoints that already rate-limited us once.
+    ServiceSpec("corporate_announcements",
+                "nidp.services.corporate_announcements.service",                   True,  1.5),
     # Rolling
     ServiceSpec("bulk_deals",          "nidp.services.bulk_deals.service",         False, 0.5),
     ServiceSpec("block_deals",         "nidp.services.block_deals.service",        False, 0.5),
@@ -209,8 +216,16 @@ async def run_backfill(
                            run so holiday filter populates first.
     """
     report = BackfillReport()
+    if services:
+        unknown = [n for n in services if n not in SPEC_BY_NAME]
+        if unknown:
+            # Silently filtering these out meant `--services typo` ran zero jobs
+            # and exited 0 reporting "ok: 0" — indistinguishable from success.
+            raise ValueError(
+                f"unknown service(s): {', '.join(unknown)}. "
+                f"Known: {', '.join(sorted(SPEC_BY_NAME))}")
     selected = list(SPECS) if services is None else [
-        SPEC_BY_NAME[n] for n in services if n in SPEC_BY_NAME
+        SPEC_BY_NAME[n] for n in services
     ]
     daily = [s for s in selected if s.needs_date]
     rolling = [s for s in selected if not s.needs_date]

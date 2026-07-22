@@ -1,12 +1,15 @@
 import { useState } from "react";
 import {
   KeyRound, Database, PlayCircle, BarChart3, ShieldCheck,
-  Sparkles, History, HardDriveDownload, Award, TrendingUp, Activity, Server,
+  Sparkles, History, HardDriveDownload, Award, TrendingUp, Activity, Server, Radio,
+  Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ApiKeysSection } from "@/components/nidp/ApiKeysSection";
 import { DataCatalog } from "@/components/nidp/DataCatalog";
 import { JobsPanel } from "@/components/nidp/JobsPanel";
+import { FeedsLivePanel } from "@/components/nidp/FeedsLivePanel";
+import { PipelinePanel } from "@/components/nidp/PipelinePanel";
 import { GrafanaEmbed } from "@/components/nidp/GrafanaEmbed";
 import { QualityDashboard } from "@/components/nidp/QualityDashboard";
 import { ExpectationsPanel } from "@/components/nidp/ExpectationsPanel";
@@ -15,7 +18,9 @@ import { DiagnosticsPanel } from "@/components/nidp/DiagnosticsPanel";
 
 const TABS = [
   { id: "api_keys",      label: "API Keys",         icon: KeyRound,         blurb: "Manage and rotate NIDP DaaS (X-API-Key) and Query API (Bearer) tokens." },
+  { id: "pipeline",      label: "Pipeline",         icon: Workflow,         blurb: "Live health of the 6 ingestion \u2192 RAG stages \u2014 ingest, classify, discover, parse, chunk, embed. Per-stage freshness that classify_feed cannot see." },
   { id: "catalog",       label: "Data Catalog",     icon: Database,         blurb: "Every NIDP table, every feed, freshness, and validation findings." },
+  { id: "feeds_live",    label: "Feeds Live",       icon: Radio,            blurb: "Live, auto-refreshing feed tracker — running/stale/failing rollup, inline run history + log tail, trigger & watch." },
   { id: "jobs",          label: "Jobs",             icon: PlayCircle,       blurb: "Per-ingester Cloud Run job control plane — list, trigger, inspect." },
   { id: "grafana",       label: "Grafana",          icon: BarChart3,        blurb: "Live job-health dashboard embedded from the VM Grafana — no login required." },
   { id: "quality",       label: "Data Quality",     icon: ShieldCheck,      blurb: "Executive summary · quality metrics · rule failures · exception queue · SLA monitor." },
@@ -82,7 +87,9 @@ export default function NidpConsolePage() {
 
       {/* Tab content */}
       {tab === "api_keys"      && <ApiKeysSection />}
+      {tab === "pipeline"      && <PipelinePanel />}
       {tab === "catalog"       && <DataCatalog />}
+      {tab === "feeds_live"    && <FeedsLivePanel />}
       {tab === "jobs"          && <JobsPanel />}
       {tab === "grafana"       && <GrafanaEmbed />}
       {tab === "quality"       && <QualityDashboard />}

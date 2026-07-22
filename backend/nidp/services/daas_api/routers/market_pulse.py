@@ -25,6 +25,19 @@ def _f(v) -> Optional[float]:
     return round(float(v), 2) if v is not None else None
 
 
+def _as_json(v):
+    """asyncpg may hand back a jsonb column already decoded or still as text
+    (it depends on codec registration). Normalise both, and treat undecodable
+    text as absent rather than letting a string leak into a dict/list field."""
+    if isinstance(v, str):
+        import json as _json
+        try:
+            return _json.loads(v)
+        except ValueError:
+            return None
+    return v
+
+
 # ════════════════════════════════════════════════════════════════════════
 # FII / DII — daily series + monthly aggregates (EQUITY_CASH), ₹ crore
 # ════════════════════════════════════════════════════════════════════════
@@ -178,16 +191,32 @@ async def articles(
     impact: Optional[str] = Query(None),
     sentiment: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
+    symbol: Optional[str] = Query(None, description="exact NSE ticker — scopes the feed AND the facets to one company"),
     limit: int = Query(60, ge=1, le=120),
     offset: int = Query(0, ge=0),
+    sort: str = Query("material", pattern="^(material|latest)$"),
 ):
+    """Classified NSE/BSE filings as a feed.
+
+    `sort` (added for the Filings Home — docs/FILINGS_HOME_SPEC.md):
+      material — high impact first, then recency. The default, and the previous
+                 (only) behaviour, so existing callers are unaffected.
+      latest   — pure recency.
+    `total` is the unfiltered-by-paging count for the SAME predicate as the list,
+    so the client can paginate. It is NOT len(articles).
+    """
     since = date.today() - timedelta(days=days)
     category = category.lower() if category else None
     impact = impact.lower() if impact else None
     sentiment = sentiment.lower() if sentiment else None
     like = f"%{q}%" if q else None
+    sym = symbol.strip().upper() if symbol and symbol.strip() else None
+    # Interpolated, not bound: it is regex-validated by Query(pattern=...) to one
+    # of two literals, so it can never carry caller input into the SQL.
+    order_by = ("(impact_score='high') DESC NULLS LAST, filed_at DESC"
+                if sort == "material" else "filed_at DESC")
 
-    list_sql = """
+    list_sql = f"""
         SELECT announcement_id, source, ticker_symbol, company_name, subject,
                description, event_category, impact_score, sentiment,
                filed_at, attachment_url
@@ -197,22 +226,60 @@ async def articles(
            AND ($3::text IS NULL OR impact_score = $3)
            AND ($4::text IS NULL OR sentiment = $4)
            AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
+           AND ($8::text IS NULL OR UPPER(ticker_symbol) = $8)
            AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
-         ORDER BY (impact_score='high') DESC, filed_at DESC
+         -- {order_by} is one of two validated literals — see the note above.
+         -- NULLS LAST is load-bearing — see routes/markets.py::_articles, which
+         -- carries a byte-identical copy of this query as the DaaS fallback.
+         -- `impact_score='high'` is NULL for an unclassified row and Postgres
+         -- DESC defaults to NULLS FIRST, so the un-triaged backlog sorted ABOVE
+         -- every classified row and filled the LIMIT. This router is the PRIMARY
+         -- path (app calls it via _daas_first), so this copy is the one that was
+         -- actually serving the bug: measured on staging 2026-07-17, page 1 was
+         -- 60/60 unclassified while 610 material filings existed in the window.
+         -- 126,994 of 146,102 announcements are permanently unclassified (the
+         -- classifier's 30-day queue floor), so NULLs are 87% of the table.
+         ORDER BY {order_by}
          LIMIT $6 OFFSET $7
     """
+    # Same predicate as list_sql, minus paging/ordering — this is the count the
+    # client paginates against. Never len(articles), which is just the page size.
+    total_sql = """
+        SELECT count(*) AS n
+          FROM nidp.corporate_announcements
+         WHERE filed_at >= $1::date
+           AND ($2::text IS NULL OR event_category = $2)
+           AND ($3::text IS NULL OR impact_score = $3)
+           AND ($4::text IS NULL OR sentiment = $4)
+           AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
+           AND ($6::text IS NULL OR UPPER(ticker_symbol) = $6)
+           AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
+    """
+    # Facets must answer "what else is there UNDER THE CURRENT SEARCH", so they
+    # carry the same predicate as the list — impact, sentiment, free-text and
+    # symbol — but deliberately NOT `category` itself (filtering by the facet you
+    # are counting would zero every other chip and strand the user).
+    #
+    # This previously bound only $1, so selecting a company still showed
+    # whole-feed taxonomy: searching INFY reported "MANAGEMENT 216" from the
+    # entire tape rather than Infosys's own filings.
     cat_sql = """
         SELECT event_category, count(*) AS n
           FROM nidp.corporate_announcements
          WHERE filed_at >= $1::date AND event_category IS NOT NULL
            AND event_category NOT IN ('regulatory', 'other')
+           AND ($2::text IS NULL OR impact_score = $2)
+           AND ($3::text IS NULL OR sentiment = $3)
+           AND ($4::text IS NULL OR subject ILIKE $4 OR company_name ILIKE $4 OR ticker_symbol ILIKE $4)
+           AND ($5::text IS NULL OR UPPER(ticker_symbol) = $5)
          GROUP BY event_category
          ORDER BY n DESC
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(list_sql, since, category, impact, sentiment, like, limit, offset)
-        cats = await conn.fetch(cat_sql, since)
+        rows = await conn.fetch(list_sql, since, category, impact, sentiment, like, limit, offset, sym)
+        total = await conn.fetchval(total_sql, since, category, impact, sentiment, like, sym)
+        cats = await conn.fetch(cat_sql, since, impact, sentiment, like, sym)
 
     out = []
     for r in rows:
@@ -232,7 +299,68 @@ async def articles(
             "url":       r["attachment_url"],
             "read_min":  _read_min(subject, desc),
         })
-    return {"articles": out, "categories": {r["event_category"]: int(r["n"]) for r in cats}}
+    return {"articles": out, "total": int(total or 0),
+            "categories": {r["event_category"]: int(r["n"]) for r in cats}}
+
+
+@router.get("/filing-insights", summary="Generated insights for a set of filings")
+async def filing_insights(ids: str = Query(..., description="comma-separated announcement ids")):
+    """Batch lookup of filing_insights rows for the given announcement ids.
+
+    Returns a map keyed by announcement id → the fields the Filings Home feed
+    renders (one-liner, period, headline metric). Only filings the stage-7
+    generator has already processed appear in the map; the caller treats a
+    missing id as "no insight yet" (hasInsights=false). Fields are extracted in
+    SQL to avoid depending on how asyncpg surfaces jsonb.
+    """
+    id_list = [x for x in (ids or "").split(",") if x][:200]
+    if not id_list:
+        return {"insights": {}}
+    sql = """
+        SELECT s.announcement_ref,
+               s.period,
+               s.signal_json->>'summary'         AS one,
+               s.signal_json->'headline_metric'  AS metric_json,
+               s.signal_json->'sections'         AS sections_json,
+               s.signal_json->>'sentiment'       AS sentiment,
+               (s.signal_json->>'confidence')::numeric AS confidence,
+               s.signal_json->>'doc_type'        AS doc_type,
+               s.signal_json->>'model'           AS model,
+               s.analysed_at,
+               d.source_url
+          FROM nidp.corporate_event_signals s
+          LEFT JOIN LATERAL (
+                SELECT dd.source_url
+                  FROM nidp.documents dd
+                 WHERE dd.announcement_id = s.announcement_ref
+                   AND dd.announcement_source = s.announcement_source
+                   AND dd.parse_status = 'parsed'
+                 ORDER BY dd.filed_at DESC NULLS LAST
+                 LIMIT 1
+               ) d ON TRUE
+         WHERE s.signal_type = 'filing_insight'
+           AND s.announcement_ref = ANY($1::text[])
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(sql, id_list)
+    insights: Dict[str, Any] = {}
+    for r in rows:
+        insights[r["announcement_ref"]] = {
+            "one":        r["one"],
+            "period":     r["period"],
+            "metric":     _as_json(r["metric_json"]),   # {label,value,unit} or null
+            # [{tab,h,items[],cite_page_start,cite_page_end}] — [] for insights
+            # generated before the sectioned generator shipped.
+            "sections":   _as_json(r["sections_json"]) or [],
+            "sentiment":  r["sentiment"],
+            "confidence": float(r["confidence"]) if r["confidence"] is not None else None,
+            "docType":    r["doc_type"],
+            "model":      r["model"],
+            "sourceUrl":  r["source_url"],
+            "generatedAt": r["analysed_at"].isoformat() if r["analysed_at"] else None,
+        }
+    return {"insights": insights}
 
 
 # ════════════════════════════════════════════════════════════════════════

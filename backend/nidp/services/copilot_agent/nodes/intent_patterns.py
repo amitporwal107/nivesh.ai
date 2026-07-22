@@ -22,6 +22,8 @@ RISK = "risk_analyst"
 GOAL = "goal_planner"
 RECOMMENDATION = "recommendation"
 BACKTEST = "backtest_analyst"
+STOCKS_INSIGHTS = "stocks_insights"
+POLICY = "policy_analyst"
 
 
 # Historical "what-if" backtest — "if I'd invested ₹10L in X and Y 3 years ago,
@@ -127,6 +129,95 @@ _P_STOCK_OWNERSHIP = re.compile(
     re.IGNORECASE,
 )
 
+# Corporate-DISCLOSURES / filings insights (Nivesh Copilot "stocks insights" tool):
+# recent announcements/news/filings for a company, order wins, board outcomes,
+# fund raises, and thematic "which companies announced X". Anchored on
+# disclosure/news/recency vocabulary so it does NOT steal fundamentals/technicals
+# (P/E, ROE, RSI → stock_analyst) or bare "results" (→ stock-lookup gate). Checked
+# in _PRE so a clear disclosure query beats the stock-lookup gate.
+_P_STOCK_INSIGHTS = re.compile(
+    r"\b(?:latest|recent|any)\s+(?:news|updates?|announcements?|filings?|disclosures?|developments?|corporate\s+actions?)\b|"
+    r"\bwhat'?s\s+(?:the\s+)?(?:latest|new|happening|going\s+on)\s+(?:with|on|for|at|in)\b|"
+    r"\b(?:corporate\s+)?(?:announcements?|filings?|disclosures?)\s+(?:of|for|by|from)\b|"
+    r"\b(?:order|contract)\s+(?:win|wins|book|award|awards)\b|\bbagged?\s+(?:an?\s+)?(?:order|contract)\b|"
+    r"\bboard\s+meeting\s+outcome|fund\s*rais(?:e|ing)|\bqip\b|preferential\s+(?:issue|allotment)|"
+    r"\bwhich\s+(?:\w+\s+){0,2}(?:companies|smallcaps?|midcaps?|largecaps?|stocks?|firms|players|makers?)\s+"
+    r"(?:announced|filed|reported|won|raised|mention\w*|talk\w*|discuss\w*|are\s+(?:investing|expanding|acquiring|raising|talking))\b|"
+    r"\b(?:who\s+(?:are\s+)?(?:the\s+)?benefici|benefici\w+\s+of)\b|"
+    r"\bany\s+news\s+(?:on|about|for)\b|"
+    # concall / earnings-call / management-commentary (Nivesh Copilot deep-dives A/B)
+    r"\b(?:earnings|conference|con)[\s-]?call\b|\bconcall\b|\binvestor\s+presentation\b|\bfact\s*sheet\b|"
+    r"\bwhat\s+did\b[^?]{0,40}\bsay\b|\bmanagement\s+(?:said|say|commentary|guidance|attribut|highlight|note)|"
+    r"\b(?:margin|revenue|profit|earnings)\s+guidance\b|\bguidance\s+(?:for|on|did|given)\b|"
+    r"\border\s+book\b|\bcapex\s+plan|\bcapacity\s+expansion\b|"
+    r"\bwhy\s+did\b[^?]{0,40}\b(?:revenue|profit|margin|sales|net\s+profit)\b|"
+    r"\bsummar(?:y|ize|ise)\b[^?]{0,30}(?:concall|earnings\s+call|\bcall\b)|"
+    # event lookups (C) — route to the tool (announcements feed), not the stock analyst
+    r"\borders?\b[^?]{0,25}\b(?:win|won)\b|\b(?:win|won|bagged?)\b[^?]{0,20}\borders?\b|\bwin\s+(?:any\s+)?(?:new\s+)?orders?\b|"
+    r"\bacquisitions?\b|\bacquire[ds]?\b|\bmerger\b|\bamalgamation\b|\bstake\s+(?:buy|sale|purchase)\b|"
+    r"\bdid\s+\w+\s+file\b|\bfile[ds]?\s+(?:anything|today)\b|\bfiled?\s+anything\b|"
+    r"\bbonus\s+issue\b|\bstock\s+split\b|\bbuy\s*back\b|\brights?\s+issue\b|"
+    # results / numbers (D) — the tool has XBRL financials AND is no-advice
+    r"\bresults?\s+(?:compare|vs|versus|date|announce)\b|\bq[1-4]\s+(?:fy\s*\d+\s+)?results?\b|"
+    r"\bnext\s+results?\s+date\b|\bresults?\s+date\b|\bone[\s-]?offs?\b|\bexceptional\s+items?\b|"
+    r"\bcompare[ds]?\b[^?]{0,30}\b(?:last\s+year|prior\s+year|yoy)\b|"
+    # verification (F)
+    r"\brumou?r\b|\bfake\s+news\b|\bis\s+(?:it|this|that)\s+true\b|\bactually\s+announce\w*\b|\bdid\s+\w+\s+(?:actually\s+)?announce\b|"
+    # advice questions (G) → the tool's no-advice deflection (never the stock analyst's buy/sell)
+    r"\bshould\s+(?:i|we|one)\s+(?:buy|sell|invest|book|exit)\b|\b(?:i|we)\s+should\s+(?:buy|sell|invest|book|exit)\b|"
+    r"\bwhether\s+(?:i|we|to|one)\s+(?:should\s+)?(?:buy|sell|invest)\b|"
+    r"\btarget\s+price\b|\bprice\s+target\b|\bworth\s+buying\b|\bgood\s+time\s+to\s+(?:buy|sell)\b|"
+    r"\bwill\s+(?:it|the\s+stock|\$?[A-Za-z]+)\s+(?:go\s+up|go\s+down|rise|fall|drop)\b",
+    re.IGNORECASE,
+)
+
+# Company-specific REGULATORY / LEGAL events (R5-A): SEBI/RBI/IRDAI orders & actions,
+# insolvency / NCLT / IBC / winding-up cases against a company or its promoters.
+# These are corporate disclosures the stocks_insights tool surfaces from exchange
+# filings (event_category regulatory/litigation), so route them there — NOT the
+# stock-lookup gate (which grabs "promoter"→stock_analyst) or _P_MARKET (which
+# grabs "rbi"→market_analyst). Checked in _PRE so it beats both. The node caveats
+# that coverage is LODR self-disclosure only (authoritative SEBI/NCLT feeds are not
+# ingested), so "nothing found" is never stated as "no case exists".
+_P_REGULATORY_EVENT = re.compile(
+    # <regulator> ... <enforcement verb>
+    r"\b(?:sebi|\brbi\b|irdai?|\bsat\b|\bmca\b|\bnfra\b|\bcci\b|\bed\b|enforcement\s+directorate)\b"
+    r"[^?]{0,45}\b(?:actions?|orders?|penalt\w*|fine[ds]?|show[\s-]?cause|notices?|probes?|"
+    r"investigat\w*|\bbans?\b|barr(?:ed|ing)?|debarr\w*|settlements?|adjudicat\w*|"
+    r"crackdowns?|proceedings?|raids?|summon\w*)\b|"
+    # <enforcement verb> ... by <regulator>
+    r"\b(?:actions?|orders?|penalt\w*|show[\s-]?cause|notices?|probes?|investigat\w*|raids?|summon\w*)\b"
+    r"[^?]{0,25}\bby\s+(?:sebi|\brbi\b|irdai?|\bsat\b|\bmca\b|\bcci\b)\b|"
+    # insolvency / bankruptcy / NCLT track
+    r"\b(?:insolvenc\w*|\bnclt\b|\bnclat\b|\bibc\b|\bibbi\b|bankruptc\w*|"
+    r"winding[\s-]?up|wind[\s-]?up|liquidat\w*|\bcirp\b|moratorium|"
+    r"insolvency\s+(?:case|petition|plea|proceeding))\b|"
+    # litigation directed at a company
+    r"\b(?:lawsuit|litigation|court\s+(?:case|order)|legal\s+(?:case|proceeding|action))\b"
+    r"[^?]{0,25}\b(?:against|filed|on)\b",
+    re.IGNORECASE,
+)
+
+# Tax / trade / budget POLICY → sector impact (R5-B): "how does the GST change affect
+# auto component makers", "which companies are affected by the anti-dumping duty on
+# steel", "US tariffs on Indian pharma exporters", "what did the Budget change for
+# renewables". Routes to the policy node, which answers from a CURATED directional
+# rule set (never invents policy→company links). Anchored on a policy term + an
+# impact/company context. Checked in _PRE (after _P_STOCK_INSIGHTS so a clear
+# disclosure query still wins) and before _P_MARKET (which grabs "budget"/"tariff").
+_P_POLICY_IMPACT = re.compile(
+    r"\b(?:gst|anti[\s-]?dumping|safeguard\s+dut\w*|customs\s+dut\w*|import\s+dut\w*|"
+    r"import\s+tariffs?|export\s+dut\w*|\btariffs?\b|\bdgtr\b|\bcbic\b|"
+    r"union\s+budget|\bpli\b|production[\s-]?linked|subsid\w*)\b"
+    r"[^?]{0,70}\b(?:affect\w*|impact\w*|benefit\w*|hurt|hit|gain\w*|help\w*|exposure|"
+    r"makers?|manufacturers?|producers?|exporters?|importers?|"
+    r"companies|firms|stocks?|sectors?|industry|industries)\b|"
+    r"\b(?:which|what)\s+(?:companies|stocks?|sectors?|makers?|firms|exporters?)\b"
+    r"[^?]{0,55}\b(?:gst|anti[\s-]?dumping|\btariffs?\b|union\s+budget|import\s+dut\w*|"
+    r"customs\s+dut\w*|duty|subsid\w*|\bpli\b)\b",
+    re.IGNORECASE,
+)
+
 _P_PORTFOLIO = re.compile(
     r"\b((?:my\s+)?portfolio|my\s+investments?|my\s+holdings?|"
     r"xirr|portfolio\s+(?:return|performance|summary|health|snapshot)|"
@@ -194,6 +285,27 @@ _P_SCREENER = re.compile(
     r"\bscreener\b|"
     r"\bscreen(?:\s+\w+){0,4}\s+stocks?\b|"          # screen [≤4 words] stocks
     r"\bscreen\s+(?:large|mid|small|micro)[\s-]?cap\b",
+    re.IGNORECASE,
+)
+
+# Cross-sectional NUMERIC screen (R4): "which Nifty 500 companies grew profit more
+# than 30% YoY?" — a screening SUBJECT (companies/stocks/firms) + a numeric
+# comparator/threshold. Routes to the screener (RECOMMENDATION) node, which now runs
+# the profit/rev/EPS-YoY filter + index universe server-side. Distinct from the
+# _P_STOCK_INSIGHTS thematic clause (which needs a disclosure verb like
+# "announced/filed" and has NO number). Gated by _is_numeric_screen so the user's
+# own book ("stocks in my portfolio down >20%") stays with _P_PORTFOLIO.
+_P_NUMERIC_SCREEN = re.compile(
+    # "which [≤4 words] companies/stocks … <grow|move|comparator> … <number>%"
+    r"\bwhich\s+(?:[a-z0-9&]+\s+){0,4}(?:companies|stocks?|firms|names|scrips?|counters?)\b"
+    r"[^?]{0,70}?\b(?:grew|grow|grown|growing|rose|gained|jumped|surged|increased|"
+    r"declined|fell|dropped|"
+    r"over|above|more\s+than|greater\s+than|at\s+least|higher\s+than|under|below|"
+    r"less\s+than|lower\s+than|>|<)\b[^?]{0,30}?\d+(?:\.\d+)?\s*%?|"
+    # "[list/show/find] companies/stocks with <metric> <comparator> <number>"
+    r"\b(?:companies|stocks?|firms)\s+with\b[^?]{0,45}"
+    r"\b(?:over|above|more\s+than|greater\s+than|at\s+least|higher\s+than|under|below|"
+    r"less\s+than|lower\s+than|>|<)\b[^?]{0,20}\d+(?:\.\d+)?\s*%?",
     re.IGNORECASE,
 )
 
@@ -301,6 +413,15 @@ _STOCK_ONLY_CUE = re.compile(
 )
 
 
+def _is_numeric_screen(text: str) -> bool:
+    """True for a cross-sectional numeric screen ("which Nifty 500 companies grew
+    profit > 30%") — a screening subject + a numeric comparator. Excludes the
+    user's OWN book (portfolio/holdings/"my"), which _P_PORTFOLIO owns."""
+    if _PORT_HINT.search(text):
+        return False
+    return bool(_P_NUMERIC_SCREEN.search(text))
+
+
 def _is_stock_lookup(text: str) -> bool:
     """True when the query is a single-stock metric/analysis lookup that should
     route to the stock analyst (see module note above)."""
@@ -335,6 +456,9 @@ _PRE_PATTERNS: List[Tuple[re.Pattern, str]] = [
     (_P_CAP,              MF),       # cap-category education → mf (cap_education widget) before others
     (_P_FUND_OVERLAP,     MF),       # fund overlap/consolidation → mf (widgets) before PORTFOLIO grabs "overlap"
     (_P_STOCK_OWNERSHIP,  STOCK),    # per-stock FII/DII/promoter holding → stock (before MARKET grabs "fii"/"dii")
+    (_P_REGULATORY_EVENT, STOCKS_INSIGHTS),  # SEBI/insolvency/NCLT action against a company → stocks_insights (before stock-lookup gate grabs "promoter" & before MARKET grabs "rbi")
+    (_P_STOCK_INSIGHTS,   STOCKS_INSIGHTS),  # recent filings/news/order-wins/thematic → stocks_insights (before stock-lookup gate)
+    (_P_POLICY_IMPACT,    POLICY),           # GST/anti-dumping/tariff/budget → sector impact → policy node (after disclosures; before MARKET grabs "budget"/"tariff")
 ]
 # The entity-aware stock-lookup gate runs HERE — between _PRE and _POST.
 _POST_PATTERNS: List[Tuple[re.Pattern, str]] = [
@@ -358,6 +482,11 @@ def match_agent(text: str) -> Optional[str]:
     for pattern, agent in _PRE_PATTERNS:
         if pattern.search(text):
             return agent
+    # Cross-sectional numeric screen — after _PRE (so a disclosure/thematic query
+    # still wins) but before the single-stock gate and _P_MARKET (which would grab
+    # "nifty"). Gated so the user's own portfolio stays with _P_PORTFOLIO.
+    if _is_numeric_screen(text):
+        return RECOMMENDATION
     if _is_stock_lookup(text):
         return STOCK
     for pattern, agent in _POST_PATTERNS:

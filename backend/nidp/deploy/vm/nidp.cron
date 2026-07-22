@@ -75,7 +75,25 @@ MAILTO=""
 */30 *    * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh announcement_classifier
 
 # ── S5: document parser (every 15 min, all day) ───────────────────
+# Types each attachment from its own content at parse time (doctype.classify):
+# concall_transcript / investor_presentation / annual_report / financial_results.
+# Also retries previously-'failed' docs up to NIDP_MAX_PARSE_ATTEMPTS so a transient
+# download blip no longer kills a document permanently.
 */15 *    * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh document_parser
+
+# ── S7: filing insights (grounded one-liner + headline number per material filing) ──
+# For each MATERIAL classified filing that has a PARSED document, generates one
+# insight from the PDF text via OpenAI function-calling and writes it to
+# corporate_event_signals(signal_type='filing_insight'). This is what fills the
+# Filings Home feed's one-liner / period / metric. Idempotent (partial unique
+# index), so re-runs update in place. Offset :05/:35 so it trails the parser.
+5,35 *    * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh filing_insights
+
+# ── S5: annual reports (BSE AnnualReport_New sweep) ───────────────
+# ARs cluster Jun–Sep (FY-end Mar + AGM window). --latest-only keeps it cheap
+# (newest AR per company); the document_parser above then ingests the PDFs.
+# Weekly Sunday 21:00 IST is plenty for a slow-moving, idempotent feed.
+0  21 * * 0    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh annual_reports --latest-only
 
 # ── Mutual fund feeds ─────────────────────────────────────────────
 0  20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh amfi_nav
@@ -176,3 +194,9 @@ MAILTO=""
 0 1 * * *      nidp  /opt/nidp/venv/bin/python /opt/nidp/repo/backend/nidp/deploy/vm/gate4_replication_check.py --mode=daily >> /opt/nidp/logs/gate4_daily.log 2>&1
 
 # yfinance_backfill is event-driven (manual run only) — not scheduled.
+
+# ── Disk hygiene (04:30 IST): prune stale /tmp + raw feed archives older than
+#    7 days, cap the journal, drop dangling docker images. Runs as root because
+#    it removes root-owned temp/archive files and calls journalctl/docker.
+#    Keeps the 49G root disk from filling (see disk-cleanup.sh).
+30 4 * * *     root  /opt/nidp/repo/backend/nidp/deploy/vm/disk-cleanup.sh

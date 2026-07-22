@@ -1,0 +1,11 @@
+{
+  "ingester": "bhavcopy",
+  "via": "vm",
+  "log_path": "/opt/nidp/logs/bhavcopy/bhavcopy.log",
+  "lines": [
+    "2026-07-14 13:05:01 INFO  starting bhavcopy target_date=2026-07-14",
+    "2026-07-14 13:05:02 ERROR HTTP 403 from archives.nseindia.com",
+    "2026-07-14 13:05:02 INFO  job finished status=FAILED duration=4200ms"
+  ],
+  "error": null
+}

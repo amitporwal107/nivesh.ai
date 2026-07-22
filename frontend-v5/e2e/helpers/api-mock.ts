@@ -115,6 +115,21 @@ export async function mockApiWithPlan(page: Page, planFixture: string) {
   );
 }
 
+/** Mock just auth: a catch-all 200 {} for every /api/* plus /auth/me returning a
+ *  specific user fixture. Use for access-control tests that only depend on the
+ *  me() identity (e.g. research-only confinement) and don't need portfolio data. */
+export async function mockAuthAs(page: Page, userFixture: string) {
+  // Catch-all FIRST (lowest priority under LIFO) so unmatched endpoints resolve
+  // to 200 {} instead of hanging networkidle — see mockApi for rationale.
+  await page.route(/\/\/[^/]+\/api\//, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
+  );
+  const data = loadFixture(userFixture);
+  await page.route("**/api/auth/me", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) }),
+  );
+}
+
 /** Mock a single API endpoint returning 401 */
 export async function mock401(page: Page, urlPattern: string) {
   await page.route(urlPattern, (route) =>

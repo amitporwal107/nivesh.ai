@@ -1,0 +1,11 @@
+R_DEF: Internal format may change without notice
+local
+color brand_mint
+color brand_mint_dark
+color ic_launcher_background
+color splash_bg
+drawable ic_launcher_foreground
+mipmap ic_launcher
+mipmap ic_launcher_round
+string app_name
+style Theme.Nivesh.Starting

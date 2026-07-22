@@ -425,6 +425,88 @@ async def list_jobs(request: Request) -> Dict[str, Any]:
     }
 
 
+# ────────────────────────────────────────────────────────────────────
+# Feeds Live — lightweight, gcloud-free live tracker feed.
+# Backs the "Feeds Live" tab in the NIDP Console. Cheap enough to poll
+# every few seconds because it makes ONE call to the NIDP Query API
+# (/feeds) and NO per-job gcloud describes (unlike /jobs).
+#
+# NOTE on "is a job running right now": that is NOT reliably in this
+# payload. v_feed_status.last_run_status only ever holds a *terminal*
+# status (source_registry is updated on finalize, never mid-flight), so
+# the authoritative RUNNING signal lives in nidp.job_log and is fetched
+# per-feed by the panel via /jobs/{ingester}/runs. This endpoint only
+# classifies each feed's settled health + returns a rollup summary.
+#
+# The pure classifier lives in helpers/nidp_feed_health.py (framework-free
+# so it is unit-testable without importing this fastapi module).
+# ────────────────────────────────────────────────────────────────────
+
+
+@router.get("/feeds/live")
+async def feeds_live(request: Request) -> Dict[str, Any]:
+    """Lightweight live-tracker feed for the Console's 'Feeds Live' tab.
+
+    Unlike /jobs this does NO gcloud calls, so it is cheap to poll every
+    few seconds. One round-trip to the NIDP Query API /feeds, then a
+    per-feed health classification + a rollup summary. Per-feed RUNNING
+    state and logs are fetched separately by the panel via
+    /jobs/{ingester}/runs and /jobs/{ingester}/logs.
+    """
+    await require_admin(request)
+
+    from datetime import timedelta, timezone, datetime as _dt
+    from helpers import nidp_feed_health as _fh
+
+    ist = timezone(timedelta(hours=5, minutes=30))
+    now_utc = _dt.now(timezone.utc)
+    last_trading_day = now_utc.astimezone(ist).date()
+    while last_trading_day.weekday() >= 5:      # 5=Sat, 6=Sun
+        last_trading_day -= timedelta(days=1)
+
+    feeds_out: List[Dict[str, Any]] = []
+    db_error: Optional[str] = None
+    try:
+        resp = await _nq.get_feeds()
+        db_error = resp.get("error")
+        for f in resp.get("feeds", []):
+            state = _fh.classify_feed(f, last_trading_day)
+            succ_dt = _fh.feed_dt(f.get("last_success_at"))
+            feeds_out.append({
+                **f,
+                "freshness_state": state,
+                "hours_since_success": (
+                    round((now_utc - succ_dt).total_seconds() / 3600.0, 1)
+                    if succ_dt else None
+                ),
+                "missed_last_trading_day": bool(state == "stale"),
+            })
+    except _nq.NidpQueryClientError as e:
+        db_error = e.detail
+        logger.warning("admin/nidp/feeds/live: query api unavailable: %s", db_error)
+
+    # Worst-first so the panel renders problems at the top.
+    _ORDER = {"failing": 0, "stale": 1, "never_run": 2, "running": 3, "healthy": 4}
+    feeds_out.sort(key=lambda f: (_ORDER.get(f["freshness_state"], 9), f.get("ingester", "")))
+
+    summary = {
+        "total":     len(feeds_out),
+        "healthy":   sum(1 for f in feeds_out if f["freshness_state"] == "healthy"),
+        "failing":   sum(1 for f in feeds_out if f["freshness_state"] == "failing"),
+        "stale":     sum(1 for f in feeds_out if f["freshness_state"] == "stale"),
+        "never_run": sum(1 for f in feeds_out if f["freshness_state"] == "never_run"),
+        "running":   sum(1 for f in feeds_out if f["freshness_state"] == "running"),
+    }
+
+    return {
+        "generated_at":     now_utc.isoformat(),
+        "last_trading_day": last_trading_day.isoformat(),
+        "summary":          summary,
+        "feeds":            feeds_out,
+        "db_error":         db_error,
+    }
+
+
 @router.post("/jobs/{ingester}/execute")
 async def execute_job(
     ingester: str,

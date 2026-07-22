@@ -10,6 +10,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
@@ -82,6 +83,26 @@ _PRIMITIVE_COLS = """
 """
 
 
+# Friendly universe aliases → the `index_name` string stored in
+# nidp.index_constituents. Callers may also pass the canonical name directly
+# ("Nifty 500"); anything unrecognised is passed through verbatim so a valid
+# index_name still works and an unknown one simply matches no constituents.
+_UNIVERSE_ALIASES = {
+    "NIFTY50": "Nifty 50", "NIFTY100": "Nifty 100", "NIFTY200": "Nifty 200",
+    "NIFTY500": "Nifty 500", "NIFTYBANK": "Nifty Bank", "BANKNIFTY": "Nifty Bank",
+    "NIFTYIT": "Nifty IT",
+}
+
+
+def _resolve_universe(universe: Optional[str]) -> Optional[str]:
+    """Map a friendly universe token (NIFTY500, 'nifty 500') to the canonical
+    index_name in nidp.index_constituents. Returns None when no universe is set."""
+    if not universe or not universe.strip():
+        return None
+    key = re.sub(r"[\s_-]+", "", universe).upper()
+    return _UNIVERSE_ALIASES.get(key, universe.strip())
+
+
 @router.get(
     "/screener",
     summary="Multi-metric stock screener from NIDP feature store",
@@ -96,7 +117,11 @@ async def stock_screener(
     max_rsi:         Optional[float] = Query(None, description="Maximum RSI14 (overheated filter)"),
     min_rsi:         Optional[float] = Query(None, description="Minimum RSI14 (oversold filter)"),
     max_pe_vs_sector:Optional[float] = Query(None, description="Max PE vs sector overvaluation %"),
-    sort_by:         str             = Query("momentum_score", description="Sort column: momentum_score | roe_pct | eps_growth_3y_cagr_pct | revenue_growth_3y_cagr_pct | earnings_consistency_score | return_252d_pct | liquidity_score"),
+    min_pat_growth_yoy: Optional[float] = Query(None, description="Minimum latest-quarter PAT YoY growth %"),
+    min_rev_growth_yoy: Optional[float] = Query(None, description="Minimum latest-quarter revenue YoY growth %"),
+    min_eps_growth_yoy: Optional[float] = Query(None, description="Minimum latest-quarter EPS YoY growth %"),
+    universe:        Optional[str]   = Query(None, description="Bound the screen to an index universe, e.g. 'Nifty 500' | NIFTY500 | NIFTY50 | 'Nifty Bank' (joins nidp.index_constituents at its latest effective date)"),
+    sort_by:         str             = Query("momentum_score", description="Sort column: momentum_score | roe_pct | eps_growth_3y_cagr_pct | revenue_growth_3y_cagr_pct | earnings_consistency_score | return_252d_pct | liquidity_score | pat_growth_yoy_pct | revenue_growth_yoy_pct | eps_growth_yoy_pct"),
     sort_desc:       bool            = Query(True),
     as_of_date:      Optional[str]   = Query(None, description="YYYY-MM-DD — defaults to latest date in feature store"),
     page: Dict[str, int] = Depends(page_params),
@@ -109,9 +134,12 @@ async def stock_screener(
         "revenue_growth_3y_cagr_pct", "earnings_consistency_score",
         "return_252d_pct", "liquidity_score", "market_cap_cr",
         "roce_pct", "profit_margin_pct",
+        "pat_growth_yoy_pct", "revenue_growth_yoy_pct", "eps_growth_yoy_pct",
     }
     if sort_by not in _allowed_sort:
         sort_by = "momentum_score"
+
+    universe_index = _resolve_universe(universe)
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -140,14 +168,26 @@ async def stock_screener(
                AND ($8::numeric IS NULL OR f.rsi14 <= $8)
                AND ($9::numeric IS NULL OR f.rsi14 >= $9)
                AND ($10::numeric IS NULL OR f.pe_vs_sector_pct <= $10)
+               AND ($11::numeric IS NULL OR f.pat_growth_yoy_pct >= $11)
+               AND ($12::numeric IS NULL OR f.revenue_growth_yoy_pct >= $12)
+               AND ($13::numeric IS NULL OR f.eps_growth_yoy_pct >= $13)
+               AND ($14::text IS NULL OR EXISTS (
+                     SELECT 1 FROM nidp.index_constituents ic
+                      WHERE ic.symbol = f.symbol
+                        AND ic.index_name = $14
+                        AND ic.as_of_date = (SELECT MAX(as_of_date)
+                                               FROM nidp.index_constituents
+                                              WHERE index_name = $14)))
              ORDER BY f.{sort_by} {direction} NULLS LAST
-             LIMIT $11 OFFSET $12
+             LIMIT $15 OFFSET $16
             """,
             target_date,
             sector, market_cap,
             min_roe, max_de,
             min_eps_cagr_3y, min_rev_cagr_3y,
             max_rsi, min_rsi, max_pe_vs_sector,
+            min_pat_growth_yoy, min_rev_growth_yoy, min_eps_growth_yoy,
+            universe_index,
             page["limit"], page["offset"],
         )
 
@@ -155,7 +195,10 @@ async def stock_screener(
         [row_to_dict(r) for r in rows],
         limit=page["limit"],
         offset=page["offset"],
-        extra={"as_of_date": str(target_date), "sort_by": sort_by, "sort_desc": sort_desc},
+        extra={
+            "as_of_date": str(target_date), "sort_by": sort_by, "sort_desc": sort_desc,
+            "universe": universe_index,
+        },
     )
 
 

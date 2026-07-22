@@ -11,9 +11,8 @@ import re
 from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import AIMessage
-from langchain_openai import ChatOpenAI
 
-from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
+from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -322,8 +321,7 @@ async def _goal_basket_turn(state: CopilotState, user_msg: str) -> dict:
     tool_context = "TOOL_DATA:\n  [get_goal_basket] " + tr.as_llm_context()
     answer_text = ""
     try:
-        llm = ChatOpenAI(model=COPILOT_LLM_MODEL, temperature=temperature_for(0.15),
-                         api_key=get_openai_api_key())
+        llm = make_chat_llm(temperature_for(0.15))
         resp = await llm.ainvoke([
             {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _BASKET_SYSTEM + "\n\n" + tool_context},
             {"role": "user", "content": user_msg},
@@ -414,11 +412,7 @@ async def goal_node(state: CopilotState) -> dict:
     from .._stream import emit_widget
     await emit_widget(widget_type, widget_data)
 
-    llm = ChatOpenAI(
-        model=COPILOT_LLM_MODEL,
-        temperature=temperature_for(0.15),
-        api_key=get_openai_api_key(),
-    )
+    llm = make_chat_llm(temperature_for(0.15))
     resp = await llm.ainvoke([
         {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},

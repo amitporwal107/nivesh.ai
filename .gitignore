@@ -513,3 +513,13 @@ docs/.OPENAI_API_KEY
 
 # CAS parser key — local secret, never commit
 .CAS_PARSER_KEY
+
+# Local API-key scratch files — must never be committed (docs/OPEN_API_KEY was
+# sitting untracked and NOT ignored, one `git add -A` away from a leak).
+docs/OPEN_API_KEY
+*API_KEY
+*_api_key
+
+# local deploy checkouts (not part of the repo)
+.deploy-dev
+.deploy-main

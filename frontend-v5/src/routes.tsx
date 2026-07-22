@@ -4,6 +4,7 @@ import LiteLayout from "./components/layout/LiteLayout";
 import { RequireAuth } from "./components/layout/RequireAuth";
 import { RequireOnboarded } from "./components/layout/RequireOnboarded";
 import { RequireAdmin } from "./components/layout/RequireAdmin";
+import { RequireAppAccess } from "./components/layout/RequireAppAccess";
 import { RouteErrorBoundary } from "./components/shared/RouteErrorBoundary";
 import HomepagePage from "./pages/Homepage";
 import ProductPage from "./pages/Product";
@@ -29,6 +30,8 @@ import LogsPage from "./pages/Logs";
 import ReleasesPage from "./pages/Releases";
 import ReleaseDetailPage from "./pages/Releases/ReleaseDetail";
 import ChatPage from "./pages/Chat";
+import ResearchPage from "./pages/Research";
+import ResearchQAPage from "./pages/Research/QAExercise";
 import LoginPage from "./pages/Login";
 import OnboardingPage from "./pages/Onboarding";
 import CasCallbackPage from "./pages/CasCallback";
@@ -81,7 +84,9 @@ export function AppRoutes() {
 
       {/* Auth screens — full-bleed */}
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/onboarding" element={<OnboardingPage />} />
+      {/* RequireAppAccess keeps a research-only user out of onboarding (they skip
+          it entirely) — no-op for everyone else / unauthenticated. */}
+      <Route path="/onboarding" element={<RequireAppAccess><OnboardingPage /></RequireAppAccess>} />
 
       {/* Learning Centre — standalone + self-gated: app-logged-in users pass straight
           in; others get an in-page Google sign-in. NOT under RequireAuth (avoids the
@@ -106,12 +111,22 @@ export function AppRoutes() {
           ChatPage. RequireOnboarded sends a not-yet-onboarded user to
           /onboarding first (CAS upload / Gmail sync → Goal → Risk), which
           lands them back here. The full app below is untouched. */}
-      <Route element={<RequireAuth><RequireOnboarded><LiteLayout /></RequireOnboarded></RequireAuth>}>
+      <Route element={<RequireAuth><RequireAppAccess><RequireOnboarded><LiteLayout /></RequireOnboarded></RequireAppAccess></RequireAuth>}>
         <Route path="/lite" element={<RouteErrorBoundary pageName="Copilot (Lite)"><ChatPage /></RouteErrorBoundary>} />
       </Route>
 
-      {/* Authenticated app — sidebar layout */}
-      <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
+      {/* Filings Intelligence (Design B) — standalone & full-bleed: it is its own
+          app surface (own header + ask bar), so it renders OUTSIDE AppLayout to
+          avoid doubled chrome / the portfolio Copilot drawer. Login-gated only. */}
+      <Route path="/research" element={<RequireAuth><RouteErrorBoundary pageName="Research"><ResearchPage /></RouteErrorBoundary></RequireAuth>} />
+      {/* QA validation exercise — an in-app, fill-in version of the two onboarding
+          docs. Same standalone, login-gated treatment as /research. */}
+      <Route path="/research/qa" element={<RequireAuth><RouteErrorBoundary pageName="Research QA"><ResearchQAPage /></RouteErrorBoundary></RequireAuth>} />
+
+      {/* Authenticated app — sidebar layout. RequireAppAccess confines a
+          research-only user (research_only flag) to /research: every route in
+          this group redirects them there. No-op for full users. */}
+      <Route element={<RequireAuth><RequireAppAccess><AppLayout /></RequireAppAccess></RequireAuth>}>
         <Route path="/dashboard"        element={<RouteErrorBoundary pageName="Dashboard"><DashboardPage /></RouteErrorBoundary>} />
         <Route path="/markets" element={<RouteErrorBoundary pageName="Markets"><MarketPulseLayout /></RouteErrorBoundary>}>
           <Route index element={<MarketsPage />} />

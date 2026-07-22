@@ -30,12 +30,14 @@ _HumanMessage = None
 _AIMessage = None
 
 _load_persona_context = None
+_AgentName = None
 
 try:
     import sys as _sys
     _sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from nidp.services.copilot_agent.graph import get_graph as _get_copilot_graph
     from nidp.services.copilot_agent.persona_loader import load_persona_context as _load_persona_context
+    from nidp.services.copilot_agent.schemas import AgentName as _AgentName
     from langchain_core.messages import HumanMessage as _HumanMessage
     from langchain_core.messages import AIMessage as _AIMessage
     _lg_available = True
@@ -45,6 +47,40 @@ except Exception as _lg_err:
 router = APIRouter(prefix="/api")
 
 _plan_manager = ActionPlanManager()
+
+
+# ── Agent pin ───────────────────────────────────────────────────────────────
+# A dedicated single-purpose Copilot surface (the Filings Home ask bar) may pin
+# the agent, bypassing intent classification. Deliberately an ALLOWLIST, not a
+# free-form selector: `agent` arrives from the client, so without it any caller
+# could reach any specialist node and sidestep intent routing (and, in advisor
+# mode, the cross-client book guard). Only surfaces we actually ship belong here.
+# See docs/FILINGS_HOME_SPEC.md §3.4.
+_PINNABLE_AGENTS = frozenset({"stocks_insights"})
+
+
+def _resolve_pinned_agent(raw: Any) -> Optional[Any]:
+    """Validate the optional `agent` pin from a chat request body.
+
+    Returns an AgentName when pinned, None when absent (the normal /chat path).
+    Raises 400 on an unknown/non-pinnable agent rather than ignoring it — a
+    surface that asked for a pin and quietly got a different agent would answer
+    the user from the wrong tool.
+    """
+    if raw is None or raw == "":
+        return None
+    if not isinstance(raw, str):
+        raise HTTPException(status_code=400, detail="agent must be a string")
+    key = raw.strip().lower()
+    if key not in _PINNABLE_AGENTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown or non-pinnable agent '{raw}'. Pinnable: {sorted(_PINNABLE_AGENTS)}",
+        )
+    if _AgentName is None:  # LangGraph deps failed to import at startup
+        raise HTTPException(status_code=503,
+                            detail="Copilot engine unavailable — cannot honour the agent pin.")
+    return _AgentName(key)
 
 
 # Advisor-mode system prompt — replaces FINANCIAL_ADVISOR_SYSTEM (which is
@@ -1076,7 +1112,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                     agent_block = {"id": agent_id or "risk_analyst", "confidence": 85}
                     # Structured V5-native widgets pass through verbatim — no
                     # insight_card transform.
-                    if wt_str in ("fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "risk_assessment", "instrument_detail", "goal_simulation", "stock_screener", "strategy_lab", "portfolio_builder"):
+                    if wt_str in ("fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "risk_assessment", "instrument_detail", "goal_simulation", "stock_screener", "strategy_lab", "portfolio_builder", "stock_insights"):
                         widget_envelope = {
                             "widget_type": wt_str, "data": wd,
                             "freshness": freshness, "agent": agent_block,
@@ -1188,7 +1224,7 @@ def _widget_envelope(wt: Optional[str], wd: Optional[Dict[str, Any]],
     agent = {"id": agent_id or "portfolio_analyst", "confidence": 90}
     unified = None
     # V5-native widgets render with their own component — never insight_card-ify.
-    if wt not in ("instrument_detail", "stock_screener", "portfolio_builder", "strategy_lab"):
+    if wt not in ("instrument_detail", "stock_screener", "portfolio_builder", "strategy_lab", "stock_insights"):
         try:
             from services.copilot_tools.insight_card_transformers import nidp_widget_to_insight_card
             unified = nidp_widget_to_insight_card(wt, wd)
@@ -1210,6 +1246,7 @@ async def stream_chat(request: Request):
     body = await request.json()
     message = body.get("message", "").strip()
     session_id = body.get("session_id")
+    pinned_agent = _resolve_pinned_agent(body.get("agent"))
 
     if not message:
         raise HTTPException(status_code=400, detail="Message required")
@@ -1217,7 +1254,11 @@ async def stream_chat(request: Request):
     # Research tools (stock/fund research, portfolio builder, screener) are
     # mode-agnostic: in advisor mode they must return the same answer as in
     # client mode, so they run the investor engine instead of the book path.
-    route_investor = (not advisor_mode) or _is_research_tool_intent(message)
+    # A pinned agent is by definition a single-purpose research surface, so it
+    # always takes the investor engine — never the advisor cross-client book.
+    route_investor = (
+        bool(pinned_agent) or (not advisor_mode) or _is_research_tool_intent(message)
+    )
 
     # Resolve or create session
     if not session_id:
@@ -1339,6 +1380,13 @@ async def stream_chat(request: Request):
                         "messages": lg_messages,
                         "user_id": user_id,
                         "session_id": session_id,
+                        # ALWAYS send the pin, including None. CopilotState is
+                        # checkpointed per session, and LangGraph merges the input
+                        # over the checkpoint — so omitting this key on an unpinned
+                        # turn leaves an EARLIER turn's pin in place and silently
+                        # pins the rest of the session to that agent. Writing None
+                        # explicitly is what clears it.
+                        "pinned_agent": pinned_agent,
                         **persona_ctx,
                     }
                     prose = ""

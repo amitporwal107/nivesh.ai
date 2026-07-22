@@ -1,23 +1,46 @@
 #!/usr/bin/env bash
 # up.sh — bring up the laptop 1 (nivesh-app-vm replica) stack.
 #
-#   ./up.sh              build + start everything
+#   ./up.sh              build + start everything (v5-only)
 #   ./up.sh --migrate    run the app Postgres migrations, then exit
 #   ./up.sh --no-build   start without rebuilding (fast restart)
+#   ./up.sh --with-v2    also build/start the legacy V2 frontend
+#
+# This stack is v5-only by default: the V2 frontend is behind the `v2`
+# compose profile and nginx 302s / to /v5/work. v5 does not depend on V2.
 #
 # On Windows run from WSL2 (Ubuntu) with Docker Desktop's WSL2 backend.
 
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# ── Safe .env reading ────────────────────────────────────────────────────
+# A .env file is NOT a shell script. `source .env` shell-evaluates it, so a
+# perfectly valid value breaks bring-up:
+#   SMTP_FROM=Nivesh Copilot <noreply@niveshcopilot.com>
+#   -> .env: line 63: syntax error near unexpected token `newline'
+# Same for values containing ( ) | ' " & ; $ backticks. docker compose does
+# NOT shell-evaluate .env, so anything compose accepts must work here too.
+#
+# env_get reads one key literally, mirroring compose's own semantics:
+# an inline comment must be preceded by whitespace.
+env_get() {
+    sed -n "s/^$1=//p" .env | head -1 \
+        | sed -e 's/[[:space:]]\+#.*$//' \
+              -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+              -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+}
+
 COMPOSE_FILE=docker-compose.app.yml
 MIGRATE_ONLY=false
 DO_BUILD=true
+PROFILES=()
 
 for arg in "$@"; do
     case "$arg" in
         --migrate)  MIGRATE_ONLY=true ;;
         --no-build) DO_BUILD=false ;;
+        --with-v2)  PROFILES+=(--profile v2) ;;
         *) echo "unknown flag: $arg" >&2; exit 2 ;;
     esac
 done
@@ -29,9 +52,13 @@ fi
 
 # Fail fast with a useful message instead of a container dying opaquely.
 missing=()
+# OPENAI_API_KEY is in this list because backend/deps.py:41 builds
+# AIEngine(OPENAI_API_KEY) at import time — unset means the backend crashes
+# on startup, not that an AI feature is quietly disabled.
 for v in NIDP_HOST NIDP_DAAS_INTERNAL_TOKEN NIDP_QUERY_API_TOKEN \
-         PI_POSTGRES_PASSWORD PI_MONGO_PASSWORD PI_REDIS_PASSWORD; do
-    val=$(grep -E "^${v}=" .env | cut -d= -f2- || true)
+         PI_POSTGRES_PASSWORD PI_MONGO_PASSWORD PI_REDIS_PASSWORD \
+         OPENAI_API_KEY; do
+    val=$(env_get "$v")
     [[ -z "$val" ]] && missing+=("$v")
 done
 if (( ${#missing[@]} )); then
@@ -40,10 +67,17 @@ if (( ${#missing[@]} )); then
     echo "" >&2
     echo "NIDP_HOST is laptop 2's LAN IP. The two NIDP_*_TOKEN values must" >&2
     echo "match laptop 2's .env exactly, or every NIDP call returns 401." >&2
+    echo "" >&2
+    echo "OPENAI_API_KEY must be set or the backend CRASHES on startup" >&2
+    echo "(deps.py builds the OpenAI client at import time). Any non-empty" >&2
+    echo "string boots it; a real key is needed for LLM features to work." >&2
     exit 1
 fi
 
-set -a; source .env; set +a
+# Read only the few values this script needs — never source the file.
+NIDP_HOST=$(env_get NIDP_HOST)
+NIDP_EDGE_PORT=$(env_get NIDP_EDGE_PORT); NIDP_EDGE_PORT=${NIDP_EDGE_PORT:-8080}
+APP_PUBLIC_URL=$(env_get APP_PUBLIC_URL); APP_PUBLIC_URL=${APP_PUBLIC_URL:-http://localhost:3000}
 
 # Reachability check for laptop 2 — a wrong NIDP_HOST is the single most
 # likely setup mistake, and it otherwise shows up much later as empty data.
@@ -70,11 +104,11 @@ fi
 
 if $DO_BUILD; then
     echo "==> Building (frontends bake APP_PUBLIC_URL=${APP_PUBLIC_URL:-http://localhost:3000})"
-    docker compose -f "$COMPOSE_FILE" build
+    docker compose -f "$COMPOSE_FILE" "${PROFILES[@]+"${PROFILES[@]}"}" build
 fi
 
 echo "==> Starting stack"
-docker compose -f "$COMPOSE_FILE" up -d
+docker compose -f "$COMPOSE_FILE" "${PROFILES[@]+"${PROFILES[@]}"}" up -d
 sleep 5
 docker compose -f "$COMPOSE_FILE" ps
 
@@ -83,7 +117,7 @@ cat <<EOF
 ─────────────────────────────────────────────────────────────
 Laptop 1 (app) is up.
 
-  http://localhost:3000/          V2 frontend
+  http://localhost:3000/          -> redirects to /v5/work
   http://localhost:3000/v5/       frontend-v5
   http://localhost:3000/api/docs  FastAPI docs
   http://localhost:8001/docs      backend direct

@@ -23,6 +23,11 @@ export const UserProfileC = z.object({
   // error → RequireAuth remount loop. See get_me in backend/routes/auth.py.
   onboarding_completed: z.boolean().optional().default(false),
   copilot_enabled: z.boolean().optional().default(false),
+  // Per-user feature entitlements ({flag_key: enabled}). Backend attaches this to
+  // /auth/me (feature_flags.user_feature_map). Tolerant: absent on older backends.
+  // Drives surface access — notably `research` (can reach /research) and
+  // `research_only` (CONFINED to /research). See backend/feature_flags.py.
+  features: z.record(z.boolean()).optional(),
 });
 export type UserProfileC = z.infer<typeof UserProfileC>;
 

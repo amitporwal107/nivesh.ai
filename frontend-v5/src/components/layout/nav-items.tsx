@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Sparkles, MessageSquare, Shield,
   Layers, TrendingUp, Target, Receipt, ClipboardList,
   ShieldCheck, Server, Bug, LineChart, Users, Contact, Globe,
-  GraduationCap,
+  GraduationCap, FileSearch,
 } from "lucide-react";
 
 /**
@@ -42,6 +42,13 @@ export const SECTION_NAV: NavItem[] = [
   { to: "/learn",           label: "Learn",           icon: GraduationCap,   group: "Workspace"  },
 ];
 
+/** Research (Filings Intelligence) — a standalone surface. Appended to the nav
+ *  ONLY for users with the `research`/`research_only` feature (see getSectionNav),
+ *  so the `research` feature flag governs its visibility. */
+const RESEARCH_NAV_ITEM: NavItem = {
+  to: "/research", label: "Research", icon: FileSearch, group: "Workspace",
+};
+
 /** Reduced nav for an advisor at the workspace root (NOT impersonating a
  *  client). The personal-investor dashboards are hidden until the advisor opens
  *  a client, at which point SECTION_NAV (the client's full view) is shown. */
@@ -63,9 +70,16 @@ export const ADVISOR_NAV: NavItem[] = [
 export function getSectionNav(
   workspaceType: string | null | undefined,
   activeProfileId?: string | null,
+  features?: Record<string, boolean>,
 ): NavItem[] {
-  if (activeProfileId) return SECTION_NAV;            // advisor inside a client → personal view
-  return (workspaceType || "").toUpperCase() === "ADVISORY" ? ADVISOR_NAV : SECTION_NAV;
+  const base = activeProfileId                        // advisor inside a client → personal view
+    ? SECTION_NAV
+    : (workspaceType || "").toUpperCase() === "ADVISORY" ? ADVISOR_NAV : SECTION_NAV;
+  // The Research entry appears only when the user has the `research` (or
+  // `research_only`) feature — the flag governs its visibility. Absent features
+  // (older backend) → hidden, the safe default.
+  const hasResearch = !!(features?.research || features?.research_only);
+  return hasResearch ? [...base, RESEARCH_NAV_ITEM] : base;
 }
 
 /** Admin destinations. No longer rendered in the primary sidebar — surfaced in

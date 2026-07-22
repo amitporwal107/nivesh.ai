@@ -20,7 +20,7 @@ import time
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from deps import db, get_current_user
 
@@ -684,13 +684,19 @@ def _read_min(subject: Optional[str], description: Optional[str]) -> int:
 
 async def _articles(pool, days: int, category: Optional[str], impact: Optional[str],
                     sentiment: Optional[str], q: Optional[str],
-                    limit: int, offset: int) -> Dict[str, Any]:
+                    limit: int, offset: int, sort: str = "material",
+                    symbol: Optional[str] = None) -> Dict[str, Any]:
     """Classified NSE/BSE announcements as an article feed. Real data only —
     no LLM, no fabrication. When no category filter is set we hide the routine
     'regulatory'/'other' noise so it reads like market news, not a filing log."""
     since = date.today() - timedelta(days=days)   # asyncpg $1::date needs a date obj, not a str
     like = f"%{q}%" if q else None
-    list_sql = """
+    sym = symbol.strip().upper() if symbol and symbol.strip() else None
+    # Validated against a two-literal allowlist by the route before we get here,
+    # so it cannot carry caller input into the SQL.
+    order_by = ("(impact_score='high') DESC NULLS LAST, filed_at DESC"
+                if sort == "material" else "filed_at DESC")
+    list_sql = f"""
         SELECT announcement_id, source, ticker_symbol, company_name, subject,
                description, event_category, impact_score, sentiment,
                filed_at, attachment_url
@@ -700,25 +706,61 @@ async def _articles(pool, days: int, category: Optional[str], impact: Optional[s
            AND ($3::text IS NULL OR impact_score = $3)
            AND ($4::text IS NULL OR sentiment = $4)
            AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
+           AND ($8::text IS NULL OR UPPER(ticker_symbol) = $8)
            AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
-         ORDER BY (impact_score='high') DESC, filed_at DESC
+         -- NULLS LAST is load-bearing. `impact_score='high'` is NULL for an
+         -- unclassified row, and Postgres DESC defaults to NULLS FIRST — so
+         -- without this the un-triaged backlog sorted to the TOP and filled the
+         -- whole LIMIT. Measured on staging 2026-07-17: this list returned
+         -- 60/60 rows with event_category NULL (rendered as category "Markets",
+         -- impact null) while the endpoint's own facet counts reported 610
+         -- material filings in the same 7d window — i.e. the feed was 100%
+         -- noise and every material filing was invisible.
+         --
+         -- Why NULLs dominate: the classifier's queue has a 30-day floor
+         -- (announcement_classifier/db.py), so 126,994 of 146,102 announcements
+         -- are permanently unclassified — see /pipeline/stages "unreachable".
+         -- Any window reaching past 30 days is mostly NULL, and NULLS FIRST put
+         -- exactly those rows on page 1.
+         ORDER BY {order_by}
          LIMIT $6 OFFSET $7
     """
+    # Same predicate as list_sql minus paging/order — what the client paginates
+    # against. Never len(articles).
+    total_sql = """
+        SELECT count(*) AS n
+          FROM nidp.corporate_announcements
+         WHERE filed_at >= $1::date
+           AND ($2::text IS NULL OR event_category = $2)
+           AND ($3::text IS NULL OR impact_score = $3)
+           AND ($4::text IS NULL OR sentiment = $4)
+           AND ($5::text IS NULL OR subject ILIKE $5 OR company_name ILIKE $5 OR ticker_symbol ILIKE $5)
+           AND ($6::text IS NULL OR UPPER(ticker_symbol) = $6)
+           AND ($2::text IS NOT NULL OR event_category IS NULL OR event_category NOT IN ('regulatory', 'other'))
+    """
+    # Facets carry the SAME predicate as the list (impact/sentiment/q/symbol) but
+    # NOT `category` itself — see the parity note in the DaaS copy. Binding only
+    # $1 here meant a company search still showed whole-feed taxonomy.
     cat_sql = """
         SELECT event_category, count(*) AS n
           FROM nidp.corporate_announcements
          WHERE filed_at >= $1::date AND event_category IS NOT NULL
            AND event_category NOT IN ('regulatory', 'other')
+           AND ($2::text IS NULL OR impact_score = $2)
+           AND ($3::text IS NULL OR sentiment = $3)
+           AND ($4::text IS NULL OR subject ILIKE $4 OR company_name ILIKE $4 OR ticker_symbol ILIKE $4)
+           AND ($5::text IS NULL OR UPPER(ticker_symbol) = $5)
          GROUP BY event_category
          ORDER BY n DESC
     """
     try:
         async with pool.acquire() as conn:
-            rows = await conn.fetch(list_sql, since, category, impact, sentiment, like, limit, offset)
-            cats = await conn.fetch(cat_sql, since)
+            rows = await conn.fetch(list_sql, since, category, impact, sentiment, like, limit, offset, sym)
+            total = await conn.fetchval(total_sql, since, category, impact, sentiment, like, sym)
+            cats = await conn.fetch(cat_sql, since, impact, sentiment, like, sym)
     except Exception as e:  # noqa: BLE001
         logger.warning("markets.articles failed: %s", e)
-        return {"articles": [], "categories": {}}
+        return {"articles": [], "total": 0, "categories": {}}
 
     articles = []
     for r in rows:
@@ -739,7 +781,72 @@ async def _articles(pool, days: int, category: Optional[str], impact: Optional[s
             "read_min":  _read_min(subject, desc),
         })
     categories = {r["event_category"]: int(r["n"]) for r in cats}
-    return {"articles": articles, "categories": categories}
+    return {"articles": articles, "total": int(total or 0), "categories": categories}
+
+
+async def _filing_insights_pg(pool, ids: List[str]) -> Dict[str, Any]:
+    """App-PG fallback for filing insights (parity with the DaaS
+    /market-pulse/filing-insights endpoint). Same shape: {"insights": {id: {...}}}.
+    On staging the app's own PG carries the nidp.* schema but no rows, so DaaS is
+    the real source there; this fallback matters on prod / where the app PG has data."""
+    id_list = [x for x in (ids or []) if x][:200]
+    if not id_list:
+        return {"insights": {}}
+    sql = """
+        SELECT s.announcement_ref, s.period,
+               s.signal_json->>'summary'         AS one,
+               s.signal_json->'headline_metric'  AS metric_json,
+               s.signal_json->'sections'         AS sections_json,
+               s.signal_json->>'sentiment'       AS sentiment,
+               (s.signal_json->>'confidence')::numeric AS confidence,
+               s.signal_json->>'doc_type'        AS doc_type,
+               s.signal_json->>'model'           AS model,
+               s.analysed_at,
+               d.source_url
+          FROM nidp.corporate_event_signals s
+          LEFT JOIN LATERAL (
+                SELECT dd.source_url
+                  FROM nidp.documents dd
+                 WHERE dd.announcement_id = s.announcement_ref
+                   AND dd.announcement_source = s.announcement_source
+                   AND dd.parse_status = 'parsed'
+                 ORDER BY dd.filed_at DESC NULLS LAST
+                 LIMIT 1
+               ) d ON TRUE
+         WHERE s.signal_type = 'filing_insight'
+           AND s.announcement_ref = ANY($1::text[])
+    """
+    insights: Dict[str, Any] = {}
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(sql, id_list)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("filing_insights fallback failed: %s", e)
+        return {"insights": {}}
+    def _as_json(v):
+        if isinstance(v, str):
+            import json as _json
+            try:
+                return _json.loads(v)
+            except ValueError:
+                return None
+        return v
+
+    for r in rows:
+        insights[r["announcement_ref"]] = {
+            "one":        r["one"],
+            "period":     r["period"],
+            "metric":     _as_json(r["metric_json"]),
+            # [] for insights generated before the sectioned generator shipped.
+            "sections":   _as_json(r["sections_json"]) or [],
+            "sentiment":  r["sentiment"],
+            "confidence": float(r["confidence"]) if r["confidence"] is not None else None,
+            "docType":    r["doc_type"],
+            "model":      r["model"],
+            "sourceUrl":  r["source_url"],
+            "generatedAt": r["analysed_at"].isoformat() if r["analysed_at"] else None,
+        }
+    return {"insights": insights}
 
 
 @router.get("/articles")
@@ -752,23 +859,39 @@ async def markets_articles(
     q: Optional[str] = None,
     limit: int = 60,
     offset: int = 0,
+    sort: str = "material",
 ):
     """Stock-market news & analysis — classified NSE/BSE filings as an article
     grid, filterable by category / impact / sentiment / search. Real data only.
+
+    `sort` (Filings Home — docs/FILINGS_HOME_SPEC.md):
+      material (default) — high impact first, then recency. Identical to the
+                           previous, only behaviour, so existing callers are
+                           unaffected.
+      latest             — pure recency.
+    `total` is the full count for the same predicate (NOT len(articles)), so the
+    client can paginate.
     """
     await get_current_user(request)
+    sort = (sort or "material").lower()
+    if sort not in ("material", "latest"):
+        # 400 rather than silently falling back: a caller that asked for an order
+        # and quietly got a different one would mis-rank the feed.
+        raise HTTPException(status_code=400, detail="sort must be 'material' or 'latest'")
     days = max(1, min(int(days or 7), 30))
     limit = max(1, min(int(limit or 60), 120))
     offset = max(0, int(offset or 0))
     impact = impact.lower() if impact else None
     sentiment = sentiment.lower() if sentiment else None
     category = category.lower() if category else None
-    key = f"articles:{days}:{category}:{impact}:{sentiment}:{q}:{limit}:{offset}"
+    # `sort` MUST be in the cache key — without it the two orderings would share
+    # a cached entry and serve each other's rows.
+    key = f"articles:{days}:{category}:{impact}:{sentiment}:{q}:{limit}:{offset}:{sort}"
     data = await _aux_cached(key, lambda: _daas_first(
         "get_market_pulse_articles",
-        {"days": days, "category": category, "impact": impact, "sentiment": sentiment, "q": q, "limit": limit, "offset": offset},
-        lambda pool: _articles(pool, days, category, impact, sentiment, q, limit, offset),
-        {"articles": [], "categories": {}},
+        {"days": days, "category": category, "impact": impact, "sentiment": sentiment, "q": q, "limit": limit, "offset": offset, "sort": sort},
+        lambda pool: _articles(pool, days, category, impact, sentiment, q, limit, offset, sort),
+        {"articles": [], "total": 0, "categories": {}},
     ))
     return {"ok": True, **data}
 

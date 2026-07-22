@@ -10,9 +10,8 @@ import os
 from typing import List
 
 from langchain_core.messages import AIMessage
-from langchain_openai import ChatOpenAI
 
-from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
+from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -53,9 +52,11 @@ _SCREEN_METRICS = [
     ("interestCoverage", r"interest\s+cover(?:age)?"),
     ("earningsConsistency", r"earnings\s+consistency"),
     # Growth
-    ("salesGyoy",    r"sales\s+growth\s+yoy|revenue\s+growth\s+yoy|sales\s+yoy|revenue\s+yoy"),
-    ("profitGyoy",   r"profit\s+growth\s+yoy|pat\s+growth\s+yoy|profit\s+yoy|pat\s+yoy"),
-    ("epsGyoy",      r"eps\s+growth\s+yoy|eps\s+yoy"),
+    ("salesGyoy",    r"sales\s+growth\s+yoy|revenue\s+growth\s+yoy|sales\s+yoy|revenue\s+yoy|"
+                     r"grew\s+(?:its\s+)?(?:revenue|sales|topline)|(?:revenue|sales|topline)\s+(?:grew|grown|rose|jumped|surged|increased)"),
+    ("profitGyoy",   r"profit\s+growth\s+yoy|pat\s+growth\s+yoy|profit\s+yoy|pat\s+yoy|"
+                     r"grew\s+(?:its\s+)?(?:net\s+)?(?:profit|pat|earnings)|(?:net\s+)?(?:profit|pat|earnings)\s+(?:grew|grown|rose|jumped|surged|increased)"),
+    ("epsGyoy",      r"eps\s+growth\s+yoy|eps\s+yoy|grew\s+(?:its\s+)?eps|eps\s+(?:grew|grown|rose|jumped|surged|increased)"),
     ("salesG",       r"sales\s+growth|revenue\s+growth|topline\s+growth"),
     ("profitG",      r"profit\s+growth|earnings\s+growth|eps\s+growth|pat\s+growth"),
     ("marginTrend",  r"margin\s+trend"),
@@ -114,9 +115,21 @@ def _parse_screen_filters(text: str) -> dict:
     elif re.search(r"small[\s-]*cap", tl):   market_cap = "SMALL_CAP"
     elif re.search(r"micro[\s-]*cap", tl):   market_cap = "MICRO_CAP"
 
+    # Index universe ("which Nifty 500 companies …") → bound the screen server-side.
+    universe = None
+    um = re.search(r"\bnifty\s*(500|200|100|50)\b", tl)
+    if um:
+        universe = f"Nifty {um.group(1)}"
+    elif re.search(r"\b(?:nifty\s*bank|bank\s*nifty)\b", tl):
+        universe = "Nifty Bank"
+    elif re.search(r"\bnifty\s*it\b", tl):
+        universe = "Nifty IT"
+
     # Only the params the /v1/stocks/screener endpoint supports go server-side;
     # every other parsed filter rides along as a client_filter (the widget
-    # applies it over the returned rows).
+    # applies it over the returned rows). Latest-quarter YoY growth + the index
+    # universe now run server-side so "which Nifty 500 companies grew profit >30%"
+    # screens the WHOLE universe, not a client-side slice of the top-60-by-mcap.
     server = {
         "min_roe": client.get("roe_min"),
         "max_de": client.get("de_max"),
@@ -125,9 +138,21 @@ def _parse_screen_filters(text: str) -> dict:
         "max_rsi": client.get("rsi_max"),
         "min_rsi": client.get("rsi_min"),
         "max_pe_vs_sector": client.get("peVsSector_max"),
+        "min_pat_growth_yoy": client.get("profitGyoy_min"),
+        "min_rev_growth_yoy": client.get("salesGyoy_min"),
+        "min_eps_growth_yoy": client.get("epsGyoy_min"),
         "market_cap": market_cap,
+        "universe": universe,
     }
-    if client.get("roe_min") is not None:
+    # Sort so the top rows are the strongest on the primary constraint. YoY-growth
+    # screens sort by the YoY column (else the "which grew >30%" list is mcap-ordered).
+    if client.get("profitGyoy_min") is not None:
+        server["sort_by"] = "pat_growth_yoy_pct"
+    elif client.get("salesGyoy_min") is not None:
+        server["sort_by"] = "revenue_growth_yoy_pct"
+    elif client.get("epsGyoy_min") is not None:
+        server["sort_by"] = "eps_growth_yoy_pct"
+    elif client.get("roe_min") is not None:
         server["sort_by"] = "roe_pct"
     elif client.get("salesG_min") is not None:
         server["sort_by"] = "revenue_growth_3y_cagr_pct"
@@ -141,8 +166,11 @@ def _parse_screen_filters(text: str) -> dict:
         "pe": "P/E", "pb": "P/B", "evEbitda": "EV/EBITDA", "peVsSector": "P/E vs sector",
         "divYield": "Div Yield", "roe": "ROE", "roce": "ROCE", "profitMargin": "Net margin",
         "interestCoverage": "Int cover", "earningsConsistency": "Earnings consistency",
-        "salesG": "Sales 3Y", "profitG": "Profit 3Y", "salesGyoy": "Sales YoY",
-        "profitGyoy": "Profit YoY", "epsGyoy": "EPS YoY", "marginTrend": "Margin trend",
+        # *Gyoy metrics are served on a TTM-vs-prior-TTM basis (trailing 12 months vs
+        # the 12 before it) — NOT single-quarter YoY. Label them as such or the number
+        # is misleading even when it is numerically correct. See migration 122.
+        "salesG": "Sales 3Y", "profitG": "Profit 3Y", "salesGyoy": "Sales TTM",
+        "profitGyoy": "Profit TTM", "epsGyoy": "EPS TTM", "marginTrend": "Margin trend",
         "de": "D/E", "debtTrend": "Debt trend", "liquidity": "Liquidity", "mcap": "Mkt Cap",
         "return1y": "1Y return", "volatility": "Volatility", "beta": "Beta",
         "maxDrawdown": "Max drawdown", "rsi": "RSI", "momentum": "Momentum",
@@ -314,8 +342,11 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
             intel_mod = importlib.import_module("services.copilot_tools.stock_intelligence")
             parsed = _parse_screen_filters(user_msg)
 
+            # A bounded index universe (≤500 names) is screened in full so a
+            # "which Nifty 500 companies …" count is complete, not a top-60 slice.
+            _screen_limit = 500 if parsed["server"].get("universe") else 60
             fetched = await intel_mod.nidp_stock_screener(
-                limit=60, **{k: v for k, v in parsed["server"].items() if v is not None},
+                limit=_screen_limit, **{k: v for k, v in parsed["server"].items() if v is not None},
             )
             fetch_ok = fetched.get("ok", True)   # False only when the source is unreachable
             raw_rows = fetched.get("rows", [])
@@ -346,6 +377,42 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
             picks_str = "; ".join(pick_lines)
             count = widget_data.get("count", 0)
 
+            # Data-quality guard for YoY-growth screens. A tiny/depressed
+            # same-quarter-last-year base (or a standalone-vs-consolidated basis
+            # mismatch) inflates the %, so a "grew >30%" list can be topped by
+            # optically huge, low-base figures (e.g. cyclical steel/OMC recovery).
+            # Surface that so the narrative never states an unvalidated 600% as a
+            # clean fact. Truthful whether the base is low-but-real or contaminated.
+            _yoy_col = parsed["server"].get("sort_by")
+            _yoy_caveat = ""
+            if _yoy_col in ("pat_growth_yoy_pct", "revenue_growth_yoy_pct", "eps_growth_yoy_pct"):
+                # BASIS (always state it): these columns are TTM-vs-prior-TTM — the
+                # trailing 12 months vs the 12 before — NOT single-quarter YoY. Saying
+                # "this quarter" over a TTM number is misleading even when it's correct.
+                _yoy_caveat = (
+                    " BASIS: this growth figure is TTM (trailing 12 months) vs the prior "
+                    "12 months, NOT a single quarter — say so plainly. Names whose "
+                    "financials fail data-quality checks are excluded rather than shown "
+                    "with an unreliable number."
+                )
+                widget_data["basis_note"] = "TTM (trailing 12m) vs prior 12m — not single-quarter."
+                # Backstop: migration 122 NULLs contaminated/low-base rows upstream, so
+                # extremes should be rare. If one still lands, flag it rather than trust it.
+                _vals = []
+                for r in raw_rows:
+                    v = r.get(_yoy_col)
+                    if v is not None:
+                        try: _vals.append(float(v))
+                        except (TypeError, ValueError): pass
+                if _vals and max(_vals) >= 300:
+                    _yoy_caveat += (
+                        " DATA-QUALITY NOTE: a match still shows very high growth — treat "
+                        "the exact figure as indicative, not precise."
+                    )
+                    widget_data["data_quality_note"] = (
+                        "Very high growth can reflect a depressed base year — treat as indicative."
+                    )
+
             if not fetch_ok:
                 # Source unreachable → no widget; LLM emits the "couldn't retrieve" line.
                 summary = f"Stock screen ({parsed['title']}): screener data source unavailable"
@@ -358,6 +425,7 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
                     f"Stock screen ({parsed['title']}): {count} matches"
                     + (f" — {picks_str}" if picks_str else "")
                     + (f" [as of {fetched.get('as_of_date')}]" if fetched.get("as_of_date") else "")
+                    + _yoy_caveat
                 )
 
             results.append(ToolResult(
@@ -435,11 +503,7 @@ async def recommendation_node(state: CopilotState) -> dict:
         "What should I invest in?",
     )
 
-    llm = ChatOpenAI(
-        model=COPILOT_LLM_MODEL,
-        temperature=temperature_for(0.2),
-        api_key=get_openai_api_key(),
-    )
+    llm = make_chat_llm(temperature_for(0.2))
     resp = await llm.ainvoke([
         {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},

@@ -197,7 +197,10 @@ async def _build_briefing(
                  estimated_move_pct_low, estimated_move_pct_high,
                  signal_json, model_used)
             VALUES ($1,$2,$3,$4,'d1_prep',$5,$6,$7,$8,$9,$10)
+            -- predicate matches the partial index (migration 128), which excludes
+            -- filing_insight rows; d1_prep rows always satisfy it (signal_type='d1_prep').
             ON CONFLICT (symbol, event_type, event_date, period, signal_type)
+                WHERE signal_type <> 'filing_insight'
             DO UPDATE SET
                 sentiment              = EXCLUDED.sentiment,
                 confidence             = EXCLUDED.confidence,

@@ -64,6 +64,15 @@ _ALIASES: Dict[str, str] = {
     "d-mart": "DMART",
     "bajaj finance": "BAJFINANCE",
     "bajaj finserv": "BAJAJFINSV",
+    # Renamed / rebranded entities — the old name still dominates user queries.
+    "zomato": "ETERNAL",   # Zomato Ltd renamed to Eternal Ltd (ticker ETERNAL)
+}
+
+# Renamed/merged TICKERS — when the user types the OLD ticker ($ZOMATO), map it
+# to the current symbol. Applied on the ticker + pass-through paths (the name
+# alias above only covers the lowercase name form, e.g. "zomato").
+_TICKER_RENAMES: Dict[str, str] = {
+    "ZOMATO": "ETERNAL",   # Zomato Ltd → Eternal Ltd
 }
 
 # Uppercase tokens that look like tickers but are common English words — guard
@@ -72,10 +81,41 @@ _PASSTHROUGH_STOPWORDS: Set[str] = {
     "HOW", "WHAT", "WHY", "WHEN", "WHO", "THE", "AND", "FOR", "ARE", "WAS",
     "BUY", "SELL", "HOLD", "STOCK", "SHARE", "PRICE", "TARGET", "LOOKING",
     "DOING", "TODAY", "ABOUT", "TELL", "GOOD", "GREAT", "OVER", "INTO",
+    # Research-domain acronyms that appear in thematic/research questions and are
+    # NOT NSE tickers — without this a question like "which companies talk about
+    # AI" or "US FDA inspections" wrongly resolves "AI"/"US"/"FDA" to a ticker and
+    # collapses a cross-company question to a single (wrong) company.
+    "AI", "ML", "US", "USA", "UK", "EU", "FDA", "USFDA", "DGTR", "GST", "RBI",
+    "SEBI", "GDP", "CEO", "CFO", "COO", "ESG", "YOY", "QOQ", "EBITDA", "USD",
+    "INR", "AUM", "SIP", "NAV", "ETF", "FII", "DII", "IPO", "QIP", "NCD",
+    "EPS", "ROE", "ROCE", "NPA", "CAPEX", "OPEX", "IBC", "NCLT", "LODR",
+    # Sector / corporate acronyms that read as ALL-CAPS in thematic questions
+    # ("each IT company", "PSU banks", "SME listings") but are NOT NSE tickers.
+    "IT", "HR", "PSU", "SME", "NBFC", "AGM", "EGM", "MOU", "JV", "PAT", "PBT",
+}
+
+# Generic corporate-suffix / filler words that must NEVER resolve a company on
+# their own. The curated universe is small (~115 names), so a common word like
+# "company" becomes a UNIQUE single-token key (only "Titan Company Ltd" carries
+# it) and any thematic question containing "… company …" collapsed to TITAN.
+# Multi-word name phrases ("titan company", "tata motors") still resolve via the
+# phrase step, so banning these as standalone keys only removes false matches.
+_NAME_STOPWORDS: Set[str] = {
+    "company", "companies", "industries", "industry", "limited", "ltd",
+    "corporation", "corp", "enterprises", "enterprise", "technologies",
+    "technology", "solutions", "services", "products", "international",
+    "global", "india", "indian", "group", "holdings", "ventures", "systems",
+    "infrastructure", "infra", "consultancy", "consultants", "finance",
+    "financial", "capital", "resources", "projects", "trading",
 }
 
 _WORD_RE = re.compile(r"[a-z0-9&]+")
 _TICKER_RE = re.compile(r"\b[A-Z][A-Z0-9&]{1,9}\b")
+
+# Uppercase tokens that are period / fiscal markers, not tickers: Q1, H2, FY27,
+# CY26, Q1FY27, bare years (2026). These appear constantly in filing questions
+# ("margin in Q1 FY27") and must never pass through as a symbol.
+_PERIOD_TOKEN_RE = re.compile(r"^(Q[1-4]|H[12]|FY\d{2,4}|CY\d{2,4}|Q[1-4]FY\d{2,4}|\d{2,4})$")
 
 
 def _norm_tokens(text: str) -> List[str]:
@@ -104,7 +144,7 @@ def _build_index():
             # so "tata motors" resolves even though name starts with "tata".
             grams = [" ".join(toks[i:i + n]) for i in range(len(toks) - n + 1)]
             for g in grams:
-                if n == 1 and len(g) < 3:
+                if n == 1 and (len(g) < 3 or g in _NAME_STOPWORDS):
                     continue
                 phrase_tmp[g].add(ticker)
     # keep only phrases that map to exactly one instrument
@@ -125,7 +165,8 @@ def resolve_symbol(text: str) -> Resolution:
     upper_tokens = _TICKER_RE.findall(text)
     for tok in upper_tokens:
         if tok in _TICKERS:
-            return Resolution(symbol=_TICKERS[tok], display_name=tok, source="ticker")
+            sym = _TICKER_RENAMES.get(_TICKERS[tok], _TICKERS[tok])
+            return Resolution(symbol=sym, display_name=tok, source="ticker")
 
     toks = _norm_tokens(text)
 
@@ -155,7 +196,7 @@ def resolve_symbol(text: str) -> Resolution:
 
     # 5. pass-through: an uppercase ticker-shaped token not in the curated list
     for tok in upper_tokens:
-        if tok not in _PASSTHROUGH_STOPWORDS:
-            return Resolution(symbol=tok, display_name=tok, source="passthrough")
+        if tok not in _PASSTHROUGH_STOPWORDS and not _PERIOD_TOKEN_RE.match(tok):
+            return Resolution(symbol=_TICKER_RENAMES.get(tok, tok), display_name=tok, source="passthrough")
 
     return Resolution()

@@ -19,9 +19,8 @@ import re
 from typing import Any, Dict, Optional
 
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 
-from .._llm import COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
+from .._llm import make_chat_llm, temperature_for
 from ..schemas import AgentName, CopilotState, IntentClassification
 from .intent_patterns import match_agent
 
@@ -94,6 +93,8 @@ Agents:
 - risk_analyst: risk suitability, VaR, portfolio risk assessment
 - goal_planner: financial goals, retirement, SIP adequacy
 - recommendation: buy/invest recommendations, stock screener
+- stocks_insights: a company's corporate disclosures/filings, order wins, results, M&A, concall/management commentary, AND regulatory/legal events it disclosed (SEBI action, RBI/IRDAI order, insolvency, NCLT, IBC, litigation)
+- policy_analyst: how a tax/trade/budget POLICY affects a sector or which companies it affects (GST rate change, anti-dumping/safeguard duty, import/export tariffs, Union Budget, PLI/subsidy)
 
 Return JSON: {"agent": "<agent_name>", "confidence": 0.9, "symbol": null, "scheme_code": null}
 """
@@ -102,11 +103,7 @@ Return JSON: {"agent": "<agent_name>", "confidence": 0.9, "symbol": null, "schem
 async def _llm_classify(text: str) -> IntentClassification:
     """Call the LLM for ambiguous queries. Falls back to market_analyst on any error."""
     try:
-        llm = ChatOpenAI(
-            model=COPILOT_LLM_MODEL,
-            temperature=temperature_for(0),
-            api_key=get_openai_api_key(),
-        )
+        llm = make_chat_llm(temperature_for(0))
         # Tag this LLM call so the SSE consumer can filter its tokens out of
         # the user-facing stream — otherwise the routing JSON leaks into the
         # chat bubble before the agent's prose starts.
@@ -148,6 +145,23 @@ async def intent_node(state: CopilotState) -> dict:
         if isinstance(msg, HumanMessage):
             user_text = msg.content
             break
+
+    # 0. Agent pin — a dedicated surface (the Filings Home ask bar) has already
+    #    decided the agent, so classification is not merely overridden but
+    #    SKIPPED: no regex table, no LLM call. Slots are still extracted (regex
+    #    only, cheap) so the specialist node still gets its symbol.
+    if state.pinned_agent is not None:
+        slots = _extract_slots(user_text, state.pinned_agent) if user_text else {}
+        intent = IntentClassification(
+            agent=state.pinned_agent,
+            confidence=1.0,
+            symbol=slots.get("symbol"),
+            scheme_code=slots.get("scheme_code"),
+            scenario=slots.get("scenario"),
+            extras={k: v for k, v in slots.items() if k not in ("symbol", "scheme_code", "scenario")},
+        )
+        logger.debug("intent(pinned): agent=%s text=%r", intent.agent, user_text[:60])
+        return {"intent": intent}
 
     if not user_text:
         return {"intent": IntentClassification(agent=AgentName.MARKET, confidence=0.5)}

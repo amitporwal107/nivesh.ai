@@ -23,14 +23,15 @@ def _parse_date(s: str) -> _date:
 
 async def _main(args: argparse.Namespace) -> None:
     target = args.date or _date.today()
-    sources = ("nse", "bse") if args.source == "both" else (args.source,)
+    sources = ("nse", "bse") if args.source == "both" else \
+              ("nse", "bse", "bse_subcat") if args.source == "all" else (args.source,)
     for src in sources:
         await run_once(src, target)
 
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--source", choices=("nse", "bse", "both"), default="nse",
+    p.add_argument("--source", choices=("nse", "bse", "bse_subcat", "both", "all"), default="nse",
                    help="Which exchange feed to ingest. 'both' runs them sequentially.")
     p.add_argument("--date", type=_parse_date, default=None,
                    help="Trading date (yyyy-mm-dd). Defaults to today.")

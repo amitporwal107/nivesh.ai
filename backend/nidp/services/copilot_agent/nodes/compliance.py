@@ -138,6 +138,34 @@ def _strip_inline_disclaimer(text: str) -> str:
     return stripped.rstrip()
 
 
+# ── No-advice guard (PRD non-goal + Appendix B §G) ─────────────────────────
+# The copilot must NEVER emit buy/sell/hold calls, price targets, or price
+# predictions. Some upstream nodes (esp. the stock analyst) can slip these in;
+# this scrubs them as a deterministic backstop, independent of prompt discipline.
+_ADVICE_RE = re.compile(
+    r"\b(?:short|long|near)[- ]term\s+(?:view|call|stance)\s*(?:is|:)?\s*(?:buy|sell|hold|reduce|accumulate)\b"
+    r"|\brecommendation\s*:?\s*(?:strong\s+)?(?:buy|sell|hold|reduce|accumulate)\b"
+    r"|\b(?:strong\s+)?(?:buy|sell|hold|reduce|accumulate)\s+(?:rating|call|recommendation|signal)\b"
+    r"|\btarget\s+price\b|\bprice\s+target\b"
+    r"|\b(?:you|we|i)\s+(?:should|would|could)\s+(?:buy|sell|book|exit|accumulate|reduce)\b"
+    r"|\b(?:we|i)\s+recommend\b|\brecommend\s+(?:buy|sell|hold|ing|ed)\b"
+    r"|\bwill\s+(?:likely\s+)?(?:rise|fall|go\s+up|go\s+down|drop|surge|rally|crash|decline|climb)\b"
+    r"|\b(?:looks?|is|are|turning|remains?)\s+(?:bullish|bearish)\b|\bbullish\b|\bbearish\b"
+    r"|\bgood\s+time\s+to\s+(?:buy|sell|enter|exit)\b|\bwhether\s+to\s+(?:buy|sell)\b",
+    re.IGNORECASE,
+)
+_ADVICE_NOTE = ("\n\n*Factual filings/data only — Nivesh Copilot does not give buy/sell/hold "
+                "advice, price targets, or price predictions.*")
+
+
+def _scrub_advice(text: str) -> tuple[str, bool]:
+    """Neutralise any buy/sell/hold / price-target / price-prediction phrasing.
+    Returns (scrubbed_text, had_advice)."""
+    if not _ADVICE_RE.search(text):
+        return text, False
+    return _ADVICE_RE.sub("[factual data only — no recommendation]", text), True
+
+
 async def compliance_node(state: CopilotState) -> dict:
     response: AgentResponse | None = state.response
     if response is None:
@@ -157,6 +185,11 @@ async def compliance_node(state: CopilotState) -> dict:
     # duplicate inside every bubble adds visual noise without helping the
     # user. The audit-trail copy lives on `response.disclaimer`.
     text = _strip_inline_disclaimer(text)
+
+    # 2b. No-advice guard — scrub any buy/sell/hold / target / price-prediction language.
+    text, had_advice = _scrub_advice(text)
+    if had_advice:
+        text = text.rstrip() + _ADVICE_NOTE
 
     # 3. Grounding check
     grounding = _grounding_ok(text, state.tool_results or [])

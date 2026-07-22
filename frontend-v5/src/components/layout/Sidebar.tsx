@@ -43,7 +43,7 @@ export function Sidebar({ className }: { className?: string }) {
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [menuOpen]);
 
-  const groups = groupNav(getSectionNav(me?.workspaceType, activeProfileId));
+  const groups = groupNav(getSectionNav(me?.workspaceType, activeProfileId, me?.features));
 
   const initials = me?.name
     ? me.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()

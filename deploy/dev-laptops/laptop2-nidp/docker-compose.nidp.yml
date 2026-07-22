@@ -53,6 +53,8 @@ x-nidp-common: &nidp-common
       AI_TIER: "false"
   # required:false so `docker compose build` / `config` work before the
   # developer has created .env. up.sh is the gate that enforces real values.
+  # Built locally from Dockerfile.nidp — never pulled from a registry.
+  pull_policy: build
   env_file:
     - path: ./.env
       required: false
@@ -298,7 +300,23 @@ services:
       args:
         AI_TIER: "true"
     image: nidp/runtime-ai:laptop
+    # Built locally — never in a registry. Without this, `docker compose up`
+    # emits a confusing "pull access denied ... may require 'docker login'".
+    pull_policy: build
     container_name: nidp-lt-scheduler
+    # init:true runs docker-init (tini) as PID 1. REQUIRED — without it
+    # supercronic becomes PID 1, enables its own process reaper, and dies
+    # immediately on ANY crontab:
+    #     level=info  msg="reaping dead processes"
+    #     level=fatal msg="Failed to fork exec: no such file or directory"
+    # Verified this fires even for a one-line `* * * * * echo hello` crontab,
+    # so it is the reaper, not the schedule.
+    #
+    # init:true is preferred over supercronic's -no-reap because the feed jobs
+    # fork subprocesses; tini still reaps them, whereas -no-reap alone would
+    # let zombies accumulate. With tini as PID 1, supercronic logs:
+    #     level=warning msg="process reaping disabled, not pid 1"
+    init: true
     command: ["supercronic", "-passthrough-logs", "/etc/nidp/nidp.crontab"]
     environment:
       <<: *nidp-env
@@ -400,7 +418,15 @@ services:
       - "--path.rootfs=/host"
     pid: host
     volumes:
-      - /:/host:ro,rslave
+      # NOTE: plain `:ro`, NOT `:ro,rslave`. rslave mount propagation requires
+      # the host's / to be a shared or slave mount, which is true on Linux but
+      # NOT inside Docker Desktop's WSL2 VM. With rslave the container fails:
+      #   Error response from daemon: path / is mounted on / but it is not a
+      #   shared or slave mount
+      # Without it node-exporter still reports host metrics correctly; it just
+      # will not see mounts added to the host after the container starts,
+      # which does not matter for a laptop dev environment.
+      - /:/host:ro
     ports: ["${NODE_EXPORTER_PORT:-9100}:9100"]
     networks: [nidp-local]
     logging: *default-logging

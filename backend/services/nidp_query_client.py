@@ -116,6 +116,11 @@ async def get_feeds() -> Dict[str, Any]:
     return await _request("GET", "/feeds")
 
 
+async def get_pipeline_stages() -> Dict[str, Any]:
+    """Per-stage health of announcement -> RAG. ~1.5-3s: full-table counts."""
+    return await _request("GET", "/pipeline/stages")
+
+
 async def get_feed_runs(ingester: str, limit: int = 20) -> Dict[str, Any]:
     return await _request("GET", f"/feeds/{ingester}/runs",
                           params={"limit": limit})

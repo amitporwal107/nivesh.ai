@@ -43,8 +43,10 @@ from routes.admin_nidp import router as admin_nidp_router, router_static as admi
 from routes.admin_allocation_bands import router as admin_allocation_bands_router  # allocation band config
 from routes.admin_nidp_replay import router as admin_nidp_replay_router  # NIDP 90-day replay engine
 from routes.admin_nidp_backfill import router as admin_nidp_backfill_router  # NIDP backfill status proxy
+from routes.admin_nidp_pipeline import router as admin_nidp_pipeline_router  # NIDP 6-stage pipeline health
 from routes.copilot_prompts import router as copilot_prompts_router
 from routes.copilot import router as copilot_router  # Nivesh Copilot (CIO Assistant)
+from routes.thematic_prefs import router as thematic_prefs_router  # per-user thematic history + favourites
 from routes.gmail import router as gmail_router
 from routes.onboarding_gmail import router as onboarding_gmail_router  # wrapped Gmail onboarding (no SDK popup)
 from routes.portfolio import router as portfolio_router
@@ -83,6 +85,7 @@ from routes.work import router as work_router                    # Work issues d
 from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reverse-proxy for the Nivesh-hosted OpenAlgo dashboard
 from routes.market_events import router as market_events_router  # Market Event Intelligence — corporate events, AI signals, breakout feed
 from routes.markets import router as markets_router              # Markets home dashboard aggregator (/api/markets/home)
+from routes.filings import router as filings_router              # Filings Home — feed + signals (/api/filings/*)
 from routes.portfolio_exposure import router as portfolio_exposure_router  # Diversification & Concentration analytics — AMC / Sector / Company exposure
 from routes.portfolio_risk_analytics import router as portfolio_risk_analytics_router  # V3 risk analytics — beta/sharpe/volatility from DAAS
 from routes.portfolio_composition import router as portfolio_composition_router  # v5 Composition Explorer — asset_class/sector/fund/group breakdown
@@ -147,8 +150,10 @@ app.include_router(admin_nidp_router)
 app.include_router(admin_nidp_static_router)
 app.include_router(admin_nidp_replay_router)
 app.include_router(admin_nidp_backfill_router)
+app.include_router(admin_nidp_pipeline_router)
 app.include_router(copilot_prompts_router)
 app.include_router(copilot_router)
+app.include_router(thematic_prefs_router)
 app.include_router(gmail_router)
 app.include_router(onboarding_gmail_router)
 app.include_router(portfolio_router)
@@ -189,6 +194,7 @@ app.include_router(broker_native_router)           # Native broker connect (no O
 app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://127.0.0.1:5000/api/openalgo/* (reverse proxy)
 app.include_router(market_events_router)           # Market Event Intelligence feed (/api/market/events, /signals)
 app.include_router(markets_router)                 # Markets home dashboard aggregator (/api/markets/home)
+app.include_router(filings_router)                # Filings Home — feed + signals (/api/filings/*)
 app.include_router(portfolio_exposure_router)      # Diversification & Concentration analytics (/api/portfolio/exposure/concentration)
 app.include_router(portfolio_risk_analytics_router) # V3 risk analytics (/api/portfolio/risk-analytics) — beta/sharpe/vol from DAAS
 app.include_router(portfolio_composition_router)   # v5 Composition Explorer (/api/portfolio/composition)

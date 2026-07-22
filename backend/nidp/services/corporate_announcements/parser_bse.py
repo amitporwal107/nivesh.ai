@@ -129,6 +129,11 @@ def _parse_one_bse(e: dict) -> dict | None:
         if 3 <= len(head_name) <= 80 and any(c.isalpha() for c in head_name):
             company_name = head_name
     raw_category = (e.get("CATEGORYNAME") or e.get("ANNOUNCEMENT_TYPE") or "").strip() or None
+    # SUBCATNAME comes from the AnnSubCategoryGetData/w endpoint (subcategory
+    # sweep); the older AnnGetData/w rows won't carry it → stays NULL. This is
+    # the finer Phase-1 filing type (e.g. "Award of Order / Receipt of Order",
+    # "Earnings Call Transcript") that drives doc_type + order/M&A detection.
+    subcategory = (e.get("SUBCATNAME") or "").strip() or None
 
     attachment_name = (e.get("ATTACHMENTNAME") or "").strip()
     attachment_url = (_BSE_ATTACHMENT_BASE + attachment_name) if attachment_name else None
@@ -146,6 +151,7 @@ def _parse_one_bse(e: dict) -> dict | None:
         "subject": subject or None,
         "description": headline if headline != subject else None,
         "raw_category": raw_category,
+        "subcategory": subcategory,
         "attachment_url": attachment_url,
         "raw_payload": e,
     }

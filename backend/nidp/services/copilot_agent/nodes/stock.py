@@ -10,9 +10,8 @@ import os
 import sys
 
 from langchain_core.messages import AIMessage
-from langchain_openai import ChatOpenAI
 
-from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
+from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -189,11 +188,7 @@ async def stock_node(state: CopilotState) -> dict:
 
     llm_user_msg = user_msg or f"Analyse {symbol}"
 
-    llm = ChatOpenAI(
-        model=COPILOT_LLM_MODEL,
-        temperature=temperature_for(0.1),
-        api_key=get_openai_api_key(),
-    )
+    llm = make_chat_llm(temperature_for(0.1))
     resp = await llm.ainvoke([
         {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": llm_user_msg},

@@ -2961,6 +2961,138 @@ function GoalBasketWidget({ data, onAction }: { data: any; onAction?: (a: Widget
   );
 }
 
+// ── stock_insights (Nivesh Copilot — corporate-filings insights) ───────────
+// Renders a grounded answer whose [n] markers resolve to a source FILING
+// (filing-level "View Source" → the exchange PDF) plus a recent-events list.
+// v1 citations are filing-level (DAAS has no page-level document retrieval).
+function siHumanizeCat(c?: string): string {
+  if (!c) return "Filing";
+  return String(c).replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function siWhen(iso?: string | null): string {
+  if (!iso) return "";
+  const t = Date.parse(String(iso));
+  if (Number.isNaN(t)) return String(iso).slice(0, 10);
+  const h = Math.floor((Date.now() - t) / 3_600_000);
+  if (h < 1) return "just now";
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(t).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
+
+// Turn [n] markers into focusable citation chips anchored to the Sources row.
+// A marker whose n is out of range is dropped (UI backstop; server also guards).
+function siAnswer(answer: string, nSources: number): React.ReactNode {
+  return (answer || "").split(/(\[\d{1,2}\])/g).map((part, i) => {
+    const m = part.match(/^\[(\d{1,2})\]$/);
+    if (m) {
+      const n = Number(m[1]);
+      if (n >= 1 && n <= nSources) {
+        return (
+          <a key={i} href={`#si-src-${n}`} aria-label={`Citation ${n}`}
+             className="align-super text-[10px] font-semibold text-accent hover:underline">[{n}]</a>
+        );
+      }
+      return null;
+    }
+    return <Fragment key={i}>{part}</Fragment>;
+  });
+}
+
+function StockInsightsWidget({ data, onAction }: { data: any; onAction?: (a: WidgetAction) => void }) {
+  if (!data) return null;
+  const title = data.company || data.ticker || (data.mode === "thematic" ? "Corporate filings" : "Stock insights");
+  const events: any[] = Array.isArray(data.events) ? data.events : [];
+  const sources: any[] = Array.isArray(data.sources) ? data.sources : [];
+  const empty = !!data.empty || (events.length === 0 && sources.length === 0);
+
+  return (
+    <div className="flex flex-col gap-3.5 mt-1 w-full">
+      <Card>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <Heading>{title}</Heading>
+            {data.ticker && <ToneBadge text="STOCK" />}
+          </div>
+          {!empty && sources.length > 0 && (
+            <span className="shrink-0 text-[11px] text-ink-3">Grounded · {sources.length} filing{sources.length > 1 ? "s" : ""}</span>
+          )}
+        </div>
+        {data.answer && (
+          <p className="mt-3 text-[14px] text-ink-2 leading-relaxed whitespace-pre-wrap break-words">
+            {siAnswer(data.answer, sources.length)}
+          </p>
+        )}
+      </Card>
+
+      {events.length > 0 && (
+        <Card tone="cream">
+          <Heading>Recent corporate events</Heading>
+          <div className="mt-3 flex flex-col gap-2.5">
+            {events.map((e, i) => (
+              <div key={i} className="flex items-baseline justify-between gap-3">
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className="shrink-0"><ToneBadge text={siHumanizeCat(e.category)} /></span>
+                  <span className="text-[13px] text-ink truncate">
+                    {e.headline}
+                    {data.mode === "thematic" && e.symbol ? <span className="text-ink-3"> · {e.symbol}</span> : null}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2 shrink-0">
+                  {e.filed_at && <span className="text-[12px] text-ink-4">{siWhen(e.filed_at)}</span>}
+                  {e.url && <a href={e.url} target="_blank" rel="noopener noreferrer" className="text-[12px] text-accent hover:underline">View Source ↗</a>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {sources.length > 0 && (
+        <Card>
+          <Heading>Sources</Heading>
+          <div className="mt-3 flex flex-col gap-2">
+            {sources.map((s) => (
+              <div key={s.n} id={`si-src-${s.n}`} className="flex items-baseline justify-between gap-3 scroll-mt-20">
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className="shrink-0 text-[11px] font-semibold text-accent">[{s.n}]</span>
+                  <span className="text-[12.5px] text-ink truncate">
+                    {s.title}{s.filed_at ? <span className="text-ink-3"> · {siWhen(s.filed_at)}</span> : null}
+                  </span>
+                </div>
+                {s.url
+                  ? <a href={s.url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[12px] text-accent hover:underline">View Source ↗</a>
+                  : <span className="shrink-0 text-[11px] text-ink-4">no link</span>}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {empty && (
+        <Card tone="cream">
+          <p className="text-[13.5px] text-ink-2 leading-relaxed">
+            No recent filings found for this {data.mode === "thematic" ? "query" : "company"}.
+          </p>
+        </Card>
+      )}
+
+      <p className="text-[11px] text-ink-4 leading-relaxed">
+        {data.disclaimer || "AI-generated from exchange filings. Verify against the original filing."}
+      </p>
+
+      {onAction && data.ticker && !empty && (
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => onAction({ query: `what's the latest on ${data.ticker}?` })}
+                  className="rounded-full border border-hairline bg-surface-1 px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2">More filings</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: string; data?: any }; onAction?: (a: WidgetAction) => void }) {
   if (!widget?.widget_type) return null;
   try {
@@ -2990,6 +3122,7 @@ export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: stri
       case "backtest_comparison": return <BacktestComparisonWidget data={widget.data} />;
       case "capital_gains":      return <CapitalGainsWidget data={widget.data} onAction={onAction} />;
       case "goal_basket":        return <GoalBasketWidget data={widget.data} onAction={onAction} />;
+      case "stock_insights":     return <StockInsightsWidget data={widget.data} onAction={onAction} />;
     }
   } catch {
     return null;

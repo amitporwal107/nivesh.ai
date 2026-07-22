@@ -5,12 +5,16 @@
 # real staging stack) rather than reinvented, so behaviour matches what you
 # already run. Reuses the SAME prod Dockerfiles the VM builds from.
 #
-# Topology:
+# Topology (v5-only by default):
 #   cloudflared (on this laptop) --> http://localhost:3000 --> nginx (edge)
-#     nginx  /            -> app-frontend     (V2 React/CRA)
+#     nginx  /            -> 302 /v5/work     (same as prod's v5-only vhost)
 #            /v5/         -> app-frontend-v5  (Vite/React 18)
 #            /api/        -> app-backend:8001 (FastAPI)
 #            /webhooks/   -> app-backend:8001
+#
+# V2 (app-frontend) is behind the `v2` profile and is NOT built or started by
+# default. v5 has no dependency on it — verified at the Dockerfile, link and
+# import level. Enable with ./up.sh --with-v2 if you ever need it.
 #
 #   app-backend --LAN--> laptop 2 NIDP edge at http://$NIDP_HOST:8080/{daas,query}
 #
@@ -101,6 +105,9 @@ services:
       context: ../../../
       dockerfile: deploy/nivesh-app/Dockerfile.backend.prod
     image: nivesh/backend:laptop
+    # Built locally — never in a registry. Without this, `docker compose up`
+    # emits a confusing "pull access denied ... may require 'docker login'".
+    pull_policy: build
     container_name: nivesh-lt-backend
     restart: unless-stopped
     # required:false so `docker compose build` / `config` work before the
@@ -179,11 +186,22 @@ services:
       start_period: 40s
 
   # ── Frontends ──────────────────────────────────────────────────────────
-  # Both are BUILT (nginx-served static), matching staging. The API URL is
-  # baked in at build time, so changing APP_PUBLIC_URL requires a rebuild:
-  #   docker compose -f docker-compose.app.yml build app-frontend app-frontend-v5
+  # frontend-v5 is the one that matters; it is BUILT (nginx-served static),
+  # matching staging. The API URL is baked in at build time, so changing
+  # APP_PUBLIC_URL requires a rebuild:
+  #   docker compose -f docker-compose.app.yml build app-frontend-v5
+  #
+  # V2 (app-frontend) is behind the `v2` profile and is NOT built or started
+  # by default — this stack is v5-only. v5 does not depend on V2: the v5
+  # Dockerfile copies only frontend-v5/, frontend-v5/src contains no /v2
+  # links, and there are no cross-imports (the single reference to
+  # frontend/src/v4/api/portfolioIngestion.js is a doc comment).
+  #
+  # To bring V2 back:  ./up.sh --with-v2   (and see the note in nginx/edge.conf,
+  # whose `location /` currently 302s to /v5/work instead of proxying to it).
 
   app-frontend:
+    profiles: ["v2"]
     build:
       context: ../../../
       dockerfile: deploy/nivesh-app/Dockerfile.frontend.prod
@@ -191,6 +209,9 @@ services:
         REACT_APP_BACKEND_URL: ${APP_PUBLIC_URL:-http://localhost:3000}
         PUBLIC_URL: /v2
     image: nivesh/frontend:laptop
+    # Built locally — never in a registry. Without this, `docker compose up`
+    # emits a confusing "pull access denied ... may require 'docker login'".
+    pull_policy: build
     container_name: nivesh-lt-frontend
     restart: unless-stopped
     # The prod image's baked nginx.conf does an HTTP->HTTPS 308 redirect,
@@ -212,6 +233,9 @@ services:
         VITE_API_URL: ${APP_PUBLIC_URL:-http://localhost:3000}
         VITE_USE_MOCK_API: "false"
     image: nivesh/frontend-v5:laptop
+    # Built locally — never in a registry. Without this, `docker compose up`
+    # emits a confusing "pull access denied ... may require 'docker login'".
+    pull_policy: build
     container_name: nivesh-lt-frontend-v5
     restart: unless-stopped
     networks: [nivesh-local]
@@ -232,8 +256,9 @@ services:
     networks: [nivesh-local]
     logging: *default-logging
     depends_on:
+      # app-frontend (V2) intentionally omitted — it lives behind the `v2`
+      # profile, and depending on it would block nginx from starting.
       app-backend:     { condition: service_started }
-      app-frontend:    { condition: service_started }
       app-frontend-v5: { condition: service_started }
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/healthz"]

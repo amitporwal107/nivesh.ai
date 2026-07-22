@@ -17,16 +17,65 @@ from typing import Optional
 from services.feed_rag.base import Citation, FeedRetriever, RetrieverContext
 
 try:
-    from nidp.shared.storage.pg import get_pool      # type: ignore
+    from nidp.shared.storage.pg import get_pool, prepare_vector_search  # type: ignore
 except ImportError:
     get_pool = None  # type: ignore[assignment]
+    prepare_vector_search = None  # type: ignore[assignment]
+
+try:
+    from nidp.shared import embeddings as _emb        # type: ignore
+except ImportError:
+    _emb = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
-# Hybrid plan: try vector cosine first; if the embedder hasn't run,
-# all rows have NULL embedding and the query returns 0 — we then fall
-# back to ts_rank_cd over chunk text. The fallback gives the framework
-# something useful to return on day-1 before embeddings exist.
+_RRF_K = 60
+
+# Hybrid: pgvector cosine fused with FTS via Reciprocal Rank Fusion. Used when
+# the query embeds AND some chunks are embedded.
+_HYBRID_SQL = """
+WITH vec AS (
+    SELECT c.chunk_id,
+           row_number() OVER (ORDER BY c.embedding <=> $1::vector) AS rnk
+      FROM nidp.document_chunks c
+      JOIN nidp.documents d ON d.doc_id = c.doc_id
+     WHERE c.embedding IS NOT NULL
+       AND ($3::text[] IS NULL OR d.ticker_symbol = ANY($3::text[]) OR d.scrip_code = ANY($3::text[]))
+       AND ($4::text[] IS NULL OR d.doc_type = ANY($4::text[]))
+     ORDER BY c.embedding <=> $1::vector
+     LIMIT $5
+),
+fts AS (
+    SELECT c.chunk_id,
+           row_number() OVER (
+               ORDER BY ts_rank_cd(to_tsvector('english', c.text),
+                                   plainto_tsquery('english', $2)) DESC
+           ) AS rnk
+      FROM nidp.document_chunks c
+      JOIN nidp.documents d ON d.doc_id = c.doc_id
+     WHERE to_tsvector('english', c.text) @@ plainto_tsquery('english', $2)
+       AND ($3::text[] IS NULL OR d.ticker_symbol = ANY($3::text[]) OR d.scrip_code = ANY($3::text[]))
+       AND ($4::text[] IS NULL OR d.doc_type = ANY($4::text[]))
+     ORDER BY rnk
+     LIMIT $5
+),
+fused AS (
+    SELECT chunk_id,
+           COALESCE(1.0 / ($6 + vec.rnk), 0) + COALESCE(1.0 / ($6 + fts.rnk), 0) AS score
+      FROM vec FULL OUTER JOIN fts USING (chunk_id)
+)
+SELECT c.chunk_id, c.doc_id, c.chunk_index, c.text, c.page_start, c.page_end,
+       d.source_url, d.doc_type, d.ticker_symbol, d.company_name, d.filed_at,
+       f.score
+  FROM fused f
+  JOIN nidp.document_chunks c USING (chunk_id)
+  JOIN nidp.documents d ON d.doc_id = c.doc_id
+ ORDER BY f.score DESC
+ LIMIT $5
+"""
+
+# Fallback: FTS-only. Used before any embeddings exist, or when the query
+# can't be embedded (no OPENAI_API_KEY).
 _FALLBACK_TEXT_SQL = """
 WITH q AS (SELECT plainto_tsquery('english', $1) AS tsq)
 SELECT
@@ -64,20 +113,39 @@ class FilingDocumentsRetriever(FeedRetriever):
             tickers = [t.upper() for t in tickers]
         doc_types: Optional[list[str]] = params.get("doc_types") or None
 
+        # Embed the query for the vector leg. None → FTS-only fallback (also the
+        # right behaviour mid-backfill when only some chunks are embedded).
+        qvec = None
+        if _emb is not None and _emb.is_configured():
+            try:
+                qvec = await _emb.embed_query(ctx.query)
+            except _emb.EmbeddingError as e:            # pragma: no cover
+                logger.warning("filing_documents: query embed failed, FTS fallback: %s", e)
+
         pool = await get_pool()
         async with pool.acquire() as conn:
-            # Vector path requires an embedding for the user query — which we
-            # don't have until the embedder service is wired and the same
-            # model is callable from the API tier. Until then, fall back to
-            # text. This is also the right behaviour when the embedder is
-            # mid-backfill and only some chunks have embeddings.
-            rows = await conn.fetch(
-                _FALLBACK_TEXT_SQL,
-                ctx.query,
-                tickers,
-                doc_types,
-                ctx.top_k,
-            )
+            if qvec is not None:
+                # Filtered HNSW returns 0 rows without this when `tickers` is
+                # set — and the FTS leg hides it. See prepare_vector_search().
+                if prepare_vector_search is not None:
+                    await prepare_vector_search(conn)
+                rows = await conn.fetch(
+                    _HYBRID_SQL,
+                    _emb.to_pgvector_literal(qvec),      # $1
+                    ctx.query,                           # $2
+                    tickers,                             # $3
+                    doc_types,                           # $4
+                    ctx.top_k,                           # $5
+                    _RRF_K,                              # $6
+                )
+            else:
+                rows = await conn.fetch(
+                    _FALLBACK_TEXT_SQL,
+                    ctx.query,
+                    tickers,
+                    doc_types,
+                    ctx.top_k,
+                )
 
         out: list[Citation] = []
         for r in rows:

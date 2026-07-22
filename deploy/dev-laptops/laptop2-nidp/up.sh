@@ -12,6 +12,23 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# ── Safe .env reading ────────────────────────────────────────────────────
+# A .env file is NOT a shell script. `source .env` shell-evaluates it, so a
+# perfectly valid value breaks bring-up:
+#   SMTP_FROM=Nivesh Copilot <noreply@niveshcopilot.com>
+#   -> .env: line 63: syntax error near unexpected token `newline'
+# Same for values containing ( ) | ' " & ; $ backticks. docker compose does
+# NOT shell-evaluate .env, so anything compose accepts must work here too.
+#
+# env_get reads one key literally, mirroring compose's own semantics:
+# an inline comment must be preceded by whitespace.
+env_get() {
+    sed -n "s/^$1=//p" .env | head -1 \
+        | sed -e 's/[[:space:]]\+#.*$//' \
+              -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+              -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+}
+
 COMPOSE_FILE=docker-compose.nidp.yml
 PROFILES=()
 MIGRATE_ONLY=false
@@ -36,13 +53,33 @@ fi
 missing=()
 for v in NIDP_PG_PASSWORD NIDP_DAAS_INTERNAL_TOKEN NIDP_QUERY_API_TOKEN \
          MINIO_ROOT_PASSWORD GRAFANA_ADMIN_PASSWORD; do
-    val=$(grep -E "^${v}=" .env | cut -d= -f2- || true)
+    val=$(env_get "$v")
     [[ -z "$val" ]] && missing+=("$v")
 done
 if (( ${#missing[@]} )); then
     echo "FATAL: these are unset in .env:" >&2
     printf '  - %s\n' "${missing[@]}" >&2
     echo "Generate tokens with: openssl rand -hex 32" >&2
+    exit 1
+fi
+
+# MinIO refuses to start on a short root password, and the failure surfaces
+# as the confusing "dependency minio failed to start" on minio-init rather
+# than anything mentioning credentials:
+#   FATAL Unable to validate credentials inherited from the shell environment
+#   HINT: MINIO_ROOT_USER length should be at least 3, and
+#         MINIO_ROOT_PASSWORD length at least 8 characters
+minio_pw=$(env_get MINIO_ROOT_PASSWORD)
+minio_user=$(env_get MINIO_ROOT_USER); minio_user=${minio_user:-nidp-dev}
+if (( ${#minio_pw} < 8 )); then
+    echo "FATAL: MINIO_ROOT_PASSWORD is ${#minio_pw} characters; MinIO requires 8+." >&2
+    echo "       MinIO will exit on startup and minio-init will report" >&2
+    echo "       'dependency minio failed to start', which does not mention" >&2
+    echo "       the password at all. Set a longer value in .env." >&2
+    exit 1
+fi
+if (( ${#minio_user} < 3 )); then
+    echo "FATAL: MINIO_ROOT_USER is ${#minio_user} characters; MinIO requires 3+." >&2
     exit 1
 fi
 

@@ -17,8 +17,81 @@ import pytest
 
 from nidp.services.copilot_agent.nodes.intent_patterns import (
     match_agent, MARKET, STOCK, MF, PORTFOLIO, RISK, RECOMMENDATION,
+    STOCKS_INSIGHTS, POLICY,
 )
 from services.copilot_tools.symbol_resolver import resolve_symbol
+
+
+# ── R5-A: company-specific regulatory/legal events → stocks_insights ─────────
+# (SEBI action / insolvency / NCLT / IBC against a company or its promoters must
+#  reach the disclosures tool, NOT the stock-lookup gate ("promoter") or MARKET
+#  ("rbi"). The node then caveats self-disclosure-only scope.)
+@pytest.mark.parametrize("text", [
+    "Any recent SEBI actions against $RELIANCE or its promoters?",
+    "Has SEBI passed any order against Adani promoters?",
+    "SEBI penalty on $ZEEL",
+    "RBI penalty on $HDFCBANK?",
+    "Is there any insolvency case filed against $RCOM?",
+    "Any IBC proceedings against $JPASSOCIAT?",
+    "NCLT winding-up petition against the company",
+])
+def test_regulatory_events_route_to_stocks_insights(text):
+    assert match_agent(text) == STOCKS_INSIGHTS
+
+
+@pytest.mark.parametrize("text,agent", [
+    ("What is the RBI repo rate?", MARKET),      # regulator word alone ≠ enforcement
+    ("SEBI new mutual fund regulation", MF),     # rule-making, not an action; MF wins
+])
+def test_regulatory_pattern_does_not_oversteal(text, agent):
+    assert match_agent(text) == agent
+
+
+# ── R4: cross-sectional numeric screen → recommendation (screener) ───────────
+# ("which Nifty 500 companies grew profit >30%" needs the universe-wide screener,
+#  NOT market_analyst (grabbed by "nifty") or the single-stock gate.)
+@pytest.mark.parametrize("text", [
+    "Which Nifty 500 companies grew profit more than 30% YoY this quarter?",
+    "Which companies grew profit over 30%?",
+    "Which Nifty 50 stocks have ROE above 20%?",
+    "companies with revenue growth over 25%",
+    "Which stocks grew EPS more than 40% this year",
+])
+def test_numeric_screen_routes_to_recommendation(text):
+    assert match_agent(text) == RECOMMENDATION
+
+
+@pytest.mark.parametrize("text,agent", [
+    # thematic disclosure (no number) stays with the disclosures tool
+    ("Which companies announced buybacks this month?", STOCKS_INSIGHTS),
+    ("Which companies are investing in data centers?", STOCKS_INSIGHTS),
+    # the user's own book (has "my"/"portfolio") stays with portfolio
+    ("which stocks in my portfolio fell more than 20%?", PORTFOLIO),
+])
+def test_numeric_screen_does_not_oversteal(text, agent):
+    assert match_agent(text) == agent
+
+
+# ── R5-B: tax/trade/budget policy → policy node ──────────────────────────────
+@pytest.mark.parametrize("text", [
+    "How does the latest GST rate change affect auto component makers?",
+    "Which companies are affected by the new anti-dumping duty on steel imports?",
+    "What did the Union Budget change for renewable energy companies?",
+    "How do the new US tariffs affect Indian pharma exporters?",
+    "anti-dumping duty on steel — who benefits?",
+])
+def test_policy_impact_routes_to_policy(text):
+    assert match_agent(text) == POLICY
+
+
+@pytest.mark.parametrize("text,agent", [
+    # disclosure verb wins over a bare policy word
+    ("Which companies announced buybacks this month?", STOCKS_INSIGHTS),
+    # numeric screen (has a number) still wins
+    ("Which Nifty 500 companies grew profit more than 30% YoY?", RECOMMENDATION),
+])
+def test_policy_pattern_does_not_oversteal(text, agent):
+    assert match_agent(text) == agent
 
 
 # ── The reported bug: per-stock FII/DII holding → stock analyst ──────────────

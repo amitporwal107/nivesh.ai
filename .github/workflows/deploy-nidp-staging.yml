@@ -21,7 +21,15 @@ name: Deploy → nidp-stack-vm [staging]
         default: false
 
 concurrency:
-  group: deploy-nidp-staging
+  # SHARED across every workflow that drives /opt/nidp/dev-repo/nivesh.ai on
+  # nidp-stack-vm. They each used to serialise only against THEMSELVES, so a
+  # commit touching both backend/nidp/** and frontend-v5/** fired two of them at
+  # once and they raced on the same clone:
+  #   run 29691137497 — cannot lock ref 'refs/remotes/origin/dev'
+  #   run 29694426973 — Unable to create '.git/index.lock': File exists
+  # One group name means they queue instead. cancel-in-progress stays false:
+  # these are deploys, and cancelling one half-done is worse than waiting.
+  group: nidp-stack-vm-dev-repo
   cancel-in-progress: false
 
 jobs:
@@ -78,6 +86,20 @@ jobs:
             "${GIT[@]}" -C "$DEV_REPO" checkout --quiet "$BRANCH"
             "${GIT[@]}" -C "$DEV_REPO" reset --hard --quiet "origin/$BRANCH"
             ok "Code updated → $("${GIT[@]}" -C $DEV_REPO log -1 --oneline)"
+
+            # Ensure OCR binaries for the document_parser image/scanned-PDF fallback.
+            # Idempotent — only installs when missing, so it costs nothing once present.
+            if ! command -v tesseract >/dev/null 2>&1 || ! command -v pdftoppm >/dev/null 2>&1; then
+              log "installing OCR deps (tesseract-ocr + poppler-utils)..."
+              sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq || true
+              if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tesseract-ocr poppler-utils; then
+                ok "OCR deps installed — parser will now OCR scanned/image filing PDFs"
+              else
+                log "OCR dep install failed — parser keeps skipping image PDFs (no breakage)"
+              fi
+            else
+              log "OCR deps already present"
+            fi
 
             # Reinstall deps if requirements.txt changed.
             if "${GIT[@]}" -C "$DEV_REPO" diff HEAD~1 HEAD --name-only 2>/dev/null | \

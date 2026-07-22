@@ -9,5 +9,6 @@
   "updated_at": "2026-05-28T06:41:40.761787+00:00",
   "picture": "https://lh3.googleusercontent.com/a/ACg8ocLU7w3KcpWIKShoLAxUWyJoUGzxzAZ2Ote37NzZt7HeSCA9u5Vq=s96-c",
   "_session_user_id": "user_ed05fb1daa45",
-  "_active_profile_id": null
+  "_active_profile_id": null,
+  "features": { "research": true, "research_only": false }
 }

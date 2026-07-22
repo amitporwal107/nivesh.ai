@@ -150,7 +150,7 @@ _TABLE_DESC: Dict[str, Dict[str, str]] = {
     },
     "document_chunks": {
         "source":   "Derived: documents → chunked + embedded by document_parser",
-        "stores":   "Text chunks + pgvector embeddings (1024-dim, OpenAI text-embedding-3-large)",
+        "stores":   "Text chunks + pgvector embeddings (1536-dim, OpenAI text-embedding-3-small)",
         "use":      "Semantic search over filings; retrieval for the Copilot's grounded Q&A.",
     },
     "stock_features_daily": {

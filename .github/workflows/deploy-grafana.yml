@@ -18,7 +18,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-grafana
+  # SHARED across every workflow that drives /opt/nidp/dev-repo/nivesh.ai on
+  # nidp-stack-vm. They each used to serialise only against THEMSELVES, so a
+  # commit touching both backend/nidp/** and frontend-v5/** fired two of them at
+  # once and they raced on the same clone:
+  #   run 29691137497 — cannot lock ref 'refs/remotes/origin/dev'
+  #   run 29694426973 — Unable to create '.git/index.lock': File exists
+  # One group name means they queue instead. cancel-in-progress stays false:
+  # these are deploys, and cancelling one half-done is worse than waiting.
+  group: nidp-stack-vm-dev-repo
   cancel-in-progress: false
 
 jobs:

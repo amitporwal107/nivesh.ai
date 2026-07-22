@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import os
+from nidp.shared.openai_key import get_openai_api_key
 from dataclasses import dataclass
 from typing import Any
 
@@ -52,7 +53,7 @@ Taxonomy — pick exactly ONE event_category:
 - buyback    : share buyback announcements, buyback offers, buyback closure
 - qip        : QIP, preferential allotment, rights issue, FPO, equity raise
 - rating     : credit-rating actions (upgrade/downgrade/affirmation) by CRISIL/ICRA/CARE/Fitch/Moody
-- litigation : lawsuits filed, settlements, court orders
+- litigation : lawsuits filed, settlements, court orders, insolvency/bankruptcy proceedings (NCLT/NCLAT/IBC/CIRP petitions, winding-up, liquidation, moratorium)
 - other      : everything else (newspaper publications, postal ballots, scrutinizer reports, AGM notices, investor presentations without earnings)
 
 impact_score:
@@ -134,7 +135,7 @@ class HaikuClassifier:
     """Class name retained for back-compat; powered by GPT now."""
 
     def __init__(self, api_key: str | None = None) -> None:
-        key = api_key or os.environ.get("OPENAI_API_KEY")
+        key = api_key or get_openai_api_key()
         if not key:
             raise RuntimeError(
                 "OPENAI_API_KEY not set — required for the corporate-"

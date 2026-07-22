@@ -21,6 +21,7 @@ import base64
 import json
 import logging
 import os
+from helpers.openai_key import get_openai_api_key
 import re
 from typing import Optional
 
@@ -56,7 +57,7 @@ Rules:
 
 
 def _get_openai_key() -> str:
-    key = os.environ.get("OPENAI_API_KEY", "")
+    key = get_openai_api_key()
     if not key:
         try:
             from helpers import secrets as _s

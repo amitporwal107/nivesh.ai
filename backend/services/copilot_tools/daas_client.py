@@ -324,19 +324,119 @@ async def get_market_pulse_corporate_actions(
 async def get_market_pulse_articles(
     days: int = 7, category: Optional[str] = None, impact: Optional[str] = None,
     sentiment: Optional[str] = None, q: Optional[str] = None,
-    limit: int = 60, offset: int = 0,
+    limit: int = 60, offset: int = 0, sort: str = "material",
+    symbol: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    params: Dict[str, Any] = {"days": days, "limit": limit, "offset": offset}
+    params: Dict[str, Any] = {"days": days, "limit": limit, "offset": offset, "sort": sort}
     if category:  params["category"] = category
     if impact:    params["impact"] = impact
     if sentiment: params["sentiment"] = sentiment
     if q:         params["q"] = q
+    # Exact-ticker scope: narrows the rows AND the facet counts to one company.
+    if symbol:    params["symbol"] = symbol
     try:
         data = await _get("/market-pulse/articles", params=params)
     except DaasError as exc:
         logger.debug("get_market_pulse_articles: %s", exc)
         return None
     return data if isinstance(data, dict) else None
+
+
+async def get_filing_insights(ids: list) -> Optional[Dict[str, Any]]:
+    """Batch-fetch generated filing insights for a set of announcement ids.
+    Returns {"insights": {id: {...}}} or None on failure (caller then treats
+    every row as having no insight yet)."""
+    id_list = [x for x in (ids or []) if x]
+    if not id_list:
+        return {"insights": {}}
+    try:
+        data = await _get("/market-pulse/filing-insights",
+                          params={"ids": ",".join(id_list[:200])})
+    except DaasError as exc:
+        logger.debug("get_filing_insights: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def search_documents(
+    q: str, symbol: Optional[str] = None, doc_type: Optional[str] = None, limit: int = 6,
+) -> Optional[Dict[str, Any]]:
+    """Full-text search over concall/presentation/annual-report CHUNKS
+    (DAAS /v1/documents/search). Returns {"data": [chunk rows…]} or None. Each row
+    carries the passage text + page_start/end + source_url + doc_type for citations."""
+    params: Dict[str, Any] = {"q": q, "limit": limit}
+    if symbol:
+        params["symbol"] = symbol
+    if doc_type:
+        params["doc_type"] = doc_type
+    try:
+        data = await _get("/documents/search", params=params)
+    except DaasError as exc:
+        logger.debug("search_documents: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def thematic_commentary(q: str, depth: int = 300, limit: int = 12) -> Optional[Dict[str, Any]]:
+    """LLM-curated cross-company commentary — DAAS /v1/intelligence/thematic-commentary.
+    Casts a wide keyword net over the chunk corpus, then an LLM keeps only the companies
+    whose management genuinely flagged the theme. Returns {"data": [rows]} or None.
+
+    Cached in Redis for the DAY (key by query+params) — the result is market-wide and the
+    DAAS call is ~40s + LLM cost. TTL runs to the next IST midnight so it refreshes next day.
+    Cache is best-effort: any Redis error falls through to a live call."""
+    import hashlib
+    from datetime import datetime, timedelta, timezone
+    norm = " ".join((q or "").lower().split())
+    ckey = "thematic:" + hashlib.sha256(f"{norm}|{depth}|{limit}".encode()).hexdigest()
+    try:
+        from services import redis_client as _rc
+        hit = await _rc.cache_get(ckey)
+        if hit is not None:
+            return hit
+    except Exception as exc:  # noqa: BLE001 — cache read is best-effort
+        logger.debug("thematic_commentary cache_get: %s", exc)
+
+    try:
+        data = await _get("/intelligence/thematic-commentary",
+                          {"q": q, "depth": depth, "limit": limit}, timeout=45.0)
+    except DaasError as exc:
+        logger.debug("thematic_commentary: %s", exc)
+        return None
+
+    if isinstance(data, dict) and data.get("data") is not None:
+        try:
+            from services import redis_client as _rc
+            ist = timezone(timedelta(hours=5, minutes=30))
+            now = datetime.now(ist)
+            midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            ttl = max(60, int((midnight - now).total_seconds()))
+            await _rc.cache_set(ckey, data, ttl_s=ttl)
+        except Exception as exc:  # noqa: BLE001 — cache write is best-effort
+            logger.debug("thematic_commentary cache_set: %s", exc)
+    return data if isinstance(data, dict) else None
+
+
+async def documents_coverage() -> Optional[Dict[str, Any]]:
+    """Corpus diagnostic — chunk/doc counts by doc_type (DAAS /v1/documents/coverage)."""
+    try:
+        return await _get("/documents/coverage")
+    except DaasError as exc:
+        logger.debug("documents_coverage: %s", exc)
+        return None
+
+
+async def get_filing_content(symbol: str, doc_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Per-filing full text: latest parsed filing for a ticker (DAAS /v1/documents/filing).
+    Returns {"data": {doc metadata, chunks:[…], full_text}} or None."""
+    params: Dict[str, Any] = {"symbol": symbol}
+    if doc_type:
+        params["doc_type"] = doc_type
+    try:
+        return await _get("/documents/filing", params=params)
+    except DaasError as exc:
+        logger.debug("get_filing_content: %s", exc)
+        return None
 
 
 async def get_market_pulse_movers(cap: str = "large") -> Optional[Dict[str, Any]]:
@@ -1117,3 +1217,40 @@ async def get_debt_sleeve_funds(
             "max_drawdown_pct": p.get("max_drawdown_pct"),
         })
     return out
+
+
+async def search_symbols(q: str, limit: int = 8) -> Optional[Dict[str, Any]]:
+    """Type-ahead over the symbol master (DAAS /v1/reference/symbols/search).
+    Returns {"data": [{symbol, company_name, sector, industry, isin}]} or None."""
+    if not (q or "").strip():
+        return {"data": []}
+    try:
+        # NOTE the path: the DaaS `reference` router is mounted with prefix=""
+        # (routers/reference.py), so its routes live at /v1/symbols/... — there is
+        # no /v1/reference/ segment despite the module name. Getting this wrong
+        # 404s, and _get turns a 404 into None, which _daas_first silently treats
+        # as "DaaS unavailable" and falls back to the app PG — empty on staging.
+        # The symptom is an always-empty type-ahead, with nothing in the logs.
+        data = await _get("/symbols/search", params={"q": q.strip(), "limit": limit})
+    except DaasError as exc:
+        logger.debug("search_symbols: %s", exc)
+        return None
+    if data is None:
+        # 404 from a path we believe exists — loud, because the caller's fallback
+        # turns this into a silently empty result rather than an error.
+        logger.warning("search_symbols: DaaS returned no data for /v1/symbols/search "
+                       "(404?) — type-ahead will fall back to the app PG")
+    return data
+
+
+async def documents_by_symbol(symbol: str, doc_type: Optional[str] = None,
+                              limit: int = 200) -> Optional[Dict[str, Any]]:
+    """A company's downloadable filing library (DAAS /v1/documents/by-symbol)."""
+    params: Dict[str, Any] = {"symbol": symbol, "limit": limit}
+    if doc_type:
+        params["doc_type"] = doc_type
+    try:
+        return await _get("/documents/by-symbol", params=params)
+    except DaasError as exc:
+        logger.debug("documents_by_symbol: %s", exc)
+        return None
