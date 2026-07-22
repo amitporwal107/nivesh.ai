@@ -11,9 +11,8 @@ import logging
 from typing import List
 
 from langchain_core.messages import AIMessage
-from langchain_openai import ChatOpenAI
 
-from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
+from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -78,11 +77,7 @@ async def market_node(state: CopilotState) -> dict:
         await emit_widget(widget_type, widget_data)
 
     tool_context = _build_tool_context(tool_results)
-    llm = ChatOpenAI(
-        model=COPILOT_LLM_MODEL,
-        temperature=temperature_for(0.2),
-        api_key=get_openai_api_key(),
-    )
+    llm = make_chat_llm(temperature_for(0.2))
     resp = await llm.ainvoke([
         {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},

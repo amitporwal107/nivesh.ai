@@ -19,9 +19,8 @@ import re
 from typing import Any, Dict, Optional
 
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 
-from .._llm import COPILOT_LLM_MODEL, get_openai_api_key, temperature_for
+from .._llm import make_chat_llm, temperature_for
 from ..schemas import AgentName, CopilotState, IntentClassification
 from .intent_patterns import match_agent
 
@@ -104,11 +103,7 @@ Return JSON: {"agent": "<agent_name>", "confidence": 0.9, "symbol": null, "schem
 async def _llm_classify(text: str) -> IntentClassification:
     """Call the LLM for ambiguous queries. Falls back to market_analyst on any error."""
     try:
-        llm = ChatOpenAI(
-            model=COPILOT_LLM_MODEL,
-            temperature=temperature_for(0),
-            api_key=get_openai_api_key(),
-        )
+        llm = make_chat_llm(temperature_for(0))
         # Tag this LLM call so the SSE consumer can filter its tokens out of
         # the user-facing stream — otherwise the routing JSON leaks into the
         # chat bubble before the agent's prose starts.
