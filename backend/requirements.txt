@@ -1,5 +1,5 @@
 aiohappyeyeballs==2.6.1
-aiohttp==3.13.5
+aiohttp==3.14.1
 aiosignal==1.4.0
 aistudio-sdk==0.3.8
 annotated-doc==0.0.4
@@ -8,7 +8,7 @@ anyio==4.13.0
 APScheduler==3.11.2
 asyncpg==0.31.0
 attrs==26.1.0
-Authlib==1.6.10
+Authlib==1.7.1
 bce-python-sdk==0.9.70
 bcrypt==4.1.3
 beautifulsoup4==4.14.3
@@ -27,11 +27,11 @@ certifi==2026.2.25
 cffi==2.0.0
 chardet==7.4.3
 charset-normalizer==3.4.7
-click==8.3.2
+click==8.3.3
 colorama==0.4.6
 colorlog==6.10.1
 crc32c==2.8
-cryptography==46.0.7
+cryptography==48.0.1
 curl_cffi==0.15.0
 Deprecated==1.3.1
 distro==1.9.0
@@ -67,10 +67,10 @@ grpcio-status==1.71.2
 h11==0.16.0
 hf-xet==1.4.3
 httpcore==1.0.9
-httplib2==0.31.2
+httplib2==0.32.0
 httpx==0.28.1
 huggingface_hub==1.9.2
-idna==3.11
+idna==3.15
 imagesize==2.0.0
 img2pdf==0.6.3
 img2table==1.4.2
@@ -86,7 +86,7 @@ jsonschema-specifications==2025.9.1
 librt==0.8.1
 litellm==1.80.0
 llvmlite==0.47.0
-lxml==6.0.4
+lxml==6.1.0
 markdown-it-py==4.0.0
 MarkupSafe==3.0.3
 mccabe==0.7.0
@@ -105,7 +105,7 @@ openai==1.99.9
 langchain-core==1.4.0
 langchain-openai==1.2.1
 langgraph==1.2.0
-langgraph-checkpoint==4.1.0
+langgraph-checkpoint==4.1.1
 opencv-contrib-python==4.10.0.84
 opencv-contrib-python-headless==4.13.0.92
 openpyxl==3.1.5
@@ -122,7 +122,7 @@ pdfminer.six==20240706
 pdfplumber==0.11.9
 peewee==4.0.4
 pikepdf==10.5.1
-pillow==12.2.0
+pillow==12.3.0
 platformdirs==4.9.6
 playwright==1.58.0
 pluggy==1.6.0
@@ -135,7 +135,7 @@ protobuf==5.29.6
 psutil==7.2.2
 py-cpuinfo==9.0.0
 pyarrow==23.0.1
-pyasn1==0.6.3
+pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pyclipper==1.4.0
 pycodestyle==2.14.0
@@ -146,8 +146,8 @@ pydantic_core==2.41.5
 pyee==13.0.1
 pyflakes==3.4.0
 Pygments==2.20.0
-PyJWT==2.12.1
-pymongo==4.5.0
+PyJWT==2.13.0
+pymongo==4.6.3
 pyparsing==3.3.2
 PyPDF2==3.0.1
 pypdfium2==4.30.0
@@ -158,7 +158,7 @@ python-dateutil==2.9.0.post0
 python-docx==1.2.0
 python-dotenv==1.2.2
 python-jose==3.5.0
-python-multipart==0.0.24
+python-multipart==0.0.31
 pytokens==0.4.1
 pytz==2026.1.post1
 PyYAML==6.0.2
@@ -180,7 +180,7 @@ shapely==2.1.2
 shellingham==1.5.4
 six==1.17.0
 sniffio==1.3.1
-soupsieve==2.8.3
+soupsieve==2.8.4
 starlette==0.37.2
 prometheus-fastapi-instrumentator==6.1.0
 stripe==15.0.1
@@ -193,9 +193,9 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2026.1
 tzlocal==5.3.1
-ujson==5.12.0
+ujson==5.13.0
 uritemplate==4.2.0
-urllib3==2.6.3
+urllib3==2.7.0
 uvicorn==0.25.0
 watchfiles==1.1.1
 wcwidth==0.6.0
