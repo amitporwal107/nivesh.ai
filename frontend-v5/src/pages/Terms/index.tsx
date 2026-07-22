@@ -8,7 +8,7 @@ export default function TermsPage() {
     <LegalDoc
       kicker="Legal"
       title="Terms of Service"
-      effective="June 2026"
+      effective="July 2026"
       intro="These terms cover your use of Nivesh. In short: we give you analysis and tools to understand your portfolio; the decisions, and the trades, remain yours."
       sections={[
         {
@@ -26,6 +26,16 @@ export default function TermsPage() {
         {
           h: "Acceptable use",
           body: "Don't misuse the service — no attempting to break, overload, reverse-engineer, or access data that isn't yours. We may suspend accounts that do.",
+        },
+        {
+          h: "Data & privacy",
+          body: (
+            <>How we handle your data — including Google user data accessed via Gmail — is described in our{" "}
+              <a href="/privacy" style={{ color: "var(--mint)" }}>Privacy Policy</a>. Our use and transfer of
+              information received from Google APIs adheres to the Google API Services User Data Policy,
+              including its Limited Use requirements. Sensitive data is encrypted in transit and at rest, and
+              you can revoke any connected account or delete your data at any time.</>
+          ),
         },
         {
           h: "Availability & changes",

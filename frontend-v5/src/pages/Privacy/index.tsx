@@ -10,7 +10,7 @@ export default function PrivacyPage() {
     <LegalDoc
       kicker="Legal"
       title="Privacy Policy"
-      effective="June 2026"
+      effective="July 2026"
       intro="Nivesh is built read-only. We read your portfolio to analyse it — we never trade, move money, or sell your data. This page explains what we collect, why, and how you stay in control."
       sections={[
         {
@@ -46,7 +46,15 @@ export default function PrivacyPage() {
         },
         {
           h: "How statements are handled",
-          body: "Statements are parsed to extract holdings and transactions, and encrypted in transit. We store the structured portfolio we derive so we can show you your analysis over time; we do not warehouse the raw statement files beyond what is needed to process them.",
+          body: "CAS statements are parsed to extract your holdings and transactions. We keep the structured portfolio we derive so we can show your analysis over time; we do not warehouse the raw statement files beyond what is needed to process them.",
+        },
+        {
+          h: "How we protect your data",
+          body: "Sensitive data — including Google user data and anything derived from your statements — is encrypted in transit (TLS 1.2+) and at rest on secured cloud infrastructure hosted in India. Access is restricted to the systems and personnel that operate the service. We do not use this data for advertising, and we never sell it.",
+        },
+        {
+          h: "Data retention & deletion",
+          body: "We keep the structured portfolio we derive until you delete it. Gmail access tokens are stored only to run the import and are deleted immediately when you disconnect Gmail. You can export or delete your data and revoke any connected account at any time; deleting your account removes your personal and portfolio data, subject to records we are required to keep by law.",
         },
         {
           h: "Who we share with",
