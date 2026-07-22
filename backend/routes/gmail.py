@@ -14,6 +14,8 @@ import logging
 import urllib.parse
 import uuid
 
+from services import pii_security
+
 from deps import db, get_current_user, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GMAIL_REDIRECT_URI, COOKIE_SECURE, COOKIE_SAMESITE
 from services.gmail_service import (
     get_authorization_url, exchange_code_for_tokens,
@@ -273,7 +275,7 @@ async def gmail_scan(request: Request):
             await db.gmail_tokens.update_one(
                 {"user_id": user["user_id"]},
                 {"$set": {
-                    "access_token": creds.token,
+                    "access_token": pii_security.seal_field(creds.token),
                     "expires_at": creds.expiry.replace(tzinfo=timezone.utc).isoformat() if creds.expiry else None,
                 }}
             )

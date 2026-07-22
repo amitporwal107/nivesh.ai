@@ -23,6 +23,8 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timezone
+
+from services import pii_security
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
@@ -69,7 +71,7 @@ async def auto_import_for_user(db, user_id: str) -> Dict[str, Any]:
             await db.gmail_tokens.update_one(
                 {"user_id": user_id},
                 {"$set": {
-                    "access_token": creds.token,
+                    "access_token": pii_security.seal_field(creds.token),
                     "expires_at": (
                         creds.expiry.replace(tzinfo=timezone.utc).isoformat()
                         if creds.expiry else None
