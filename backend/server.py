@@ -21,7 +21,7 @@ except subprocess.CalledProcessError:
     subprocess.run(["apt-get", "update", "-qq"], capture_output=True)
     subprocess.run(["apt-get", "install", "-y", "poppler-utils"], capture_output=True)
 
-from middleware import RateLimitMiddleware, SecurityHeadersMiddleware, RequestLoggingMiddleware, BodySizeLimitMiddleware, validate_env
+from middleware import RateLimitMiddleware, SecurityHeadersMiddleware, RequestLoggingMiddleware, BodySizeLimitMiddleware, CsrfProtectMiddleware, validate_env
 
 # Validate env on startup
 validate_env()
@@ -235,6 +235,7 @@ async def root():
 # CorrelationMiddleware is outermost so the ID is available to all layers.
 # RequestLoggingMiddleware wraps everything below it to measure true latency.
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(CsrfProtectMiddleware)
 app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
