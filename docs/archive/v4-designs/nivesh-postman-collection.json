@@ -7957,7 +7957,7 @@
                 "gmail-import"
               ]
             },
-            "description": "Admin Gmail Import\n\nImport a specific CAS email for a user using stored Gmail tokens.\nProtected by X-Admin-Key header.\n\ncurl -X POST https://niveshcopilot.com/api/admin/gmail-import \\\n     -H 'X-Admin-Key: niv3sh-reset-2026' \\\n     -H 'Content-Type: application/json' \\\n     -d '{\"email\": \"user@example.com\", \"message_id\": \"...\", \"attachment_id\": \"...\", \"filename\": \"CAS.pdf\", \"password\": \"PANXXXX\"}'"
+            "description": "Admin Gmail Import\n\nImport a specific CAS email for a user using stored Gmail tokens.\nProtected by X-Admin-Key header.\n\ncurl -X POST https://niveshcopilot.com/api/admin/gmail-import \\\n     -H 'X-Admin-Key: $NIDP_ADMIN_STATIC_KEY' \\\n     -H 'Content-Type: application/json' \\\n     -d '{\"email\": \"user@example.com\", \"message_id\": \"...\", \"attachment_id\": \"...\", \"filename\": \"CAS.pdf\", \"password\": \"PANXXXX\"}'"
           }
         },
         {
@@ -7976,7 +7976,7 @@
                 "gmail-scan"
               ]
             },
-            "description": "Admin Gmail Scan\n\nScan Gmail for CAS emails using stored tokens for a user.\nProtected by X-Admin-Key header. Bypasses OAuth UI for testing.\n\ncurl -X POST https://niveshcopilot.com/api/admin/gmail-scan \\\n     -H 'X-Admin-Key: niv3sh-reset-2026' \\\n     -H 'Content-Type: application/json' \\\n     -d '{\"email\": \"user@example.com\"}'"
+            "description": "Admin Gmail Scan\n\nScan Gmail for CAS emails using stored tokens for a user.\nProtected by X-Admin-Key header. Bypasses OAuth UI for testing.\n\ncurl -X POST https://niveshcopilot.com/api/admin/gmail-scan \\\n     -H 'X-Admin-Key: $NIDP_ADMIN_STATIC_KEY' \\\n     -H 'Content-Type: application/json' \\\n     -d '{\"email\": \"user@example.com\"}'"
           }
         },
         {
@@ -8055,7 +8055,7 @@
                 "mark-onboarded"
               ]
             },
-            "description": "Mark Onboarded By Email\n\nFlip onboarding_completed=True for a user by email \u2014 the inverse of\n/reset-onboarding. Used to repair accounts whose CAS import landed\nbefore the import-connect endpoint was fixed to set the flag.\n\ncurl -X POST https://niveshcopilot.com/api/admin/mark-onboarded \\\n     -H 'Content-Type: application/json' \\\n     -H 'X-Admin-Key: niv3sh-reset-2026' \\\n     -d '{\"email\": \"user@example.com\"}'"
+            "description": "Mark Onboarded By Email\n\nFlip onboarding_completed=True for a user by email \u2014 the inverse of\n/reset-onboarding. Used to repair accounts whose CAS import landed\nbefore the import-connect endpoint was fixed to set the flag.\n\ncurl -X POST https://niveshcopilot.com/api/admin/mark-onboarded \\\n     -H 'Content-Type: application/json' \\\n     -H 'X-Admin-Key: $NIDP_ADMIN_STATIC_KEY' \\\n     -d '{\"email\": \"user@example.com\"}'"
           }
         },
         {
@@ -8384,7 +8384,7 @@
                 "reset-onboarding"
               ]
             },
-            "description": "Reset Onboarding By Email\n\nReset onboarding flags for a user by email.\nProtected by a static secret key (X-Admin-Key header).\ncurl -X POST https://niveshcopilot.com/api/admin/reset-onboarding          -H 'Content-Type: application/json'          -H 'X-Admin-Key: niv3sh-reset-2026'          -d '{\"email\": \"user@example.com\"}'"
+            "description": "Reset Onboarding By Email\n\nReset onboarding flags for a user by email.\nProtected by a static secret key (X-Admin-Key header).\ncurl -X POST https://niveshcopilot.com/api/admin/reset-onboarding          -H 'Content-Type: application/json'          -H 'X-Admin-Key: $NIDP_ADMIN_STATIC_KEY'          -d '{\"email\": \"user@example.com\"}'"
           }
         },
         {

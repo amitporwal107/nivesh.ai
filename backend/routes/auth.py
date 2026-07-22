@@ -108,8 +108,14 @@ async def google_auth(request: Request, response: Response):
 
             token_data = resp.json()
 
-            if GOOGLE_CLIENT_ID and token_data.get("aud") != GOOGLE_CLIENT_ID:
+            # Fail CLOSED: reject if our client_id is unconfigured or the audience
+            # doesn't match ours; require Google as issuer and a verified email.
+            if not GOOGLE_CLIENT_ID or token_data.get("aud") != GOOGLE_CLIENT_ID:
                 raise AuthenticationException("Token audience mismatch", code="AUTH-003")
+            if token_data.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+                raise AuthenticationException("Invalid token issuer", code="AUTH-003")
+            if str(token_data.get("email_verified", "")).lower() not in ("true", "1"):
+                raise AuthenticationException("Google email not verified", code="AUTH-003")
 
             email = token_data.get("email", "").strip().lower()
             name = token_data.get("name", "")
@@ -664,7 +670,11 @@ async def validate_magic_link(token: str):
 
 @router.get("/auth/dev-set-cookie")
 async def dev_set_cookie(token: str, response: Response):
-    """Dev-only: set a pre-created session cookie directly (screenshot helper)."""
+    """Dev-only: set a pre-created session cookie directly (screenshot helper).
+    Hard-disabled in production: it is an unauthenticated cookie-setter and
+    session-validity oracle, so it must never be reachable there."""
+    if secrets.current_env() == "production":
+        raise ResourceNotFoundException("Not found", code="RES-001")
     sess = await db.user_sessions.find_one({"session_token": token}, {"_id": 0, "user_id": 1})
     if not sess:
         raise ResourceNotFoundException("Session not found", code="RES-001")
