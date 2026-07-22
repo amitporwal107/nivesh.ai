@@ -422,3 +422,51 @@ def validate_env():
         logger.warning("EMERGENT_LLM_KEY not set — AI features will not work")
 
     logger.info("Environment validation passed")
+
+
+# ── CSRF protection (A4) ──────────────────────────────────────────────────
+# Mirrors the CORS allowlist: explicit CORS_ORIGINS when set, else the app's
+# own domain families + localhost, plus the native Capacitor origins.
+_CSRF_ORIGIN_RE = re.compile(
+    r"^https?://(localhost(:\d+)?|([a-z0-9-]+\.)*(niveshcopilot|emergentagent)\.com(:\d+)?)$"
+)
+_CSRF_NATIVE = {"https://localhost", "capacitor://localhost"}
+
+
+def _csrf_origin_allowed(origin: str) -> bool:
+    env = os.environ.get("CORS_ORIGINS", "").strip()
+    if env and env != "*":
+        allowed = {o.strip() for o in env.split(",") if o.strip()} | _CSRF_NATIVE
+        return origin in allowed
+    return origin in _CSRF_NATIVE or bool(_CSRF_ORIGIN_RE.match(origin))
+
+
+class CsrfProtectMiddleware(BaseHTTPMiddleware):
+    """Block CSRF on cookie-authenticated, state-changing /api requests.
+
+    If a request carries our session cookie AND uses a mutating method, any
+    browser-supplied Origin must be in the allowlist (browsers always send
+    Origin on cross-site POST/PUT/PATCH/DELETE, so a forged cross-site request
+    is caught). Bearer-authenticated calls (mobile) carry no cookie and are not
+    a CSRF vector, so they pass through. Safe methods and no-cookie requests
+    pass through. This is the CSRF defence while the session cookie remains
+    SameSite=None; a SameSite=Lax flip is a separate, mobile-tested change.
+    """
+
+    _SAFE = {"GET", "HEAD", "OPTIONS", "TRACE"}
+
+    async def dispatch(self, request: Request, call_next):
+        if (
+            request.url.path.startswith("/api")
+            and request.method not in self._SAFE
+            and request.cookies.get("session_token")
+        ):
+            origin = request.headers.get("origin", "")
+            if origin and not _csrf_origin_allowed(origin):
+                logger.warning("CSRF: blocked %s %s from origin %s",
+                               request.method, request.url.path, origin)
+                return JSONResponse(
+                    {"error": "CSRF_BLOCKED", "message": "Cross-origin request rejected."},
+                    status_code=403,
+                )
+        return await call_next(request)
