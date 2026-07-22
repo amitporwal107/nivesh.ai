@@ -61,10 +61,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # everyone. Resolve the true client IP from Cloudflare's header, falling
         # back to the left-most X-Forwarded-For entry, then the socket peer.
         session = request.cookies.get("session_token", "")
-        auth = request.headers.get("Authorization", "")
         fwd = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "")
         client_ip = fwd.split(",")[0].strip() or (request.client.host if request.client else "")
-        identity = (session or auth or client_ip) or "unknown"
+        # SECURITY: never key the limiter on the raw Authorization header — it is
+        # unvalidated and fully caller-controlled, so an attacker could send a unique
+        # junk Bearer per request to get a fresh bucket and defeat the per-IP
+        # brute-force budget. Use the session cookie if present, else the resolved
+        # client IP (so unauthenticated login attempts are limited per client IP).
+        identity = (session or client_ip) or "unknown"
 
         # Per-category budgets (fintech-appropriate):
         #   Auth     →   5/min  (brute-force protection on login)
