@@ -922,7 +922,7 @@ paths:
         Useful for scripts / cron / curl where a browser session is unavailable.\n\
         Routes through the NIDP Query API on the VM — same behaviour as the\nsession-auth\
         \ /jobs/{ingester}/execute endpoint.\n\ncurl -X POST https://niveshcopilot.com/api/admin/nidp/run-job\
-        \ \\\n     -H 'Content-Type: application/json' \\\n     -H 'X-Admin-Key: niv3sh-reset-2026'\
+        \ \\\n     -H 'Content-Type: application/json' \\\n     -H 'X-Admin-Key: $NIDP_ADMIN_STATIC_KEY'\
         \ \\\n     -d '{\"ingester\": \"pra_engine\", \"target_date\": \"2026-06-03\"\
         }'"
       operationId: run_job_static_key_api_admin_nidp_run_job_post
@@ -2566,7 +2566,7 @@ paths:
 
 
         curl -X POST https://niveshcopilot.com/api/admin/whitelist-repair          -H
-        ''Content-Type: application/json''          -H ''X-Admin-Key: niv3sh-reset-2026''          -d
+        ''Content-Type: application/json''          -H ''X-Admin-Key: $NIDP_ADMIN_STATIC_KEY''          -d
         ''{"email": "user@example.com"}'''
       operationId: whitelist_repair_api_admin_whitelist_repair_post
       responses:
@@ -2588,7 +2588,7 @@ paths:
         Protected by a static secret key (X-Admin-Key header).
 
         curl -X POST https://niveshcopilot.com/api/admin/reset-onboarding          -H
-        ''Content-Type: application/json''          -H ''X-Admin-Key: niv3sh-reset-2026''          -d
+        ''Content-Type: application/json''          -H ''X-Admin-Key: $NIDP_ADMIN_STATIC_KEY''          -d
         ''{"email": "user@example.com"}'''
       operationId: reset_onboarding_by_email_api_admin_reset_onboarding_post
       responses:
@@ -2610,7 +2610,7 @@ paths:
         transactions, cache, and redis keys, then resets onboarding flags so\nthe\
         \ user sees the upload screen on next login.\n\nProtected by the static X-Admin-Key\
         \ (same as /reset-onboarding).\n\ncurl -X POST https://niveshcopilot.com/api/admin/reset-portfolio-by-email\
-        \ \\\n     -H 'Content-Type: application/json' \\\n     -H 'X-Admin-Key: niv3sh-reset-2026'\
+        \ \\\n     -H 'Content-Type: application/json' \\\n     -H 'X-Admin-Key: $NIDP_ADMIN_STATIC_KEY'\
         \ \\\n     -d '{\"email\": \"user@example.com\"}'"
       operationId: reset_portfolio_by_email_api_admin_reset_portfolio_by_email_post
       responses:
@@ -2632,7 +2632,7 @@ paths:
         \ of\n/reset-onboarding. Used to repair accounts whose CAS import landed\n\
         before the import-connect endpoint was fixed to set the flag.\n\ncurl -X POST\
         \ https://niveshcopilot.com/api/admin/mark-onboarded \\\n     -H 'Content-Type:\
-        \ application/json' \\\n     -H 'X-Admin-Key: niv3sh-reset-2026' \\\n    \
+        \ application/json' \\\n     -H 'X-Admin-Key: $NIDP_ADMIN_STATIC_KEY' \\\n    \
         \ -d '{\"email\": \"user@example.com\"}'"
       operationId: mark_onboarded_by_email_api_admin_mark_onboarded_post
       responses:
@@ -2651,7 +2651,7 @@ paths:
       summary: Admin Gmail Scan
       description: "Scan Gmail for CAS emails using stored tokens for a user.\nProtected\
         \ by X-Admin-Key header. Bypasses OAuth UI for testing.\n\ncurl -X POST https://niveshcopilot.com/api/admin/gmail-scan\
-        \ \\\n     -H 'X-Admin-Key: niv3sh-reset-2026' \\\n     -H 'Content-Type:\
+        \ \\\n     -H 'X-Admin-Key: $NIDP_ADMIN_STATIC_KEY' \\\n     -H 'Content-Type:\
         \ application/json' \\\n     -d '{\"email\": \"user@example.com\"}'"
       operationId: admin_gmail_scan_api_admin_gmail_scan_post
       responses:
@@ -2670,7 +2670,7 @@ paths:
       summary: Admin Gmail Import
       description: "Import a specific CAS email for a user using stored Gmail tokens.\n\
         Protected by X-Admin-Key header.\n\ncurl -X POST https://niveshcopilot.com/api/admin/gmail-import\
-        \ \\\n     -H 'X-Admin-Key: niv3sh-reset-2026' \\\n     -H 'Content-Type:\
+        \ \\\n     -H 'X-Admin-Key: $NIDP_ADMIN_STATIC_KEY' \\\n     -H 'Content-Type:\
         \ application/json' \\\n     -d '{\"email\": \"user@example.com\", \"message_id\"\
         : \"...\", \"attachment_id\": \"...\", \"filename\": \"CAS.pdf\", \"password\"\
         : \"PANXXXX\"}'"

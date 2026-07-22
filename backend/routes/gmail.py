@@ -56,11 +56,16 @@ async def gmail_connect(request: Request, return_to: str = ""):
 
     redirect_uri = _resolve_gmail_redirect_uri(request)
 
+    # Open-redirect guard: the callback appends a one-time session-minting code
+    # to return_to, so only a local (non protocol-relative) path may be stored.
+    if not return_to.startswith("/") or return_to.startswith("//") or "://" in return_to:
+        return_to = "/v2/dashboard"
+
     state = f"{user['user_id']}_{uuid.uuid4().hex[:8]}"
     await db.gmail_oauth_states.insert_one({
         "state": state,
         "user_id": user["user_id"],
-        "return_to": return_to or "/v2/dashboard",
+        "return_to": return_to,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
     })
@@ -100,6 +105,9 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
     # "Gmail connection was cancelled" with no real reason shown.
     state_doc = await db.gmail_oauth_states.find_one({"state": state}, {"_id": 0}) if state else None
     return_to = (state_doc or {}).get("return_to") or "/v2/dashboard"
+    # Defence in depth: re-validate before redirecting to it with a one-time code.
+    if not return_to.startswith("/") or return_to.startswith("//") or "://" in return_to:
+        return_to = "/v2/dashboard"
 
     def _fail(reason: str) -> RedirectResponse:
         sep = "&" if "?" in return_to else "?"

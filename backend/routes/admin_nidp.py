@@ -1129,7 +1129,7 @@ async def regenerate_nidp_api_key(key: str, request: Request):
 #
 #   curl -X POST https://niveshcopilot.com/api/admin/nidp/run-job \
 #        -H 'Content-Type: application/json' \
-#        -H 'X-Admin-Key: niv3sh-reset-2026' \
+#        -H 'X-Admin-Key: $NIDP_ADMIN_STATIC_KEY' \
 #        -d '{"ingester": "pra_engine"}'
 #
 # Works for any ingester in NIDP_INGESTERS. Routes through the NIDP
@@ -1138,11 +1138,13 @@ async def regenerate_nidp_api_key(key: str, request: Request):
 # Prefer the env/secret (set NIDP_ADMIN_STATIC_KEY via Admin → Secrets). The
 # hardcoded fallback is retained ONLY for backward-compat and logs a warning so
 # it can be rotated out — remove it once all callers use the configured value.
-_STATIC_KEY = os.environ.get("NIDP_ADMIN_STATIC_KEY") or "niv3sh-reset-2026"
-if not os.environ.get("NIDP_ADMIN_STATIC_KEY"):
+# Env/secret only — no hardcoded fallback. If unset, /run-job fails closed
+# (disabled) rather than accepting a known default key.
+_STATIC_KEY = os.environ.get("NIDP_ADMIN_STATIC_KEY", "").strip()
+if not _STATIC_KEY:
     logger.warning(
-        "admin_nidp: NIDP_ADMIN_STATIC_KEY not set — /run-job is using the "
-        "hardcoded fallback admin key. Set the secret and rotate."
+        "admin_nidp: NIDP_ADMIN_STATIC_KEY not set — /run-job is DISABLED until "
+        "the secret is configured (Admin → Secrets)."
     )
 
 router_static = APIRouter(prefix="/api/admin/nidp", tags=["admin-nidp-static"])
@@ -1158,11 +1160,11 @@ async def run_job_static_key(request: Request) -> Dict[str, Any]:
 
     curl -X POST https://niveshcopilot.com/api/admin/nidp/run-job \\
          -H 'Content-Type: application/json' \\
-         -H 'X-Admin-Key: niv3sh-reset-2026' \\
+         -H 'X-Admin-Key: $NIDP_ADMIN_STATIC_KEY' \\
          -d '{"ingester": "pra_engine", "target_date": "2026-06-03"}'
     """
     key = request.headers.get("X-Admin-Key", "")
-    if key != _STATIC_KEY:
+    if not _STATIC_KEY or not _secrets_mod.compare_digest(key, _STATIC_KEY):
         raise HTTPException(status_code=403, detail="Invalid admin key")
 
     body = await request.json()
