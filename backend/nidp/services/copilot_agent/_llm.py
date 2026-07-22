@@ -28,13 +28,35 @@ _GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"   # free on Groq (product choice, 20
 _OPENAI_DEFAULT_MODEL = "gpt-4o-mini"         # known-good OpenAI default
 
 
+def get_groq_api_key() -> str:
+    """Resolve GROQ_API_KEY the same layered way as the OpenAI key
+    (helpers/openai_key.py): GSM -> admin (secrets) override -> env, at CALL time.
+    Store it in Google Secret Manager (secret name GROQ_API_KEY) for a deployed
+    environment; backend/.env is the local fallback. "" when nothing has it."""
+    try:
+        from helpers import gsm as _gsm
+        k = _gsm.get("GROQ_API_KEY")
+        if k:
+            return k.strip()
+    except Exception:  # noqa: BLE001 — no GCP creds locally; fall through
+        pass
+    try:
+        from helpers import secrets as _secrets
+        k = _secrets.get("GROQ_API_KEY")
+        if k:
+            return k.strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return os.environ.get("GROQ_API_KEY", "").strip()
+
+
 def llm_provider() -> str:
     """'groq' or 'openai' (default). An explicit COPILOT_LLM_PROVIDER wins; otherwise
-    Groq is auto-selected whenever a GROQ_API_KEY is configured."""
+    Groq is auto-selected whenever a GROQ_API_KEY is resolvable (GSM / admin / env)."""
     p = os.environ.get("COPILOT_LLM_PROVIDER", "").strip().lower()
     if p in ("groq", "openai"):
         return p
-    return "groq" if os.environ.get("GROQ_API_KEY", "").strip() else "openai"
+    return "groq" if get_groq_api_key() else "openai"
 
 
 def resolve_model() -> str:
@@ -68,13 +90,6 @@ def get_openai_api_key() -> str:
     """
     from nidp.shared.openai_key import get_openai_api_key as _resolve
     return _resolve()
-
-
-def get_groq_api_key() -> str:
-    """Groq API key from the environment (GROQ_API_KEY). Groq is opt-in, so this is a
-    plain env read — set it in backend/.env locally and in the VM env / GSM for a
-    deployed environment."""
-    return os.environ.get("GROQ_API_KEY", "").strip()
 
 
 def make_chat_llm(temperature: float, **kwargs):
