@@ -57,13 +57,20 @@ explicit provider=openai (groq present)  provider=openai model=gpt-5.5          
 ```
 `py_compile` of `_llm.py` + all 10 nodes: **OK**; grep for leftover `ChatOpenAI` / `COPILOT_LLM_MODEL` / `get_openai_api_key` in nodes: **NONE**.
 
+## Key delivery — DONE via GSM (2026-07-22)
+`get_groq_api_key()` now resolves **GSM → admin(secrets) → env** at call time, mirroring
+`helpers/openai_key.py` (my initial plain-`os.environ` read wouldn't see a deployed secret —
+staging's env comes from `/opt/nivesh-staging/.env.staging`, and GSM/DB secrets aren't
+materialised into `os.environ`). The GSM secret **`GROQ_API_KEY`** is created (version 1,
+`enabled`; readback = 56 bytes) in project `niveshdataintelligence`. Access is project-level
+(same as `OPENAI_API_KEY`, no per-secret binding) and the app VM `nivesh-app-vm` runs as
+`nidp-sa`, a project `secretmanager.secretAccessor` — so the backend can read it at runtime.
+
 ## Inputs required from user (to finish TC-8 on staging)
-1. Set **`GROQ_API_KEY=gsk_…`** in the staging backend env (VM env file / GSM) and restart. That
-   one var is enough — provider auto-selects groq, the model defaults to `openai/gpt-oss-120b`,
-   and any stale `COPILOT_LLM_MODEL=gpt-5.5` is ignored on groq. (`backend/.env` already carries
-   it for LOCAL runs; staging does not read that file.)
-2. Deploy this branch to staging (redeploy pulls `dev`).
-3. A `session_token` to run the `/api/chat/stream` curl and confirm a curated theme answers with
+1. **Deploy this branch to staging** (redeploy pulls `dev`) so the GSM-aware resolver ships.
+   On restart the copilot resolves `GROQ_API_KEY` from GSM and routes to `openai/gpt-oss-120b`
+   (provider auto-selects groq; a stale `COPILOT_LLM_MODEL=gpt-5.5` is ignored on groq).
+2. A `session_token` to run the `/api/chat/stream` curl and confirm a curated theme answers with
    no fallback string.
 
 ## Verdict: BLOCKED
