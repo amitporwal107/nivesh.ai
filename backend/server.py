@@ -243,24 +243,27 @@ app.add_middleware(CorrelationMiddleware)
 _cors_env = os.environ.get('CORS_ORIGINS', '')
 _cors_origin_regex: str | None = None
 if _cors_env == '' or _cors_env == '*':
-    # Allow all origins. CORS spec forbids `allow_credentials=True` with
-    # `allow_origins=["*"]`, so we use a regex to echo whichever origin
-    # made the request. This keeps cookies working across preview URLs,
-    # custom domains, and local dev without per-environment config.
+    # SECURITY: never reflect *any* origin with credentials — that lets any website
+    # make cookie-authenticated cross-origin calls and read the response. When the
+    # allowlist is unconfigured, fall back to the app's own domain families
+    # (niveshcopilot + the emergentagent preview) + localhost, NOT a wildcard.
+    # A custom/white-label domain must be added to CORS_ORIGINS explicitly.
+    logger.error(
+        "CORS_ORIGINS is unset/'*' — restricting to the niveshcopilot/emergentagent "
+        "domain families + localhost (not reflect-all). Set CORS_ORIGINS explicitly."
+    )
     _cors_origins = []
-    _cors_origin_regex = r".*"
+    _cors_origin_regex = r"^https?://(localhost(:\d+)?|([a-z0-9-]+\.)*(niveshcopilot|emergentagent)\.com(:\d+)?)$"
 else:
     _cors_origins = [o.strip() for o in _cors_env.split(',') if o.strip()]
 
 # Native mobile (Capacitor) WebView origins are ALWAYS allowed so the Android/
 # iOS app can call the API cross-origin regardless of the per-env web allowlist.
 # A Capacitor app with androidScheme:"https" reports origin "https://localhost";
-# iOS / the legacy scheme reports "capacitor://localhost". Skipped when the
-# wildcard regex is already echoing every origin.
-if _cors_origin_regex is None:
-    for _native_origin in ("https://localhost", "capacitor://localhost"):
-        if _native_origin not in _cors_origins:
-            _cors_origins.append(_native_origin)
+# iOS / the legacy scheme reports "capacitor://localhost".
+for _native_origin in ("https://localhost", "capacitor://localhost"):
+    if _native_origin not in _cors_origins:
+        _cors_origins.append(_native_origin)
 
 app.add_middleware(
     CORSMiddleware,
