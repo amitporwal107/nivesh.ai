@@ -38,6 +38,7 @@ from deps import db, get_current_user
 from helpers.parsing import save_holdings
 from helpers.upload_validation import validate_upload
 from services import cas_api_client
+from services import pii_security
 from services.gmail_service import (
     SOURCE_PRIORITY,
     build_gmail_service,
@@ -247,7 +248,7 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             await db.gmail_tokens.update_one(
                 {"user_id": user_id},
                 {"$set": {
-                    "access_token": creds.token,
+                    "access_token": pii_security.seal_field(creds.token),
                     "expires_at": (
                         creds.expiry.replace(tzinfo=timezone.utc).isoformat()
                         if creds.expiry else None

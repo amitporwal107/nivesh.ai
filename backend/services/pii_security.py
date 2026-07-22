@@ -139,6 +139,42 @@ def decrypt(ciphertext_b64: str) -> Optional[str]:
         return None
 
 
+# ── Sealed-field helpers (backward-compatible at-rest encryption) ─────────
+# A sealed value is the marker prefix + base64(nonce||AES-256-GCM ciphertext).
+# unseal_field() passes legacy (unmarked) plaintext through unchanged, so
+# switching a field to sealed storage needs NO data migration: old rows keep
+# working and new writes are encrypted. The marker makes unseal unambiguous
+# (no decrypt attempts on plaintext, no false positives, no log noise).
+_SEAL_PREFIX = "enc:v1:"
+
+
+def seal_field(plaintext: Optional[str]) -> Optional[str]:
+    """Encrypt a value for at-rest storage. Empty/None passes through.
+
+    Degrades gracefully: if encryption is unavailable (PII_ENCRYPTION_KEY not
+    configured), it stores plaintext and logs loudly rather than breaking the
+    caller's flow — so this is safe to deploy before the key is provisioned. The
+    error log is the signal to set the key so encryption actually activates."""
+    if not plaintext:
+        return plaintext
+    try:
+        return _SEAL_PREFIX + encrypt(plaintext)
+    except Exception as e:  # noqa: BLE001
+        logger.error(
+            "seal_field: encryption unavailable (%s) — storing PLAINTEXT. "
+            "Set PII_ENCRYPTION_KEY (base64 of 32 random bytes) to enable at-rest encryption.",
+            type(e).__name__,
+        )
+        return plaintext
+
+
+def unseal_field(value: Optional[str]) -> Optional[str]:
+    """Inverse of seal_field; legacy (unmarked) plaintext is returned as-is."""
+    if isinstance(value, str) and value.startswith(_SEAL_PREFIX):
+        return decrypt(value[len(_SEAL_PREFIX):]) or ""
+    return value
+
+
 # ── Masking helpers ──────────────────────────────────────────────────────
 _PAN_RE = re.compile(r"^[A-Z]{5}\d{4}[A-Z]$")
 _AADHAAR_RE = re.compile(r"^\d{12}$")
