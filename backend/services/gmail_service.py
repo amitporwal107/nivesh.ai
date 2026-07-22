@@ -10,6 +10,8 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.discovery import build
 
+from services import pii_security
+
 logger = logging.getLogger(__name__)
 
 GMAIL_SCOPES = [
@@ -79,24 +81,29 @@ def exchange_code_for_tokens(client_id: str, client_secret: str, redirect_uri: s
         flow.fetch_token(code=code)
 
     creds = flow.credentials
+    # Encrypt the OAuth tokens at rest. client_secret is NOT persisted per-user —
+    # it is a single app-level secret, read from the environment at refresh time.
     return {
-        "access_token": creds.token,
-        "refresh_token": creds.refresh_token,
+        "access_token": pii_security.seal_field(creds.token),
+        "refresh_token": pii_security.seal_field(creds.refresh_token),
         "token_uri": creds.token_uri,
         "client_id": creds.client_id,
-        "client_secret": creds.client_secret,
         "expires_at": creds.expiry.replace(tzinfo=timezone.utc).isoformat() if creds.expiry else None,
     }
 
 
 def get_gmail_credentials(token_doc: dict) -> Credentials:
-    """Build Credentials object from stored token, refreshing if needed."""
+    """Build Credentials from the stored token, refreshing if needed.
+
+    Token fields are unsealed (tolerant of legacy plaintext rows); the
+    client_id/secret come from the app-level environment, not per-user storage
+    (with a legacy per-user fallback for tokens minted before this change)."""
     creds = Credentials(
-        token=token_doc["access_token"],
-        refresh_token=token_doc.get("refresh_token"),
+        token=pii_security.unseal_field(token_doc.get("access_token")),
+        refresh_token=pii_security.unseal_field(token_doc.get("refresh_token")),
         token_uri=token_doc.get("token_uri", "https://oauth2.googleapis.com/token"),
-        client_id=token_doc["client_id"],
-        client_secret=token_doc["client_secret"],
+        client_id=token_doc.get("client_id") or os.environ.get("GOOGLE_CLIENT_ID", ""),
+        client_secret=os.environ.get("GOOGLE_CLIENT_SECRET", "") or token_doc.get("client_secret", ""),
     )
 
     # Check expiry and refresh
