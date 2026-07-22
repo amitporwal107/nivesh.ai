@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import logging
 
 from deps import db, require_admin
+from services import pii_security
 from core.logging_config import mask_email
 
 logger = logging.getLogger(__name__)
@@ -817,7 +818,7 @@ async def admin_gmail_scan(request: Request) -> Dict[str, Any]:
         await db.gmail_tokens.update_one(
             {"user_id": user_id},
             {"$set": {
-                "access_token": creds.token,
+                "access_token": pii_security.seal_field(creds.token),
                 "expires_at": creds.expiry.isoformat() if creds.expiry else None,
             }}
         )
