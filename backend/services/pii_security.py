@@ -149,10 +149,23 @@ _SEAL_PREFIX = "enc:v1:"
 
 
 def seal_field(plaintext: Optional[str]) -> Optional[str]:
-    """Encrypt a value for at-rest storage. Empty/None passes through."""
+    """Encrypt a value for at-rest storage. Empty/None passes through.
+
+    Degrades gracefully: if encryption is unavailable (PII_ENCRYPTION_KEY not
+    configured), it stores plaintext and logs loudly rather than breaking the
+    caller's flow — so this is safe to deploy before the key is provisioned. The
+    error log is the signal to set the key so encryption actually activates."""
     if not plaintext:
         return plaintext
-    return _SEAL_PREFIX + encrypt(plaintext)
+    try:
+        return _SEAL_PREFIX + encrypt(plaintext)
+    except Exception as e:  # noqa: BLE001
+        logger.error(
+            "seal_field: encryption unavailable (%s) — storing PLAINTEXT. "
+            "Set PII_ENCRYPTION_KEY (base64 of 32 random bytes) to enable at-rest encryption.",
+            type(e).__name__,
+        )
+        return plaintext
 
 
 def unseal_field(value: Optional[str]) -> Optional[str]:
