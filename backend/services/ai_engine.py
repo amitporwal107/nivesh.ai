@@ -265,6 +265,25 @@ class AIEngine:
     def __init__(self, api_key: str):
         self.client = AsyncOpenAI(api_key=api_key)
 
+    def _text_client_and_model(self):
+        """(client, model) for TEXT calls — chat / insight / analysis — resolved at
+        CALL time: Groq's free OpenAI-compatible endpoint when a GROQ_API_KEY resolves
+        (the SAME selector the NIDP copilot uses, so both surfaces agree on provider),
+        otherwise the OpenAI client + gpt-4o-mini. Per-call so a key that appears after
+        startup is picked up without a restart, and any resolver hiccup falls back to
+        OpenAI rather than breaking chat. CAS/vision (gpt-4o) always stays on OpenAI —
+        Groq has no vision model."""
+        try:
+            from nidp.services.copilot_agent import _llm
+            if _llm.llm_provider() == "groq":
+                return (
+                    AsyncOpenAI(api_key=_llm.get_groq_api_key(), base_url=_llm._GROQ_BASE_URL),
+                    _llm.resolve_model(),
+                )
+        except Exception as e:  # noqa: BLE001 — never break chat on a resolver error
+            logger.warning("ai_engine: Groq unavailable for text paths, using OpenAI: %s", e)
+        return self.client, MODEL_CHEAP
+
     async def chat(self, message: str, portfolio_context: str, history: list, session_id: str,
                    system_override: Optional[str] = None) -> str:
         """Send a chat message with portfolio context. Uses gpt-4o-mini (cheap).
@@ -290,8 +309,9 @@ class AIEngine:
         messages.append({"role": "user", "content": message})
 
         try:
-            response = await self.client.chat.completions.create(
-                model=MODEL_CHEAP,
+            client, model = self._text_client_and_model()
+            response = await client.chat.completions.create(
+                model=model,
                 messages=messages,
                 max_tokens=1500,
                 temperature=0.2,  # tight: hallucinated fund names at 0.7
@@ -299,7 +319,7 @@ class AIEngine:
             text = response.choices[0].message.content
             return self._apply_guardrails(text)
         except Exception as e:
-            logger.error("OpenAI chat failed: %s", e)
+            logger.error("chat failed: %s", e)
             raise
 
     async def chat_stream(self, message: str, portfolio_context: str, history: list, session_id: str,
@@ -323,8 +343,9 @@ class AIEngine:
         messages.append({"role": "user", "content": message})
 
         try:
-            stream = await self.client.chat.completions.create(
-                model=MODEL_CHEAP,
+            client, model = self._text_client_and_model()
+            stream = await client.chat.completions.create(
+                model=model,
                 messages=messages,
                 max_tokens=1500,
                 temperature=0.2,  # tight: hallucinated fund names at 0.7
@@ -335,7 +356,7 @@ class AIEngine:
                 if delta and delta.content:
                     yield delta.content
         except Exception as e:
-            logger.error("OpenAI chat stream failed: %s", e)
+            logger.error("chat stream failed: %s", e)
             raise
 
     async def analyze_allocation(self, holdings_data: str) -> dict:
@@ -393,8 +414,9 @@ Schema:
 }"""
 
         try:
-            response = await self.client.chat.completions.create(
-                model=MODEL_CHEAP,
+            client, model = self._text_client_and_model()
+            response = await client.chat.completions.create(
+                model=model,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": holdings_data}
@@ -468,8 +490,9 @@ Schema:
     async def analyze_portfolio(self, portfolio_text: str, session_id: str) -> dict:
         """Generate comprehensive portfolio analysis. Uses gpt-4o-mini (cheap)."""
         try:
-            response = await self.client.chat.completions.create(
-                model=MODEL_CHEAP,
+            client, model = self._text_client_and_model()
+            response = await client.chat.completions.create(
+                model=model,
                 messages=[
                     {"role": "system", "content": INSIGHT_ANALYSIS_SYSTEM},
                     {"role": "user", "content": f"Analyze:\n{portfolio_text}"},
