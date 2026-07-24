@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -326,7 +327,7 @@ _SECTOR_EVENTS_SQL = """
                AND dd.parse_status = 'parsed'
              ORDER BY dd.filed_at DESC NULLS LAST LIMIT 1
           ) d ON TRUE
-     WHERE a.filed_at >= now() - interval '30 days'
+     WHERE a.filed_at >= $4   -- literal cutoff (not now()) so this pushes down over the FDW
        AND a.event_category IS NOT NULL
        AND a.event_category NOT IN ('other', 'regulatory')
      ORDER BY (a.impact_score = 'high') DESC NULLS LAST, a.filed_at DESC
@@ -353,7 +354,8 @@ async def intelligence_events_search(
     if sector:
         pool = await get_pool()
         async with pool.acquire() as conn:
-            rows = await conn.fetch(_SECTOR_EVENTS_SQL, sector, page["limit"], page["offset"])
+            rows = await conn.fetch(_SECTOR_EVENTS_SQL, sector, page["limit"], page["offset"],
+                                    datetime.now(timezone.utc) - timedelta(days=30))
         return envelope([row_to_dict(r) for r in rows], **page, extra={"query": q, "sector": sector})
 
     # Otherwise, free-text match over the announcement subject + category.
@@ -400,7 +402,7 @@ async def intelligence_events_search(
                        AND dd.parse_status = 'parsed'
                      ORDER BY dd.filed_at DESC NULLS LAST LIMIT 1
                   ) d ON TRUE
-             WHERE a.filed_at >= now() - interval '30 days'
+             WHERE a.filed_at >= $4   -- literal cutoff (not now()) so this pushes down over the FDW
                AND a.event_category IS NOT NULL
                AND a.event_category NOT IN ('other', 'regulatory')
                AND ( to_tsvector('english',
@@ -416,6 +418,7 @@ async def intelligence_events_search(
              LIMIT $2 OFFSET $3
             """,
             q, page["limit"], page["offset"],
+            datetime.now(timezone.utc) - timedelta(days=30),
         )
     return envelope([row_to_dict(r) for r in rows], **page, extra={"query": q})
 
@@ -454,7 +457,11 @@ async def thematic_commentary(
             return envelope([], **page, extra={"query": q, "theme": theme, "note": "no searchable terms"})
 
         async with pool.acquire() as conn:
-            rows = await conn.fetch(_ts.CANDIDATE_SQL, tsq, _ts._WINDOW_DAYS, depth)
+            # Pass a LITERAL cutoff timestamp instead of `now()`: postgres_fdw won't ship
+            # a STABLE now() to the remote, which blocks join push-down over the FDW views
+            # and times the query out on prod. A constant ships → full push-down (~200ms).
+            _cutoff = datetime.now(timezone.utc) - timedelta(days=_ts._WINDOW_DAYS)
+            rows = await conn.fetch(_ts.CANDIDATE_SQL, tsq, _cutoff, depth)
         candidates = [row_to_dict(r) for r in rows]
 
         # LLM extraction over the candidate set, batched and run concurrently.
