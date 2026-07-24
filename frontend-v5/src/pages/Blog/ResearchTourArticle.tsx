@@ -1,0 +1,180 @@
+/**
+ * ResearchTourArticle — body for the blog post
+ * "Watch: a 2-minute tour of the Research tab".
+ *
+ * Video-first post, mirroring CopilotTourArticle. The tour is a REAL screen
+ * recording of the live Research (Filings Intelligence) tab — captured with
+ * Playwright against staging (see e2e/tools/record-research-tour.mjs). Assets live
+ * in /public and resolve through import.meta.env.BASE_URL so they work under the
+ * staging sub-path ("/v5/").
+ *
+ * The recording has no voiceover, so the English / हिंदी toggle switches the
+ * TRANSCRIPT — both the caption <track> on the player and the readable transcript
+ * printed below. CUES is the single source for both, so they can't drift.
+ */
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+
+/** The stops the tour walks through, in order. */
+const STOPS = [
+  "The ask bar and curated themes — one question, answered from filed disclosures",
+  "“Read for you”, the day's material filings ranked by how much they matter",
+  "A filing's AI insight — a plain-language summary with page-level citations",
+  "The full feed — six-thousand-plus filings, sorted and filtered by category",
+  "One company in focus — its whole document library, every filing downloadable",
+  "Alerts — choose the filing types that matter and where they reach you",
+];
+
+/**
+ * Transcript cues — timestamp + English + Hindi. Shared by the on-page transcript
+ * and kept in lockstep with public/research-tab-tour.{en,hi}.vtt.
+ */
+const CUES: { t: string; en: string; hi: string }[] = [
+  { t: "0:00", en: "Welcome to Research — Nivesh's Filings Intelligence. It has already read every corporate disclosure filed on the NSE and BSE.", hi: "रिसर्च में आपका स्वागत है — Nivesh की Filings Intelligence। यह NSE और BSE पर दाख़िल हर कॉरपोरेट डिस्क्लोज़र पहले ही पढ़ चुका है।" },
+  { t: "0:07", en: "Start with the ask bar, or pick a curated theme — every answer is grounded in the actual filings.", hi: "ask बार से शुरू करें, या कोई चुनी हुई थीम लें — हर जवाब असली फाइलिंग पर आधारित होता है।" },
+  { t: "0:12", en: "“Read for you” ranks the day's material filings by how much they matter — switch to the latest at any time.", hi: "\"Read for you\" दिन की अहम फाइलिंग को उनके महत्व के अनुसार क्रम में रखता है — जब चाहें नवीनतम पर जा सकते हैं।" },
+  { t: "0:20", en: "Open one and the AI insight explains it in plain language — with page-level citations back to the source document.", hi: "किसी को खोलें और AI इनसाइट उसे सरल भाषा में समझाता है — स्रोत दस्तावेज़ के पेज-स्तरीय हवालों के साथ।" },
+  { t: "0:32", en: "The full feed holds over six thousand filings. Sort by materiality and skim what's new across the market.", hi: "पूरे फ़ीड में छह हज़ार से ज़्यादा फाइलिंग हैं। महत्व के अनुसार क्रमबद्ध करें और बाज़ार में जो नया है उसे देखें।" },
+  { t: "0:45", en: "Filter to a single category — here, earnings.", hi: "किसी एक श्रेणी पर फ़िल्टर करें — यहाँ, अर्निंग्स।" },
+  { t: "0:48", en: "Expand any filing for a sectioned summary — quick take, sentiment, outlook and risks — each line cited to a page.", hi: "किसी भी फाइलिंग को विस्तार से खोलें — त्वरित सार, भावना, आउटलुक और जोखिम — हर पंक्ति एक पेज से उद्धृत।" },
+  { t: "1:02", en: "Search a company to scope everything to it — the feed, the counts, and its document library.", hi: "किसी कंपनी को खोजें और सब कुछ उसी पर केंद्रित करें — फ़ीड, गिनती और उसकी दस्तावेज़ लाइब्रेरी।" },
+  { t: "1:12", en: "Its whole library is here: quarterly results, annual reports, transcripts and presentations — each downloadable.", hi: "उसकी पूरी लाइब्रेरी यहाँ है: तिमाही नतीजे, वार्षिक रिपोर्ट, ट्रांसक्रिप्ट और प्रेज़ेंटेशन — हर एक डाउनलोड करने योग्य।" },
+  { t: "1:26", en: "Clear the company to return to the whole market.", hi: "पूरे बाज़ार पर लौटने के लिए कंपनी हटा दें।" },
+  { t: "1:29", en: "Finally, Alerts — choose the filing types that matter to you and where they should reach you.", hi: "आख़िर में, Alerts — अपने लिए ज़रूरी फाइलिंग के प्रकार चुनें और तय करें कि वे आप तक कहाँ पहुँचें।" },
+  { t: "1:40", en: "That's Research, in two minutes.", hi: "यह रही रिसर्च, दो मिनट में।" },
+];
+
+export default function ResearchTourArticle() {
+  const navigate = useNavigate();
+  const isMobile = useIsMobile();
+  const assetBase = import.meta.env.BASE_URL; // respects staging base path (e.g. "/v5/")
+  const [lang, setLang] = useState<"en" | "hi">("en");
+
+  const track =
+    lang === "hi"
+      ? { vtt: "research-tab-tour.hi.vtt", srcLang: "hi", label: "हिंदी" }
+      : { vtt: "research-tab-tour.en.vtt", srcLang: "en", label: "English" };
+
+  return (
+    <div style={{ padding: isMobile ? "0 4px" : "0" }}>
+      {/* VIDEO */}
+      <figure style={{ margin: "0 0 10px" }}>
+        {/* transcript-language toggle (the recording is silent — this is captions) */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginBottom: 10 }}>
+          <span className="nv-mono" style={{ fontSize: 10, color: "var(--ink-4)", letterSpacing: ".1em", textTransform: "uppercase", marginRight: 2 }}>Transcript</span>
+          {(["en", "hi"] as const).map((l) => (
+            <button
+              key={l}
+              type="button"
+              data-testid={`lang-${l}`}
+              onClick={() => setLang(l)}
+              aria-pressed={lang === l}
+              className={"nv-btn" + (lang === l ? " nv-btn-primary" : "")}
+              style={{ padding: "6px 14px", fontSize: 13 }}
+            >
+              {l === "en" ? "English" : "हिंदी"}
+            </button>
+          ))}
+        </div>
+        <div className="nv-card" style={{ padding: 0, overflow: "hidden", borderRadius: 14, background: "#06080F" }}>
+          <video
+            key={lang}
+            data-testid="research-tour-video"
+            aria-label="Two-minute guided tour of the Nivesh Research tab"
+            poster={`${assetBase}research-tab-tour-poster.jpg`}
+            controls
+            playsInline
+            preload="metadata"
+            style={{ width: "100%", display: "block", aspectRatio: "16 / 9", background: "#06080F" }}
+          >
+            <source src={`${assetBase}research-tab-tour.webm`} type="video/webm" />
+            <source src={`${assetBase}research-tab-tour.mp4`} type="video/mp4" />
+            <track kind="captions" srcLang={track.srcLang} label={track.label} src={`${assetBase}${track.vtt}`} default />
+            Your browser can’t play embedded video —{" "}
+            <a href={`${assetBase}research-tab-tour.mp4`}>download the tour</a> instead.
+          </video>
+        </div>
+        <figcaption className="nv-mono" style={{ fontSize: 11, color: "var(--ink-3)", letterSpacing: ".04em", marginTop: 10, textAlign: "center" }}>
+          A guided walk through Filings Intelligence — recorded live against the running app. ~2 minutes · transcript in English &amp; हिंदी.
+        </figcaption>
+      </figure>
+
+      <p style={pStyle(isMobile)}>
+        Most research tools hand you a search box and a wall of PDFs.
+        <b> Research does the reading for you</b> — it has already parsed every disclosure filed
+        on the NSE and BSE, and turns them into ranked, plain-language, <i>cited</i> insight. The
+        two-minute tour above walks the whole tab, end to end, on real filings.
+      </p>
+
+      {/* WHAT YOU'LL SEE */}
+      <h2 className="nv-serif" style={h2Style}>What you’ll see in the tour</h2>
+      <div className="nv-card" style={{ padding: isMobile ? "18px 20px" : "22px 26px", margin: "8px 0 22px" }}>
+        <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 12 }}>
+          {STOPS.map((s) => (
+            <li key={s} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <span style={{ color: "var(--mint)", fontWeight: 700, lineHeight: 1.5, flex: "0 0 auto" }}>→</span>
+              <span style={{ fontSize: 15, lineHeight: 1.55, color: "var(--ink-2)" }}>{s}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <p style={{ ...pStyle(isMobile), fontWeight: 500, color: "var(--ink)" }}>
+        Every insight is grounded in a real, filed document — and every claim links back to the page
+        it came from. No synthetic numbers, no hand-waving.
+      </p>
+
+      {/* TRANSCRIPT */}
+      <h2 className="nv-serif" style={h2Style}>Transcript</h2>
+      <p style={{ ...pStyle(isMobile), margin: "0 0 12px" }}>
+        The tour is narrated in captions — read the full transcript here in{" "}
+        <b>{lang === "en" ? "English" : "हिंदी"}</b>, or switch languages with the toggle above the video.
+      </p>
+      <div className="nv-card" data-testid="research-tour-transcript" style={{ padding: isMobile ? "16px 18px" : "20px 24px", margin: "0 0 22px" }}>
+        <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 12 }}>
+          {CUES.map((c) => (
+            <li key={c.t} style={{ display: "grid", gridTemplateColumns: "48px 1fr", gap: 12, alignItems: "baseline" }}>
+              <span className="nv-mono" style={{ fontSize: 12, color: "var(--mint)", fontVariantNumeric: "tabular-nums" }}>{c.t}</span>
+              <span lang={lang} style={{ fontSize: 15, lineHeight: 1.6, color: "var(--ink-2)" }}>{lang === "en" ? c.en : c.hi}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      {/* CTA */}
+      <div className="nv-card" style={{ padding: isMobile ? "24px 20px" : "30px 32px", margin: "28px 0 8px", textAlign: "center" }}>
+        <h3 className="nv-serif" style={{ fontSize: isMobile ? 26 : 32, letterSpacing: "-0.02em", margin: 0 }}>
+          Read the market with Research
+        </h3>
+        <p style={{ fontSize: 15, color: "var(--ink-2)", margin: "12px auto 0", maxWidth: 460, lineHeight: 1.6 }}>
+          Every NSE &amp; BSE filing, already read — ranked by materiality, summarised in plain language,
+          and cited back to the source. Free to try.
+        </p>
+        <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap", marginTop: 22 }}>
+          <button className="nv-btn nv-btn-primary" style={{ padding: "14px 22px", fontSize: 15 }} onClick={() => navigate("/research")}>
+            Open Research
+          </button>
+          <button className="nv-btn" style={{ padding: "14px 22px", fontSize: 15 }} onClick={() => navigate("/login")}>
+            Start free
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const h2Style: React.CSSProperties = {
+  fontSize: 28,
+  letterSpacing: "-0.02em",
+  margin: "34px 0 12px",
+};
+
+function pStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    fontSize: isMobile ? 16 : 17,
+    lineHeight: 1.7,
+    color: "var(--ink-2)",
+    margin: "0 0 18px",
+  };
+}
