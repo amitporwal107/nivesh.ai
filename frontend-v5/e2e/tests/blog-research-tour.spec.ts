@@ -33,13 +33,12 @@ test.describe("Blog — Research tab 2-minute tour", () => {
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/2-minute tour of the Research tab/i);
   });
 
-  test("TC-3 the player has webm+mp4 sources, a poster, and a caption track", async ({ page }) => {
+  test("TC-3 default player is the English voiceover mp4 + poster + caption track", async ({ page }) => {
     await openArticle(page);
     const video = page.getByTestId("research-tour-video");
     await expect(video).toBeVisible();
     await expect(video).toHaveAttribute("poster", /research-tab-tour-poster\.jpg$/);
-    await expect(video.locator('source[type="video/webm"]')).toHaveAttribute("src", /research-tab-tour\.webm$/);
-    await expect(video.locator('source[type="video/mp4"]')).toHaveAttribute("src", /research-tab-tour\.mp4$/);
+    await expect(video.locator("source")).toHaveAttribute("src", /\/research-tab-tour\.mp4$/);
     await expect(video.locator("track[kind='captions']")).toHaveAttribute("src", /research-tab-tour\.en\.vtt$/);
   });
 
@@ -61,6 +60,7 @@ test.describe("Blog — Research tab 2-minute tour", () => {
     await expect(t).toContainText("यह रही रिसर्च, दो मिनट में।");
     // English text is gone once switched.
     await expect(t).not.toContainText("Welcome to Research");
+    await expect(page.getByTestId("research-tour-video").locator("source")).toHaveAttribute("src", /research-tab-tour-hi\.mp4$/);
     await expect(page.getByTestId("research-tour-video").locator("track")).toHaveAttribute("srclang", "hi");
     await expect(page.getByTestId("research-tour-video").locator("track")).toHaveAttribute("src", /research-tab-tour\.hi\.vtt$/);
   });
@@ -88,5 +88,17 @@ test.describe("Blog — Research tab 2-minute tour", () => {
     await expect(page.getByTestId("lang-en")).toHaveAttribute("aria-pressed", /true|false/);
     await expect(page.getByTestId("lang-hi")).toHaveAttribute("aria-pressed", /true|false/);
     await expect(page.getByTestId("research-tour-video")).toHaveAccessibleName(/tour of the Nivesh Research tab/i);
+  });
+
+  test("TC-9 the video actually carries an audio track (voiceover)", async ({ page }) => {
+    await openArticle(page);
+    const video = page.getByTestId("research-tour-video");
+    // Play muted briefly (allowed) so the media pipeline decodes audio, then confirm
+    // real audio bytes were decoded — proof the mp4 has the voiceover, not silence.
+    await video.evaluate((v: HTMLVideoElement) => { v.muted = true; return v.play().catch(() => {}); });
+    await expect
+      .poll(async () => video.evaluate((v: HTMLVideoElement & { webkitAudioDecodedByteCount?: number }) =>
+        v.webkitAudioDecodedByteCount ?? 0), { timeout: 8000 })
+      .toBeGreaterThan(0);
   });
 });
