@@ -13,6 +13,7 @@ import SipVsLumpsumArticle from "./SipVsLumpsumArticle";
 import TaxHarvestingArticle from "./TaxHarvestingArticle";
 import DirectVsRegularArticle from "./DirectVsRegularArticle";
 import CopilotTourArticle from "./CopilotTourArticle";
+import ResearchTourArticle from "./ResearchTourArticle";
 import TeamOfTenArticle from "./TeamOfTenArticle";
 
 export type BlogPost = {
@@ -26,6 +27,16 @@ export type BlogPost = {
 };
 
 export const POSTS: BlogPost[] = [
+  {
+    slug: "research-tab-2-minute-tour",
+    title: "Watch: a 2-minute tour of the Research tab",
+    excerpt:
+      "Every filing on the NSE and BSE, already read. See how Research turns six-thousand-plus disclosures into ranked, plain-language, cited insight — the ask bar, “Read for you”, the feed, a company's whole library, and alerts. Two minutes, with an English & हिंदी transcript.",
+    category: "Product tour",
+    readMins: 2,
+    dateLabel: "July 2026",
+    Body: ResearchTourArticle,
+  },
   {
     slug: "nivesh-copilot-2-minute-tour",
     title: "Watch: a 2-minute tour of Nivesh Copilot",
