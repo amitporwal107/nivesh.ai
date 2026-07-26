@@ -1170,7 +1170,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                 system_override=system_override,
             )
         except Exception as e:  # noqa: BLE001
-            logger.error(f"LLM error (advisor): {e}")
+            logger.error("LLM error (advisor): %s", e, exc_info=True)
             ai_response = "I'm having trouble connecting to my AI engine right now. Please try again in a moment."
         validated = validate_chart_blocks(ai_response)
         ai_response = validated["clean_text"]
@@ -1525,7 +1525,7 @@ async def stream_chat(request: Request):
             yield f"data: {json.dumps(done_payload)}\n\n"
 
         except Exception as e:
-            logger.error(f"Stream error: {e}")
+            logger.error("Stream error: %s", e, exc_info=True)
             error_msg = "I'm having trouble connecting right now. Please try again."
             # Save error response
             ai_msg_doc = {

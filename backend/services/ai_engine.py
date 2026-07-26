@@ -4,12 +4,42 @@
 """
 import json
 import logging
+import os
 import re
 import base64
 from typing import Optional
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_openai_key(explicit: str = "") -> str:
+    """Resolve the OpenAI API key at call time (same order the NIDP copilot
+    and /copilot routes use — NFR-09):
+
+      1. Google Secret Manager (``helpers.gsm`` — prod source of truth,
+         rotates without a redeploy and without an env var on the box)
+      2. DB-backed admin override (``helpers.secrets``)
+      3. explicit key passed to AIEngine() / ``OPENAI_API_KEY`` env (local dev)
+
+    Resolving lazily (not once at import) is what lets advisor chat reach the
+    LLM in prod, where the key lives in GSM rather than the process env.
+    """
+    try:
+        from helpers import gsm as _gsm  # type: ignore
+        k = _gsm.get("OPENAI_API_KEY")
+        if k:
+            return k
+    except Exception:  # noqa: BLE001 — GSM unavailable in local dev; fall through
+        pass
+    try:
+        from helpers import secrets as _secrets  # type: ignore
+        k = _secrets.get("OPENAI_API_KEY")
+        if k:
+            return k
+    except Exception:  # noqa: BLE001
+        pass
+    return explicit or os.environ.get("OPENAI_API_KEY", "")
 
 # ── Prompt Templates ──
 
@@ -260,10 +290,30 @@ MODEL_CHEAP = "gpt-4o-mini"      # For chat & insights ~$0.15/1M input
 
 
 class AIEngine:
-    """Centralized AI layer using OpenAI SDK directly."""
+    """Centralized AI layer using OpenAI SDK directly.
 
-    def __init__(self, api_key: str):
-        self.client = AsyncOpenAI(api_key=api_key)
+    The OpenAI client is built lazily and keyed off the *resolved* API key, so
+    the key is read from GSM / the admin secrets store at call time rather than
+    captured once (possibly empty) from the process env at import. The cached
+    client is rebuilt automatically if the key rotates.
+    """
+
+    def __init__(self, api_key: str = ""):
+        self._explicit_key = api_key or ""
+        self._client: Optional[AsyncOpenAI] = None
+        self._client_key: Optional[str] = None
+
+    @property
+    def client(self) -> AsyncOpenAI:
+        key = _resolve_openai_key(self._explicit_key)
+        if not key:
+            raise RuntimeError(
+                "OPENAI_API_KEY is not configured (checked GSM, admin secrets, env)"
+            )
+        if self._client is None or self._client_key != key:
+            self._client = AsyncOpenAI(api_key=key)
+            self._client_key = key
+        return self._client
 
     def _text_client_and_model(self):
         """(client, model) for TEXT calls — chat / insight / analysis — resolved at
