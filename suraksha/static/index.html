@@ -23,10 +23,17 @@
 
 <div class="win" id="win" data-testid="window-banner">loading exam window…</div>
 
-<a class="card" href="/terminal"><b>Exam Terminal →</b>
+<a class="card" href="terminal"><b>Exam Terminal →</b>
   <span>Candidate view: biometric unlock, watermarked paper, "leak this paper" button.</span></a>
-<a class="card" href="/dashboard"><b>Command Dashboard →</b>
+<a class="card" href="dashboard"><b>Command Dashboard →</b>
   <span>Variant difficulty, forensics, and the tamper-evident ledger.</span></a>
+
+<h3>Demo logins</h3>
+<p style="opacity:.8;font-size:.92rem">
+  The "biometric" is a passphrase standing in for a fingerprint scan:
+  <code>C1</code>/<code>finger1</code> (priya), <code>C2</code>/<code>finger2</code> (rohan),
+  … through <code>C6</code>/<code>finger6</code> (arjun).
+</p>
 
 <h3>What to try</h3>
 <ul>
@@ -38,7 +45,7 @@
 
 <script>
 async function tick() {
-  const w = await (await fetch('/api/window')).json();
+  const w = await (await fetch('api/window')).json();
   document.getElementById('win').textContent = w.open
     ? `Exam window is OPEN — closes in ${w.seconds_until_close}s`
     : (w.seconds_until_open > 0

@@ -32,7 +32,7 @@
   .scroll { max-height: 340px; overflow: auto; }
 </style>
 
-<h1>Command Dashboard <a href="/">← home</a></h1>
+<h1>Command Dashboard <a href="./">← home</a></h1>
 <div class="win" id="win" data-testid="window-banner">…</div>
 
 <h2>Variants — uniqueness &amp; difficulty parity</h2>
@@ -67,14 +67,14 @@ const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', 
 const REFUSALS = ['REFUSED_EARLY', 'REFUSED_AUTH', 'REFUSED_LATE'];
 
 async function tickWindow() {
-  const w = await (await fetch('/api/window')).json();
+  const w = await (await fetch('api/window')).json();
   $('win').textContent = w.open ? `Exam window OPEN — closes in ${w.seconds_until_close}s`
     : (w.seconds_until_open > 0 ? `Exam window opens in ${w.seconds_until_open}s`
                                 : 'Exam window CLOSED');
 }
 
 async function loadDashboard() {
-  const d = await (await fetch('/api/dashboard')).json();
+  const d = await (await fetch('api/dashboard')).json();
   $('cands').innerHTML = d.candidates.map(c => `<tr>
     <td class="mono">${c.id}</td><td>${esc(c.name)}</td><td>${c.n_items}</td>
     <td class="mono">${c.mean_b >= 0 ? '+' : ''}${c.mean_b.toFixed(4)}</td>
@@ -89,7 +89,7 @@ async function loadDashboard() {
 }
 
 async function loadLedger() {
-  const rows = await (await fetch('/api/ledger')).json();
+  const rows = await (await fetch('api/ledger')).json();
   $('ledger').innerHTML = rows.map(r => `<tr>
     <td class="mono">${r.id}</td><td class="mono">${r.ts.slice(11, 19)}</td>
     <td class="mono">${esc(r.actor)}</td>
@@ -99,7 +99,7 @@ async function loadLedger() {
 }
 
 $('run').onclick = async () => {
-  const r = await (await fetch('/api/forensics', { method: 'POST',
+  const r = await (await fetch('api/forensics', { method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: $('leak').value }) })).json();
   $('result').innerHTML = r.verdict === 'IDENTIFIED'
@@ -115,7 +115,7 @@ $('run').onclick = async () => {
 };
 
 $('verify').onclick = async () => {
-  const v = await (await fetch('/api/ledger/verify')).json();
+  const v = await (await fetch('api/ledger/verify')).json();
   $('vres').innerHTML = v.ok
     ? `<span class="pill ok">✓ chain intact — ${v.rows} rows, head ${v.head.slice(0, 12)}…</span>`
     : `<span class="pill bad">✗ TAMPERED at row ${v.broken_at} — ${esc(v.reason)}</span>`;

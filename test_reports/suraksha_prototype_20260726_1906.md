@@ -44,12 +44,84 @@ $ ./deploy_staging.sh
 {"start":"2026-07-26T19:14:37.955361+00:00","end":"2026-07-26T19:44:37.955361+00:00","now":"2026-07-26T19:13:38.284445+00:00","open":false,"seconds_until_open":59,"seconds_until_close":1859}
 ```
 
-**Reachability: localhost-on-the-VM only, by deliberate default.** The prototype has no
-authentication on its admin/dashboard routes (documented in its README), so the deploy binds to
-`127.0.0.1` and is reached over an SSH tunnel:
-`ssh -N -L 8010:127.0.0.1:8010 aporwal107_gmail_com@34.47.250.214`. It is **not** published on
-`staging.niveshcopilot.com` and no firewall rule was opened. Making it publicly reachable is a
-separate, explicit decision — flagged to the user, not taken unilaterally.
+**Published publicly at `https://staging.niveshcopilot.com/suraksha/`** on the user's explicit
+instruction, after the no-authentication risk was raised with them and they reaffirmed.
+
+The app binds to `172.21.0.1:8010` — the `nivesh-staging` docker bridge gateway — so it is reachable
+by the nginx container and the host, but is **not** on the VM's external interface and needed no GCP
+firewall change. All public access flows through the staging edge nginx. A `location /suraksha/`
+(with a trailing-slash `proxy_pass`, so the prefix is stripped) was added to **both** server blocks
+in `deploy/nivesh-staging/nginx-staging.conf` — `:8443` (Cloudflare origin) and `:8444` (the internal
+listener the prod nginx uses for `:443`) — so the path works via either route.
+
+```
+$ curl -o /dev/null -w '%{http_code}' https://staging.niveshcopilot.com/suraksha/        -> 200
+$ curl -o /dev/null -w '%{http_code}' https://staging.niveshcopilot.com:8443/suraksha/   -> 200
+$ curl https://staging.niveshcopilot.com/suraksha/api/window
+{"start":"2026-07-26T19:22:21.934309+00:00","end":"2026-07-26T19:52:21.934309+00:00","now":"2026-07-26T19:26:48.711712+00:00","open":true,"seconds_until_open":0,"seconds_until_close":1533}
+$ curl -s https://staging.niveshcopilot.com/suraksha/ | grep -i '<title>'
+<title>SURAKSHA — prototype</title>
+```
+
+**Regression check on the shared staging app after the nginx change:**
+
+```
+GET /v5/       -> HTTP 200
+GET /          -> HTTP 301        (unchanged V2 behaviour)
+GET /api/healthz -> {"status":"ok","service":"portfolio_ingestion","version":"0.1.0","env":"staging"}
+```
+
+### ⚠ Pre-existing defect found while doing this: the staging nginx had a STALE bind-mount
+
+`nivesh-staging-nginx` mounts a single file:
+`/opt/nivesh-staging/repo/deploy/nivesh-staging/nginx-staging.conf` → `/etc/nginx/conf.d/staging.conf`.
+A single-file bind mount pins an **inode**. An earlier `git reset --hard` (what `redeploy-staging.sh`
+does) replaced the file, creating a new inode — so the container kept serving a **31 May** copy while
+the host file moved on. Editing the host file and running `nginx -s reload` changed nothing; that is
+how this was caught.
+
+```
+container inode: 410623  size: 3336     <- what nginx was actually serving (31 May)
+host      inode: 431254  size: 5532     <- what the repo says the config is
+```
+
+Consequence beyond this task: **the committed CASA A10 security headers (commit `9c4a32fe`) were
+never live on staging.** A `docker restart nivesh-staging-nginx` re-bound the mount and applied
+exactly two changes (verified by diffing the container's live config against the host file — nothing
+else differed): the `/suraksha/` locations, and those security headers, which are now serving:
+
+```
+$ curl -sI https://staging.niveshcopilot.com:8443/suraksha/
+strict-transport-security: max-age=31536000; includeSubDomains
+x-frame-options: DENY
+x-content-type-options: nosniff
+referrer-policy: strict-origin-when-cross-origin
+permissions-policy: camera=(), microphone=(), geolocation=()
+```
+
+That was a side effect of the restart, not an intended part of this task — flagged rather than
+buried. **Any future `nginx -s reload`-only workflow on this host is unreliable until the mount is
+changed from a single file to a directory mount.**
+
+### ⚠ The nginx change is NOT yet persistent
+
+`redeploy-staging.sh` runs `git reset --hard origin/dev`. The `/suraksha/` location currently exists
+only in the VM's working copy and in the `feat/research-qa-exercise` branch. **The next staging
+redeploy will delete it** (and re-break the mount). To persist it, the nginx change must land on
+`origin/dev`. Not done here — pushing to `dev` is a live deploy of the shared staging stack and was
+not part of what was authorised.
+
+### Rollback
+
+```bash
+# remove just the published path (config backup taken before the edit)
+sudo cp /tmp/nginx-staging.conf.bak-1785093793 \
+        /opt/nivesh-staging/repo/deploy/nivesh-staging/nginx-staging.conf
+sudo docker restart nivesh-staging-nginx      # restart, not reload — see the stale-mount note
+
+# stop the prototype itself; the VM is then as it was
+cd suraksha && ./deploy_staging.sh --stop
+```
 
 ## Test Cases
 
@@ -75,7 +147,50 @@ Authored **before** implementation in [`suraksha/TEST_CASES.md`](../suraksha/TES
 | T16 | exam | autosave + submit | api | score returned, `EXAM_SUBMITTED` ledgered | PASS |
 | T17 | UI | 3 demos through the real browser | e2e | all assertions green | PASS |
 
-## API / Endpoint Tests — STAGING (primary evidence)
+## API / Endpoint Tests — PUBLIC STAGING URL (primary evidence)
+
+Re-run end-to-end through Cloudflare → staging nginx → the app, after publishing:
+
+**Command:** `SURAKSHA_URL=https://staging.niveshcopilot.com/suraksha python3 acceptance.py`
+
+```
+== T07 difficulty parity ==
+  PASS  T07  mean_b={'C1': -0.0006, 'C2': 0.002, 'C3': 0.0003, 'C4': -0.0146, 'C5': 0.0007, 'C6': -0.0004} max_pairwise_delta=0.0166 tol=0.15
+
+== T08 uniqueness gate ==
+  PASS  T08  6 distinct ordered variants, no repeat inside a variant (C1∩C2 share 2 items — set alone does not identify)
+
+== T09 forensics on a real leak (C2) ==
+  PASS  T09  IDENTIFIED C2 (rohan) order=10/10 options=10/10 in 6.3ms (wall 86ms); runner-up C1 order=0/10
+
+== T10 fabricated artifact ==
+  PASS  T10  FABRICATED (best 0/10, threshold 6) 6.9ms
+
+== T11 partial leak (first 6 questions only) ==
+  PASS  T11  IDENTIFIED C2 order=6/10 from 645 chars
+
+== T12 same items, different order -> must NOT be C2 ==
+  PASS  T12  FABRICATED (best None 1/10) — order IS the watermark
+
+== T13 no assembled paper in plaintext at rest ==
+  PASS  T13  watermark string occurrences in suraksha.db: 0; 6 variant blobs, none containing readable stems (the item BANK is plaintext by design — assembled papers are not)
+
+== T14 ledger chain intact ==
+  PASS  T14  ok=True rows=22 head=c38bae280d0fa647…
+
+== T15 tamper one ledger row -> detected at that exact row ==
+  PASS  T15  edited row 13 -> broken_at=13 (row 13 content was modified after it was written); restored -> ok=True
+
+== T16 answer autosave + submit ==
+  PASS  T16  score=1/10 answered=10, EXAM_SUBMITTED ledgered
+
+==============================================================
+  16/16 cases passed — ALL PASS
+==============================================================
+EXIT=0
+```
+
+## API / Endpoint Tests — on-VM, direct to the process (corroborating)
 
 **Command, run on `nivesh-app-vm` against the deployed instance:**
 `cd ~/suraksha-staging && SURAKSHA_URL=http://127.0.0.1:8010 python3 acceptance.py`
@@ -212,9 +327,26 @@ after restore : {'ok': True, 'rows': 37, 'broken_at': None, 'head': 'b347d2500de
 RESULT: PASS — tamper detected at the exact row
 ```
 
-## UI / Playwright Tests — STAGING (primary evidence)
+## UI / Playwright Tests — PUBLIC STAGING URL (primary evidence)
 
 - **Spec:** `suraksha/e2e/suraksha.spec.ts` (Playwright 1.60.0, chromium)
+- **Command:** `SURAKSHA_URL=https://staging.niveshcopilot.com/suraksha/ npx playwright test`
+
+```
+Running 6 tests using 1 worker
+
+  ✓  1 e2e/suraksha.spec.ts:17:5 › D2a — pre-window key request is refused, paper stays sealed (2.3s)
+  ✓  2 e2e/suraksha.spec.ts:24:5 › D2b — wrong biometric is refused (1.1s)
+  ✓  3 e2e/suraksha.spec.ts:31:5 › D2c — window + biometric releases the key and renders the watermarked paper (1.2s)
+  ✓  4 e2e/suraksha.spec.ts:43:5 › D1 — C2 gets a different paper; dashboard shows equal difficulty (1.9s)
+  ✓  5 e2e/suraksha.spec.ts:62:5 › D3 — a leaked paper names its leaker; a fake one is stamped FABRICATED (1.5s)
+  ✓  6 e2e/suraksha.spec.ts:85:5 › ledger — chain verifies clean from the dashboard (1.1s)
+
+  6 passed (11.8s)
+```
+
+## UI / Playwright Tests — over an SSH tunnel to the VM (corroborating)
+
 - **Target:** the deployed staging instance, over `ssh -N -L 8010:127.0.0.1:8010`
 - **Command:** `SURAKSHA_URL=http://127.0.0.1:8010 npx playwright test`
 

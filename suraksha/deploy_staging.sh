@@ -20,6 +20,8 @@ SSH_HOST=${SURAKSHA_SSH_HOST:-aporwal107_gmail_com@34.47.250.214}
 SSH_KEY=${SURAKSHA_SSH_KEY:-$HOME/.ssh/google_compute_engine}
 PORT=${SURAKSHA_PORT:-8010}
 BIND=${SURAKSHA_BIND:-127.0.0.1}          # localhost-only by default: the app has no auth
+# where health checks / --status reach it (a 0.0.0.0 bind is probed via loopback)
+HEALTH=$([ "$BIND" = "0.0.0.0" ] && echo 127.0.0.1 || echo "$BIND")
 REMOTE_DIR=${SURAKSHA_REMOTE_DIR:-\$HOME/suraksha-staging}
 LOCAL_DIR=$(cd "$(dirname "$0")" && pwd)
 
@@ -28,7 +30,7 @@ SSH=(ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$SSH_HO
 case "${1:-deploy}" in
   --status) exec "${SSH[@]}" "cd $REMOTE_DIR 2>/dev/null && \
       { kill -0 \$(cat run/suraksha.pid 2>/dev/null) 2>/dev/null && echo \"RUNNING pid \$(cat run/suraksha.pid)\" || echo 'NOT RUNNING'; \
-        curl -sf http://127.0.0.1:$PORT/api/window || echo ' (no HTTP response)'; }" ;;
+        curl -sf http://$HEALTH:$PORT/api/window || echo ' (no HTTP response)'; }" ;;
   --stop)   exec "${SSH[@]}" "cd $REMOTE_DIR 2>/dev/null && \
       { kill \$(cat run/suraksha.pid) 2>/dev/null && echo 'stopped' || echo 'was not running'; }" ;;
   --logs)   exec "${SSH[@]}" "tail -n 60 $REMOTE_DIR/run/suraksha.log" ;;
@@ -78,14 +80,14 @@ SURAKSHA_HOST=$BIND SURAKSHA_PORT=$PORT \
 echo \$! > run/suraksha.pid
 
 for i in \$(seq 1 30); do
-  if curl -sf "http://127.0.0.1:$PORT/api/window" >/dev/null 2>&1; then
+  if curl -sf "http://$HEALTH:$PORT/api/window" >/dev/null 2>&1; then
     echo "    up after \${i}s (pid \$(cat run/suraksha.pid))"; break
   fi
   [ "\$i" = 30 ] && { echo "    FAILED to come up"; tail -20 run/suraksha.log; exit 1; }
   sleep 1
 done
 echo "--- startup banner ---"; head -6 run/suraksha.log
-echo "--- health ---"; curl -s "http://127.0.0.1:$PORT/api/window"; echo
+echo "--- health ---"; curl -s "http://$HEALTH:$PORT/api/window"; echo
 REMOTE
 
 echo "==> deployed. Reach it with a tunnel:"

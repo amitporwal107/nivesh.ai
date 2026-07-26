@@ -17,7 +17,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-BASE_URL = os.environ.get("SURAKSHA_URL", "http://127.0.0.1:8000")
+BASE_URL = os.environ.get("SURAKSHA_URL", "http://127.0.0.1:8000").rstrip("/")
+UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 DB_PATH = Path(__file__).resolve().parent / "suraksha.db"
 
 results: list[tuple[str, bool, str]] = []
@@ -25,9 +27,10 @@ results: list[tuple[str, bool, str]] = []
 
 def call(method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(
-        BASE_URL + path, data=data, method=method,
-        headers={"Content-Type": "application/json"} if data else {})
+    headers = {"User-Agent": UA}          # Cloudflare 1010s a bare urllib UA
+    if data:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(BASE_URL + path, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
             return r.status, json.loads(r.read())

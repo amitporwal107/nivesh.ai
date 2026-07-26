@@ -31,7 +31,7 @@
   .hint { opacity: .65; font-size: .85rem; }
 </style>
 
-<h1>Exam Terminal <a href="/">← home</a></h1>
+<h1>Exam Terminal <a href="./">← home</a></h1>
 
 <div class="bar">
   <select id="cand" data-testid="candidate-select"></select>
@@ -39,6 +39,11 @@
   <button id="go" data-testid="get-paper">🔒 Get my paper</button>
   <span class="hint" id="win" data-testid="window-status"></span>
 </div>
+<p class="hint" style="margin:.5rem 0 0">
+  The passphrase stands in for the fingerprint scan (no sensor in the prototype).
+  <b>C1 → <code>finger1</code></b>, C2 → <code>finger2</code>, … C6 → <code>finger6</code>.
+  Try it <b>before</b> the window opens, or with a wrong passphrase, to see the refusals.
+</p>
 
 <div id="msg"></div>
 <div id="paper" hidden>
@@ -58,12 +63,12 @@ const $ = id => document.getElementById(id);
 const show = (cls, html) => $('msg').innerHTML = `<div class="msg ${cls}">${html}</div>`;
 
 (async () => {
-  for (const c of await (await fetch('/api/candidates')).json())
+  for (const c of await (await fetch('api/candidates')).json())
     $('cand').add(new Option(`${c.id} — ${c.name}`, c.id));
 })();
 
 async function tickWindow() {
-  const w = await (await fetch('/api/window')).json();
+  const w = await (await fetch('api/window')).json();
   $('win').textContent = w.open ? `window OPEN (${w.seconds_until_close}s left)`
     : (w.seconds_until_open > 0 ? `window opens in ${w.seconds_until_open}s` : 'window CLOSED');
 }
@@ -72,7 +77,7 @@ tickWindow(); setInterval(tickWindow, 1000);
 $('go').onclick = async () => {
   $('paper').hidden = true;
   const body = { candidate_id: $('cand').value, passphrase: $('pass').value };
-  const r = await fetch('/api/exam/open',
+  const r = await fetch('api/exam/open',
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const d = await r.json();
   if (!r.ok) return show('err', `⛔ <b>${d.reason}</b> — ${d.detail}<br>
@@ -87,7 +92,7 @@ $('go').onclick = async () => {
     </div>`).join('');
   $('questions').oninput = e => {
     if (e.target.type !== 'radio') return;
-    fetch('/api/exam/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    fetch('api/exam/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ candidate_id: d.candidate_id,
         q_index: +e.target.name.slice(1), choice: +e.target.value }) });
   };
@@ -95,7 +100,7 @@ $('go').onclick = async () => {
 };
 
 $('submit').onclick = async () => {
-  const r = await (await fetch('/api/exam/submit', { method: 'POST',
+  const r = await (await fetch('api/exam/submit', { method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ candidate_id: paper.candidate_id }) })).json();
   show('ok', `✅ Submitted — score ${r.score}/${r.total} (${r.answered} answered).`);

@@ -5,10 +5,10 @@ import { test, expect, Page, APIRequestContext } from '@playwright/test';
 test.describe.configure({ mode: 'serial' });
 
 const setWindow = (request: APIRequestContext, minutes_from_now: number) =>
-  request.post('/api/admin/set_window', { data: { minutes_from_now, duration_minutes: 30 } });
+  request.post('api/admin/set_window', { data: { minutes_from_now, duration_minutes: 30 } });
 
 async function openPaper(page: Page, candidate: string, passphrase: string) {
-  await page.goto('/terminal');
+  await page.goto('terminal');
   await page.getByTestId('candidate-select').selectOption(candidate);
   await page.getByTestId('passphrase').fill(passphrase);
   await page.getByTestId('get-paper').click();
@@ -54,7 +54,7 @@ test('D1 — C2 gets a different paper; dashboard shows equal difficulty', async
   expect(c2).toEqual(expect.not.arrayContaining([c1[0]]));  // C1's Q1 is not anywhere in C2
   expect(c1.join('|')).not.toEqual(c2.join('|'));
 
-  await page.goto('/dashboard');
+  await page.goto('dashboard');
   await expect(page.getByTestId('parity')).toContainText('< tolerance 0.15 ✓');
   await expect(page.getByTestId('candidates-table').locator('tr')).toHaveCount(6);
 });
@@ -68,7 +68,7 @@ test('D3 — a leaked paper names its leaker; a fake one is stamped FABRICATED',
   const leaked = await page.getByTestId('leaktext').inputValue();
   expect(leaked).toContain('CANDIDATE-C2');
 
-  await page.goto('/dashboard');
+  await page.goto('dashboard');
   await page.getByTestId('forensics-input').fill(leaked);
   await page.getByTestId('forensics-run').click();
   const verdict = page.getByTestId('forensics-result');
@@ -83,7 +83,7 @@ test('D3 — a leaked paper names its leaker; a fake one is stamped FABRICATED',
 });
 
 test('ledger — chain verifies clean from the dashboard', async ({ page }) => {
-  await page.goto('/dashboard');
+  await page.goto('dashboard');
   await page.getByTestId('ledger-verify').click();
   await expect(page.getByTestId('ledger-verify-result')).toContainText('chain intact');
   await expect(page.getByTestId('ledger-table').locator('tr').first()).toBeVisible();
