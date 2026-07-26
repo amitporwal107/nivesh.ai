@@ -1,0 +1,127 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SURAKSHA — Command Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; padding: 1.25rem;
+         max-width: 1080px; margin-inline: auto; }
+  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+  h1 a { font-weight: 400; font-size: .85rem; opacity: .6; }
+  h2 { font-size: 1rem; margin: 1.75rem 0 .6rem; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: .42rem .6rem; border-bottom: 1px solid #8883; }
+  th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; opacity: .65; }
+  td.mono, .mono { font-family: ui-monospace, monospace; font-size: .82rem; }
+  .pill { padding: .1rem .5rem; border-radius: 99px; font-size: .78rem; background: #8882; }
+  .pill.ok { background: #5cb85c33; } .pill.bad { background: #d9534f33; }
+  .pill.warn { background: #f0ad4e33; }
+  button { font: inherit; padding: .45rem .8rem; border-radius: 7px; cursor: pointer;
+           background: #4a90d9; color: #fff; border: 1px solid transparent; }
+  button.ghost { background: transparent; color: inherit; border-color: #8886; }
+  textarea { width: 100%; height: 150px; font: 13px/1.4 ui-monospace, monospace; padding: .6rem;
+             border-radius: 8px; border: 1px solid #8886; background: transparent; color: inherit; }
+  .box { border: 1px solid #8883; border-radius: 10px; padding: .9rem 1.1rem; }
+  .win { padding: .7rem 1rem; border-radius: 9px; background: #8881;
+         font-variant-numeric: tabular-nums; margin-bottom: 1rem; }
+  .verdict { margin-top: .8rem; padding: .8rem 1rem; border-radius: 9px; font-weight: 600; }
+  .verdict.hit { background: #d9534f22; border: 1px solid #d9534f88; }
+  .verdict.fab { background: #f0ad4e22; border: 1px solid #f0ad4e88; }
+  .hint { opacity: .65; font-size: .84rem; font-weight: 400; }
+  .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: .6rem; }
+  .scroll { max-height: 340px; overflow: auto; }
+</style>
+
+<h1>Command Dashboard <a href="/">← home</a></h1>
+<div class="win" id="win" data-testid="window-banner">…</div>
+
+<h2>Variants — uniqueness &amp; difficulty parity</h2>
+<div class="box">
+  <table><thead><tr><th>Candidate</th><th>Name</th><th>Items</th><th>Variant mean b</th>
+    <th>Ciphertext</th><th>Status</th></tr></thead>
+    <tbody id="cands" data-testid="candidates-table"></tbody></table>
+  <div class="row" id="parity" data-testid="parity"></div>
+</div>
+
+<h2>Forensics — identify the source of a leaked paper</h2>
+<div class="box">
+  <textarea id="leak" data-testid="forensics-input"
+    placeholder="Paste a leaked paper's text here (Terminal → 'Copy paper text'), or paste anything else to see FABRICATED…"></textarea>
+  <div class="row"><button id="run" data-testid="forensics-run">Trace this leak</button>
+    <span class="hint">Matches the question/option permutation watermark against every sealed variant.</span></div>
+  <div id="result" data-testid="forensics-result"></div>
+</div>
+
+<h2>Ledger — append-only hash chain</h2>
+<div class="box">
+  <div class="row"><button id="verify" data-testid="ledger-verify">Verify chain</button>
+    <span id="vres" data-testid="ledger-verify-result"></span></div>
+  <div class="scroll"><table><thead><tr><th>#</th><th>Time (UTC)</th><th>Actor</th>
+    <th>Action</th><th>Detail</th><th>Hash</th></tr></thead>
+    <tbody id="ledger" data-testid="ledger-table"></tbody></table></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const REFUSALS = ['REFUSED_EARLY', 'REFUSED_AUTH', 'REFUSED_LATE'];
+
+async function tickWindow() {
+  const w = await (await fetch('/api/window')).json();
+  $('win').textContent = w.open ? `Exam window OPEN — closes in ${w.seconds_until_close}s`
+    : (w.seconds_until_open > 0 ? `Exam window opens in ${w.seconds_until_open}s`
+                                : 'Exam window CLOSED');
+}
+
+async function loadDashboard() {
+  const d = await (await fetch('/api/dashboard')).json();
+  $('cands').innerHTML = d.candidates.map(c => `<tr>
+    <td class="mono">${c.id}</td><td>${esc(c.name)}</td><td>${c.n_items}</td>
+    <td class="mono">${c.mean_b >= 0 ? '+' : ''}${c.mean_b.toFixed(4)}</td>
+    <td class="mono">${c.ciphertext_bytes} B sealed</td>
+    <td><span class="pill ${c.status === 'REFUSED' ? 'bad' : c.status === 'WAITING' ? '' : 'ok'}">${c.status}</span></td>
+  </tr>`).join('');
+  const ok = d.max_pairwise_delta_mean_b < d.tolerance;
+  $('parity').innerHTML = `<span class="pill ${ok ? 'ok' : 'bad'}">
+    max pairwise Δ mean b = ${d.max_pairwise_delta_mean_b.toFixed(4)}
+    ${ok ? '&lt;' : '≥'} tolerance ${d.tolerance} ${ok ? '✓' : '✗'}</span>
+    <span class="hint">Every candidate sees a different paper of equivalent difficulty.</span>`;
+}
+
+async function loadLedger() {
+  const rows = await (await fetch('/api/ledger')).json();
+  $('ledger').innerHTML = rows.map(r => `<tr>
+    <td class="mono">${r.id}</td><td class="mono">${r.ts.slice(11, 19)}</td>
+    <td class="mono">${esc(r.actor)}</td>
+    <td><span class="pill ${REFUSALS.includes(r.action) ? 'bad'
+      : r.action === 'KEY_RELEASED' ? 'ok' : r.action === 'FORENSICS_RUN' ? 'warn' : ''}">${esc(r.action)}</span></td>
+    <td class="mono">${esc(r.detail)}</td><td class="mono">${r.hash.slice(0, 10)}…</td></tr>`).join('');
+}
+
+$('run').onclick = async () => {
+  const r = await (await fetch('/api/forensics', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: $('leak').value }) })).json();
+  $('result').innerHTML = r.verdict === 'IDENTIFIED'
+    ? `<div class="verdict hit">🎯 IDENTIFIED — <b>${r.candidate_id} (${esc(r.name)})</b>
+        · order match ${r.confidence} · options ${r.option_match}/${r.total}
+        · ${r.elapsed_ms} ms<br>
+        <span class="hint">Runner-up ${r.runner_up.candidate_id} matched only
+        ${r.runner_up.order_match}/${r.runner_up.total} — the item set is shared, the
+        <b>order</b> is not.</span></div>`
+    : `<div class="verdict fab">🚫 FABRICATED — no sealed variant matches this artifact
+        (best ${r.confidence}, threshold ${r.threshold}) · ${r.elapsed_ms} ms</div>`;
+  loadLedger(); loadDashboard();
+};
+
+$('verify').onclick = async () => {
+  const v = await (await fetch('/api/ledger/verify')).json();
+  $('vres').innerHTML = v.ok
+    ? `<span class="pill ok">✓ chain intact — ${v.rows} rows, head ${v.head.slice(0, 12)}…</span>`
+    : `<span class="pill bad">✗ TAMPERED at row ${v.broken_at} — ${esc(v.reason)}</span>`;
+};
+
+tickWindow(); loadDashboard(); loadLedger();
+setInterval(tickWindow, 1000);
+setInterval(() => { loadDashboard(); loadLedger(); }, 5000);
+</script>

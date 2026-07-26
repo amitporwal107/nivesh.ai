@@ -1,0 +1,49 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SURAKSHA — prototype</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.55 system-ui, sans-serif; margin: 0; padding: 3rem 1.25rem;
+         max-width: 720px; margin-inline: auto; }
+  h1 { margin: 0 0 .25rem; font-size: 1.7rem; letter-spacing: -.01em; }
+  .sub { opacity: .7; margin: 0 0 2rem; }
+  a.card { display: block; padding: 1rem 1.1rem; margin-bottom: .75rem; border-radius: 10px;
+           border: 1px solid #8883; text-decoration: none; color: inherit; }
+  a.card:hover { border-color: #4a90d9; background: #4a90d911; }
+  a.card b { display: block; font-size: 1.05rem; }
+  a.card span { opacity: .7; font-size: .9rem; }
+  .win { padding: .75rem 1rem; border-radius: 10px; background: #8881; margin-bottom: 1.5rem;
+         font-variant-numeric: tabular-nums; }
+  ul { padding-left: 1.2rem; opacity: .8; font-size: .92rem; }
+</style>
+
+<h1>SURAKSHA</h1>
+<p class="sub">Leak-proof examination system — working prototype (v0.1)</p>
+
+<div class="win" id="win" data-testid="window-banner">loading exam window…</div>
+
+<a class="card" href="/terminal"><b>Exam Terminal →</b>
+  <span>Candidate view: biometric unlock, watermarked paper, "leak this paper" button.</span></a>
+<a class="card" href="/dashboard"><b>Command Dashboard →</b>
+  <span>Variant difficulty, forensics, and the tamper-evident ledger.</span></a>
+
+<h3>What to try</h3>
+<ul>
+  <li><b>D1</b> — open the terminal as C1 and C2: different questions, same difficulty (see dashboard).</li>
+  <li><b>D2</b> — request a paper before the window opens: refused and ledgered.</li>
+  <li><b>D3</b> — copy a paper's text into the dashboard's forensics box: it names the leaker.
+      Paste anything else: <code>FABRICATED</code>.</li>
+</ul>
+
+<script>
+async function tick() {
+  const w = await (await fetch('/api/window')).json();
+  document.getElementById('win').textContent = w.open
+    ? `Exam window is OPEN — closes in ${w.seconds_until_close}s`
+    : (w.seconds_until_open > 0
+        ? `Exam window opens in ${w.seconds_until_open}s`
+        : 'Exam window has CLOSED');
+}
+tick(); setInterval(tick, 1000);
+</script>

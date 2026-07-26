@@ -1,0 +1,115 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SURAKSHA — Exam Terminal</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.55 system-ui, sans-serif; margin: 0; padding: 1.25rem;
+         max-width: 820px; margin-inline: auto; }
+  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+  h1 a { font-weight: 400; font-size: .85rem; opacity: .6; }
+  .bar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center;
+         padding: 1rem; border: 1px solid #8883; border-radius: 10px; }
+  select, input, button { font: inherit; padding: .5rem .65rem; border-radius: 7px;
+                          border: 1px solid #8886; background: transparent; color: inherit; }
+  button { cursor: pointer; background: #4a90d9; color: #fff; border-color: transparent; }
+  button.ghost { background: transparent; color: inherit; border-color: #8886; }
+  .msg { margin-top: 1rem; padding: .8rem 1rem; border-radius: 9px; font-weight: 500; }
+  .err { background: #d9534f22; border: 1px solid #d9534f88; }
+  .ok  { background: #5cb85c22; border: 1px solid #5cb85c88; }
+  #watermark { margin: 1.25rem 0 .5rem; padding: .7rem 1rem; border-radius: 9px;
+    background: repeating-linear-gradient(45deg,#4a90d915,#4a90d915 12px,#4a90d905 12px,#4a90d905 24px);
+    border: 1px dashed #4a90d9aa; letter-spacing: .18em; font-weight: 700; text-align: center; }
+  .q { border: 1px solid #8883; border-radius: 10px; padding: .9rem 1.1rem; margin-bottom: .7rem; }
+  .q p { margin: 0 0 .55rem; font-weight: 600; }
+  .q label { display: block; padding: .18rem 0; cursor: pointer; }
+  .q input { margin-right: .5rem; }
+  textarea { width: 100%; height: 200px; font: 13px/1.45 ui-monospace, monospace;
+             margin-top: .75rem; padding: .6rem; border-radius: 8px;
+             border: 1px solid #8886; background: transparent; color: inherit; }
+  .foot { display: flex; gap: .5rem; margin: 1rem 0; flex-wrap: wrap; align-items: center; }
+  .hint { opacity: .65; font-size: .85rem; }
+</style>
+
+<h1>Exam Terminal <a href="/">← home</a></h1>
+
+<div class="bar">
+  <select id="cand" data-testid="candidate-select"></select>
+  <input id="pass" type="password" placeholder="biometric passphrase" data-testid="passphrase">
+  <button id="go" data-testid="get-paper">🔒 Get my paper</button>
+  <span class="hint" id="win" data-testid="window-status"></span>
+</div>
+
+<div id="msg"></div>
+<div id="paper" hidden>
+  <div id="watermark" data-testid="watermark"></div>
+  <div id="questions" data-testid="questions"></div>
+  <div class="foot">
+    <button id="submit" data-testid="submit">Submit exam</button>
+    <button class="ghost" id="leak" data-testid="leak">📋 Copy paper text (simulate leak)</button>
+    <span class="hint">Paste the copied text into the dashboard's forensics box.</span>
+  </div>
+  <textarea id="leaktext" data-testid="leaktext" hidden readonly></textarea>
+</div>
+
+<script>
+let paper = null;
+const $ = id => document.getElementById(id);
+const show = (cls, html) => $('msg').innerHTML = `<div class="msg ${cls}">${html}</div>`;
+
+(async () => {
+  for (const c of await (await fetch('/api/candidates')).json())
+    $('cand').add(new Option(`${c.id} — ${c.name}`, c.id));
+})();
+
+async function tickWindow() {
+  const w = await (await fetch('/api/window')).json();
+  $('win').textContent = w.open ? `window OPEN (${w.seconds_until_close}s left)`
+    : (w.seconds_until_open > 0 ? `window opens in ${w.seconds_until_open}s` : 'window CLOSED');
+}
+tickWindow(); setInterval(tickWindow, 1000);
+
+$('go').onclick = async () => {
+  $('paper').hidden = true;
+  const body = { candidate_id: $('cand').value, passphrase: $('pass').value };
+  const r = await fetch('/api/exam/open',
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!r.ok) return show('err', `⛔ <b>${d.reason}</b> — ${d.detail}<br>
+    <span class="hint">Refusal written to the ledger. The paper stays sealed.</span>`);
+  paper = d;
+  show('ok', `🔓 Key released for ${d.candidate_id} (${d.name}). Paper decrypted.`);
+  $('watermark').textContent = d.watermark;
+  $('questions').innerHTML = d.questions.map((q, i) => `
+    <div class="q"><p>${i + 1}. ${esc(q.stem)}</p>
+    ${q.options.map((o, j) => `<label><input type="radio" name="q${i}" value="${j}"
+      ${d.saved_answers[i] === j ? 'checked' : ''}> ${'ABCD'[j]}) ${esc(o)}</label>`).join('')}
+    </div>`).join('');
+  $('questions').oninput = e => {
+    if (e.target.type !== 'radio') return;
+    fetch('/api/exam/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ candidate_id: d.candidate_id,
+        q_index: +e.target.name.slice(1), choice: +e.target.value }) });
+  };
+  $('paper').hidden = false;
+};
+
+$('submit').onclick = async () => {
+  const r = await (await fetch('/api/exam/submit', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ candidate_id: paper.candidate_id }) })).json();
+  show('ok', `✅ Submitted — score ${r.score}/${r.total} (${r.answered} answered).`);
+};
+
+$('leak').onclick = async () => {
+  const text = `SURAKSHA EXAM PAPER — ${paper.watermark}\n\n` + paper.questions
+    .map((q, i) => `${i + 1}. ${q.stem}\n` +
+      q.options.map((o, j) => `   ${'ABCD'[j]}) ${o}`).join('\n')).join('\n\n');
+  const ta = $('leaktext');
+  ta.hidden = false; ta.value = text; ta.select();
+  try { await navigator.clipboard.writeText(text); show('err', '📋 Paper text copied — this is the leaked artifact.'); }
+  catch { show('err', '📋 Paper text below — select and copy it (clipboard blocked by browser).'); }
+};
+
+function esc(s) { return s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+</script>
