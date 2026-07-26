@@ -9,15 +9,15 @@ Exits non-zero if any case fails.
 """
 
 import json
+import os
 import sqlite3
-import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-BASE_URL = "http://127.0.0.1:8000"
+BASE_URL = os.environ.get("SURAKSHA_URL", "http://127.0.0.1:8000")
 DB_PATH = Path(__file__).resolve().parent / "suraksha.db"
 
 results: list[tuple[str, bool, str]] = []

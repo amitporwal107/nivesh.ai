@@ -3,9 +3,9 @@
 - **Branch:** feat/research-qa-exercise
 - **Date:** 2026-07-27
 - **Author:** Claude (FULL_STACK_DEVELOPER + QA_ENGINEER)
-- **Environment:** **local only** — `http://127.0.0.1:8000`, self-contained FastAPI process + SQLite.
-  This is a standalone demo prototype in `suraksha/`; it touches **no** Nivesh/NIDP code, DB, or
-  service, and is therefore not deployed to staging. See "Scope note" below.
+- **Environment:** **staging VM (`nivesh-app-vm`, 34.47.250.214)** — deployed to
+  `~/suraksha-staging`, bound to `127.0.0.1:8010`; plus a local cold run. Self-contained FastAPI
+  process + SQLite; touches **no** Nivesh/NIDP code, DB, container, or shared service.
 - **Changed areas:** backend routes/services (Nivesh): **no** · frontend src (Nivesh): **no** ·
   new isolated directory `suraksha/`: yes
 
@@ -18,14 +18,38 @@ permutation-watermark forensics that names a leaker and stamps a fake `FABRICATE
 append-only hash-chain ledger. Everything below is real, unedited output from a **cold run** (fresh
 process, deleted DB) performed this session.
 
-## Scope note (why local, not staging)
+## Staging deployment
 
-The verification protocol's staging requirement targets Nivesh/NIDP product code. This prototype is a
-separate, self-contained artifact whose entire point is to run on one laptop with no external
-dependency; there is no staging surface for it, and deploying it to staging would be out of scope for
-the ask. Verification is therefore the prototype's own acceptance suite + Playwright, run locally
-against the real running process — not simulated, not partial. Nothing under `backend/` or
-`frontend*/src/` was modified in this session.
+No git/Jenkins redeploy pipeline exists for this prototype (it is not part of the Nivesh staging
+docker-compose stack), so `suraksha/deploy_staging.sh` was written as that pipeline: tar → scp →
+isolated venv on the host → run under its own pid file → health-check. Sudo-free; no nginx change,
+no docker change, no shared-stack restart. Fully reversible with `./deploy_staging.sh --stop`.
+
+```
+$ ./deploy_staging.sh
+==> packaging /app/suraksha
+    24K
+==> shipping to aporwal107_gmail_com@34.47.250.214
+==> installing and starting on 127.0.0.1:8010
+    creating venv
+    deps: 3 / 3 present
+    up after 2s (pid 2926900)
+--- startup banner ---
+==================================================================
+  SURAKSHA prototype ready — http://127.0.0.1:8010
+  exam window opens at 19:14:37 (closes 19:44:37)
+  candidates: C1/priya/finger1, C2/rohan/finger2, C3/aisha/finger3, C4/vikram/finger4, C5/meera/finger5, C6/arjun/finger6
+==================================================================
+--- health ---
+{"start":"2026-07-26T19:14:37.955361+00:00","end":"2026-07-26T19:44:37.955361+00:00","now":"2026-07-26T19:13:38.284445+00:00","open":false,"seconds_until_open":59,"seconds_until_close":1859}
+```
+
+**Reachability: localhost-on-the-VM only, by deliberate default.** The prototype has no
+authentication on its admin/dashboard routes (documented in its README), so the deploy binds to
+`127.0.0.1` and is reached over an SSH tunnel:
+`ssh -N -L 8010:127.0.0.1:8010 aporwal107_gmail_com@34.47.250.214`. It is **not** published on
+`staging.niveshcopilot.com` and no firewall rule was opened. Making it publicly reachable is a
+separate, explicit decision — flagged to the user, not taken unilaterally.
 
 ## Test Cases
 
@@ -51,7 +75,67 @@ Authored **before** implementation in [`suraksha/TEST_CASES.md`](../suraksha/TES
 | T16 | exam | autosave + submit | api | score returned, `EXAM_SUBMITTED` ledgered | PASS |
 | T17 | UI | 3 demos through the real browser | e2e | all assertions green | PASS |
 
-## API / Endpoint Tests
+## API / Endpoint Tests — STAGING (primary evidence)
+
+**Command, run on `nivesh-app-vm` against the deployed instance:**
+`cd ~/suraksha-staging && SURAKSHA_URL=http://127.0.0.1:8010 python3 acceptance.py`
+
+```
+== T01 seed / candidate roster ==
+  PASS  T01  HTTP 200, 6 candidates, no passphrase leaked: [{'id': 'C1', 'name': 'priya'}, {'id': 'C2', 'name': 'rohan'}, {'id': 'C3', 'name': 'aisha'}, {'id': 'C4', 'name': 'vikram'}, {'id': 'C5', 'name': 'meera'}, {'id': 'C6', 'name': 'arjun'}]
+
+== T02/T03 pre-window key request is refused and ledgered ==
+  PASS  T02  HTTP 403 REFUSED_EARLY — key requested 299s before window open
+  PASS  T03  REFUSED_EARLY row present for C1
+
+== open the window ==
+  window now 2026-07-26T19:13:46.301206+00:00 .. 2026-07-26T19:43:46.301206+00:00
+
+== T04 wrong biometric ==
+  PASS  T04  HTTP 403 REFUSED_AUTH — biometric mismatch
+
+== T05/T06 key release + per-candidate uniqueness ==
+  PASS  T05  C1 watermark=CANDIDATE-C1 questions=10
+  PASS  T06  C1=['I013', 'I031', 'I023', 'I011', 'I057', 'I027', 'I053', 'I034', 'I059', 'I035']
+              C2=['I038', 'I001', 'I016', 'I010', 'I029', 'I021', 'I034', 'I006', 'I035', 'I044']
+
+== T07 difficulty parity ==
+  PASS  T07  mean_b={'C1': -0.0006, 'C2': 0.002, 'C3': 0.0003, 'C4': -0.0146, 'C5': 0.0007, 'C6': -0.0004} max_pairwise_delta=0.0166 tol=0.15
+
+== T08 uniqueness gate ==
+  PASS  T08  6 distinct ordered variants, no repeat inside a variant (C1∩C2 share 2 items — set alone does not identify)
+
+== T09 forensics on a real leak (C2) ==
+  PASS  T09  IDENTIFIED C2 (rohan) order=10/10 options=10/10 in 6.6ms (wall 12ms); runner-up C1 order=0/10
+
+== T10 fabricated artifact ==
+  PASS  T10  FABRICATED (best 0/10, threshold 6) 5.8ms
+
+== T11 partial leak (first 6 questions only) ==
+  PASS  T11  IDENTIFIED C2 order=6/10 from 645 chars
+
+== T12 same items, different order -> must NOT be C2 ==
+  PASS  T12  FABRICATED (best None 1/10) — order IS the watermark
+
+== T13 no assembled paper in plaintext at rest ==
+  PASS  T13  watermark string occurrences in suraksha.db: 0; 6 variant blobs, none containing readable stems (the item BANK is plaintext by design — assembled papers are not)
+
+== T14 ledger chain intact ==
+  PASS  T14  ok=True rows=22 head=9d38ec7fe1f5ba53…
+
+== T15 tamper one ledger row -> detected at that exact row ==
+  PASS  T15  edited row 13 -> broken_at=13 (row 13 content was modified after it was written); restored -> ok=True
+
+== T16 answer autosave + submit ==
+  PASS  T16  score=1/10 answered=10, EXAM_SUBMITTED ledgered
+
+==============================================================
+  16/16 cases passed — ALL PASS
+==============================================================
+EXIT=0
+```
+
+## API / Endpoint Tests — local cold run (corroborating)
 
 **Command:** `python3 acceptance.py` (stdlib urllib against the live process), cold run.
 
@@ -128,9 +212,30 @@ after restore : {'ok': True, 'rows': 37, 'broken_at': None, 'head': 'b347d2500de
 RESULT: PASS — tamper detected at the exact row
 ```
 
-## UI / Playwright Tests
+## UI / Playwright Tests — STAGING (primary evidence)
 
 - **Spec:** `suraksha/e2e/suraksha.spec.ts` (Playwright 1.60.0, chromium)
+- **Target:** the deployed staging instance, over `ssh -N -L 8010:127.0.0.1:8010`
+- **Command:** `SURAKSHA_URL=http://127.0.0.1:8010 npx playwright test`
+
+```
+$ curl -s http://127.0.0.1:8010/api/window        # through the tunnel = the staging process
+{"start":"2026-07-26T19:13:46.301206+00:00","end":"2026-07-26T19:43:46.301206+00:00","now":"2026-07-26T19:14:13.677416+00:00","open":true,"seconds_until_open":0,"seconds_until_close":1772}
+
+Running 6 tests using 1 worker
+
+  ✓  1 e2e/suraksha.spec.ts:17:5 › D2a — pre-window key request is refused, paper stays sealed (1.5s)
+  ✓  2 e2e/suraksha.spec.ts:24:5 › D2b — wrong biometric is refused (572ms)
+  ✓  3 e2e/suraksha.spec.ts:31:5 › D2c — window + biometric releases the key and renders the watermarked paper (678ms)
+  ✓  4 e2e/suraksha.spec.ts:43:5 › D1 — C2 gets a different paper; dashboard shows equal difficulty (1.2s)
+  ✓  5 e2e/suraksha.spec.ts:62:5 › D3 — a leaked paper names its leaker; a fake one is stamped FABRICATED (1.5s)
+  ✓  6 e2e/suraksha.spec.ts:85:5 › ledger — chain verifies clean from the dashboard (548ms)
+
+  6 passed (9.1s)
+```
+
+## UI / Playwright Tests — local cold run (corroborating)
+
 - **Command:** `npx playwright test` (from `suraksha/`), cold run
 
 ```

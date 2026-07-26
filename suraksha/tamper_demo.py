@@ -8,16 +8,18 @@ without the sqlite3 CLI.
 """
 
 import json
+import os
 import sqlite3
 import sys
 import urllib.request
 from pathlib import Path
 
 DB = Path(__file__).resolve().parent / "suraksha.db"
+BASE_URL = os.environ.get("SURAKSHA_URL", "http://127.0.0.1:8000")
 
 
 def verify() -> dict:
-    with urllib.request.urlopen("http://127.0.0.1:8000/api/ledger/verify", timeout=10) as r:
+    with urllib.request.urlopen(f"{BASE_URL}/api/ledger/verify", timeout=10) as r:
         return json.loads(r.read())
 
 

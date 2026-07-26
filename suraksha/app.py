@@ -45,7 +45,10 @@ BANK_SEED = 20260727          # fixed -> the item bank is reproducible
 ITEMS_PER_VARIANT = 10
 TARGET_MEAN_B = 0.0
 MEAN_B_TOLERANCE = 0.15
-DEFAULT_WINDOW_DELAY_MIN = 1.0     # exam opens 60s after startup
+HOST = os.environ.get("SURAKSHA_HOST", "127.0.0.1")
+PORT = int(os.environ.get("SURAKSHA_PORT", "8000"))
+
+DEFAULT_WINDOW_DELAY_MIN = float(os.environ.get("SURAKSHA_WINDOW_DELAY_MIN", "1.0"))
 DEFAULT_WINDOW_DURATION_MIN = 30.0
 FORENSICS_THRESHOLD = 6            # >= 6 of 10 positions in matching order
 
@@ -280,7 +283,7 @@ async def lifespan(_app: FastAPI):
     conn.close()
     banner = [
         "=" * 66,
-        "  SURAKSHA prototype ready — http://127.0.0.1:8000",
+        f"  SURAKSHA prototype ready — http://{HOST}:{PORT}",
         f"  exam window opens at {start.astimezone().strftime('%H:%M:%S')} "
         f"(closes {end.astimezone().strftime('%H:%M:%S')})",
         "  candidates: " + ", ".join(f"{c}/{n}/{p}" for c, n, p in CANDIDATES),
@@ -578,4 +581,4 @@ def api_ledger_verify():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
+    uvicorn.run(app, host=HOST, port=PORT, log_level="warning")

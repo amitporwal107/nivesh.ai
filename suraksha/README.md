@@ -96,6 +96,32 @@ re-walks the chain and reports the first row whose content or link doesn't recon
 - **No authentication on the admin/dashboard routes.** Anyone who can reach the port can move
   the exam window.
 
+## Deploying it somewhere else
+
+`./deploy_staging.sh` ships this directory to a host over SSH, builds an isolated venv there, and
+runs it under its own pid file — no sudo, no docker, no nginx, nothing else on the host touched.
+
+```bash
+./deploy_staging.sh            # deploy + health-check
+./deploy_staging.sh --status   # is it up?
+./deploy_staging.sh --logs     # tail the remote log
+./deploy_staging.sh --stop     # stop it; the host is as it was
+```
+
+It binds to `127.0.0.1` by default and is reached over a tunnel:
+
+```bash
+ssh -N -L 8010:127.0.0.1:8010 <user>@<host>    # then open http://127.0.0.1:8010
+```
+
+That default is deliberate: **the app has no authentication**, so anyone who can reach the port can
+move the exam window and read the dashboard. `SURAKSHA_BIND=0.0.0.0` will expose it, but don't do
+that on a shared or internet-facing host without putting auth in front of it first.
+
+Overridable: `SURAKSHA_SSH_HOST`, `SURAKSHA_SSH_KEY`, `SURAKSHA_PORT`, `SURAKSHA_BIND`,
+`SURAKSHA_REMOTE_DIR`. The app itself reads `SURAKSHA_HOST` / `SURAKSHA_PORT` /
+`SURAKSHA_WINDOW_DELAY_MIN`; the test tools read `SURAKSHA_URL`.
+
 ## Files
 
 | | |
@@ -106,3 +132,4 @@ re-walks the chain and reports the first row whose content or link doesn't recon
 | `acceptance.py` | runs T01–T16 against the live HTTP API — `python3 acceptance.py` |
 | `e2e/suraksha.spec.ts` | T17, the three demos through the real UI — `npx playwright test` |
 | `tamper_demo.py` | acceptance step 9 — edit the ledger behind the app's back |
+| `deploy_staging.sh` | ship + run it on a remote host over SSH |
