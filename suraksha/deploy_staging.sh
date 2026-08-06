@@ -31,7 +31,9 @@ case "${1:-deploy}" in
   --status) exec "${SSH[@]}" "cd $REMOTE_DIR 2>/dev/null && \
       { kill -0 \$(cat run/suraksha.pid 2>/dev/null) 2>/dev/null && echo \"RUNNING pid \$(cat run/suraksha.pid)\" || echo 'NOT RUNNING'; \
         curl -sf http://$HEALTH:$PORT/api/window || echo ' (no HTTP response)'; }" ;;
-  --stop)   exec "${SSH[@]}" "cd $REMOTE_DIR 2>/dev/null && \
+  # uninstall the watchdog FIRST, or cron resurrects the app within a minute
+  --stop)   exec "${SSH[@]}" "crontab -l 2>/dev/null | grep -v suraksha | crontab - ; \
+      echo 'watchdog cron removed'; cd $REMOTE_DIR 2>/dev/null && \
       { kill \$(cat run/suraksha.pid) 2>/dev/null && echo 'stopped' || echo 'was not running'; }" ;;
   --logs)   exec "${SSH[@]}" "tail -n 60 $REMOTE_DIR/run/suraksha.log" ;;
 esac
@@ -74,7 +76,23 @@ echo "    deps: \$("\$DIR/.venv/bin/pip" list 2>/dev/null | grep -ciE '^(fastapi
 # fresh demo state: the master key is ephemeral, so old ciphertext is undecryptable
 rm -f "\$DIR/suraksha.db"
 
+# the watchdog reads these, so a cron-triggered restart uses the same bind/port
 cd "\$DIR"
+chmod +x watchdog.sh
+echo "$BIND" > run/bind
+echo "$PORT" > run/port
+
+# Supervision. nohup does NOT survive a reboot — staging 502'd for ~11 minutes
+# on 2026-08-06 for exactly that reason. cron restarts it on boot and within a
+# minute of any crash. Installed idempotently, no sudo, no other crontab touched.
+CRON_MARK="# suraksha-prototype watchdog"
+( crontab -l 2>/dev/null | grep -v "suraksha" || true
+  echo "\$CRON_MARK"
+  echo "@reboot \$DIR/watchdog.sh"
+  echo "* * * * * \$DIR/watchdog.sh"
+) | crontab -
+echo "    watchdog: \$(crontab -l | grep -c 'watchdog.sh') cron entries installed"
+
 SURAKSHA_HOST=$BIND SURAKSHA_PORT=$PORT \
   setsid nohup ./.venv/bin/python app.py > run/suraksha.log 2>&1 &
 echo \$! > run/suraksha.pid

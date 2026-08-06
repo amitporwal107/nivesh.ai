@@ -111,6 +111,61 @@ redeploy will delete it** (and re-break the mount). To persist it, the nginx cha
 `origin/dev`. Not done here — pushing to `dev` is a live deploy of the shared staging stack and was
 not part of what was authorised.
 
+### Outage 2026-08-06 09:40 UTC — 502, root-caused and fixed
+
+**Symptom:** `https://staging.niveshcopilot.com/suraksha/` returned Cloudflare 502 "Bad gateway"
+(Host: Error). **Duration:** ~11 minutes, until reported.
+
+**Root cause — a defect in the original deploy, not an environment fluke.** The app was started with
+`setsid nohup`, which does not survive a host reboot, and nothing supervised it. `uptime` showed the
+VM had rebooted 11 minutes earlier; the app log ended at the 26-Jul deploy and nothing was listening
+on 8010. The nginx route was intact (still 2 `location /suraksha/` entries, gateway still
+`172.21.0.1`), so nginx was proxying to a dead backend — hence 502 rather than 404.
+
+**Fix:** `suraksha/watchdog.sh` + cron (`@reboot` and every minute), installed by
+`deploy_staging.sh`, no sudo. It health-checks over HTTP rather than just the pid (a wedged process
+holding the port is still an outage), kills and replaces a non-answering process, and waits for the
+docker bridge address to exist before binding — cron can fire before docker is up after a reboot.
+`--stop` now removes the cron entries first, or the watchdog would resurrect the app.
+
+**Proof the fix works — the outage was reproduced and recovery observed, not assumed:**
+
+```
+=== site is up ===
+GET /suraksha/ -> HTTP 200
+
+=== SIMULATING THE OUTAGE: killing the app process ===
+killed pid 17962
+port 8010 now DEAD
+
+=== confirming the site is 502 (same failure as reported) ===
+GET /suraksha/ -> HTTP 502
+
+t+0s   HTTP 502
+t+8s   HTTP 502
+t+16s  HTTP 502
+t+24s  HTTP 502
+t+32s  HTTP 502
+t+41s  HTTP 200
+
+RECOVERED automatically after ~41s with no human action
+```
+
+```
+$ cat run/watchdog.log
+2026-08-06T09:46:02+00:00 started pid 19412 on 172.21.0.1:8010
+$ crontab -l | grep -A2 suraksha
+# suraksha-prototype watchdog
+@reboot /home/aporwal107_gmail_com/suraksha-staging/watchdog.sh
+* * * * * /home/aporwal107_gmail_com/suraksha-staging/watchdog.sh
+```
+
+**Re-verified after recovery** (not just "it answers"): acceptance **16/16** and Playwright
+**6/6** against the public URL; shared staging app still `{"status":"ok",...}`.
+
+**Residual exposure:** worst-case downtime is now ~60s (cron granularity) instead of unbounded.
+A true zero-gap fix needs a systemd unit with `Restart=always`, which requires root on the VM.
+
 ### Rollback
 
 ```bash
