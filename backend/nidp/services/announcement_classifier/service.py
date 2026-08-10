@@ -1,8 +1,16 @@
-"""Classifier loop — fetch unclassified rows, call Haiku, write back.
+"""Classifier loop — fetch unclassified rows, call the LLM, write back.
 
 Designed for cron invocation (every 5–10 min). Crashes are safe: rows
 stay unclassified until a future run picks them up. The `classified_at`
 + `classifier_version` pair lets us re-classify when the prompt changes.
+
+Per-row failures are swallowed on purpose — one malformed filing must not stop
+the batch. But a run where EVERY row failed is an outage, not a quiet no-op, so
+it raises (see `run_once`). That distinction is load-bearing: between 2026-07-25
+and 2026-08-10 the OpenAI account was credit-exhausted and every call 429'd, yet
+each 30-min tick still recorded `status=OK, inserted=0`. `nidp.v_feed_status`
+stayed green for 16 days while the /v5/research corporate-events feed silently
+froze. Nothing alarmed because nothing ever reported failure.
 """
 from __future__ import annotations
 
@@ -62,6 +70,18 @@ async def run_once(limit: int = 200, dry_run: bool = False) -> dict:
         "classifier done: processed=%d errors=%d duration=%.1fs categories=%s impact=%s",
         processed, errors, duration, dict(cat_counts), dict(impact_counts),
     )
+
+    # Total failure is an outage — raise so run_with_job_log records FAILED and
+    # v_feed_status turns red. Returning normally here is what let a 16-day
+    # credit-exhaustion outage report OK on every tick (see module docstring).
+    # A PARTIAL run (some rows classified) still returns OK: the batch made
+    # progress and the failed rows stay NULL for the next tick to retry.
+    if processed == 0 and errors > 0:
+        raise RuntimeError(
+            f"announcement_classifier: all {errors} row(s) failed to classify "
+            f"(0 succeeded) — the preceding 'classify failed' warnings carry the "
+            f"provider error. Failing the run so it is not recorded as OK."
+        )
     return {
         "processed": processed,
         "errors": errors,
