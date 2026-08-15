@@ -16,9 +16,9 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 
 // ─── configure these two, then redeploy ──────────────────────────────────────
 /** External registration URL (Zoom / Luma / Google Form). Empty → "opening shortly". */
-const REGISTRATION_URL = "";
+const REGISTRATION_URL = "https://us05web.zoom.us/j/84646655700?pwd=kliwwXoazg6cblOtqKJQSHUQa2Xl2m.1";
 /** Human-readable date + time. Empty → "Date to be announced". */
-const WEBINAR_DATE = "";
+const WEBINAR_DATE = "Monday 17 August 2026 · 8:00 PM IST";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CONTACT_EMAIL = "support@niveshcopilot.com";
@@ -99,11 +99,11 @@ export default function WebinarPage() {
           {REGISTRATION_URL ? (
             <>
               <div className="nv-serif" style={{ fontSize: isMobile ? 22 : 26, letterSpacing: "-0.02em" }}>
-                Save your seat
+                Join the webinar
               </div>
               <p style={{ fontSize: 15, color: "var(--ink-2)", lineHeight: 1.6, margin: "10px auto 20px", maxWidth: 460 }}>
-                Free to attend. You'll get the join link and a calendar invite by email, and
-                the recording afterwards whether or not you make it live.
+                Free to attend, and there's no registration step — the button opens Zoom
+                directly at 8:00 PM. Add it to your own calendar now so it doesn't slip.
               </p>
               <a
                 data-testid="webinar-cta-link"
@@ -113,7 +113,7 @@ export default function WebinarPage() {
                 className="nv-btn nv-btn-primary"
                 style={{ display: "inline-block", padding: "13px 30px", fontSize: 15, textDecoration: "none" }}
               >
-                Register free ›
+                Join on Zoom ›
               </a>
             </>
           ) : (
