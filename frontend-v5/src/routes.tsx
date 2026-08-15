@@ -19,6 +19,7 @@ import TermsPage from "./pages/Terms";
 import DisclosurePage from "./pages/Disclosure";
 import BlogIndexPage from "./pages/Blog";
 import BlogArticlePage from "./pages/Blog/Article";
+import WebinarPage from "./pages/Webinar";
 import DashboardPage from "./pages/Dashboard";
 import ConcentrationPage from "./pages/Concentration";
 import RecommendationsPage from "./pages/Recommendations";
@@ -81,6 +82,9 @@ export function AppRoutes() {
       <Route path="/disclosure" element={<DisclosurePage />} />
       <Route path="/blog" element={<BlogIndexPage />} />
       <Route path="/blog/:slug" element={<BlogArticlePage />} />
+      {/* Webinar landing + registration — public, no auth: visitors arrive
+          cold from social posts and must not hit the login gate. */}
+      <Route path="/webinar" element={<WebinarPage />} />
 
       {/* Auth screens — full-bleed */}
       <Route path="/login" element={<LoginPage />} />
