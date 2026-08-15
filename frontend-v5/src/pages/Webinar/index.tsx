@@ -2,26 +2,47 @@
  * Webinar — public landing + registration page for the "How Nivesh Copilot was
  * built with Claude" session. Public marketing surface, no auth, no backend.
  *
- * Registration is handled by an external provider (calendar invite, join link and
- * reminder emails are what actually fight the no-show rate — a self-hosted form
- * gives none of those). Set REGISTRATION_URL below and the CTA becomes a real
- * button; until then the page says so plainly and offers a mailto channel.
+ * Registration is handled by Zoom, not by us: Zoom collects the attendee fields,
+ * issues each registrant a unique join link, sends the reminders, and keeps the
+ * attendee list. So this page carries the pitch, the pass preview and the run of
+ * show, then hands off — it deliberately renders NO input boxes, because a form
+ * that posts nowhere is a lie. Same rule the Contact page follows by using mailto
+ * instead of a form it has no endpoint to submit.
  *
- * That degradation is deliberate and mirrors the Contact page, which uses mailto
- * rather than a form it has no endpoint to submit: nothing here pretends to do
- * something it can't. Both states are covered by e2e/tests/webinar-unauth.spec.ts.
+ * REGISTRATION_FIELDS below is a preview of what Zoom will ask for, not a form.
+ * Both CTA states are covered by e2e/tests/webinar-unauth.spec.ts.
  */
 import MarketingShell from "@/components/marketing/MarketingShell";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 
-// ─── configure these two, then redeploy ──────────────────────────────────────
-/** External registration URL (Zoom / Luma / Google Form). Empty → "opening shortly". */
+// ─── configure these, then redeploy ──────────────────────────────────────────
+/**
+ * Zoom link the CTA opens. Empty → the page says registration is not open yet.
+ *
+ * Currently a direct JOIN link. Once "Registration required" is enabled on the
+ * meeting, Zoom issues a /meeting/register/… URL — swap it in here and each
+ * registrant gets their own join link plus reminders. The copy below adapts
+ * automatically via IS_ZOOM_REGISTRATION.
+ */
 const REGISTRATION_URL = "https://us05web.zoom.us/j/84646655700?pwd=kliwwXoazg6cblOtqKJQSHUQa2Xl2m.1";
 /** Human-readable date + time. Empty → "Date to be announced". */
 const WEBINAR_DATE = "Monday 17 August 2026 · 8:00 PM IST";
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** True once REGISTRATION_URL is a Zoom *registration* URL rather than a join URL. */
+const IS_ZOOM_REGISTRATION = /\/meeting\/register\//.test(REGISTRATION_URL);
+
 const CONTACT_EMAIL = "support@niveshcopilot.com";
+
+/** What Zoom asks for on the registration form. A preview — NOT inputs. */
+const REGISTRATION_FIELDS = ["Full name", "Work email", "Company", "Role"];
+
+const PASS = {
+  tier: "Attendee pass",
+  event: "Building Nivesh Copilot with Claude",
+  format: "Online · Zoom",
+  seat: "Unreserved",
+};
 
 const AGENDA = [
   {
@@ -93,51 +114,103 @@ export default function WebinarPage() {
         </div>
       </div>
 
-      {/* registration CTA */}
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: isMobile ? "8px 20px 16px" : "8px 56px 24px" }}>
-        <div data-testid="webinar-cta" className="nv-card-2" style={{ padding: isMobile ? "26px 22px" : "34px 40px", textAlign: "center" as const }}>
-          {REGISTRATION_URL ? (
-            <>
-              <div className="nv-serif" style={{ fontSize: isMobile ? 22 : 26, letterSpacing: "-0.02em" }}>
-                Join the webinar
+      {/* digital pass preview + registration hand-off */}
+      <div style={{ maxWidth: 1000, margin: "0 auto", padding: isMobile ? "8px 20px 16px" : "8px 56px 24px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, alignItems: "stretch" }}>
+
+          {/* the pass */}
+          <div
+            data-testid="webinar-pass"
+            className="nv-card"
+            style={{
+              padding: isMobile ? "22px 22px" : "26px 28px",
+              display: "flex",
+              flexDirection: "column" as const,
+              gap: 14,
+              position: "relative" as const,
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <span className="nv-pill nv-pill-mint">{PASS.tier}</span>
+              <span className="nv-mono" style={{ fontSize: 11, color: "var(--ink-2)", letterSpacing: ".1em" }}>
+                {PASS.format}
+              </span>
+            </div>
+
+            <div className="nv-serif" style={{ fontSize: isMobile ? 21 : 24, letterSpacing: "-0.02em", lineHeight: 1.2 }}>
+              {PASS.event}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: "auto", paddingTop: 14, borderTop: "1px solid var(--line-2)" }}>
+              <div>
+                <div className="nv-mono" style={{ fontSize: 10, letterSpacing: ".12em", color: "var(--ink-2)", textTransform: "uppercase" as const }}>When</div>
+                <div style={{ fontSize: 14, marginTop: 4 }}>{dateLabel}</div>
               </div>
-              <p style={{ fontSize: 15, color: "var(--ink-2)", lineHeight: 1.6, margin: "10px auto 20px", maxWidth: 460 }}>
-                Free to attend, and there's no registration step — the button opens Zoom
-                directly at 8:00 PM. Add it to your own calendar now so it doesn't slip.
-              </p>
-              <a
-                data-testid="webinar-cta-link"
-                href={REGISTRATION_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="nv-btn nv-btn-primary"
-                style={{ display: "inline-block", padding: "13px 30px", fontSize: 15, textDecoration: "none" }}
-              >
-                Join on Zoom ›
-              </a>
-            </>
-          ) : (
-            <>
-              <div className="nv-serif" style={{ fontSize: isMobile ? 22 : 26, letterSpacing: "-0.02em" }}>
-                Registration opens shortly
+              <div>
+                <div className="nv-mono" style={{ fontSize: 10, letterSpacing: ".12em", color: "var(--ink-2)", textTransform: "uppercase" as const }}>Seat</div>
+                <div style={{ fontSize: 14, marginTop: 4 }}>{PASS.seat}</div>
               </div>
-              <p
-                data-testid="webinar-cta-pending"
-                style={{ fontSize: 15, color: "var(--ink-2)", lineHeight: 1.6, margin: "10px auto 20px", maxWidth: 500 }}
-              >
-                The date and booking link aren't set yet, so there's nothing here that would
-                pretend to take your registration. Email us and we'll send the invite the
-                moment it's live — you'll be first on the list.
-              </p>
-              <a
-                href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("Webinar — notify me")}`}
-                className="nv-mono"
-                style={{ fontSize: 14, color: "var(--mint)", textDecoration: "none" }}
-              >
-                {CONTACT_EMAIL} ›
-              </a>
-            </>
-          )}
+            </div>
+          </div>
+
+          {/* registration */}
+          <div data-testid="webinar-cta" className="nv-card-2" style={{ padding: isMobile ? "26px 22px" : "30px 32px", display: "flex", flexDirection: "column" as const }}>
+            {REGISTRATION_URL ? (
+              <>
+                <div className="nv-serif" style={{ fontSize: isMobile ? 22 : 26, letterSpacing: "-0.02em" }}>
+                  {IS_ZOOM_REGISTRATION ? "Claim your pass" : "Join the webinar"}
+                </div>
+                <p style={{ fontSize: 15, color: "var(--ink-2)", lineHeight: 1.6, margin: "10px 0 16px" }}>
+                  {IS_ZOOM_REGISTRATION
+                    ? "Free. Zoom will ask for a few details, then email you your own join link and a reminder before we start."
+                    : "Free, and there's no registration step — the button opens Zoom directly at 8:00 PM. Add it to your calendar now so it doesn't slip."}
+                </p>
+
+                {IS_ZOOM_REGISTRATION && (
+                  <ul data-testid="webinar-fields" style={{ listStyle: "none", padding: 0, margin: "0 0 18px", display: "grid", gap: 7 }}>
+                    {REGISTRATION_FIELDS.map((f) => (
+                      <li key={f} className="nv-mono" style={{ fontSize: 12, color: "var(--ink-2)", letterSpacing: ".04em" }}>
+                        — {f}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <a
+                  data-testid="webinar-cta-link"
+                  href={REGISTRATION_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="nv-btn nv-btn-primary"
+                  style={{ display: "inline-block", padding: "13px 30px", fontSize: 15, textDecoration: "none", textAlign: "center" as const, marginTop: "auto" }}
+                >
+                  {IS_ZOOM_REGISTRATION ? "Register on Zoom ›" : "Join on Zoom ›"}
+                </a>
+              </>
+            ) : (
+              <>
+                <div className="nv-serif" style={{ fontSize: isMobile ? 22 : 26, letterSpacing: "-0.02em" }}>
+                  Registration opens shortly
+                </div>
+                <p
+                  data-testid="webinar-cta-pending"
+                  style={{ fontSize: 15, color: "var(--ink-2)", lineHeight: 1.6, margin: "10px 0 18px" }}
+                >
+                  The booking link isn't live yet, so there's nothing here that would pretend
+                  to take your registration. Email us and we'll send the invite the moment
+                  it opens — you'll be first on the list.
+                </p>
+                <a
+                  href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("Webinar — notify me")}`}
+                  className="nv-mono"
+                  style={{ fontSize: 14, color: "var(--mint)", textDecoration: "none", marginTop: "auto" }}
+                >
+                  {CONTACT_EMAIL} ›
+                </a>
+              </>
+            )}
+          </div>
         </div>
       </div>
 

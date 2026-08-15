@@ -109,4 +109,45 @@ test.describe("Webinar landing page", () => {
     await page.goto("/v5/webinar/does-not-exist");
     await expect(page.locator("body")).not.toBeEmpty();
   });
+
+  // TC-9 — the digital pass preview renders with the session's real details.
+  test("TC-9 shows the pass preview with event, date and format", async ({ page }) => {
+    await page.goto(URL);
+    const pass = page.getByTestId("webinar-pass");
+    await expect(pass).toBeVisible();
+    await expect(pass).toContainText(/Attendee pass/i);
+    await expect(pass).toContainText(/Zoom/i);
+    // "When" must carry a real value, never an empty slot.
+    await expect(pass).not.toContainText(/Date to be announced/i);
+  });
+
+  // TC-10 — HONESTY CONTRACT: registration is handled by Zoom, so this page must
+  // render no form controls at all. A form that posts nowhere is the exact failure
+  // the Contact page avoids by using mailto. Guards against a future "improvement"
+  // adding inputs with no endpoint behind them.
+  test("TC-10 renders no input controls, since it collects nothing", async ({ page }) => {
+    await page.goto(URL);
+    await expect(page.locator("form")).toHaveCount(0);
+    await expect(page.locator("input")).toHaveCount(0);
+    await expect(page.locator("textarea")).toHaveCount(0);
+    await expect(page.locator('button[type="submit"]')).toHaveCount(0);
+  });
+
+  // TC-11 — the field list is a PREVIEW and only appears once the URL is actually a
+  // Zoom registration URL; a bare join link must not advertise fields nobody collects.
+  test("TC-11 field preview matches the registration mode", async ({ page }) => {
+    await page.goto(URL);
+    const link = page.getByTestId("webinar-cta-link");
+    if (!(await link.count())) return; // unconfigured state — covered by TC-5
+    const href = (await link.getAttribute("href")) ?? "";
+    const isRegistration = /\/meeting\/register\//.test(href);
+    const fields = page.getByTestId("webinar-fields");
+    if (isRegistration) {
+      await expect(fields).toBeVisible();
+      await expect(link).toContainText(/Register/i);
+    } else {
+      await expect(fields).toHaveCount(0);
+      await expect(link).toContainText(/Join/i);
+    }
+  });
 });
