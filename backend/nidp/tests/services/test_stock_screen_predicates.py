@@ -183,3 +183,31 @@ def test_event_categories_match_the_implemented_classifier_set():
     assert len(reg.EVENT_CATEGORIES) == 12
     assert "auditor_resignation" not in reg.EVENT_CATEGORIES  # PRD asks; classifier lacks
     assert {"orders", "capex", "mna", "buyback"} <= set(reg.EVENT_CATEGORIES)
+
+
+# ── placeholder ordering (regression) ───────────────────────────────────────
+
+def test_where_placeholders_start_at_dollar_one_so_extra_params_must_append():
+    """Regression for a live 500 on the zero-result path.
+
+    `where()` numbers its own placeholders from $1 (as_of is $1). Any query that
+    REUSES that WHERE and needs an extra parameter must APPEND it, never prepend.
+    Prepending shifted every placeholder and handed the date comparison a float:
+
+        asyncpg.exceptions.UndefinedFunctionError:
+        operator does not exist: date = double precision
+
+    Unit tests passed because they only ever built a WHERE in isolation; the
+    defect only appears when the clause is embedded in a larger statement.
+    """
+    where_sql, params = _where([{"key": "roe_pct", "op": "gte", "value": 18}], "2026-08-17")
+    assert "$1" in where_sql and params[0] == "2026-08-17"
+
+    # correct composition: extra parameter appended, referenced as $N
+    pct_params = list(params) + [0.85]
+    assert len(pct_params) == 3
+    sql = (f"SELECT percentile_cont(${len(pct_params)}) WITHIN GROUP (ORDER BY f.\"roe_pct\") "
+           f"FROM nidp.stock_features_daily f WHERE {where_sql}")
+    assert "percentile_cont($3)" in sql
+    assert pct_params[0] == "2026-08-17", "as_of must remain $1"
+    assert pct_params[-1] == 0.85, "the extra parameter must be last"
