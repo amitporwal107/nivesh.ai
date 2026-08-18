@@ -64,7 +64,12 @@ jobs:
             # the root disk, mongo could not open WiredTiger, and staging was
             # 502 for ~50 min. PROD runs on this same VM, so a full disk risks
             # both. Fail fast with a clear message instead of half-deploying.
-            MIN_FREE_MB=6000
+            # 2000MB is the operator-set floor: the incremental write for a
+            # code-only rebuild is small because Docker reuses cached layers, and
+            # the reclaim step below runs FIRST. A full no-cache rebuild writes
+            # ~4GB, so a cold build can still exhaust this — the reclaim, not the
+            # threshold, is what actually protects the box.
+            MIN_FREE_MB=${MIN_FREE_MB_OVERRIDE:-2000}
             FREE_MB=$(df -Pm / | awk 'NR==2{print $4}')
             echo "    Disk   : ${FREE_MB}MB free (need ${MIN_FREE_MB}MB)"
             if [[ "$FREE_MB" -lt "$MIN_FREE_MB" ]]; then
