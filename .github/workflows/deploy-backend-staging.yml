@@ -59,6 +59,34 @@ jobs:
             echo "    Branch : ${{ steps.config.outputs.branch }}"
             echo "    Commit : ${{ github.sha }}"
 
+            # ── Disk precheck ────────────────────────────────────────────────
+            # A backend image build writes ~4GB. On 2026-08-18 a deploy filled
+            # the root disk, mongo could not open WiredTiger, and staging was
+            # 502 for ~50 min. PROD runs on this same VM, so a full disk risks
+            # both. Fail fast with a clear message instead of half-deploying.
+            MIN_FREE_MB=6000
+            FREE_MB=$(df -Pm / | awk 'NR==2{print $4}')
+            echo "    Disk   : ${FREE_MB}MB free (need ${MIN_FREE_MB}MB)"
+            if [[ "$FREE_MB" -lt "$MIN_FREE_MB" ]]; then
+              echo "--- reclaiming regenerable space ---"
+              sudo docker builder prune -af  >/dev/null 2>&1 || true
+              sudo docker image   prune -f   >/dev/null 2>&1 || true
+              sudo apt-get clean             >/dev/null 2>&1 || true
+              # Oversized container logs: the single biggest reclaim in practice
+              # (one log had grown to ~3.5GB despite max-size being configured).
+              sudo sh -c 'for f in /var/lib/docker/containers/*/*-json.log; do
+                            [ -f "$f" ] && [ "$(stat -c%s "$f")" -gt 52428800 ] && : > "$f";
+                          done' 2>/dev/null || true
+              FREE_MB=$(df -Pm / | awk 'NR==2{print $4}')
+              echo "    Disk   : ${FREE_MB}MB free after reclaim"
+            fi
+            if [[ "$FREE_MB" -lt "$MIN_FREE_MB" ]]; then
+              echo "::error::Refusing to deploy: only ${FREE_MB}MB free on / " \
+                   "(need ${MIN_FREE_MB}MB). A build here would fill the disk and " \
+                   "take mongo down — PROD shares this VM. Free space or grow the disk."
+              exit 1
+            fi
+
             # Pull the on-VM repo with safe.directory passed INLINE so git never
             # writes ~/.gitconfig (unwritable/root-owned under OS Login →
             # "could not lock config file /home/<user>/.gitconfig"). This also
@@ -96,13 +124,38 @@ jobs:
               /etc/cron.d/nivesh-staging-cache-clear
 
       - name: Health check [staging]
-        run: |
-          sleep 15
-          HTTP=$(curl -sfk -o /dev/null -w "%{http_code}" \
-            --max-time 15 https://staging.niveshcopilot.com/api/healthz \
-            2>/dev/null || echo "000")
-          echo "Health check → HTTP $HTTP"
-          [[ "$HTTP" == "200" ]] || echo "::warning::Health check returned $HTTP"
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:            ${{ secrets.NIVESH_VM_HOST }}
+          username:        ${{ secrets.DEVOPS_SSH_USER }}
+          key:             ${{ secrets.DEVOPS_SSH_KEY }}
+          port:            22
+          timeout:         3m
+          command_timeout: 3m
+          # Checked from the VM, not the runner. The previous version curled the
+          # public URL and got 403 (Cloudflare blocks Actions runners), and
+          # because `curl -sf` also exits non-zero on 403 the code and the
+          # `|| echo 000` fallback concatenated into the literal "403000".
+          # It only ever warned, so a broken deploy still reported success.
+          script: |
+            set -uo pipefail
+            # Through the staging nginx on loopback, so this exercises the real
+            # request path (edge -> backend) rather than just process liveness.
+            # The container port 8001 is EXPOSED but not PUBLISHED, so
+            # 127.0.0.1:8001 does not reach it — do not "simplify" this back.
+            for i in $(seq 1 10); do
+              HTTP=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 \
+                       https://127.0.0.1:8443/api/healthz || true)
+              [ "$HTTP" = "200" ] && { echo "Health check -> HTTP 200 (attempt $i)"; exit 0; }
+              echo "  attempt $i: HTTP ${HTTP:-000} — retrying in 6s"
+              sleep 6
+            done
+            echo "::error::Backend did not become healthy after 10 attempts (last HTTP ${HTTP:-000})."
+            sudo docker inspect nivesh-staging-app-backend \
+              --format 'container health: {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' || true
+            sudo docker ps --format '{{.Names}}\t{{.Status}}' | grep -i staging || true
+            sudo docker logs --tail 40 nivesh-staging-app-backend 2>&1 | tail -40 || true
+            exit 1
 
       - name: Clear performance caches [staging]
         uses: appleboy/ssh-action@v1.0.3
