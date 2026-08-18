@@ -11,6 +11,7 @@ from nidp.shared.config import INDEX_CLOSE_URL, NSE_WWW, fmt_url
 from nidp.shared.ingester_base import BaseIngester
 from nidp.shared.metrics import SOURCE_FETCH, time_fetch
 from nidp.shared.sources.nse_fetcher import fetch_bytes
+from nidp.shared.write_target import upsert_target_problem
 from nidp.shared.storage.job_log import JobRun
 
 from .parser import parse_index_close
@@ -25,7 +26,23 @@ class IndexCloseIngester(BaseIngester):
     KAFKA_TOPIC = "nidp.index_close.v1"
     AVRO_SCHEMA = "index_close_v1"
 
+    # nidp.index_eod / nidp.mf_nav_daily are pass-through VIEWS over FDW
+    # foreign tables in some environments, which no upsert can target.
+    # Detect it up front and skip with a real reason instead of failing
+    # identically forever. See nidp/shared/write_target.py.
+    _write_target = "nidp.index_eod"
+    _target_problem = None
+
+    async def _check_write_target(self) -> bool:
+        self._target_problem = await upsert_target_problem(self._write_target)
+        if self._target_problem:
+            logger.warning("%s: %s", self.SERVICE_NAME, self._target_problem)
+            return False
+        return True
+
     async def fetch(self, target_date: Optional[date]) -> tuple[bytes, str, int]:
+        if not await self._check_write_target():
+            return b"", self._write_target, 200
         if target_date is None:
             raise ValueError("index_close requires --date")
         url = fmt_url(INDEX_CLOSE_URL, target_date)
@@ -43,6 +60,8 @@ class IndexCloseIngester(BaseIngester):
                 raise
 
     def parse(self, body: bytes, target_date: Optional[date]) -> list[dict]:
+        if self._target_problem:
+            return []
         return parse_index_close(body)
 
     def validate(self, rows: list[dict]) -> tuple[list[dict], int]:

@@ -12,7 +12,16 @@ logger = logging.getLogger(__name__)
 SOURCE_NAME = "NSE_FII_DII"
 
 
-async def upsert_fii_dii(rows: list[dict[str, Any]], run_id: uuid.UUID) -> int:
+async def upsert_fii_dii(rows: list[dict[str, Any]], run_id: uuid.UUID,
+                         source: str = SOURCE_NAME) -> int:
+    """Upsert flow rows.
+
+    `source` is part of the primary key (as_of_date, category, segment,
+    source), so NSE's provisional figures and NSDL's custodian-confirmed
+    figures coexist for the same day instead of overwriting each other —
+    which is what makes a provisional-vs-confirmed comparison possible.
+    A row may carry its own "source" to mix sources in one batch.
+    """
     if not rows:
         return 0
     args = [
@@ -20,7 +29,7 @@ async def upsert_fii_dii(rows: list[dict[str, Any]], run_id: uuid.UUID) -> int:
          r.get("buy_value_cr"), r.get("sell_value_cr"), r.get("net_value_cr"),
          r.get("buy_contracts"), r.get("sell_contracts"), r.get("net_contracts"),
          r.get("open_interest"),
-         SOURCE_NAME, run_id)
+         r.get("source") or source, run_id)
         for r in rows
     ]
     pool = await get_pool()

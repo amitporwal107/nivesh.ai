@@ -135,8 +135,16 @@ async def _prime_nse() -> None:
 
 
 async def _force_reprime() -> None:
+    """Drop the current cookies and re-run the prime.
+
+    A 401/403 from Akamai means the *existing* `_abck` / `bm_sv` pair has
+    been flagged. Re-priming while still presenting those cookies just
+    re-asserts the flagged identity, so clear the jar first.
+    """
     global _primed
     _primed = False
+    session = await _get_session()
+    session.cookie_jar.clear()
     await _prime_nse()
 
 
@@ -187,12 +195,19 @@ async def fetch_bytes(
                         except Exception as ae:  # pragma: no cover - never break a feed
                             logger.warning("archive_raw skipped for %s: %s", url, ae)
                     return body, 200
-                if resp.status in (401, 403) and _is_nse_host(url) and attempt == 0:
-                    # Cookies likely expired — re-prime once and retry
-                    logger.info("NSE %s on %s — re-priming cookies", resp.status, url)
+                if resp.status in (401, 403) and _is_nse_host(url):
+                    # Cookies flagged or the egress IP is being throttled by
+                    # NSE's edge. Both are transient, so re-prime and fall
+                    # through to the backoff sleep rather than hammering the
+                    # edge immediately (an instant retry re-trips the block)
+                    # or giving up after one try.
+                    logger.info(
+                        "NSE %s on %s — re-priming cookies (attempt %d/%d)",
+                        resp.status, url, attempt + 1, HTTP_RETRY_ATTEMPTS,
+                    )
                     await _force_reprime()
-                    continue
-                if resp.status in (429, 500, 502, 503, 504):
+                    last_err = f"HTTP {resp.status} (NSE edge block)"
+                elif resp.status in (429, 500, 502, 503, 504):
                     last_err = f"HTTP {resp.status}"
                 else:
                     # Terminal 4xx (e.g. 404 — bhavcopy not yet published,

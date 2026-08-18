@@ -20,11 +20,20 @@ from nidp.shared.config import (
 )
 from nidp.shared.ingester_base import BaseIngester
 from nidp.shared.metrics import SOURCE_FETCH, time_fetch
+from nidp.shared.sources.bse_fetcher import bhavcopy_url as bse_bhavcopy_url
+from nidp.shared.sources.bse_fetcher import fetch_bytes as bse_fetch_bytes
 from nidp.shared.sources.nse_fetcher import fetch_bytes
 from nidp.shared.storage.job_log import JobRun
 
 from .parser import parse_bhavcopy
-from .writer import SOURCE_NAME, upsert_bhavcopy
+from .writer import (
+    BSE_SOURCE_NAME,
+    SOURCE_NAME,
+    dates_already_covered_by_nse,
+    drop_bse_gapfill_for,
+    upsert_bhavcopy,
+    upsert_bse_gapfill,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +73,18 @@ class BhavcopyIngester(BaseIngester):
     # read a single canonical answer.
     BUMPS_MARKET_SESSION = True
 
+    # True when NSE was unreachable and BSE supplied the day instead.
+    _used_bse: bool = False
+    # True when NSE was unreachable but the day is already stored, so
+    # there is nothing to back-fill and the run is a legitimate no-op.
+    _already_covered: bool = False
+
     async def fetch(self, target_date: Optional[date]) -> tuple[bytes, str, int]:
         if target_date is None:
             raise ValueError("bhavcopy requires --date (no rolling-file mode)")
         url = _url_for(target_date)
+        self._used_bse = False
+        self._already_covered = False
         with time_fetch(self.SOURCE_NAME):
             try:
                 body, status = await fetch_bytes(
@@ -77,11 +94,52 @@ class BhavcopyIngester(BaseIngester):
                 )
                 SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
                 return body, url, status
-            except Exception:
+            except Exception as nse_exc:  # noqa: BLE001
                 SOURCE_FETCH.labels(source=self.SOURCE_NAME, status="error").inc()
-                raise
+                logger.warning(
+                    "bhavcopy: NSE fetch failed for %s (%s) — trying BSE",
+                    target_date, nse_exc,
+                )
+                return await self._fetch_bse(target_date, nse_exc)
+
+    async def _fetch_bse(self, target_date: date, nse_exc: BaseException
+                         ) -> tuple[bytes, str, int]:
+        """Fall back to BSE's SEBI-standard bhavcopy for the same day.
+
+        BSE publishes the identical column layout, so `parse_bhavcopy`
+        handles it unchanged. Re-raise the NSE error if BSE also fails —
+        NSE is the primary source and the more actionable failure.
+        """
+        # If a previous NSE run already stored this day there is nothing
+        # to back-fill. Returning empty lets BaseIngester finalize the run
+        # as SKIPPED instead of BLOCKing validation on zero inserted rows
+        # (which would mark a correct no-op as a feed failure and inflate
+        # consecutive_failures), and it saves an ~850KB pointless download.
+        if await dates_already_covered_by_nse([target_date]):
+            logger.info(
+                "bhavcopy: NSE unreachable for %s, but the day is already "
+                "stored from NSE — nothing to back-fill", target_date,
+            )
+            self._already_covered = True
+            return b"", bse_bhavcopy_url(target_date), 200
+
+        url = bse_bhavcopy_url(target_date)
+        with time_fetch(BSE_SOURCE_NAME):
+            try:
+                body, status = await bse_fetch_bytes(url)
+                SOURCE_FETCH.labels(
+                    source=BSE_SOURCE_NAME, status=str(status)).inc()
+            except Exception:  # noqa: BLE001
+                SOURCE_FETCH.labels(source=BSE_SOURCE_NAME, status="error").inc()
+                logger.exception("bhavcopy: BSE fallback also failed for %s",
+                                 target_date)
+                raise nse_exc from None
+        self._used_bse = True
+        return body, url, status
 
     def parse(self, body: bytes, target_date: Optional[date]) -> list[dict]:
+        if self._already_covered:
+            return []
         csv_bytes = _unzip_first_csv(body)
         rows = parse_bhavcopy(csv_bytes)
         # Hard-pin all rows to the requested target_date — guards
@@ -110,7 +168,17 @@ class BhavcopyIngester(BaseIngester):
         return kept, dropped
 
     async def persist(self, rows: list[dict], run: JobRun) -> int:
+        if self._used_bse:
+            # Gap-fill semantics: BSE only supplies days NSE has missed,
+            # re-keyed onto NSE symbol/series via ISIN. See
+            # writer.upsert_bse_gapfill for why both guards are needed.
+            return await upsert_bse_gapfill(rows, run.run_id)
+
         inserted = await upsert_bhavcopy(rows, run.run_id)
+        # NSE is authoritative: once the real bhavcopy lands, retire any
+        # BSE stand-in rows for those days so no day carries two rows per
+        # symbol (every downstream filter keys on series, not source).
+        await drop_bse_gapfill_for(sorted({r["as_of_date"] for r in rows}))
 
         # Emit Kafka events. For 30k rows we batch via
         # producer-side queue; LocalLogBus is fine for dev.

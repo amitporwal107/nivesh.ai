@@ -106,8 +106,7 @@ async def _fetch_price_history(
     rows = await conn.fetch(
         """
         SELECT symbol, as_of_date, close_price, high_price, low_price,
-               open_price, volume,
-               COALESCE(deliv_pct, 0.0) AS deliv_pct
+               open_price, volume, deliv_pct, source
           FROM nidp.prices_eod
          WHERE symbol = ANY($1::text[])
            AND series = 'EQ'
@@ -124,13 +123,41 @@ async def _fetch_price_history(
     return grouped
 
 
+# prices_eod can be filled from BSE on days NSE's edge blocked us. Prices
+# track closely across the two exchanges, so BSE bars are fine for
+# price-derived indicators (SMA, RSI, MACD, returns). Volume and delivery
+# are NOT: they measure one exchange's order book, and BSE turnover runs
+# roughly an order of magnitude below NSE's. Feeding those bars into a
+# 20-day volume baseline would read as a volume collapse and fire false
+# "distribution" signals, so they are masked to NaN instead.
+_VOLUME_TRUSTED_SOURCES = frozenset({"NSE_BHAVCOPY"})
+
+
 def _to_arrays(records: list) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     closes = np.array([float(r["close_price"]) for r in records])
     opens = np.array([float(r["open_price"] or r["close_price"]) for r in records])
     highs = np.array([float(r["high_price"]) for r in records])
     lows = np.array([float(r["low_price"]) for r in records])
-    volumes = np.array([float(r["volume"] or 0) for r in records])
-    deliv = np.array([float(r["deliv_pct"] or 0) for r in records])
+
+    def _vol(r):
+        src = r["source"] if "source" in r else None
+        if src is not None and src not in _VOLUME_TRUSTED_SOURCES:
+            return np.nan
+        v = r["volume"]
+        return float(v) if v is not None else np.nan
+
+    def _dlv(r):
+        src = r["source"] if "source" in r else None
+        if src is not None and src not in _VOLUME_TRUSTED_SOURCES:
+            return np.nan
+        v = r["deliv_pct"]
+        # A missing delivery figure is unknown, not 0% — coercing it to
+        # zero drags deliv_pct_avg_20 down and mis-scores the
+        # accumulation pillar. delivery_stats already skips NaN.
+        return float(v) if v is not None else np.nan
+
+    volumes = np.array([_vol(r) for r in records])
+    deliv = np.array([_dlv(r) for r in records])
     return closes, opens, highs, lows, volumes, deliv
 
 

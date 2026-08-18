@@ -105,6 +105,34 @@ async def upsert_financials(
     return row["id"] if row else None
 
 
+def _quarter_end_on_or_before(d: "date") -> "date":
+    """Snap a Screener month-end label onto the quarter it actually reports.
+
+    Screener labels a shareholding table by the month it was published
+    ("Jul 2026" -> 2026-07-31), but the figures are the *quarter's*
+    filing. Writing the raw month-end pollutes shareholding_pattern's
+    quarterly axis: a "latest quarter" lookup picks 2026-07-31 for a
+    handful of symbols and 2026-06-30 for the rest, and any
+    quarter-over-quarter delta silently compares mismatched periods.
+
+    Returns the last quarter end on or before `d`. Used as a *predicate*
+    (`d == _quarter_end_on_or_before(d)` iff d is a quarter end), not as a
+    coercion: an interim month row carries different figures from the
+    quarter row it sits next to (ADANIENT 2026-06-30 fii_pct 8.77 vs
+    2026-07-31 fii_pct 10.51), so snapping it onto the quarter and letting
+    the upsert win would overwrite a real quarter with interim data.
+    """
+    import calendar
+    from datetime import date
+
+    qm = ((d.month - 1) // 3) * 3 + 3            # 3, 6, 9 or 12
+    q_end = date(d.year, qm, calendar.monthrange(d.year, qm)[1])
+    if d >= q_end:
+        return q_end
+    pm, py = (qm - 3, d.year) if qm > 3 else (12, d.year - 1)
+    return date(py, pm, calendar.monthrange(py, pm)[1])
+
+
 async def upsert_shareholding(
     symbol: str,
     data: dict[str, Any],
@@ -125,6 +153,18 @@ async def upsert_shareholding(
     try:
         period_end = _dt.strptime(raw_period, "%Y-%m-%d").date()
     except (ValueError, TypeError):
+        return False
+    # nidp.shareholding_pattern is a *quarterly* series and every consumer
+    # (latest-quarter lookups, QoQ deltas, the 20-quarter backfill) assumes
+    # that grain. Screener also surfaces interim month-end filings; those
+    # carry real but non-quarter figures, so admitting them makes
+    # "latest quarter" mean 2026-07-31 for a few symbols and 2026-06-30 for
+    # the rest. Keep them out rather than corrupt the axis.
+    if period_end != _quarter_end_on_or_before(period_end):
+        logger.info(
+            "shareholding: skipping non-quarter period_end %s for %s (%s)",
+            period_end, symbol, source,
+        )
         return False
 
     # Skip if no shareholding fields present

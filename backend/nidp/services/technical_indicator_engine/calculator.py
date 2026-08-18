@@ -137,15 +137,28 @@ def pct_return(closes: np.ndarray, bars: int) -> Optional[float]:
 # ── Volume metrics ───────────────────────────────────────────────────
 
 def volume_stats(volumes: np.ndarray, period: int = 20) -> tuple[Optional[float], Optional[float]]:
-    """Returns (avg_volume_20, vol_z20)."""
+    """Returns (avg_volume_20, vol_z20).
+
+    NaN marks a bar whose volume is not comparable — a day filled from a
+    different exchange, or a genuinely missing figure. Those bars are
+    dropped from the baseline rather than counted as zero, which would
+    deflate the mean and inflate the z-score. If today's own volume is
+    NaN there is nothing to score, so both outputs are None.
+    """
     if len(volumes) < period:
         return None, None
+    latest = volumes[-1]
+    if np.isnan(latest):
+        return None, None
     window = volumes[-period - 1:-1]   # exclude today from baseline
-    if len(window) < period:
+    window = window[~np.isnan(window)]
+    # Require most of the window to survive; a handful of comparable bars
+    # makes for a meaningless standard deviation.
+    if len(window) < max(5, period // 2):
         return None, None
     avg = float(np.mean(window))
     std = float(np.std(window, ddof=1))
-    z = float((volumes[-1] - avg) / std) if std > 0 else 0.0
+    z = float((latest - avg) / std) if std > 0 else 0.0
     return avg, z
 
 
