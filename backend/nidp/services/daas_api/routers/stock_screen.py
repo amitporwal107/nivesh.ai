@@ -158,10 +158,16 @@ async def _filter_impact(conn, filters, as_of) -> List[Dict[str, Any]]:
             # HIGH one.
             frac = min(0.95, max(0.05, _SUGGEST_TARGET_ROWS / loo))
             pct = 1.0 - frac if op in ("gte", "gt") else frac
+            # `where_sql` already numbers its own placeholders from $1 (as_of is
+            # $1), so the percentile fraction MUST be appended LAST. Passing it
+            # first shifts every placeholder and hands the date comparison a
+            # float: "operator does not exist: date = double precision".
+            pct_params = list(params) + [pct]
             suggested = await conn.fetchval(
-                f'SELECT percentile_cont($1) WITHIN GROUP (ORDER BY f."{m.column}") '
+                f'SELECT percentile_cont(${len(pct_params)}) '
+                f'WITHIN GROUP (ORDER BY f."{m.column}") '
                 f"FROM {_FEATURES} f WHERE {where_sql} AND f.\"{m.column}\" IS NOT NULL",
-                pct, *params)
+                *pct_params)
             if suggested is not None:
                 suggested = round(float(suggested), 2)
                 probe = dict(f)
