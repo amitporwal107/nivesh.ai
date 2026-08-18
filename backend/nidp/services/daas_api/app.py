@@ -67,6 +67,7 @@ from nidp.services.daas_api.routers import (
     reference,
     replay,
     snapshots,
+    stock_screen,
     stock_scores,
     stock_v3_scores,
     dq_status,
@@ -325,6 +326,7 @@ app.include_router(mf.router, prefix=v1_prefix)
 app.include_router(mf_performance.router, prefix=v1_prefix)
 app.include_router(mf_scores.router, prefix=v1_prefix)
 app.include_router(stock_scores.router, prefix=v1_prefix)
+app.include_router(stock_screen.router, prefix=v1_prefix)
 app.include_router(stock_v3_scores.router, prefix=v1_prefix)
 app.include_router(analytics.router, prefix=v1_prefix)
 app.include_router(dq_status.router, prefix=v1_prefix)
