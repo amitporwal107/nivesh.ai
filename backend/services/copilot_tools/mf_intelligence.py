@@ -116,7 +116,9 @@ class MfIntelResult:
 async def _daas_get(path: str, params: Optional[Dict] = None) -> Any:
     import os, httpx
     base = os.environ.get("NIDP_DAAS_BASE_URL", "https://data.niveshcopilot.com/daas").rstrip("/")
-    key  = os.environ.get("NIDP_DAAS_API_KEY", "")
+    # Admin UI registers the key as NIDP_DAAS_INTERNAL_TOKEN; Cloud Run may use
+    # NIDP_DAAS_API_KEY — accept either so the call authenticates on both paths.
+    key  = os.environ.get("NIDP_DAAS_API_KEY", "") or os.environ.get("NIDP_DAAS_INTERNAL_TOKEN", "")
     headers = {"X-API-Key": key, "Accept": "application/json"} if key else {"Accept": "application/json"}
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
