@@ -51,6 +51,7 @@ from nidp.services.daas_api.routers import (
     events,
     features,
     financials,
+    flow_ledger,
     flows,
     fno,
     health,
@@ -316,6 +317,7 @@ app.include_router(backfill.router, prefix=v1_prefix)
 app.include_router(financials.router, prefix=v1_prefix)
 app.include_router(fno.router, prefix=v1_prefix)
 app.include_router(flows.router, prefix=v1_prefix)
+app.include_router(flow_ledger.router, prefix=v1_prefix)
 app.include_router(announcements.router, prefix=v1_prefix)
 app.include_router(documents.router, prefix=v1_prefix)
 app.include_router(macro.router, prefix=v1_prefix)
