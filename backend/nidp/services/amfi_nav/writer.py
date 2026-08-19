@@ -13,6 +13,7 @@ the ingester.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -136,6 +137,76 @@ UPDATE {scheme_table} m
 """
 
 
+# ── AMC auto-registration ────────────────────────────────────────────────
+# amc_id is resolved by prefix-matching amc_name_raw against
+# nidp.mf_amc_master. That master listed only 10 AMCs while the AMFI feed
+# carries 51, so 5,154 of 14,454 scheme rows carried a NULL amc_id even though
+# 5,149 of them knew their AMC by name. The damage was silent and downstream:
+# the mf_holdings quant adapter looks schemes up with `WHERE amc_id = 'quant'`,
+# matched nothing, and discarded 29 funds it had already downloaded.
+#
+# Backfilling once does not hold — AlphaGrep Mutual Fund appeared in the feed
+# within a day of the backfill and immediately had 12 unmapped schemes. So the
+# master is topped up from the feed on every run instead: any amc_name_raw with
+# no matching row gets registered under a derived id.
+_AMC_ID_OVERRIDES = {
+    # ids already used by nidp.mf_amc_source_registry — keep them identical
+    "quant mutual fund": "quant",
+    "jm financial mutual fund": "jm_financial",
+}
+
+
+def _amc_slug(amc_name_raw: str) -> str:
+    """Derive a stable amc_id from an AMFI AMC name.
+
+    "Baroda BNP Paribas Mutual Fund" -> "baroda_bnp_paribas"
+    "IL&FS Mutual Fund (IDF)"        -> "il_and_fs"
+    """
+    key = amc_name_raw.strip().lower()
+    if key in _AMC_ID_OVERRIDES:
+        return _AMC_ID_OVERRIDES[key]
+    t = re.sub(r"\s*\(.*?\)\s*", " ", amc_name_raw)
+    t = re.sub(r"\bmutual\s+fund\b", "", t, flags=re.I).strip()
+    t = t.lower().replace("&", " and ")
+    return re.sub(r"[^a-z0-9]+", "_", t).strip("_")
+
+
+_AMC_REGISTER_SQL = """
+INSERT INTO nidp.mf_amc_master (amc_id, amc_name)
+SELECT $1, $2
+ WHERE NOT EXISTS (
+       SELECT 1 FROM nidp.mf_amc_master m
+        WHERE lower($2) LIKE lower(m.amc_name) || '%'
+   )
+ON CONFLICT (amc_id) DO NOTHING
+"""
+
+
+async def register_unknown_amcs(conn, scheme_rows: list[dict[str, Any]]) -> int:
+    """Add any AMC the feed knows about but the master does not.
+
+    The NOT EXISTS mirrors the resolver's own prefix rule, so an AMC that
+    already resolves is never re-added under a second id. The FULL name is
+    stored (not a bare stem) because the resolver disambiguates by
+    `ORDER BY length(amc_name) DESC` — that is what keeps "quant Mutual Fund"
+    from swallowing "Quantum Mutual Fund".
+    """
+    names = sorted({(r.get("amc_name_raw") or "").strip()
+                    for r in scheme_rows if (r.get("amc_name_raw") or "").strip()})
+    added = 0
+    for name in names:
+        slug = _amc_slug(name)
+        if not slug:
+            continue
+        status = await conn.execute(_AMC_REGISTER_SQL, slug, name)
+        if status and status.rsplit(" ", 1)[-1] != "0":
+            added += 1
+            logger.info("amfi_nav: registered new AMC %r as amc_id=%r", name, slug)
+    if added:
+        logger.warning("amfi_nav: added %d AMC(s) to nidp.mf_amc_master", added)
+    return added
+
+
 async def upsert_nav_and_master(
     nav_rows: list[dict[str, Any]],
     scheme_rows: list[dict[str, Any]],
@@ -165,6 +236,10 @@ async def upsert_nav_and_master(
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # Top the master up first: the scheme insert resolves amc_id
+            # against it in the same statement, so an AMC registered here is
+            # picked up on this run rather than the next one.
+            await register_unknown_amcs(conn, scheme_rows)
             if scheme_args:
                 await conn.executemany(scheme_sql, scheme_args)
             if nav_args:
