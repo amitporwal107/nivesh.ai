@@ -44,6 +44,8 @@ from nidp.shared.config import (
     HTTP_RETRY_ATTEMPTS,
     HTTP_RETRY_BACKOFF_S,
     HTTP_TIMEOUT_S,
+    NSE_MIN_REQUEST_INTERVAL_S,
+    NSE_HTTPS_PROXY,
     NSE_WWW,
 )
 
@@ -52,6 +54,8 @@ logger = logging.getLogger(__name__)
 _session: Optional[aiohttp.ClientSession] = None
 _session_lock = asyncio.Lock()
 _primed = False
+_last_nse_request_at: float = 0.0
+_pace_lock = asyncio.Lock()
 
 
 class _TerminalHttpError(aiohttp.ClientError):
@@ -79,6 +83,38 @@ _NSE_HOSTS = (
 
 def _is_nse_host(url: str) -> bool:
     return any(host in url for host in _NSE_HOSTS)
+
+
+def _proxy_for(url: str) -> Optional[str]:
+    """Proxy to use for this URL, or None for the direct path.
+
+    Scoped to NSE hosts deliberately. BSE is reachable directly from the
+    ingestion host, and the BSE fallbacks are what keep prices and delivery
+    flowing while NSE is blocked — routing them through a proxy would put a
+    single point of failure in front of the very path that exists to survive
+    NSE being unreachable.
+    """
+    if not NSE_HTTPS_PROXY or not _is_nse_host(url):
+        return None
+    return NSE_HTTPS_PROXY
+
+
+async def _pace() -> None:
+    """Space NSE requests out by at least NSE_MIN_REQUEST_INTERVAL_S.
+
+    The 403 is an IP block, and an IP block is earned. Moving to a fresh egress
+    without slowing down just burns the fresh address the same way, so the pacing
+    travels with the proxy rather than being someone's job to remember.
+    """
+    global _last_nse_request_at
+    if NSE_MIN_REQUEST_INTERVAL_S <= 0:
+        return
+    async with _pace_lock:
+        loop = asyncio.get_running_loop()
+        wait = _last_nse_request_at + NSE_MIN_REQUEST_INTERVAL_S - loop.time()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _last_nse_request_at = loop.time()
 
 
 async def _get_session() -> aiohttp.ClientSession:
@@ -122,12 +158,19 @@ async def _prime_nse() -> None:
         return
     session = await _get_session()
     try:
-        async with session.get(NSE_WWW + "/", allow_redirects=True) as resp:
+        # Must prime through the same proxy the fetches use: Akamai binds the
+        # cookies it issues to the requesting IP, so priming direct and then
+        # fetching via the proxy presents cookies minted for a different
+        # address — which reads as exactly the tampering the block is for.
+        await _pace()
+        async with session.get(NSE_WWW + "/", allow_redirects=True,
+                               proxy=_proxy_for(NSE_WWW)) as resp:
             await resp.read()
             logger.info(
-                "NSE session primed: %s, %d cookies",
+                "NSE session primed: %s, %d cookies%s",
                 resp.status,
                 len(session.cookie_jar),
+                " (via proxy)" if _proxy_for(NSE_WWW) else "",
             )
             _primed = True
     except Exception as e:  # noqa: BLE001
@@ -179,11 +222,14 @@ async def fetch_bytes(
     if extra_headers:
         headers.update(extra_headers)
 
+    proxy = _proxy_for(url)
     last_status = 0
     last_err: Optional[str] = None
     for attempt in range(HTTP_RETRY_ATTEMPTS):
         try:
-            async with session.get(url, headers=headers) as resp:
+            if _is_nse_host(url):
+                await _pace()
+            async with session.get(url, headers=headers, proxy=proxy) as resp:
                 last_status = resp.status
                 if resp.status == 200:
                     body = await resp.read()

@@ -57,6 +57,27 @@ DEFAULT_UA: Final[str] = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 
+# Optional egress proxy for NSE hosts ONLY (e.g. "http://10.160.0.5:3128").
+#
+# NSE blocks by SOURCE IP, not by request shape. Measured 2026-08-19, the same
+# request with the same headers from two VMs in the same region and project:
+#
+#     nidp-stack-vm  34.93.60.254  -> 403     (the ingestion host)
+#     nivesh-app-vm  34.47.250.214 -> 200
+#
+# So no amount of UA/cookie/Referer work fixes it — the traffic has to leave by a
+# different address. Setting this routes only NSE requests through the proxy;
+# BSE and every other host keep the direct path, so the BSE fallbacks are
+# unaffected and a broken proxy cannot take them down with it. Unset = direct.
+NSE_HTTPS_PROXY: Final[str] = os.environ.get("NSE_HTTPS_PROXY", "").strip()
+
+# Minimum gap between NSE requests, seconds. The block was almost certainly
+# earned by request volume, so moving to a new IP without slowing down just
+# burns the new IP too. 0 disables.
+NSE_MIN_REQUEST_INTERVAL_S: Final[float] = float(
+    os.environ.get("NSE_MIN_REQUEST_INTERVAL_S", "0.35") or 0
+)
+
 # ── Source URL templates ────────────────────────────────────────────
 # All hosts known to NIDP. Per-source templates use these.
 # NB: As of late-2024 NSE deprecated the legacy `archives.nseindia.com`
@@ -111,6 +132,9 @@ FII_DII_URL: Final[str] = (
     f"{NSE_WWW}/api/fiidiiTradeReact"
 )
 # Legacy XLS archive (kept for parser auto-detect / historical backfill)
+NSDL_FPI_FORTNIGHTLY_URL: Final[str] = (
+    "https://www.fpi.nsdl.co.in/web/Reports/FPI_Fortnightly_Selection.aspx"
+)
 FII_DII_URL_LEGACY: Final[str] = (
     f"{NSE_ARCHIVES}/content/fo/fii_stats_{{YYYYMMDD}}.xls"
 )
@@ -242,6 +266,9 @@ SOURCE_REGISTRY: Final[list[dict]] = [
     ("NSE_SHP",             "nse_shareholding",    NSE_SHAREHOLDING_LIST_URL,   "B", 0.85, "daily"),
     ("NSE_EQUITY_MASTER",   "nse_equity_master",   NSE_EQUITY_MASTER_URL,       "A", 0.95, "weekly"),
     ("NSE_FO_BHAVCOPY",     "fno_bhavcopy",        NSE_FO_BHAVCOPY_URL_NEW,     "A", 0.95, "daily"),
+    # Sector-level FPI custody has no NSE equivalent — it is reported by the
+    # depository, not the exchange. Class A: NSDL is the primary custodian record.
+    ("NSDL_FPI_FORTNIGHTLY", "fpi_sector_auc",  NSDL_FPI_FORTNIGHTLY_URL,    "A", 0.95, "fortnightly"),
 ]
 
 
