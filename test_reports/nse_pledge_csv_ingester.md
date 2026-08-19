@@ -56,6 +56,13 @@ supplied (see "Full-file verification" below).
 | TC-26 | api/data | `--dry-run` on the full real file | api | real resolved/unresolved split | PASS |
 | TC-27 | data | classify every unresolved name | edge | matcher gap vs genuinely absent | PASS |
 | TC-28 | parser | `LTD` ≡ `LIMITED`, trailing token only | unit | PNBGILTS + RHIM resolve | PASS |
+| TC-29 | api/data | full-file load writes the whole universe | api | 1,620 rows / 1,388 symbols | PASS |
+| TC-30 | data | promoter-less companies keep NULL, not 0 | edge | 17 symbols, `_pct` NULL, `_to_total` 0.00 | PASS |
+| TC-31 | data | fixed DQ rule holds on the full load | data | old rule 83 fails, new rule 0 | PASS |
+| TC-32 | api | screener gate flips the metric on by itself | api | `offered: true` at 52.1% | PASS |
+| TC-33 | api | real screen queries return real companies | api | 13 over 40%, 917 at zero | PASS |
+| TC-34 | api | zero-result path returns filter_impact | failure | relaxation suggested, no 500 | PASS |
+| TC-35 | data | view still one row per symbol after the load | data | 2,325 / 2,325 / 0 | PASS |
 
 ## API / Endpoint Tests (staging)
 
@@ -341,7 +348,129 @@ The pledge column is emphatically not degenerate: **404 distinct values, 447 com
 with a non-zero pledge, 1,068 at exactly zero, max 100.0%** — promoters who have
 pledged their entire holding.
 
-## Defect found, NOT fixed here (pre-existing, out of scope)
+## Full-file LOAD — completed 2026-08-19
+
+```
+$ python -m nidp.services.nse_pledge_csv --file /tmp/CF-SAST-Pledged-Data-19-Aug-2026.csv
+  "status": "OK",
+  "period_end": "2026-06-30",
+  "parsed_rows": 1538,
+  "resolved": 1454,
+  "unresolved": 84,
+    "with_pledge_pct": 1515, "distinct_values": 404,
+    "nonzero": 447, "zero": 1068, "max": 100.0
+  "rows_updated": 1620,
+  "rows_inserted": 0,
+  "features_updated": 1233
+```
+
+**TC-29 — the table, before and after:**
+
+```
+BEFORE                                          AFTER
+ all_rows | pledge_pct | pledge_total            all_rows | pledge_pct | pledge_total | symbols_with_pledge
+----------+------------+--------------          ----------+------------+--------------+---------------------
+     8955 |          5 |            5               8955 |       1598 |         1620 |                1388
+```
+
+`rows_inserted: 0` — every write landed in a shareholding row that already existed, so
+no pledge-only row was created and no symbol's FII/DII was hidden behind one.
+
+**TC-30 — the `pledge_pct` (1,598) vs `pledge_total` (1,620) gap is correct, not a bug:**
+
+```
+ rows | symbols                    symbol   |   source    | promoter_pct | pledged_pct | pledged_to_total
+------+---------                 ------------+-------------+--------------+-------------+------------------
+   22 |      17                   ASIANHOTNR | screener_in |       0.0000 |             |           0.0000
+                                  BALMLAWRIE | NSE_SHP     |              |             |           0.0000
+                                  CARERATING | NSE_SHP     |              |             |           0.0000
+                                  COFORGE    | NSE_SHP     |              |             |           0.0000
+                                  CROMPTON   | NSE_SHP     |              |             |           0.0000
+```
+
+17 companies have **no promoter at all** (`A = 0` in the file) — CARE Ratings, City
+Union Bank, Coforge, Crompton, Balmer Lawrie. NSE leaves "% of promoter shares" blank
+because it is 0/0, and fills "% of total shares" with 0.00 because that one is defined.
+The parser reproduces exactly that: `promoter_pledged_pct` NULL (undefined), 
+`promoter_pledged_to_total_pct` 0.00 (true). Coercing the blank to 0 would have
+asserted "0% of promoter holding is pledged" about companies with no promoter holding.
+
+A further **4 companies disclose neither figure** — Alchemist, Lakshmi Energy and
+Foods, Metkore Alloys, Nu Tek India. Both columns stay NULL, so they are absent from
+the screen rather than appearing in it as unpledged. That is trap 1 doing its job.
+
+**TC-31 — the DQ basis fix, measured on the real load:**
+
+```
+ rows_checked | old_rule_failures | new_rule_failures
+--------------+-------------------+-------------------
+         1591 |                83 |                 0
+```
+
+The rule as it stood would have raised **83 data-quality failures on entirely correct
+exchange data** the moment this file landed. On the corrected basis: zero.
+
+**TC-32 — the screener availability gate flipped the metric on with no code change:**
+
+```
+"min_coverage_pct": 25.0,
+"measured": { "covered_pct": 52.1, "distinct_non_null": 289 },
+"offered": true
+```
+
+(Before the load: `covered_pct 0.1`, `offered: false`, "Only 0.1% of companies have
+this today (needs 25%)".)
+
+**TC-33/TC-34 — real screens through the actual `screen()` handler, real DB:**
+
+```
+===== A. heavily pledged promoters (> 40% of total shares) =====
+registry_version=1.1.0  universe=2373  total_matching=13
+  THYROCARE    {"promoter_pledged_pct": 60.92}
+  INDOTECH     {"promoter_pledged_pct": 57.93}
+  THELEELA     {"promoter_pledged_pct": 55.91}
+  GOACARBON    {"promoter_pledged_pct": 55.39}
+  JAYNECOIND   {"promoter_pledged_pct": 55.08}
+  COHANCE      {"promoter_pledged_pct": 54.36}
+  BEDMUTHA     {"promoter_pledged_pct": 54.23}
+  BPL          {"promoter_pledged_pct": 50.25}
+
+===== B. zero pledge =====
+registry_version=1.1.0  universe=2373  total_matching=917
+
+===== C. combined: pledge < 5% AND RoE >= 15% =====
+registry_version=1.1.0  universe=2373  total_matching=57
+  COLPAL       {"promoter_pledged_pct": 0.0, "roe_pct": 83.7121}
+  TMPV         {"promoter_pledged_pct": 0.0, "roe_pct": 73.7463}
+  HINDZINC     {"promoter_pledged_pct": 4.94, "roe_pct": 61.1251}
+  PAGEIND      {"promoter_pledged_pct": 0.0, "roe_pct": 50.9321}
+  VEDL         {"promoter_pledged_pct": 0.0, "roe_pct": 50.5418}
+
+===== D. impossible ask — pledge > 99.9% AND RoE >= 40% =====
+registry_version=1.1.0  universe=2373  total_matching=0
+  impact: {"key": "promoter_pledged_pct", "op": "gt", "value": 99.9, "leave_one_out_count": 11,
+           "suggested_value": 0.0, "would_return": 2, "most_restrictive": true}
+  impact: {"key": "roe_pct", "op": "gte", "value": 40, "leave_one_out_count": 0,
+           "suggested_value": null, "would_return": 0, "most_restrictive": false}
+```
+
+Every cell carries its provenance inline (`formula`, `source_dataset`, `as_of`), nulls
+carry a `null_reason`, and the zero-result path returns `filter_impact` rather than a
+500 — the regression fixed in PR #125 still holds with a new metric in the mix.
+
+Run through the real `screen()` coroutine rather than over HTTP because the deployed
+DaaS container still runs the pre-1.1.0 registry. Same handler, same SQL, same data;
+the HTTP hop is the only untested link and it is unchanged by this work.
+
+**TC-35 — migration 133 still holds after 1,620 writes:**
+
+```
+ view_rows | symbols | surplus
+-----------+---------+---------
+      2325 |    2325 |       0
+```
+
+## Defect found while building this — since FIXED (migration 133)
 
 `nidp.v_shareholding_latest` is documented as one row per symbol but fans out
 whenever a symbol has more than one source at the same quarter — its `prev` CTE
@@ -355,21 +484,27 @@ SELECT count(*) view_rows, count(DISTINCT symbol) distinct_symbols,
       3342 |             2325 |         1017
 ```
 
-381 symbols are duplicated (up to 4 copies each). Today the copies agree — 0 symbols
-have conflicting `fii_pct` or `promoter_pct` — so it is a row-multiplication bug, not
-yet a wrong-value bug, and anything that JOINs this view is silently multiplying
-rows. Fixing it means changing a view that many consumers read (including
-`populate_stock_features_extended`), which is a bigger change than a pledge ingest
-should carry. Reported for a decision rather than fixed.
+381 symbols were duplicated (up to 4 copies each).
+
+**Correction to an earlier claim in this report:** I first wrote that the copies agree.
+They agree in the *view's output*, because the view picks one row and then duplicates
+it — but the underlying rows conflict. Of the 329 symbols carrying both sources at
+their latest quarter, 23 disagree by more than 0.05pp, the largest being ICICIBANK at
+FII 49.82% (NSE) vs 33.79% (screener).
+
+Fixed in `133_shareholding_latest_deterministic.sql`, applied to staging 09:33:20 —
+see `test_reports/shareholding_latest_deterministic.md`. The view now returns
+2,325 rows for 2,325 symbols.
 
 ## UNVERIFIED
 
-- **The full-file WRITE has not completed.** Everything above the write is verified on
-  the real file (parse, resolve, distribution), but the run that actually writes all
-  1,454 symbols was cut short when the GCP access token expired mid-command. As of the
-  last successful read, `nidp.shareholding_pattern` still holds pledge for only the 5
-  fixture rows. Re-run `python -m nidp.services.nse_pledge_csv --file <csv>` with a
-  live token to finish.
+- **The HTTP hop.** The screener queries above ran through the real `screen()` handler
+  against the real DB, not over `https://staging-data.niveshcopilot.com/daas`, because
+  the deployed container still runs registry 1.0.0. The endpoint itself is unchanged
+  by this work and was verified over HTTP in the earlier screener report; deploying
+  the branch is what makes `promoter_pledged_pct` reachable over the wire.
+- **`--insert-missing`** was never exercised — `rows_inserted: 0` on the full file,
+  because every resolved symbol already had a row at 2026-06-30.
 - `ambiguous_master_names: 4` — `nidp.sector_master` itself has 4 normalised names
   mapping to more than one symbol; those companies can never resolve.
 - **`--insert-missing`.** Not exercised (`rows_inserted: 0`) — all 3 resolved symbols
@@ -387,12 +522,11 @@ should carry. Reported for a decision rather than fixed.
 
 ## Side effects left on staging
 
-`nidp.shareholding_pattern` holds real pledge for 3 symbols (RELIANCE, ASHOKLEY,
-A2ZINFRA) at 2026-06-30 across 5 rows, and `stock_features_daily` for 2026-08-17
-likewise. These are real exchange values from the user's file, left in place as the
-evidence above. At 0.1% coverage the screener's availability gate keeps the metric
-hidden, so nothing surfaces it as though the universe were covered. The full-file load
-supersedes them once it completes.
+`nidp.shareholding_pattern` now holds promoter pledge for **1,388 symbols across
+1,620 rows** at period_end 2026-06-30, and `stock_features_daily` for 2026-08-17
+carries it for **1,236 of 2,373 symbols (52.1%, 289 distinct values)**. All of it is
+real exchange data from the user's NSE SAST file. The screener metric is consequently
+live on staging.
 
 Migration 133 was applied to `nidp_staging` at 2026-08-19 09:33:20 — see
 `test_reports/shareholding_latest_deterministic.md`.
