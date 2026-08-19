@@ -78,3 +78,38 @@ def test_symbol_url_appends_to_the_existing_query():
     assert url.count("?") == 1
     assert url.endswith("&symbol=RELIANCE")
     assert "index=equities" in url
+
+
+# ── the type mismatch that made the first run a no-op ───────────────────────
+
+def test_string_manifest_dates_match_date_objects_from_the_database():
+    """parse_filing_list yields period_end as a STRING; asyncpg returns
+    datetime.date. A direct `in` check between them is always False — it does not
+    raise, it just stops excluding anything, so the backfill re-fetches the quarters
+    it already had and deepens nothing.
+
+    Observed on staging before the fix: 556 rows written across ~278 symbols, every
+    one still holding exactly the same two quarters afterwards.
+    """
+    manifests = [{"period_end": "2026-06-30", "xbrl_url": "u"},
+                 {"period_end": "2026-03-31", "xbrl_url": "u"},
+                 {"period_end": "2025-12-31", "xbrl_url": "u"},
+                 {"period_end": "2025-09-30", "xbrl_url": "u"}]
+    have = [date(2026, 6, 30), date(2026, 3, 31)]      # as the DB returns them
+    got = bf.missing_quarters(manifests, have=have, want=2)
+    assert [x["period_end"] for x in got] == ["2025-12-31", "2025-09-30"]
+
+
+def test_string_manifests_sort_newest_first():
+    manifests = [{"period_end": "2025-09-30", "xbrl_url": "u"},
+                 {"period_end": "2026-06-30", "xbrl_url": "u"},
+                 {"period_end": "2025-12-31", "xbrl_url": "u"}]
+    got = bf.missing_quarters(manifests, have=[], want=3)
+    assert [x["period_end"] for x in got] == ["2026-06-30", "2025-12-31", "2025-09-30"]
+
+
+def test_mixed_types_on_both_sides_still_match():
+    manifests = [{"period_end": date(2026, 6, 30), "xbrl_url": "u"},
+                 {"period_end": "2026-03-31", "xbrl_url": "u"}]
+    assert bf.missing_quarters(manifests, have=["2026-06-30", date(2026, 3, 31)],
+                               want=2) == []

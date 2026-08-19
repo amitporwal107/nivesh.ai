@@ -48,11 +48,17 @@ def missing_quarters(manifests: List[Dict[str, Any]], have: Sequence[Any],
     re-run after an interruption resume instead of restart, and it is the difference
     between a 30-minute job and a 5-hour one.
     """
-    seen = {q for q in have if q is not None}
+    # Compare as ISO strings on BOTH sides. parse_filing_list yields period_end as a
+    # str while asyncpg returns datetime.date, so a direct `in` check is always False
+    # — that does not raise, it just stops excluding anything, and the backfill
+    # quietly re-fetches the quarters it already had instead of deepening history.
+    # Observed on staging 2026-08-19: 556 rows written across ~278 symbols, every one
+    # of which still held exactly the same two quarters afterwards.
+    seen = {str(q) for q in have if q is not None}
     out: List[Dict[str, Any]] = []
     for m in sorted((m for m in manifests if m.get("period_end")),
-                    key=lambda m: m["period_end"], reverse=True):
-        if m["period_end"] in seen or not m.get("xbrl_url"):
+                    key=lambda m: str(m["period_end"]), reverse=True):
+        if str(m["period_end"]) in seen or not m.get("xbrl_url"):
             continue
         out.append(m)
         if len(out) >= want:
