@@ -107,3 +107,41 @@ async def upsert_target_problem(qualified_name: str) -> Optional[str]:
         f"here. Reads still work; this environment sources the data "
         f"elsewhere."
     )
+
+
+def effective_relation_sql(preferred: str, fallback: str, alias: str = "t") -> str:
+    """A FROM-able SQL fragment resolving to whichever relation is written to.
+
+    Companion to `upsert_target_problem`. A writer that falls back from an
+    unwritable view to its real `*_local` table creates a second problem:
+    validators and readers still look at the canonical name and see none of
+    the rows that were just written — which is how a healthy amfi_nav run
+    reported "row count 0 below minimum 8000" while it had in fact just
+    persisted 14,037 NAVs.
+
+    Rather than hard-code the fallback (which then goes stale the day the
+    view is swapped for a table), this resolves the same way the writer
+    does, in SQL, against the catalog:
+
+        FROM {effective_relation_sql('nidp.mf_nav_daily',
+                                     'nidp.mf_nav_daily_local', 'nav')}
+        WHERE source_run_id = $1
+
+    Exactly one branch of the UNION can match, so rows are never counted
+    twice — including the case where both names end up referring to the
+    same relation.
+
+    Both relations must expose the same column list; that is the premise of
+    the fallback in the first place.
+    """
+    schema, _, name = preferred.partition(".")
+    is_table = (
+        "(SELECT c.relkind FROM pg_class c "
+        " JOIN pg_namespace n ON n.oid = c.relnamespace "
+        f" WHERE n.nspname = '{schema}' AND c.relname = '{name}')"
+    )
+    return (
+        f"(SELECT * FROM {preferred} WHERE {is_table} IN ('r','p') "
+        f" UNION ALL "
+        f" SELECT * FROM {fallback} WHERE {is_table} NOT IN ('r','p')) AS {alias}"
+    )

@@ -9,6 +9,8 @@ from what made it through validate() and persist().
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 import abc
 import enum
 import uuid
@@ -152,7 +154,20 @@ class NoNullsRule(Rule):
 
 class RangeRule(Rule):
     """Assert that a numeric column lies inside [lo, hi] for all rows
-    in this run."""
+    in this run.
+
+    The bounds are compared in exact decimal space, not binary floating
+    point. `lo` and `hi` arrive as Python floats, and binding a float into
+    a numeric comparison expands its *full* binary value — 0.0001 arrives as
+        0.000100000000000000004792173602385929598312941379845142364501953125
+    which is strictly greater than the decimal 0.0001 that a numeric(14,4)
+    column stores. A value sitting exactly on an inclusive bound then reads
+    as outside it: amfi_nav flagged a NAV of exactly 0.0001 as "below
+    0.0001" on a run that was otherwise clean.
+
+    Converting through repr() picks the shortest decimal that round-trips
+    the float, so the bound binds as the 0.0001 the caller wrote.
+    """
 
     def __init__(
         self,
@@ -169,8 +184,11 @@ class RangeRule(Rule):
         self.name = name
         self._table = table
         self._col = column
-        self._lo = lo
-        self._hi = hi
+        # repr() gives the shortest round-tripping decimal, so Decimal(repr(x))
+        # binds the bound the caller meant rather than the float's full binary
+        # expansion. See the class docstring.
+        self._lo = Decimal(repr(lo))
+        self._hi = Decimal(repr(hi))
         self._where = where
         self.severity = severity
         self.failure_class = failure_class
@@ -180,7 +198,8 @@ class RangeRule(Rule):
             SELECT count(*) FROM {self._table}
              WHERE source_run_id = $1
                AND {self._col} IS NOT NULL
-               AND ({self._col} < $2 OR {self._col} > $3)
+               AND ({self._col}::numeric < $2::numeric
+                    OR {self._col}::numeric > $3::numeric)
                AND {self._where}
         """
         bad = int(await ctx.conn.fetchval(sql, ctx.job_run_id, self._lo, self._hi) or 0)
@@ -190,7 +209,8 @@ class RangeRule(Rule):
             SELECT * FROM {self._table}
              WHERE source_run_id = $1
                AND {self._col} IS NOT NULL
-               AND ({self._col} < $2 OR {self._col} > $3)
+               AND ({self._col}::numeric < $2::numeric
+                    OR {self._col}::numeric > $3::numeric)
                AND {self._where}
              LIMIT 5
         """

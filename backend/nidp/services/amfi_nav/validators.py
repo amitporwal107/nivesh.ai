@@ -9,9 +9,19 @@ holidays drop to ~9k as some AMCs skip declaring).
 from __future__ import annotations
 
 from nidp.shared.validation import register
+from nidp.shared.write_target import effective_relation_sql
 from nidp.shared.validation.rules import (
     CountAtLeastRule, CustomSQLRule, FailureClass, NoNullsRule, RangeRule, Severity,
 )
+
+# amfi_nav writes to nidp.mf_nav_daily where that is a real table, and falls
+# back to nidp.mf_nav_daily_local where it is a pass-through view over an FDW
+# foreign table (see services/amfi_nav/writer.py). Validating the canonical
+# name alone would read an empty view and fail a run that actually persisted
+# 14k rows, so resolve the same way the writer does.
+_NAV = effective_relation_sql("nidp.mf_nav_daily", "nidp.mf_nav_daily_local", "nav")
+_SCHEME = effective_relation_sql(
+    "nidp.mf_scheme_master", "nidp.mf_scheme_master_local", "m")
 
 # 1. Row count — fewer than 8000 NAV rows ≈ partial fetch.
 # Production: NAVAll publishes ~14k schemes; ~8.5k have a NAV dated
@@ -20,7 +30,7 @@ from nidp.shared.validation.rules import (
 ROW_COUNT_MIN = CountAtLeastRule(
     name="amfi_nav.row_count_min",
     sql="""
-        SELECT count(*) FROM nidp.mf_nav_daily
+        SELECT count(*) FROM """ + _NAV + """
          WHERE source_run_id = $2
            AND $1::date IS NOT NULL
     """,
@@ -32,7 +42,7 @@ ROW_COUNT_MIN = CountAtLeastRule(
 # 2. NAV must be present + numeric on every persisted row.
 NAV_PRESENT = NoNullsRule(
     name="amfi_nav.nav_present",
-    table="nidp.mf_nav_daily",
+    table=_NAV,
     columns=["nav"],
     severity=Severity.ERROR,
     failure_class=FailureClass.FIX,
@@ -44,7 +54,7 @@ NAV_PRESENT = NoNullsRule(
 # to flag truly broken parses (e.g. column shift) rather than legit highs.
 NAV_RANGE = RangeRule(
     name="amfi_nav.nav_range",
-    table="nidp.mf_nav_daily",
+    table=_NAV,
     column="nav",
     lo=0.0001,
     hi=5_000_000.0,
@@ -64,7 +74,7 @@ FRESH_ROW_FLOOR = CustomSQLRule(
         SELECT CASE WHEN fresh < 6000 THEN 1 ELSE 0 END
           FROM (
             SELECT count(*) AS fresh
-              FROM nidp.mf_nav_daily
+              FROM """ + _NAV + """
              WHERE source_run_id = $2
                AND nav_date >= $1::date - INTERVAL '3 days'
           ) t
@@ -80,16 +90,16 @@ SCHEME_MASTER_COVERAGE = CustomSQLRule(
     name="amfi_nav.scheme_master_coverage",
     sql="""
         SELECT count(*)
-          FROM nidp.mf_nav_daily n
-          LEFT JOIN nidp.mf_scheme_master m USING (scheme_code)
-         WHERE n.source_run_id = $1
+          FROM """ + _NAV + """
+          LEFT JOIN """ + _SCHEME + """ USING (scheme_code)
+         WHERE nav.source_run_id = $1
            AND m.scheme_code IS NULL
     """,
     sample_sql="""
-        SELECT n.scheme_code
-          FROM nidp.mf_nav_daily n
-          LEFT JOIN nidp.mf_scheme_master m USING (scheme_code)
-         WHERE n.source_run_id = $1
+        SELECT nav.scheme_code
+          FROM """ + _NAV + """
+          LEFT JOIN """ + _SCHEME + """ USING (scheme_code)
+         WHERE nav.source_run_id = $1
            AND m.scheme_code IS NULL
          LIMIT 5
     """,

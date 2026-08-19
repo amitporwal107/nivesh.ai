@@ -75,15 +75,14 @@ class AmfiNavIngester(BaseIngester):
         async with JobRun(ingester=self.SERVICE_NAME, target_date=as_of) as run:
             bind_context(run_id=str(run.run_id))
 
-            # nidp.mf_nav_daily is a pass-through VIEW over an FDW foreign
-            # table in this environment, so no upsert can target it. Skip
-            # with the reason rather than downloading 21MB of NAVs and
-            # dying on ON CONFLICT for the 86th time.
-            if not await self._check_write_target():
-                await run.finalize("SKIPPED",
-                                   error_message=self._target_problem)
-                return run
-
+            # No write-target guard here any more. nidp.mf_nav_daily may still
+            # be a pass-through VIEW over an FDW foreign table (no unique
+            # constraint, so no upsert can target it), but writer.py now
+            # resolves the NAV table at run time and falls back to
+            # nidp.mf_nav_daily_local — a real table with the same columns and
+            # the same (scheme_code, nav_date, source) primary key. Skipping
+            # here would throw away a perfectly good AMFI fetch for a problem
+            # the writer already handles.
             bus = get_bus()
 
             with time_ingester(self.SERVICE_NAME):
