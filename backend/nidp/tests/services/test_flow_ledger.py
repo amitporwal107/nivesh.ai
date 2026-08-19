@@ -114,7 +114,7 @@ def test_filled_stream_has_no_reason():
 
 @pytest.mark.parametrize("reason", [
     fl.BULK_DEAL_LIMIT, fl.MF_MONTHLY_LIMIT,
-    fl.NSDL_FORTNIGHT_LIMIT, fl.NSDL_AUC_LIMIT,
+    fl.NSDL_NO_SECTOR, fl.NSDL_TOO_SHORT,
 ])
 def test_every_limit_explains_itself_in_plain_words(reason):
     """A user seeing a blank stream must learn why from the message alone."""
@@ -132,9 +132,28 @@ def test_sector_index_map_only_names_indices_that_exist():
             "Nifty Financial Services", "Nifty Financial Services 25/50",
             "Nifty Financial Services Ex-Bank", "Nifty IT", "Nifty Media",
             "Nifty Metal", "Nifty PSU Bank", "Nifty Pharma",
-            "Nifty Private Bank", "Nifty Realty"}
+            "Nifty Private Bank", "Nifty Realty", "Nifty Capital Goods",
+            "Nifty Chemicals", "Nifty Consumer Durables", "Nifty Consumer Services",
+            "Nifty Construction", "Nifty Cement", "Nifty Power",
+            "Nifty Healthcare Index"}
     assert set(fl.SECTOR_INDEX.values()) <= live
     assert fl.BENCHMARK_INDEX == "Nifty 50"
+
+
+def test_no_sector_is_mapped_to_an_approximate_index():
+    """These four have no clean counterpart — Telecom only appears inside
+    'Nifty MidSmall IT & Telecom' (two sectors blended) and Services only inside
+    'Nifty Commercial & Transport Services' (a subset). A wrong denominator would
+    corrupt both relative strength AND the AUC-minus-index residual, which is worse
+    than an absent stream the tracker already knows how to renormalise around."""
+    for sector in fl.UNMAPPED_BY_DESIGN:
+        assert sector not in fl.SECTOR_INDEX
+
+
+def test_healthcare_maps_to_healthcare_not_pharma():
+    """sector_master's Healthcare includes hospitals and diagnostics, which Nifty
+    Pharma excludes."""
+    assert fl.SECTOR_INDEX["Healthcare"] == "Nifty Healthcare Index"
 
 
 def test_sector_keys_match_sector_master_spelling():
@@ -156,3 +175,46 @@ def test_pct_return_guards_a_zero_base():
     assert fl.pct_return(100.0, 0) is None
     assert fl.pct_return(100.0, None) is None
     assert fl.pct_return(None, 100.0) is None
+
+
+# ── NSDL fortnight streak ───────────────────────────────────────────────────
+
+def test_streak_counts_from_the_latest_fortnight_not_the_longest_run():
+    """Real Automobile reading on staging: in, OUT x6 (newest first).
+
+    The honest answer is a 1-fortnight INFLOW. Reporting the 6-fortnight outflow
+    behind it would describe a regime that has already turned — and the tracker
+    scores 6 fortnights at -90 versus +18 for one, so the difference is the whole
+    stream.
+    """
+    assert fl.fortnight_streak([120, -50, -80, -30, -90, -40, -60]) == ("in", 1)
+
+
+def test_a_genuine_run_is_counted_in_full():
+    assert fl.fortnight_streak([-50, -80, -30, -90, 40]) == ("out", 4)
+
+
+def test_zero_ends_a_streak_rather_than_extending_it():
+    """A fortnight with no net movement is not evidence the prior direction held."""
+    assert fl.fortnight_streak([-50, -80, 0, -30]) == ("out", 2)
+
+
+def test_a_leading_zero_has_no_direction():
+    assert fl.fortnight_streak([0, -80, -30]) is None
+
+
+@pytest.mark.parametrize("flows", [[], [None], [None, -50]])
+def test_no_readable_flow_yields_none(flows):
+    assert fl.fortnight_streak(flows) is None
+
+
+def test_streak_stops_at_a_missing_fortnight():
+    """A gap is not a continuation — NSDL revises, and a hole in the series must not
+    be read as the direction persisting through it."""
+    assert fl.fortnight_streak([-50, -80, None, -30]) == ("out", 2)
+
+
+def test_direction_codes_are_the_trackers_own():
+    """These strings go straight into the tracker's ftDir select."""
+    assert fl.fortnight_streak([10])[0] == "in"
+    assert fl.fortnight_streak([-10])[0] == "out"

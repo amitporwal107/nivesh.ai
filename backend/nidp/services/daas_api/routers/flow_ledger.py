@@ -38,6 +38,7 @@ router = APIRouter(
 _DELIVERY_WINDOW_DAYS = 40   # ~28 sessions, enough for a 20-session baseline
 _FNO_LOOKBACK_ROWS = 6       # ~5 sessions of near-month futures
 _RS_WINDOW_DAYS = 92         # the tracker's stream is explicitly 3-month
+_FPI_FORTNIGHTS = 8          # ~4 months; the tracker's streak caps at ~6
 
 
 @router.get("/ledger/company/{symbol}",
@@ -170,6 +171,7 @@ async def sector_ledger(
         feat_date = as_of or await conn.fetchval(
             f"SELECT MAX(as_of_date) FROM {fl.FEATURES}")
         breadth = await conn.fetchrow(fl.BREADTH_SQL, name, feat_date)
+        fpi = await conn.fetch(fl.FPI_SECTOR_SQL, name, _FPI_FORTNIGHTS)
         idx_rows = []
         if index_name:
             idx_rows = await conn.fetch(
@@ -179,10 +181,53 @@ async def sector_ledger(
     inputs: Dict[str, Any] = {"ftDir": "", "ftN": "", "auc": "", "idx": "",
                               "breadth": "", "rs": ""}
 
-    streams.append(fl.stream("S1", 35, "NSDL fortnightly FPI flows",
-                             filled=False, reason=fl.NSDL_FORTNIGHT_LIMIT))
-    streams.append(fl.stream("S2", 25, "AUC change vs index change",
-                             filled=False, reason=fl.NSDL_AUC_LIMIT))
+    # ── S1: consecutive fortnights of FPI flow in one direction ────────────
+    streak = fl.fortnight_streak([r["net_inv_inr_cr"] and float(r["net_inv_inr_cr"])
+                                  for r in fpi])
+    if streak:
+        direction, count = streak
+        inputs["ftDir"], inputs["ftN"] = direction, str(count)
+        latest = fpi[0]
+        streams.append(fl.stream(
+            "S1", 35, "NSDL fortnightly FPI flows", filled=True,
+            evidence=f"{count} consecutive fortnight(s) of "
+                     f"{'inflow' if direction == 'in' else 'outflow'} to "
+                     f"{latest['report_date']} "
+                     f"(latest net {float(latest['net_inv_inr_cr']):+,.0f} cr, "
+                     f"{len(fpi)} fortnights on record)",
+            source="nidp.fpi_sector_auc"))
+    else:
+        streams.append(fl.stream(
+            "S1", 35, "NSDL fortnightly FPI flows", filled=False,
+            reason=fl.NSDL_NO_SECTOR if not fpi else fl.NSDL_TOO_SHORT))
+
+    # ── S2: AUC change vs the sector index move over the same window ───────
+    # The index move is mark-to-market; what is left after subtracting it is the
+    # part FPIs actually bought or sold. Both legs must span the SAME dates or the
+    # residual is just a window mismatch, so the index window is pinned to the
+    # fortnight range rather than reusing the 3-month one from S4.
+    auc_pct = idx_pct = None
+    if len(fpi) >= 2 and index_name:
+        auc_pct = fl.pct_return(fpi[0]["auc_inr_cr"], fpi[-1]["auc_inr_cr"])
+        async with pool.acquire() as conn:
+            idx_pct = await conn.fetchval(
+                fl.INDEX_RETURN_BETWEEN_SQL, index_name,
+                fpi[-1]["report_date"], fpi[0]["report_date"])
+    if auc_pct is not None and idx_pct is not None:
+        inputs["auc"], inputs["idx"] = str(auc_pct), str(round(float(idx_pct), 2))
+        streams.append(fl.stream(
+            "S2", 25, "AUC change vs index change", filled=True,
+            evidence=f"FPI custody in {name} {auc_pct:+}% vs {index_name} "
+                     f"{float(idx_pct):+.2f}% between {fpi[-1]['report_date']} and "
+                     f"{fpi[0]['report_date']}",
+            source="nidp.fpi_sector_auc + nidp.index_eod"))
+    else:
+        streams.append(fl.stream(
+            "S2", 25, "AUC change vs index change", filled=False,
+            reason=(fl.NSDL_NO_SECTOR if not fpi else
+                    f"No Nifty sector index represents {name!r}, so the AUC move "
+                    "cannot be separated from the market move"
+                    if not index_name else fl.NSDL_TOO_SHORT)))
 
     # ── S3: constituent breadth ────────────────────────────────────────────
     ranked = (breadth and breadth["ranked"]) or 0

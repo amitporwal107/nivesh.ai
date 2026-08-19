@@ -26,8 +26,9 @@ Availability measured on nidp_staging 2026-08-19, after the NSE egress fix:
                             missing), so "net action across large houses" would be
                             computed from a minority of them
     company S6 F&O          215 stock-futures names
-    sector  S1 NSDL         NOT sourceable — no FPI fortnightly table exists
-    sector  S2 AUC vs index NOT sourceable — same, no AUC table
+    sector  S1 NSDL         23 of 24 NSDL sectors map to sector_master; 9
+                            fortnights on record (2026-03-31..07-31)
+    sector  S2 AUC vs index same rows — AUC change minus the sector index move
     sector  S3 breadth      all sectors with >=1 ranked constituent
     sector  S4 rel strength 14 Nifty sector indices, unblocked by the index_close fix
 """
@@ -52,13 +53,13 @@ MF_MONTHLY_LIMIT = (
     "The monthly AMC feed is incomplete — 10 of 14 fund houses are missing, so "
     "'net action across large houses' would be computed from a minority of them"
 )
-NSDL_FORTNIGHT_LIMIT = (
-    "NIDP does not ingest NSDL's fortnightly FPI sector tables — there is no table "
-    "behind this stream"
+NSDL_NO_SECTOR = (
+    "NSDL reports FPI flows on BSE's 22-sector classification and this sector has no "
+    "counterpart there, so no fortnightly flow can be attributed to it"
 )
-NSDL_AUC_LIMIT = (
-    "NIDP does not ingest NSDL sector AUC, so the AUC-minus-index gap cannot be "
-    "computed"
+NSDL_TOO_SHORT = (
+    "Fewer than two fortnightly FPI reports are on record for this sector — a streak "
+    "needs at least two to have a direction"
 )
 
 # NIDP sector (nidp.sector_master.sector) -> the Nifty index that represents it.
@@ -66,15 +67,32 @@ NSDL_AUC_LIMIT = (
 # put a wrong denominator into a relative-strength score.
 SECTOR_INDEX: Dict[str, str] = {
     "Information Technology": "Nifty IT",
-    "Automobile": "Nifty Auto",
-    "Healthcare": "Nifty Pharma",
-    "FMCG": "Nifty FMCG",
-    "Metals": "Nifty Metal",
-    "Oil Gas": "Nifty Energy",
-    "Realty": "Nifty Realty",
-    "Media": "Nifty Media",
-    "Finance": "Nifty Financial Services",
+    "Automobile":             "Nifty Auto",
+    # Healthcare, not Pharma: sector_master's Healthcare includes hospitals and
+    # diagnostics, which Nifty Pharma excludes.
+    "Healthcare":             "Nifty Healthcare Index",
+    "FMCG":                   "Nifty FMCG",
+    "Metals":                 "Nifty Metal",
+    "Oil Gas":                "Nifty Energy",
+    "Realty":                 "Nifty Realty",
+    "Media":                  "Nifty Media",
+    "Finance":                "Nifty Financial Services",
+    "Capital Goods":          "Nifty Capital Goods",
+    "Chemicals":              "Nifty Chemicals",
+    "Consumer Durables":      "Nifty Consumer Durables",
+    "Consumer Services":      "Nifty Consumer Services",
+    "Construction":           "Nifty Construction",
+    # NSE files cement under construction materials; Nifty Cement is that sector's
+    # index, not a subset of it.
+    "Construction Materials": "Nifty Cement",
+    "Power":                  "Nifty Power",
 }
+# Left unmapped on purpose. "Telecommunication" has only Nifty MidSmall IT & Telecom,
+# which blends two sectors; "Services" has only Nifty Commercial & Transport
+# Services, a subset; Textiles and Diversified have no index at all. An approximate
+# index would put a wrong denominator into relative strength and into the
+# AUC-minus-index residual — a wrong number is worse here than an absent one.
+UNMAPPED_BY_DESIGN = ("Telecommunication", "Services", "Textiles", "Diversified")
 BENCHMARK_INDEX = "Nifty 50"
 
 
@@ -213,3 +231,53 @@ def pct_return(last_px: Optional[float], first_px: Optional[float]) -> Optional[
     if last_px is None or first_px in (None, 0):
         return None
     return round(100.0 * (float(last_px) - float(first_px)) / float(first_px), 2)
+
+
+def fortnight_streak(net_flows: List[Optional[float]]):
+    """Consecutive fortnights in one direction, newest first.
+
+    Returns ``(direction, count)`` where direction is the tracker's own ``in``/``out``
+    code, or ``None`` when there is no readable direction.
+
+    The streak is counted from the LATEST fortnight, so a sector that sold for six
+    fortnights and then bought reads as a 1-fortnight inflow — which is the honest
+    current state. Reporting the longer historical run would describe a regime that
+    has already turned.
+
+    A zero net flow ends the streak rather than continuing it: a fortnight with no
+    net movement is not evidence of the prior direction persisting.
+    """
+    flows = [f for f in net_flows]
+    if not flows or flows[0] is None or flows[0] == 0:
+        return None
+    positive = flows[0] > 0
+    count = 0
+    for v in flows:
+        if v is None or v == 0 or (v > 0) != positive:
+            break
+        count += 1
+    return ("in" if positive else "out"), count
+
+
+# Net flow and AUC per fortnight for one sector, newest first. EQUITY only — the
+# tracker's stream is about equity allocation, and debt flows move on rates rather
+# than on any view of the sector.
+FPI_SECTOR_SQL = """
+SELECT report_date, net_inv_inr_cr, auc_inr_cr
+  FROM nidp.fpi_sector_auc
+ WHERE sector_norm = $1 AND asset_class = 'EQUITY'
+ ORDER BY report_date DESC
+ LIMIT $2::int
+"""
+
+# Index return between two explicit dates — pinned to the FPI fortnight range so the
+# AUC-minus-index residual is a real gap and not a window mismatch.
+INDEX_RETURN_BETWEEN_SQL = """
+SELECT ROUND(100.0 * (
+           (ARRAY_AGG(close_price ORDER BY as_of_date DESC))[1]
+         - (ARRAY_AGG(close_price ORDER BY as_of_date ASC))[1]
+       ) / NULLIF((ARRAY_AGG(close_price ORDER BY as_of_date ASC))[1], 0), 2)
+  FROM nidp.index_eod
+ WHERE index_name = $1 AND as_of_date BETWEEN $2::date AND $3::date
+   AND close_price IS NOT NULL
+"""

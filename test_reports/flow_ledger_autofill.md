@@ -169,6 +169,77 @@ Over HTTP FastAPI resolves it to `None`, so this would never have fired in produ
 — but a handler that breaks when called directly is a handler that cannot be verified
 against real data. Coerced non-string `as_of` to `None`.
 
+## Coverage increase — second pass
+
+The first pass filled sector mode to 40/100. The remaining 60 was S1+S2, both from
+NSDL. The service to ingest them (`fpi_sector_auc`) **already existed in the tree but
+had never been merged to `dev` and crashed on startup**:
+
+```
+TypeError: setup_logging() missing 1 required positional argument: 'service'
+```
+
+Every sibling passes `service=`; this one did not, so it had never run. Fixed, applied
+migration 130, and ran it:
+
+```
+job_log[fpi_sector_auc] status=OK fetched=4608 inserted=4608 duration=2387ms
+ rows | sectors | mapped | fortnights |     lo     |     hi
+  216 |      24 |     23 |          9 | 2026-03-31 | 2026-07-31
+```
+
+The sector→index map also went from 9 to 16 exact matches (`Nifty Capital Goods`,
+`Nifty Chemicals`, `Nifty Cement`, `Nifty Power`, `Nifty Consumer Durables`,
+`Nifty Consumer Services`, `Nifty Construction`), and `Healthcare` was moved from
+`Nifty Pharma` to `Nifty Healthcare Index` — sector_master's Healthcare includes
+hospitals and diagnostics, which Nifty Pharma excludes.
+
+**Result, measured across all 20 sectors:**
+
+```
+  Finance                  100/100  S1-S4:OOOO  (101 symbols)
+  Capital Goods            100/100  S1-S4:OOOO  (63 symbols)
+  Healthcare               100/100  S1-S4:OOOO  (49 symbols)
+  Automobile               100/100  S1-S4:OOOO  (38 symbols)
+  Consumer Services        100/100  S1-S4:OOOO  (29 symbols)
+  FMCG                     100/100  S1-S4:OOOO  (28 symbols)
+  Information Technology   100/100  S1-S4:OOOO  (27 symbols)
+  Chemicals                100/100  S1-S4:OOOO  (26 symbols)
+  Metals                   100/100  S1-S4:OOOO  (18 symbols)
+  Power                    100/100  S1-S4:OOOO  (17 symbols)
+  Oil Gas                  100/100  S1-S4:OOOO  (17 symbols)
+  Consumer Durables        100/100  S1-S4:OOOO  (16 symbols)
+  Realty                   100/100  S1-S4:OOOO  (11 symbols)
+  Construction              75/100  S1-S4:OO.O  (13 symbols)
+  Construction Materials    75/100  S1-S4:OO.O  (11 symbols)
+  Services                  35/100  S1-S4:O...  (14 symbols)
+  Telecommunication         35/100  S1-S4:O...  (10 symbols)
+  Textiles                  35/100  S1-S4:O...  (5 symbols)
+  Diversified               35/100  S1-S4:O...  (3 symbols)
+  Media                     15/100  S1-S4:...O  (4 symbols)
+
+mean coverage across 20 sectors: 80/100
+```
+
+**40 → 80 mean, with 13 sectors at a full 100.** Worked example:
+
+```
+===== SECTOR Automobile =====                 100/100
+  OK S1 w35  1 consecutive fortnight(s) of inflow to 2026-07-31 (latest net +2,372 cr, 8 on record)
+  OK S2 w25  FPI custody in Automobile +4.61% vs Nifty Auto +8.54% between 2026-04-15 and 2026-07-31
+  OK S3 w25  8 of the top 10 by market cap saw FII stake fall QoQ
+  OK S4 w15  Nifty Auto +13.88% vs Nifty 50 +2.27% over ~3 months
+```
+
+FMCG shows what S2 is for: FPI custody **−0.91%** while `Nifty FMCG` rose **+1.72%** —
+a 2.63pp gap of active selling that the index move was hiding.
+
+Four sectors are left unmapped **on purpose** (`UNMAPPED_BY_DESIGN`): Telecom exists
+only inside `Nifty MidSmall IT & Telecom` (two sectors blended), Services only inside
+`Nifty Commercial & Transport Services` (a subset), Textiles and Diversified have no
+index. An approximate index would corrupt both relative strength and the
+AUC-minus-index residual — worse than an absent stream the tracker renormalises around.
+
 ## UNVERIFIED
 
 - **The HTTP hop.** These ran through the real handler coroutines against the real DB,
