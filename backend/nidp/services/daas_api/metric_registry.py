@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 
 # Bump when a definition, formula, explainer or threshold changes. Saved screens
 # pin this so a reloaded screen can be told its definitions moved (E1).
-REGISTRY_VERSION = "1.0.0"
+REGISTRY_VERSION = "1.1.0"   # 1.1.0: added promoter_pledged_pct
 
 # A metric is offered only if it clears BOTH: coverage >= min_coverage_pct AND
 # distinct_non_null > 1. The second half is not optional — see module docstring.
@@ -101,6 +101,27 @@ _METRICS: List[Metric] = [
         source_dataset="nidp.stock_features_daily",
         explainer="The total value of the company on the exchange, in rupees crore.",
         min_coverage_pct=5.0,    # measured 7.5%, 179 distinct
+    ),
+    Metric(
+        key="promoter_pledged_pct", label="Promoter Pledge", unit="percent",
+        column="promoter_pledged_pct", category="leverage",
+        formula="Promoter shares pledged or otherwise encumbered / total shares outstanding",
+        source_dataset="nidp.shareholding_pattern",
+        explainer="How much of the company the promoters have pledged as collateral for "
+                  "borrowing. A high number means their stake can be sold by a lender if "
+                  "the price falls, which is a risk to every other shareholder.",
+        # Fed by nse_pledge_csv from a manually-dropped NSE SAST file, because the
+        # NSE pledge API is IP-blocked for this platform. Until a file is loaded
+        # coverage is 0% and the availability gate hides this with a stated reason —
+        # which is why it is listed here rather than omitted: A4 requires the UI be
+        # able to say WHY a metric a user expects is missing.
+        #
+        # NOTE ON BASIS: stock_features_daily.promoter_pledged_pct is populated from
+        # shareholding_pattern.promoter_pledged_to_total_pct (see
+        # populate_stock_features_extended), so this is pledged as a share of TOTAL
+        # equity, not of the promoter's own holding. The label and formula say so
+        # deliberately — the two differ by a lot (A2Z Infra: 27.8% vs 99.7%).
+        min_coverage_pct=25.0,
     ),
     Metric(
         key="sector", label="Sector", unit="count",

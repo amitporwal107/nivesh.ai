@@ -279,15 +279,20 @@ def nse_shareholding_suite(expected_date: Optional[str] = None) -> Suite:
     Fixes the column name (period_end, not quarter_end) and adds checks that would have
     caught the 2026-06-23 issues: NSE is the single golden source, so a row must be
     unique on (symbol, period_end) — a second Screener row for the same period breaks
-    this (it's how the 1,323 duplicates surfaced); pledge ≤ promoter; pcts in 0–100.
+    this (it's how the 1,323 duplicates surfaced); pledge ≤ promoter on the
+    total-shares basis; pcts in 0–100.
     """
     s = Suite("nse_shareholding.quarterly", feed="nse_shareholding")
     s.add(expect.column_values_to_be_not_null("symbol"))
     s.add(expect.column_values_to_be_not_null("period_end"))
     s.add(expect.column_values_to_be_not_in_future("period_end"))
-    for c in ("promoter_pct", "public_pct", "dii_pct", "fii_pct", "promoter_pledged_pct"):
+    for c in ("promoter_pct", "public_pct", "dii_pct", "fii_pct",
+              "promoter_pledged_pct", "promoter_pledged_to_total_pct"):
         s.add(expect.column_values_to_be_between(c, min_value=0, max_value=100))
-    s.add(expect.column_pair_a_lte_b("promoter_pledged_pct", "promoter_pct"))
+    # Same basis, or the comparison is meaningless: promoter_pledged_pct is
+    # pledged/promoter-holding while promoter_pct is promoter/total-shares, so the
+    # pair check belongs on promoter_pledged_to_total_pct (see dq_suites.py).
+    s.add(expect.column_pair_a_lte_b("promoter_pledged_to_total_pct", "promoter_pct"))
     s.add(expect.compound_columns_to_be_unique(["symbol", "period_end"]))  # single golden source
     return s
 

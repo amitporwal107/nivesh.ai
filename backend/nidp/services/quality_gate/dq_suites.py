@@ -116,7 +116,8 @@ def nse_financials_suite(cal: TradingCalendar) -> Suite:
 # ===========================================================================
 def shareholding_suite(cal: TradingCalendar) -> Suite:
     cols = ["symbol", "period_end", "source",
-            "promoter_pct", "fii_pct", "dii_pct", "public_pct", "promoter_pledged_pct"]
+            "promoter_pct", "fii_pct", "dii_pct", "public_pct",
+            "promoter_pledged_pct", "promoter_pledged_to_total_pct"]
     return Suite(
         asset="shareholding_pattern", ingester="nse_shareholding",
         fetch=FeedQuery("nidp.shareholding_pattern", cols, date_col="period_end"),
@@ -132,7 +133,18 @@ def shareholding_suite(cal: TradingCalendar) -> Suite:
             E.between("dii_pct", min=0, max=100),
             E.between("public_pct", min=0, max=100),
             E.between("promoter_pledged_pct", min=0, max=100),
-            E.pair_a_lte_b("promoter_pledged_pct", "promoter_pct"),  # pledge <= promoter
+            E.between("promoter_pledged_to_total_pct", min=0, max=100),
+            # The pledge<=promoter invariant only holds on the SAME basis. The two
+            # pledge columns are different quantities (migration 025): _pct is
+            # pledged/promoter-holding, _to_total_pct is pledged/total-shares.
+            # promoter_pct is also on the total-shares basis, so _to_total_pct is the
+            # one that must not exceed it — pledged shares are a subset of promoter
+            # shares, so this is guaranteed by arithmetic and a violation is real
+            # corruption. Comparing _pct instead fired on correct data: A2Z Infra
+            # discloses 99.68% of promoter holding encumbered against a 27.92%
+            # promoter stake, which is not an error. The rule was dormant until
+            # 2026-08-19 because both columns were NULL in all 8,955 rows.
+            E.pair_a_lte_b("promoter_pledged_to_total_pct", "promoter_pct"),
             # CONFIRMED 2-column: public_pct is the all-non-promoter aggregate; fii/dii
             # are SUBSETS of it. Clean rows show promoter+public = 99.96 (97.27–100.00).
             # public_pct is contaminated (max 9904) so this check IS the corruption
