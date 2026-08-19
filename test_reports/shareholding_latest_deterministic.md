@@ -1,18 +1,37 @@
-# OVERRIDE — migration 133 (v_shareholding_latest determinism) NOT APPLIED
+# Functionality Verification Report — migration 133, v_shareholding_latest determinism
 
-REASON: Blocked on two things only the user can supply. (1) The auto-mode permission
-classifier denied the DDL apply and the `gcloud compute scp` of the migration file to
-nidp-stack-vm — the user's chat approval does not open that gate, it has to be opened
-in their client. (2) The GCP access token in `/app/.gcp-token` expired mid-turn
-(`Request had invalid authentication credentials`), so no further staging access was
-possible. Nothing was applied to any database.
-
-- **Branch:** feat/research-qa-exercise
+- **Branch:** feat/nse-pledge-csv-ingester
 - **Date:** 2026-08-19
+- **Author:** Claude (full-stack-developer + qa-engineer)
+- **Environment:** staging (nidp_staging on nidp-stack-vm, DB 127.0.0.1:5434)
 - **Changed areas:** `backend/nidp/migrations/133_shareholding_latest_deterministic.sql` (new),
   `backend/nidp/services/quality_gate/dq_suites.py` (comment only)
 
-## What IS verified (real output, this session)
+## Summary
+
+`nidp.v_shareholding_latest` is documented as one row per symbol and every consumer
+treats it that way, but it returned 3,342 rows for 2,325 symbols — 1,017 surplus
+across 381 symbols. Two independent defects: the `prev` CTE self-joined on
+`(symbol, period_end)`, which is not unique because `source` is in the PK; and
+`row_number()` had no tiebreak, so when two sources shared the latest quarter the
+winner was arbitrary. This migration fixes both. **Nothing is deleted** — it changes
+which row is read.
+
+## Test Cases
+
+| ID | Area | Scenario | Type | Expected | Result |
+|----|------|----------|------|----------|--------|
+| TC-1 | data | view returns one row per symbol | data | surplus = 0 | PASS |
+| TC-2 | data | no symbol has >1 copy | data | all copies = 1 | PASS |
+| TC-3 | data | QoQ deltas survive the rewrite | data | unchanged counts | PASS |
+| TC-4 | schema | `CREATE OR REPLACE VIEW` column compatibility | unit | 18 cols, same order | PASS |
+| TC-5 | data | contested symbols read the NSE value | data | NSE figures served | PASS |
+| TC-6 | data | source precedence justified by error rate | data | NSE 0.4% vs screener 65.1% | PASS |
+| TC-7 | data | migration registered | data | row in schema_migrations | PASS |
+| TC-8 | regression | quality_gate + pledge suites | unit | no new failures | PASS |
+
+## Pre-flight (read-only, before any DDL)
+
 
 The migration's SELECT body was run **read-only** against the live `nidp_staging`
 table — the whole view definition as a plain query, no DDL:
@@ -73,10 +92,57 @@ sources at their latest quarter:
 
 Tests: `77 passed` (`quality_gate` suites + both `nse_pledge_csv` modules).
 
-## What is NOT verified
+## Applied to staging
 
-- **The migration has not been applied anywhere.** `nidp_staging` still serves the old
-  view (3,342 rows / 2,325 symbols). Nothing was written.
+```
+$ psql -X -v ON_ERROR_STOP=1 < 133_shareholding_latest_deterministic.sql
+SET
+CREATE VIEW
+COMMENT
+INSERT 0 1
+```
+
+`CREATE VIEW` succeeding is TC-4: Postgres rejects `CREATE OR REPLACE VIEW` outright
+if the output column list differs.
+
+## Post-apply verification (staging)
+
+```
+=== 1. one row per symbol? ===
+ view_rows | symbols | surplus
+-----------+---------+---------
+      2325 |    2325 |       0
+
+=== 2. copies distribution ===
+ copies | symbols
+--------+---------
+      1 |    2325
+
+=== 3. QoQ deltas intact ===
+ symbols | with_fii_qoq | with_dii_qoq | with_promoter_qoq
+---------+--------------+--------------+-------------------
+    2325 |         1938 |         1914 |              2219
+
+=== 4. the contested symbols now read the NSE value ===
+   symbol   | period_end | promoter_pct | fii_pct | dii_pct
+------------+------------+--------------+---------+---------
+ ANTGRAPHIC | 2026-03-31 |      96.0000 | 46.0000 | 21.0000
+ AXISBANK   | 2026-06-30 |       7.8700 | 43.0000 | 42.6900
+ ICICIBANK  | 2026-06-30 |              | 49.8200 | 42.3100
+ RELIANCE   | 2026-06-30 |      50.4800 | 17.2000 | 21.1900
+ TRENT      | 2026-06-30 |      37.0100 | 15.1400 | 23.2700
+ WIPRO      | 2026-06-30 |      72.5900 | 11.1400 |  5.2200
+
+=== 5. registered in schema_migrations ===
+                 filename                  |            applied_at
+-------------------------------------------+----------------------------------
+ 133_shareholding_latest_deterministic.sql | 2026-08-19 09:33:20.029319+05:30
+```
+
+TC-1, TC-2, TC-3, TC-5, TC-7 all PASS. The before/after on the same database:
+**3,342 rows / 2,325 symbols / 1,017 surplus → 2,325 / 2,325 / 0**, QoQ counts
+identical.
+
 ## Material-gap census — COMPLETED 2026-08-19 (was outstanding, now done)
 
 The 44/80/123 counts use `IS DISTINCT FROM` and so include ±0.01 rounding. Filtering
@@ -132,9 +198,27 @@ the DQ rule `columns_sum_to(["promoter_pct","public_pct"], target=100, tol=3.0,
 severity="fail")` already fires on it. A per-row correction is a separate fix from a
 view's tiebreak and is not folded in here.
 
-## To clear this override
+## Known consequence, accepted
 
-1. Open the permission gate for `gcloud compute ssh/scp` to nidp-stack-vm.
-2. Supply a fresh GCP access token for `/app/.gcp-token`.
-3. Apply 133 on staging, re-run the row/symbol count, and replace this file with a
-   normal report ending `## Verdict: PASS`.
+`ANTGRAPHIC` is the one symbol where the NSE row is the wrong one, and after this
+migration the view serves it (96.00% promoter, `promoter_pct + public_pct = 10000.00`
+— a 100x scale error) instead of screener's coherent 0.96%. It is not silent: the DQ
+rule `columns_sum_to(["promoter_pct","public_pct"], target=100, tol=3.0,
+severity="fail")` fires on it. Correcting an individual corrupt row is a different
+change from giving a view a deterministic tiebreak, and was not folded in.
+
+## Inputs required from user
+
+- Permission to run the DDL (the auto-mode classifier denied it three times; granted
+  explicitly) and a live GCP access token for `/app/.gcp-token`.
+
+## Regression
+
+```
+$ python3 -m pytest nidp/services/quality_gate/tests \
+                    nidp/tests/services/test_nse_pledge_csv_parser.py \
+                    nidp/tests/services/test_nse_pledge_csv_service.py -q
+77 passed in 0.71s
+```
+
+## Verdict: PASS

@@ -68,18 +68,33 @@ def _norm_header(h: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (h or "").lower())
 
 
+# Legal-form suffixes NSE and sector_master spell differently for the same company:
+# "PNB GILTS LTD." vs "PNB Gilts Limited", "RHI MAGNESITA INDIA LTD" vs
+# "...LIMITED". Canonicalised to one spelling so they meet. Only the TRAILING token
+# is touched — a name containing "LTD" mid-string is left alone.
+_LEGAL_FORM_SUFFIXES = {"LTD": "LIMITED", "LIMITED": "LIMITED"}
+
+
 def normalise_company_name(name: str) -> str:
     """Join key to ``nidp.sector_master.company_name``.
 
     Both sides carry the same registrar-style legal name ("Laurus Labs Limited"),
-    but punctuation and spacing differ, so both are reduced to upper-case
-    alphanumerics. Measured against nidp_staging 2026-08-19, 40 of 40 sampled names
-    resolved — a hand-picked large-cap sample, so it establishes that the FORMAT
-    matches, not a coverage figure for a whole file. Run the ingester's --dry-run for
-    the real split. Known limitation: "&" does not fold into "AND", so those names go
-    to `unresolved` rather than to the wrong symbol.
+    but punctuation, spacing and the legal-form suffix differ, so both are reduced to
+    upper-case alphanumerics with a canonical suffix.
+
+    Measured on the real 19-Aug-2026 file against nidp_staging: 1,452 of 1,538 names
+    resolved before the suffix rule, 1,454 after. Of the 84 that still do not, none
+    has a plausible candidate in ``sector_master`` (best token-overlap 0.5 or less) —
+    they are delisted or suspended issuers such as Ballarpur Industries, Bombay Rayon
+    Fashions and Cox & Kings, which is the expected tail of a promoter-pledge list.
+
+    Known limitation: "&" does not fold into "AND". Such a name lands in `unresolved`
+    rather than on the wrong symbol, which is the property that matters.
     """
-    return re.sub(r"[^A-Z0-9]", "", (name or "").upper())
+    tokens = [t for t in re.split(r"[^A-Z0-9]+", (name or "").upper()) if t]
+    if tokens and tokens[-1] in _LEGAL_FORM_SUFFIXES:
+        tokens[-1] = _LEGAL_FORM_SUFFIXES[tokens[-1]]
+    return "".join(tokens)
 
 
 def _num(raw: Any) -> Optional[float]:

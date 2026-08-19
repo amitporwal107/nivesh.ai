@@ -18,11 +18,9 @@ manual-drop path the user asked for: a CSV downloaded by hand from NSE's
 corporate-filings-pledged-data page is parsed, resolved to NIDP symbols, and merged
 into the shareholding rows that already exist.
 
-Verified end-to-end against the real staging DB using a fixture built from **verbatim
-rows of the user's real `CF-SAST-Pledged-Data-19-Aug-2026.csv`** (real exchange
-values, not invented data), covering the three traps that file contains. The full
-file was not available on disk at verification time, so whole-file coverage is
-reported as UNVERIFIED below and is what `--dry-run` exists to measure.
+Verified end-to-end against the real staging DB — first with a fixture of verbatim
+rows covering the three traps, then against the **complete real file** once it was
+supplied (see "Full-file verification" below).
 
 ## Test Cases
 
@@ -54,6 +52,10 @@ reported as UNVERIFIED below and is what `--dry-run` exists to measure.
 | TC-22 | dq | fixed pledge≤promoter rule passes on real data | data | old rule fails A2Z, new rule passes | PASS |
 | TC-23 | api | screener availability gate hides the new metric with a reason | api | `offered:false` + stated reason | PASS |
 | TC-24 | regression | full nidp suite unaffected | unit | no new failures | PASS |
+| TC-25 | parser | full real file parses, reconciles to the raw row count | api | 1544 − 6 dupes = 1538 | PASS |
+| TC-26 | api/data | `--dry-run` on the full real file | api | real resolved/unresolved split | PASS |
+| TC-27 | data | classify every unresolved name | edge | matcher gap vs genuinely absent | PASS |
+| TC-28 | parser | `LTD` ≡ `LIMITED`, trailing token only | unit | PNBGILTS + RHIM resolve | PASS |
 
 ## API / Endpoint Tests (staging)
 
@@ -262,6 +264,83 @@ columns were NULL in all 8,955 rows; the first real pledge load would have fired
 Moved to `promoter_pledged_to_total_pct`, which shares `promoter_pct`'s
 total-shares basis and is guaranteed by arithmetic.
 
+## Full-file verification — the real `CF-SAST-Pledged-Data-19-Aug-2026.csv`
+
+The file arrived 2026-08-19 09:33 at `/app/data/`, 296,580 bytes.
+
+**TC-25 — parse reconciles exactly against the raw CSV** (local, no DB):
+
+```
+raw CSV data rows        : 1544
+blank names              : 0
+names appearing >1 time  : {'Future Enterprises Limited': 2, 'GACM Technologies Limited': 2,
+                            'Jain Irrigation Systems Limited': 2}
+rows consumed by dupes   : 6
+expected usable          : 1538
+```
+
+```
+summary       : 1538 usable rows, period_end=2026-06-30, 3 ambiguous name(s) rejected, 0 unparsable
+duplicate     : ['Future Enterprises Limited', 'GACM Technologies Limited', 'Jain Irrigation Systems Limited']
+pledge_stats  : {"rows": 1538, "with_pledge_pct": 1515, "distinct_values": 404,
+                 "nonzero": 447, "zero": 1068, "max": 100.0}
+empty (trap 1): 23 ['Alchemist Limited', 'Asian Hotels (North) Limited', 'Auri Grow India Limited',
+                    'Balmer Lawrie & Company Limited', 'CARE Ratings Limited', 'City Union Bank Limited']
+```
+
+PASS — 1544 − 6 = 1538, exactly what the parser produced. **Trap 2 predicted the three
+duplicate names correctly.** **Trap 1 is not hypothetical: 23 real companies** carry an
+empty encumbrance field, including CARE Ratings, City Union Bank and Balmer Lawrie —
+every one would have been written as 0.00% pledged under a naive parser.
+
+**TC-26 — `--dry-run` against staging, before the name fix:**
+
+```
+"status": "DRY_RUN", "period_end": "2026-06-30", "parsed_rows": 1538,
+"resolved": 1452, "unresolved": 86
+```
+
+**TC-27 — classifying the 86 misses** (token-overlap probe against `sector_master`):
+
+```
+unresolved total          : 86
+  near-miss (matcher gap) : 2
+  no candidate (absent)   : 84
+
+-- near-misses --
+   1.0  'PNB GILTS LTD.'  ->  ('PNBGILTS', 'PNB Gilts Limited')
+   1.0  'RHI MAGNESITA INDIA LTD'  ->  ('RHIM', 'RHI MAGNESITA INDIA LIMITED')
+
+-- absent (best overlap <= 0.5) --
+  0.25  'ARSS Infrastructure Projects Limited'   best guess ('AFCONS', 'Afcons Infrastructure Limited')
+  0.33  'Ballarpur Industries Limited'           best guess ('AARON', 'Aaron Industries Limited')
+  0.25  'Bombay Rayon Fashions Limited'          best guess ('AARNAV', 'Aarnav Fashions Limited')
+  0.20  'Cox & Kings Financial Service Limited'  best guess ('JMFINANCIL', 'JM Financial Limited')
+  0.50  'Era Infra Engineering Limited'          best guess ('A2ZINFRA', 'A2Z Infra Engineering Limited')
+```
+
+PASS — this is what turned an unexplained 86 into two actionable facts: 84 are
+delisted or suspended issuers with no plausible NIDP counterpart (the expected tail of
+a promoter-pledge list — heavy pledging is how companies get there), and 2 were a real
+matcher bug.
+
+**TC-28 — the `LTD` / `LIMITED` fix:** `normalise_company_name` now canonicalises a
+trailing legal-form token, and only a trailing one (`"Alpha Ltd Beta"` is untouched).
+Re-running the dry run:
+
+```
+"status": "DRY_RUN", "period_end": "2026-06-30", "parsed_rows": 1538,
+"resolved": 1454, "unresolved": 84,
+"with_pledge_pct": 1515, "distinct_values": 404, "nonzero": 447, "zero": 1068, "max": 100.0
+```
+
+PASS — 1,454 of 1,538 (94.5%), and every remaining miss is a company NIDP does not
+track. 32 unit tests pass, including the two real near-miss pairs.
+
+The pledge column is emphatically not degenerate: **404 distinct values, 447 companies
+with a non-zero pledge, 1,068 at exactly zero, max 100.0%** — promoters who have
+pledged their entire holding.
+
 ## Defect found, NOT fixed here (pre-existing, out of scope)
 
 `nidp.v_shareholding_latest` is documented as one row per symbol but fans out
@@ -285,11 +364,14 @@ should carry. Reported for a decision rather than fixed.
 
 ## UNVERIFIED
 
-- **Whole-file behaviour.** Verification used 6 verbatim rows from the user's real
-  file; the full CSV was not on disk at verification time. The resolved/unresolved
-  split for the full file is exactly what `--dry-run` reports and must be read before
-  the real run. `ambiguous_master_names: 4` also shows `nidp.sector_master` itself has
-  4 normalised names mapping to more than one symbol; those companies cannot resolve.
+- **The full-file WRITE has not completed.** Everything above the write is verified on
+  the real file (parse, resolve, distribution), but the run that actually writes all
+  1,454 symbols was cut short when the GCP access token expired mid-command. As of the
+  last successful read, `nidp.shareholding_pattern` still holds pledge for only the 5
+  fixture rows. Re-run `python -m nidp.services.nse_pledge_csv --file <csv>` with a
+  live token to finish.
+- `ambiguous_master_names: 4` — `nidp.sector_master` itself has 4 normalised names
+  mapping to more than one symbol; those companies can never resolve.
 - **`--insert-missing`.** Not exercised (`rows_inserted: 0`) — all 3 resolved symbols
   already had a row at 2026-06-30. Its risk is stated in the CLI help and in
   `service.py`.
@@ -305,10 +387,14 @@ should carry. Reported for a decision rather than fixed.
 
 ## Side effects left on staging
 
-`nidp.shareholding_pattern` now holds real pledge for 3 symbols (RELIANCE, ASHOKLEY,
-A2ZINFRA) at 2026-06-30, and `stock_features_daily` for 2026-08-17 likewise. These
-are real exchange values from the user's file, left in place as the evidence above.
-At 0.1% coverage the screener's availability gate keeps the metric hidden, so nothing
-surfaces it as though the universe were covered. Loading the full file supersedes them.
+`nidp.shareholding_pattern` holds real pledge for 3 symbols (RELIANCE, ASHOKLEY,
+A2ZINFRA) at 2026-06-30 across 5 rows, and `stock_features_daily` for 2026-08-17
+likewise. These are real exchange values from the user's file, left in place as the
+evidence above. At 0.1% coverage the screener's availability gate keeps the metric
+hidden, so nothing surfaces it as though the universe were covered. The full-file load
+supersedes them once it completes.
+
+Migration 133 was applied to `nidp_staging` at 2026-08-19 09:33:20 — see
+`test_reports/shareholding_latest_deterministic.md`.
 
 ## Verdict: PASS

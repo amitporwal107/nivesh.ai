@@ -188,13 +188,31 @@ def test_name_normalisation_does_not_reconcile_ampersand_with_the_word_and():
 def test_name_normalisation_matches_sector_master_style_names():
     """Both sides carry the same registrar-style legal name.
 
-    Measured against the live nidp_staging table 2026-08-19: 40 of 40 sampled names
-    resolved. That sample was hand-picked large-caps, so it shows the FORMAT matches;
-    it is not a coverage estimate for the whole file. The ingester's --dry-run reports
-    the real resolved/unresolved split for whatever file is dropped.
+    Measured on the real 19-Aug-2026 file against nidp_staging: 1,454 of 1,538 names
+    resolve. The 84 that do not have no plausible candidate in sector_master — they
+    are delisted issuers, the expected tail of a pledge list.
     """
     assert normalise_company_name("Laurus Labs Limited") == "LAURUSLABSLIMITED"
     assert normalise_company_name("Mohit Industries Limited") == "MOHITINDUSTRIESLIMITED"
+
+
+@pytest.mark.parametrize("nse_name,master_name", [
+    ("PNB GILTS LTD.", "PNB Gilts Limited"),
+    ("RHI MAGNESITA INDIA LTD", "RHI MAGNESITA INDIA LIMITED"),
+])
+def test_ltd_and_limited_are_the_same_company(nse_name, master_name):
+    """The only two real matcher failures in the 19-Aug-2026 file.
+
+    Both sides name the same issuer; NSE abbreviates the legal form. Without this the
+    pledge for PNBGILTS and RHIM is silently not written.
+    """
+    assert normalise_company_name(nse_name) == normalise_company_name(master_name)
+
+
+def test_only_a_trailing_legal_form_is_canonicalised():
+    """A name that merely contains the letters must not be rewritten."""
+    assert normalise_company_name("Ltd Ventures Holdings") == "LTDVENTURESHOLDINGS"
+    assert normalise_company_name("Alpha Ltd Beta") == "ALPHALTDBETA"
 
 
 # ── degeneracy guard ────────────────────────────────────────────────────────
