@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from nidp.shared.config import HTTP_RETRY_ATTEMPTS
+from nidp.shared.config import HTTP_RETRY_ATTEMPTS, HTTP_RETRY_BACKOFF_S
 from nidp.shared.sources import nse_fetcher
 
 
@@ -111,14 +111,25 @@ def test_403_recovers_after_several_attempts(monkeypatch, _no_sleep):
 
 
 def test_403_backs_off_between_attempts(monkeypatch, _no_sleep):
-    """A 403 must sleep before retrying — an instant retry re-trips Akamai."""
+    """A 403 must sleep before retrying — an instant retry re-trips Akamai.
+
+    Only the fetcher's own backoff delays are asserted on. Patching
+    `nse_fetcher.asyncio.sleep` patches the shared asyncio module, so
+    unrelated sleeps (aiohttp internals, the async plugin) also land in the
+    recording and would make a naive "is the whole list sorted" check fail
+    depending on which interpreter runs the suite.
+    """
     session = _FakeSession([403, 403])
     _install(monkeypatch, session)
 
     asyncio.run(nse_fetcher.fetch_bytes(URL))
 
-    assert _no_sleep, "403 retry slept 0 times; backoff was skipped"
-    assert _no_sleep == sorted(_no_sleep), "backoff must be non-decreasing"
+    expected = [HTTP_RETRY_BACKOFF_S * (2 ** i)
+                for i in range(HTTP_RETRY_ATTEMPTS - 1)]
+    observed = [d for d in _no_sleep if d in expected]
+    assert observed, f"403 retry recorded no backoff delay; saw {_no_sleep}"
+    assert observed == sorted(observed), "backoff must be non-decreasing"
+    assert observed[0] == expected[0], "first backoff should be the base delay"
 
 
 def test_403_clears_cookie_jar_before_repriming(monkeypatch, _no_sleep):
