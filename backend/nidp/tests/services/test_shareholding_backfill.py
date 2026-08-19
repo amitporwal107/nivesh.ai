@@ -113,3 +113,31 @@ def test_mixed_types_on_both_sides_still_match():
                  {"period_end": "2026-03-31", "xbrl_url": "u"}]
     assert bf.missing_quarters(manifests, have=["2026-06-30", date(2026, 3, 31)],
                                want=2) == []
+
+
+# ── unstorable rows (the crash that ended the first full sweep) ─────────────
+
+def test_a_percentage_the_column_cannot_hold_is_rejected():
+    """shareholding_pattern stores percentages as NUMERIC(8,4), so >= 10^4 raises
+    NumericValueOutOfRangeError. The writer uses executemany, so ONE such filing
+    aborts the whole batch — the 2026-08-19 sweep died at 22.3% coverage on exactly
+    this."""
+    assert bf.storable({"symbol": "X", "fii_pct": 41.82}) is True
+    assert bf.storable({"symbol": "X", "public_pct": 9904.0}) is True     # ugly but storable
+    assert bf.storable({"symbol": "X", "public_pct": 10000.0}) is False
+    assert bf.storable({"symbol": "X", "promoter_pct": -12345.6}) is False
+
+
+def test_nulls_and_absent_fields_are_storable():
+    assert bf.storable({"symbol": "X"}) is True
+    assert bf.storable({"symbol": "X", "fii_pct": None, "dii_pct": None}) is True
+
+
+def test_a_non_numeric_percentage_is_rejected_rather_than_crashing_the_batch():
+    assert bf.storable({"symbol": "X", "fii_pct": "n/a"}) is False
+
+
+def test_every_percentage_column_is_checked():
+    """Missing one from the list means that column can still kill a sweep."""
+    for field in bf._PCT_FIELDS:
+        assert bf.storable({"symbol": "X", field: 99999.0}) is False, field
