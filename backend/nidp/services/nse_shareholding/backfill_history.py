@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 
 REFERER = f"{NSE_WWW}/companies-listing/corporate-filings-shareholding-pattern"
 
+# Per-request ceiling. Generous next to the fetcher's own 30s timeout x4
+# retries, but finite — the point is that no single socket can wedge a sweep
+# over 2,000 symbols.
+_SYMBOL_TIMEOUT_S = 180
+
 
 def symbol_url(symbol: str) -> str:
     return f"{NSE_SHAREHOLDING_LIST_URL}&symbol={symbol}"
@@ -64,6 +69,39 @@ def missing_quarters(manifests: List[Dict[str, Any]], have: Sequence[Any],
         if len(out) >= want:
             break
     return out
+
+
+# nidp.shareholding_pattern stores percentages as NUMERIC(8,4), so anything at or
+# above 10^4 cannot be written at all — asyncpg raises NumericValueOutOfRangeError
+# and, because the writer uses executemany, ONE bad filing aborts the whole batch and
+# ends the sweep. Observed 2026-08-19: the run died at 22.3% coverage on exactly this.
+#
+# A holding percentage above 10,000 is not a number this table can hold or that any
+# reading of it could be true — the same corruption family as the public_pct = 9904
+# already sitting in the table. Such a row is dropped and counted, never silently
+# clamped: clamping would invent a plausible value for a filing whose real one is
+# unknown.
+_PCT_LIMIT = 10_000
+_PCT_FIELDS = (
+    "promoter_pct", "promoter_pledged_pct", "promoter_pledged_to_total_pct",
+    "fii_pct", "dii_pct", "mf_pct", "insurance_pct", "bank_fi_pct",
+    "govt_holding_pct", "public_pct", "individual_pct", "nri_pct",
+    "bodies_corporate_pct",
+)
+
+
+def storable(row: Dict[str, Any]) -> bool:
+    """False when a percentage field exceeds what the column can store."""
+    for f in _PCT_FIELDS:
+        v = row.get(f)
+        if v is None:
+            continue
+        try:
+            if abs(float(v)) >= _PCT_LIMIT:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
 
 
 async def _quarters_held(conn, symbols: Sequence[str]) -> Dict[str, List[Any]]:
@@ -96,18 +134,31 @@ async def run(*, quarters: int = 4, limit: Optional[int] = None,
 
     written = fetched = failed = 0
     offered = doc_unavailable = doc_unparsed = doc_error = 0
+    out_of_range = write_failed = 0
     skipped_complete = len(symbols) - len(todo)
 
     for i, sym in enumerate(todo, 1):
         want = quarters - len(held.get(sym, []))
         try:
-            body, status = await fetch_bytes(
+            # Hard ceiling per symbol. The shared fetcher has its own per-request
+            # timeout, but a run over ~2,000 symbols only needs ONE socket to hang
+            # past it to wedge the whole sweep — observed 2026-08-19, live processes
+            # with no write for 5+ minutes. A symbol that overruns is skipped and
+            # picked up by the next run, which is safe because the backfill is
+            # incremental.
+            body, status = await asyncio.wait_for(fetch_bytes(
                 symbol_url(sym), referer=REFERER,
-                extra_headers={"Accept": "application/json"})
+                extra_headers={"Accept": "application/json"}),
+                timeout=_SYMBOL_TIMEOUT_S)
             if status != 200 or not body:
                 failed += 1
                 continue
             manifests = parse_filing_list(body)
+        except asyncio.TimeoutError:
+            logger.warning("backfill: %s timed out after %ss — skipping",
+                           sym, _SYMBOL_TIMEOUT_S)
+            failed += 1
+            continue
         except Exception:                                            # noqa: BLE001
             logger.exception("backfill: list fetch failed for %s", sym)
             failed += 1
@@ -118,7 +169,9 @@ async def run(*, quarters: int = 4, limit: Optional[int] = None,
         offered += len(wanted)
         for m in wanted:
             try:
-                doc, st = await fetch_bytes(m["xbrl_url"], referer=REFERER)
+                doc, st = await asyncio.wait_for(
+                    fetch_bytes(m["xbrl_url"], referer=REFERER),
+                    timeout=_SYMBOL_TIMEOUT_S)
                 if st != 200 or not doc:
                     doc_unavailable += 1
                     logger.info("backfill: %s %s XBRL HTTP %s",
@@ -140,8 +193,19 @@ async def run(*, quarters: int = 4, limit: Optional[int] = None,
                                sym, m.get("period_end"))
 
         rows = [r for r in rows if r.get("symbol") and r.get("period_end")]
-        if rows:
-            written += await upsert_shareholding(rows, run_id)
+        keep = [r for r in rows if storable(r)]
+        if len(keep) != len(rows):
+            out_of_range += len(rows) - len(keep)
+            logger.warning("backfill: %s dropped %d unstorable row(s) "
+                           "(percentage >= %d)", sym, len(rows) - len(keep), _PCT_LIMIT)
+        if keep:
+            try:
+                written += await upsert_shareholding(keep, run_id)
+            except Exception:                                        # noqa: BLE001
+                # One symbol must not end the sweep. The writer batches, so a
+                # failure here loses this symbol's rows, not the run's.
+                write_failed += 1
+                logger.exception("backfill: write failed for %s", sym)
         if i % 100 == 0:
             logger.info("backfill: %d/%d symbols, %d rows written",
                         i, len(todo), written)
@@ -157,6 +221,8 @@ async def run(*, quarters: int = 4, limit: Optional[int] = None,
         "xbrl_parsed_empty": doc_unparsed,
         "xbrl_errored": doc_error,
         "rows_written": written,
+        "rows_out_of_range": out_of_range,
+        "symbol_writes_failed": write_failed,
         "symbol_list_failed": failed,
     }
     logger.info("nse_shareholding backfill done: %s", result)

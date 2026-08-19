@@ -33,6 +33,7 @@ import ReleaseDetailPage from "./pages/Releases/ReleaseDetail";
 import ChatPage from "./pages/Chat";
 import ResearchPage from "./pages/Research";
 import ResearchQAPage from "./pages/Research/QAExercise";
+import FlowLedgerPage from "./pages/FlowLedger";
 import LoginPage from "./pages/Login";
 import OnboardingPage from "./pages/Onboarding";
 import CasCallbackPage from "./pages/CasCallback";
@@ -126,6 +127,7 @@ export function AppRoutes() {
       {/* QA validation exercise — an in-app, fill-in version of the two onboarding
           docs. Same standalone, login-gated treatment as /research. */}
       <Route path="/research/qa" element={<RequireAuth><RouteErrorBoundary pageName="Research QA"><ResearchQAPage /></RouteErrorBoundary></RequireAuth>} />
+      <Route path="/flows" element={<RequireAuth><RouteErrorBoundary pageName="Flow Ledger"><FlowLedgerPage /></RouteErrorBoundary></RequireAuth>} />
 
       {/* Authenticated app — sidebar layout. RequireAppAccess confines a
           research-only user (research_only flag) to /research: every route in
