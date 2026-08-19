@@ -150,10 +150,14 @@ def shareholding_suite(cal: TradingCalendar) -> Suite:
             # public_pct is contaminated (max 9904) so this check IS the corruption
             # detector — it fires on exactly the violators. tol from clean-row range.
             E.columns_sum_to(["promoter_pct", "public_pct"], target=100, tol=3.0, severity="fail"),
-            # Tripwire for v_shareholding_latest's nondeterministic pick: source is in
-            # the table PK but NOT in the view's partition, so >1 source per
-            # (symbol, period_end) makes "latest" a coin-flip. Durable fix is a
-            # deterministic tiebreak IN THE VIEW; this surfaces how often we're rolling.
+            # The durable fix landed: migration 133 gives v_shareholding_latest a
+            # deterministic source precedence (NSE_SHP > NSE_SAST_CSV > screener_in),
+            # so "latest" is no longer a coin-flip. This check stays because the
+            # duplicates themselves are still worth surfacing — measured 2026-08-19,
+            # 329 symbols carry both NSE_SHP and screener_in at their latest quarter
+            # and the two disagree on promoter_pct for 44, fii_pct for 80 and dii_pct
+            # for 123 of them. The view now picks the better source every time; this
+            # says how often it has to.
             G.single_source_per_key(["symbol", "period_end"], "source", severity="warn"),
             E.not_in_future("period_end"),
         ],
