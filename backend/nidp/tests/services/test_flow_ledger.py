@@ -364,3 +364,24 @@ def test_indian_institutions_with_fund_like_names_stay_dii(name):
     """All real counterparties. Indian insurers and AIFs read like funds and some
     share a global brand; every one of them is DII."""
     assert fl.is_fpi_house(name) is False, name
+
+
+# ── quarter-end guard ───────────────────────────────────────────────────────
+
+def test_holdings_query_reads_only_real_quarter_ends():
+    """372 rows across 338 symbols carry a FILING date in period_end rather than a
+    quarter end — 198 distinct such dates, first written 2026-07-10, so it predates
+    this service. Without the guard those rows sort to the top and become Q0, the
+    difference is taken across a ~30-day gap, and every real quarter shifts down one
+    slot. ADANIENSOL is a live example: a stray 2026-07-30 row would have produced
+    Q0 = +18bps over 30 days and pushed the true Q0 of -210 into the Q-1 position,
+    which the tracker weights at 0.3 instead of 0.4.
+    """
+    assert "date_trunc('quarter', period_end)" in fl.HOLDINGS_SQL
+    assert "3 months - 1 day" in fl.HOLDINGS_SQL
+
+
+def test_sector_breadth_reads_only_real_quarter_ends():
+    """Breadth counts how many constituents saw FII fall QoQ — a stray filing-date
+    row would corrupt the comparison for that symbol and skew the sector count."""
+    assert "date_trunc('quarter', period_end)" in fl.BREADTH_SQL

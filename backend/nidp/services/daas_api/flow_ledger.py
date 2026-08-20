@@ -207,10 +207,19 @@ def stream(tag: str, weight: int, title: str, *, filled: bool,
 # One row per (symbol, period_end) with NSE_SHP winning: the exchange filing beats
 # the scraped source, which violates promoter+public=100 on 65% of its rows
 # (migration 133 encodes the same precedence for v_shareholding_latest).
+# The quarter-end guard is not defensive dressing. Measured 2026-08-20, 372 rows
+# across 338 symbols carry a FILING date in period_end rather than a quarter end
+# (2026-08-07, 2026-08-06, …) — 198 distinct such dates, first written 2026-07-10,
+# so it predates this service. Without the filter those rows sort to the top and
+# become Q0, and the QoQ difference is then taken across a 38-day gap and reported
+# as a quarter-on-quarter move. A wrong number wearing the right label.
+QUARTER_END_ONLY = ("period_end = (date_trunc('quarter', period_end) "
+                    "+ interval '3 months - 1 day')::date")
+
 HOLDINGS_SQL = f"""
 SELECT DISTINCT ON (period_end) period_end, fii_pct, dii_pct
   FROM nidp.shareholding_pattern
- WHERE symbol = $1 AND fii_pct IS NOT NULL
+ WHERE symbol = $1 AND fii_pct IS NOT NULL AND {QUARTER_END_ONLY}
  ORDER BY period_end DESC,
           CASE source WHEN 'NSE_SHP' THEN 0 WHEN 'NSE_SAST_CSV' THEN 1 ELSE 2 END
  LIMIT 5
@@ -248,7 +257,10 @@ SELECT as_of_date, close_price, open_interest
 BREADTH_SQL = f"""
 WITH d AS (
     SELECT DISTINCT ON (symbol, period_end) symbol, period_end, fii_pct
-      FROM nidp.shareholding_pattern WHERE fii_pct IS NOT NULL
+      FROM nidp.shareholding_pattern
+     WHERE fii_pct IS NOT NULL
+       AND period_end = (date_trunc('quarter', period_end)
+                         + interval '3 months - 1 day')::date
      ORDER BY symbol, period_end DESC,
               CASE source WHEN 'NSE_SHP' THEN 0 WHEN 'NSE_SAST_CSV' THEN 1 ELSE 2 END
 ), r AS (
