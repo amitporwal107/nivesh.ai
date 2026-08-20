@@ -152,7 +152,50 @@ $ npx vite build
   absent for those rows rather than showing a placeholder.
 - **SECTOR mode has no type-ahead.** The ask was stock tickers. `/api/flows/ledger/sectors`
   already exists and would wire the same way — not done, not claimed.
-- **Not deployed.** Verified locally against live staging data; staging redeploys from
-  `origin/dev`, and this branch has not been pushed.
+- **Substring noise is the DaaS's ORDER BY** (above) — unchanged by this deploy.
+
+## Deployed to staging (2026-08-20)
+
+Pushed to `origin/dev` as `fde2047f` (`f130cef6..fde2047f`), built on a clean worktree off
+`origin/dev` so none of this branch's 196 unrelated working-tree changes rode along.
+
+`deploy-frontend-staging.yml` run 32330641012 **FAILED** — not on this change: the build
+filled `nivesh-app-vm`'s prod-shared 79G disk to 100%, at which point both the staging and
+the **production** mongo crash-looped (WiredTiger dies in `__wt_logmgr_create`) and compose
+aborted with the frontend containers created-but-never-started. Staging UI and API 502'd.
+
+Recovered by hand: `docker builder prune -af` (7G, regenerable) → both mongos self-healed
+within ~30s with a clean recovery log replay → `up -d --no-build app-frontend app-frontend-v5`
+using the images the failed run had already built.
+
+```
+/dev/sda1  79G  77G     0 100% /      ← during the incident
+/dev/sda1  79G  72G  3.4G  96% /      ← after the prune
+
+nivesh-staging-mongo   Up (healthy)     nivesh-mongo (prod)  Up (healthy)
+nivesh-staging-app-frontend-v5  Up      nivesh-staging-app-backend  Up (healthy)
+
+staging /v5/           200   (bundle index-0RY9iKGx.js → index-18z7iBrJ.js)
+staging /api/flows/…   200
+prod    /v5/           200
+```
+
+Then verified the feature on the **deployed** site, real session, nothing mocked:
+
+```
+url: https://staging.niveshcopilot.com/v5/flows
+suggestions: [ 'MPHASIS | MphasiS Limited | INFORMATION TECHNOLOGY' ]
+field: MPHASIS
+fill: AUTO-FILLED FROM NIDP · 90/100 OF STREAM WEIGHT
+fiiQ-0: 0
+verdict: NEUTRAL / MIXED | coverage 90% · conviction 54%
+```
+
+`fiiQ-0 = 0` is MPHASIS's real Q0 QoQ FII change — the same 0bps the tracker showed before
+this change, now reached by picking the ticker instead of typing it.
+
+🔴 **Open risk, not fixed here:** `deploy-frontend-staging.yml` has no free-space precheck.
+PR #121 added one to `deploy-backend-staging.yml` only. With 3.4G free, the next frontend
+push to `dev` can repeat this — including taking prod mongo down.
 
 ## Verdict: PASS
