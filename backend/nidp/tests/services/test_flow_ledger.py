@@ -99,10 +99,10 @@ def test_an_unfilled_stream_must_carry_a_reason():
 
 def test_unfilled_stream_reports_its_reason_and_no_evidence():
     s = fl.stream("S3", 20, "Bulk / block deals", filled=False,
-                  reason=fl.BULK_DEAL_LIMIT)
+                  reason=fl.BULK_DEAL_NO_DEALS)
     assert s["filled"] is False
     assert s["evidence"] is None
-    assert "beneficial owner" in s["unavailable_reason"]
+    assert "observation, not a gap" in s["unavailable_reason"]
 
 
 def test_filled_stream_has_no_reason():
@@ -113,7 +113,7 @@ def test_filled_stream_has_no_reason():
 
 
 @pytest.mark.parametrize("reason", [
-    fl.BULK_DEAL_LIMIT, fl.MF_MONTHLY_LIMIT,
+    fl.BULK_DEAL_NO_DEALS, fl.MF_MONTHLY_LIMIT,
     fl.NSDL_NO_SECTOR, fl.NSDL_TOO_SHORT,
 ])
 def test_every_limit_explains_itself_in_plain_words(reason):
@@ -218,3 +218,149 @@ def test_direction_codes_are_the_trackers_own():
     """These strings go straight into the tracker's ftDir select."""
     assert fl.fortnight_streak([10])[0] == "in"
     assert fl.fortnight_streak([-10])[0] == "out"
+
+
+# ── S3: FPI counterparty classification ─────────────────────────────────────
+# The stream needs FPI PORTFOLIO flow. Three populations share the deal lists and
+# only one is the subject; getting that wrong reads a promoter block exit as a
+# distribution pattern.
+
+@pytest.mark.parametrize("name", [
+    "GQG PARTNERS EMERGING MARKETS EQUITY FUND",
+    "FMRC FIDELITY ADVISOR INTERNATIONAL CAPITAL APPRECIATION FUND",
+    "SMALLCAP WORLD FUND INC",
+    "NOMURA INDIA INVESTMENT FUND MOTHER FUND",
+    "CITIGROUP GLOBAL MARKETS SINGAPORE PTE LIMITED",
+    "GOLDMAN SACHS BANK EUROPE SE",
+    "MORGAN STANLEY ASIA SINGAPORE PTE",
+    "BOFA SECURITIES EUROPE SA",
+    "SOCIETE GENERALE",
+    "GOVERNMENT OF SINGAPORE",
+])
+def test_real_fpi_portfolio_investors_are_recognised(name):
+    """Every one of these is a real counterparty in nidp_staging's deal lists,
+    2026-08-19. An earlier reading of this data missed them by ranking on deal count
+    and matching a narrow geography regex."""
+    assert fl.is_fpi_house(name) is True, name
+
+
+@pytest.mark.parametrize("name", [
+    "BAYER AG",                                   # promoter of Bayer CropScience
+    "MYLAN INC.",                                 # strategic holder
+    "TWIN STAR HOLDINGS LIMITED",                 # Vedanta's Mauritius holdco
+    "BC INVESTMENTS IV LIMITED",                  # Baring PE
+    "EIGHT ROADS INVESTMENTS MAURITIUS II LIMITED",
+    "CLAYMORE INVESTMENTS (MAURITIUS) PTE.LTD.",
+    "MACRITCHIE INVESTMENTS PTE LIMITED",
+    "ARDOUR INVESTMENT HOLDING LTD",
+    "RESILIENT ASSET MANAGEMENT B V",
+])
+def test_foreign_strategic_and_pe_holdings_are_not_counted_as_fpi_flow(name):
+    """Foreign, SEBI-registered as FPIs, and NOT portfolio flow. A one-off PE or
+    promoter block exit scored as 'heavy FII selling' would misread a structural
+    trade as a distribution pattern — which is exactly why the house list is a
+    whitelist and not an offshore-name heuristic."""
+    assert fl.is_fpi_house(name) is False, name
+
+
+@pytest.mark.parametrize("name", [
+    "QE SECURITIES LLP", "HRTI PRIVATE LIMITED",
+    "JUNOMONETA FINSOL PRIVATE LIMITED", "GRAVITON RESEARCH CAPITAL LLP",
+    "NK SECURITIES RESEARCH PRIVATE LIMITED", "IRAGE BROKING SERVICES LLP",
+    "MICROCURVES TRADING PRIVATE LIMITED",
+])
+def test_domestic_prop_and_hft_desks_are_excluded(name):
+    """These dominate the lists by count AND by value, sit on both sides of the
+    book, and net to roughly nothing. Counting them would drown the signal."""
+    assert fl.is_fpi_house(name) is False, name
+
+
+def test_missing_counterparty_is_not_an_fpi():
+    assert fl.is_fpi_house(None) is False
+    assert fl.is_fpi_house("") is False
+
+
+# ── S3: direction ───────────────────────────────────────────────────────────
+
+def test_one_sided_selling_is_heavy():
+    code, net, gross = fl.deal_direction(buy_cr=0, sell_cr=120)
+    assert code == "hs" and net == -120.0 and gross == 120.0
+
+
+def test_one_sided_buying_is_heavy():
+    assert fl.deal_direction(buy_cr=200, sell_cr=0)[0] == "hb"
+
+
+def test_rotation_is_not_distribution():
+    """500 in and 480 out is a fund rotating, not exiting. Scoring the -20 net as
+    selling would turn ordinary churn into a signal."""
+    assert fl.deal_direction(buy_cr=500, sell_cr=480)[0] == "n"
+
+
+def test_a_clear_lean_scores_moderate_not_heavy():
+    assert fl.deal_direction(buy_cr=20, sell_cr=80)[0] == "s"      # -60/100
+    assert fl.deal_direction(buy_cr=80, sell_cr=20)[0] == "b"
+
+
+def test_a_tiny_print_never_reads_as_heavy():
+    """One 2cr trade is not evidence of anything at this weight."""
+    assert fl.deal_direction(buy_cr=0, sell_cr=2)[0] == "n"
+
+
+def test_no_activity_is_neutral_not_a_crash():
+    assert fl.deal_direction(buy_cr=0, sell_cr=0) == ("n", 0.0, 0.0)
+
+
+def test_codes_are_the_trackers_own_option_values():
+    """These strings go straight into the tracker's deal select."""
+    valid = {"hs", "s", "n", "b", "hb"}
+    for b, sl in [(0, 100), (10, 90), (50, 50), (90, 10), (100, 0)]:
+        assert fl.deal_direction(b, sl)[0] in valid
+
+
+@pytest.mark.parametrize("name", [
+    "HSBC MUTUAL FUND",
+    "INVESCO MUTUAL FUND",
+    "FRANKLIN TEMPLETON MUTUAL FUND",
+    "NIPPON INDIA MUTUAL FUND",
+])
+def test_indian_arms_of_global_brands_are_dii_not_fii(name):
+    """All real counterparties in nidp_staging. The global brand matches the house
+    list, but an India-domiciled mutual fund is DII by definition — counting one as
+    FII flow would invert the reading of the stream."""
+    assert fl.is_fpi_house(name) is False, name
+
+
+def test_the_offshore_arm_of_the_same_brand_still_counts():
+    """The exclusion must be about the VEHICLE, not the brand."""
+    assert fl.is_fpi_house("HSBC BANK (SINGAPORE) LIMITED") is True
+    assert fl.is_fpi_house("FRANKLIN TEMPLETON INVESTMENT FUNDS") is True
+
+
+@pytest.mark.parametrize("name", [
+    "ALLIANZ GLOBAL INVESTORS GMBH ACTING ON BEHALF OF ALLIANZ EEE FONDS",
+    "POLAR CAPITAL FUNDS PLC-HEALTHCARE OPPORTUNITIES FUND",
+    "JUPITER INDIA FUND",
+    "POLUNIN EMERGING MARKETS SMALL CAP FUND LLC",
+    "VIRIDIAN ASIA OPPORTUNITIES MASTER FUND",
+    "OXBOW MASTER FUND LIMITED",
+])
+def test_offshore_funds_the_first_run_missed_are_now_recognised(name):
+    """The first live run printed Allianz in the evidence line and did not count it.
+    That is the whitelist's failure mode, and the reason the evidence always names
+    counterparties — it is what made the miss visible within one run."""
+    assert fl.is_fpi_house(name) is True, name
+
+
+@pytest.mark.parametrize("name", [
+    "HDFC LIFE INSURANCE COMPANY LIMITED",
+    "SBI LIFE INSURANCE COMPANY LIMITED",
+    "ICICI PRUDENTIAL LIFE INSURANCE COMPANY LIMITED",
+    "TATA AIA LIFE INSURANCE COMPANY LIMITED",
+    "NUVAMA CROSSOVER OPPORTUNITIES FUND - SERIES III",
+    "360 ONE PIPE FUND",
+])
+def test_indian_institutions_with_fund_like_names_stay_dii(name):
+    """All real counterparties. Indian insurers and AIFs read like funds and some
+    share a global brand; every one of them is DII."""
+    assert fl.is_fpi_house(name) is False, name

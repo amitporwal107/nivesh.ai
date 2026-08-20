@@ -38,16 +38,73 @@ from typing import Any, Dict, List, Optional
 
 FEATURES = "nidp.stock_features_daily"
 
-# Why S3 cannot be filled from nidp.bulk_deals / nidp.block_deals. The stream needs
-# "net FII/FPI direction by value", but the exchange deal lists name the trading
-# member, not the beneficial owner. Measured over 90 days: of 4,137 bulk deals from
-# 734 distinct clients, 10 carry anything that reads as foreign, and the top
-# counterparties are domestic prop desks (QE Securities, HRTI, Junomoneta, NK
-# Securities). Scoring FII direction off that would be inventing a signal.
-BULK_DEAL_LIMIT = (
-    "Exchange deal lists name the trading member, not the beneficial owner — of "
-    "4,137 bulk deals in the last 90 days only 10 identify as foreign, so FII "
-    "direction cannot be derived from them"
+# S3 — net FPI direction on the exchange deal lists.
+#
+# An earlier read of this data concluded the stream was unbuildable. That was wrong,
+# and wrong twice over: it ranked counterparties by DEAL COUNT (which high-frequency
+# domestic desks dominate by construction — they place thousands of small trades and
+# their net is ~zero by design) and it matched "foreign" with a narrow geography
+# regex. Ranked by VALUE instead, named FPI portfolio investors are plainly present:
+# GQG Partners EM Equity Fund, Fidelity Advisor International, Smallcap World Fund,
+# Nomura India Investment Fund, Citigroup Global Markets Singapore, Goldman Sachs
+# Bank Europe, Morgan Stanley Asia Singapore, Government of Singapore.
+#
+# Three populations share these lists and only one of them is this stream's subject:
+#
+#   1. FPI portfolio investors — global fund houses, bank broking arms, sovereign
+#      funds. This IS "FII direction".
+#   2. Foreign strategic / PE holdings — Bayer AG in Bayer CropScience, Twin Star
+#      (Vedanta's holdco), Baring's BC Investments, Eight Roads Mauritius. Foreign,
+#      and SEBI-registered as FPIs, but a promoter or PE block exit is not portfolio
+#      flow; counting it as "heavy FII selling" would misread a one-off structural
+#      trade as a distribution pattern.
+#   3. Domestic proprietary and HFT desks — QE Securities, HRTI, Junomoneta,
+#      Graviton, iRage. Both sides of the book, netting to roughly nothing.
+#
+# Only (1) scores. The house list below is curated rather than heuristic precisely
+# because separating (1) from (2) cannot be done by name shape — both are offshore
+# entities — only by knowing which are portfolio managers.
+FPI_HOUSES = (
+    "GQG", "FIDELITY", "FMRC", "SMALLCAP WORLD", "NOMURA", "GOLDMAN SACHS",
+    "MORGAN STANLEY", "CITIGROUP GLOBAL", "JPMORGAN", "J P MORGAN", "BOFA",
+    "MERRILL LYNCH", "SOCIETE GENERALE", "BNP PARIBAS", "HSBC", "UBS ",
+    "DEUTSCHE BANK", "BARCLAYS", "MACQUARIE", "CREDIT SUISSE", "BLACKROCK",
+    "VANGUARD", "GOVERNMENT OF SINGAPORE", "NORGES", "ABU DHABI INVESTMENT",
+    "EASTSPRING", "SCHRODER", "ABERDEEN", "FRANKLIN TEMPLETON", "T ROWE",
+    "CAPITAL GROUP", "WASATCH", "MATTHEWS", "AMUNDI", "INVESCO", "STICHTING",
+    "CALIFORNIA PUBLIC EMPLOYEES", "PUBLIC INVESTMENT FUND",
+    # Added after the first live run named counterparties the list had missed —
+    # every one of these is a real offshore fund in nidp_staging's deal lists.
+    "ALLIANZ GLOBAL INVESTORS", "POLAR CAPITAL", "JUPITER INDIA", "POLUNIN",
+    "MASTER FUND", "OPPORTUNITIES FUND LLC", "FUNDS PLC", " VCC",
+)
+
+# Indian institutions carry fund-like names too, and several share a global brand.
+# An India-domiciled insurer, AMC or AIF is DII however the name reads; counting one
+# as FII flow inverts the stream. Checked BEFORE the house list.
+DOMESTIC_VEHICLE_MARKERS_EXTRA = (
+    "LIFE INSURANCE", "GENERAL INSURANCE", "NUVAMA", "360 ONE", "MOTILAL",
+    "KOTAK MAHINDRA", "AXIS ", "ADITYA BIRLA", "SBI ", "ICICI PRUDENTIAL",
+    "TATA AIA", "HDFC ", "NIPPON INDIA", "DSP ", "EDELWEISS", "ABAKKUS",
+)
+
+# Absence of an identified FPI is a real answer — the tracker has an option for it —
+# but it is only as strong as the list above. The evidence line therefore always
+# names what WAS seen, so a reader can judge whether the classifier missed someone.
+BULK_DEAL_NO_DEALS = (
+    "No bulk or block deals recorded for this symbol in the window — any qualifying "
+    "trade must be disclosed, so this is a complete observation, not a gap"
+)
+# Deals happened but none matched the house list. That is NOT the same as "no FPI
+# activity": the list is a whitelist and the first live run proved it misses real
+# ones (Allianz Global Investors was named in the evidence and not counted). Scoring
+# a neutral here would be the fabricated neutral this whole design refuses — it would
+# add weight 20 of "no signal" that the composite then treats as evidence. So the
+# stream stays unfilled, and the reason names who WAS there so a reader can judge.
+BULK_DEAL_UNRECOGNISED = (
+    "Deals occurred but no counterparty matched the known FPI-house list, which is "
+    "curated and demonstrably incomplete — so this reads as 'not established', not "
+    "as 'no FPI activity'. Counterparties seen: "
 )
 MF_MONTHLY_LIMIT = (
     "The monthly AMC feed is incomplete — 10 of 14 fund houses are missing, so "
@@ -280,4 +337,81 @@ SELECT ROUND(100.0 * (
   FROM nidp.index_eod
  WHERE index_name = $1 AND as_of_date BETWEEN $2::date AND $3::date
    AND close_price IS NOT NULL
+"""
+
+
+# Global brands also run INDIAN asset managers, and an India-domiciled mutual fund is
+# DII by definition however familiar the parent name is. "HSBC Mutual Fund",
+# "Invesco Mutual Fund" and "Franklin Templeton Mutual Fund" are all real
+# counterparties in these lists, all matched by the house list above, and all wrong
+# for this stream — counting a domestic MF as FII flow would invert the reading.
+DOMESTIC_VEHICLE_MARKERS = (("MUTUAL FUND", " MF ", "AMC LIMITED", "AMC LTD")
+                            + DOMESTIC_VEHICLE_MARKERS_EXTRA)
+
+
+def is_fpi_house(client_name: Optional[str]) -> bool:
+    """True when the counterparty is a recognised FPI PORTFOLIO investor.
+
+    Deliberately a whitelist. A "does it look offshore" heuristic cannot separate a
+    portfolio manager from a PE holdco or a promoter's Mauritius vehicle — Bayer AG
+    and GQG Partners are both foreign, and only one of them is this stream's subject.
+    The domestic-vehicle exclusion runs first, because the brand match would
+    otherwise claim India's own AMCs for the foreign side.
+    """
+    if not client_name:
+        return False
+    upper = f" {client_name.upper()} "
+    if any(m in upper for m in DOMESTIC_VEHICLE_MARKERS):
+        return False
+    return any(h in upper for h in FPI_HOUSES)
+
+
+def deal_direction(buy_cr: float, sell_cr: float,
+                   min_gross_cr: float = 5.0):
+    """Map net FPI value onto the tracker's own deal codes.
+
+    Returns ``(code, net_cr, gross_cr)``, code being ``hs``/``s``/``n``/``b``/``hb``.
+
+    Scored on how ONE-SIDED the activity was — net as a share of gross — rather than
+    on the rupee figure alone. A fund rotating 500 cr in and 480 cr out is not
+    distribution; a fund selling 60 cr with nothing on the other side is. An absolute
+    floor stops a single tiny print reading as "heavy".
+    """
+    gross = (buy_cr or 0) + (sell_cr or 0)
+    net = (buy_cr or 0) - (sell_cr or 0)
+    if gross < min_gross_cr:
+        return "n", round(net, 1), round(gross, 1)
+    lean = net / gross
+    if lean <= -0.75:
+        code = "hs"
+    elif lean <= -0.25:
+        code = "s"
+    elif lean < 0.25:
+        code = "n"
+    elif lean < 0.75:
+        code = "b"
+    else:
+        code = "hb"
+    return code, round(net, 1), round(gross, 1)
+
+
+# Bulk and block deals share a shape, so they are unioned rather than queried twice —
+# the stream is about FPI activity on the exchange deal lists, not about which list.
+# Value is quantity x price because the feeds carry no notional column.
+DEALS_SQL = """
+SELECT client_name, deal_type,
+       SUM(quantity * avg_price) / 1e7           AS value_cr,
+       COUNT(*)                                  AS deals,
+       COUNT(DISTINCT as_of_date)                AS days
+  FROM (
+      SELECT client_name, deal_type, quantity, avg_price, as_of_date
+        FROM nidp.bulk_deals
+       WHERE symbol = $1 AND as_of_date >= (CURRENT_DATE - $2::int)
+      UNION ALL
+      SELECT client_name, deal_type, quantity, avg_price, as_of_date
+        FROM nidp.block_deals
+       WHERE symbol = $1 AND as_of_date >= (CURRENT_DATE - $2::int)
+  ) d
+ WHERE quantity IS NOT NULL AND avg_price IS NOT NULL
+ GROUP BY client_name, deal_type
 """
