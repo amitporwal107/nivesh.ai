@@ -39,6 +39,7 @@ _DELIVERY_WINDOW_DAYS = 40   # ~28 sessions, enough for a 20-session baseline
 _FNO_LOOKBACK_ROWS = 6       # ~5 sessions of near-month futures
 _RS_WINDOW_DAYS = 92         # the tracker's stream is explicitly 3-month
 _FPI_FORTNIGHTS = 8          # ~4 months; the tracker's streak caps at ~6
+_DEAL_WINDOW_DAYS = 45       # ~30 trading sessions, the stream's own window
 
 
 @router.get("/ledger/company/{symbol}",
@@ -53,6 +54,7 @@ async def company_ledger(symbol: str) -> Dict[str, Any]:
         held = await conn.fetch(fl.HOLDINGS_SQL, sym)
         deliv = await conn.fetchrow(fl.DELIVERY_SQL, sym, _DELIVERY_WINDOW_DAYS)
         fno = await conn.fetch(fl.FNO_SQL, sym, _FNO_LOOKBACK_ROWS)
+        deals = await conn.fetch(fl.DEALS_SQL, sym, _DEAL_WINDOW_DAYS)
 
     streams: List[Dict[str, Any]] = []
     inputs: Dict[str, Any] = {}
@@ -88,9 +90,43 @@ async def company_ledger(symbol: str) -> Dict[str, Any]:
             "S2", 15, "DII stake, quarterly", filled=False,
             reason="No DII holding recorded across the available filings"))
 
-    # ── S3 / S5: not sourceable, and the reasons are structural ─────────────
-    streams.append(fl.stream("S3", 20, "Bulk / block deals, 30 sessions",
-                             filled=False, reason=fl.BULK_DEAL_LIMIT))
+    # ── S3: net FPI direction on the exchange deal lists ───────────────────
+    fpi_rows = [r for r in deals if fl.is_fpi_house(r["client_name"])]
+    buy_cr = sum(float(r["value_cr"] or 0) for r in fpi_rows if r["deal_type"] == "BUY")
+    sell_cr = sum(float(r["value_cr"] or 0) for r in fpi_rows if r["deal_type"] == "SELL")
+    code, net_cr, gross_cr = fl.deal_direction(buy_cr, sell_cr)
+
+    if fpi_rows:
+        inputs["deal"] = code
+        # A staggered exit by one entity is the classic distribution footprint, which
+        # is why the tracker has a separate flag for it — and it is detectable here:
+        # the same house selling on more than one day.
+        inputs["repeatSeller"] = any(
+            r["deal_type"] == "SELL" and (r["days"] or 0) > 1 for r in fpi_rows)
+        names = sorted({(r["client_name"] or "").strip().title()
+                        for r in fpi_rows})[:3]
+        streams.append(fl.stream(
+            "S3", 20, "Bulk / block deals, 30 sessions", filled=True,
+            evidence=f"FPI net {net_cr:+,.1f} cr on {gross_cr:,.1f} cr gross across "
+                     f"{len(fpi_rows)} counterparty-side(s) — {', '.join(names)}"
+                     f"{'…' if len(fpi_rows) > 3 else ''}",
+            source="nidp.bulk_deals + nidp.block_deals"))
+    elif deals:
+        others = sorted({(r["client_name"] or "").strip().title() for r in deals})[:3]
+        inputs["deal"] = ""
+        streams.append(fl.stream(
+            "S3", 20, "Bulk / block deals, 30 sessions", filled=False,
+            reason=fl.BULK_DEAL_UNRECOGNISED + ", ".join(others)
+                   + ("…" if len(deals) > 3 else "")))
+    else:
+        # Zero qualifying deals IS complete information — anything large enough to
+        # matter must be disclosed — so this one is a real "no meaningful FII deals".
+        inputs["deal"] = "n"
+        streams.append(fl.stream(
+            "S3", 20, "Bulk / block deals, 30 sessions", filled=True,
+            evidence="No bulk or block deal disclosed for this symbol in the window",
+            source="nidp.bulk_deals + nidp.block_deals"))
+
     streams.append(fl.stream("S5", 10, "MF monthly portfolios",
                              filled=False, reason=fl.MF_MONTHLY_LIMIT))
 
@@ -136,8 +172,8 @@ async def company_ledger(symbol: str) -> Dict[str, Any]:
 
     # Fields NIDP cannot fill are returned empty so the caller can prefill the whole
     # form in one pass without having to know which keys were omitted.
-    inputs["deal"] = ""
-    inputs["repeatSeller"] = False
+    inputs.setdefault("deal", "")
+    inputs.setdefault("repeatSeller", False)
     inputs["mf"] = ""
 
     return envelope([{
