@@ -167,3 +167,150 @@ test.describe("FLOW LEDGER — sector auto-fill", () => {
     await expect(page.getByTestId("evidence-S2")).toContainText("Nifty Auto +8.54%");
   });
 });
+
+/**
+ * FLOW LEDGER — ticker type-ahead over the NIDP symbol master.
+ *
+ * The field used to be free text: a typo, a BSE scrip code, or a name NIDP simply
+ * does not carry all produced the same shrug from AUTO-FILL. The dropdown reads
+ * nidp.sector_master through /api/filings/companies/search — the same contract the
+ * Research screen uses, so there is one to keep true, not two.
+ *
+ * SYMBOL_HITS below is the REAL response from that endpoint on staging for q=REL
+ * (2026-08-20), not an invented fixture — including the null sectors, which are
+ * genuine gaps in sector_master and must render as an absent chip, not "null".
+ *
+ * What matters here: a suggestion is only ever a row the master returned, a failed
+ * search shows nothing rather than a guess, and a name the master does not carry is
+ * still the user's to send.
+ */
+const SYMBOL_HITS = {
+  ok: true,
+  companies: [
+    { symbol: "RELAXO",   name: "Relaxo Footwears Limited",           sector: null },
+    { symbol: "RELCHEMQ", name: "Reliance Chemotex Industries Limited", sector: null },
+    { symbol: "RELIABLE", name: "Reliable Data Services Limited",     sector: null },
+    { symbol: "RELIANCE", name: "Reliance Industries Limited",        sector: "Oil Gas" },
+    { symbol: "RELIGARE", name: "Religare Enterprises Limited",       sector: null },
+    { symbol: "RELINFRA", name: "Reliance Infrastructure Limited",    sector: null },
+    { symbol: "RELTD",    name: "Ravindra Energy Limited",            sector: null },
+    { symbol: "RELTD-RE", name: "Ravindra Energy Ltd-RE",             sector: null },
+  ],
+};
+
+/** Mocks the type-ahead and returns the list of queries it was actually asked. */
+async function mockSymbolSearch(page, body = SYMBOL_HITS, status = 200) {
+  const asked: string[] = [];
+  await page.route("**/api/filings/companies/search**", (route) => {
+    asked.push(new URL(route.request().url()).searchParams.get("q") ?? "");
+    return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+  });
+  return asked;
+}
+
+test.describe("FLOW LEDGER — ticker type-ahead", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockCompany(page);
+  });
+
+  test("suggests symbols from the NIDP master as you type", async ({ page }) => {
+    await mockSymbolSearch(page);
+    await page.goto("/v5/flows");
+    await page.getByTestId("ledger-name").fill("REL");
+    await expect(page.getByTestId("symbol-suggestions")).toBeVisible();
+    const items = page.getByTestId("symbol-suggestion");
+    await expect(items).toHaveCount(8);
+    await expect(items.first()).toContainText("RELAXO");
+    await expect(items.first()).toContainText("Relaxo Footwears Limited");
+    // a real sector is shown; a sector_master gap shows nothing, never "null"
+    await expect(items.nth(3)).toContainText("OIL GAS");
+    await expect(items.first()).not.toContainText("null");
+  });
+
+  test("a single character asks nothing — a blank query is not a search", async ({ page }) => {
+    const asked = await mockSymbolSearch(page);
+    await page.goto("/v5/flows");
+    await page.getByTestId("ledger-name").fill("R");
+    await page.waitForTimeout(500);
+    await expect(page.getByTestId("symbol-suggestions")).toHaveCount(0);
+    expect(asked).toEqual([]);
+  });
+
+  test("keyboard: arrow to a symbol, Enter picks it and auto-fills that symbol", async ({ page }) => {
+    await mockSymbolSearch(page);
+    let filledFor = "";
+    await page.route("**/api/flows/ledger/company/**", (route) => {
+      filledFor = decodeURIComponent(route.request().url().split("/").pop() ?? "");
+      return route.fulfill({ status: 200, contentType: "application/json",
+                             body: JSON.stringify(COMPANY_FILL) });
+    });
+    await page.goto("/v5/flows");
+    const field = page.getByTestId("ledger-name");
+    await field.fill("REL");
+    await expect(page.getByTestId("symbol-suggestions")).toBeVisible();
+    for (let i = 0; i < 4; i++) await field.press("ArrowDown");   // → RELIANCE
+    await field.press("Enter");
+    await expect(field).toHaveValue("RELIANCE");
+    await expect(page.getByTestId("symbol-suggestions")).toHaveCount(0);
+    // the fill runs for the PICKED symbol, not the half-typed text it replaced
+    expect(filledFor).toBe("RELIANCE");
+    await expect(page.getByTestId("fiiQ-0")).toHaveValue("-147");
+  });
+
+  test("clicking a suggestion picks it — blur must not eat the press", async ({ page }) => {
+    await mockSymbolSearch(page);
+    await page.goto("/v5/flows");
+    await page.getByTestId("ledger-name").fill("REL");
+    await page.getByTestId("symbol-suggestion").nth(5).click();
+    await expect(page.getByTestId("ledger-name")).toHaveValue("RELINFRA");
+  });
+
+  test("sector mode does not search the stock master", async ({ page }) => {
+    const asked = await mockSymbolSearch(page);
+    await page.goto("/v5/flows");
+    await page.getByTestId("mode-sector").click();
+    await page.getByTestId("ledger-name").fill("Automobile");
+    await page.waitForTimeout(500);
+    await expect(page.getByTestId("symbol-suggestions")).toHaveCount(0);
+    expect(asked).toEqual([]);
+  });
+
+  test("a failed search suggests nothing — never a guess", async ({ page }) => {
+    await mockSymbolSearch(page, { detail: "boom" }, 500);
+    await page.goto("/v5/flows");
+    await page.getByTestId("ledger-name").fill("REL");
+    await page.waitForTimeout(600);
+    await expect(page.getByTestId("symbol-suggestions")).toHaveCount(0);
+    await expect(page.getByTestId("symbol-no-match")).toHaveCount(0);
+    // and the field still works: what was typed is still sent
+    await page.getByTestId("autofill").click();
+    await expect(page.getByTestId("fiiQ-0")).toHaveValue("-147");
+  });
+
+  test("no match says so, and still lets the typed symbol through", async ({ page }) => {
+    await mockSymbolSearch(page, { ok: true, companies: [] });
+    await page.goto("/v5/flows");
+    await page.getByTestId("ledger-name").fill("ZZQQ");
+    await expect(page.getByTestId("symbol-no-match")).toContainText("No symbol in the NIDP master");
+    await page.getByTestId("ledger-name").press("Enter");
+    await expect(page.getByTestId("fiiQ-0")).toHaveValue("-147");
+  });
+
+  test("a fast typist fires one request, not one per keystroke", async ({ page }) => {
+    const asked = await mockSymbolSearch(page);
+    await page.goto("/v5/flows");
+    await page.getByTestId("ledger-name").pressSequentially("RELIAN", { delay: 30 });
+    await expect(page.getByTestId("symbol-suggestions")).toBeVisible();
+    await page.waitForTimeout(400);
+    expect(asked).toEqual(["RELIAN"]);
+  });
+
+  test("Escape closes the list", async ({ page }) => {
+    await mockSymbolSearch(page);
+    await page.goto("/v5/flows");
+    await page.getByTestId("ledger-name").fill("REL");
+    await expect(page.getByTestId("symbol-suggestions")).toBeVisible();
+    await page.getByTestId("ledger-name").press("Escape");
+    await expect(page.getByTestId("symbol-suggestions")).toHaveCount(0);
+  });
+});

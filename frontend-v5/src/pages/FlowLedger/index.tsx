@@ -17,6 +17,10 @@ import {
   fetchCompanyLedger, fetchSectorLedger,
   type LedgerFill, type LedgerStream,
 } from "@/services/flowLedger";
+// The ticker type-ahead reuses the existing symbol-master search rather than adding
+// a second one: /api/filings/companies/search already reads nidp.sector_master
+// through the DaaS, so there is one contract to keep true, not two.
+import { filingsService, type Company } from "@/services/adapters/filings.adapter";
 
 const C = {
   bg: "#081A33", panel: "#0E2547", panelSoft: "#122B52", line: "#1E3A66",
@@ -224,6 +228,15 @@ export default function FlowLedgerPage() {
   const [fillError, setFillError] = useState("");
   const [fill, setFill] = useState<LedgerFill | null>(null);
 
+  // ── ticker type-ahead, company mode only ─────────────────────────────────
+  // `picked` holds the symbol just chosen, so choosing one does not immediately
+  // re-open the list with itself as the only match.
+  const [sugg, setSugg] = useState<Company[]>([]);
+  const [suggOpen, setSuggOpen] = useState(false);
+  const [suggIdx, setSuggIdx] = useState(-1);
+  const [suggMiss, setSuggMiss] = useState(false);
+  const [picked, setPicked] = useState("");
+
   const [fiiQ, setFiiQ] = useState(["", "", "", ""]);
   const [diiQ, setDiiQ] = useState(["", "", "", ""]);
   const [deal, setDeal] = useState("");
@@ -331,8 +344,8 @@ export default function FlowLedgerPage() {
     }
   };
 
-  const autoFill = async () => {
-    const target = name.trim();
+  const autoFill = async (override?: string) => {
+    const target = (override ?? name).trim();
     if (!target) { flash("Enter a symbol or sector first"); return; }
     setLoading(true); setFillError(""); setFill(null);
     try {
@@ -347,6 +360,51 @@ export default function FlowLedgerPage() {
       // company with no data, which is a legitimate and very different answer.
       setFillError(e instanceof Error ? e.message : "Could not reach the data service");
     } finally { setLoading(false); }
+  };
+
+  // Debounced so a fast typist fires one request, not one per keystroke. The
+  // `cancelled` guard drops a slow response that resolves after a newer one and
+  // would otherwise repopulate the list with stale matches.
+  //
+  // A failed search clears the list and shows nothing. A ticker the symbol master
+  // did not actually return must never appear in this dropdown — the whole point
+  // of the field is that the name is one NIDP can look up.
+  useEffect(() => {
+    const term = name.trim();
+    if (mode !== "company" || term.length < 2 || term.toUpperCase() === picked) {
+      setSugg([]); setSuggMiss(false); return;
+    }
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      filingsService.searchCompanies(term, 8)
+        .then((list) => {
+          if (cancelled) return;
+          setSugg(list); setSuggIdx(-1); setSuggMiss(list.length === 0);
+        })
+        .catch(() => { if (!cancelled) { setSugg([]); setSuggMiss(false); } });
+    }, 220);
+    return () => { cancelled = true; window.clearTimeout(t); };
+  }, [name, mode, picked]);
+
+  const pickSymbol = (c: Company) => {
+    const sym = c.symbol.toUpperCase();
+    setPicked(sym); setName(sym);
+    setSugg([]); setSuggOpen(false); setSuggIdx(-1); setSuggMiss(false);
+    void autoFill(sym);
+  };
+
+  const onNameKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const open = suggOpen && sugg.length > 0;
+    if (open && e.key === "ArrowDown") { e.preventDefault(); setSuggIdx((i) => (i + 1) % sugg.length); return; }
+    if (open && e.key === "ArrowUp") { e.preventDefault(); setSuggIdx((i) => (i <= 0 ? sugg.length : i) - 1); return; }
+    if (e.key === "Escape") { setSuggOpen(false); setSuggIdx(-1); return; }
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    // Enter on a highlighted suggestion takes it. Enter on free text auto-fills what
+    // was typed — a symbol the master does not carry stays the user's call, and the
+    // API's own answer for it is more informative than refusing to ask.
+    if (open && suggIdx >= 0) pickSymbol(sugg[suggIdx]);
+    else void autoFill();
   };
 
   const save = () => {
@@ -431,11 +489,68 @@ export default function FlowLedgerPage() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 16 }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} data-testid="ledger-name"
-            placeholder={mode === "company" ? "SYMBOL · e.g. RELIANCE" : "SECTOR · e.g. Automobile"}
-            onKeyDown={(e) => { if (e.key === "Enter") void autoFill(); }}
-            style={{ background: "#081F40", color: C.text, fontFamily: mono, fontSize: 13, letterSpacing: "0.06em",
-                     border: `1px solid ${C.line}`, borderRadius: 3, padding: "7px 10px", flex: "1 1 180px", outline: "none" }} />
+          <div style={{ position: "relative", flex: "1 1 180px", minWidth: 180 }}>
+            <input value={name} data-testid="ledger-name"
+              onChange={(e) => { setName(e.target.value); setPicked(""); setSuggOpen(true); }}
+              onFocus={() => setSuggOpen(true)}
+              // The list closes on a delay: an immediate close on blur would unmount
+              // a suggestion before the pointer press that chose it could land.
+              onBlur={() => window.setTimeout(() => setSuggOpen(false), 120)}
+              onKeyDown={onNameKey}
+              placeholder={mode === "company" ? "SYMBOL · e.g. RELIANCE" : "SECTOR · e.g. Automobile"}
+              role={mode === "company" ? "combobox" : undefined}
+              aria-autocomplete={mode === "company" ? "list" : undefined}
+              aria-expanded={mode === "company" ? suggOpen && sugg.length > 0 : undefined}
+              aria-controls={mode === "company" ? "ledger-symbol-suggestions" : undefined}
+              aria-label={mode === "company" ? "Stock symbol" : "Sector"}
+              style={{ background: "#081F40", color: C.text, fontFamily: mono, fontSize: 13, letterSpacing: "0.06em",
+                       border: `1px solid ${C.line}`, borderRadius: 3, padding: "7px 10px", width: "100%",
+                       boxSizing: "border-box", outline: "none" }} />
+
+            {mode === "company" && suggOpen && sugg.length > 0 && (
+              <ul id="ledger-symbol-suggestions" role="listbox" data-testid="symbol-suggestions"
+                style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 40,
+                         listStyle: "none", margin: 0, padding: 3, maxHeight: 264, overflowY: "auto",
+                         background: C.panel, border: `1px solid ${C.line}`, borderRadius: 4,
+                         boxShadow: "0 10px 24px rgba(0,0,0,0.45)" }}>
+                {sugg.map((c, i) => (
+                  <li key={c.symbol} role="option" aria-selected={i === suggIdx}>
+                    <button
+                      // onMouseDown, not onClick: the input blurs first and a click
+                      // on an already-closed list would never reach this handler.
+                      onMouseDown={(e) => { e.preventDefault(); pickSymbol(c); }}
+                      onMouseEnter={() => setSuggIdx(i)}
+                      data-testid="symbol-suggestion"
+                      style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+                               padding: "7px 9px", border: 0, borderRadius: 3, cursor: "pointer",
+                               background: i === suggIdx ? C.panelSoft : "transparent" }}>
+                      <span style={{ fontFamily: mono, fontSize: 11.5, color: C.amber, flex: "none", minWidth: 78 }}>
+                        {c.symbol}
+                      </span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: C.text, fontFamily: sans,
+                                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {c.name}
+                      </span>
+                      {c.sector && (
+                        <span style={{ fontFamily: mono, fontSize: 9.5, color: C.mut, flex: "none" }}>
+                          {c.sector.toUpperCase()}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {mode === "company" && suggOpen && suggMiss && sugg.length === 0 && (
+              <div data-testid="symbol-no-match"
+                style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 40,
+                         background: C.panel, border: `1px solid ${C.line}`, borderRadius: 4,
+                         padding: "8px 10px", fontFamily: mono, fontSize: 10.5, color: C.mut, lineHeight: 1.5 }}>
+                No symbol in the NIDP master matches “{name.trim()}”. AUTO-FILL will still send it as typed.
+              </div>
+            )}
+          </div>
           <button style={{ ...btn, background: C.amber, color: "#081A33", fontWeight: 700 }}
             onClick={() => void autoFill()} disabled={loading} data-testid="autofill">
             {loading ? "FILLING…" : "AUTO-FILL FROM NIDP"}
