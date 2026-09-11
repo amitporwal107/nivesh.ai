@@ -14,7 +14,7 @@ import argparse
 import asyncio
 import json
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
 
 from nidp.shared.derived_run import run_with_job_log
@@ -31,6 +31,26 @@ logger = logging.getLogger(__name__)
 LIVE_SINCE = date(2026, 5, 19)
 
 
+def collapse_meetings(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One event per (symbol, type, date).
+
+    NSE lists a meeting several times (intimation, revisions, purpose
+    variants) and the period parsed from each text can differ; the
+    calendar's conflict key includes period, so the first backfill wrote
+    ~1.9 rows per meeting. Keep the earliest intimation and the first
+    non-empty period.
+    """
+    never = datetime.max.replace(tzinfo=timezone.utc)
+    best: dict[tuple, dict[str, Any]] = {}
+    for ev in sorted(events, key=lambda e: e.get("intimated_at") or never):
+        key = (ev["symbol"], ev["event_type"], ev["event_date"])
+        if key not in best:
+            best[key] = dict(ev)
+        elif not best[key].get("period") and ev.get("period"):
+            best[key]["period"] = ev["period"]
+    return list(best.values())
+
+
 def split_by_live_coverage(events: list[dict[str, Any]]) -> tuple[list[dict], list[dict]]:
     """(history to insert, live-era rows to stamp)."""
     history = [e for e in events if e["event_date"] < LIVE_SINCE]
@@ -39,7 +59,7 @@ def split_by_live_coverage(events: list[dict[str, Any]]) -> tuple[list[dict], li
 
 
 async def backfill(from_date: date, to_date: date) -> dict[str, int]:
-    meetings = await fetch_board_meetings(from_date, to_date)
+    meetings = collapse_meetings(await fetch_board_meetings(from_date, to_date))
     history, live_era = split_by_live_coverage(meetings)
     inserted = await upsert_events(history, backfill=True)
     stamped = await stamp_existing(live_era)

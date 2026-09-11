@@ -42,6 +42,18 @@ def test_stamp_uses_earliest_intimation_for_the_meeting():
     assert "intimated_at" not in events[1]
 
 
+def test_backfill_collapses_repeat_listings_of_one_meeting():
+    from nidp.services.event_calendar.backfill import collapse_meetings
+    first = {**board_meeting_event(ROW), "period": None}
+    revised = board_meeting_event({**ROW, "bm_timestamp": "08-Sep-2026 09:00:00"})
+    other_day = board_meeting_event({**ROW, "bm_date": "11-Sep-2026"})
+    out = collapse_meetings([revised, first, other_day])
+    assert len(out) == 2
+    kept = next(e for e in out if e["event_date"] == date(2026, 9, 10))
+    assert kept["intimated_at"] == first["intimated_at"]          # earliest intimation
+    assert kept["period"] == revised["period"] is not None       # first non-empty period
+
+
 def test_first_seen_at_is_insert_only_and_backfill_only_fills_intimated_at():
     live_update = writer._LIVE_SQL.split("DO UPDATE SET", 1)[1]
     assert "first_seen_at" not in live_update

@@ -96,6 +96,25 @@ async def _populate_extended(conn: asyncpg.Connection, target_date: date) -> int
         raise
 
 
+async def _populate_options(conn: asyncpg.Connection, target_date: date) -> int:
+    """PCR / total OI / OI change from nidp.fno_bhavcopy (migration 139).
+
+    Migration 091 dropped this pass from populate_stock_features_extended and
+    the options columns sat empty; non-fatal so it can't block the scores.
+    """
+    try:
+        rows = await conn.fetchval(
+            "SELECT nidp.populate_stock_options_features($1)",
+            target_date,
+            timeout=_POPULATE_TIMEOUT_S,
+        )
+        logger.info("fund_engine_populate_options date=%s rows_updated=%s", target_date, rows)
+        return rows or 0
+    except Exception as exc:  # noqa: BLE001
+        logger.error("fund_engine_populate_options_error date=%s error=%r", target_date, exc)
+        return 0
+
+
 async def _populate_v3(conn: asyncpg.Connection, target_date: date) -> int:
     """Call populate_stock_features_v3 — computes 3Y CAGR metrics from annual P&L.
 
@@ -244,6 +263,7 @@ async def compute_for_date(
         # Step 1: populate standard fundamental columns via SQL function
         if not skip_populate:
             await _populate_extended(conn, target_date)
+            await _populate_options(conn, target_date)
             # Also populate V3-specific 3Y CAGR metrics (revenue growth, margin trend,
             # debt trend) from annual Screener P&L data. Must run after _populate_extended
             # so balance sheet debt columns are current.
