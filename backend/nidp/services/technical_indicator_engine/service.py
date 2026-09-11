@@ -36,6 +36,10 @@ SOURCE = "COPILOT_TI_ENGINE"
 MIN_BARS = 60        # minimum bars before we compute anything
 LOOKBACK_BARS = 280  # bars to fetch per symbol (SMA200 + 52w + buffer)
 BATCH_SIZE = 100     # symbols processed per DB round-trip
+# populate_stock_price_features takes minutes per date on staging. Under the
+# pool's 120 s command_timeout every nightly call timed out, and because
+# asyncio.TimeoutError stringifies to '' the error was logged blank.
+_PRICE_FEATURES_TIMEOUT_S = 900
 
 
 # ── Result reporting ────────────────────────────────────────────────
@@ -351,11 +355,13 @@ async def compute_for_date(
             n = await conn.fetchval(
                 "SELECT nidp.populate_stock_price_features($1::date)",
                 target_date,
+                timeout=_PRICE_FEATURES_TIMEOUT_S,
             )
             report.price_features_rows = int(n or 0)
         except Exception as exc:  # noqa: BLE001
-            logger.error("ti_engine_price_features_error date=%s error=%s", target_date, exc)
-            report.errors.append(f"populate_stock_price_features: {exc}")
+            logger.error("ti_engine_price_features_error date=%s error=%s: %s",
+                         target_date, type(exc).__name__, exc)
+            report.errors.append(f"populate_stock_price_features: {type(exc).__name__}: {exc}")
 
     report.duration_ms = int((time.monotonic() - t0) * 1000)
     report.log()
@@ -435,13 +441,17 @@ async def compute_date_range(
                     reports[chunk[0][1]].errors.append(f"upsert_batch_{i}_{j}: {exc}")
             logger.info("ti_engine_range_batch_done batch=%d-%d rows=%d", i, i + len(batch), len(upsert_rows))
 
-        # 252-bar price features, once per day (see compute_for_date).
-        for day in sorted(reports):
+        # 252-bar price features for the last day only: the SQL function takes
+        # minutes per date, so a per-day loop over a long range runs for hours.
+        # Earlier days keep the values their own nightly run wrote.
+        if reports:
+            last = max(reports)
             try:
-                n = await conn.fetchval("SELECT nidp.populate_stock_price_features($1::date)", day)
-                reports[day].price_features_rows = int(n or 0)
+                n = await conn.fetchval("SELECT nidp.populate_stock_price_features($1::date)",
+                                        last, timeout=_PRICE_FEATURES_TIMEOUT_S)
+                reports[last].price_features_rows = int(n or 0)
             except Exception as exc:  # noqa: BLE001
-                reports[day].errors.append(f"populate_stock_price_features: {exc}")
+                reports[last].errors.append(f"populate_stock_price_features: {type(exc).__name__}: {exc}")
 
     return [reports[day] for day in sorted(reports)]
 

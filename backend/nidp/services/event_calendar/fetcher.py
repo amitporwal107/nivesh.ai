@@ -9,7 +9,7 @@ Returns normalized event dicts ready for upsert into nidp.event_calendar.
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from nidp.shared.sources.nse_fetcher import fetch_text
@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 _NSE_API = "https://www.nseindia.com"
 _CALENDAR_URL = f"{_NSE_API}/api/event-calendar"
 _RESULTS_URL  = f"{_NSE_API}/api/corporates-financial-results?index=equities"
+_BOARD_MEETINGS_URL = f"{_NSE_API}/api/corporate-board-meetings"
+_IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def _parse_date(s: str | None) -> date | None:
@@ -181,6 +183,92 @@ async def fetch_event_calendar(
         })
     logger.info("event_calendar: fetched %d events (%s → %s)", len(events), from_date, to_date)
     return events
+
+
+def _parse_intimated_at(s: str | None) -> datetime | None:
+    """NSE bm_timestamp, e.g. '04-Sep-2026 18:40:31' (IST)."""
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s.strip(), "%d-%b-%Y %H:%M:%S").replace(tzinfo=_IST)
+    except ValueError:
+        return None
+
+
+def board_meeting_event(row: dict[str, Any]) -> dict[str, Any] | None:
+    """One /api/corporate-board-meetings row → an event_calendar event dict.
+
+    bm_purpose is usually the generic "Board Meeting Intimation"; what the
+    meeting is for (financial results, fund raising…) is in bm_desc, so the
+    type is read from both. `_industry` is NSE's macro industry for the
+    company, used to fill sector_master for stocks outside the Nifty 500.
+    """
+    symbol = (row.get("bm_symbol") or "").strip().upper()
+    ev_date = _parse_date(row.get("bm_date"))
+    if not symbol or not ev_date:
+        return None
+    purpose = row.get("bm_purpose") or ""
+    desc = row.get("bm_desc") or ""
+    return {
+        "symbol":       symbol,
+        "company_name": row.get("sm_name") or "",
+        "event_type":   _normalise_event_type(f"{purpose} {desc}"),
+        "event_date":   ev_date,
+        "period":       _extract_period(purpose, desc),
+        "purpose":      desc or purpose,
+        "ex_date":      None,
+        "record_date":  None,
+        "source":       "nse",
+        "intimated_at": _parse_intimated_at(row.get("bm_timestamp")),
+        "_industry":    (row.get("sm_indusrty") or "").strip() or None,
+    }
+
+
+async def fetch_board_meetings(from_date: date, to_date: date) -> list[dict[str, Any]]:
+    """Board-meeting intimations for meetings dated in [from_date, to_date].
+
+    Unlike /api/event-calendar these rows carry bm_timestamp — when the
+    company intimated the exchange, i.e. when a results meeting became
+    public. Queried in ≤31-day windows (a month is not truncated by NSE).
+    """
+    events: list[dict[str, Any]] = []
+    start = from_date
+    while start <= to_date:
+        end = min(start + timedelta(days=30), to_date)
+        url = (f"{_BOARD_MEETINGS_URL}?index=equities"
+               f"&from_date={start.strftime('%d-%m-%Y')}&to_date={end.strftime('%d-%m-%Y')}")
+        try:
+            text, status = await fetch_text(
+                url, referer=f"{_NSE_API}/companies-listing/corporate-filings-board-meetings")
+            data = json.loads(text)
+        except Exception as e:
+            logger.error("board_meetings fetch failed %s..%s: %s", start, end, e)
+            raise
+        for row in (data if isinstance(data, list) else data.get("data", [])):
+            ev = board_meeting_event(row)
+            if ev:
+                events.append(ev)
+        start = end + timedelta(days=1)
+    logger.info("board_meetings: fetched %d meetings (%s → %s)", len(events), from_date, to_date)
+    return events
+
+
+def stamp_intimations(events: list[dict[str, Any]], meetings: list[dict[str, Any]]) -> int:
+    """Copy the earliest intimation time for (symbol, event_date) onto each
+    calendar event. Returns how many events were stamped."""
+    earliest: dict[tuple[str, date], datetime] = {}
+    for m in meetings:
+        ts = m.get("intimated_at")
+        key = (m["symbol"], m["event_date"])
+        if ts and (key not in earliest or ts < earliest[key]):
+            earliest[key] = ts
+    stamped = 0
+    for ev in events:
+        ts = earliest.get((ev["symbol"], ev["event_date"]))
+        if ts:
+            ev["intimated_at"] = ts
+            stamped += 1
+    return stamped
 
 
 async def fetch_recent_results(days_back: int = 3) -> list[dict[str, Any]]:

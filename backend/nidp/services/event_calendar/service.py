@@ -17,7 +17,7 @@ from typing import Optional
 from nidp.shared.logging_setup import setup_logging
 from nidp.shared.storage.pg import close_pool
 
-from .fetcher import fetch_event_calendar, fetch_recent_results
+from .fetcher import fetch_board_meetings, fetch_event_calendar, fetch_recent_results, stamp_intimations
 from .writer import upsert_events
 
 logger = logging.getLogger(__name__)
@@ -28,10 +28,15 @@ async def run(target_date: Optional[date] = None) -> None:
 
     # 1. Fetch forward calendar (today → +90 days) to track upcoming results
     logger.info("Fetching NSE event calendar...")
-    calendar_events = await fetch_event_calendar(
-        from_date=date.today() - timedelta(days=7),
-        to_date=date.today() + timedelta(days=90),
-    )
+    window = (date.today() - timedelta(days=7), date.today() + timedelta(days=90))
+    calendar_events = await fetch_event_calendar(from_date=window[0], to_date=window[1])
+    # /api/event-calendar carries no intimation time; the board-meetings feed
+    # does. Without it a results meeting can't be placed point-in-time.
+    try:
+        stamped = stamp_intimations(calendar_events, await fetch_board_meetings(*window))
+        logger.info("event_calendar: stamped intimated_at on %d of %d events", stamped, len(calendar_events))
+    except Exception as e:  # noqa: BLE001 — the calendar itself is still worth storing
+        logger.error("event_calendar: board-meetings fetch failed, intimated_at left empty: %s", e)
     n1 = await upsert_events(calendar_events)
     logger.info("event_calendar: upserted %d calendar events", n1)
 
