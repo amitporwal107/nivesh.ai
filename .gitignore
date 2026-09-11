@@ -523,3 +523,7 @@ docs/OPEN_API_KEY
 # local deploy checkouts (not part of the repo)
 .deploy-dev
 .deploy-main
+
+# Generated run output from one-off analysis scripts (backend/scripts/*) —
+# these are timestamped artifacts of a run, not source of truth.
+backend/scripts/output/
