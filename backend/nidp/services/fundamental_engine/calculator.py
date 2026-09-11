@@ -173,6 +173,11 @@ def piotroski_label(score: int) -> str:
 # market_cap_cr = close_price * shares_outstanding_cr
 #   where shares_outstanding_cr ≈ pat_cr / eps_basic * face_value / 10
 
+_MIN_EPS = 0.01            # below this, EPS is a rounding artefact, not a share count basis
+_X4_CAP = 10.0             # the debt-free X4; trivial debt must not score above no debt
+_MAX_PLAUSIBLE_Z = 100.0   # beyond this the inputs are inconsistent (unit/period mix)
+
+
 def compute_altman_z(
     latest: dict,
     close_price: Optional[float] = None,
@@ -218,16 +223,17 @@ def compute_altman_z(
 
     # X4: Market cap / total debt
     x4 = 0.0
-    if close_price and close_price > 0 and eps and eps != 0:
+    # pat / eps is a share count only when EPS isn't a rounding artefact and
+    # both carry the same sign.
+    if close_price and close_price > 0 and eps and abs(eps) >= _MIN_EPS and pat / eps > 0:
         # Shares outstanding in crores: PAT_cr / (EPS per share)
         # EPS per share unit: Rs per share of face_value
         # shares_cr = pat_cr (crores) * 10^7 / eps_per_share
         # market_cap_cr = close * shares_cr / 10^7 = close * pat_cr / eps_per_share
-        market_cap_cr = close_price * pat / eps if eps != 0 else 0.0
-        if total_debt > 0:
-            x4 = market_cap_cr / total_debt
-        else:
-            x4 = 10.0  # debt-free: very safe
+        market_cap_cr = close_price * pat / eps
+        # Debt-free scores _X4_CAP ("very safe"); uncapped, ₹0.01 cr of debt
+        # produced Z = 27,350 and sorted to the top of every safety screen.
+        x4 = min(market_cap_cr / total_debt, _X4_CAP) if total_debt > 0 else _X4_CAP
 
     # X5: Revenue / total capital (annualise quarterly by ×4)
     if revenue_ttm is None:
@@ -238,6 +244,8 @@ def compute_altman_z(
     x5 = rev / total_capital
 
     z = 1.2 * x1 + 1.4 * x2 + 3.3 * x3 + 0.6 * x4 + 1.0 * x5
+    if abs(z) >= _MAX_PLAUSIBLE_Z:
+        return None  # inconsistent inputs: no score is better than a wrong one
     return round(float(z), 4)
 
 

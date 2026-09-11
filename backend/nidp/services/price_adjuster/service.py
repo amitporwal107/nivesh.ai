@@ -45,6 +45,7 @@ class AdjusterReport:
     run_id: str
     started_at: float
     symbols_processed: int = 0
+    symbols_full_history: int = 0
     rows_written: int = 0
     rows_skipped: int = 0
     rows_orphans_deleted: int = 0
@@ -60,6 +61,7 @@ class AdjusterReport:
         return {
             "run_id":            self.run_id,
             "symbols_processed": self.symbols_processed,
+            "symbols_full_history": self.symbols_full_history,
             "rows_written":      self.rows_written,
             "rows_skipped":      self.rows_skipped,
             "rows_orphans_deleted": self.rows_orphans_deleted,
@@ -96,10 +98,21 @@ async def run(
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # 1. Load price rows
-        prices = await _load_prices(conn, since=since, symbols=symbols)
-        # 2. Load corp-action rows
+        # 1. Load corp-action rows
         actions = await _load_actions(conn, symbols=symbols)
+        # A new action changes the factor of every EARLIER bar, not only the
+        # rows inside the `since` window. Symbols with an action ex-dated or
+        # ingested inside the window get their whole history rewritten;
+        # otherwise rows older than `since` keep the old factor and the
+        # adjusted series jumps at the window boundary.
+        full_history = sorted({
+            a["symbol"] for a in actions
+            if since and ((a["ex_date"] and a["ex_date"] >= since)
+                          or (a["ingested_at"] and a["ingested_at"].date() >= since))
+        })
+        report.symbols_full_history = len(full_history)
+        # 2. Load price rows
+        prices = await _load_prices(conn, since=since, symbols=symbols, full_history=full_history)
 
     # 3. Build prev-close lookup (used only for dividends).
     prev_close: Dict[Tuple[str, date], float] = {}
@@ -238,12 +251,17 @@ async def _delete_orphaned_adjusted(symbols: List[str]) -> int:
     return int(result.split()[-1])
 
 
-async def _load_prices(conn, *, since: Optional[date], symbols: Optional[List[str]]) -> List[dict]:
+async def _load_prices(conn, *, since: Optional[date], symbols: Optional[List[str]],
+                       full_history: Optional[List[str]] = None) -> List[dict]:
     where = ["close_price IS NOT NULL"]
     args: list = []
     if since:
         args.append(since)
-        where.append(f"as_of_date >= ${len(args)}::date")
+        clause = f"as_of_date >= ${len(args)}::date"
+        if full_history:
+            args.append(full_history)
+            clause = f"({clause} OR symbol = ANY(${len(args)}::text[]))"
+        where.append(clause)
     if symbols:
         args.append(symbols)
         where.append(f"symbol = ANY(${len(args)}::text[])")
@@ -274,7 +292,7 @@ async def _load_actions(conn, *, symbols: Optional[List[str]]) -> List[dict]:
     sql = f"""
         SELECT symbol, action_type, ex_date,
                face_value_pre, face_value_post,
-               ratio, dividend_amount
+               ratio, dividend_amount, ingested_at
           FROM nidp.corporate_actions
          WHERE {' AND '.join(where)}
     """

@@ -14,7 +14,7 @@ SELECT announcement_id, source, ticker_symbol, isin, scrip_code, company_name,
   FROM nidp.corporate_announcements
  WHERE event_category IS NULL
    AND filed_at >= NOW() - INTERVAL '30 days'
- ORDER BY filed_at DESC
+ ORDER BY filed_at ASC  -- oldest first: newest-first starves the backlog once behind
  LIMIT $1
 """
 

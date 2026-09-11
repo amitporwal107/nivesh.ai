@@ -113,7 +113,12 @@ class JobRun:
                      CASE WHEN $3 = 'FAILED'          THEN NOW() ELSE NULL END,
                      CASE WHEN $3 = 'FAILED'          THEN 1    ELSE 0    END,
                      NOW(), NOW())
-                ON CONFLICT (source_name) DO UPDATE
+                -- One row per ingester (unique index, migration 135). Keying on
+                -- source_name never matched curated rows (source_name <> ingester),
+                -- and once 135 added the index the insert hit a unique violation
+                -- after every successful run — the run's data landed, but the
+                -- process exited non-zero and v_feed_status froze.
+                ON CONFLICT (ingester) DO UPDATE
                    SET last_run_at          = NOW(),
                        last_run_id          = $2,
                        last_run_status      = $3,

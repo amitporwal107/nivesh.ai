@@ -46,7 +46,10 @@ from nidp.shared.trading_day import last_market_close_date
 logger = logging.getLogger(__name__)
 
 INGESTER_NAME = "feed_reconciler"
-DEFAULT_FEEDS = ["bhavcopy", "delivery", "index_close", "fii_dii"]
+# corporate_announcements is registered in nidp.backfill but was never healed
+# here, so each staging DB outage left a permanent hole (Aug–Sep 2026: NIDP held
+# 36% of NSE's filings for the window).
+DEFAULT_FEEDS = ["bhavcopy", "delivery", "index_close", "fii_dii", "corporate_announcements"]
 DEFAULT_LOOKBACK_DAYS = 7
 
 
