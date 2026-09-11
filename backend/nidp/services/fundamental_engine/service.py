@@ -157,25 +157,36 @@ async def _fetch_prior_year_quarters(
     conn: asyncpg.Connection,
     symbols: list[str],
 ) -> dict[str, dict]:
-    """Fetch prior-year same quarter for Piotroski delta signals."""
+    """Fetch the prior-year quarter for Piotroski delta signals.
+
+    Every writer stores period_type = 'quarterly' (lowercase); this query
+    matched 'QUARTERLY' exactly, found no prior year for any stock, and
+    7 of the 9 F-score signals could never fire (max score 2 across the
+    universe). Match case-insensitively, and take the quarter nearest one
+    year back within 330–400 days — reporting dates drift and the same-day
+    match missed rows — preferring the same consolidated/standalone basis.
+    """
     rows = await conn.fetch(
         """
         WITH latest AS (
             SELECT DISTINCT ON (symbol) symbol, period_end, consolidated
               FROM nidp.nse_financials_quarterly
-             WHERE period_type = 'QUARTERLY'
+             WHERE period_type ILIKE 'quarterly'
+               AND symbol = ANY($1::text[])
              ORDER BY symbol, consolidated DESC, period_end DESC
         )
-        SELECT f.symbol, f.period_end, f.consolidated,
+        SELECT DISTINCT ON (f.symbol)
+               f.symbol, f.period_end, f.consolidated,
                f.revenue_from_ops_cr, f.pat_cr, f.eps_basic, f.face_value,
                f.total_equity_cr, f.long_term_debt_cr, f.short_term_debt_cr,
                f.cash_and_equiv_cr, f.ebitda_cr, f.finance_costs_cr, f.depreciation_cr
           FROM nidp.nse_financials_quarterly f
           JOIN latest l ON l.symbol = f.symbol
-                        AND l.consolidated = f.consolidated
-         WHERE f.symbol = ANY($1::text[])
-           AND f.period_type = 'QUARTERLY'
-           AND f.period_end = (l.period_end - INTERVAL '1 year')::date
+         WHERE f.period_type ILIKE 'quarterly'
+           AND f.period_end BETWEEN (l.period_end - INTERVAL '400 days')::date
+                                AND (l.period_end - INTERVAL '330 days')::date
+         ORDER BY f.symbol, (f.consolidated = l.consolidated) DESC,
+                  abs(f.period_end - (l.period_end - INTERVAL '1 year')::date)
         """,
         symbols,
     )
