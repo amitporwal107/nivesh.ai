@@ -80,6 +80,10 @@ SPECS: list[ServiceSpec] = [
     ServiceSpec("delivery",            "nidp.services.delivery.service",           True,  1.0),
     ServiceSpec("index_close",         "nidp.services.index_close.service",        True,  1.0),
     ServiceSpec("fii_dii",             "nidp.services.fii_dii.service",            True,  1.0),
+    # F&O bhavcopy: the options aggregates (PCR/OI) read it per day. The
+    # 2026-08-24..09-08 staging outage left it empty for 13 sessions because
+    # nothing could heal it.
+    ServiceSpec("fno_bhavcopy",        "nidp.services.fno_bhavcopy.service",       True,  1.5),
     # Per-day filings. run() drives NSE + BSE coarse + BSE subcategory, each
     # independently. Document discovery keys off these rows, so corpus depth can
     # never exceed this feed's history — backfilling it is what makes historical
