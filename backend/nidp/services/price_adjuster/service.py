@@ -360,6 +360,7 @@ async def _upsert_adjusted(rows: List[dict], run_id: str) -> int:
         for i in range(0, len(args), BATCH):
             batch = args[i:i + BATCH]
             async with conn.transaction():
-                await conn.executemany(sql, batch, timeout=120)
+                # 120 s per 500-row batch timed out a full rebuild after 1.9 h (2026-09-11)
+                await conn.executemany(sql, batch, timeout=600)
             total += len(batch)
     return total

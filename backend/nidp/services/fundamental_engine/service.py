@@ -43,7 +43,7 @@ BATCH_SIZE = 200
 # that take ~35s on staging. At 30s asyncpg cancels them with an empty-message
 # TimeoutError, which left shareholding/fundamentals columns silently blank for the
 # latest date. Override the per-statement timeout for these heavy maintenance calls.
-_POPULATE_TIMEOUT_S = 600
+_POPULATE_TIMEOUT_S = 1800  # 600 s timed out on every 2026-09-11 run under backfill load
 
 
 @dataclass
