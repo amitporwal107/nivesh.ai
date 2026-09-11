@@ -81,6 +81,32 @@ async def _get_due_today(conn, target_date: date) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def _results_broadcast_at(symbol: str, event_date: date) -> Optional["datetime"]:
+    """When the results were broadcast on NSE, from nidp.corporate_announcements.
+
+    None of the four sources below returns a filing time, so broadcast_at was
+    NULL on every row and fundamentals could not be used point-in-time. The
+    exchange announcement for the same results carries it: the earliest
+    financial-results filing from the day before the meeting (after-hours
+    results land that evening) to a week after. None when not ingested yet.
+    """
+    from nidp.shared.storage.pg import get_pool
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            """
+            SELECT min(broadcast_at)
+              FROM nidp.corporate_announcements
+             WHERE ticker_symbol = $1
+               AND broadcast_at >= $2::date - 1
+               AND broadcast_at <  $2::date + 7
+               AND (raw_category ILIKE '%financial result%' OR subject ILIKE '%financial result%')
+            """,
+            symbol, event_date,
+        )
+
+
 async def _process_symbol(
     symbol: str,
     period: Optional[str],
@@ -89,6 +115,7 @@ async def _process_symbol(
     results_url: Optional[str],
 ) -> Optional[int]:
     financials_id = None
+    broadcast_at = await _results_broadcast_at(symbol, event_date)
 
     # Strategy 1: NSE Integrated XBRL filing (structured XML — no LLM tokens)
     logger.info("nse_financials: trying NSE integrated filing XBRL for %s", symbol)
@@ -97,7 +124,8 @@ async def _process_symbol(
         data = parse_nse_integrated_xbrl(symbol, xml_text)
         if data and data.get("pat_cr") is not None:
             data = _fill_period_end(data, event_date)
-            financials_id = await upsert_financials(symbol, data, source="nse_integrated_xbrl")
+            financials_id = await upsert_financials(symbol, data, source="nse_integrated_xbrl",
+                                                    broadcast_at=broadcast_at)
             if financials_id:
                 logger.info("nse_financials: ✓ %s from NSE integrated XBRL (id=%d)", symbol, financials_id)
                 return financials_id
@@ -136,7 +164,7 @@ async def _process_symbol(
             if data.get("pat_cr") is not None:
                 data = _fill_period_end(data, event_date)
                 financials_id = await upsert_financials(
-                    symbol, data, source="screener_in", raw_data=raw_data
+                    symbol, data, source="screener_in", raw_data=raw_data, broadcast_at=broadcast_at
                 )
                 if financials_id:
                     logger.info("nse_financials: ✓ %s from Screener.in (id=%d)", symbol, financials_id)
@@ -155,7 +183,8 @@ async def _process_symbol(
             if data:
                 data = _fill_period_end(data, event_date)
                 financials_id = await upsert_financials(
-                    symbol, data, source="company_ir", ir_url=results_url or ir_url
+                    symbol, data, source="company_ir", ir_url=results_url or ir_url,
+                    broadcast_at=broadcast_at,
                 )
                 if financials_id:
                     logger.info("nse_financials: ✓ %s from company IR page (id=%d)", symbol, financials_id)
@@ -170,7 +199,8 @@ async def _process_symbol(
             data = await extract_financials(symbol, xbrl_text)
         if data:
             data = _fill_period_end(data, event_date)
-            financials_id = await upsert_financials(symbol, data, source="nse_xbrl")
+            financials_id = await upsert_financials(symbol, data, source="nse_xbrl",
+                                                    broadcast_at=broadcast_at)
             if financials_id:
                 logger.info("nse_financials: ✓ %s from NSE XBRL comparator (id=%d)", symbol, financials_id)
                 return financials_id
