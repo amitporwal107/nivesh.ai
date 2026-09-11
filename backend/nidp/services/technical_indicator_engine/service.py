@@ -40,6 +40,10 @@ BATCH_SIZE = 100     # symbols processed per DB round-trip
 # pool's 120 s command_timeout every nightly call timed out, and because
 # asyncio.TimeoutError stringifies to '' the error was logged blank.
 _PRICE_FEATURES_TIMEOUT_S = 900
+# Range backfills run while nightly jobs load the DB; under the pool's 120 s
+# command_timeout the very first query (symbol list over ~1.2M rows) timed out
+# and killed the whole recompute (2026-09-11).
+_RANGE_QUERY_TIMEOUT_S = 900
 
 
 # ── Result reporting ────────────────────────────────────────────────
@@ -108,6 +112,7 @@ async def _fetch_price_history(
     up_to_date: date,
     lookback: int,
     from_date: Optional[date] = None,
+    timeout: Optional[float] = None,
 ) -> dict[str, list[asyncpg.Record]]:
     """Bulk-fetch price history for multiple symbols in one query.
 
@@ -129,7 +134,7 @@ async def _fetch_price_history(
            AND close_price > 0
          ORDER BY symbol, as_of_date, (source = 'NSE_BHAVCOPY') DESC
         """,
-        symbols, since, up_to_date,
+        symbols, since, up_to_date, timeout=timeout,
     )
     grouped: dict[str, list] = {}
     for r in rows:
@@ -137,7 +142,8 @@ async def _fetch_price_history(
     return grouped
 
 
-async def _fetch_split_events(conn: asyncpg.Connection, symbols: list[str]) -> dict[str, list]:
+async def _fetch_split_events(conn: asyncpg.Connection, symbols: list[str],
+                              timeout: Optional[float] = None) -> dict[str, list]:
     """Split and bonus events per symbol, with factors computed exactly as
     the price adjuster computes them (price_adjuster/factors.py)."""
     rows = await conn.fetch(
@@ -149,7 +155,7 @@ async def _fetch_split_events(conn: asyncpg.Connection, symbols: list[str]) -> d
            AND ex_date IS NOT NULL
            AND symbol = ANY($1::text[])
         """,
-        symbols,
+        symbols, timeout=timeout,
     )
     grouped: dict[str, list] = {}
     for event in build_events([dict(r) for r in rows], lambda _symbol, _ex_date: None):
@@ -277,8 +283,9 @@ def _row_tuple(symbol: str, target_date: date, f: dict, run_id: str) -> tuple:
     )
 
 
-async def _upsert_batch(conn: asyncpg.Connection, rows: list[tuple]) -> int:
-    await conn.executemany(_UPSERT_SQL, rows)
+async def _upsert_batch(conn: asyncpg.Connection, rows: list[tuple],
+                        timeout: Optional[float] = None) -> int:
+    await conn.executemany(_UPSERT_SQL, rows, timeout=timeout)
     return len(rows)
 
 
@@ -394,7 +401,7 @@ async def compute_date_range(
             rows = await conn.fetch(
                 "SELECT DISTINCT symbol FROM nidp.prices_eod "
                 "WHERE series = 'EQ' AND as_of_date BETWEEN $1 AND $2 ORDER BY symbol",
-                from_date, to_date,
+                from_date, to_date, timeout=_RANGE_QUERY_TIMEOUT_S,
             )
             symbols = [r["symbol"] for r in rows]
         logger.info("ti_engine_range_start from=%s to=%s symbols=%d run=%s",
@@ -403,10 +410,11 @@ async def compute_date_range(
         for i in range(0, len(symbols), batch_size):
             batch = symbols[i: i + batch_size]
             try:
-                history = await _fetch_price_history(conn, batch, to_date, LOOKBACK_BARS, from_date=from_date)
-                events = await _fetch_split_events(conn, batch)
+                history = await _fetch_price_history(conn, batch, to_date, LOOKBACK_BARS,
+                                                     from_date=from_date, timeout=_RANGE_QUERY_TIMEOUT_S)
+                events = await _fetch_split_events(conn, batch, timeout=_RANGE_QUERY_TIMEOUT_S)
             except Exception as exc:
-                logger.error("ti_engine_range_fetch_error batch=%d error=%s", i, exc)
+                logger.error("ti_engine_range_fetch_error batch=%d error=%s: %s", i, type(exc).__name__, exc)
                 reports.setdefault(from_date, RunReport(from_date, run_id)).errors.append(f"fetch_batch_{i}: {exc}")
                 continue
 
@@ -433,7 +441,7 @@ async def compute_date_range(
             for j in range(0, len(upsert_rows), 5000):
                 chunk = upsert_rows[j: j + 5000]
                 try:
-                    await _upsert_batch(conn, chunk)
+                    await _upsert_batch(conn, chunk, timeout=_RANGE_QUERY_TIMEOUT_S)
                     for row in chunk:
                         reports[row[1]].rows_upserted += 1
                 except Exception as exc:
