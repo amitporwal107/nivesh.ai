@@ -48,6 +48,11 @@ NIDP_HOME=/opt/nidp-staging
 # ── Phase 1B weekly + derivation ──────────────────────────────────
 # 0  7  * * 0    nidp-staging  /opt/nidp-staging/run_service.sh nse_equity_master
 # 30 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh price_adjuster
+# Universe-wide fundamentals (v_screener_backfill_universe, ~2,400 names): without
+# it only the Nifty 500 had fundamentals. Enabled live 2026-09-11.
+# 0  22 * * 0    nidp-staging  /opt/nidp-staging/run_service.sh nse_financials.backfill_screener --concurrency 1 --delay-ms 3000
+# Daily price band / F&O / ETF flags → nidp.security_reference_daily. Enabled live 2026-09-11.
+# 30 7  * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh nse_reference_snapshot
 
 # ── End-of-day snapshot (after all daily ingesters) ───────────────
 # 0  22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh snapshot_builder

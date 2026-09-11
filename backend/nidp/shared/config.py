@@ -123,6 +123,9 @@ INDEX_CONSTITUENT_URLS: Final[dict[str, str]] = {
     "Nifty 500":  f"{NSE_ARCHIVES}/content/indices/ind_nifty500list.csv",
     "Nifty Bank": f"{NSE_ARCHIVES}/content/indices/ind_niftybanklist.csv",
     "Nifty IT":   f"{NSE_ARCHIVES}/content/indices/ind_niftyitlist.csv",
+    # Nifty 500 + Microcap 250: NSE's industry for ~250 stocks outside the
+    # Nifty 500, in the same taxonomy as the Nifty 500 list.
+    "Nifty Total Market": f"{NSE_ARCHIVES}/content/indices/ind_niftytotalmarket_list.csv",
 }
 
 # 2.1 FII/DII cash daily — NSE moved from XLS archive to JSON API.
