@@ -115,6 +115,29 @@ async def _populate_options(conn: asyncpg.Connection, target_date: date) -> int:
         return 0
 
 
+async def _populate_mf_ownership(conn: asyncpg.Connection, target_date: date) -> int:
+    """Mutual-fund ownership from the AMC monthly disclosures (migration 141).
+
+    MUST run after _populate_extended: that pass sets mf_pct from
+    v_shareholding_latest.mf_pct, which is NULL for every row because neither
+    shareholding source carries a mutual-fund column. Without this pass running
+    afterwards, mf_pct is reset to NULL on every engine run.
+
+    Non-fatal so it can't block the scores.
+    """
+    try:
+        rows = await conn.fetchval(
+            "SELECT nidp.populate_mf_ownership($1)",
+            target_date,
+            timeout=_POPULATE_TIMEOUT_S,
+        )
+        logger.info("fund_engine_populate_mf date=%s rows_updated=%s", target_date, rows)
+        return rows or 0
+    except Exception as exc:  # noqa: BLE001
+        logger.error("fund_engine_populate_mf_error date=%s error=%r", target_date, exc)
+        return 0
+
+
 async def _populate_v3(conn: asyncpg.Connection, target_date: date) -> int:
     """Call populate_stock_features_v3 — computes 3Y CAGR metrics from annual P&L.
 
@@ -275,6 +298,7 @@ async def compute_for_date(
         if not skip_populate:
             await _populate_extended(conn, target_date)
             await _populate_options(conn, target_date)
+            await _populate_mf_ownership(conn, target_date)
             # Also populate V3-specific 3Y CAGR metrics (revenue growth, margin trend,
             # debt trend) from annual Screener P&L data. Must run after _populate_extended
             # so balance sheet debt columns are current.
