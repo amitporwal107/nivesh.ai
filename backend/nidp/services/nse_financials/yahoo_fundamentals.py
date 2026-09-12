@@ -181,7 +181,7 @@ async def run(symbols: Optional[list[str]] = None, concurrency: int = 2,
 
 
 def main() -> None:
-    setup_logging()
+    setup_logging("yahoo_fundamentals")
     p = argparse.ArgumentParser(description="Yahoo Finance balance-sheet + cash-flow backfill")
     p.add_argument("--symbols", default=None, help="comma-separated NSE symbols")
     p.add_argument("--concurrency", type=int, default=2)
