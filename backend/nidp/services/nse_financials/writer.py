@@ -253,3 +253,68 @@ async def upsert_cashflow(
             source, run_id,
         )
     return row["id"] if row else None
+
+
+async def upsert_balance_sheet(
+    symbol: str,
+    data: dict[str, Any],
+    source: str = "yahoo_finance",
+    source_run_id: Optional[str] = None,
+) -> Optional[int]:
+    """Write working-capital balance-sheet items onto the annual row for a period.
+
+    These columns (current assets/liabilities, inventory, receivables, payables) exist
+    on nse_financials_quarterly since migration 090 but nothing ever populated them --
+    Screener's balance-sheet table has no current-asset breakdown. COALESCE on conflict
+    so a partial payload never blanks a field an earlier source filled.
+    """
+    from datetime import datetime as _dt
+
+    period_end = data.get("period_end")
+    if isinstance(period_end, str):
+        try:
+            period_end = _dt.strptime(period_end, "%Y-%m-%d").date()
+        except ValueError:
+            period_end = None
+    if not period_end:
+        logger.warning("upsert_balance_sheet: no period_end for %s, skipping", symbol)
+        return None
+
+    fields = ("current_assets_cr", "current_liabilities_cr", "inventory_cr",
+              "trade_receivables_cr", "trade_payables_cr", "cash_and_equiv_cr",
+              "long_term_debt_cr")
+    if not any(data.get(f) is not None for f in fields):
+        logger.warning("upsert_balance_sheet: no balance-sheet values for %s period=%s, skipping",
+                       symbol, period_end)
+        return None
+
+    run_id = source_run_id or str(uuid.uuid4())
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO nidp.nse_financials_quarterly (
+                symbol, period_end, period_type, consolidated,
+                current_assets_cr, current_liabilities_cr, inventory_cr,
+                trade_receivables_cr, trade_payables_cr, cash_and_equiv_cr,
+                long_term_debt_cr, source, source_run_id
+            ) VALUES ($1,$2,'annual',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            ON CONFLICT (symbol, period_end, consolidated)
+            DO UPDATE SET
+                current_assets_cr      = COALESCE(EXCLUDED.current_assets_cr,      nidp.nse_financials_quarterly.current_assets_cr),
+                current_liabilities_cr = COALESCE(EXCLUDED.current_liabilities_cr, nidp.nse_financials_quarterly.current_liabilities_cr),
+                inventory_cr           = COALESCE(EXCLUDED.inventory_cr,           nidp.nse_financials_quarterly.inventory_cr),
+                trade_receivables_cr   = COALESCE(EXCLUDED.trade_receivables_cr,   nidp.nse_financials_quarterly.trade_receivables_cr),
+                trade_payables_cr      = COALESCE(EXCLUDED.trade_payables_cr,      nidp.nse_financials_quarterly.trade_payables_cr),
+                cash_and_equiv_cr      = COALESCE(EXCLUDED.cash_and_equiv_cr,      nidp.nse_financials_quarterly.cash_and_equiv_cr),
+                long_term_debt_cr      = COALESCE(EXCLUDED.long_term_debt_cr,      nidp.nse_financials_quarterly.long_term_debt_cr),
+                ingested_at            = NOW()
+            RETURNING id
+            """,
+            symbol, period_end, bool(data.get("consolidated", True)),
+            data.get("current_assets_cr"), data.get("current_liabilities_cr"),
+            data.get("inventory_cr"), data.get("trade_receivables_cr"),
+            data.get("trade_payables_cr"), data.get("cash_and_equiv_cr"),
+            data.get("long_term_debt_cr"), source, run_id,
+        )
+    return row["id"] if row else None
