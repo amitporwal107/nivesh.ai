@@ -147,8 +147,16 @@ async def _process_one(symbol: str, sem: asyncio.Semaphore, delay_ms: int, dry_r
         if dry_run:
             return {"symbol": symbol, "outcome": "dry_run",
                     "cf": len(cash_rows), "bs": len(bal_rows)}
-        cf = sum(1 for r in cash_rows if await upsert_cashflow(symbol, r, source="yahoo_finance"))
-        bs = sum(1 for r in bal_rows if await upsert_balance_sheet(symbol, r, source="yahoo_finance"))
+        # explicit loops: sum() cannot consume the async generator an "await" inside a
+        # generator expression produces
+        cf = 0
+        for row in cash_rows:
+            if await upsert_cashflow(symbol, row, source="yahoo_finance"):
+                cf += 1
+        bs = 0
+        for row in bal_rows:
+            if await upsert_balance_sheet(symbol, row, source="yahoo_finance"):
+                bs += 1
         logger.info("yahoo_fund: %-14s %d cf_years  %d bs_years", symbol, cf, bs)
         return {"symbol": symbol, "outcome": "ok", "cf": cf, "bs": bs}
 
@@ -170,7 +178,13 @@ async def run(symbols: Optional[list[str]] = None, concurrency: int = 2,
     logger.info("yahoo_fund: starting -- %d symbols, concurrency=%d, dry_run=%s",
                 len(targets), concurrency, dry_run)
     sem = asyncio.Semaphore(concurrency)
-    results = await asyncio.gather(*(_process_one(s, sem, delay_ms, dry_run) for s in targets))
+    results = await asyncio.gather(
+        *(_process_one(s, sem, delay_ms, dry_run) for s in targets), return_exceptions=True
+    )
+    for sym, r in zip(targets, results):
+        if isinstance(r, Exception):
+            logger.error("yahoo_fund: %s failed: %s: %s", sym, type(r).__name__, r)
+    results = [r for r in results if not isinstance(r, Exception)]
     summary: dict[str, int] = {}
     for r in results:
         summary[r["outcome"]] = summary.get(r["outcome"], 0) + 1
