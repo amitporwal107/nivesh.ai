@@ -33,9 +33,10 @@ from .ir_scraper import fetch_screener_quarters
 from .llm_extractor import (
     parse_all_screener_quarters,
     parse_screener_balance_sheet,
+    parse_screener_cash_flow,
     parse_screener_profit_loss,
 )
-from .writer import upsert_financials
+from .writer import upsert_cashflow, upsert_financials
 
 # Global flag — set when Screener.in rate-limits us; stops new fetches
 _rate_limited = False
@@ -286,6 +287,11 @@ async def _process_one(
                 symbol, html, consolidated=is_consolidated
             )
 
+            # ── Parse annual cash flow (same page — no extra fetch) ──────
+            cf_entries = parse_screener_cash_flow(
+                symbol, html, consolidated=is_consolidated
+            )
+
             # ── Parse annual P&L (profit-loss section) ───────────────────
             # Use since_year 3 years before lookback window to cover full 3Y CAGR
             # window even when main lookback is 1 year.
@@ -335,6 +341,13 @@ async def _process_one(
                 if fid:
                     pl_written += 1
 
+            # ── Write annual cash flow ───────────────────────────────────
+            cf_written = 0
+            for cf in cf_entries:
+                cid = await upsert_cashflow(symbol, cf, source="screener_in")
+                if cid:
+                    cf_written += 1
+
             # ── Shareholding: NOT written here ───────────────────────────
             # Shareholding has a single golden source — the NSE regulatory filing
             # (nse_shareholding → shareholding_pattern.source='NSE_SHP'). Screener is a
@@ -345,14 +358,15 @@ async def _process_one(
 
             await _write_job_log(conn, run_id, symbol, tier, "OK", rows_inserted=written)
             logger.info(
-                "backfill_hist: ✓ T%d %-15s  %d quarters  %d bs_years  %d pl_years  %d shp written  since=%s",
-                tier, symbol, written, len(bs_entries), pl_written, shp_written, since_date,
+                "backfill_hist: ✓ T%d %-15s  %d quarters  %d bs_years  %d pl_years  %d cf_years  %d shp written  since=%s",
+                tier, symbol, written, len(bs_entries), pl_written, cf_written, shp_written, since_date,
             )
             stats.update({
                 "outcome": "ok",
                 "quarters_written": written,
                 "bs_years": len(bs_entries),
                 "pl_years": pl_written,
+                "cf_years": cf_written,
                 "shp_quarters": shp_written,
             })
             return stats

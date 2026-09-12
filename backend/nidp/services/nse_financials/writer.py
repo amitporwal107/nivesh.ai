@@ -195,3 +195,61 @@ async def upsert_shareholding(
             source, run_id,
         )
     return True
+
+
+async def upsert_cashflow(
+    symbol: str,
+    data: dict[str, Any],
+    source: str = "screener_in",
+    source_run_id: Optional[str] = None,
+) -> Optional[int]:
+    """Write one annual cash-flow row into nidp.nse_financials_cashflow.
+
+    Mirrors upsert_financials: COALESCE on conflict so a later partial parse never
+    blanks a field an earlier run populated.
+    """
+    from datetime import datetime as _dt
+
+    period_end = data.get("period_end")
+    if isinstance(period_end, str):
+        try:
+            period_end = _dt.strptime(period_end, "%Y-%m-%d").date()
+        except ValueError:
+            period_end = None
+    if not period_end:
+        logger.warning("upsert_cashflow: no period_end for %s, skipping", symbol)
+        return None
+
+    if not any(data.get(f) is not None for f in ("cfo_cr", "cfi_cr", "cff_cr", "net_change_cash_cr")):
+        logger.warning("upsert_cashflow: all cash-flow fields null for %s period=%s, skipping",
+                       symbol, period_end)
+        return None
+
+    run_id = source_run_id or str(uuid.uuid4())
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO nidp.nse_financials_cashflow (
+                symbol, period_end, consolidated,
+                cfo_cr, cfi_cr, cff_cr, capex_cr, net_change_cash_cr,
+                source, source_run_id
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            ON CONFLICT ON CONSTRAINT uq_cashflow
+            DO UPDATE SET
+                cfo_cr             = COALESCE(EXCLUDED.cfo_cr,             nidp.nse_financials_cashflow.cfo_cr),
+                cfi_cr             = COALESCE(EXCLUDED.cfi_cr,             nidp.nse_financials_cashflow.cfi_cr),
+                cff_cr             = COALESCE(EXCLUDED.cff_cr,             nidp.nse_financials_cashflow.cff_cr),
+                capex_cr           = COALESCE(EXCLUDED.capex_cr,           nidp.nse_financials_cashflow.capex_cr),
+                net_change_cash_cr = COALESCE(EXCLUDED.net_change_cash_cr, nidp.nse_financials_cashflow.net_change_cash_cr),
+                source             = EXCLUDED.source,
+                source_run_id      = EXCLUDED.source_run_id,
+                ingested_at        = NOW()
+            RETURNING id
+            """,
+            symbol, period_end, bool(data.get("consolidated", False)),
+            data.get("cfo_cr"), data.get("cfi_cr"), data.get("cff_cr"),
+            data.get("capex_cr"), data.get("net_change_cash_cr"),
+            source, run_id,
+        )
+    return row["id"] if row else None
