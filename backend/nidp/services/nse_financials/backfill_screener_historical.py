@@ -40,6 +40,11 @@ from .writer import upsert_cashflow, upsert_financials
 
 # Global flag — set when Screener.in rate-limits us; stops new fetches
 _rate_limited = False
+# One page that trips the block-wall check is not a rate limit: on 2026-09-13 CMPDI tripped it on
+# every attempt, 7 minutes apart, and halted two runs with 250+ symbols still pending. Halt only
+# when this many DIFFERENT symbols in a row look blocked; a normal response resets the streak.
+_RATE_LIMIT_STREAK = 3
+_blocked_streak = 0
 
 logger = logging.getLogger(__name__)
 
@@ -236,17 +241,28 @@ async def _process_one(
                 return stats
 
             # ── Fetch ────────────────────────────────────────────────────
-            global _rate_limited
+            global _rate_limited, _blocked_streak
             if _rate_limited:
                 stats["outcome"] = "rate_limited"
                 return stats
 
             try:
                 fetch_result = await fetch_screener_quarters(symbol)
+                _blocked_streak = 0
             except RuntimeError as exc:
-                # Screener.in rate-limit — halt all pending fetches
-                _rate_limited = True
                 reason = str(exc)
+                _blocked_streak += 1
+                if _blocked_streak < _RATE_LIMIT_STREAK:
+                    logger.warning(
+                        "backfill_hist: T%d %s looks blocked (%d/%d in a row) — skipping this symbol, not halting: %s",
+                        tier, symbol, _blocked_streak, _RATE_LIMIT_STREAK, reason,
+                    )
+                    await _report_failure(conn, symbol, tier, f"BLOCKED PAGE: {reason}")
+                    await _write_job_log(conn, run_id, symbol, tier, "FAILED", error_msg=reason)
+                    stats["outcome"] = "blocked_page"
+                    return stats
+                # Several different symbols in a row: Screener.in is rate-limiting us
+                _rate_limited = True
                 logger.error(
                     "FEED FAILURE [RATE LIMIT] T%d %s: %s — halting remaining fetches",
                     tier, symbol, reason,
