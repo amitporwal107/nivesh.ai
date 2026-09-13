@@ -23,8 +23,12 @@ filing does not make the original un-public. Only rows whose broadcast_at IS NUL
 touched, so a timestamp from a better source is never overwritten.
 
 Usage:
+    python -m nidp.services.nse_financials.stamp_broadcast_at                  # nightly: last 120 days
     python -m nidp.services.nse_financials.stamp_broadcast_at --from 2022-01-01 --to 2026-09-13
     python -m nidp.services.nse_financials.stamp_broadcast_at --from 2026-08-01 --dry-run
+
+Scheduled nightly after the nse_financials feed: that feed stamps from corporate_announcements,
+which does not carry Integrated Filing results, so its new rows would otherwise stay NULL.
 """
 from __future__ import annotations
 
@@ -67,6 +71,10 @@ _WINDOW_DAYS = 30          # NSE does not truncate a month; stay at or under it
 # nothing could reclaim until commit). Commit in batches: progress survives a crash, and
 # checkpoints and autovacuum can recycle space between batches.
 _BATCH = 500
+# A nightly run re-reads this much of the listing: results can be filed up to 60 days after quarter
+# end and a period only counts once it ends inside the window (see in_window), so 120 days covers
+# every quarter still being filed. Integrated listing only -> ~4 requests.
+_NIGHTLY_LOOKBACK_DAYS = 120
 
 _UPDATE_SQL = """
 UPDATE nidp.nse_financials_quarterly
@@ -233,7 +241,9 @@ async def run(from_date: date, to_date: date, dry_run: bool = False) -> dict:
 def main() -> None:
     setup_logging("stamp_broadcast_at")
     p = argparse.ArgumentParser(description="Stamp broadcast_at from NSE's results listing")
-    p.add_argument("--from", dest="from_date", required=True, type=date.fromisoformat)
+    p.add_argument("--from", dest="from_date", type=date.fromisoformat,
+                   default=date.today() - timedelta(days=_NIGHTLY_LOOKBACK_DAYS),
+                   help=f"Broadcast window start (default: {_NIGHTLY_LOOKBACK_DAYS} days ago)")
     p.add_argument("--to", dest="to_date", type=date.fromisoformat, default=date.today())
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args()

@@ -226,3 +226,27 @@ def test_run_from_before_2020_skips_periods_before_the_window_actually_read(monk
     asyncio.run(sba.run(date(2018, 1, 1), date(2021, 12, 31)))
     assert seen == [(date(2020, 1, 1), date(2021, 12, 31))]
     assert conn.transactions == [["FY20"]]
+
+
+def test_nightly_run_needs_no_dates(monkeypatch):
+    """Cron runs it with no arguments; the window must default to the last 120 days."""
+    from datetime import timedelta
+    seen = {}
+
+    def fake_run(from_date, to_date, dry_run=False):
+        seen.update(from_date=from_date, to_date=to_date)
+
+        async def done():
+            return {}
+        return done()
+
+    async def nothing():
+        return None
+
+    monkeypatch.setattr(sba, "run", fake_run)
+    monkeypatch.setattr(sba, "close_fetcher", nothing)
+    monkeypatch.setattr(sba, "close_pool", nothing)
+    monkeypatch.setattr(sba, "setup_logging", lambda *_: None)
+    monkeypatch.setattr(sys, "argv", ["stamp_broadcast_at"])
+    sba.main()
+    assert seen["to_date"] - seen["from_date"] == timedelta(days=120)
