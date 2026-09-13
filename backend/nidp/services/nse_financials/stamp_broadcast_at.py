@@ -57,6 +57,11 @@ _INTEGRATED_PAGE = 10000   # a peak month is ~3,300 filings; a short page raises
 _INTEGRATED_FROM = date(2025, 1, 1)
 _LEGACY_UNTIL = date(2025, 3, 31)
 _WINDOW_DAYS = 30          # NSE does not truncate a month; stay at or under it
+# nse_financials_quarterly rows carry raw_data JSON, so every UPDATE rewrites a wide row.
+# 10,843 of them in ONE transaction filled the staging disk on 2026-09-13 (WAL + bloat that
+# nothing could reclaim until commit). Commit in batches: progress survives a crash, and
+# checkpoints and autovacuum can recycle space between batches.
+_BATCH = 500
 
 _UPDATE_SQL = """
 UPDATE nidp.nse_financials_quarterly
@@ -117,6 +122,11 @@ def normalize_integrated(row: dict) -> Optional[dict]:
         "toDate": row.get("qe_Date"),              # '31-MAR-2025'; %b parses either case
         "broadCastDate": row.get("broadcast_Date"),  # None on revisions -> skipped
     }
+
+
+def batched(items: list, size: int) -> list[list]:
+    """Split items into consecutive chunks of at most `size`."""
+    return [items[i:i + size] for i in range(0, len(items), size)]
 
 
 def source_windows(from_date: date, to_date: date) -> list[tuple[str, date, date]]:
@@ -184,11 +194,15 @@ async def run(from_date: date, to_date: date, dry_run: bool = False) -> dict:
         logger.info("stamp_broadcast: dry run -- %s", summary)
         return summary
     pool = await get_pool()
+    items = sorted(earliest.items())   # stable order, so a re-run after a crash is predictable
     async with pool.acquire() as conn:
-        async with conn.transaction():
-            for (symbol, period_end), ts in earliest.items():
-                status = await conn.execute(_UPDATE_SQL, symbol, period_end, ts)
-                summary["rows_stamped"] += int(status.split()[-1])
+        for batch in batched(items, _BATCH):
+            async with conn.transaction():
+                for (symbol, period_end), ts in batch:
+                    status = await conn.execute(_UPDATE_SQL, symbol, period_end, ts)
+                    summary["rows_stamped"] += int(status.split()[-1])
+            logger.info("stamp_broadcast: committed %d periods, %d rows stamped so far",
+                        len(batch), summary["rows_stamped"])
     logger.info("stamp_broadcast: done -- %s", summary)
     return summary
 

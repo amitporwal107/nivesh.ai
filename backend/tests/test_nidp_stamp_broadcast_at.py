@@ -98,3 +98,76 @@ def test_source_windows_split_at_the_integrated_filing_changeover():
         ("legacy", date(2023, 1, 1), date(2023, 12, 31))]
     assert source_windows(date(2026, 1, 1), date(2026, 6, 30)) == [
         ("integrated", date(2026, 1, 1), date(2026, 6, 30))]
+
+
+# ── Writes commit in batches (one 10,843-row transaction filled the disk) ──
+import asyncio  # noqa: E402
+
+from nidp.services.nse_financials import stamp_broadcast_at as sba  # noqa: E402
+
+
+class _FakeConn:
+    def __init__(self):
+        self.transactions = []   # rows executed per committed transaction
+        self._open = None
+
+    def transaction(self):
+        conn = self
+
+        class _Tx:
+            async def __aenter__(self):
+                conn._open = []
+
+            async def __aexit__(self, exc_type, *_):
+                if exc_type is None:
+                    conn.transactions.append(conn._open)
+                conn._open = None
+                return False
+
+        return _Tx()
+
+    async def execute(self, sql, symbol, period_end, ts):
+        assert self._open is not None, "UPDATE ran outside a transaction"
+        self._open.append(symbol)
+        return "UPDATE 1"
+
+
+class _FakePool:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def acquire(self):
+        pool = self
+
+        class _Acq:
+            async def __aenter__(self):
+                return pool.conn
+
+            async def __aexit__(self, *_):
+                return False
+
+        return _Acq()
+
+
+def test_run_commits_in_batches(monkeypatch):
+    records = [{"symbol": f"S{i:04d}", "toDate": "31-Mar-2025",
+                "broadCastDate": "01-May-2025 10:00:00"} for i in range(1201)]
+    conn = _FakeConn()
+
+    async def fake_fetch(_start, _end):
+        return records
+
+    async def fake_pool():
+        return _FakePool(conn)
+
+    monkeypatch.setattr(sba, "fetch_integrated", fake_fetch)
+    monkeypatch.setattr(sba, "get_pool", fake_pool)
+    summary = asyncio.run(sba.run(date(2026, 1, 1), date(2026, 6, 30)))
+
+    assert [len(t) for t in conn.transactions] == [500, 500, 201]
+    assert summary["rows_stamped"] == 1201
+
+
+def test_batched_splits_without_losing_items():
+    assert sba.batched(list(range(7)), 3) == [[0, 1, 2], [3, 4, 5], [6]]
+    assert sba.batched([], 3) == []
