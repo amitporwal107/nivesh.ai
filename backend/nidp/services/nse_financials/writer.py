@@ -68,23 +68,28 @@ async def upsert_financials(
                 $31,$32,$33,$34,$35,$36
             )
             ON CONFLICT (symbol, period_end, consolidated)
+            -- One row per (symbol, period_end, consolidated): a March quarter and its fiscal year
+            -- share a key. An ANNUAL P&L must never overwrite a QUARTERLY row's income statement -
+            -- on 2026-09-12/13 the Screener backfill (quarters, then annual P&L) put full-year figures
+            -- into 2,988 March quarters, so 756 of the Nifty 500 + next 500 had a year inside their TTM
+            -- (RELIANCE P/E 12.3). Balance-sheet columns still fill in; CAGR reads period_type='annual'.
             DO UPDATE SET
-                revenue_from_ops_cr     = COALESCE(EXCLUDED.revenue_from_ops_cr,     nidp.nse_financials_quarterly.revenue_from_ops_cr),
-                total_income_cr         = COALESCE(EXCLUDED.total_income_cr,         nidp.nse_financials_quarterly.total_income_cr),
-                pat_cr                  = COALESCE(EXCLUDED.pat_cr,                  nidp.nse_financials_quarterly.pat_cr),
-                eps_basic               = COALESCE(EXCLUDED.eps_basic,               nidp.nse_financials_quarterly.eps_basic),
-                ebitda_cr               = COALESCE(EXCLUDED.ebitda_cr,               nidp.nse_financials_quarterly.ebitda_cr),
-                pbt_cr                  = COALESCE(EXCLUDED.pbt_cr,                  nidp.nse_financials_quarterly.pbt_cr),
-                finance_costs_cr        = COALESCE(EXCLUDED.finance_costs_cr,        nidp.nse_financials_quarterly.finance_costs_cr),
-                depreciation_cr         = COALESCE(EXCLUDED.depreciation_cr,         nidp.nse_financials_quarterly.depreciation_cr),
+                revenue_from_ops_cr     = CASE WHEN EXCLUDED.period_type = 'annual' AND nidp.nse_financials_quarterly.period_type ILIKE 'quarterly' THEN nidp.nse_financials_quarterly.revenue_from_ops_cr ELSE COALESCE(EXCLUDED.revenue_from_ops_cr, nidp.nse_financials_quarterly.revenue_from_ops_cr) END,
+                total_income_cr         = CASE WHEN EXCLUDED.period_type = 'annual' AND nidp.nse_financials_quarterly.period_type ILIKE 'quarterly' THEN nidp.nse_financials_quarterly.total_income_cr ELSE COALESCE(EXCLUDED.total_income_cr, nidp.nse_financials_quarterly.total_income_cr) END,
+                pat_cr                  = CASE WHEN EXCLUDED.period_type = 'annual' AND nidp.nse_financials_quarterly.period_type ILIKE 'quarterly' THEN nidp.nse_financials_quarterly.pat_cr ELSE COALESCE(EXCLUDED.pat_cr, nidp.nse_financials_quarterly.pat_cr) END,
+                eps_basic               = CASE WHEN EXCLUDED.period_type = 'annual' AND nidp.nse_financials_quarterly.period_type ILIKE 'quarterly' THEN nidp.nse_financials_quarterly.eps_basic ELSE COALESCE(EXCLUDED.eps_basic, nidp.nse_financials_quarterly.eps_basic) END,
+                ebitda_cr               = CASE WHEN EXCLUDED.period_type = 'annual' AND nidp.nse_financials_quarterly.period_type ILIKE 'quarterly' THEN nidp.nse_financials_quarterly.ebitda_cr ELSE COALESCE(EXCLUDED.ebitda_cr, nidp.nse_financials_quarterly.ebitda_cr) END,
+                pbt_cr                  = CASE WHEN EXCLUDED.period_type = 'annual' AND nidp.nse_financials_quarterly.period_type ILIKE 'quarterly' THEN nidp.nse_financials_quarterly.pbt_cr ELSE COALESCE(EXCLUDED.pbt_cr, nidp.nse_financials_quarterly.pbt_cr) END,
+                finance_costs_cr        = CASE WHEN EXCLUDED.period_type = 'annual' AND nidp.nse_financials_quarterly.period_type ILIKE 'quarterly' THEN nidp.nse_financials_quarterly.finance_costs_cr ELSE COALESCE(EXCLUDED.finance_costs_cr, nidp.nse_financials_quarterly.finance_costs_cr) END,
+                depreciation_cr         = CASE WHEN EXCLUDED.period_type = 'annual' AND nidp.nse_financials_quarterly.period_type ILIKE 'quarterly' THEN nidp.nse_financials_quarterly.depreciation_cr ELSE COALESCE(EXCLUDED.depreciation_cr, nidp.nse_financials_quarterly.depreciation_cr) END,
                 face_value              = COALESCE(EXCLUDED.face_value,              nidp.nse_financials_quarterly.face_value),
                 equity_share_capital_cr = COALESCE(EXCLUDED.equity_share_capital_cr, nidp.nse_financials_quarterly.equity_share_capital_cr),
                 total_equity_cr         = COALESCE(EXCLUDED.total_equity_cr,         nidp.nse_financials_quarterly.total_equity_cr),
                 long_term_debt_cr       = COALESCE(EXCLUDED.long_term_debt_cr,       nidp.nse_financials_quarterly.long_term_debt_cr),
                 cash_and_equiv_cr       = COALESCE(EXCLUDED.cash_and_equiv_cr,       nidp.nse_financials_quarterly.cash_and_equiv_cr),
-                raw_data                = COALESCE(EXCLUDED.raw_data,                nidp.nse_financials_quarterly.raw_data),
-                source                  = EXCLUDED.source,
-                source_run_id           = EXCLUDED.source_run_id,
+                raw_data                = CASE WHEN EXCLUDED.period_type = 'annual' AND nidp.nse_financials_quarterly.period_type ILIKE 'quarterly' THEN nidp.nse_financials_quarterly.raw_data ELSE COALESCE(EXCLUDED.raw_data, nidp.nse_financials_quarterly.raw_data) END,
+                source                  = CASE WHEN EXCLUDED.period_type = 'annual' AND nidp.nse_financials_quarterly.period_type ILIKE 'quarterly' THEN nidp.nse_financials_quarterly.source ELSE EXCLUDED.source END,
+                source_run_id           = CASE WHEN EXCLUDED.period_type = 'annual' AND nidp.nse_financials_quarterly.period_type ILIKE 'quarterly' THEN nidp.nse_financials_quarterly.source_run_id ELSE EXCLUDED.source_run_id END,
                 ingested_at             = NOW()
             RETURNING id
             """,
