@@ -6,6 +6,7 @@ was judged blocked, and halted three historical backfill runs before the standal
 import asyncio
 import os
 import sys
+from datetime import date, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -16,8 +17,19 @@ PAD = "<!-- pad -->" * 120   # pages under 1,000 chars are treated as empty
 # The rate-limit check fires on a login-looking title even without block keywords.
 UNDATED = f"<html><head><title>Login - Screener</title></head><body>{PAD}" \
           '<section id="quarters"><table><tr><td>Sales</td></tr></table></section></body></html>'
-DATED = f"<html><head><title>CMPDI share price</title></head><body>{PAD}" \
-        '<section id="quarters"><th data-date-key="2026-06-30">Jun 2026</th></section></body></html>'
+
+
+def _page(*quarters):
+    cols = "".join(f'<th data-date-key="{q}">{q}</th>' for q in quarters)
+    return (f"<html><head><title>share price</title></head><body>{PAD}"
+            f'<section id="quarters">{cols}</section></body></html>')
+
+
+def _ago(days):
+    return (date.today() - timedelta(days=days)).isoformat()
+
+
+DATED = _page(_ago(170), _ago(80))
 WALL = f"<html><head><title>Login - Screener</title></head><body>{PAD}please sign in</body></html>"
 
 
@@ -51,3 +63,25 @@ def test_a_real_block_wall_still_raises(monkeypatch):
         assert "rate-limit" in str(e)
     else:
         raise AssertionError("a login wall without a quarters section must raise")
+
+
+# ── A consolidated page that stopped updating must not hide the current standalone page ──
+def test_frozen_consolidated_page_yields_to_current_standalone(monkeypatch):
+    frozen = _page("2024-03-31", "2024-06-30")          # 3MINDIA consolidated ends 2024-06
+    got, seen = _fetch(monkeypatch, {"consolidated": frozen, "CMPDI": DATED})
+    assert got == (DATED, False)
+    assert len(seen) == 2
+
+
+def test_current_consolidated_page_is_used_without_fetching_standalone(monkeypatch):
+    got, seen = _fetch(monkeypatch, {"consolidated": DATED, "CMPDI": _page("2024-06-30")})
+    assert got == (DATED, True)
+    assert seen == ["https://www.screener.in/company/CMPDI/consolidated/"]
+
+
+def test_when_both_pages_are_stale_the_newer_one_is_returned(monkeypatch):
+    older, newer = _page("2023-09-30"), _page("2025-03-31")
+    got, _ = _fetch(monkeypatch, {"consolidated": older, "CMPDI": newer})
+    assert got == (newer, False)
+    got, _ = _fetch(monkeypatch, {"consolidated": newer, "CMPDI": older})
+    assert got == (newer, True)

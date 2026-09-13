@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 import re
+from datetime import date, timedelta
 from typing import Optional
 
 import aiohttp
@@ -58,6 +59,9 @@ def _screener_session_cookie() -> Optional[str]:
 # blips (5xx). A 404 means the page genuinely isn't there, so we give up at once.
 _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 _MAX_ATTEMPTS = 3
+# A Screener page whose newest quarter is older than this has stopped updating. Results are due
+# 45-60 days after quarter end, so a current page is at most ~150 days behind.
+_SCREENER_STALE_DAYS = 200
 
 
 async def _get_text(url: str) -> Optional[str]:
@@ -255,6 +259,7 @@ async def fetch_screener_quarters(symbol: str) -> Optional[tuple[str, bool]]:
       3. Else → company not found / no financial data, return None.
     """
     slug = _SCREENER_SLUG_MAP.get(symbol, symbol)
+    stale_best: Optional[tuple[str, bool, str]] = None   # (html, consolidated, newest quarter)
     for consolidated in (True, False):  # consolidated first — matches NSE XBRL backfill rows
         path = "consolidated/" if consolidated else ""
         url = f"https://www.screener.in/company/{slug}/{path}"
@@ -274,17 +279,22 @@ async def fetch_screener_quarters(symbol: str) -> Optional[tuple[str, bool]]:
             # and also contains data-date-key attributes).
             q_end = html.find('</section>', q_start)
             q_chunk = html[q_start: q_end if q_end != -1 else q_start + 6000]
-            # Check for recent data: at least one data-date-key within the last 4 years.
-            # Some consolidated pages have data-date-key but only for old historical
-            # periods (e.g. 2012-2015); prefer standalone page for recent data.
-            recent_dates = re.findall(r'data-date-key="(20(?:2[2-9]|3\d)-\d{2}-\d{2})"', q_chunk)
-            if recent_dates:
+            # Check for CURRENT data: the newest quarter must be recent. Some consolidated
+            # pages stopped updating years ago; a fixed "any date from 2022 on" test accepted
+            # them (3MINDIA consolidated ends 2024-06, RAILTEL 2023-09, while both standalone
+            # pages run to 2026-06), so the standalone page with the latest quarter was never
+            # read and 17 Nifty 500 + next 500 stocks had no Jun-2026 row.
+            dates = re.findall(r'data-date-key="(\d{4}-\d{2}-\d{2})"', q_chunk)
+            newest = max(dates) if dates else None
+            if newest and date.fromisoformat(newest) >= date.today() - timedelta(days=_SCREENER_STALE_DAYS):
                 logger.info("fetch_screener_quarters: found %s on Screener.in (consolidated=%s)", symbol, consolidated)
                 return html, consolidated
+            if newest and (stale_best is None or newest > stale_best[2]):
+                stale_best = (html, consolidated, newest)
             logger.debug(
-                "fetch_screener_quarters: %s quarters section present but no recent data "
+                "fetch_screener_quarters: %s quarters section present but newest quarter %s is stale "
                 "(consolidated=%s) — trying next URL",
-                symbol, consolidated,
+                symbol, newest, consolidated,
             )
             # A page that rendered the quarters section is not a block wall, so it must not
             # reach the rate-limit check below (its docstring requires id="quarters" absent).
@@ -294,6 +304,12 @@ async def fetch_screener_quarters(symbol: str) -> Optional[tuple[str, bool]]:
         # Financial data absent — now check if it's a hard block or just not found.
         if _screener_is_rate_limited(html):
             raise RuntimeError(f"Screener.in rate-limit detected for {symbol}")
+    if stale_best:
+        # Neither page is current (late filer, suspended or delisted): the newer one is still
+        # the best history available, e.g. for backfilling stocks that left the universe.
+        logger.info("fetch_screener_quarters: %s has no current page; using newest (quarter %s, consolidated=%s)",
+                    symbol, stale_best[2], stale_best[1])
+        return stale_best[0], stale_best[1]
     logger.debug("fetch_screener_quarters: %s not found on Screener.in", symbol)
     return None
 
