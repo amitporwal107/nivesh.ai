@@ -28,8 +28,9 @@ logger = logging.getLogger(__name__)
 #    as a record; fetch_screener_quarters will return None for them (expected)
 #  - Rebranded companies: Screener.in keeps the OLD slug after rename
 _SCREENER_SLUG_MAP: dict[str, str] = {
-    "M&M": "M-AND-M",
-    "BAJAJFINSV": "BAJAJ-FINSERV",  # holding co — page exists but no id="quarters" section
+    # Checked 2026-09-13: /company/M-AND-M/ and /company/BAJAJ-FINSERV/ do not exist, so both
+    # stocks were "not found" on every run; M%26M and plain BAJAJFINSV carry quarters to 2026-06.
+    "M&M": "M%26M",                 # '&' must be %-encoded in URL path
     "TATAMOTORS": "TMCV",           # Tata Motors; Screener.in uses TMCV (CV division page)
     "GVT&D": "GVT%26D",            # GE Vernova T&D India; '&' must be %-encoded in URL path
 }

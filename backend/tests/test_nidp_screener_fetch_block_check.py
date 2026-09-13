@@ -85,3 +85,9 @@ def test_when_both_pages_are_stale_the_newer_one_is_returned(monkeypatch):
     assert got == (newer, False)
     got, _ = _fetch(monkeypatch, {"consolidated": newer, "CMPDI": older})
     assert got == (newer, True)
+
+
+def test_slug_overrides_point_at_pages_that_exist():
+    """M-AND-M and BAJAJ-FINSERV 404 on Screener.in; M%26M and plain BAJAJFINSV are the real pages."""
+    assert S._SCREENER_SLUG_MAP["M&M"] == "M%26M"
+    assert "BAJAJFINSV" not in S._SCREENER_SLUG_MAP
