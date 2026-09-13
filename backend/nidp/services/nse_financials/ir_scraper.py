@@ -286,6 +286,11 @@ async def fetch_screener_quarters(symbol: str) -> Optional[tuple[str, bool]]:
                 "(consolidated=%s) — trying next URL",
                 symbol, consolidated,
             )
+            # A page that rendered the quarters section is not a block wall, so it must not
+            # reach the rate-limit check below (its docstring requires id="quarters" absent).
+            # CMPDI's consolidated page (no dated columns yet) did, was judged a block, and
+            # halted three backfill runs on 2026-09-13 before the standalone page was tried.
+            continue
         # Financial data absent — now check if it's a hard block or just not found.
         if _screener_is_rate_limited(html):
             raise RuntimeError(f"Screener.in rate-limit detected for {symbol}")
