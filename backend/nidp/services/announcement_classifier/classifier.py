@@ -192,6 +192,11 @@ def _build_user_message(row: dict) -> str:
     return "\n".join(parts)
 
 
+# The SDK retries 429/5xx with exponential backoff; default is 2, which a provider-side
+# rate limit burns through in seconds. Explicit so it is visible and tunable.
+_MAX_RETRIES = 5
+
+
 class HaikuClassifier:
     """Class name retained for back-compat; powered by GPT/Groq now."""
 
@@ -209,7 +214,7 @@ class HaikuClassifier:
                     "classifier when provider=groq. Set it in /opt/nidp/nidp.env "
                     "(the nidp venv cannot read Secret Manager)."
                 )
-            self._client = OpenAI(api_key=key, base_url=GROQ_BASE_URL)
+            self._client = OpenAI(api_key=key, base_url=GROQ_BASE_URL, max_retries=_MAX_RETRIES)
         else:
             key = api_key or get_openai_api_key()
             if not key:
@@ -217,7 +222,7 @@ class HaikuClassifier:
                     "OPENAI_API_KEY not set — required for the corporate-"
                     "announcement classifier. Set it in /opt/nidp/nidp.env."
                 )
-            self._client = OpenAI(api_key=key)
+            self._client = OpenAI(api_key=key, max_retries=_MAX_RETRIES)
 
         logger.info("announcement_classifier provider=%s model=%s version=%s",
                     self.provider, self.model, self.classifier_version)

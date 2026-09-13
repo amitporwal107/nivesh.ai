@@ -8,12 +8,14 @@ from nidp.shared.storage.pg import get_pool
 
 logger = logging.getLogger(__name__)
 
+# $2 = window in days; 0 means "no window". A fixed 30-day window permanently stranded
+# every older unclassified row: 42,359 rows sat outside it with no run able to reach them.
 _FETCH_SQL = """
 SELECT announcement_id, source, ticker_symbol, isin, scrip_code, company_name,
        subject, description, raw_category
   FROM nidp.corporate_announcements
  WHERE event_category IS NULL
-   AND filed_at >= NOW() - INTERVAL '30 days'
+   AND ($2::int = 0 OR filed_at >= NOW() - make_interval(days => $2::int))
  ORDER BY filed_at ASC  -- oldest first: newest-first starves the backlog once behind
  LIMIT $1
 """
@@ -29,10 +31,11 @@ UPDATE nidp.corporate_announcements
 """
 
 
-async def fetch_unclassified(limit: int) -> list[dict[str, Any]]:
+async def fetch_unclassified(limit: int, days: int = 30) -> list[dict[str, Any]]:
+    """Oldest unclassified announcements; `days` bounds how far back to look (0 = all)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(_FETCH_SQL, limit)
+        rows = await conn.fetch(_FETCH_SQL, limit, days)
     return [dict(r) for r in rows]
 
 

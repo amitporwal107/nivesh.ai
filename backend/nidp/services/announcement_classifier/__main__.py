@@ -1,7 +1,7 @@
-"""python -m nidp.services.announcement_classifier [--limit N] [--dry-run] [--metrics]
+"""python -m nidp.services.announcement_classifier [--limit N] [--days N] [--dry-run] [--metrics]
 
 Reads up to --limit unclassified rows from nidp.corporate_announcements
-(filed in the last 30 days), classifies via Haiku, writes results back.
+(filed in the last --days days, 0 = any age), classifies via Haiku, writes results back.
 Idempotent — already-classified rows are skipped by the WHERE clause.
 
 Cloud Scheduler fires every 10 min during market hours and once after
@@ -27,6 +27,7 @@ async def _main(args: argparse.Namespace) -> None:
             run_once,
             limit=args.limit,
             dry_run=args.dry_run,
+            days=args.days,
             rows_inserted_attr="processed",
         )
     finally:
@@ -37,6 +38,8 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--limit", type=int, default=200,
                    help="Max rows to classify per invocation (default 200).")
+    p.add_argument("--days", type=int, default=30,
+                   help="Only rows filed in the last N days; 0 = any age (default 30).")
     p.add_argument("--dry-run", action="store_true",
                    help="Run classifier and print results, but don't write to DB.")
     p.add_argument("--metrics", action="store_true")

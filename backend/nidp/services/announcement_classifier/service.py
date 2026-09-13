@@ -25,8 +25,8 @@ from .db import fetch_unclassified, store_classification
 logger = logging.getLogger(__name__)
 
 
-async def run_once(limit: int = 200, dry_run: bool = False) -> dict:
-    rows = await fetch_unclassified(limit)
+async def run_once(limit: int = 200, dry_run: bool = False, days: int = 30) -> dict:
+    rows = await fetch_unclassified(limit, days)
     if not rows:
         logger.info("no unclassified announcements; nothing to do")
         return {"processed": 0, "errors": 0}
