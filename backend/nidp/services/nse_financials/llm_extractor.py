@@ -802,3 +802,34 @@ def parse_nse_xbrl_json(symbol: str, xbrl_text: str) -> Optional[dict[str, Any]]
         "interest_earned_cr":    _get("interestEarned"),
         "interest_expended_cr":  _get("interestExpended"),
     }
+
+
+_CLASSIFICATION_TITLES = {
+    "Broad Sector": "broad_sector",
+    "Sector": "sector",
+    "Broad Industry": "broad_industry",
+    "Industry": "industry",
+}
+
+
+def parse_screener_classification(symbol: str, html: str) -> Optional[dict[str, str]]:
+    """Parse NSE's four-level industry classification from a Screener.in company page.
+
+    The peers section links it as /market/ breadcrumbs, one per level, e.g. for HDFCBANK:
+      title="Broad Sector" Financial Services -> "Sector" Financial Services
+      -> "Broad Industry" Banks -> "Industry" Private Sector Bank
+    Returns None unless at least the Sector level is present.
+    """
+    import html as _html
+
+    out: dict[str, str] = {}
+    for tag in re.findall(r'<a\b[^>]*href="/market/[^"]*"[^>]*>[^<]*</a>', html or ""):
+        title = re.search(r'title="([^"]+)"', tag)
+        text = re.search(r">([^<]*)</a>", tag)
+        key = _CLASSIFICATION_TITLES.get(title.group(1)) if title else None
+        if key and text and key not in out:
+            out[key] = _html.unescape(text.group(1)).strip()
+    if not out.get("sector"):
+        logger.debug("parse_screener_classification: no sector breadcrumb for %s", symbol)
+        return None
+    return out
