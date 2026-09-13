@@ -162,7 +162,7 @@ def test_run_commits_in_batches(monkeypatch):
 
     monkeypatch.setattr(sba, "fetch_integrated", fake_fetch)
     monkeypatch.setattr(sba, "get_pool", fake_pool)
-    summary = asyncio.run(sba.run(date(2026, 1, 1), date(2026, 6, 30)))
+    summary = asyncio.run(sba.run(date(2025, 1, 1), date(2025, 6, 30)))
 
     assert [len(t) for t in conn.transactions] == [500, 500, 201]
     assert summary["rows_stamped"] == 1201
@@ -171,3 +171,30 @@ def test_run_commits_in_batches(monkeypatch):
 def test_batched_splits_without_losing_items():
     assert sba.batched(list(range(7)), 3) == [[0, 1, 2], [3, 4, 5], [6]]
     assert sba.batched([], 3) == []
+
+
+def test_periods_ending_before_the_window_are_not_stamped():
+    """A 2018 filing that covers FY2017 is not when FY2017 went public -- that was pre-window."""
+    got = sba.in_window({
+        ("PETRONET", date(2017, 3, 31)): datetime(2018, 7, 2, 10, 0, tzinfo=IST),
+        ("PETRONET", date(2018, 3, 31)): datetime(2018, 5, 20, 10, 0, tzinfo=IST),
+    }, date(2018, 1, 1))
+    assert list(got) == [("PETRONET", date(2018, 3, 31))]
+
+
+def test_run_skips_pre_window_periods(monkeypatch):
+    records = [{"symbol": "OLD", "toDate": "31-Mar-2017", "broadCastDate": "02-Jul-2018 10:00:00"},
+               {"symbol": "NEW", "toDate": "31-Mar-2018", "broadCastDate": "20-May-2018 10:00:00"}]
+    conn = _FakeConn()
+
+    async def fake_fetch(_start, _end):
+        return records
+
+    async def fake_pool():
+        return _FakePool(conn)
+
+    monkeypatch.setattr(sba, "fetch_listing", fake_fetch)
+    monkeypatch.setattr(sba, "get_pool", fake_pool)
+    summary = asyncio.run(sba.run(date(2018, 1, 1), date(2018, 12, 31)))
+    assert conn.transactions == [["NEW"]]
+    assert summary["periods"] == 1

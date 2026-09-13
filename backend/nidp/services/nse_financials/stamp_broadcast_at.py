@@ -124,6 +124,18 @@ def normalize_integrated(row: dict) -> Optional[dict]:
     }
 
 
+def in_window(earliest: dict[tuple[str, date], datetime],
+              from_date: date) -> dict[tuple[str, date], datetime]:
+    """Drop periods that ended before the listing window opened.
+
+    Their original filing was broadcast before from_date, so the earliest filing we saw is a
+    later one that merely covers that period (e.g. a year's results carrying the prior year).
+    Measured 2026-09-13 on a --from 2018-01-01 run: 149 of 155 FY2016/17 periods were stamped
+    with 2018 dates, 423-753 days after period end.
+    """
+    return {k: ts for k, ts in earliest.items() if k[1] >= from_date}
+
+
 def batched(items: list, size: int) -> list[list]:
     """Split items into consecutive chunks of at most `size`."""
     return [items[i:i + size] for i in range(0, len(items), size)]
@@ -188,7 +200,7 @@ async def run(from_date: date, to_date: date, dry_run: bool = False) -> dict:
     for source, start, end in source_windows(from_date, to_date):
         fetch = fetch_listing if source == "legacy" else fetch_integrated
         records.extend(await fetch(start, end))
-    earliest = earliest_broadcasts(records)
+    earliest = in_window(earliest_broadcasts(records), from_date)
     summary = {"filings": len(records), "periods": len(earliest), "rows_stamped": 0}
     if dry_run:
         logger.info("stamp_broadcast: dry run -- %s", summary)
