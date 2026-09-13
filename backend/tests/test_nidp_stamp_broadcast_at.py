@@ -183,8 +183,8 @@ def test_periods_ending_before_the_window_are_not_stamped():
 
 
 def test_run_skips_pre_window_periods(monkeypatch):
-    records = [{"symbol": "OLD", "toDate": "31-Mar-2017", "broadCastDate": "02-Jul-2018 10:00:00"},
-               {"symbol": "NEW", "toDate": "31-Mar-2018", "broadCastDate": "20-May-2018 10:00:00"}]
+    records = [{"symbol": "OLD", "toDate": "31-Mar-2020", "broadCastDate": "02-Jul-2021 10:00:00"},
+               {"symbol": "NEW", "toDate": "31-Mar-2021", "broadCastDate": "20-May-2021 10:00:00"}]
     conn = _FakeConn()
 
     async def fake_fetch(_start, _end):
@@ -195,6 +195,34 @@ def test_run_skips_pre_window_periods(monkeypatch):
 
     monkeypatch.setattr(sba, "fetch_listing", fake_fetch)
     monkeypatch.setattr(sba, "get_pool", fake_pool)
-    summary = asyncio.run(sba.run(date(2018, 1, 1), date(2018, 12, 31)))
+    summary = asyncio.run(sba.run(date(2021, 1, 1), date(2021, 12, 31)))
     assert conn.transactions == [["NEW"]]
     assert summary["periods"] == 1
+
+
+def test_legacy_listing_is_not_read_before_2020():
+    """Pre-2020 legacy broadcast times are late refilings (TCS FY2018 stamped 36 days late)."""
+    assert sba.source_windows(date(2018, 1, 1), date(2019, 12, 31)) == []
+    assert sba.source_windows(date(2018, 1, 1), date(2021, 12, 31)) == [
+        ("legacy", date(2020, 1, 1), date(2021, 12, 31))]
+
+
+def test_run_from_before_2020_skips_periods_before_the_window_actually_read(monkeypatch):
+    """--from 2018 reads from 2020, so FY2019 (first public in 2019) must not be stamped."""
+    records = [{"symbol": "FY19", "toDate": "31-Mar-2019", "broadCastDate": "05-Jun-2020 10:00:00"},
+               {"symbol": "FY20", "toDate": "31-Mar-2020", "broadCastDate": "16-Apr-2020 20:24:12"}]
+    conn = _FakeConn()
+    seen = []
+
+    async def fake_fetch(start, end):
+        seen.append((start, end))
+        return records
+
+    async def fake_pool():
+        return _FakePool(conn)
+
+    monkeypatch.setattr(sba, "fetch_listing", fake_fetch)
+    monkeypatch.setattr(sba, "get_pool", fake_pool)
+    asyncio.run(sba.run(date(2018, 1, 1), date(2021, 12, 31)))
+    assert seen == [(date(2020, 1, 1), date(2021, 12, 31))]
+    assert conn.transactions == [["FY20"]]

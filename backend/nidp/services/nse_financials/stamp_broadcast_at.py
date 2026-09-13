@@ -56,6 +56,11 @@ _INTEGRATED_PAGE = 10000   # a peak month is ~3,300 filings; a short page raises
 # broadcast wins, so reading both listings for Jan-Mar 2025 cannot double-count or misdate.
 _INTEGRATED_FROM = date(2025, 1, 1)
 _LEGACY_UNTIL = date(2025, 3, 31)
+# Before 2020 the legacy listing's broadcast time is a later (re)filing, not the release:
+# checked 2026-09-13, FY2018/FY2019 results for TCS and RELIANCE are stamped 11-47 days after
+# the day they were announced, while FY2020 (TCS 16-Apr, RELIANCE 30-Apr) match exactly.
+# A late stamp is not look-ahead, but it is not "first public" either, so do not read it.
+_LEGACY_FROM = date(2020, 1, 1)
 _WINDOW_DAYS = 30          # NSE does not truncate a month; stay at or under it
 # nse_financials_quarterly rows carry raw_data JSON, so every UPDATE rewrites a wide row.
 # 10,843 of them in ONE transaction filled the staging disk on 2026-09-13 (WAL + bloat that
@@ -144,6 +149,9 @@ def batched(items: list, size: int) -> list[list]:
 def source_windows(from_date: date, to_date: date) -> list[tuple[str, date, date]]:
     """Which listing to read for which part of [from_date, to_date]."""
     out: list[tuple[str, date, date]] = []
+    from_date = max(from_date, _LEGACY_FROM)
+    if from_date > to_date:
+        return out
     if from_date <= _LEGACY_UNTIL:
         out.append(("legacy", from_date, min(to_date, _LEGACY_UNTIL)))
     if to_date >= _INTEGRATED_FROM:
@@ -197,10 +205,13 @@ async def fetch_listing(from_date: date, to_date: date) -> list[dict]:
 
 async def run(from_date: date, to_date: date, dry_run: bool = False) -> dict:
     records: list[dict] = []
-    for source, start, end in source_windows(from_date, to_date):
+    windows = source_windows(from_date, to_date)
+    for source, start, end in windows:
         fetch = fetch_listing if source == "legacy" else fetch_integrated
         records.extend(await fetch(start, end))
-    earliest = in_window(earliest_broadcasts(records), from_date)
+    # The window actually read can start later than --from (see _LEGACY_FROM).
+    read_from = windows[0][1] if windows else to_date + timedelta(days=1)
+    earliest = in_window(earliest_broadcasts(records), read_from)
     summary = {"filings": len(records), "periods": len(earliest), "rows_stamped": 0}
     if dry_run:
         logger.info("stamp_broadcast: dry run -- %s", summary)
