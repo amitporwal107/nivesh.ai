@@ -34,22 +34,28 @@ from .writer import upsert_financials, upsert_shareholding
 
 logger = logging.getLogger(__name__)
 
+_LOOKBACK_DAYS = 14   # retry a results event this long after the meeting (SEBI allows 45-60 days to file)
+_CONCURRENCY = 2      # symbols in flight at once
+_DELAY_S = 3.0        # pause after each symbol; matches backfill_screener_historical's safe default
+
 
 def _infer_period_end(event_date: date) -> date:
     """Derive quarter-end date from the result announcement date.
 
     Indian FY runs April–March. Results are typically announced:
       Jan–Mar  → Q3 results (Oct–Dec)  → Dec 31 of previous year
-      Apr–Jul  → Q4 results (Jan–Mar)  → Mar 31 of same year
-      Aug–Sep  → Q1 results (Apr–Jun)  → Jun 30 of same year
+      Apr–Jun  → Q4 results (Jan–Mar)  → Mar 31 of same year
+      Jul–Sep  → Q1 results (Apr–Jun)  → Jun 30 of same year
       Oct–Dec  → Q2 results (Jul–Sep)  → Sep 30 of same year
+    July is Q1 season, not Q4: the Q4 deadline is 30 May, and TCS/HDFC Bank/Reliance report
+    June quarters in mid-July (711 results events in July 2026 were June-quarter filings).
     """
     m, y = event_date.month, event_date.year
     if m in (1, 2, 3):
         return date(y - 1, 12, 31)
-    if m in (4, 5, 6, 7):
+    if m in (4, 5, 6):
         return date(y, 3, 31)
-    if m in (8, 9):
+    if m in (7, 8, 9):
         return date(y, 6, 30)
     return date(y, 9, 30)  # Oct, Nov, Dec
 
@@ -66,7 +72,14 @@ def _fill_period_end(data: dict, event_date: date) -> dict:
     return data
 
 
-async def _get_due_today(conn, target_date: date) -> list[dict]:
+async def _get_due(conn, target_date: date, lookback_days: int) -> list[dict]:
+    """Results events in [target_date - lookback_days, target_date] whose quarter has no row yet.
+
+    Only looking at events dated today made every miss permanent: on the evening run Screener
+    often has not published the quarter yet, and the symbol was never tried again. In the
+    Jun-2026 season this feed wrote ~15 quarters; 177 of the Nifty 500 + next 500 filed on NSE
+    and never landed. Retrying every still-missing quarter daily makes the feed self-healing.
+    """
     rows = await conn.fetch(
         """
         SELECT ec.symbol, ec.company_name, ec.period, ec.event_date,
@@ -74,11 +87,29 @@ async def _get_due_today(conn, target_date: date) -> list[dict]:
           FROM nidp.event_calendar ec
           LEFT JOIN nidp.company_ir_urls u ON u.symbol = ec.symbol
          WHERE ec.event_type = 'quarterly_results'
-           AND ec.event_date = $1
+           AND ec.event_date BETWEEN $1::date - $2::int AND $1::date
         """,
-        target_date,
+        target_date, lookback_days,
     )
-    return [dict(r) for r in rows]
+    events = [dict(r) for r in rows]
+    if not events:
+        return []
+    have = await conn.fetch(
+        "SELECT DISTINCT symbol, period_end FROM nidp.nse_financials_quarterly WHERE symbol = ANY($1::text[])",
+        sorted({e["symbol"] for e in events}),
+    )
+    return pending_results(events, {(r["symbol"], r["period_end"]) for r in have})
+
+
+def pending_results(events: list[dict], existing: set[tuple[str, date]]) -> list[dict]:
+    """The latest results event per symbol, kept only if that quarter has no row yet."""
+    latest: dict[str, dict] = {}
+    for e in events:
+        cur = latest.get(e["symbol"])
+        if cur is None or e["event_date"] > cur["event_date"]:
+            latest[e["symbol"]] = e
+    return [e for s, e in sorted(latest.items())
+            if (s, _infer_period_end(e["event_date"])) not in existing]
 
 
 async def _results_broadcast_at(symbol: str, event_date: date) -> Optional["datetime"]:
@@ -209,7 +240,38 @@ async def _process_symbol(
     return None
 
 
-async def run(target_date: Optional[date] = None, symbol: Optional[str] = None) -> None:
+async def _process_all(due: list[dict], target_date: date) -> list:
+    """Process symbols a few at a time, stopping if Screener.in blocks us.
+
+    Firing every due symbol at once (asyncio.gather over ~80 on a results evening) is the
+    fastest way to get blocked. Unprocessed symbols stay pending and are retried next run.
+    """
+    sem = asyncio.Semaphore(_CONCURRENCY)
+    blocked = False
+
+    async def one(d: dict):
+        nonlocal blocked
+        async with sem:
+            if blocked:
+                return None
+            try:
+                return await _process_symbol(
+                    d["symbol"], d.get("period"), d.get("event_date") or target_date,
+                    d.get("ir_url"), d.get("results_url"),
+                )
+            except RuntimeError as exc:   # fetch_screener_quarters: block wall / rate limit
+                blocked = True
+                logger.error("nse_financials: Screener.in blocked at %s (%s) — stopping; "
+                             "remaining symbols retry next run", d["symbol"], exc)
+                return exc
+            finally:
+                await asyncio.sleep(_DELAY_S)
+
+    return await asyncio.gather(*[one(d) for d in due], return_exceptions=True)
+
+
+async def run(target_date: Optional[date] = None, symbol: Optional[str] = None,
+              lookback_days: int = _LOOKBACK_DAYS) -> None:
     setup_logging(service="nse_financials")
     target_date = target_date or date.today()
 
@@ -226,22 +288,17 @@ async def run(target_date: Optional[date] = None, symbol: Optional[str] = None) 
             if row:
                 due[0].update(dict(row))
         else:
-            due = await _get_due_today(conn, target_date)
+            due = await _get_due(conn, target_date, lookback_days)
 
     if not due:
-        logger.info("nse_financials: no results due on %s", target_date)
+        logger.info("nse_financials: no pending results in the %d days to %s", lookback_days, target_date)
         await close_pool()
         return
 
-    logger.info("nse_financials: processing %d companies for %s", len(due), target_date)
+    logger.info("nse_financials: processing %d companies with pending results (%d days to %s)",
+                len(due), lookback_days, target_date)
 
-    results = await asyncio.gather(
-        *[_process_symbol(
-            d["symbol"], d.get("period"), d.get("event_date") or target_date,
-            d.get("ir_url"), d.get("results_url")
-        ) for d in due],
-        return_exceptions=True,
-    )
+    results = await _process_all(due, target_date)
 
     success = 0
     for d, r in zip(due, results):
