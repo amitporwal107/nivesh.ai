@@ -3,9 +3,7 @@ from datetime import date
 
 import pandas as pd
 
-from nidp.tests.services.tpd_model.conftest import NOT_IMPLEMENTED, make_panel, weekday_sessions
-
-pytestmark = NOT_IMPLEMENTED
+from nidp.tests.services.tpd_model.conftest import make_panel, weekday_sessions
 
 
 def test_bse_row_on_nse_date_is_ignored(panel):
@@ -76,3 +74,20 @@ def test_weekend_special_sessions_are_kept_as_sessions():
     s = weekday_sessions("2025-01-27", 5) + [date(2025, 2, 1)]
     out = select_nse_eq(make_panel(["A"], sorted(s)), etf_symbols=set())
     assert pd.Timestamp("2025-02-01") in set(out["as_of_date"])
+
+
+def test_archive_backfill_rows_count_as_nse():
+    """2024 bars were backfilled from sec_bhavdata_full under NSE_SEC_BHAVDATA (identical values on overlap)."""
+    from nidp.services.tpd_model.panel_source import select_nse_eq
+
+    p = make_panel(["A"], weekday_sessions("2024-06-03", 3)).assign(source="NSE_SEC_BHAVDATA")
+    assert len(select_nse_eq(p, etf_symbols=set())) == 3
+
+
+def test_same_bar_under_both_nse_sources_is_kept_once():
+    from nidp.services.tpd_model.panel_source import select_nse_eq
+
+    p = make_panel(["A"], weekday_sessions("2025-01-01", 2))
+    both = pd.concat([p, p.assign(source="NSE_SEC_BHAVDATA")], ignore_index=True)
+    out = select_nse_eq(both, etf_symbols=set())
+    assert len(out) == 2 and set(out["source"]) == {"NSE_BHAVCOPY"}

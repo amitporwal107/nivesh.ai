@@ -6,9 +6,6 @@ historical date (bm_data.py:409, :454-456, :542-547).
 import re
 from pathlib import Path
 
-from nidp.tests.services.tpd_model.conftest import NOT_IMPLEMENTED
-
-pytestmark = NOT_IMPLEMENTED
 
 TODAY_LISTS = re.compile(r"fo_mktlots|sec_list\.csv|band_now|fo_mktlots\.csv")
 

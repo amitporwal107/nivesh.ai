@@ -3,9 +3,8 @@ from datetime import date
 
 import pandas as pd
 
-from nidp.tests.services.tpd_model.conftest import IST, NOT_IMPLEMENTED, ist
+from nidp.tests.services.tpd_model.conftest import IST, ist
 
-pytestmark = NOT_IMPLEMENTED
 
 T = date(2026, 9, 11)
 D = date(2026, 9, 15)

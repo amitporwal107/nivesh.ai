@@ -3,9 +3,6 @@ from datetime import date
 
 import pytest
 
-from nidp.tests.services.tpd_model.conftest import NOT_IMPLEMENTED
-
-pytestmark = NOT_IMPLEMENTED
 
 GANESH = date(2026, 9, 14)
 

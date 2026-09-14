@@ -5,9 +5,7 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
-from nidp.tests.services.tpd_model.conftest import NOT_IMPLEMENTED, make_panel, weekday_sessions
-
-pytestmark = NOT_IMPLEMENTED
+from nidp.tests.services.tpd_model.conftest import make_panel, weekday_sessions
 
 
 @pytest.mark.parametrize("prev,high,low,expected", [
@@ -93,3 +91,52 @@ def test_muhurat_session_is_never_labelled_k6():
     lab = build_labels(p, pd.DataFrame(columns=["symbol", "ex_date", "factor"]),
                        muhurat_sessions=frozenset({s[11]})).set_index(["symbol", "as_of_date"])
     assert lab.loc[("PEER", pd.Timestamp(s[10]))]["excl_1d"] == "muhurat"
+
+
+def test_suspended_on_target_session_is_excluded_not_labelled_false():
+    """Horizons are market sessions: a stock with no bar on D gets a reason, not its next bar days later."""
+    from nidp.services.tpd_model.labels import build_labels
+
+    s, p, _ = _panel_and_actions(ex_offset=0)
+    p = p[~((p["symbol"] == "ACME") & (p["as_of_date"] == pd.Timestamp(s[11])))]
+    lab = build_labels(p, pd.DataFrame(columns=["symbol", "ex_date", "factor"])).set_index(["symbol", "as_of_date"])
+    row = lab.loc[("ACME", pd.Timestamp(s[10]))]
+    assert row["target_session"] == pd.Timestamp(s[11])
+    assert row["excl_1d"] == "no_bar_on_target" and pd.isna(row["up_1d"])
+    assert row["excl_5d"] == "missing_bar_in_horizon"
+
+
+def _hand_panel(closes, highs, lows):
+    s = weekday_sessions("2026-03-02", len(closes))
+    return s, pd.DataFrame({
+        "symbol": "ACME", "as_of_date": pd.to_datetime(s), "series": "EQ", "source": "NSE_BHAVCOPY",
+        "open": closes, "high": highs, "low": lows, "close": closes, "prev_close": closes,
+        "volume": 1000, "turnover": 1e6, "deliverable_pct": 50.0,
+    })
+
+
+NO_ACTIONS = pd.DataFrame(columns=["symbol", "ex_date", "factor"])
+
+
+def test_build_labels_counts_an_exact_ten_percent_touch():
+    """14.60 -> 16.06 is exactly +10.00% and 10.20 -> 9.18 exactly -10.00%, but in float arithmetic
+    16.06 * 100 = 1605.9999999999998 < 14.60 * 110 and 9.18 * 100 > 10.20 * 90 — both would be missed."""
+    from nidp.services.tpd_model.labels import build_labels
+
+    flat = [15.0] * 5
+    s, up = _hand_panel([14.60, 15.00, *flat], [14.60, 16.06, *flat], [14.60, 14.50, *flat])
+    assert build_labels(up, NO_ACTIONS).set_index("as_of_date").loc[pd.Timestamp(s[0]), "up_1d"] is True
+    s, dn = _hand_panel([10.20, 9.50, *flat], [10.20, 9.90, *flat], [10.20, 9.18, *flat])
+    assert build_labels(dn, NO_ACTIONS).set_index("as_of_date").loc[pd.Timestamp(s[0]), "down_1d"] is True
+
+
+def test_build_labels_5d_is_cumulative_from_close_T():
+    """The +10% touch happens mid-window (day 3) and fades: the window's highest high counts, not the last day's."""
+    from nidp.services.tpd_model.labels import build_labels
+
+    closes = [100.0, 102.5, 105.0, 108.0, 104.0, 103.0, 103.0]
+    highs = [100.0, 103.0, 106.0, 111.0, 105.0, 103.5, 103.0]
+    s, p = _hand_panel(closes, highs, closes)
+    row = build_labels(p, NO_ACTIONS).set_index("as_of_date").loc[pd.Timestamp(s[0])]
+    assert row["up_1d"] is False  # +3% on D
+    assert row["up_5d"] is True and row["down_5d"] is False

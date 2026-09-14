@@ -1,9 +1,7 @@
 """A1 point-in-time universe: membership for D uses only bars strictly before D."""
 import pandas as pd
 
-from nidp.tests.services.tpd_model.conftest import NOT_IMPLEMENTED, make_panel, weekday_sessions
-
-pytestmark = NOT_IMPLEMENTED
+from nidp.tests.services.tpd_model.conftest import make_panel, weekday_sessions
 
 
 def _args(sessions):

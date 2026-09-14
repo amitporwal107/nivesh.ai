@@ -4,9 +4,8 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from nidp.tests.services.tpd_model.conftest import NOT_IMPLEMENTED, weekday_sessions
+from nidp.tests.services.tpd_model.conftest import weekday_sessions
 
-pytestmark = NOT_IMPLEMENTED
 
 S = weekday_sessions("2026-05-01", 40)
 EX = S[25]

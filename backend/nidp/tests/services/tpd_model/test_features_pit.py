@@ -9,9 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nidp.tests.services.tpd_model.conftest import IST, NOT_IMPLEMENTED, ist
+from nidp.tests.services.tpd_model.conftest import IST, ist
 
-pytestmark = NOT_IMPLEMENTED
 
 DENYLIST = re.compile(r"fund|(^|_)pat(_|$)|eps|revenue|profit|roe|debt|sector|industry|news|categor|"
                       r"shareholding|pledge|promoter", re.I)
@@ -126,3 +125,32 @@ def test_symbol_without_bar_on_T_gets_no_features(panel, sessions):
     T = sessions[205]
     missing = panel.drop(panel[(panel["symbol"] == "SYM007") & (panel["as_of_date"] == pd.Timestamp(T))].index)
     assert "SYM007" not in compute_features(missing, T).index
+
+
+def _bonus(sessions, idx):
+    return pd.DataFrame({"symbol": ["SYM001"], "ex_date": [pd.Timestamp(sessions[idx])], "factor": [0.5]})
+
+
+def test_corporate_action_after_T_does_not_change_features(panel, sessions):
+    from nidp.services.tpd_model.features import compute_features
+
+    T = sessions[205]
+    assert _bitwise_equal(compute_features(panel, T), compute_features(panel, T, actions=_bonus(sessions, 210)))
+
+
+def test_bonus_before_T_is_adjusted_not_read_as_a_crash(panel, sessions):
+    """Halve SYM001's raw prices from ex-date onward (a 1:1 bonus); with the action supplied the returns
+    must match the unbonused series, without it ret20 shows the ~-50% artefact."""
+    from nidp.services.tpd_model.features import compute_features
+
+    T, ex = sessions[205], sessions[195]
+    bonused = panel.copy()
+    after = (bonused["symbol"] == "SYM001") & (bonused["as_of_date"] >= pd.Timestamp(ex))
+    bonused.loc[after, ["open", "high", "low", "close", "prev_close"]] /= 2
+    bonused.loc[after, "volume"] *= 2
+    clean = compute_features(panel, T).loc["SYM001"]
+    adjusted = compute_features(bonused, T, actions=_bonus(sessions, 195)).loc["SYM001"]
+    unadjusted = compute_features(bonused, T).loc["SYM001"]
+    assert adjusted["ret20"] == pytest.approx(clean["ret20"], rel=1e-9)
+    assert adjusted["rsi14"] == pytest.approx(clean["rsi14"], rel=1e-9)
+    assert unadjusted["ret20"] < clean["ret20"] - 30

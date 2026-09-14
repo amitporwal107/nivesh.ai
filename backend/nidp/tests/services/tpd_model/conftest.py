@@ -1,15 +1,12 @@
 """Shared fixtures for the Ten-Percent Days 3.0 (`tpd_model`) pipeline tests.
 
-These tests are written BEFORE the implementation (.claude/VERIFICATION_PROTOCOL.md). Every module
-that imports `nidp.services.tpd_model` carries
-`pytest.mark.xfail(raises=ModuleNotFoundError, strict=True)`, so today the suite reports them as
-xfailed. Once a module lands, the import succeeds, any wrong behaviour fails for real, and a correct
-implementation turns the test into a strict XPASS — remove the marker in that commit.
+These tests were written before the implementation (.claude/VERIFICATION_PROTOCOL.md, commit e19b254c) and
+teeth-checked against deliberately broken variants.
 
 Interface the tests pin (spec: .claude/workspace/ten-percent-days-3/spec.md, test-plan.md §2):
 
 panel DataFrame (one row per bar)
-    symbol, as_of_date (datetime64), series, source ('NSE_BHAVCOPY' | 'BSE_BHAVCOPY'),
+    symbol, as_of_date (datetime64), series, source ('NSE_BHAVCOPY' | 'NSE_SEC_BHAVDATA' archive backfill | 'BSE_BHAVCOPY'),
     open, high, low, close, prev_close, volume, turnover (rupees), deliverable_pct (float, NaN = missing)
 
 tpd_model.panel_source
@@ -47,6 +44,7 @@ tpd_model.labels
 tpd_model.features
     FEATURE_LIST, EVENT_FEATURES, DELIVERY_FEATURES: tuple[str, ...]
     compute_features(panel, T, events=None, actions=None) -> DataFrame indexed by symbol, columns FEATURE_LIST
+    compute_features/feature_vector also take target_session (NSE calendar); default = next weekday
     feature_vector(panel, T, symbol, events=None, actions=None) -> {name: {"value", "data_date", ["source_ts"]}}
         data_date is a datetime.date (pandas Timestamps do not compare with date); source_ts is tz-aware IST
 
@@ -62,12 +60,6 @@ import pandas as pd
 import pytest
 
 IST = ZoneInfo("Asia/Kolkata")
-
-NOT_IMPLEMENTED = pytest.mark.xfail(
-    raises=ModuleNotFoundError,
-    strict=True,
-    reason="tpd_model not implemented yet (W1/W2) — remove this marker when the module lands",
-)
 
 
 def ist(d: date, hh: int, mm: int, ss: int = 0) -> datetime:
