@@ -8,8 +8,14 @@
 --     -v prices_before=2025-01-01 -v delivery_before=2025-02-01 -v run_id=<uuid> -v apply=0 \
 --     < backfill_sec_bhavdata_archive.sql
 --
--- apply=0 rolls back (dry run); apply=1 commits.
+-- apply=0 rolls back (dry run); apply=1 commits. For a delivery gap fill inside the existing range also pass
+-- -v delivery_from=<date>; delivery rows are skipped for any session that already has delivery under any
+-- source (e.g. BSE_DELIVERY gap-fill days), so no session ends up with mixed sources.
 \set ON_ERROR_STOP on
+\if :{?delivery_from}
+\else
+  \set delivery_from 1900-01-01
+\endif
 \pset format unaligned
 \pset fieldsep ' | '
 \pset footer off
@@ -27,10 +33,11 @@ SELECT 'staged' AS step, (SELECT count(*) FROM bf_prices) AS prices_rows, (SELEC
 
 -- Guard 1: nothing staged at or after the cut-offs, and only the archive's own source label.
 SELECT (SELECT count(*) FROM bf_prices WHERE as_of_date >= :'prices_before'::date OR source <> 'NSE_SEC_BHAVDATA')
-     + (SELECT count(*) FROM bf_delivery WHERE as_of_date >= :'delivery_before'::date OR source <> 'NSE_SEC_BHAVDATA')
+     + (SELECT count(*) FROM bf_delivery WHERE as_of_date >= :'delivery_before'::date
+                                             OR as_of_date < :'delivery_from'::date OR source <> 'NSE_SEC_BHAVDATA')
        > 0 AS guard_failed \gset
 \if :guard_failed
-  \echo 'GUARD FAILED: staged rows at/after cut-off or with an unexpected source'
+  \echo 'GUARD FAILED: staged rows outside the window or with an unexpected source'
   ROLLBACK;
   \quit 3
 \endif
@@ -57,8 +64,10 @@ SELECT 'inserted prices_eod' AS step, count(*) AS rows FROM ins;
 
 WITH ins AS (
   INSERT INTO nidp.delivery_data (as_of_date, symbol, series, traded_qty, deliverable_qty, deliverable_pct, source, source_run_id, ingested_at)
-  SELECT as_of_date, symbol, series, traded_qty, deliverable_qty, deliverable_pct, source, source_run_id, ingested_at
-    FROM bf_delivery
+  SELECT b.as_of_date, b.symbol, b.series, b.traded_qty, b.deliverable_qty, b.deliverable_pct, b.source,
+         b.source_run_id, b.ingested_at
+    FROM bf_delivery b
+   WHERE NOT EXISTS (SELECT 1 FROM nidp.delivery_data d WHERE d.as_of_date = b.as_of_date)
   ON CONFLICT DO NOTHING
   RETURNING 1)
 SELECT 'inserted delivery_data' AS step, count(*) AS rows FROM ins;

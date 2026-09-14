@@ -82,6 +82,13 @@ def test_price_rows_stop_before_the_existing_data(tmp_path):
     assert [r["as_of_date"] for r in m.price_rows(recs, before=date(2024, 6, 3))] == ["2024-05-31"]
 
 
+def test_delivery_rows_can_target_a_window_for_gap_fills(tmp_path):
+    m = _mod()
+    f = _file(tmp_path, "f.csv", ACME_31MAY, ACME_03JUN)
+    rows = m.delivery_rows([f], before=date(2025, 1, 1), since=date(2024, 6, 1))
+    assert [r["as_of_date"] for r in rows] == ["2024-06-03"]
+
+
 def test_delivery_rows_reuse_the_delivery_parser_and_cutoff(tmp_path):
     m = _mod()
     f = _file(tmp_path, "f.csv", ACME_31MAY, BOND_31MAY, ACME_03JUN)

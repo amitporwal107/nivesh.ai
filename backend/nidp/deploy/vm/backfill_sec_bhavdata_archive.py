@@ -17,6 +17,9 @@ service's name for this file, not NSE_BHAVCOPY.
 Usage (from backend/):
     python nidp/deploy/vm/backfill_sec_bhavdata_archive.py --archive-dir <secbhav> --out-dir <dir> \
         --prices-before 2025-01-01 --delivery-before 2025-02-01
+    # delivery gap fill inside the existing range (no price rows):
+    python nidp/deploy/vm/backfill_sec_bhavdata_archive.py --archive-dir <secbhav> --out-dir <dir> \
+        --prices-before 2024-01-01 --delivery-from 2025-02-01 --delivery-before 2026-09-12
 """
 from __future__ import annotations
 
@@ -91,11 +94,12 @@ def price_rows(records: dict[tuple[date, str, str], dict[str, str]], before: dat
     return rows
 
 
-def delivery_rows(paths: Iterable[Path], before: date) -> list[dict]:
+def delivery_rows(paths: Iterable[Path], before: date, since: Optional[date] = None) -> list[dict]:
     seen: dict[tuple[str, str, str], dict] = {}
     for path in sorted(paths):
         for r in parse_delivery(Path(path).read_bytes()):
-            if date.fromisoformat(r["as_of_date"]) < before:
+            d = date.fromisoformat(r["as_of_date"])
+            if d < before and (since is None or d >= since):
                 seen[(r["as_of_date"], r["symbol"], r["series"])] = {**r, "source": SOURCE}
     return [seen[k] for k in sorted(seen)]
 
@@ -113,12 +117,14 @@ def main() -> None:
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--prices-before", type=date.fromisoformat, required=True)
     ap.add_argument("--delivery-before", type=date.fromisoformat, required=True)
+    ap.add_argument("--delivery-from", type=date.fromisoformat, default=None,
+                    help="lower bound for a gap fill inside the existing range (SQL skips rows present under any source)")
     args = ap.parse_args()
 
     files = sorted(args.archive_dir.glob("sec_bhavdata_full_*.csv"))
     records = read_archive(files)
     prices = price_rows(records, args.prices_before)
-    delivery = delivery_rows(files, args.delivery_before)
+    delivery = delivery_rows(files, args.delivery_before, since=args.delivery_from)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     _write(prices, PRICE_COLS, args.out_dir / "prices_eod.csv")
     _write(delivery, DELIVERY_COLS, args.out_dir / "delivery_data.csv")
