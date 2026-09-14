@@ -72,11 +72,13 @@ def test_scored_rows_are_the_fold_month_by_target_session():
 
 
 def test_model_fit_is_deterministic():
+    """Above 10,000 rows HistGradientBoosting early-stops on a random validation split, as every real fold
+    does, so the seed only matters (and is only tested) at that size."""
     from nidp.services.tpd_model.walkforward import fit_gbm
 
     rng = np.random.default_rng(0)
-    X = pd.DataFrame(rng.normal(size=(600, 5)), columns=list("abcde"))
-    y = (X["a"] + rng.normal(size=600) > 1.5).astype(int)
+    X = pd.DataFrame(rng.normal(size=(12_000, 5)), columns=list("abcde"))
+    y = (X["a"] + rng.normal(size=12_000) > 1.5).astype(int)
     p1 = fit_gbm(X, y).predict_proba(X)[:, 1]
     p2 = fit_gbm(X, y).predict_proba(X)[:, 1]
     assert (p1.view(np.uint64) == p2.view(np.uint64)).all()
@@ -86,5 +88,6 @@ def test_model_fit_is_deterministic():
                                       ("p_up10_5d", "n_high_up_252"), ("p_down10_5d", "n_low_down_252")])
 def test_own_history_comparator_uses_the_heads_direction(head, own):
     from nidp.services.tpd_model.design import OWN_HISTORY_COUNT
+    from nidp.services.tpd_model.features import FEATURE_LIST
 
-    assert OWN_HISTORY_COUNT[head] == own
+    assert OWN_HISTORY_COUNT[head] == own and own in FEATURE_LIST

@@ -68,6 +68,27 @@ def test_regime_labels_are_point_in_time():
     assert base.equals(regime_labels(fut, members, s[60:120]))
     assert set(base["regime"]) <= {"HIGH_UP", "HIGH_DOWN", "LOW_UP", "LOW_DOWN"}
 
+def test_regime_uses_only_history_up_to_each_day():
+    """Volatility rising through the window: against their own past, the early days are already HIGH; a
+    median taken over the whole window (look-ahead) would call them LOW. Each day's label must equal the
+    label computed when that day is the last one known."""
+    from nidp.services.tpd_model.report import regime_labels
+
+    s = weekday_sessions("2025-01-01", 200)
+    p = make_panel([f"S{i:02d}" for i in range(30)], s)
+    step = p["as_of_date"].map({pd.Timestamp(d): i for i, d in enumerate(s)}).astype(float)
+    widen = 1 + step / 40  # daily range grows ~6x over the panel
+    p["high"] = p["close"] * (1 + 0.01 * widen)
+    p["low"] = p["close"] * (1 - 0.01 * widen)
+    members = {d: [f"S{i:02d}" for i in range(30)] for d in s}
+    base = regime_labels(p, members, s[60:200])
+    assert base["regime"].str.startswith("HIGH").iloc[:10].all()
+    for T in s[60:200:10]:
+        alone = regime_labels(p, members, [T]).iloc[0]
+        row = base.set_index("as_of_date").loc[pd.Timestamp(T)]
+        assert alone["regime"] == row["regime"], T
+        assert alone["vol_median_atr_pct"] == row["vol_median_atr_pct"]
+
 
 def test_forward_excess_return_follows_k4():
     """Entry at the target session's open, exit at the close H sessions after T, 0.30% round trip,

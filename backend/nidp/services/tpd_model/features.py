@@ -32,7 +32,7 @@ PRICE_FEATURES = (
     "rsi14", "atr_pct", "bb_width", "bb_pos", "ret1", "ret5", "ret20", "ret60", "vol_z20",
     "dist_52w_high", "dist_52w_low", "dist_swing20", "dist_sma20", "dist_sma50", "sma50_slope",
     "maxabs20", "turn_med20", "close_raw", "gap1", "range1",
-    "n_gap_up_252", "n_high_up_252", "n_range10_252", "nbars",
+    "n_gap_up_252", "n_high_up_252", "n_low_down_252", "n_range10_252", "nbars",
 )
 DELIVERY_FEATURES = ("deliv_prev", "deliv_avg20", "deliv_trend10", "deliv_missing")
 MARKET_FEATURES = ("mkt_ret1", "breadth")
@@ -109,6 +109,7 @@ def _symbol_features(w: pd.DataFrame, T: date, actions: Optional[pd.DataFrame]) 
     ok = ~np.isin(dates[tail], list(ex_days)) if ex_days else np.ones(n - tail.start, dtype=bool)
     f["n_gap_up_252"] = float(np.sum(ok & (o[tail] / prev - 1 >= MOVE)))
     f["n_high_up_252"] = float(np.sum(ok & (h[tail] / prev - 1 >= MOVE)))
+    f["n_low_down_252"] = float(np.sum(ok & (lo[tail] / prev - 1 <= -MOVE)))
     f["n_range10_252"] = float(np.sum(ok & ((h[tail] - lo[tail]) / prev >= MOVE)))
     f["nbars"] = float(n)
 
