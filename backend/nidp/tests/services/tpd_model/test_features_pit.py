@@ -154,3 +154,35 @@ def test_bonus_before_T_is_adjusted_not_read_as_a_crash(panel, sessions):
     assert adjusted["ret20"] == pytest.approx(clean["ret20"], rel=1e-9)
     assert adjusted["rsi14"] == pytest.approx(clean["rsi14"], rel=1e-9)
     assert unadjusted["ret20"] < clean["ret20"] - 30
+
+
+def test_inputs_on_record_are_the_fixed_d_ux3_set_in_order():
+    """Every row shows the same observable inputs in the same order (user decision D-UX3, 2026-09-14)."""
+    from nidp.services.tpd_model.features import FEATURE_LIST, INPUTS_ON_RECORD
+
+    assert INPUTS_ON_RECORD == ("res_on_D", "ret1", "vol_z20", "atr_pct", "n_high_up_252")
+    assert set(INPUTS_ON_RECORD) <= set(FEATURE_LIST)
+
+
+def test_event_flags_match_the_gate_for_every_symbol(panel, sessions):
+    """compute_features may pre-filter filings for speed, but each flag must equal event_gate.results_flag
+    over the full filing set: known by the cutoff, after it, NULL timestamp, and another day's meeting."""
+    from nidp.services.tpd_model.event_gate import results_flag
+    from nidp.services.tpd_model.features import compute_features
+
+    T, D = sessions[205], sessions[206]
+    events = pd.DataFrame({
+        "symbol": ["SYM001", "SYM002", "SYM003", "SYM004", "SYM005", "SYM005"],
+        "event_date": pd.to_datetime([D, D, D, T, D, sessions[220]]),
+        "intimated_at": pd.Series([ist(T, 9, 0), ist(T, 15, 30, 1), pd.NaT, ist(sessions[204], 18, 0),
+                                   ist(sessions[200], 10, 0), ist(T, 10, 0)], dtype="datetime64[ns, Asia/Kolkata]"),
+    })
+    f = compute_features(panel, T, events=events, target_session=D)
+    for sym in f.index:
+        for col, day in (("res_on_D", D), ("res_on_T", T)):
+            flag, _ = results_flag(events, sym, T, day)
+            expected = float("nan") if flag is None else float(flag)
+            got = f.loc[sym, col]
+            assert (np.isnan(got) and np.isnan(expected)) or got == expected, (sym, col, got, expected)
+    assert f.loc["SYM001", "res_on_D"] == 1.0 and f.loc["SYM002", "res_on_D"] == 0.0
+    assert np.isnan(f.loc["SYM003", "res_on_D"]) and f.loc["SYM004", "res_on_T"] == 1.0

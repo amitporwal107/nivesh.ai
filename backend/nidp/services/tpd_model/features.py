@@ -39,6 +39,11 @@ MARKET_FEATURES = ("mkt_ret1", "breadth")
 EVENT_FEATURES = ("res_on_T", "res_on_D")
 FEATURE_LIST = PRICE_FEATURES + DELIVERY_FEATURES + MARKET_FEATURES + EVENT_FEATURES
 
+# The observable facts every surfaced row shows, always in this order (user decision D-UX3): results meeting
+# on the target session, today's move, volume against its 20-day normal, typical daily range, and past
+# +10% days — the strongest factors measured in the research walk-forward. Facts, not attributions.
+INPUTS_ON_RECORD = ("res_on_D", "ret1", "vol_z20", "atr_pct", "n_high_up_252")
+
 
 def _num(x: Optional[float]) -> float:
     return float("nan") if x is None else float(x)
@@ -134,6 +139,15 @@ def _compute(panel: pd.DataFrame, T: date, events, actions, target_session: Opti
         f, dd = _symbol_features(g.tail(WINDOW), T, actions)
         values[sym], meta[sym] = f, {"data_date": dd, "source_ts": {}}
 
+    # Only meetings dated T or D can set a flag, so filter the filings once rather than per symbol
+    # (a real day with ~20k filings and ~2,100 symbols: 7.9 s -> 3.7 s). results_flag still decides each flag.
+    by_symbol: dict[str, pd.DataFrame] = {}
+    if events is not None:
+        days = [pd.Timestamp(T), pd.Timestamp(D)]
+        relevant = events[events["event_date"].isin(days) & events["symbol"].isin(values.keys())]
+        by_symbol = {sym: g for sym, g in relevant.groupby("symbol", sort=False)}
+        empty = events.iloc[0:0]
+
     rets = np.array([v["ret1"] for v in values.values()], dtype="float64")
     rets = rets[~np.isnan(rets)]
     mkt_ret1 = float(np.mean(rets)) if len(rets) else float("nan")
@@ -146,7 +160,7 @@ def _compute(panel: pd.DataFrame, T: date, events, actions, target_session: Opti
             if events is None:
                 f[name], ts = float("nan"), None
             else:
-                flag, ts = results_flag(events, sym, T, day)
+                flag, ts = results_flag(by_symbol.get(sym, empty), sym, T, day)
                 f[name] = float("nan") if flag is None else float(flag)
             meta[sym]["data_date"][name] = T
             meta[sym]["source_ts"][name] = ts
