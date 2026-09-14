@@ -15,9 +15,7 @@ BEGIN;
 
 SELECT to_regclass('nidp.tpd_corporate_actions_history') IS NULL AS table_missing \gset
 \if :table_missing
-  \echo 'nidp.tpd_corporate_actions_history does not exist — apply migration 148 first'
-  ROLLBACK;
-  \quit 3
+  DO $$ BEGIN RAISE EXCEPTION 'nidp.tpd_corporate_actions_history does not exist - apply migration 148 first'; END $$;
 \endif
 
 CREATE TEMP TABLE shared_before ON COMMIT DROP AS
@@ -29,9 +27,7 @@ ALTER TABLE bf_ca ALTER COLUMN source_run_id SET DEFAULT :'run_id'::uuid;
 
 SELECT count(*) > 0 AS bad_source FROM bf_ca WHERE source <> 'NSE_CA_ARCHIVE' \gset
 \if :bad_source
-  \echo 'GUARD FAILED: unexpected source label'
-  ROLLBACK;
-  \quit 4
+  DO $$ BEGIN RAISE EXCEPTION 'GUARD FAILED: unexpected source label'; END $$;
 \endif
 
 WITH ins AS (
@@ -45,9 +41,7 @@ SELECT (SELECT n FROM shared_before) <> (SELECT count(*) FROM nidp.corporate_act
     OR (SELECT last_ingest FROM shared_before) IS DISTINCT FROM (SELECT max(ingested_at) FROM nidp.corporate_actions)
        AS shared_changed \gset
 \if :shared_changed
-  \echo 'GUARD FAILED: shared corporate_actions changed during the load'
-  ROLLBACK;
-  \quit 5
+  DO $$ BEGIN RAISE EXCEPTION 'GUARD FAILED: shared corporate_actions changed during the load'; END $$;
 \endif
 SELECT 'shared corporate_actions unchanged' AS step, n FROM shared_before;
 

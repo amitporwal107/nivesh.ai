@@ -37,9 +37,7 @@ SELECT (SELECT count(*) FROM bf_prices WHERE as_of_date >= :'prices_before'::dat
                                              OR as_of_date < :'delivery_from'::date OR source <> 'NSE_SEC_BHAVDATA')
        > 0 AS guard_failed \gset
 \if :guard_failed
-  \echo 'GUARD FAILED: staged rows outside the window or with an unexpected source'
-  ROLLBACK;
-  \quit 3
+  DO $$ BEGIN RAISE EXCEPTION 'GUARD FAILED: staged rows outside the window or with an unexpected source'; END $$;
 \endif
 
 -- Fingerprint every pre-existing row before inserting.
@@ -84,9 +82,7 @@ SELECT count(*) > 0 AS existing_changed FROM (
   EXCEPT SELECT t, n, fp FROM fp_before
 ) d \gset
 \if :existing_changed
-  \echo 'GUARD FAILED: a pre-existing row changed'
-  ROLLBACK;
-  \quit 4
+  DO $$ BEGIN RAISE EXCEPTION 'GUARD FAILED: a pre-existing row changed'; END $$;
 \endif
 SELECT 'existing rows unchanged' AS step, t, n FROM fp_before ORDER BY t;
 
