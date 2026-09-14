@@ -1,0 +1,65 @@
+{
+  "_what": "Ten-Percent Days 3.0 pass bars (NI-4), locked by the user on 2026-09-14 BEFORE any walk-forward result existed. The W3 report must refuse to evaluate without this file and must print its sha256. Changing any value after W3 results are seen voids the evaluation.",
+  "version": 1,
+  "locked_at": "2026-09-14",
+  "decisions": ["NI-4 QA-recommended package", "B6 volatility x trend", "failing head: hide, keep logging"],
+  "heads": ["p_up10_1d", "p_down10_1d", "p_up10_5d", "p_down10_5d"],
+  "event_definitions": {
+    "p_up10_1d": "high(D) >= 1.10 x close(T)",
+    "p_down10_1d": "low(D) <= 0.90 x close(T)",
+    "p_up10_5d": "max(high D..D+4) >= 1.10 x close(T)",
+    "p_down10_5d": "min(low D..D+4) <= 0.90 x close(T)"
+  },
+  "oos_window": {"first": "2025-09-01", "last": "2026-08-31", "months": 12},
+  "comparators": ["base_rate", "atr_only", "own_history_only"],
+  "precision_at_k": "pooled: sum of hits in each session's top-k / sum of min(k, eligible); probability desc, symbol asc",
+  "b3_p_up10_1d_vs_fixed_baseline": {
+    "non_inferior": {"p5_margin_pp": 0.5, "auc_margin": 0.003},
+    "better": {
+      "delta_auc_min": 0.005,
+      "delta_p5_pp_min": 1.0,
+      "bootstrap": {"block": "month", "resamples": 2000, "ci": 0.95, "delta_p5_lower_gt": 0.0}
+    }
+  },
+  "b4_other_heads_ship": {
+    "heads": ["p_down10_1d", "p_up10_5d", "p_down10_5d"],
+    "auc_min": 0.70,
+    "pr_auc_vs_best_comparator_min": 1.25,
+    "p5_vs_base_rate_min": 3.0,
+    "months_beating_best_comparator_auc_min": 9
+  },
+  "b5_calibration": {
+    "mean_pred_rel_err_max": 0.15,
+    "top_decile_rel_err_max": 0.15,
+    "deciles_pred_inside_wilson95_min": 8,
+    "logloss_below_base_rate": true,
+    "brier_skill_positive": true,
+    "recalibration_fit_before_scored_month": true
+  },
+  "b6_regimes": {
+    "definition": "volatility_x_trend",
+    "volatility": "HIGH if median ATR%14 across PIT members at T > expanding median of that series from panel start through T, else LOW",
+    "trend": "UP if median 50-bar adjusted return across PIT members at T > 0, else DOWN",
+    "assigned_by": "data_as_of (T)",
+    "cell_min_events": 50,
+    "per_cell": {"auc_above_best_comparator": true, "auc_min": 0.70, "p5_vs_cell_base_rate_min": 3.0},
+    "insufficient_cells": "neither pass nor fail; FAIL if more than half of the cells are insufficient"
+  },
+  "live_rollback": {
+    "head": "p_up10_1d",
+    "min_wrote_sessions_per_month": 15,
+    "flag_off_if_any": [
+      "monthly realised p@5 below the fixed-baseline monthly minimum for 2 consecutive qualifying months",
+      "any qualifying month below 0.5 x the fixed-baseline monthly minimum",
+      "monthly realised p@5 <= 2 x that month's realised base rate"
+    ],
+    "above_historical_max": "investigate only"
+  },
+  "failing_head": {
+    "policy": "hide_keep_logging",
+    "api": "409 HEAD_NOT_VALIDATED with no probability fields; model card shows not_validated and the failed criterion",
+    "ui": "tab shows a neutral not-available state with 0 probability cells",
+    "re_evaluation": "only in a new locked run",
+    "block_exposure_if_fails": "p_up10_1d"
+  }
+}
