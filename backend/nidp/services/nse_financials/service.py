@@ -94,8 +94,11 @@ async def _get_due(conn, target_date: date, lookback_days: int) -> list[dict]:
     events = [dict(r) for r in rows]
     if not events:
         return []
+    # Quarters only: since migration 145 a fiscal-year row sits on 31-Mar beside the March quarter,
+    # and it must not make a still-missing March quarter look ingested.
     have = await conn.fetch(
-        "SELECT DISTINCT symbol, period_end FROM nidp.nse_financials_quarterly WHERE symbol = ANY($1::text[])",
+        "SELECT DISTINCT symbol, period_end FROM nidp.nse_financials_quarterly"
+        " WHERE symbol = ANY($1::text[]) AND period_type ILIKE 'quarterly'",
         sorted({e["symbol"] for e in events}),
     )
     return pending_results(events, {(r["symbol"], r["period_end"]) for r in have})

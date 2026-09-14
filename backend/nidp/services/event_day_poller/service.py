@@ -70,6 +70,7 @@ async def _get_todays_pending(conn, today: date) -> list[dict]:
            AND NOT EXISTS (
                SELECT 1 FROM nidp.nse_financials_quarterly f
                 WHERE f.symbol = ec.symbol
+                  AND f.period_type ILIKE 'quarterly'   -- the fiscal-year row is not the quarter's result
                   AND f.period_end >= $1 - INTERVAL '100 days'
                   AND f.ingested_at >= $1
            )

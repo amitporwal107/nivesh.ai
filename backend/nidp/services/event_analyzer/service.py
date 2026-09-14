@@ -65,6 +65,7 @@ async def _get_new_earnings(conn, since: date) -> list[dict]:
                 AND s.event_type = 'quarterly_results'
                 AND s.event_date = ec.event_date
          WHERE f.ingested_at >= $1
+           AND f.period_type ILIKE 'quarterly'   -- a fiscal-year row is not a second earnings event (migration 145)
            AND s.id IS NULL
          ORDER BY f.ingested_at DESC
         """,

@@ -113,6 +113,7 @@ async def _get_annual_revenue(conn, symbol: str) -> float:
               SELECT revenue_from_ops_cr, total_income_cr, interest_earned_cr
                 FROM nidp.nse_financials_quarterly
                WHERE symbol = $1
+                 AND period_type ILIKE 'quarterly'   -- a fiscal-year row is not a quarter (migration 145)
                ORDER BY period_end DESC
                LIMIT 4
           ) q

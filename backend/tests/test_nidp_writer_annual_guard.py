@@ -1,8 +1,9 @@
-"""An annual P&L upsert must never overwrite a March quarter's income statement.
+"""A March quarter and its fiscal year are separate rows, so an annual upsert cannot touch a quarter.
 
-(symbol, period_end, consolidated) is unique, so a fiscal year and its March quarter share a
-row. The Screener backfill writes quarters and then annual P&L; with plain COALESCE(EXCLUDED, ...)
-the year won, putting full-year figures into 2,988 March quarters on 2026-09-12/13.
+Until migration 145 (symbol, period_end, consolidated) was unique, so a fiscal year and its March
+quarter shared a row: the Screener backfill put full-year figures into 2,988 March quarters, and
+where the year arrived first the quarter had nowhere to live (274 missing, 124 wrong TTM windows).
+Both writers now conflict on (symbol, period_end, consolidated, period_type).
 """
 import asyncio
 import os
@@ -17,7 +18,6 @@ FLOWS = ("revenue_from_ops_cr", "total_income_cr", "pat_cr", "eps_basic", "ebitd
          "finance_costs_cr", "depreciation_cr", "raw_data", "source", "source_run_id")
 BALANCE_SHEET = ("face_value", "equity_share_capital_cr", "total_equity_cr", "long_term_debt_cr",
                  "cash_and_equiv_cr")
-GUARD = "EXCLUDED.period_type = 'annual' AND nidp.nse_financials_quarterly.period_type ILIKE 'quarterly'"
 
 
 def _captured_sql(monkeypatch):
@@ -54,11 +54,23 @@ def _set_clause(sql, col):
     return m.group(1)
 
 
-def test_income_statement_columns_keep_the_quarter_when_an_annual_row_collides(monkeypatch):
+def test_conflict_target_includes_period_type(monkeypatch):
     sql = _captured_sql(monkeypatch)["sql"]
-    for col in FLOWS:
-        clause = _set_clause(sql, col)
-        assert clause.startswith(f"CASE WHEN {GUARD} THEN nidp.nse_financials_quarterly.{col} ELSE"), col
+    assert "ON CONFLICT (symbol, period_end, consolidated, period_type)" in sql
+
+
+def test_income_statement_columns_are_plain_coalesce(monkeypatch):
+    sql = _captured_sql(monkeypatch)["sql"]
+    for col in FLOWS[:-2]:                       # source / source_run_id take the new writer's values
+        assert _set_clause(sql, col).startswith(f"COALESCE(EXCLUDED.{col},"), col
+    assert "CASE WHEN EXCLUDED.period_type" not in sql
+
+
+def test_balance_sheet_upsert_conflicts_on_the_annual_row():
+    import inspect
+    src = inspect.getsource(W.upsert_balance_sheet)
+    assert "ON CONFLICT (symbol, period_end, consolidated, period_type)" in src
+    assert "'annual'" in src
 
 
 def test_balance_sheet_columns_still_fill_in_from_the_year_end(monkeypatch):

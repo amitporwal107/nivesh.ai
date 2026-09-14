@@ -36,6 +36,7 @@ async def _get_historical_financials(conn, symbol: str, limit: int = 4) -> list[
                interest_earned_cr, nim_pct
           FROM nidp.nse_financials_quarterly
          WHERE symbol = $1
+           AND period_type ILIKE 'quarterly'   -- fiscal-year rows share 31-Mar with Q4 (migration 145)
          ORDER BY period_end DESC
          LIMIT $2
         """,

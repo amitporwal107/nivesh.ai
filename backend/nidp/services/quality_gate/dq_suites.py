@@ -8,7 +8,8 @@ Each Suite carries:
 
 The four schema-forced CORRECTIONS are marked  # CORRECTION  inline and each has
 a regression test in test_nidp_dq.py:
-  1. nse_financials uniqueness drops period_type  (real UNIQUE is symbol,period_end,consolidated)
+  1. nse_financials uniqueness tracks the real UNIQUE (symbol, period_end, consolidated, period_type)
+     since migration 145 (before it the key had no period_type)
   2. period_type: case-insensitive membership (pass) + canonical-casing (warn)
   3. shareholding uniqueness deliberately tighter than the PK (drops source)
   4. fii_dii domain corrected to {FII, DII}; band allows blank
@@ -82,9 +83,12 @@ def nse_financials_suite(cal: TradingCalendar) -> Suite:
         fetch=FeedQuery("nidp.nse_financials_quarterly", cols, date_col="period_end"),
         rules=[
             E.not_null("symbol", "period_end", "consolidated"),
-            # CORRECTION 1: real UNIQUE is (symbol, period_end, consolidated) — NO period_type.
-            E.compound_unique("symbol", "period_end", "consolidated",
-                              note="tracks real UNIQUE; omits period_type so case-dupes surface"),
+            # CORRECTION 1: tracks the real UNIQUE, which includes period_type since migration 145 -
+            # a March quarter and its fiscal year are two legitimate rows on the same period_end.
+            # A case-dupe ('QUARTERLY' beside 'quarterly') needs a non-lowercase value, which
+            # canonical_casing below surfaces; the writers and migration 145 lowercase every value.
+            E.compound_unique("symbol", "period_end", "consolidated", "period_type",
+                              note="tracks real UNIQUE (migration 145)"),
             # CORRECTION 2 (recalibrated): three LIVE literals confirmed in data
             # {annual, quarterly, QUARTERLY}. Membership allows all three as-is — the
             # view depends on 'QUARTERLY' (ILIKE leg) AND 'annual' (exact leg), so

@@ -492,9 +492,12 @@ async def get_quarterly_financials(
 ) -> list[Dict[str, Any]]:
     """Fetch recent quarterly P&L, balance sheet rows from nse_financials_quarterly.
 
-    Returns newest-first list of up to `limit` quarters.
+    Returns newest-first list of up to `limit` quarters. Asks for period_type=quarterly: the table
+    also holds fiscal-year rows, and one ends on 31-Mar beside the March quarter (migration 145),
+    which would otherwise show up as a "Q4" carrying a full year's revenue.
     """
-    params: Dict[str, Any] = {"limit": limit, "consolidated": str(consolidated).lower()}
+    params: Dict[str, Any] = {"limit": limit, "consolidated": str(consolidated).lower(),
+                              "period_type": "quarterly"}
     data = await _get(f"/financials/{symbol}", params=params)
     if data is None:
         return []
