@@ -153,6 +153,51 @@ def evaluate(preds: pd.DataFrame, regimes: Optional[pd.DataFrame], baseline: Opt
             "policy": lock["failing_head"]}
 
 
+def forward_excess_table(preds: pd.DataFrame, panel: pd.DataFrame, ks=(5, 10, 20), horizons=(1, 5, 21),
+                         cost: float = 0.003) -> pd.DataFrame:
+    """B7 'move is not investment': excess return of each head's daily top-k (probability desc, symbol asc) over
+    the equal-weight mean of that day's scored universe. Entry at the target session's open, exit at the close
+    H sessions after T, less a round-trip cost (K4, same rule as report.forward_returns). The t-statistic is the
+    mean of monthly mean excess over its standard error across months (month-clustered)."""
+    opens = panel.pivot_table(index="as_of_date", columns="symbol", values="open", aggfunc="first").sort_index()
+    closes = panel.pivot_table(index="as_of_date", columns="symbol", values="close", aggfunc="first").reindex(opens.index)
+    pos = {t: i for i, t in enumerate(opens.index)}
+    O, C = opens.to_numpy(np.float64), closes.to_numpy(np.float64)
+    col = {s: j for j, s in enumerate(opens.columns)}
+    records = []
+    for head, h in preds.groupby("head", sort=True):
+        picks = {(k, H): [] for k in ks for H in horizons}
+        for T, day in h.groupby("as_of_date", sort=True):
+            i = pos[pd.Timestamp(T)]
+            if i + 1 >= len(opens.index):
+                continue
+            day = day.sort_values(["p_tpd3", "symbol"], ascending=[False, True], kind="mergesort")
+            j = np.array([col.get(s, -1) for s in day["symbol"]])
+            valid = j >= 0
+            entry = np.full(len(j), np.nan)
+            entry[valid] = O[i + 1, j[valid]]
+            month = pd.Timestamp(day["target_session"].iloc[0]).strftime("%Y-%m")
+            for H in horizons:
+                if i + H >= len(opens.index):
+                    continue
+                exit_ = np.full(len(j), np.nan)
+                exit_[valid] = C[i + H, j[valid]]
+                ret = exit_ / entry - 1 - cost
+                excess = ret - np.nanmean(ret)
+                for k in ks:
+                    top = excess[:k]
+                    picks[(k, H)].extend((month, v) for v in top[~np.isnan(top)])
+        for (k, H), vals in picks.items():
+            df = pd.DataFrame(vals, columns=["month", "excess"])
+            monthly = df.groupby("month")["excess"].mean() if len(df) else pd.Series(dtype=float)
+            t = (monthly.mean() / (monthly.std(ddof=1) / np.sqrt(len(monthly)))
+                 if len(monthly) > 1 and monthly.std(ddof=1) > 0 else np.nan)
+            records.append({"head": head, "k": k, "H": H, "n": int(len(df)),
+                            "mean_excess": float(df["excess"].mean()) if len(df) else np.nan,
+                            "t_month_clustered": float(t), "months": int(len(monthly))})
+    return pd.DataFrame(records)
+
+
 def _jsonable(o):
     if isinstance(o, dict):
         return {str(k): _jsonable(v) for k, v in o.items()}
@@ -193,6 +238,9 @@ def main(argv: Optional[list[str]] = None) -> None:
     cells = metric_cells(preds)
     cells.to_csv(a.run / "cells.csv", index=False)
     regimes.to_csv(a.run / "regimes.csv", index=False)
+    b7 = forward_excess_table(preds[preds["y"].notna()], panel)
+    b7.to_csv(a.run / "b7_forward_excess.csv", index=False)
+    verdict["b7"] = {"present": bool(len(b7) == 36 and b7["n"].gt(0).all()), "cells": int(len(b7))}
     blob = json.dumps(_jsonable(verdict), indent=1)  # serialise fully before touching the file
     (a.run / "verdict.json").write_text(blob)
     print(json.dumps({"lock_sha256": sha, "exposure_blocked": verdict["exposure_blocked"], "g_valid": verdict["g_valid"],

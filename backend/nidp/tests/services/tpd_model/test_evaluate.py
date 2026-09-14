@@ -85,3 +85,24 @@ def test_regime_cells_use_the_lock_minimum():
     assert set(r["cells"]) <= {"HIGH_UP", "HIGH_DOWN", "LOW_UP", "LOW_DOWN"}
     assert all(c["status"] in {"PASS", "FAIL", "INSUFFICIENT"} for c in r["cells"].values())
     assert r["cells"]["HIGH_UP"]["events"] >= 50 and r["cells"]["HIGH_UP"]["status"] != "INSUFFICIENT"
+
+
+def test_b7_forward_excess_table_has_every_cell_and_month_clustered_t():
+    """B7 (pass = present): 4 heads x k {5,10,20} x H {1,5,21} = 36 cells, each with n, mean excess, t."""
+    from nidp.services.tpd_model.evaluate import forward_excess_table
+    from nidp.tests.services.tpd_model.conftest import make_panel, weekday_sessions
+
+    s = weekday_sessions("2025-08-01", 120)
+    symbols = [f"S{i:02d}" for i in range(30)]
+    panel = make_panel(symbols, s)
+    rng = np.random.default_rng(4)
+    rows = []
+    for head in ("p_up10_1d", "p_down10_1d", "p_up10_5d", "p_down10_5d"):
+        for i in range(30, 90):
+            rows.append(pd.DataFrame({"head": head, "month": pd.Timestamp(s[i + 1]).strftime("%Y-%m"), "symbol": symbols,
+                                      "as_of_date": pd.Timestamp(s[i]), "target_session": pd.Timestamp(s[i + 1]),
+                                      "y": 0.0, "p_tpd3": rng.random(30)}))
+    table = forward_excess_table(pd.concat(rows, ignore_index=True), panel)
+    assert len(table) == 36
+    assert set(table.columns) >= {"head", "k", "H", "n", "mean_excess", "t_month_clustered", "months"}
+    assert (table["n"] > 0).all() and table["mean_excess"].notna().all()
