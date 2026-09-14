@@ -206,26 +206,41 @@ def parse_xbrl_document(body: bytes, manifest: Dict[str, Any]) -> List[Dict[str,
     if not captured_any:
         # BSE SHP v1.1 format (SEBI Dec-2025 mandate): uses a single tag
         # ShareholdingAsAPercentageOfTotalNumberOfShares with contextRef
-        # for categorisation. Values are decimal fractions (×100 = percent).
+        # for categorisation. Most filings send decimal fractions (0.4504 = 45.04%),
+        # but many June-2025-quarter filings sent percentages (20.31) in the same tag,
+        # and multiplying those by 100 stored 1,468 rows at 100x (AWFIS promoter 2031%).
+        # A filing uses one unit throughout, so decide per document: any value above
+        # 1 means the document is already in percent.
+        new_pct: List[tuple] = []
         for elem in root.iter():
             local = _localname(elem.tag)
             ctx_id = elem.get("contextRef", "")
             if local == _NEW_PCT_TAG and ctx_id in _NEW_CONTEXT_TO_COL:
                 try:
-                    raw = float((elem.text or "").strip())
+                    new_pct.append((_NEW_CONTEXT_TO_COL[ctx_id], float((elem.text or "").strip())))
                 except (ValueError, AttributeError):
                     continue
-                col = _NEW_CONTEXT_TO_COL[ctx_id]
-                row[col] = round(raw * 100, 4)
-                captured_any = True
             elif local == _NEW_SHARES_TAG and ctx_id == _NEW_TOTAL_SHARES_CTX:
                 try:
                     row["total_shares"] = int(float((elem.text or "").strip()))
                     captured_any = True
                 except (ValueError, AttributeError):
                     pass
+        if new_pct:
+            scale = 1.0 if max(v for _, v in new_pct) > 1.0 else 100.0
+            for col, raw in new_pct:
+                row[col] = round(raw * scale, 4)
+            captured_any = True
 
     if not captured_any:
+        return []
+
+    # A percentage above 100 is impossible whatever the source format; refuse the row
+    # rather than store it (the ingester logs and moves on).
+    over = [c for c, v in row.items() if c.endswith("_pct") and isinstance(v, (int, float)) and v > 100.0001]
+    if over:
+        logger.warning("shareholding XBRL for %s has impossible percentages %s; row skipped",
+                       manifest.get("symbol"), {c: row[c] for c in over})
         return []
 
     # Public % fallback — derive from 100 − promoter when missing
