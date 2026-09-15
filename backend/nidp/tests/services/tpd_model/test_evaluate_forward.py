@@ -38,7 +38,7 @@ def _write_snapshot(root, D, rng, signal=2.0, rehearsal=False, n_symbols=150):
     snap = freeze(root, preds, meta, now=datetime.combine(T.date(), datetime.min.time(), tzinfo=IST) + timedelta(hours=22),
                   rehearsal=rehearsal, extra_files={"baseline_predictions.csv": base.to_csv(index=False).encode()})
     graded = preds.copy()
-    graded["y"] = np.where(graded["head"] == "p_up10_1d", np.tile(up, 1).tolist() + [np.nan] * 0, 0.0)
+    graded["y"] = np.nan
     graded.loc[graded["head"] == "p_up10_1d", "y"] = up
     graded.loc[graded["head"] == "p_down10_1d", "y"] = down
     graded["excluded_reason"] = None
