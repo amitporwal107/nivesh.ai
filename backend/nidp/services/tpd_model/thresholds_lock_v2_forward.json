@@ -1,0 +1,55 @@
+{
+  "_what": "Ten-Percent Days 3.0 v2 FORWARD test pass bars, locked 2026-09-15 before the first forward session (2026-09-16). The v1 walk-forward (thresholds_lock.json) failed every head; per its policy re-evaluation is only a new locked run. This run is judged only on sessions scored and frozen before they opened. Editing any value after a forward session has been graded voids the test.",
+  "version": 2,
+  "locked_at": "2026-09-15",
+  "supersedes": "thresholds_lock.json for the forward test only; the v1 walk-forward verdict stands",
+  "decisions": [
+    "diagnose then forward test (user, 2026-09-15)",
+    "v2 change: market features over point-in-time universe members only (user)",
+    "heads: the two 1-day heads; 5-day heads dropped, not logged (user)",
+    "mechanics: frozen daily snapshots, local host cron, judged after 60 graded sessions (user)"
+  ],
+  "model_changes_vs_v1": ["mkt_ret1 and breadth computed over the target session's point-in-time universe members instead of every EQ stock"],
+  "heads": ["p_up10_1d", "p_down10_1d"],
+  "event_definitions": {
+    "p_up10_1d": "high(D) >= 1.10 x close(T)",
+    "p_down10_1d": "low(D) <= 0.90 x close(T)"
+  },
+  "forward_window": {"first_target_session": "2026-09-16", "graded_sessions": 60, "evaluate_by": "2026-12-31"},
+  "scoring": {
+    "filings_cutoff": "15:30 IST on T",
+    "freeze_before": "09:15 IST on the target session",
+    "manifest": "sha256 of the predictions file, lock sha256, git sha, fold month, data_as_of, generated_at",
+    "not_frozen_in_time": "session excluded from grading and counted",
+    "stale_or_partial_data": "no snapshot for that session (refusal logged and counted)"
+  },
+  "retrain": {"cadence": "monthly", "training_rows": "label horizon ends before the first session of the month", "window": "growing, capped at 18 months"},
+  "comparators": ["base_rate", "atr_only", "own_history_only"],
+  "precision_at_k": "pooled: sum of hits in each session's top-k / sum of min(k, eligible); probability desc, symbol asc",
+  "p_up10_1d_vs_fixed_baseline": {
+    "baseline": "research GBM with the A4 and A5 fixes, scored and frozen forward on the same sessions",
+    "rows": "identical (symbol, target_session) rows only",
+    "non_inferior": {"p5_margin_pp": 0.5, "auc_margin": 0.003},
+    "better": {"delta_auc_min": 0.005, "delta_p5_pp_min": 1.0,
+               "bootstrap": {"block": "week", "resamples": 2000, "ci": 0.95, "delta_p5_lower_gt": 0.0}}
+  },
+  "p_down10_1d_ship": {
+    "auc_min": 0.70,
+    "pr_auc_vs_best_comparator_min": 1.25,
+    "p5_vs_base_rate_min": 3.0,
+    "months_beating_best_comparator_auc": {"min": 2, "of_qualifying_months": 3, "qualifying_month_min_graded_sessions": 15}
+  },
+  "calibration_both_heads": {
+    "mean_pred_rel_err_max": 0.15,
+    "top_decile_rel_err_max": 0.15,
+    "deciles_pred_inside_wilson95_min": 8,
+    "logloss_below_base_rate": true,
+    "brier_skill_positive": true
+  },
+  "regimes": {"required": false, "why": "60 sessions cannot fill volatility x trend cells; reported for information only"},
+  "insufficient": "fewer than 60 graded sessions by evaluate_by -> NOT_EVALUATED; extending needs a new lock",
+  "failing_head": {
+    "policy": "hide_keep_logging",
+    "block_exposure_if_fails": "p_up10_1d"
+  }
+}
