@@ -21,18 +21,98 @@ from .rules import classify
 
 logger = logging.getLogger(__name__)
 CREDIBILITY = {"P0": 1.0, "P1": 0.9, "P2": 0.6, "P3": 0.3}
+GATE = {"exact_nse_issuer": 100, "exact_bse_issuer": 100, "exact_isin": 100, "exact_entity": 100, "verified_subsidiary": 95, "verified_parent": 95, "verified_investee": 90, "verified_promoter": 90,
+        "named_in_title": 90, "associate_jv": 85, "project_contractor": 85, "named_in_summary": 80, "supplier_customer": 60, "sector_inference": 30, "keyword_similarity": 0}
+GATE_MIN = 80
+ROW_COLUMNS = ("symbol", "event_id", "event_time", "known_at", "source", "source_url", "source_entity", "affected_entity", "listed_entity", "entity_match_type", "entity_match_score", "hops",
+               "event_type", "event_subtype", "direction", "event_severity", "business_materiality", "exposure_score", "confidence", "catalyst_score", "title", "classification_method", "path")
+
+
+def gate(match_type: str) -> int:
+    return GATE.get(match_type, 0)
+
+
+def catalyst_score(event_severity: int, entity_match_score: int, exposure_score: int, confidence: float) -> int:
+    """severity × match × exposure × confidence, 0 below the entity gate. Direct issuer: exposure 100."""
+    if entity_match_score < GATE_MIN:
+        return 0
+    return int(round(event_severity * (entity_match_score / 100) * (exposure_score / 100) * min(1.0, max(0.0, confidence)) / 0.9))
 DDL = """
 CREATE TABLE IF NOT EXISTS normalized_events (hash TEXT PRIMARY KEY, event_type TEXT, event_subtype TEXT, direction TEXT, materiality INT, confidence REAL,
   named_authorities TEXT, matched_terms TEXT, quantities TEXT, raw_language TEXT, classifier TEXT, classified_at TEXT, doc_used INT);
 CREATE TABLE IF NOT EXISTS event_stock_impacts (hash TEXT, symbol TEXT, hops INT, exposure REAL, path TEXT, source_url TEXT, direction TEXT, impact_score INT, known_at TEXT, PRIMARY KEY (hash, symbol));
 CREATE INDEX IF NOT EXISTS ix_impacts_symbol ON event_stock_impacts(symbol, known_at);
+CREATE TABLE IF NOT EXISTS stock_events (symbol TEXT, event_id TEXT, event_time TEXT, known_at TEXT, source TEXT, source_url TEXT, source_entity TEXT, affected_entity TEXT, listed_entity TEXT,
+  entity_match_type TEXT, entity_match_score INT, hops INT, event_type TEXT, event_subtype TEXT, direction TEXT, event_severity INT, business_materiality INT, exposure_score INT, confidence REAL,
+  catalyst_score INT, title TEXT, classification_method TEXT, path TEXT, PRIMARY KEY (symbol, event_id));
+CREATE INDEX IF NOT EXISTS ix_stock_events_symbol ON stock_events(symbol, known_at);
+CREATE INDEX IF NOT EXISTS ix_stock_events_known ON stock_events(known_at);
 """
+
+
+def write_rows(db, rows: list[dict]) -> None:
+    for r in rows:
+        db.execute("INSERT OR REPLACE INTO stock_events VALUES (" + ",".join("?" * len(ROW_COLUMNS)) + ")", tuple(r.get(k) for k in ROW_COLUMNS))
 
 
 def impact_score(materiality: int, exposure: Optional[float], credibility: float, novelty: int = 100) -> int:
     exp = 1.0 if exposure is None else max(0.0, min(1.0, exposure))
     exp_eff = exp if exposure is not None else 0.5          # an unsized relationship counts half, never full
     return int(round(materiality * exp_eff * (0.5 + 0.5 * novelty / 100) * credibility))
+
+
+def _exposure_score(imp: dict) -> int:
+    if imp["hops"] == 0:
+        return 100
+    if imp.get("exposure") is None:
+        return 50                                        # verified but unsized relationship counts half
+    return int(round(min(100, 30 + 70 * min(1.0, float(imp["exposure"]) / 0.25))))   # a 25% stake is full exposure; 2.53% -> ~37
+
+
+def attribute(e: dict, c: dict, em: EntityMap) -> list[dict]:
+    """Issuer first (hops 0, match 100); a listed company named in the TITLE of a regulator / institution / news item (90) or
+    in its SUMMARY (80); then only stocks reached through sourced graph edges from those subjects. Document text never
+    attributes. Rows below the entity gate are not created."""
+    src = get_source(e["source_id"]); cred = CREDIBILITY[src.priority]
+    known_at = e["first_seen_at"].isoformat() if hasattr(e["first_seen_at"], "isoformat") else e["first_seen_at"]
+    event_time = e["published_at"].isoformat() if hasattr(e["published_at"], "isoformat") else e["published_at"]
+    authority = c["named_authorities"][0] if c.get("named_authorities") else None
+    from .entities import AUTHORITY_ALIASES
+    authority_name = next((n for n, al in AUTHORITY_ALIASES.items() if authority and authority.lower() in [a.lower() for a in al] + [n.lower()]), authority)
+    subjects: list[tuple[str, str, Optional[dict]]] = []          # (entity_name, match_type, entity)
+    issuer = em.resolve_issuer(e)
+    if issuer:
+        subjects.append((issuer[0]["entity_name"], issuer[1], issuer[0]))
+    else:
+        for h in em.find_in_text(e.get("title") or ""):
+            if h.get("entity_type") in ("listed_company", "group_holding", "unlisted_company"):
+                subjects.append((h["entity_name"], "named_in_title", h))
+        for h in em.find_in_text(e.get("summary") or ""):
+            if h.get("entity_type") in ("listed_company", "group_holding", "unlisted_company") and all(h["entity_name"] != s_[0] for s_ in subjects):
+                subjects.append((h["entity_name"], "named_in_summary", h))
+    source_entity = authority_name or (src.name if src.klass in ("regulator", "government", "global", "ratings") else (subjects[0][0] if subjects else src.name))
+    rows, seen = [], set()
+    for name, mtype, ent in subjects:
+        for imp in em.propagate(name, include_self=True):
+            if imp["symbol"] in seen:
+                continue
+            m_type = mtype if imp["hops"] == 0 else imp["match_type"]
+            m_score = gate(m_type)
+            if imp["hops"] > 0 and imp["confidence"] < 0.7:
+                m_score = int(round(m_score * imp["confidence"]))     # a weakly sourced edge is discounted; a sourced one (>= 0.7) keeps its gate score
+            if m_score < GATE_MIN:
+                continue
+            seen.add(imp["symbol"])
+            exposure = _exposure_score(imp); conf = round(c["confidence"] * cred, 2)
+            listed = em.resolve_symbol(imp["symbol"]); listed_name = listed["entity_name"] if listed else imp["symbol"]
+            rows.append({"symbol": imp["symbol"], "event_id": e["hash"], "event_time": event_time, "known_at": known_at, "source": e["source_id"], "source_url": e.get("url"),
+                         "source_entity": source_entity, "affected_entity": name, "listed_entity": listed_name, "entity_match_type": m_type, "entity_match_score": m_score, "hops": imp["hops"],
+                         "event_type": c["event_type"], "event_subtype": c["event_subtype"], "direction": c["direction"], "event_severity": c["event_severity"],
+                         "business_materiality": int(round(c["event_severity"] * exposure / 100)), "exposure_score": exposure, "confidence": conf,
+                         "catalyst_score": catalyst_score(c["event_severity"], m_score, exposure, conf), "title": e.get("title"), "classification_method": c.get("classification_method", "RULE"),
+                         "path": imp["path"] if imp["hops"] else name})
+    rows.sort(key=lambda r: (r["hops"], -r["catalyst_score"]))
+    return rows
 
 
 def build_impacts(e: dict, c: dict, em: EntityMap) -> list[dict]:
@@ -66,13 +146,17 @@ def explain(e: dict, c: dict, impacts: list[dict], symbol: str) -> dict:
     why = f"{c['event_type']}/{c['event_subtype']}: terms {', '.join(c['matched_terms'][:4])}" + (f"; authority {', '.join(c['named_authorities'])}" if c["named_authorities"] else "")
     if mine and mine[0]["hops"] > 0:
         why += f"; exposure through {mine[0]['path']}"
+    if mine:
+        why += f"; match {mine[0]['entity_match_type']} {mine[0]['entity_match_score']}"
     return {"when_first_available": e["first_seen_at"].isoformat() if hasattr(e["first_seen_at"], "isoformat") else e["first_seen_at"],
             "published_by_source_at": e["published_at"].isoformat() if hasattr(e["published_at"], "isoformat") else e["published_at"],
             "where_found": f"{e['source_id']} ({src.name}, {src.priority}) {e['url']}",
             "what_happened": (e.get("summary") or e.get("title") or "")[:300] + (f" | document: {(e.get('doc_text') or '')[:300]}" if e.get("doc_text") else ""),
             "which_entity": e.get("entity_text") or e.get("symbol") or (impacts[0]["path"].split(" →")[0] if impacts else None),
-            "which_stocks": [{"symbol": i["symbol"], "hops": i["hops"], "exposure": i["exposure"], "impact_score": i["impact_score"], "path": i["path"]} for i in impacts],
-            "why": why, "direction": c["direction"], "materiality": c["materiality"], "confidence": c["confidence"], "language": c["raw_language"]}
+            "which_stocks": [{"symbol": i["symbol"], "hops": i["hops"], "exposure_score": i["exposure_score"], "entity_match_type": i["entity_match_type"], "entity_match_score": i["entity_match_score"],
+                              "catalyst_score": i["catalyst_score"], "path": i["path"]} for i in impacts],
+            "why": why, "direction": c["direction"], "materiality": c["event_severity"], "event_severity": c["event_severity"], "confidence": c["confidence"], "language": c["raw_language"],
+            "classification_method": c.get("classification_method", "RULE")}
 
 
 def _load_events(db: sqlite3.Connection, since: Optional[str], limit: int, only_symbol: Optional[str] = None) -> list[dict]:
@@ -92,7 +176,7 @@ def run(home: Path, names: Path, since: Optional[str], docs: bool, limit: int, r
         hashes = [e["hash"] for e in events]
         for k in range(0, len(hashes), 500):
             chunk = hashes[k:k + 500]; qm = ",".join("?" * len(chunk))
-            db.execute(f"DELETE FROM normalized_events WHERE hash IN ({qm})", chunk); db.execute(f"DELETE FROM event_stock_impacts WHERE hash IN ({qm})", chunk)
+            db.execute(f"DELETE FROM normalized_events WHERE hash IN ({qm})", chunk); db.execute(f"DELETE FROM event_stock_impacts WHERE hash IN ({qm})", chunk); db.execute(f"DELETE FROM stock_events WHERE event_id IN ({qm})", chunk)
         db.commit()
     done = {r[0] for r in db.execute("SELECT hash FROM normalized_events")}
     stats = {"seen": len(events), "classified": 0, "docs_fetched": 0, "impacts": 0, "by_type": {}}
@@ -103,12 +187,10 @@ def run(home: Path, names: Path, since: Optional[str], docs: bool, limit: int, r
             e["doc_text"] = dc.text(e["hash"], e["url"]); stats["docs_fetched"] += 1 if e["doc_text"] else 0
         c = classify(e)
         db.execute("INSERT OR REPLACE INTO normalized_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                   (e["hash"], c["event_type"], c["event_subtype"], c["direction"], c["materiality"], c["confidence"], json.dumps(c["named_authorities"]), json.dumps(c["matched_terms"]),
+                   (e["hash"], c["event_type"], c["event_subtype"], c["direction"], c["event_severity"], c["confidence"], json.dumps(c["named_authorities"]), json.dumps(c["matched_terms"]),
                     json.dumps(c["quantities"]), c["raw_language"], c["classifier"], datetime.now(IST).isoformat(), int(bool(e.get("doc_text")))))
-        if c["event_type"] not in ("routine", "unclassified") or e.get("symbol"):
-            for i in build_impacts(e, c, em):
-                db.execute("INSERT OR REPLACE INTO event_stock_impacts VALUES (?,?,?,?,?,?,?,?,?)", (e["hash"], i["symbol"], i["hops"], i["exposure"], i["path"], i["source_url"], i["direction"], i["impact_score"], i["known_at"]))
-                stats["impacts"] += 1
+        if c["event_type"] not in ("ROUTINE",):
+            rows_ = attribute(e, c, em); write_rows(db, rows_); stats["impacts"] += len(rows_)
         stats["classified"] += 1; stats["by_type"][c["event_type"]] = stats["by_type"].get(c["event_type"], 0) + 1
         if stats["classified"] % 50 == 0:
             db.commit()                                   # short transactions: the cron chain and a manual run may overlap
@@ -120,7 +202,7 @@ def explain_symbol(home: Path, names: Path, symbol: str, before: Optional[str], 
     db = sqlite3.connect(home / "events.sqlite", timeout=120); db.executescript(DDL)
     em = EntityMap.from_files(names); dc = DocumentCache(home / "docs")
     out = []
-    q = """SELECT DISTINCT r.* FROM raw_events r LEFT JOIN event_stock_impacts i ON i.hash = r.hash
+    q = """SELECT DISTINCT r.* FROM raw_events r LEFT JOIN stock_events i ON i.event_id = r.hash
            WHERE (r.symbol = ? OR i.symbol = ?) ORDER BY r.published_at DESC LIMIT 500"""
     cur = db.execute(q, (symbol, symbol)); cols = [c[0] for c in cur.description]
     for e in [dict(zip(cols, r)) for r in cur.fetchall()]:
@@ -132,12 +214,12 @@ def explain_symbol(home: Path, names: Path, symbol: str, before: Optional[str], 
             p = home / "docs" / f"{e['hash']}.txt"
             e["doc_text"] = p.read_text() if p.exists() else None
         c = classify(e)
-        if c["event_type"] in ("routine",):
+        if c["event_type"] in ("ROUTINE",):
             continue
-        imps = build_impacts(e, c, em)
-        if any(i["symbol"] == symbol for i in imps):
-            out.append({"event": {k: e[k] for k in ("source_id", "published_at", "first_seen_at", "title", "url")}, "explanation": explain(e, c, imps, symbol)})
-    out.sort(key=lambda x: -max(i["impact_score"] for i in x["explanation"]["which_stocks"] if i["symbol"] == symbol))
+        rows_ = attribute(e, c, em)
+        if any(r["symbol"] == symbol for r in rows_):
+            out.append({"event": {k: e[k] for k in ("source_id", "published_at", "first_seen_at", "title", "url")}, "explanation": explain(e, c, rows_, symbol)})
+    out.sort(key=lambda x: -max(i["catalyst_score"] for i in x["explanation"]["which_stocks"] if i["symbol"] == symbol))
     return out
 
 
@@ -145,23 +227,18 @@ def board(home: Path, known_before: str, since: str, min_score: int = 20, univer
     """Stocks exposed to non-routine events published since `since` and known (first_seen_at) at or before `known_before`,
     one row per stock: the best impact, its direction, the event behind it and how many events touch the stock."""
     db = sqlite3.connect(home / "events.sqlite", timeout=120)
-    q = """SELECT i.symbol, i.hops, i.exposure, i.path, i.direction, i.impact_score, i.known_at, n.event_type, n.event_subtype, n.materiality, n.confidence, n.classifier,
-                  r.title, r.source_id, r.url, r.published_at, r.hash
-           FROM event_stock_impacts i JOIN normalized_events n ON n.hash = i.hash JOIN raw_events r ON r.hash = i.hash
-           WHERE i.known_at <= ? AND r.published_at >= ? AND n.event_type NOT IN ('routine') AND i.impact_score >= ?
-           ORDER BY i.symbol, i.impact_score DESC, i.known_at DESC"""
-    rows = db.execute(q, (known_before, since, min_score)).fetchall(); db.close()
+    q = "SELECT " + ", ".join(ROW_COLUMNS) + """ FROM stock_events WHERE known_at <= ? AND event_time >= ? AND event_type NOT IN ('ROUTINE') AND catalyst_score >= ?
+           ORDER BY symbol, catalyst_score DESC, known_at DESC"""
+    rows = [dict(zip(ROW_COLUMNS, r)) for r in db.execute(q, (known_before, since, min_score)).fetchall()]; db.close()
     out, cur = [], None
-    for sym, hops, exp, path, direction, score, known_at, etype, sub, mat, conf, clf, title, src, url, pub, h in rows:
-        if cur is None or cur["symbol"] != sym:
-            cur = {"symbol": sym, "in_universe": (sym in universe) if universe is not None else None, "best_score": int(score), "direction": direction, "hops": int(hops), "exposure": exp,
-                   "n_events": 0, "event_types": [], "top_event": {"hash": h, "title": title, "source_id": src, "url": url, "published_at": pub, "known_at": known_at, "event_type": etype,
-                                                                   "event_subtype": sub, "materiality": mat, "confidence": conf, "classifier": clf, "path": path}}
+    for r in rows:
+        if cur is None or cur["symbol"] != r["symbol"]:
+            cur = {**r, "in_universe": (r["symbol"] in universe) if universe is not None else None, "n_events": 0, "event_types": []}
             out.append(cur)
         cur["n_events"] += 1
-        if etype not in cur["event_types"]:
-            cur["event_types"].append(etype)
-    out.sort(key=lambda r: (-r["best_score"], r["symbol"]))
+        if r["event_type"] not in cur["event_types"]:
+            cur["event_types"].append(r["event_type"])
+    out.sort(key=lambda r: (-r["catalyst_score"], r["symbol"]))
     return out[:limit]
 
 
@@ -188,10 +265,10 @@ def main(argv=None) -> int:
         b = board(a.home, a.known_before, a.since, a.min_score, uni)
         if a.out:
             a.out.write_text(json.dumps(b, indent=1, ensure_ascii=False))
-        print(f"{'symbol':12s} {'uni':3s} {'score':>5s} {'dir':8s} {'hops':>4s} {'n':>3s} {'type/subtype':30s} {'known_at':25s} {'source':22s} title")
+        print(f"{'symbol':11s} {'uni':3s} {'cat':>3s} {'sev':>3s} {'exp':>3s} {'match':>5s} {'hop':>3s} {'dir':8s} {'meth':8s} {'type/subtype':26s} {'source_entity':22s} {'affected_entity':26s} {'known_at':16s} {'source':21s} title")
         for r in b[: a.top]:
-            t = r["top_event"]
-            print(f"{r['symbol']:12s} {('yes' if r['in_universe'] else ('no' if r['in_universe'] is False else '-')):3s} {r['best_score']:5d} {r['direction']:8s} {r['hops']:4d} {r['n_events']:3d} {(t['event_type'] + '/' + str(t['event_subtype']))[:30]:30s} {t['known_at'][:19]:25s} {t['source_id'][:22]:22s} {t['title'][:70]}")
+            print(f"{r['symbol']:11s} {('yes' if r['in_universe'] else ('no' if r['in_universe'] is False else '-')):3s} {r['catalyst_score']:3d} {r['event_severity']:3d} {r['exposure_score']:3d} {r['entity_match_score']:5d} {r['hops']:3d} {r['direction']:8s} {r['classification_method']:8s} "
+                  f"{(r['event_type'] + '/' + str(r['event_subtype']))[:26]:26s} {str(r['source_entity'])[:22]:22s} {str(r['affected_entity'])[:26]:26s} {r['known_at'][:16]:16s} {r['source'][:21]:21s} {str(r['title'])[:60]}")
         return 0
     for x in explain_symbol(a.home, a.names, a.symbol, a.before)[: a.top]:
         print(json.dumps(x, indent=1, default=str, ensure_ascii=False))

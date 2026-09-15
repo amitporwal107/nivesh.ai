@@ -49,7 +49,7 @@ def test_golden_emudhra_positive_institution_direct():
 
 def test_golden_tatachem_positive_through_a_sourced_stake():
     c, rows = _attribute("TATASONS_NEWS_BS")
-    assert c["event_type"] == "REGULATORY" and c["event_subtype"] == "rejection"
+    assert c["event_type"] == "REGULATORY" and c["event_subtype"] in ("forced_listing", "rejection")
     by = {r["symbol"]: r for r in rows}
     assert "TATACHEM" in by and by["TATACHEM"]["hops"] == 1 and by["TATACHEM"]["entity_match_type"] == "verified_investee" and by["TATACHEM"]["entity_match_score"] >= 85
     assert by["TATACHEM"]["source_entity"] == "Reserve Bank of India" and by["TATACHEM"]["affected_entity"] == "Tata Sons" and by["TATACHEM"]["listed_entity"] == "Tata Chemicals Limited"

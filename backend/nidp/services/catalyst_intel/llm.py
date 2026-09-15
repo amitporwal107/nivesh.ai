@@ -25,7 +25,8 @@ from .rules import classify
 logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "gpt-4o-mini"
 PRICE_PER_1M = {"gpt-4o-mini": (0.15, 0.60)}          # USD, prompt / completion (public list price, for the cap only)
-EVENT_TYPES = ("results", "order_win", "regulatory_decision", "regulatory_policy", "m_and_a", "capital", "credit", "management", "legal", "operations", "institution", "group", "routine", "unclassified")
+from .rules import TAXONOMY
+EVENT_TYPES = tuple(TAXONOMY)
 DIRECTIONS = ("positive", "negative", "mixed", "neutral"); HORIZONS = ("intraday", "days", "weeks", "months", "structural")
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["event_type", "event_subtype", "direction", "materiality", "novelty", "confidence", "time_horizon", "economic_mechanism", "entities", "affected_listed", "quantities", "rationale"],
           "properties": {"event_type": {"type": "string", "enum": list(EVENT_TYPES)}, "event_subtype": {"type": "string"}, "direction": {"type": "string", "enum": list(DIRECTIONS)},
@@ -67,17 +68,18 @@ def make_client():
 
 
 def is_candidate(e: dict, rules: dict) -> bool:
-    if rules["event_type"] == "routine":
+    if rules["event_type"] == "ROUTINE":
         return False
-    if rules["event_type"] == "unclassified":
+    if rules["event_type"] == "UNCLASSIFIED":
         return bool(e.get("symbol") or e.get("scrip_code"))
-    return rules["materiality"] >= 40 or bool(e.get("symbol") or e.get("scrip_code")) or bool(rules["named_authorities"])
+    return rules["event_severity"] >= 40 or bool(rules["named_authorities"])
 
 
 def _prompt(e: dict, rules: dict) -> str:
     parts = [f"SOURCE: {e['source_id']}", f"TITLE: {e.get('title')}", f"CATEGORY: {e.get('category')}", f"FILER: {e.get('entity_text') or e.get('symbol') or ''}",
              f"SUMMARY: {e.get('summary') or ''}", f"DOCUMENT (first part): {(e.get('doc_text') or '')[:6000]}",
-             f"RULES READING: type={rules['event_type']}/{rules['event_subtype']} direction={rules['direction']} materiality={rules['materiality']} authorities={rules['named_authorities']}"]
+             f"RULES READING: type={rules['event_type']}/{rules['event_subtype']} direction={rules['direction']} severity={rules['event_severity']} authorities={rules['named_authorities']}",
+             f"ALLOWED TYPES: {list(TAXONOMY)}; ALLOWED SUBTYPES PER TYPE: {TAXONOMY}"]
     return "\n".join(parts)
 
 
@@ -95,7 +97,7 @@ def _validate(raw: str) -> dict:
 
 def refine(e: dict, rules: dict, em: EntityMap, client=None, model: str = DEFAULT_MODEL, band: int = 20) -> dict:
     """Rules result plus the model's refinement, bounded; falls back to the rules result on any failure."""
-    out = dict(rules); out.update(materiality_rules=rules["materiality"], direction_rules=rules["direction"], affected_listed=[], dropped_entities=[], llm_error=None, usage=None)
+    out = dict(rules); out.update(materiality_rules=rules["event_severity"], direction_rules=rules["direction"], affected_listed=[], dropped_entities=[], llm_error=None, usage=None)
     try:
         client = client or make_client()
         t0 = _time.time()
@@ -106,10 +108,12 @@ def refine(e: dict, rules: dict, em: EntityMap, client=None, model: str = DEFAUL
     except Exception as ex:  # noqa: BLE001 — the rules result stands
         out["llm_error"] = f"contract: {ex}" if isinstance(ex, (ValueError, KeyError, json.JSONDecodeError)) else f"{type(ex).__name__}: {str(ex)[:120]}"
         return out
-    lo, hi = max(0, rules["materiality"] - band), min(100, rules["materiality"] + band)
-    if rules["event_type"] == "unclassified":
+    lo, hi = max(0, rules["event_severity"] - band), min(100, rules["event_severity"] + band)
+    if rules["event_type"] == "UNCLASSIFIED":
         lo, hi = 0, 100
-    out.update(event_type=d["event_type"], event_subtype=d["event_subtype"] or rules["event_subtype"], direction=d["direction"], materiality=int(min(hi, max(lo, int(d["materiality"])))),
+    sub = d["event_subtype"] if d["event_subtype"] in TAXONOMY.get(d["event_type"], ()) else (rules["event_subtype"] if rules["event_type"] == d["event_type"] else TAXONOMY[d["event_type"]][0])
+    sev = int(min(hi, max(lo, int(d["materiality"]))))
+    out.update(event_type=d["event_type"], event_subtype=sub, direction=d["direction"], materiality=sev, event_severity=sev, classification_method="RULE+LLM",
                novelty=int(d["novelty"]), confidence=round(float(d["confidence"]), 2), time_horizon=d["time_horizon"], economic_mechanism=d["economic_mechanism"],
                entities=d["entities"], quantities={**rules.get("quantities", {}), **{k: v for k, v in d["quantities"].items() if v is not None}}, rationale=d["rationale"][:500],
                classifier=f"llm:{model}", usage={"prompt_tokens": resp.usage.prompt_tokens, "completion_tokens": resp.usage.completion_tokens, "seconds": round(_time.time() - t0, 1)})
@@ -136,7 +140,7 @@ class RefineCache:
 
 
 def run(home: Path, names: Path, since: Optional[str], max_events: int, max_usd: float, model: str = DEFAULT_MODEL) -> dict:
-    from .catalysts import DDL, _load_events, build_impacts
+    from .catalysts import DDL, _load_events, attribute, write_rows
     db = sqlite3.connect(home / "events.sqlite", timeout=120); db.executescript(DDL)
     db.executescript("CREATE TABLE IF NOT EXISTS llm_refinements (hash TEXT PRIMARY KEY, model TEXT, event_type TEXT, event_subtype TEXT, direction TEXT, materiality INT, novelty INT, confidence REAL, time_horizon TEXT, economic_mechanism TEXT, affected_listed TEXT, dropped_entities TEXT, rationale TEXT, prompt_tokens INT, completion_tokens INT, refined_at TEXT, error TEXT);")
     em = EntityMap.from_files(names); cache = RefineCache(home / "llm"); client = make_client()
@@ -171,12 +175,8 @@ def run(home: Path, names: Path, since: Optional[str], max_events: int, max_usd:
             # the refined reading replaces the rules row for this event; impacts are rebuilt from it
             db.execute("INSERT OR REPLACE INTO normalized_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", (e["hash"], out["event_type"], out["event_subtype"], out["direction"], out["materiality"], out["confidence"],
                        json.dumps(out["named_authorities"]), json.dumps(out["matched_terms"]), json.dumps(out["quantities"]), out["raw_language"], out["classifier"], datetime.now(IST).isoformat(), int(bool(e.get("doc_text")))))
-            db.execute("DELETE FROM event_stock_impacts WHERE hash = ?", (e["hash"],))
-            for i in build_impacts(e, out, em):
-                db.execute("INSERT OR REPLACE INTO event_stock_impacts VALUES (?,?,?,?,?,?,?,?,?)", (e["hash"], i["symbol"], i["hops"], i["exposure"], i["path"], i["source_url"], i["direction"], i["impact_score"], i["known_at"]))
-            for a in out["affected_listed"]:
-                if not db.execute("SELECT 1 FROM event_stock_impacts WHERE hash=? AND symbol=?", (e["hash"], a["symbol"])).fetchone():
-                    db.execute("INSERT OR REPLACE INTO event_stock_impacts VALUES (?,?,?,?,?,?,?,?,?)", (e["hash"], a["symbol"], 1, None, f"{e.get('entity_text') or e.get('symbol') or 'event'} → (LLM: {a['why'][:80]}) → {a['entity_name']}", None, out["direction"], int(out["materiality"] * 0.5 * 0.9), e["first_seen_at"]))
+            db.execute("DELETE FROM stock_events WHERE event_id = ?", (e["hash"],))
+            write_rows(db, attribute(e, out, em))          # the LLM may only refine the reading; attribution stays graph-gated (its affected_listed is recorded, not scored)
         db.execute("INSERT OR REPLACE INTO llm_refinements VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (e["hash"], model, out.get("event_type"), out.get("event_subtype"), out.get("direction"), out.get("materiality"), out.get("novelty"), out.get("confidence"),
                    out.get("time_horizon"), out.get("economic_mechanism"), json.dumps(out.get("affected_listed")), json.dumps(out.get("dropped_entities")), out.get("rationale"), (out.get("usage") or {}).get("prompt_tokens"), (out.get("usage") or {}).get("completion_tokens"), datetime.now(IST).isoformat(), out.get("llm_error")))
         db.commit()

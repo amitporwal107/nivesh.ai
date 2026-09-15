@@ -63,15 +63,15 @@ def test_refine_validates_the_contract_bounds_materiality_and_drops_unresolved_e
 
     e = _ev("RBI files caveat after rejecting Tata Sons bid to avoid market listing", "The RBI rejected Tata Sons' application to deregister as an NBFC", source_id="bs_companies")
     rules = classify(e)                                                    # regulatory_decision / rejection / negative / 80+
-    payload = {"event_type": "regulatory_decision", "event_subtype": "registration_rejection", "direction": "positive", "materiality": 40, "novelty": 95, "confidence": 0.9,
+    payload = {"event_type": "REGULATORY", "event_subtype": "rejection", "direction": "positive", "materiality": 40, "novelty": 95, "confidence": 0.9,
                "time_horizon": "months", "economic_mechanism": "value_unlock", "entities": [{"name": "Reserve Bank of India", "role": "regulator"}, {"name": "Tata Sons", "role": "subject"}],
                "affected_listed": [{"name": "Tata Chemicals Limited", "why": "holds 2.53% of Tata Sons"}, {"name": "Unicorn Widgets Ltd", "why": "made up"}],
                "quantities": {}, "rationale": "Rejection keeps a listing on the table; group companies with stakes benefit"}
     client = _fake_client(payload)
     out = refine(e, rules, _entities(), client=client, model="fake-model")
-    assert out["classifier"].startswith("llm:") and out["event_type"] == "regulatory_decision" and out["event_subtype"] == "registration_rejection"
-    assert out["direction"] == "positive"                                  # the LLM may flip direction for a second-order reading, recorded as such
-    assert out["direction_rules"] == "negative"
+    assert out["classifier"].startswith("llm:") and out["event_type"] == "REGULATORY" and out["event_subtype"] == "rejection" and out["classification_method"] == "RULE+LLM"
+    assert out["direction"] == "positive"
+    assert out["direction_rules"] == "positive"                            # the forced-listing rule already reads a denied exit from listing as positive for holders
     assert out["materiality"] == rules["materiality"] - 20 and out["materiality_rules"] == rules["materiality"]   # 40 clipped to the rules prior − 20
     assert [a["symbol"] for a in out["affected_listed"]] == ["TATACHEM"] and out["dropped_entities"] == ["Unicorn Widgets Ltd"]
     assert out["usage"]["prompt_tokens"] == 500 and "sk-" not in json.dumps(out)
@@ -86,7 +86,7 @@ def test_refine_rejects_malformed_output_and_keeps_the_rules_result():
     e = _ev("PNCINFRA: Action(s) taken or orders passed", "informed the Exchange", "PNCINFRA", category="Action(s) taken or orders passed", doc_text="NHAI extended the debarment for three years")
     rules = classify(e)
     out = refine(e, rules, _entities(), client=_fake_client({"event_type": "not_a_type", "direction": "up"}), model="fake")
-    assert out["classifier"] == "rules-v1" and out["llm_error"].startswith("contract") and out["event_subtype"] == "debarment"
+    assert out["classifier"].startswith("rules") and out["llm_error"].startswith("contract") and out["event_subtype"] == "debarment"
 
 
 def test_refinements_are_cached_by_hash(tmp_path):
@@ -107,5 +107,5 @@ def test_live_smoke_one_call_on_the_pnc_filing():
                      "Company will not be able to participate in any bid of MoRTH/NHAI and their executing agencies for a period of three years.")
     out = refine(e, classify(e), _entities(), client=make_client(), model="gpt-4o-mini")
     assert out["classifier"].startswith("llm:"), out.get("llm_error")
-    assert out["direction"] == "negative" and out["event_type"] == "regulatory_decision" and out["materiality"] >= 70
+    assert out["direction"] == "negative" and out["event_type"] == "REGULATORY" and out["materiality"] >= 70
     assert [a["symbol"] for a in out["affected_listed"]] == ["PNCINFRA"] and out["usage"]["prompt_tokens"] > 0
