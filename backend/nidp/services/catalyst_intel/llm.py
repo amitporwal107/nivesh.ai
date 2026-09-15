@@ -72,6 +72,8 @@ def is_candidate(e: dict, rules: dict) -> bool:
         return False
     if rules["event_type"] == "UNCLASSIFIED":
         return bool(e.get("symbol") or e.get("scrip_code"))
+    if rules["event_subtype"] == "update" and e.get("doc_text"):       # a generic "Updates" filing whose document said nothing to the rules: worth a read
+        return True
     return rules["event_severity"] >= 40 or bool(rules["named_authorities"])
 
 

@@ -36,13 +36,13 @@ RULES = [
     ("REGULATORY", "bidding_restriction", "negative", 85, [r"bidding restriction", r"not (?:be )?able to participate in any bid", r"restrict(?:ed|ion) from (?:bidding|participat)"]),
     ("REGULATORY", "ban", "negative", 85, [r"\bban(?:ned|s)?\b", r"\bprohibit(?:ed|s)\b", r"restrain(?:ed|s)?\b", r"cease and desist"]),
     ("REGULATORY", "forced_listing", "positive", 85, [r"reject.{0,90}(?:surrender|deregist|de-regist|avoid (?:a |market |public |stock[- ]market )?listing|exemption from listing)", r"(?:surrender|deregist).{0,90}reject"]),   # a holding company denied its exit from listing rules: positive for the companies that own it
-    ("REGULATORY", "rejection", "negative", 80, [r"reject(?:ed|s|ion)", r"declin(?:ed|es)", r"not approved", r"refus(?:ed|al)"]),
+    ("REGULATORY", "rejection", "negative", 80, [r"reject(?:ed|s|ion)[^.]{0,40}(?:application|request|proposal|petition|appeal|bid|plea)", r"application.{0,40}reject", r"declin(?:ed|es) (?:the |to grant |to approve )?(?:application|request|proposal|approval)", r"not approved", r"refus(?:ed|al) (?:to|of)"]),
     ("REGULATORY", "licence_cancelled", "negative", 85, [r"cancel(?:led|lation) of (?:the )?(?:licen[cs]e|registration|certificate)", r"licen[cs]e (?:cancel|suspend|revok)", r"withdraw(?:al|n) of (?:the )?(?:licen[cs]e|registration)"]),
     ("REGULATORY", "suspension", "negative", 75, [r"suspen(?:ded|sion) of (?:trading|licen[cs]e|registration|operations)"]),
     ("REGULATORY", "penalty", "negative", 55, [r"\bpenalt", r"\bfine of\b", r"monetary penalty", r"show[- ]cause", r"adjudicat"]),
     ("REGULATORY", "regulatory_order", "negative", 60, [r"directions? (?:issued|imposed)", r"order (?:passed|issued) (?:by|under)", r"\bembargo\b"]),
     ("REGULATORY", "licence_granted", "positive", 65, [r"licen[cs]e (?:granted|received|obtained)", r"registration (?:granted|received)", r"\bgrant of (?:the )?(?:licen[cs]e|registration|approval)"]),
-    ("REGULATORY", "approval", "positive", 60, [r"\bapprov(?:al|ed|es)\b", r"\bgrant(?:ed|s)\b", r"\bauthori[sz]ed\b", r"in-principle", r"no objection certificate", r"\bnoc\b"]),
+    ("REGULATORY", "approval", "positive", 40, [r"(?:rbi|sebi|cci|nhai|dgca|dot|cdsco|fda|ministry|government|authority|regulator)[^.]{0,60}\bapprov(?:al|ed|es)\b", r"\bapprov(?:al|ed|es)\b[^.]{0,60}(?:from|by) (?:the )?(?:rbi|sebi|cci|nhai|dgca|dot|cdsco|fda|ministry|government|authority|regulator)", r"in-principle approval", r"no objection certificate", r"\bnoc\b"]),
     ("PHARMA", "fda_warning", "negative", 75, [r"warning letter"]), ("PHARMA", "import_alert", "negative", 85, [r"import alert"]),
     ("PHARMA", "inspection", "negative", 50, [r"form 483", r"\b483\b", r"observations? (?:issued|received)", r"official action indicated", r"\boai\b"]),
     ("PHARMA", "recall", "negative", 60, [r"\brecall(?:ed|s)?\b"]), ("PHARMA", "clinical_hold", "negative", 60, [r"clinical hold"]),
@@ -58,9 +58,9 @@ RULES = [
     ("M&A", "acquisition", "positive", 50, [r"acqui(?:re|sition|red)"]),
     ("CAPITAL", "buyback", "positive", 45, [r"buy[- ]?back"]), ("CAPITAL", "bonus_split", "positive", 35, [r"bonus (?:issue|shares)", r"stock split", r"sub-?division"]),
     ("CAPITAL", "delisting", "mixed", 60, [r"delist"]), ("CAPITAL", "dividend", "positive", 20, [r"\bdividend\b"]),
-    ("CAPITAL", "fund_raise", "mixed", 40, [r"\bqip\b", r"preferential (?:issue|allotment)", r"rights issue", r"fund ?rais", r"\bfpo\b", r"\bipo\b", r"\bncd\b"]),
-    ("FINANCIAL", "rating_downgrade", "negative", 65, [r"downgrad", r"negative outlook", r"rating watch with negative"]), ("FINANCIAL", "default", "negative", 85, [r"\bdefault(?:ed|s)?\b"]),
-    ("FINANCIAL", "insolvency", "negative", 80, [r"insolvency", r"\bcirp\b", r"resolution plan", r"liquidation", r"\bibc\b", r"admitted (?:by|under) nclt"]),
+    ("CAPITAL", "fund_raise", "mixed", 40, [r"\bqip\b", r"preferential (?:issue|allotment)", r"rights issue", r"fund ?rais", r"\bfpo\b", r"\bipo\b", r"\bncds?\b", r"issuance of (?:non-convertible|debentures|equity|shares|commercial paper|bonds)", r"non-convertible debentures"]),
+    ("FINANCIAL", "rating_downgrade", "negative", 65, [r"downgrad", r"negative outlook", r"rating watch with negative"]), ("FINANCIAL", "default", "negative", 85, [r"default(?:ed)? (?:in|on) (?:the )?(?:payment|repayment|servicing|interest|principal)", r"event of default has occurred", r"has defaulted", r"delay/default in (?:the )?payment"]),
+    ("FINANCIAL", "insolvency", "negative", 80, [r"corporate insolvency", r"insolvency (?:resolution|petition|proceedings)", r"\bcirp\b", r"resolution plan", r"(?:under|into|ordered?) liquidation", r"liquidation of the company", r"admitted (?:by|under) nclt"]),
     ("FINANCIAL", "debt_restructuring", "negative", 60, [r"debt restructur", r"one[- ]time settlement", r"\bots\b"]),
     ("FINANCIAL", "rating_upgrade", "positive", 55, [r"upgrad", r"positive outlook"]), ("FINANCIAL", "rating_watch", "neutral", 40, [r"reaffirm", r"rating (?:continues on )?watch"]),
     ("LEGAL", "tax_demand", "negative", 45, [r"tax demand", r"demand notice", r"attach(?:ed|ment) of (?:property|assets|bank)"]),
@@ -88,6 +88,10 @@ CATEGORY_MAP = {
     "Copy of Newspaper Publication": ("ROUTINE", "routine", "neutral", 5), "ESOP/ESOS/ESPS": ("ROUTINE", "routine", "neutral", 5), "Reply to Clarification- Financial results": ("ROUTINE", "routine", "neutral", 5),
     "Certificate under SEBI (Depositories and Participants) Regulations": ("ROUTINE", "routine", "neutral", 5), "Loss of share certificates": ("ROUTINE", "routine", "neutral", 5),
     "Insider Trading / SAST": ("ROUTINE", "routine", "neutral", 5), "Closure of Trading Window": ("ROUTINE", "routine", "neutral", 5), "Investor Presentation": ("ROUTINE", "routine", "neutral", 8),
+    "AGM/EGM": ("ROUTINE", "routine", "neutral", 5), "Shareholder Meeting / Postal Ballot": ("ROUTINE", "routine", "neutral", 5), "Amendment to AOA/MOA": ("ROUTINE", "routine", "neutral", 8),
+    "Others": ("ROUTINE", "routine", "neutral", 8), "New Listing": ("ROUTINE", "routine", "neutral", 8), "Board Meeting": ("RESULTS", "board_outcome", "mixed", 35), "Result": ("RESULTS", "quarterly", "mixed", 60),
+    "Delay/default in the payment of fines/penalties/dues": ("REGULATORY", "penalty", "negative", 30), "Fraud/Default/Arrest": ("CORPORATE", "management_change", "negative", 55),
+    "Corporate Insolvency Resolution Process": ("FINANCIAL", "insolvency", "negative", 75),
     "Change in Director(s)": ("CORPORATE", "director_change", "neutral", 15), "Change in Management": ("CORPORATE", "management_change", "neutral", 25), "Appointment": ("CORPORATE", "appointment", "neutral", 15),
     "Resignation of Director/KMP/SMP": ("CORPORATE", "resignation", "negative", 30), "Resignation": ("CORPORATE", "resignation", "negative", 30), "Cessation": ("CORPORATE", "resignation", "negative", 25),
     "Action(s) taken or orders passed": ("REGULATORY", "regulatory_order", "negative", 60), "Action(s) initiated or orders passed": ("REGULATORY", "regulatory_order", "negative", 60),
@@ -105,7 +109,7 @@ _NEGATION_BEFORE = re.compile(r"\b(?:not|no|never|neither|nor|without|non)\b(?:\
 _NEGATION_AFTER = re.compile(r"^\s*(?:\w+\s+){0,2}(?:not|no)\b", re.I)
 
 
-GENERIC_CATEGORIES = {"Updates", "General Updates", "Press Release", "Company Update", "Corporate Update", "Others", "Other"}
+GENERIC_CATEGORIES = {"Updates", "General Updates", "Press Release", "Company Update", "Corporate Update"}
 
 
 def _negated(low: str, m: "re.Match") -> bool:
@@ -121,9 +125,27 @@ def _whole_word(low: str, m: "re.Match") -> str:
     return low[start:end]
 
 
+_BOILERPLATE = re.compile(
+    r"(?:is |are |been |not |not not )?debarred from holding (?:the )?office[^.]{0,80}|by virtue of any (?:sebi )?order[^.]{0,60}|debarred from accessing the (?:capital|securities) market[^.]{0,60}"
+    r"|prohibited except with prior[^.]{0,80}|in the event of default or impairment[^.]{0,40}|rating symbols and definitions[^.]{0,60}|credit default swaps?"
+    r"|default in payment of interest / principal[^.]{0,120}|delay in payment of interest / (?:none )?principal[^.]{0,120}|rejection/ ?acceptance|communicating the rejection[^.]{0,60}"
+    r"|seeking approval of the members[^.]{0,80}|approval of the members[^.]{0,40}|valuation of assets, liquidation[^.]{0,60}|liquidation and other company matters"
+    r"|declined to about[^.]{0,40}|declined (?:from|to) [\d.]+", re.I)
+HEAD_CHARS = 1500      # a document's subject line and first paragraph decide its group; boilerplate lives further down
+
+
+def _clean(t: str) -> str:
+    return _BOILERPLATE.sub(" ", _REGULATION_NAMES.sub(" ", t))
+
+
 def _text(e: dict) -> str:
     raw = " ".join(x for x in (e.get("title"), e.get("summary"), e.get("doc_text")) if x)
-    return _REGULATION_NAMES.sub(" ", raw)
+    return _clean(raw)
+
+
+def _head(e: dict) -> str:
+    """Title + summary + the head of the document: the only text allowed to move a filing into another group."""
+    return _clean(" ".join(x for x in (e.get("title"), e.get("summary"), (e.get("doc_text") or "")[:HEAD_CHARS]) if x))
 
 
 def _quantities(text: str) -> dict:
@@ -181,10 +203,19 @@ def classify(e: dict) -> dict:
         return _result("ROUTINE", "routine", "neutral", 5, [f"category:{cat}"], named, text, lang, 0.9, doc)
     if cm and cm[0]:
         group, sub, direction, sev = cm
-        # keyword rules may refine within the category's group; a move into REGULATORY needs a named authority and a regulatory term
-        best = _best_rule(low, allowed_groups={group, "REGULATORY", "PHARMA"} if named else {group})
-        if best and best[0] in ("REGULATORY", "PHARMA") and group not in ("REGULATORY", "PHARMA") and best[3] < 70:
-            best = _best_rule(low, allowed_groups={group})
+        head = _head(e).lower()
+        if cat == "Credit Rating":                                  # rating rationales quote definitions and disclaimers: only rating terms count
+            best = _best_rule(head, allowed_groups={"FINANCIAL"})
+            best = best if best and best[1] in ("rating_upgrade", "rating_downgrade", "rating_watch") else None
+        else:
+            # within the category's group the whole document may refine; a move into another group needs the subject line / head,
+            # and a move into REGULATORY or PHARMA also needs a named authority there
+            within = _best_rule(low, allowed_groups={group})
+            head_named = [n for n, pats in AUTHORITIES.items() if any(re.search(p, head) for p in pats)]
+            across = _best_rule(head, allowed_groups=({"REGULATORY", "PHARMA"} if head_named else set()) | {"FINANCIAL", "CONTRACT", "M&A", "CAPITAL"})
+            if across and across[0] in ("REGULATORY", "PHARMA") and across[3] < 70:
+                across = None
+            best = across if across and (within is None or across[3] > within[3]) else within
         if best:
             group, sub, direction, sev, terms = best[0], best[1], best[2], max(sev, best[3]), best[4]
         else:
@@ -195,6 +226,8 @@ def classify(e: dict) -> dict:
         return _result(group, sub, direction, sev, terms, named, text, lang, 0.65 + (0.1 if named else 0) + (0.1 if doc else 0), doc)
     best = _best_rule(low)
     if best is None:
+        if exchange and (e.get("symbol") or e.get("scrip_code")):    # an issuer's own filing with no recognisable event is a low corporate update, not unknown
+            return _result("CORPORATE", "update", "neutral", 12, [f"category:{cat}" if cat else "exchange filing"], named, text, lang, 0.5, doc)
         return _result("UNCLASSIFIED", "unclassified", "neutral", 15, [], named, text, lang, 0.3, doc)
     group, sub, direction, sev, terms = best
     named = _authorities_by_relevance(low, terms)

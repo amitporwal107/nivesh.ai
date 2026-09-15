@@ -23,8 +23,10 @@ def test_candidates_are_the_non_routine_events_with_something_to_refine():
     assert is_candidate(pnc, classify(pnc))
     tw = _ev("ACME: Trading Window", "Closure of trading window", "ACME", category="Trading Window")
     assert not is_candidate(tw, classify(tw))
-    unk = _ev("ACME: Updates", "The company has informed the Exchange regarding an update", "ACME", category="Updates")
-    assert is_candidate(unk, classify(unk))                                # unclassified with a symbol: worth a look
+    unk = _ev("ACME: Updates", "The company has informed the Exchange regarding an update", "ACME", category="Updates", doc_text="Sub: Update. The Company wishes to inform that it has commenced trial production at the new unit.")
+    assert is_candidate(unk, classify(unk))                                # a generic update with a document the rules could not read: worth a look
+    bare = _ev("ACME: Updates", "The company has informed the Exchange regarding an update", "ACME", category="Updates")
+    assert not is_candidate(bare, classify(bare))                          # nothing to read: no call
     news = _ev("Markets close flat; Nifty ends at 24,000", source_id="et_stocks")
     assert not is_candidate(news, classify(news))                          # no entity, no rules hit, P2: skip
 

@@ -88,3 +88,35 @@ def test_taxonomy_is_strict():
         c = classify({"source_id": "et_stocks", "title": text, "summary": None, "category": None, "symbol": None, "doc_text": None, "published_at": "2026-09-15T10:00:00+05:30", "first_seen_at": "2026-09-15T10:00:00+05:30"})
         assert (c["event_type"], c["event_subtype"]) == want, (text, c["event_type"], c["event_subtype"])
         assert c["event_subtype"] in TAXONOMY[c["event_type"]]
+
+
+# ── the second live board (2026-09-16 00:55): boilerplate deep in documents drove REGULATORY/FINANCIAL readings ──
+def _filing(symbol, category, summary, doc_text, source_id="nse_announcements_api"):
+    return {"source_id": source_id, "hash": "h_" + symbol, "url": "https://x/a.pdf", "title": f"{symbol}: {category}", "summary": summary, "category": category, "symbol": symbol,
+            "scrip_code": None, "entity_text": None, "published_at": "2026-09-15T18:00:00+05:30", "first_seen_at": "2026-09-15T18:15:00+05:30", "doc_text": doc_text}
+
+
+@pytest.mark.parametrize("symbol,category,summary,doc,want_group,max_sev", [
+    ("VENUSPIPES", "Change in Management", "informed the Exchange about Change in Management", "Re-appointment of seven directors following the AGM. Mahendrakumar Patel (DIN 02617107) is not debarred from holding the office of director by virtue of any SEBI order.", "CORPORATE", 35),
+    ("PIRAMALFIN", "Credit Rating", "informed the Exchange about Credit Rating", "CRISIL reaffirms AA rating. ... ANY ESTIMATED FINANCIAL LOSS IN THE EVENT OF DEFAULT OR IMPAIRMENT. SEE APPLICABLE MOODY'S RATING SYMBOLS AND DEFINITIONS.", "FINANCIAL", 45),
+    ("UNIMECH", "Credit Rating", "informed the Exchange about Credit Rating", "CARE assigns CARE A+; Stable. Reproduction in whole or in part is prohibited except with prior express written consent from CARE Ratings Limited.", "FINANCIAL", 60),
+    ("RBLBANK", "Credit Rating", "informed the Exchange about Credit Rating", "Moody's upgrades RBL Bank's deposit rating. Leverage, measured as debt to tangible net worth, declined to about 3.1x from 9.8x.", "FINANCIAL", 60),
+    ("UTKARSHBNK", "Company Update", "as per attachment", "Approval of issuance of NCDs. Details of any delay in payment of interest / principal amount for a period of more than three months from the due date or default in payment of interest / principal: None", "CAPITAL", 45),
+    ("MUTHOOTMF", "Others", "Asset Liability Management", "Statement of structural liquidity. (g) Credit Default Swaps Y1220 0.00 0.00 nil", "ROUTINE", 15),
+    ("BAYERCROP", "AGM/EGM", "Postal Ballot Notice", "Postal Ballot Notice dated August 05, 2026, seeking approval of the members of the Company by way of remote e-Voting for the appointment of a director", "ROUTINE", 15),
+    ("TBZ", "General Updates", "informed the Exchange about General Updates", "Letter of Offer for the open offer. Last date of communicating the rejection/ acceptance and completion of payment of consideration: Monday, 23 November 2026", "M&A", 60),
+    ("RAILTEL", "Company Update", "Profile of the Statutory Auditor", "The firm provides Internal Audit, valuation of Assets, Liquidation and other Company matters, NCLT, ITAT, Arbitration. The firm has 4 locations.", "CORPORATE", 30),
+])
+def test_boilerplate_deep_in_a_document_never_escalates(symbol, category, summary, doc, want_group, max_sev):
+    from nidp.services.catalyst_intel.rules import classify
+    c = classify(_filing(symbol, category, summary, doc, source_id="bse_subcat_api" if category in ("Company Update", "Others", "AGM/EGM") else "nse_announcements_api"))
+    assert c["event_type"] == want_group, (symbol, c["event_type"], c["event_subtype"], c["matched_terms"])
+    assert c["event_severity"] <= max_sev, (symbol, c["event_severity"], c["matched_terms"])
+
+
+def test_a_real_default_and_a_real_debarment_still_read_from_the_subject_line():
+    from nidp.services.catalyst_intel.rules import classify
+    d = classify(_filing("MTNL", "General Updates", "MTNL has informed the Exchange regarding default in payment of interest on its bonds due on September 10, 2026", "Sub: Default in payment of interest on 7.59% MTNL bonds. The Company has defaulted on the interest payment due on 10.09.2026."))
+    assert d["event_type"] == "FINANCIAL" and d["event_subtype"] == "default" and d["event_severity"] >= 80
+    p = classify(_filing("PNCINFRA", "Action(s) taken or orders passed", "informed the Exchange about Action(s) taken or orders passed", "Sub: Intimation under Regulation 30. NHAI letter dated 11.09.2026 extending the debarment of Awadh Expressway to the Company; not able to participate in any bid of MoRTH/NHAI for three years."))
+    assert p["event_type"] == "REGULATORY" and p["event_subtype"] == "debarment" and p["event_severity"] >= 85 and "NHAI" in p["named_authorities"][:1]
