@@ -1,0 +1,40 @@
+{
+  "_what": "Ten-Percent Days 3.0 v3 EARLY READ on June-August 2025, pre-registered 2026-09-15 before the window was scored with v3. v3 = v2 plus the PRD's technical extensions (§6-12), point-in-time fundamentals (§17-18, 21-22, 25) and ownership (§23), per the user's 2026-09-15 scope change. Informational: the forward test decides serving.",
+  "version": 1,
+  "role": "early_read_only",
+  "locked_at": "2026-09-15",
+  "model": "v3: MODEL_COLUMNS_V3 = v2 inputs + technical_ext (17) + fundamentals (15) + ownership (11); same GBM settings and monthly protocol as v2; a filing counts only from its exchange timestamp <= 15:30 IST on T",
+  "excluded_and_why": {
+    "cfo_pat / cash flow": "no filing timestamp in the warehouse -> not point-in-time",
+    "earnings surprise (§19)": "no estimates data",
+    "F&O (§26)": "history only from 2026-04",
+    "intraday / pre-open (§27)": "not ingested",
+    "auditor / regulatory event types (§24)": "not classified in the corpus",
+    "true index relative strength (§13)": "index history only from 2026-02; the universe's own return stands in",
+    "sector strength (§14)": "sector known for 994 of 2,608 names",
+    "VIX / FII-DII flows (§15)": "no VIX; flows only from 2026-05"
+  },
+  "heads": ["p_up10_1d", "p_down10_1d"],
+  "window": {"first_target_session": "2025-06-02", "last_target_session": "2025-08-29", "min_graded_sessions": 60},
+  "retrain": {"cadence": "monthly", "folds": ["2025-06", "2025-07", "2025-08"], "window": "growing from 2024-06-03, capped at 18 months"},
+  "comparisons": {
+    "fixed_baseline": "research GBM with the A4/A5 fixes on identical rows (as in the v2 early read)",
+    "v2": "the v2 early-read predictions on identical rows — the B8 ablation: do the new blocks add lift?"
+  },
+  "b8_ablation_rule": "v3 is adopted for the forward test ALONGSIDE v2 regardless; it replaces v2 only if, on this window AND later in the forward test, its p@5 >= v2's and its AUC >= v2's for the head in question. This read cannot settle a difference smaller than ~2 pp (power caveat below).",
+  "bars": "identical to thresholds_lock_v2_early_window.json",
+  "p_up10_1d_vs_fixed_baseline": {
+    "non_inferior": {"p5_margin_pp": 0.5, "auc_margin": 0.003},
+    "better": {"delta_auc_min": 0.005, "delta_p5_pp_min": 1.0,
+               "bootstrap": {"block": "week", "resamples": 2000, "ci": 0.95, "delta_p5_lower_gt": 0.0}}
+  },
+  "p_down10_1d_ship": {
+    "auc_min": 0.70, "pr_auc_vs_best_comparator_min": 1.25, "p5_vs_base_rate_min": 3.0,
+    "months_beating_best_comparator_auc": {"min": 2, "of_qualifying_months": 3, "qualifying_month_min_graded_sessions": 15}
+  },
+  "calibration_both_heads": {"mean_pred_rel_err_max": 0.15, "top_decile_rel_err_max": 0.15, "deciles_pred_inside_wilson95_min": 8,
+                             "logloss_below_base_rate": true, "brier_skill_positive": true},
+  "power_caveat": "about 63 sessions = ~315 top-5 slots, p@5 standard error ~2 pp; report point estimates and the bootstrap interval, do not read a near-tie as a result",
+  "regimes": {"required": false, "why": "three months cannot fill regime cells"},
+  "failing_head": {"policy": "report only; serving decisions rest with the forward test", "block_exposure_if_fails": "p_up10_1d"}
+}

@@ -64,3 +64,14 @@ def test_forward_verdict_still_uses_evaluate_frames(tmp_path):
     from nidp.services.tpd_model import evaluate_forward as ef
 
     assert ef.evaluate_forward.__code__.co_names.__contains__("evaluate_frames")
+
+
+def test_v3_early_lock_is_pre_registered_with_the_same_bars_and_named_exclusions():
+    v3 = json.loads(LOCK.with_name("thresholds_lock_v3_early_window.json").read_text())
+    v2 = json.loads(LOCK.read_text())
+    assert v3["role"] == "early_read_only" and v3["locked_at"] == "2026-09-15"
+    assert v3["window"] == v2["window"] and v3["heads"] == v2["heads"]
+    for k in ("p_up10_1d_vs_fixed_baseline", "p_down10_1d_ship", "calibration_both_heads"):
+        assert v3[k] == v2[k], k
+    assert {"cfo_pat / cash flow", "earnings surprise (§19)", "F&O (§26)", "intraday / pre-open (§27)"} <= set(v3["excluded_and_why"])
+    assert "v2" in v3["comparisons"] and "ALONGSIDE" in v3["b8_ablation_rule"]
