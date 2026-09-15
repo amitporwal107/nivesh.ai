@@ -54,6 +54,17 @@ _DEVANAGARI = re.compile(r"[\u0900-\u097F]")
 _MONEY = re.compile(r"(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d+)?)\s*(crore|cr\b|lakh|million|mn|billion|bn)", re.I)
 
 
+def _whole_word(low: str, m: "re.Match") -> str:
+    """Extend a prefix match (\\bdebar) to the full word(s) it sits in, so the report reads 'debarment' not 'debar'."""
+    start = m.start()
+    while start > 0 and (low[start - 1].isalnum() or low[start - 1] in "-'"):
+        start -= 1
+    end = max(m.end(), start)
+    while end < len(low) and (low[end].isalnum() or low[end] in "-'"):
+        end += 1
+    return low[start:end]
+
+
 def _text(e: dict) -> str:
     return " ".join(x for x in (e.get("title"), e.get("summary"), e.get("doc_text")) if x)
 
@@ -77,7 +88,7 @@ def classify(e: dict) -> dict:
                 "named_authorities": named, "quantities": {}, "raw_language": lang, "classifier": "rules-v1"}
     best = None
     for etype, sub, direction, prior, pats in RULES:
-        terms = [m.group(0) for p in pats if (m := re.search(p, low))]      # the words actually found, not the pattern
+        terms = [_whole_word(low, m) for p in pats if (m := re.search(p, low))]   # the words actually found, not the pattern
         if terms and (best is None or prior > best[3]):
             best = (etype, sub, direction, prior, terms)
     if best is None and cat in CATEGORY_HINTS:
