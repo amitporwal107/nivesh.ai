@@ -138,3 +138,65 @@ def test_freeze_includes_extra_files_in_the_manifest_and_verify_checks_them(tmp_
     (snap / "baseline_predictions.csv").write_bytes(b"symbol,p_baseline\nAAA,0.99\nBBB,0.02\n")
     with pytest.raises(TamperError):
         verify(snap)
+
+
+# ── v3 alongside v2 (user scope change 2026-09-15; lock v3 early: "v3 runs alongside v2 in the forward test") ──
+
+def _preds_v3():
+    return _preds().assign(p_tpd3=[0.20, 0.01])
+
+
+def test_freeze_can_carry_v3_predictions_as_a_hashed_extra_file(tmp_path):
+    from nidp.services.tpd_model.forward import V3_FILE, freeze, verify
+
+    snap = freeze(tmp_path, _preds(), _meta(), now=datetime(2026, 9, 15, 22, 30, tzinfo=IST),
+                  extra_files={V3_FILE: _preds_v3().to_csv(index=False).encode()})
+    assert V3_FILE == "tpd3_v3_predictions.csv" and V3_FILE in verify(snap)["files"]
+
+
+def test_grade_also_grades_the_v3_file_with_the_same_labels(tmp_path):
+    from nidp.services.tpd_model.forward import V3_FILE, freeze, grade
+
+    preds = pd.concat([_preds(), _preds().assign(head="p_down10_1d")], ignore_index=True)
+    v3 = preds.assign(p_tpd3=preds["p_tpd3"] * 2)
+    snap = freeze(tmp_path, preds, _meta(), now=datetime(2026, 9, 15, 22, 30, tzinfo=IST),
+                  extra_files={V3_FILE: v3.to_csv(index=False).encode()})
+    no_actions = pd.DataFrame(columns=["symbol", "ex_date"])
+    grade(snap, _panel_with_target(True), no_actions)
+    g2 = pd.read_csv(snap / "graded.csv").set_index(["head", "symbol"])
+    g3 = pd.read_csv(snap / "graded_v3.csv").set_index(["head", "symbol"])
+    assert g3["y"].equals(g2["y"]) and g3.loc[("p_up10_1d", "AAA"), "y"] == 1.0
+    assert g3.loc[("p_up10_1d", "AAA"), "p_tpd3"] == pytest.approx(0.24)
+
+
+def test_grade_without_a_v3_file_writes_no_v3_grades(tmp_path):
+    from nidp.services.tpd_model.forward import freeze, grade
+
+    snap = freeze(tmp_path, _preds(), _meta(), now=datetime(2026, 9, 15, 22, 30, tzinfo=IST))
+    grade(snap, _panel_with_target(True), pd.DataFrame(columns=["symbol", "ex_date"]))
+    assert (snap / "graded.csv").exists() and not (snap / "graded_v3.csv").exists()
+
+
+def test_v3_bundle_trains_on_v3_columns(panel, sessions):
+    """train_bundle(columns=MODEL_COLUMNS_V3) fits on the wider input set; the v2 default is unchanged."""
+    from nidp.services.tpd_model.design import MODEL_COLUMNS, MODEL_COLUMNS_V3
+    from nidp.services.tpd_model.forward import Fold, train_bundle
+
+    rng = np.random.default_rng(2)
+    s = [pd.Timestamp(d) for d in sessions[:120]]
+    rows = []
+    for i, T in enumerate(s[:-6]):
+        for k in range(30):
+            x = rng.normal()
+            rows.append({"symbol": f"S{k:02d}", "as_of_date": T, "target_session": s[i + 1], "horizon_end_1d": s[i + 1],
+                         "horizon_end_5d": s[i + 5], "nbars": 200.0, "atr_pct": 2 + abs(x), "bb_width": 0.1,
+                         "dist_52w_low": 10.0, "turn_med20": 1e7, "close_raw": 100.0, "n_high_up_252": 1.0, "n_low_down_252": 1.0,
+                         **{c: float(rng.normal()) for c in MODEL_COLUMNS_V3 if not c.startswith(("log_", "lr_"))},
+                         "y_p_up10_1d": float(x > 1.6), "y_p_down10_1d": float(x < -1.6)})
+    frame = pd.DataFrame(rows)
+    fold = Fold("m", s[0].date(), s[100].date(), s[-1].date())
+    b2 = train_bundle(frame, fold)
+    b3 = train_bundle(frame, fold, columns=MODEL_COLUMNS_V3)
+    assert b2["models"]["p_up10_1d"]["gbm"].n_features_in_ == len(MODEL_COLUMNS)
+    assert b3["models"]["p_up10_1d"]["gbm"].n_features_in_ == len(MODEL_COLUMNS_V3)
+    assert b3["columns"] == list(MODEL_COLUMNS_V3)
