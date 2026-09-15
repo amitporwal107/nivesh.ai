@@ -26,6 +26,14 @@ const AGENT_LABELS: Record<string, string> = {
   mf_analyst: "Fund Analyst",
   backtest_analyst: "Backtest Analyst",
   stocks_insights: "Filings Analyst",
+  // ids observed on staging (GET /api/copilot/agents + live `route` frames)
+  risk_analyst: "Risk Analyst",
+  portfolio_analyzer: "Portfolio Analyst",
+  mf_research: "Fund Researcher",
+  market_strategist: "Market Strategist",
+  tax_agent: "Tax Advisor",
+  compliance_agent: "Compliance",
+  report_generator: "Report Writer",
 };
 
 /** Human label for a backend agent id; unknown ids are title-cased. */

@@ -467,8 +467,25 @@
    and headline above the sign-in form and drop the showcase. */
 @media (max-width: 860px) {
   .nvx-login .shell {
-    grid-template-columns: 1fr;
+    /* minmax(0, …): a grid item's default min-width:auto let the Google
+       Sign-In iframe (392px intrinsic) widen the column and the whole page to
+       432px on a 390px phone (seen live on staging; the mocked test never
+       loads the real button). */
+    grid-template-columns: minmax(0, 1fr);
     min-height: auto;
+    overflow-x: clip;
+  }
+  .nvx-login .auth {
+    min-width: 0;
+  }
+  .nvx-login .gbox,
+  .nvx-login .gbox-center {
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .nvx-login .gbox-center > div,
+  .nvx-login .gbox-center iframe {
+    max-width: 100% !important;
   }
   .nvx-login .stage {
     min-width: 0;

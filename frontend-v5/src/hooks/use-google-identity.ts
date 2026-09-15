@@ -132,13 +132,16 @@ export function useGoogleIdentity(onCredential?: (credential: string) => void): 
     if (!gis) return;
     // Clear any previous render
     container.innerHTML = "";
+    // GIS renders an iframe at exactly `width`; a fixed 400 widened the login
+    // grid to 432px on a 390px phone (seen live on staging). Fit the container.
+    const available = Math.floor(container.getBoundingClientRect().width);
     gis.renderButton(container, {
       type: "standard",
       theme: "filled_black",
       size: "large",
       text: "continue_with",
       shape: "rectangular",
-      width: 400,
+      width: available > 0 ? Math.max(200, Math.min(400, available)) : 400,
     });
   }, [ready]);
 

@@ -95,6 +95,15 @@ export function CopilotDock() {
   const abortRef = useRef<AbortController | null>(null);
   const [answerMeta, setAnswerMeta] = useState<AnswerMeta | null>(null);
   const [localAnswer, setLocalAnswer] = useState<LocalAnswer | null>(null);
+  // The backend persists its own "I'm having trouble…" message on a failed
+  // stream; when that copy is already the last message, the local error bubble
+  // would repeat it. Keep the local bubble only when it adds something (a
+  // widget that arrived before the failure, or a stopped partial answer).
+  const localAnswerDuplicated = (() => {
+    if (!localAnswer || localAnswer.widget) return false;
+    const last = messages[messages.length - 1];
+    return !!last && last.role !== "user" && (last.content ?? "").trim() === localAnswer.content.trim();
+  })();
 
   // Pace the visible text to token arrival (never slower than a smooth type-out).
   useTypewriterReveal(streaming, setStreaming, firstTokenRef);
@@ -344,7 +353,7 @@ export function CopilotDock() {
             </div>
           )}
 
-          {localAnswer && localAnswer.sessionId === sessionId && !streaming && (
+          {localAnswer && localAnswer.sessionId === sessionId && !streaming && !localAnswerDuplicated && (
             <div className="flex gap-2.5" data-testid="dock-local-answer">
               <span className="grid place-items-center h-7 w-7 rounded-md bg-ink text-on-accent font-display text-[13px] leading-none shrink-0">न</span>
               <div className="flex-1 min-w-0">
