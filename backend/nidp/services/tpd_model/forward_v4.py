@@ -60,6 +60,15 @@ def load_capture(live_dir: Path, T: date) -> tuple[pd.DataFrame, dict]:
     return live, json.loads(stats.read_text())
 
 
+def window_decision(D: date, lock: dict, rehearsal: bool, preview: bool) -> tuple[str, Optional[dict]]:
+    """('skip', None) for a real run targeting a session before the locked forward window; otherwise ('score', flags).
+    A preview may score any target but never counts; a rehearsal never counts either."""
+    in_window = D >= date.fromisoformat(lock["forward_window"]["first_target_session"])
+    if not in_window and not (rehearsal or preview):
+        return "skip", None
+    return "score", {"preview": bool(preview), "counts_toward_verdict": bool(in_window and not rehearsal and not preview)}
+
+
 def high_confidence_rows(preds: pd.DataFrame, threshold: float = 0.5) -> pd.DataFrame:
     hc = preds[preds["p_tpd3"] >= threshold].sort_values(["head", "p_tpd3", "symbol"], ascending=[True, False, True], kind="mergesort")
     return hc[["head", "symbol", "p_tpd3"] + [c for c in hc.columns if c not in ("head", "symbol", "p_tpd3")]].reset_index(drop=True)
@@ -112,8 +121,9 @@ def cmd_score(a) -> int:
         except (StaleDataError, PrintWindowOpenError) as e:
             logger.error("refusing: %s", e); return 4
     D, skipped = next_trading_day(T, holidays, known_until=max(holidays))
-    if D < date.fromisoformat(lock["forward_window"]["first_target_session"]) and not a.rehearsal_T:
-        logger.info("target %s is before the v4 forward window; nothing to do", D); return 0
+    decision, flags = window_decision(D, lock, rehearsal=bool(a.rehearsal_T), preview=bool(a.preview))
+    if decision == "skip":
+        logger.info("target %s is before the v4 forward window; nothing to do (use --preview for a non-counting run)", D); return 0
     if (Path(a.root) / str(D)).exists():
         logger.info("v4 snapshot for %s already frozen", D); return 0
     try:
@@ -145,7 +155,7 @@ def cmd_score(a) -> int:
     meta = {"data_as_of": str(T), "target_session": str(D), "skipped_holidays": [str(h) for h in skipped], "fold_month": fold.month,
             "train_start": str(fold.train_start), "lock_sha256": lock_sha, "git_sha": sha, "git_dirty": dirty, "universe_size": len(members[D]),
             "model": "v4", "columns": len(MODEL_COLUMNS_V4), "results_capture": cap, "filed_today_in_universe": int(ft.loc[ft.index.isin(members[D]), "filed_today"].sum()),
-            "high_confidence_rows": int(len(hc)), "dropped_columns": {h: m["gbm"].dropped for h, m in bundle["models"].items()},
+            "high_confidence_rows": int(len(hc)), **flags, "dropped_columns": {h: m["gbm"].dropped for h, m in bundle["models"].items()},
             "train": {h: {k: v for k, v in m.items() if k not in ("gbm", "atr", "own")} for h, m in bundle["models"].items()}}
     extra = {HIGH_CONFIDENCE_FILE: hc.to_csv(index=False).encode(), "results_live.csv": live.to_csv(index=False).encode()}
     try:
@@ -186,6 +196,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if name == "score":
             p.add_argument("--store-v3", type=Path, required=True); p.add_argument("--live-dir", type=Path, required=True)
             p.add_argument("--workers", type=int, default=3); p.add_argument("--rehearsal-T", default=None)
+            p.add_argument("--preview", action="store_true", help="real-clock snapshot that never counts toward the verdict (use a separate --root)")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     return cmd_score(a) if a.cmd == "score" else cmd_grade(a)
