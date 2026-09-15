@@ -110,22 +110,27 @@ def _bootstrap_by_week(frame: pd.DataFrame, lock: dict) -> dict:
             "weeks": int(len(weeks))}
 
 
-def evaluate_forward(root: Path, expected_sessions: Optional[list[date]] = None, lock_path: Path = LOCK_V2) -> dict:
+def evaluate_frames(graded: pd.DataFrame, base: pd.DataFrame, lock_path: Path = LOCK_V2,
+                    extra: Optional[dict] = None) -> dict:
+    """Judge graded prediction rows against a lock. Forward lock: NOT_EVALUATED / INTERIM / EVALUATED by graded
+    sessions. Early-read lock (role early_read_only): NOT_EVALUATED / EARLY_READ — metrics reported, nothing
+    ever served, because that read informs but does not decide."""
     lock, sha = load_lock(lock_path)
-    graded, base, rehearsals, ungraded = load_graded(root)
     labelled = graded[graded["y"].notna()]
     sessions = sorted(labelled["target_session"].dt.date.unique()) if len(labelled) else []
-    out = {"lock_sha256": sha, "graded_sessions": len(sessions), "rehearsal_sessions_ignored": rehearsals,
-           "frozen_ungraded": ungraded, "first_session": str(sessions[0]) if sessions else None,
-           "last_session": str(sessions[-1]) if sessions else None,
-           "missing_sessions": [str(d) for d in (expected_sessions or []) if d not in set(sessions)],
+    early = lock.get("role") == "early_read_only"
+    out = {"lock_sha256": sha, "lock_role": "early_read_only" if early else "forward", "graded_sessions": len(sessions),
+           "first_session": str(sessions[0]) if sessions else None, "last_session": str(sessions[-1]) if sessions else None,
            "regimes": {"required": lock["regimes"]["required"], "note": lock["regimes"]["why"]},
-           "policy": lock["failing_head"]}
-    interim = lock["forward_window"]["interim_read_graded_sessions"]
-    need = lock["forward_window"]["verdict_min_graded_sessions"]
+           "policy": lock["failing_head"], **(extra or {})}
+    if early:
+        interim = need = lock["window"]["min_graded_sessions"]
+    else:
+        interim = lock["forward_window"]["interim_read_graded_sessions"]
+        need = lock["forward_window"]["verdict_min_graded_sessions"]
     if len(sessions) < interim:
-        out.update(status="NOT_EVALUATED", reason=f"{len(sessions)} graded sessions < {interim} (interim read)", heads={},
-                   g_valid=False, exposure_blocked=True)
+        out.update(status="NOT_EVALUATED", reason=f"{len(sessions)} graded sessions < {interim}", heads={}, g_valid=False,
+                   exposure_blocked=True)
         return out
     heads = {}
     for head in lock["heads"]:
@@ -144,8 +149,15 @@ def evaluate_forward(root: Path, expected_sessions: Optional[list[date]] = None,
             mb = lock["p_down10_1d_ship"]["months_beating_best_comparator_auc"]
             entry["ship"] = _ship_verdict(s, months_beating(h, mb["qualifying_month_min_graded_sessions"]), lock)
             required = [entry["ship"]["pass"], entry["calibration"]["pass"]]
+        entry["bars_met"] = bool(all(required))
         entry["served"] = bool(all(required))
         heads[head] = entry
+    if early:
+        for h in heads.values():
+            h["served"] = False
+            h["note"] = "early read: informs, does not decide; serving rests with the forward test"
+        out.update(status="EARLY_READ", heads=heads, g_valid=False, exposure_blocked=True)
+        return out
     if len(sessions) < need:
         # Lock v2.1 interim read: same metrics, but a 60-session window cannot resolve the non-inferiority margin,
         # so nothing is served and there is no verdict until the minimum is reached.
@@ -158,6 +170,15 @@ def evaluate_forward(root: Path, expected_sessions: Optional[list[date]] = None,
     blocked = not heads[lock["failing_head"]["block_exposure_if_fails"]]["served"]
     out.update(status="EVALUATED", heads=heads, exposure_blocked=blocked, g_valid=not blocked)
     return out
+
+
+def evaluate_forward(root: Path, expected_sessions: Optional[list[date]] = None, lock_path: Path = LOCK_V2) -> dict:
+    graded, base, rehearsals, ungraded = load_graded(root)
+    labelled = graded[graded["y"].notna()]
+    sessions = set(labelled["target_session"].dt.date.unique()) if len(labelled) else set()
+    return evaluate_frames(graded, base, lock_path, extra={
+        "rehearsal_sessions_ignored": rehearsals, "frozen_ungraded": ungraded,
+        "missing_sessions": [str(d) for d in (expected_sessions or []) if d not in sessions]})
 
 
 def main(argv: Optional[list[str]] = None) -> None:

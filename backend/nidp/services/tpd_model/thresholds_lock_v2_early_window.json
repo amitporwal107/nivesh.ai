@@ -1,0 +1,29 @@
+{
+  "_what": "Ten-Percent Days 3.0 v2 EARLY READ on a historical window the v2 decision never looked at: June-August 2025. Pre-registered 2026-09-15 before the window was scored with v2. It is informational: the forward test (thresholds_lock_v2_forward.json) remains the deciding verdict. Nothing is served on the strength of this read.",
+  "version": 1,
+  "role": "early_read_only",
+  "locked_at": "2026-09-15",
+  "why_this_window": "The v1 walk-forward window (2025-09..2026-08) is burned: the v2 market-feature fix was chosen by diagnosing its results, so re-scoring it is circular. June-August 2025 precedes that window and was not used to choose v2. Caveat: the research that produced the model design used these months as training data, so this is weaker than forward evidence.",
+  "model": "v2 (market features over point-in-time universe members), same code and parameters as the forward test",
+  "heads": ["p_up10_1d", "p_down10_1d"],
+  "window": {"first_target_session": "2025-06-02", "last_target_session": "2025-08-29", "min_graded_sessions": 60},
+  "retrain": {"cadence": "monthly", "folds": ["2025-06", "2025-07", "2025-08"],
+              "training_rows": "label horizon ends before the first session of the month", "window": "growing from 2024-06-03, capped at 18 months"},
+  "baseline": "research GBM with the A4 and A5 fixes, walk-forward on the same three months, identical (symbol, target_session) rows",
+  "comparators": ["base_rate", "atr_only", "own_history_only"],
+  "bars": "identical to thresholds_lock_v2_forward.json: non_inferior p5 -0.5 pp / AUC -0.003; better +1.0 pp / +0.005 with a week-block bootstrap CI > 0; p_down10_1d ship AUC >= 0.70, PR-AUC >= 1.25x best comparator, p@5 >= 3x base rate, AUC above the best comparator in >= 2 of 3 qualifying months (>= 15 sessions); calibration: mean and top-decile error <= 15%, >= 8 of 10 deciles inside Wilson 95%, log-loss and Brier better than base rate",
+  "p_up10_1d_vs_fixed_baseline": {
+    "non_inferior": {"p5_margin_pp": 0.5, "auc_margin": 0.003},
+    "better": {"delta_auc_min": 0.005, "delta_p5_pp_min": 1.0,
+               "bootstrap": {"block": "week", "resamples": 2000, "ci": 0.95, "delta_p5_lower_gt": 0.0}}
+  },
+  "p_down10_1d_ship": {
+    "auc_min": 0.70, "pr_auc_vs_best_comparator_min": 1.25, "p5_vs_base_rate_min": 3.0,
+    "months_beating_best_comparator_auc": {"min": 2, "of_qualifying_months": 3, "qualifying_month_min_graded_sessions": 15}
+  },
+  "calibration_both_heads": {"mean_pred_rel_err_max": 0.15, "top_decile_rel_err_max": 0.15, "deciles_pred_inside_wilson95_min": 8,
+                             "logloss_below_base_rate": true, "brier_skill_positive": true},
+  "power_caveat": "about 63 sessions = ~315 top-5 slots, p@5 standard error ~2 pp: the 0.5 pp margin cannot be resolved; report the point estimates and the bootstrap interval, do not read a near-tie as a result",
+  "regimes": {"required": false, "why": "three months cannot fill regime cells"},
+  "failing_head": {"policy": "report only; serving decisions rest with the forward test", "block_exposure_if_fails": "p_up10_1d"}
+}
