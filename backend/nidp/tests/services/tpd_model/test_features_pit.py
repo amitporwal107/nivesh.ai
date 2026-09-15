@@ -186,3 +186,20 @@ def test_event_flags_match_the_gate_for_every_symbol(panel, sessions):
             assert (np.isnan(got) and np.isnan(expected)) or got == expected, (sym, col, got, expected)
     assert f.loc["SYM001", "res_on_D"] == 1.0 and f.loc["SYM002", "res_on_D"] == 0.0
     assert np.isnan(f.loc["SYM003", "res_on_D"]) and f.loc["SYM004", "res_on_T"] == 1.0
+
+
+def test_market_features_over_supplied_members_only_v2(panel, sessions):
+    """v2 (lock v2): mkt_ret1/breadth over the target session's universe members, not every stock with a bar."""
+    from nidp.services.tpd_model.features import compute_features
+
+    T = sessions[205]
+    members = {f"SYM{i:03d}" for i in range(10)}
+    all_stocks = compute_features(panel, T)
+    only = compute_features(panel, T, market_members=members)
+    rets = all_stocks.loc[sorted(members), "ret1"]
+    assert only["mkt_ret1"].iloc[0] == pytest.approx(rets.mean(), rel=1e-12)
+    assert only["breadth"].iloc[0] == pytest.approx(float((rets > 0).mean()), rel=1e-12)
+    assert set(only.index) == set(all_stocks.index)          # still scores every stock with a bar on T
+    assert not np.isclose(only["mkt_ret1"].iloc[0], all_stocks["mkt_ret1"].iloc[0])
+    cols = [c for c in only.columns if c not in ("mkt_ret1", "breadth")]
+    assert _bitwise_equal(only[cols], all_stocks[cols])       # nothing else changes

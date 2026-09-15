@@ -126,7 +126,8 @@ def _symbol_features(w: pd.DataFrame, T: date, actions: Optional[pd.DataFrame]) 
     return f, dd
 
 
-def _compute(panel: pd.DataFrame, T: date, events, actions, target_session: Optional[date]):
+def _compute(panel: pd.DataFrame, T: date, events, actions, target_session: Optional[date],
+             market_members: Optional[set] = None):
     cutoff = pd.Timestamp(T)
     p = panel[panel["as_of_date"] <= cutoff].sort_values(["symbol", "as_of_date"], kind="mergesort")
     on_t = set(p.loc[p["as_of_date"] == cutoff, "symbol"])
@@ -149,7 +150,10 @@ def _compute(panel: pd.DataFrame, T: date, events, actions, target_session: Opti
         by_symbol = {sym: g for sym, g in relevant.groupby("symbol", sort=False)}
         empty = events.iloc[0:0]
 
-    rets = np.array([v["ret1"] for v in values.values()], dtype="float64")
+    # v2 (thresholds_lock_v2_forward.json): measured over the target session's universe members. Across every
+    # EQ stock, illiquid names made sell-off days look far more extreme than anything in training (v1 diagnosis).
+    pool = values if market_members is None else {s: v for s, v in values.items() if s in market_members}
+    rets = np.array([v["ret1"] for v in pool.values()], dtype="float64")
     rets = rets[~np.isnan(rets)]
     mkt_ret1 = float(np.mean(rets)) if len(rets) else float("nan")
     breadth = float(np.mean(rets > 0)) if len(rets) else float("nan")
@@ -172,10 +176,12 @@ def _compute(panel: pd.DataFrame, T: date, events, actions, target_session: Opti
 
 
 def compute_features(panel: pd.DataFrame, T: date, events: Optional[pd.DataFrame] = None,
-                     actions: Optional[pd.DataFrame] = None, target_session: Optional[date] = None) -> pd.DataFrame:
+                     actions: Optional[pd.DataFrame] = None, target_session: Optional[date] = None,
+                     market_members: Optional[set] = None) -> pd.DataFrame:
     """Feature matrix for every symbol with a bar on T. `target_session` should come from the NSE
-    calendar; without it the next weekday is assumed (correct only when no holiday intervenes)."""
-    return _compute(panel, T, events, actions, target_session)[0]
+    calendar; without it the next weekday is assumed (correct only when no holiday intervenes).
+    `market_members` (v2) restricts mkt_ret1/breadth to the target session's universe."""
+    return _compute(panel, T, events, actions, target_session, market_members)[0]
 
 
 def feature_vector(panel: pd.DataFrame, T: date, symbol: str, events: Optional[pd.DataFrame] = None,
