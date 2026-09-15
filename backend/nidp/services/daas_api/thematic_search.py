@@ -241,7 +241,7 @@ CANDIDATE_SQL = """
           JOIN nidp.documents d ON d.doc_id = c.doc_id
           LEFT JOIN nidp.v_v3_stock_scores_latest sc ON sc.symbol = d.ticker_symbol
           CROSS JOIN q
-         WHERE d.filed_at >= now() - make_interval(days => $2)
+         WHERE d.filed_at >= $2   -- $2 is a LITERAL cutoff ts (not now()) so postgres_fdw ships the join over FDW
            AND d.doc_type IN ('concall_transcript','investor_presentation','annual_report','financial_results','press_release')
            AND to_tsvector('english', c.text) @@ q.tsq
     ),

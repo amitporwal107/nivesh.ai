@@ -14,6 +14,7 @@ Performance:
 from __future__ import annotations
 
 import asyncio
+import bisect
 import logging
 import os
 import time
@@ -25,6 +26,8 @@ from typing import Optional
 import asyncpg
 import numpy as np
 
+from nidp.services.price_adjuster.factors import build_events, cumulative_factors_for_dates
+
 from .calculator import compute_features
 
 logger = logging.getLogger(__name__)
@@ -33,6 +36,14 @@ SOURCE = "COPILOT_TI_ENGINE"
 MIN_BARS = 60        # minimum bars before we compute anything
 LOOKBACK_BARS = 280  # bars to fetch per symbol (SMA200 + 52w + buffer)
 BATCH_SIZE = 100     # symbols processed per DB round-trip
+# populate_stock_price_features takes minutes per date on staging. Under the
+# pool's 120 s command_timeout every nightly call timed out, and because
+# asyncio.TimeoutError stringifies to '' the error was logged blank.
+_PRICE_FEATURES_TIMEOUT_S = 900
+# Range backfills run while nightly jobs load the DB; under the pool's 120 s
+# command_timeout the very first query (symbol list over ~1.2M rows) timed out
+# and killed the whole recompute (2026-09-11).
+_RANGE_QUERY_TIMEOUT_S = 900
 
 
 # ── Result reporting ────────────────────────────────────────────────
@@ -100,23 +111,30 @@ async def _fetch_price_history(
     symbols: list[str],
     up_to_date: date,
     lookback: int,
+    from_date: Optional[date] = None,
+    timeout: Optional[float] = None,
 ) -> dict[str, list[asyncpg.Record]]:
-    """Bulk-fetch price history for multiple symbols in one query."""
-    since = up_to_date - timedelta(days=lookback * 2)  # calendar days buffer
+    """Bulk-fetch price history for multiple symbols in one query.
+
+    One bar per (symbol, day): if a day still holds both an NSE row and a
+    BSE gap-fill row, the NSE row wins. Two bars for one day would be
+    counted twice by every rolling window.
+    """
+    since = (from_date or up_to_date) - timedelta(days=lookback * 2)  # calendar days buffer
     rows = await conn.fetch(
         """
-        SELECT symbol, as_of_date, close_price, high_price, low_price,
-               open_price, volume,
-               COALESCE(deliv_pct, 0.0) AS deliv_pct
+        SELECT DISTINCT ON (symbol, as_of_date)
+               symbol, as_of_date, close_price, high_price, low_price,
+               open_price, volume, deliv_pct, source
           FROM nidp.prices_eod
          WHERE symbol = ANY($1::text[])
            AND series = 'EQ'
            AND as_of_date >= $2
            AND as_of_date <= $3
            AND close_price > 0
-         ORDER BY symbol, as_of_date
+         ORDER BY symbol, as_of_date, (source = 'NSE_BHAVCOPY') DESC
         """,
-        symbols, since, up_to_date,
+        symbols, since, up_to_date, timeout=timeout,
     )
     grouped: dict[str, list] = {}
     for r in rows:
@@ -124,13 +142,74 @@ async def _fetch_price_history(
     return grouped
 
 
-def _to_arrays(records: list) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+async def _fetch_split_events(conn: asyncpg.Connection, symbols: list[str],
+                              timeout: Optional[float] = None) -> dict[str, list]:
+    """Split and bonus events per symbol, with factors computed exactly as
+    the price adjuster computes them (price_adjuster/factors.py)."""
+    rows = await conn.fetch(
+        """
+        SELECT symbol, action_type, ex_date, face_value_pre, face_value_post,
+               ratio, dividend_amount
+          FROM nidp.corporate_actions
+         WHERE action_type IN ('SPLIT', 'BONUS')
+           AND ex_date IS NOT NULL
+           AND symbol = ANY($1::text[])
+        """,
+        symbols, timeout=timeout,
+    )
+    grouped: dict[str, list] = {}
+    for event in build_events([dict(r) for r in rows], lambda _symbol, _ex_date: None):
+        grouped.setdefault(event.symbol, []).append(event)
+    return grouped
+
+
+# prices_eod can be filled from BSE on days NSE's edge blocked us. Prices
+# track closely across the two exchanges, so BSE bars are fine for
+# price-derived indicators (SMA, RSI, MACD, returns). Volume and delivery
+# are NOT: they measure one exchange's order book, and BSE turnover runs
+# roughly an order of magnitude below NSE's. Feeding those bars into a
+# 20-day volume baseline would read as a volume collapse and fire false
+# "distribution" signals, so they are masked to NaN instead.
+_VOLUME_TRUSTED_SOURCES = frozenset({"NSE_BHAVCOPY"})
+
+
+def _to_arrays(records: list, events: Optional[list] = None
+               ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     closes = np.array([float(r["close_price"]) for r in records])
     opens = np.array([float(r["open_price"] or r["close_price"]) for r in records])
     highs = np.array([float(r["high_price"]) for r in records])
     lows = np.array([float(r["low_price"]) for r in records])
-    volumes = np.array([float(r["volume"] or 0) for r in records])
-    deliv = np.array([float(r["deliv_pct"] or 0) for r in records])
+
+    def _vol(r):
+        src = r["source"] if "source" in r else None
+        if src is not None and src not in _VOLUME_TRUSTED_SOURCES:
+            return np.nan
+        v = r["volume"]
+        return float(v) if v is not None else np.nan
+
+    def _dlv(r):
+        src = r["source"] if "source" in r else None
+        if src is not None and src not in _VOLUME_TRUSTED_SOURCES:
+            return np.nan
+        v = r["deliv_pct"]
+        # A missing delivery figure is unknown, not 0% — coercing it to
+        # zero drags deliv_pct_avg_20 down and mis-scores the
+        # accumulation pillar. delivery_stats already skips NaN.
+        return float(v) if v is not None else np.nan
+
+    volumes = np.array([_vol(r) for r in records])
+    deliv = np.array([_dlv(r) for r in records])
+    if events:
+        # prices_eod is unadjusted, so a 1:1 bonus reads as a 50% crash in
+        # every return, ATR, SMA and 52-week figure. Scale each bar by the
+        # split/bonus factors ex-dated after it and on or before the last
+        # bar: the last bar keeps its actual price, and events after the
+        # last bar are ignored, so recomputing history has no look-ahead.
+        cum = np.array([c[0] for c in cumulative_factors_for_dates(
+            events, [r["as_of_date"] for r in records])])
+        f = cum / cum[-1]
+        closes, opens, highs, lows = closes * f, opens * f, highs * f, lows * f
+        volumes = volumes / f
     return closes, opens, highs, lows, volumes, deliv
 
 
@@ -204,8 +283,9 @@ def _row_tuple(symbol: str, target_date: date, f: dict, run_id: str) -> tuple:
     )
 
 
-async def _upsert_batch(conn: asyncpg.Connection, rows: list[tuple]) -> int:
-    await conn.executemany(_UPSERT_SQL, rows)
+async def _upsert_batch(conn: asyncpg.Connection, rows: list[tuple],
+                        timeout: Optional[float] = None) -> int:
+    await conn.executemany(_UPSERT_SQL, rows, timeout=timeout)
     return len(rows)
 
 
@@ -236,6 +316,7 @@ async def compute_for_date(
             batch = symbols[i: i + batch_size]
             try:
                 history = await _fetch_price_history(conn, batch, target_date, LOOKBACK_BARS)
+                events = await _fetch_split_events(conn, batch)
             except Exception as exc:
                 logger.error("ti_engine_fetch_error batch=%d error=%s", i, exc)
                 report.errors.append(f"fetch_batch_{i}: {exc}")
@@ -248,7 +329,7 @@ async def compute_for_date(
                     report.symbols_skipped += 1
                     continue
                 try:
-                    closes, opens, highs, lows, volumes, deliv = _to_arrays(records)
+                    closes, opens, highs, lows, volumes, deliv = _to_arrays(records, events.get(symbol))
                     feats = compute_features(closes, opens, highs, lows, volumes, deliv)
                     upsert_rows.append(_row_tuple(symbol, target_date, feats, run_id))
                     report.symbols_computed += 1
@@ -281,11 +362,13 @@ async def compute_for_date(
             n = await conn.fetchval(
                 "SELECT nidp.populate_stock_price_features($1::date)",
                 target_date,
+                timeout=_PRICE_FEATURES_TIMEOUT_S,
             )
             report.price_features_rows = int(n or 0)
         except Exception as exc:  # noqa: BLE001
-            logger.error("ti_engine_price_features_error date=%s error=%s", target_date, exc)
-            report.errors.append(f"populate_stock_price_features: {exc}")
+            logger.error("ti_engine_price_features_error date=%s error=%s: %s",
+                         target_date, type(exc).__name__, exc)
+            report.errors.append(f"populate_stock_price_features: {type(exc).__name__}: {exc}")
 
     report.duration_ms = int((time.monotonic() - t0) * 1000)
     report.log()
@@ -298,16 +381,87 @@ async def compute_date_range(
     to_date: date,
     *,
     only_symbols: Optional[list[str]] = None,
+    batch_size: int = BATCH_SIZE,
 ) -> list[RunReport]:
-    """Run compute_for_date for every trading day in [from_date, to_date]."""
-    reports: list[RunReport] = []
-    current = from_date
-    while current <= to_date:
-        report = await compute_for_date(pool, current, only_symbols=only_symbols)
-        reports.append(report)
-        # Skip weekends automatically — if no symbols found, just skip
-        current += timedelta(days=1)
-    return reports
+    """Recompute every trading day in [from_date, to_date].
+
+    Each symbol batch's history is fetched once for the whole range and
+    sliced per day in memory; the per-day path re-reads ~280 bars per
+    symbol for every date, which turns a multi-month backfill into hours.
+    Each day sees exactly the window compute_for_date would fetch for it.
+    """
+    run_id = str(uuid.uuid4())
+    reports: dict[date, RunReport] = {}
+    window = timedelta(days=LOOKBACK_BARS * 2)  # same window as _fetch_price_history
+
+    async with pool.acquire() as conn:
+        if only_symbols:
+            symbols = sorted(set(only_symbols))
+        else:
+            rows = await conn.fetch(
+                "SELECT DISTINCT symbol FROM nidp.prices_eod "
+                "WHERE series = 'EQ' AND as_of_date BETWEEN $1 AND $2 ORDER BY symbol",
+                from_date, to_date, timeout=_RANGE_QUERY_TIMEOUT_S,
+            )
+            symbols = [r["symbol"] for r in rows]
+        logger.info("ti_engine_range_start from=%s to=%s symbols=%d run=%s",
+                    from_date, to_date, len(symbols), run_id)
+
+        for i in range(0, len(symbols), batch_size):
+            batch = symbols[i: i + batch_size]
+            try:
+                history = await _fetch_price_history(conn, batch, to_date, LOOKBACK_BARS,
+                                                     from_date=from_date, timeout=_RANGE_QUERY_TIMEOUT_S)
+                events = await _fetch_split_events(conn, batch, timeout=_RANGE_QUERY_TIMEOUT_S)
+            except Exception as exc:
+                logger.error("ti_engine_range_fetch_error batch=%d error=%s: %s", i, type(exc).__name__, exc)
+                reports.setdefault(from_date, RunReport(from_date, run_id)).errors.append(f"fetch_batch_{i}: {exc}")
+                continue
+
+            upsert_rows: list[tuple] = []
+            for symbol in batch:
+                records = history.get(symbol, [])
+                dates = [r["as_of_date"] for r in records]
+                for k, day in enumerate(dates):
+                    if day < from_date:
+                        continue
+                    report = reports.setdefault(day, RunReport(day, run_id))
+                    report.symbols_found += 1
+                    day_records = records[bisect.bisect_left(dates, day - window): k + 1]
+                    if len(day_records) < MIN_BARS:
+                        report.symbols_skipped += 1
+                        continue
+                    try:
+                        feats = compute_features(*_to_arrays(day_records, events.get(symbol)))
+                        upsert_rows.append(_row_tuple(symbol, day, feats, run_id))
+                        report.symbols_computed += 1
+                    except Exception as exc:
+                        report.errors.append(f"{symbol}: {exc}")
+
+            for j in range(0, len(upsert_rows), 5000):
+                chunk = upsert_rows[j: j + 5000]
+                try:
+                    await _upsert_batch(conn, chunk, timeout=_RANGE_QUERY_TIMEOUT_S)
+                    for row in chunk:
+                        reports[row[1]].rows_upserted += 1
+                except Exception as exc:
+                    logger.error("ti_engine_range_upsert_error batch=%d error=%s", i, exc)
+                    reports[chunk[0][1]].errors.append(f"upsert_batch_{i}_{j}: {exc}")
+            logger.info("ti_engine_range_batch_done batch=%d-%d rows=%d", i, i + len(batch), len(upsert_rows))
+
+        # 252-bar price features for the last day only: the SQL function takes
+        # minutes per date, so a per-day loop over a long range runs for hours.
+        # Earlier days keep the values their own nightly run wrote.
+        if reports:
+            last = max(reports)
+            try:
+                n = await conn.fetchval("SELECT nidp.populate_stock_price_features($1::date)",
+                                        last, timeout=_PRICE_FEATURES_TIMEOUT_S)
+                reports[last].price_features_rows = int(n or 0)
+            except Exception as exc:  # noqa: BLE001
+                reports[last].errors.append(f"populate_stock_price_features: {type(exc).__name__}: {exc}")
+
+    return [reports[day] for day in sorted(reports)]
 
 
 # ── Pool factory ─────────────────────────────────────────────────────

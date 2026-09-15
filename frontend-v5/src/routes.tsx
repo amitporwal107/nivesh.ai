@@ -19,6 +19,7 @@ import TermsPage from "./pages/Terms";
 import DisclosurePage from "./pages/Disclosure";
 import BlogIndexPage from "./pages/Blog";
 import BlogArticlePage from "./pages/Blog/Article";
+import WebinarPage from "./pages/Webinar";
 import DashboardPage from "./pages/Dashboard";
 import ConcentrationPage from "./pages/Concentration";
 import RecommendationsPage from "./pages/Recommendations";
@@ -32,6 +33,7 @@ import ReleaseDetailPage from "./pages/Releases/ReleaseDetail";
 import ChatPage from "./pages/Chat";
 import ResearchPage from "./pages/Research";
 import ResearchQAPage from "./pages/Research/QAExercise";
+import FlowLedgerPage from "./pages/FlowLedger";
 import LoginPage from "./pages/Login";
 import OnboardingPage from "./pages/Onboarding";
 import CasCallbackPage from "./pages/CasCallback";
@@ -81,6 +83,9 @@ export function AppRoutes() {
       <Route path="/disclosure" element={<DisclosurePage />} />
       <Route path="/blog" element={<BlogIndexPage />} />
       <Route path="/blog/:slug" element={<BlogArticlePage />} />
+      {/* Webinar landing + registration — public, no auth: visitors arrive
+          cold from social posts and must not hit the login gate. */}
+      <Route path="/webinar" element={<WebinarPage />} />
 
       {/* Auth screens — full-bleed */}
       <Route path="/login" element={<LoginPage />} />
@@ -122,6 +127,7 @@ export function AppRoutes() {
       {/* QA validation exercise — an in-app, fill-in version of the two onboarding
           docs. Same standalone, login-gated treatment as /research. */}
       <Route path="/research/qa" element={<RequireAuth><RouteErrorBoundary pageName="Research QA"><ResearchQAPage /></RouteErrorBoundary></RequireAuth>} />
+      <Route path="/flows" element={<RequireAuth><RouteErrorBoundary pageName="Flow Ledger"><FlowLedgerPage /></RouteErrorBoundary></RequireAuth>} />
 
       {/* Authenticated app — sidebar layout. RequireAppAccess confines a
           research-only user (research_only flag) to /research: every route in

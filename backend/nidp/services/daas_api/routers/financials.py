@@ -17,6 +17,11 @@ router = APIRouter(prefix="", tags=["fundamentals"], dependencies=[Depends(requi
 async def financials(
     symbol: str = Path(...),
     consolidated: Optional[bool] = Query(None, description="True = consolidated; False = standalone; omit for both"),
+    period_type: Optional[str] = Query(
+        None, pattern="^(quarterly|annual)$",
+        description="quarterly or annual; omit for both. A fiscal year and its March quarter are "
+                    "separate rows with the same period_end.",
+    ),
     period_from: Optional[str] = Query(None, description="period_end floor, YYYY-MM-DD"),
     period_to: Optional[str] = Query(None),
     page: Dict[str, int] = Depends(page_params),
@@ -45,10 +50,11 @@ async def financials(
                AND ($2::boolean IS NULL OR consolidated = $2)
                AND ($3::date IS NULL OR period_end >= $3)
                AND ($4::date IS NULL OR period_end <= $4)
-             ORDER BY period_end DESC, consolidated DESC
+               AND ($7::text IS NULL OR lower(period_type) = $7)
+             ORDER BY period_end DESC, consolidated DESC, period_type DESC
              LIMIT $5 OFFSET $6
             """,
-            sym, consolidated, p_from, p_to, page["limit"], page["offset"],
+            sym, consolidated, p_from, p_to, page["limit"], page["offset"], period_type,
         )
     return envelope([row_to_dict(r) for r in rows], **page, extra={"symbol": sym})
 

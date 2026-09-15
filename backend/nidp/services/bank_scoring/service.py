@@ -266,7 +266,10 @@ async def _load_bank_rows(conn, target_date: date):
               AND f.period_end <= $1
             ORDER BY f.symbol,
                      f.consolidated DESC,   -- prefer consolidated (TRUE > FALSE)
-                     f.period_end DESC
+                     f.period_end DESC,
+                     -- 31-Mar can carry a quarter AND a fiscal-year row (migration 145); raw_data is
+                     -- Screener's quarterly table, so take the quarter's copy instead of an arbitrary one
+                     (f.period_type ILIKE 'quarterly') DESC
         ),
         -- Consolidated equity: most recent balance sheet row
         latest_cons_equity AS (

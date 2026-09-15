@@ -67,7 +67,12 @@ async def upsert_financials(
                 $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
                 $31,$32,$33,$34,$35,$36
             )
-            ON CONFLICT (symbol, period_end, consolidated)
+            ON CONFLICT (symbol, period_end, consolidated, period_type)
+            -- Quarters and fiscal years are separate rows (migration 145): a March quarter and its
+            -- fiscal year both end on 31-Mar, and while the key was (symbol, period_end, consolidated)
+            -- they fought over one row - an annual P&L overwrote the quarter's income statement, or the
+            -- year's row left the March quarter missing from TTM. period_type is in the key now, so an
+            -- annual upsert can only ever meet an annual row and plain COALESCE is correct again.
             DO UPDATE SET
                 revenue_from_ops_cr     = COALESCE(EXCLUDED.revenue_from_ops_cr,     nidp.nse_financials_quarterly.revenue_from_ops_cr),
                 total_income_cr         = COALESCE(EXCLUDED.total_income_cr,         nidp.nse_financials_quarterly.total_income_cr),
@@ -105,6 +110,34 @@ async def upsert_financials(
     return row["id"] if row else None
 
 
+def _quarter_end_on_or_before(d: "date") -> "date":
+    """Snap a Screener month-end label onto the quarter it actually reports.
+
+    Screener labels a shareholding table by the month it was published
+    ("Jul 2026" -> 2026-07-31), but the figures are the *quarter's*
+    filing. Writing the raw month-end pollutes shareholding_pattern's
+    quarterly axis: a "latest quarter" lookup picks 2026-07-31 for a
+    handful of symbols and 2026-06-30 for the rest, and any
+    quarter-over-quarter delta silently compares mismatched periods.
+
+    Returns the last quarter end on or before `d`. Used as a *predicate*
+    (`d == _quarter_end_on_or_before(d)` iff d is a quarter end), not as a
+    coercion: an interim month row carries different figures from the
+    quarter row it sits next to (ADANIENT 2026-06-30 fii_pct 8.77 vs
+    2026-07-31 fii_pct 10.51), so snapping it onto the quarter and letting
+    the upsert win would overwrite a real quarter with interim data.
+    """
+    import calendar
+    from datetime import date
+
+    qm = ((d.month - 1) // 3) * 3 + 3            # 3, 6, 9 or 12
+    q_end = date(d.year, qm, calendar.monthrange(d.year, qm)[1])
+    if d >= q_end:
+        return q_end
+    pm, py = (qm - 3, d.year) if qm > 3 else (12, d.year - 1)
+    return date(py, pm, calendar.monthrange(py, pm)[1])
+
+
 async def upsert_shareholding(
     symbol: str,
     data: dict[str, Any],
@@ -125,6 +158,18 @@ async def upsert_shareholding(
     try:
         period_end = _dt.strptime(raw_period, "%Y-%m-%d").date()
     except (ValueError, TypeError):
+        return False
+    # nidp.shareholding_pattern is a *quarterly* series and every consumer
+    # (latest-quarter lookups, QoQ deltas, the 20-quarter backfill) assumes
+    # that grain. Screener also surfaces interim month-end filings; those
+    # carry real but non-quarter figures, so admitting them makes
+    # "latest quarter" mean 2026-07-31 for a few symbols and 2026-06-30 for
+    # the rest. Keep them out rather than corrupt the axis.
+    if period_end != _quarter_end_on_or_before(period_end):
+        logger.info(
+            "shareholding: skipping non-quarter period_end %s for %s (%s)",
+            period_end, symbol, source,
+        )
         return False
 
     # Skip if no shareholding fields present
@@ -155,3 +200,130 @@ async def upsert_shareholding(
             source, run_id,
         )
     return True
+
+
+async def upsert_cashflow(
+    symbol: str,
+    data: dict[str, Any],
+    source: str = "screener_in",
+    source_run_id: Optional[str] = None,
+) -> Optional[int]:
+    """Write one annual cash-flow row into nidp.nse_financials_cashflow.
+
+    Mirrors upsert_financials: COALESCE on conflict so a later partial parse never
+    blanks a field an earlier run populated.
+    """
+    from datetime import datetime as _dt
+
+    period_end = data.get("period_end")
+    if isinstance(period_end, str):
+        try:
+            period_end = _dt.strptime(period_end, "%Y-%m-%d").date()
+        except ValueError:
+            period_end = None
+    if not period_end:
+        logger.warning("upsert_cashflow: no period_end for %s, skipping", symbol)
+        return None
+
+    if not any(data.get(f) is not None for f in ("cfo_cr", "cfi_cr", "cff_cr", "net_change_cash_cr")):
+        logger.warning("upsert_cashflow: all cash-flow fields null for %s period=%s, skipping",
+                       symbol, period_end)
+        return None
+
+    run_id = source_run_id or str(uuid.uuid4())
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO nidp.nse_financials_cashflow (
+                symbol, period_end, consolidated,
+                cfo_cr, cfi_cr, cff_cr, capex_cr, net_change_cash_cr,
+                source, source_run_id
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            ON CONFLICT ON CONSTRAINT uq_cashflow
+            DO UPDATE SET
+                cfo_cr             = COALESCE(EXCLUDED.cfo_cr,             nidp.nse_financials_cashflow.cfo_cr),
+                cfi_cr             = COALESCE(EXCLUDED.cfi_cr,             nidp.nse_financials_cashflow.cfi_cr),
+                cff_cr             = COALESCE(EXCLUDED.cff_cr,             nidp.nse_financials_cashflow.cff_cr),
+                capex_cr           = COALESCE(EXCLUDED.capex_cr,           nidp.nse_financials_cashflow.capex_cr),
+                net_change_cash_cr = COALESCE(EXCLUDED.net_change_cash_cr, nidp.nse_financials_cashflow.net_change_cash_cr),
+                source             = EXCLUDED.source,
+                source_run_id      = EXCLUDED.source_run_id,
+                ingested_at        = NOW()
+            RETURNING id
+            """,
+            symbol, period_end, bool(data.get("consolidated", False)),
+            data.get("cfo_cr"), data.get("cfi_cr"), data.get("cff_cr"),
+            data.get("capex_cr"), data.get("net_change_cash_cr"),
+            source, run_id,
+        )
+    return row["id"] if row else None
+
+
+async def upsert_balance_sheet(
+    symbol: str,
+    data: dict[str, Any],
+    source: str = "yahoo_finance",
+    source_run_id: Optional[str] = None,
+) -> Optional[int]:
+    """Write working-capital balance-sheet items onto the annual row for a period.
+
+    These columns (current assets/liabilities, inventory, receivables, payables) exist
+    on nse_financials_quarterly since migration 090 but nothing ever populated them --
+    Screener's balance-sheet table has no current-asset breakdown. COALESCE on conflict
+    so a partial payload never blanks a field an earlier source filled.
+
+    Always period_type 'annual': the only caller is yahoo_fundamentals, which reads Yahoo's
+    annual* series (fiscal-year-end balance sheets). Since migration 145 the key includes
+    period_type, so these values land on the fiscal-year row and never on the March quarter.
+    """
+    from datetime import datetime as _dt
+
+    period_end = data.get("period_end")
+    if isinstance(period_end, str):
+        try:
+            period_end = _dt.strptime(period_end, "%Y-%m-%d").date()
+        except ValueError:
+            period_end = None
+    if not period_end:
+        logger.warning("upsert_balance_sheet: no period_end for %s, skipping", symbol)
+        return None
+
+    fields = ("current_assets_cr", "current_liabilities_cr", "inventory_cr",
+              "trade_receivables_cr", "trade_payables_cr", "cash_and_equiv_cr",
+              "long_term_debt_cr")
+    if not any(data.get(f) is not None for f in fields):
+        logger.warning("upsert_balance_sheet: no balance-sheet values for %s period=%s, skipping",
+                       symbol, period_end)
+        return None
+
+    run_id = source_run_id or str(uuid.uuid4())
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO nidp.nse_financials_quarterly (
+                symbol, period_end, period_type, consolidated,
+                current_assets_cr, current_liabilities_cr, inventory_cr,
+                trade_receivables_cr, trade_payables_cr, cash_and_equiv_cr,
+                long_term_debt_cr, source, source_run_id
+            ) VALUES ($1,$2,'annual',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            ON CONFLICT (symbol, period_end, consolidated, period_type)
+            DO UPDATE SET
+                current_assets_cr      = COALESCE(EXCLUDED.current_assets_cr,      nidp.nse_financials_quarterly.current_assets_cr),
+                current_liabilities_cr = COALESCE(EXCLUDED.current_liabilities_cr, nidp.nse_financials_quarterly.current_liabilities_cr),
+                inventory_cr           = COALESCE(EXCLUDED.inventory_cr,           nidp.nse_financials_quarterly.inventory_cr),
+                trade_receivables_cr   = COALESCE(EXCLUDED.trade_receivables_cr,   nidp.nse_financials_quarterly.trade_receivables_cr),
+                trade_payables_cr      = COALESCE(EXCLUDED.trade_payables_cr,      nidp.nse_financials_quarterly.trade_payables_cr),
+                cash_and_equiv_cr      = COALESCE(EXCLUDED.cash_and_equiv_cr,      nidp.nse_financials_quarterly.cash_and_equiv_cr),
+                long_term_debt_cr      = COALESCE(EXCLUDED.long_term_debt_cr,      nidp.nse_financials_quarterly.long_term_debt_cr),
+                ingested_at            = NOW()
+            RETURNING id
+            """,
+            symbol, period_end, bool(data.get("consolidated", True)),
+            data.get("current_assets_cr"), data.get("current_liabilities_cr"),
+            data.get("inventory_cr"), data.get("trade_receivables_cr"),
+            data.get("trade_payables_cr"), data.get("cash_and_equiv_cr"),
+            data.get("long_term_debt_cr"), source, run_id,
+        )
+    return row["id"] if row else None

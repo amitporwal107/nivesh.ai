@@ -177,3 +177,41 @@ def test_xbrl_returns_empty_on_no_matches():
     assert parse_xbrl_document(_SHP_XBRL.encode("utf-8"), bad_manifest) == []
     assert parse_xbrl_document(b"", _MANIFEST) == []
     assert parse_xbrl_document(b"not xml", _MANIFEST) == []
+
+
+# ── SHP v1.1 single-tag format: fractions vs percentages ─────────────
+def _v11(values: dict) -> bytes:
+    facts = "\n".join(
+        f'  <in-shp:ShareholdingAsAPercentageOfTotalNumberOfShares contextRef="{ctx}" decimals="4">{v}</in-shp:ShareholdingAsAPercentageOfTotalNumberOfShares>'
+        for ctx, v in values.items())
+    ctxs = "\n".join(
+        f'  <xbrli:context id="{ctx}"><xbrli:entity><xbrli:identifier scheme="x">XX</xbrli:identifier></xbrli:entity>'
+        f'<xbrli:period><xbrli:instant>2026-03-31</xbrli:instant></xbrli:period></xbrli:context>'
+        for ctx in values)
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:in-shp="http://www.nseindia.com/xbrl/shp">
+{ctxs}
+{facts}
+</xbrli:xbrl>""".encode("utf-8")
+
+
+def test_v11_fractions_are_scaled_to_percent():
+    rows = parse_xbrl_document(_v11({"ShareholdingOfPromoterAndPromoterGroup_ContextI": "0.4531",
+                                     "PublicShareholding_ContextI": "0.5469",
+                                     "InstitutionsForeign_ContextI": "0.0052"}), _MANIFEST)
+    assert rows[0]["promoter_pct"] == 45.31
+    assert rows[0]["fii_pct"] == 0.52
+
+
+def test_v11_percentages_are_not_scaled_again():
+    """June-2025-quarter filings sent 20.31 for 20.31%; x100 stored AWFIS promoter holding as 2031%."""
+    rows = parse_xbrl_document(_v11({"ShareholdingOfPromoterAndPromoterGroup_ContextI": "20.31",
+                                     "PublicShareholding_ContextI": "79.69",
+                                     "InstitutionsForeign_ContextI": "0.63"}), _MANIFEST)
+    assert rows[0]["promoter_pct"] == 20.31
+    assert rows[0]["fii_pct"] == 0.63          # below 1, but the document is in percent
+
+
+def test_impossible_percentages_are_refused():
+    rows = parse_xbrl_document(_SHP_XBRL.replace(">52.84<", ">5284<").encode("utf-8"), _MANIFEST)
+    assert rows == []

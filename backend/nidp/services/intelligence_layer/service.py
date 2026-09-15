@@ -75,6 +75,7 @@ async def run(target_date: date | None = None) -> dict[str, int | str]:
                 updated_at    = NOW()
             """,
             target_date,
+            timeout=900,  # the pool's 30 s default failed every 2026-09-11 run
         )
 
         # 2) Security master: mutual funds. Dedupe by scheme_code; null out
@@ -119,7 +120,8 @@ async def run(target_date: date | None = None) -> dict[str, int | str]:
                 isin          = COALESCE(EXCLUDED.isin, ref.security_master.isin),
                 security_name = COALESCE(EXCLUDED.security_name, ref.security_master.security_name),
                 updated_at    = NOW()
-            """
+            """,
+            timeout=900,
         )
 
         # 3) Feature store mapping from existing nidp.stock_features_daily.

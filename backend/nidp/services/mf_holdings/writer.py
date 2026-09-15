@@ -57,11 +57,52 @@ def _as_date(v: Any) -> _date:
     return _date.fromisoformat(str(v))
 
 
+# nidp.mf_holdings_monthly stores weight_pct as numeric(7,4) and ytm_pct as
+# numeric(8,4), so |weight| must stay under 1000 and |ytm| under 10000. An AMC
+# sheet that puts a market value in the weight column (or quotes basis points)
+# overflows the column, and because the upsert runs as one batch a SINGLE bad
+# row aborts the whole run — a 2026-07 run got 100,000 of 158,868 rows in
+# before dying on NumericValueOutOfRangeError and rolled the tail back.
+#
+# The holding itself is still real when only its percentage is junk, so the
+# offending value is nulled rather than the row dropped, and the anomaly is
+# logged with a sample so the parser bug stays visible instead of being
+# silently clamped into plausible-looking data.
+_PCT_BOUNDS = {"weight_pct": 1000, "ytm_pct": 10000}
+
+
+def _drop_overflowing_pcts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    dropped: dict[str, list] = {}
+    for r in rows:
+        for field, bound in _PCT_BOUNDS.items():
+            v = r.get(field)
+            if v is None:
+                continue
+            try:
+                if abs(float(v)) >= bound:
+                    dropped.setdefault(field, []).append(
+                        (r.get("scheme_code"), r.get("security_name"), v))
+                    r[field] = None
+            except (TypeError, ValueError):
+                dropped.setdefault(field, []).append(
+                    (r.get("scheme_code"), r.get("security_name"), v))
+                r[field] = None
+    for field, bad in dropped.items():
+        logger.warning(
+            "mf_holdings: nulled %d out-of-range %s value(s) that would "
+            "overflow the column; first 3: %s",
+            len(bad), field, bad[:3],
+        )
+    return rows
+
+
 async def upsert_holdings(
     rows: list[dict[str, Any]], run_id: uuid.UUID, *, replace_stale_sources: bool = True,
 ) -> int:
     if not rows:
         return 0
+
+    rows = _drop_overflowing_pcts(rows)
 
     args = [
         (r["scheme_code"], _as_date(r["as_of_month"]), r.get("security_isin"),

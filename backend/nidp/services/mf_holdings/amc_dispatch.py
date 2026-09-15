@@ -1348,6 +1348,21 @@ async def quant(http: aiohttp.ClientSession, m: date) -> list[dict]:
         db_schemes = await conn.fetch(
             "SELECT scheme_code, scheme_name FROM nidp.mf_scheme_master WHERE amc_id = 'quant'",
         )
+        if not db_schemes:
+            # nidp.mf_scheme_master.amc_id is unpopulated for a large slice of
+            # the table (5,154 rows), and every quant scheme is in it — so the
+            # amc_id lookup returns zero rows, base_to_codes comes out empty
+            # and all 29 funds log "unresolved fund name" while 2,692 parsed
+            # holding rows land with no scheme_code. The scheme name itself is
+            # what actually identifies the AMC here, so fall back to it.
+            db_schemes = await conn.fetch(
+                "SELECT scheme_code, scheme_name FROM nidp.mf_scheme_master "
+                "WHERE scheme_name ILIKE 'quant %'",
+            )
+            logger.warning(
+                "mf_holdings[quant]: mf_scheme_master has no amc_id='quant' rows; "
+                "fell back to scheme-name match (%d schemes)", len(db_schemes),
+            )
 
     import re as _re
     base_to_codes: dict[str, list[str]] = {}

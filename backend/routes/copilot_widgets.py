@@ -59,7 +59,11 @@ _DAAS_URL = (
     or os.environ.get("NIDP_DAAS_API_URL")
     or "https://data.niveshcopilot.com/daas"
 ).rstrip("/")
-_DAAS_KEY = os.environ.get("NIDP_DAAS_API_KEY") or ""
+# Admin UI registers the key as NIDP_DAAS_INTERNAL_TOKEN; Cloud Run may use
+# NIDP_DAAS_API_KEY — accept either so the call authenticates on both paths.
+# Reading only NIDP_DAAS_API_KEY leaves this empty on staging, and _daas_get
+# then returns None for every call without ever reaching the DaaS.
+_DAAS_KEY = os.environ.get("NIDP_DAAS_API_KEY") or os.environ.get("NIDP_DAAS_INTERNAL_TOKEN") or ""
 
 
 async def _daas_get(path: str, params: Optional[dict] = None, timeout: float = 6.0) -> Optional[dict]:

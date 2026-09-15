@@ -27,6 +27,7 @@ from nidp.shared.logging_setup import bind_context
 from nidp.shared.metrics import (
     INGESTER_ROWS, INGESTER_RUNS, SOURCE_FETCH, time_fetch, time_ingester,
 )
+from nidp.shared.write_target import upsert_target_problem
 from nidp.shared.storage.job_log import JobRun
 from nidp.shared.storage.raw_archive import store as store_raw
 from nidp.shared.validation import run_validation as _run_validation
@@ -49,6 +50,20 @@ class AmfiNavIngester(BaseIngester):
 
     # Abstract methods are required by BaseIngester but unused — we
     # override run() with our own loop.
+    # nidp.index_eod / nidp.mf_nav_daily are pass-through VIEWS over FDW
+    # foreign tables in some environments, which no upsert can target.
+    # Detect it up front and skip with a real reason instead of failing
+    # identically forever. See nidp/shared/write_target.py.
+    _write_target = "nidp.mf_nav_daily"
+    _target_problem = None
+
+    async def _check_write_target(self) -> bool:
+        self._target_problem = await upsert_target_problem(self._write_target)
+        if self._target_problem:
+            logger.warning("%s: %s", self.SERVICE_NAME, self._target_problem)
+            return False
+        return True
+
     async def fetch(self, target_date): raise NotImplementedError("multi-output ingester")
     def parse(self, body, target_date): raise NotImplementedError("multi-output ingester")
     async def persist(self, rows, run): raise NotImplementedError("multi-output ingester")
@@ -59,6 +74,15 @@ class AmfiNavIngester(BaseIngester):
 
         async with JobRun(ingester=self.SERVICE_NAME, target_date=as_of) as run:
             bind_context(run_id=str(run.run_id))
+
+            # No write-target guard here any more. nidp.mf_nav_daily may still
+            # be a pass-through VIEW over an FDW foreign table (no unique
+            # constraint, so no upsert can target it), but writer.py now
+            # resolves the NAV table at run time and falls back to
+            # nidp.mf_nav_daily_local — a real table with the same columns and
+            # the same (scheme_code, nav_date, source) primary key. Skipping
+            # here would throw away a perfectly good AMFI fetch for a problem
+            # the writer already handles.
             bus = get_bus()
 
             with time_ingester(self.SERVICE_NAME):

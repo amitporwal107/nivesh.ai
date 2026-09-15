@@ -8,7 +8,8 @@ Each Suite carries:
 
 The four schema-forced CORRECTIONS are marked  # CORRECTION  inline and each has
 a regression test in test_nidp_dq.py:
-  1. nse_financials uniqueness drops period_type  (real UNIQUE is symbol,period_end,consolidated)
+  1. nse_financials uniqueness tracks the real UNIQUE (symbol, period_end, consolidated, period_type)
+     since migration 145 (before it the key had no period_type)
   2. period_type: case-insensitive membership (pass) + canonical-casing (warn)
   3. shareholding uniqueness deliberately tighter than the PK (drops source)
   4. fii_dii domain corrected to {FII, DII}; band allows blank
@@ -82,9 +83,12 @@ def nse_financials_suite(cal: TradingCalendar) -> Suite:
         fetch=FeedQuery("nidp.nse_financials_quarterly", cols, date_col="period_end"),
         rules=[
             E.not_null("symbol", "period_end", "consolidated"),
-            # CORRECTION 1: real UNIQUE is (symbol, period_end, consolidated) — NO period_type.
-            E.compound_unique("symbol", "period_end", "consolidated",
-                              note="tracks real UNIQUE; omits period_type so case-dupes surface"),
+            # CORRECTION 1: tracks the real UNIQUE, which includes period_type since migration 145 -
+            # a March quarter and its fiscal year are two legitimate rows on the same period_end.
+            # A case-dupe ('QUARTERLY' beside 'quarterly') needs a non-lowercase value, which
+            # canonical_casing below surfaces; the writers and migration 145 lowercase every value.
+            E.compound_unique("symbol", "period_end", "consolidated", "period_type",
+                              note="tracks real UNIQUE (migration 145)"),
             # CORRECTION 2 (recalibrated): three LIVE literals confirmed in data
             # {annual, quarterly, QUARTERLY}. Membership allows all three as-is — the
             # view depends on 'QUARTERLY' (ILIKE leg) AND 'annual' (exact leg), so
@@ -116,7 +120,8 @@ def nse_financials_suite(cal: TradingCalendar) -> Suite:
 # ===========================================================================
 def shareholding_suite(cal: TradingCalendar) -> Suite:
     cols = ["symbol", "period_end", "source",
-            "promoter_pct", "fii_pct", "dii_pct", "public_pct", "promoter_pledged_pct"]
+            "promoter_pct", "fii_pct", "dii_pct", "public_pct",
+            "promoter_pledged_pct", "promoter_pledged_to_total_pct"]
     return Suite(
         asset="shareholding_pattern", ingester="nse_shareholding",
         fetch=FeedQuery("nidp.shareholding_pattern", cols, date_col="period_end"),
@@ -132,7 +137,18 @@ def shareholding_suite(cal: TradingCalendar) -> Suite:
             E.between("dii_pct", min=0, max=100),
             E.between("public_pct", min=0, max=100),
             E.between("promoter_pledged_pct", min=0, max=100),
-            E.pair_a_lte_b("promoter_pledged_pct", "promoter_pct"),  # pledge <= promoter
+            E.between("promoter_pledged_to_total_pct", min=0, max=100),
+            # The pledge<=promoter invariant only holds on the SAME basis. The two
+            # pledge columns are different quantities (migration 025): _pct is
+            # pledged/promoter-holding, _to_total_pct is pledged/total-shares.
+            # promoter_pct is also on the total-shares basis, so _to_total_pct is the
+            # one that must not exceed it — pledged shares are a subset of promoter
+            # shares, so this is guaranteed by arithmetic and a violation is real
+            # corruption. Comparing _pct instead fired on correct data: A2Z Infra
+            # discloses 99.68% of promoter holding encumbered against a 27.92%
+            # promoter stake, which is not an error. The rule was dormant until
+            # 2026-08-19 because both columns were NULL in all 8,955 rows.
+            E.pair_a_lte_b("promoter_pledged_to_total_pct", "promoter_pct"),
             # CONFIRMED 2-column: public_pct is the all-non-promoter aggregate; fii/dii
             # are SUBSETS of it. Clean rows show promoter+public = 99.96 (97.27–100.00).
             # public_pct is contaminated (max 9904) so this check IS the corruption

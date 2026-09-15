@@ -43,7 +43,7 @@ BATCH_SIZE = 200
 # that take ~35s on staging. At 30s asyncpg cancels them with an empty-message
 # TimeoutError, which left shareholding/fundamentals columns silently blank for the
 # latest date. Override the per-statement timeout for these heavy maintenance calls.
-_POPULATE_TIMEOUT_S = 600
+_POPULATE_TIMEOUT_S = 1800  # 600 s timed out on every 2026-09-11 run under backfill load
 
 
 @dataclass
@@ -96,6 +96,48 @@ async def _populate_extended(conn: asyncpg.Connection, target_date: date) -> int
         raise
 
 
+async def _populate_options(conn: asyncpg.Connection, target_date: date) -> int:
+    """PCR / total OI / OI change from nidp.fno_bhavcopy (migration 139).
+
+    Migration 091 dropped this pass from populate_stock_features_extended and
+    the options columns sat empty; non-fatal so it can't block the scores.
+    """
+    try:
+        rows = await conn.fetchval(
+            "SELECT nidp.populate_stock_options_features($1)",
+            target_date,
+            timeout=_POPULATE_TIMEOUT_S,
+        )
+        logger.info("fund_engine_populate_options date=%s rows_updated=%s", target_date, rows)
+        return rows or 0
+    except Exception as exc:  # noqa: BLE001
+        logger.error("fund_engine_populate_options_error date=%s error=%r", target_date, exc)
+        return 0
+
+
+async def _populate_mf_ownership(conn: asyncpg.Connection, target_date: date) -> int:
+    """Mutual-fund ownership from the AMC monthly disclosures (migration 141).
+
+    MUST run after _populate_extended: that pass sets mf_pct from
+    v_shareholding_latest.mf_pct, which is NULL for every row because neither
+    shareholding source carries a mutual-fund column. Without this pass running
+    afterwards, mf_pct is reset to NULL on every engine run.
+
+    Non-fatal so it can't block the scores.
+    """
+    try:
+        rows = await conn.fetchval(
+            "SELECT nidp.populate_mf_ownership($1)",
+            target_date,
+            timeout=_POPULATE_TIMEOUT_S,
+        )
+        logger.info("fund_engine_populate_mf date=%s rows_updated=%s", target_date, rows)
+        return rows or 0
+    except Exception as exc:  # noqa: BLE001
+        logger.error("fund_engine_populate_mf_error date=%s error=%r", target_date, exc)
+        return 0
+
+
 async def _populate_v3(conn: asyncpg.Connection, target_date: date) -> int:
     """Call populate_stock_features_v3 — computes 3Y CAGR metrics from annual P&L.
 
@@ -138,25 +180,36 @@ async def _fetch_prior_year_quarters(
     conn: asyncpg.Connection,
     symbols: list[str],
 ) -> dict[str, dict]:
-    """Fetch prior-year same quarter for Piotroski delta signals."""
+    """Fetch the prior-year quarter for Piotroski delta signals.
+
+    Every writer stores period_type = 'quarterly' (lowercase); this query
+    matched 'QUARTERLY' exactly, found no prior year for any stock, and
+    7 of the 9 F-score signals could never fire (max score 2 across the
+    universe). Match case-insensitively, and take the quarter nearest one
+    year back within 330–400 days — reporting dates drift and the same-day
+    match missed rows — preferring the same consolidated/standalone basis.
+    """
     rows = await conn.fetch(
         """
         WITH latest AS (
             SELECT DISTINCT ON (symbol) symbol, period_end, consolidated
               FROM nidp.nse_financials_quarterly
-             WHERE period_type = 'QUARTERLY'
+             WHERE period_type ILIKE 'quarterly'
+               AND symbol = ANY($1::text[])
              ORDER BY symbol, consolidated DESC, period_end DESC
         )
-        SELECT f.symbol, f.period_end, f.consolidated,
+        SELECT DISTINCT ON (f.symbol)
+               f.symbol, f.period_end, f.consolidated,
                f.revenue_from_ops_cr, f.pat_cr, f.eps_basic, f.face_value,
                f.total_equity_cr, f.long_term_debt_cr, f.short_term_debt_cr,
                f.cash_and_equiv_cr, f.ebitda_cr, f.finance_costs_cr, f.depreciation_cr
           FROM nidp.nse_financials_quarterly f
           JOIN latest l ON l.symbol = f.symbol
-                        AND l.consolidated = f.consolidated
-         WHERE f.symbol = ANY($1::text[])
-           AND f.period_type = 'QUARTERLY'
-           AND f.period_end = (l.period_end - INTERVAL '1 year')::date
+         WHERE f.period_type ILIKE 'quarterly'
+           AND f.period_end BETWEEN (l.period_end - INTERVAL '400 days')::date
+                                AND (l.period_end - INTERVAL '330 days')::date
+         ORDER BY f.symbol, (f.consolidated = l.consolidated) DESC,
+                  abs(f.period_end - (l.period_end - INTERVAL '1 year')::date)
         """,
         symbols,
     )
@@ -244,6 +297,8 @@ async def compute_for_date(
         # Step 1: populate standard fundamental columns via SQL function
         if not skip_populate:
             await _populate_extended(conn, target_date)
+            await _populate_options(conn, target_date)
+            await _populate_mf_ownership(conn, target_date)
             # Also populate V3-specific 3Y CAGR metrics (revenue growth, margin trend,
             # debt trend) from annual Screener P&L data. Must run after _populate_extended
             # so balance sheet debt columns are current.

@@ -140,7 +140,13 @@ def parse_filing_list(body: bytes) -> List[Dict[str, Any]]:
             continue
 
         relating_to = (r.get("relatingTo") or r.get("relatedTo") or "").strip().lower()
-        consolidated = "consolidated" in relating_to
+        # NSE carries the basis in its own "consolidated" field ("Consolidated" /
+        # "Non-Consolidated"); "relatingTo" is the quarter ("Fourth Quarter"). Reading
+        # relatingTo marked every filing standalone, so a company's consolidated and
+        # standalone filings collapsed onto one (symbol, period_end, consolidated) row.
+        # Exact match, never substring: "consolidated" is contained in "non-consolidated".
+        basis = (r.get("consolidated") or "").strip().lower()
+        consolidated = (basis or relating_to) == "consolidated"
 
         audited_raw = (r.get("audited") or "").strip().lower()
         audited = True if audited_raw == "audited" else (False if audited_raw == "un-audited" else None)
@@ -157,7 +163,11 @@ def parse_filing_list(body: bytes) -> List[Dict[str, Any]]:
             "audited":        audited,
             "filing_id":      str(r.get("seqNumber") or r.get("seqno") or r.get("broadcast") or ""),
             "xbrl_url":       xbrl_url,
-            "broadcast_at":   _parse_nse_datetime(r.get("broadcastDate") or r.get("broadcastTimestamp")),
+            # NSE's key is "broadCastDate" (capital C). Reading only "broadcastDate" left
+            # broadcast_at NULL on every filing, so no fundamental was usable point-in-time.
+            "broadcast_at":   _parse_nse_datetime(
+                r.get("broadCastDate") or r.get("broadcastDate") or r.get("broadcastTimestamp")
+            ),
             "relating_to":    r.get("relatingTo") or "",
         })
     return out

@@ -172,3 +172,37 @@ def parse_bhavcopy(body: bytes) -> list[dict[str, Any]]:
     if fmt == "A":
         return _parse_legacy(body_rows, headers)
     return _parse_post2024(body_rows, headers)
+
+
+def parse_bse_scrip_isin(body: bytes) -> dict[str, str]:
+    """Extract {BSE scrip code -> ISIN} from a BSE bhavcopy CSV.
+
+    BSE's delivery file identifies rows by scrip code alone — no ISIN, no
+    ticker — so it cannot be joined to nidp.delivery_data (keyed on NSE
+    symbol) without a bridge. The BSE bhavcopy for the *same day* carries
+    FinInstrmId (the scrip code) alongside ISIN, which makes it a
+    self-consistent bridge with no extra source to maintain.
+
+    Returns an empty dict if the file is not in the SEBI layout.
+    """
+    text = body.decode("utf-8", errors="replace")
+    reader = csv.reader(io.StringIO(text))
+    try:
+        header = next(reader)
+    except StopIteration:
+        return {}
+    h = {c.strip(): i for i, c in enumerate(header)}
+    if "FinInstrmId" not in h or "ISIN" not in h:
+        logger.warning("BSE bhavcopy: no FinInstrmId/ISIN columns; got %s",
+                       list(h)[:12])
+        return {}
+    ci, ii = h["FinInstrmId"], h["ISIN"]
+    out: dict[str, str] = {}
+    for row in reader:
+        if len(row) <= max(ci, ii):
+            continue
+        code = (row[ci] or "").strip()
+        isin = (row[ii] or "").strip()
+        if code and isin.startswith("IN"):
+            out.setdefault(code, isin)
+    return out

@@ -51,6 +51,7 @@ from nidp.services.daas_api.routers import (
     events,
     features,
     financials,
+    flow_ledger,
     flows,
     fno,
     health,
@@ -67,6 +68,7 @@ from nidp.services.daas_api.routers import (
     reference,
     replay,
     snapshots,
+    stock_screen,
     stock_scores,
     stock_v3_scores,
     dq_status,
@@ -315,6 +317,7 @@ app.include_router(backfill.router, prefix=v1_prefix)
 app.include_router(financials.router, prefix=v1_prefix)
 app.include_router(fno.router, prefix=v1_prefix)
 app.include_router(flows.router, prefix=v1_prefix)
+app.include_router(flow_ledger.router, prefix=v1_prefix)
 app.include_router(announcements.router, prefix=v1_prefix)
 app.include_router(documents.router, prefix=v1_prefix)
 app.include_router(macro.router, prefix=v1_prefix)
@@ -325,6 +328,7 @@ app.include_router(mf.router, prefix=v1_prefix)
 app.include_router(mf_performance.router, prefix=v1_prefix)
 app.include_router(mf_scores.router, prefix=v1_prefix)
 app.include_router(stock_scores.router, prefix=v1_prefix)
+app.include_router(stock_screen.router, prefix=v1_prefix)
 app.include_router(stock_v3_scores.router, prefix=v1_prefix)
 app.include_router(analytics.router, prefix=v1_prefix)
 app.include_router(dq_status.router, prefix=v1_prefix)

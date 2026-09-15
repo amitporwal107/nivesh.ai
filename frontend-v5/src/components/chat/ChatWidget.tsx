@@ -3093,6 +3093,16 @@ function StockInsightsWidget({ data, onAction }: { data: any; onAction?: (a: Wid
   );
 }
 
+/** Every widget_type the dispatcher below can render. The chat page and the
+ *  CopilotDock both import THIS list so they never drift (the dock used to know
+ *  11 of the 19 and rendered a blank turn for the rest). */
+export const WIDGET_TYPES = new Set([
+  "fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education",
+  "concentration", "allocation_review", "instrument_detail", "mf_detail", "market_detail",
+  "risk_assessment", "goal_simulation", "stock_screener", "portfolio_builder", "strategy_lab",
+  "capital_gains", "goal_basket", "backtest_comparison", "stock_insights",
+]);
+
 export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: string; data?: any }; onAction?: (a: WidgetAction) => void }) {
   if (!widget?.widget_type) return null;
   try {

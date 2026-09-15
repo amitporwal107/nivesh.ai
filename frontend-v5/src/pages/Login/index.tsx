@@ -220,7 +220,7 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <div className="reveal d4" style={{ flex: 1, minHeight: 0, display: "flex" }}>
+          <div className="tour-wrap reveal d4">
             <ProductTour host="app.nivesh.in" />
           </div>
         </section>

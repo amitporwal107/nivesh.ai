@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import zipfile
 
 from nidp.services.nse_financials.parser import (
@@ -246,3 +247,40 @@ def test_xbrl_invalid_input_returns_empty():
     assert parse_xbrl_document(b"", _MANIFEST) == []
     assert parse_xbrl_document(b"not xml or zip", _MANIFEST) == []
     assert parse_xbrl_document(b"<not-xbrl/>", _MANIFEST) == []
+
+
+# ── Real NSE payload shape ───────────────────────────────────────────
+# The fixture above uses "broadcastDate" and a relatingTo of "Consolidated" -- neither
+# is what NSE sends, which is how broadcast_at stayed NULL on every production row and
+# every filing was tagged standalone while this suite passed. These use a real excerpt of
+# /api/corporates-financial-results (AHLWEST, filed 30-Jun-2024).
+
+_REAL = os.path.join(os.path.dirname(__file__), "fixtures", "nse_financial_results_listing.json")
+
+
+def _real_manifests():
+    with open(_REAL, "rb") as fh:
+        return parse_filing_list(fh.read())
+
+
+def test_real_payload_carries_broadcast_at():
+    out = _real_manifests()
+    assert len(out) == 4
+    assert all(m["broadcast_at"] for m in out), "broadCastDate was not read"
+    by = {(m["period_end"], m["consolidated"]): m for m in out}
+    assert by[("2022-03-31", True)]["broadcast_at"] == "2024-06-30T14:21:49"
+    assert by[("2022-03-31", False)]["broadcast_at"] == "2024-06-30T14:19:21"
+
+
+def test_real_payload_distinguishes_consolidated_from_standalone():
+    out = _real_manifests()
+    assert sum(1 for m in out if m["consolidated"]) == 2
+    assert sum(1 for m in out if not m["consolidated"]) == 2
+
+
+def test_non_consolidated_is_not_mistaken_for_consolidated():
+    payload = [{"symbol": "X", "toDate": "31-Mar-2026", "consolidated": "Non-Consolidated",
+                "relatingTo": "Fourth Quarter", "xbrl": "https://x/y.xml",
+                "broadCastDate": "01-May-2026 10:00:00"}]
+    out = parse_filing_list(json.dumps(payload).encode("utf-8"))
+    assert out[0]["consolidated"] is False

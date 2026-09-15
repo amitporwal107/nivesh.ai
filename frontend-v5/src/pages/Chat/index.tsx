@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Plus, Send, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter, Sparkles, Wand2, Building2 } from "lucide-react";
+import { Plus, Send, Square, History as HistoryIcon, Trash2, X, PanelLeftClose, PanelLeftOpen, LineChart, PieChart, SlidersHorizontal, ListFilter, Sparkles, Wand2, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CopilotWorkflows from "./CopilotWorkflows";
 import CopilotReview from "./CopilotReview";
@@ -18,20 +18,48 @@ import {
 } from "@/hooks/use-chat";
 import { chatService } from "@/services";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChatWidget } from "@/components/chat/ChatWidget";
+import { ChatWidget, WIDGET_TYPES } from "@/components/chat/ChatWidget";
+import { AgentRibbon, FollowUps, ThinkingSteps, stepUpdate, type ThinkingStep } from "@/components/chat/StreamStatus";
 import { ScreenerQueryBuilder } from "@/components/chat/ScreenerQueryBuilder";
 import { SCREEN_PRIMITIVES, screenInsert, type ScreenPrimitive } from "@/components/chat/screenerPrimitives";
 import { Markdown, prefetchStreamdown } from "@/components/chat/Markdown";
-import { useTypewriterReveal, remainingRevealMs } from "@/components/chat/useTypewriter";
+import { useTypewriterReveal, remainingRevealMs, holdFor } from "@/components/chat/useTypewriter";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useInstrumentSearch, type StockHit, type FundHit } from "@/hooks/use-instrument-search";
 import { useQuerySuggestions, type QuerySuggestion } from "@/hooks/use-query-suggestions";
 
 // `buffer` is everything received from the stream; `content` is the paced,
-// typed-out slice the user sees (see useTypewriterReveal).
-type StreamState = { buffer: string; content: string; thinking?: string; widget?: { widget_type: string; data: unknown }; error?: string };
+// typed-out slice the user sees (see useTypewriterReveal). The rest is what the
+// stream tells us about itself (see backend/routes/chat.py): `route` → agent,
+// `thinking` → steps, `done` → followUps.
+type StreamState = {
+  buffer: string;
+  content: string;
+  thinking?: string;
+  steps: ThinkingStep[];
+  agent?: string;
+  confidence?: number;
+  followUps?: string[];
+  widget?: { widget_type: string; data: unknown };
+  error?: string;
+  /** user clicked / pressed Esc: show everything that has arrived now */
+  skip?: boolean;
+};
 
-const WIDGET_TYPES = new Set(["fund_consolidation", "fund_overlap", "overlap_severity", "risk_overview", "cap_education", "concentration", "allocation_review", "instrument_detail", "mf_detail", "market_detail", "risk_assessment", "goal_simulation", "stock_screener", "portfolio_builder", "strategy_lab", "capital_gains", "goal_basket", "backtest_comparison", "stock_insights"]);
+// What the last completed answer told us about itself — kept after the stream
+// so the agent ribbon and the follow-up chips survive the swap to the
+// persisted message.
+type AnswerMeta = { sessionId: string; agent?: string; confidence?: number; followUps: string[] };
+
+// A partial answer the user stopped, or one that failed mid-stream. The server
+// persists only complete answers, so this bubble lives here until the next send.
+type LocalAnswer = {
+  sessionId: string;
+  question: string;
+  content: string;
+  widget?: { widget_type: string; data: unknown };
+  note: "stopped" | "error";
+};
 
 const FALLBACK_PROMPTS = [
   "Why is my score 74?",
@@ -177,9 +205,24 @@ export default function ChatPage() {
   const [pendingUser, setPendingUser] = useState<string | null>(null);
   const firstTokenRef = useRef<number | null>(null);
   const isBusy = streaming !== null;
+  // Mirror of `streaming` readable from inside async flows (submitMessage runs
+  // across many renders); `abortRef` is the in-flight stream's controller.
+  const streamRef = useRef<StreamState | null>(null);
+  useEffect(() => { streamRef.current = streaming; }, [streaming]);
+  const abortRef = useRef<AbortController | null>(null);
+  const [answerMeta, setAnswerMeta] = useState<AnswerMeta | null>(null);
+  const [localAnswer, setLocalAnswer] = useState<LocalAnswer | null>(null);
 
-  // Pace the visible text toward the received buffer over a ~10s window.
+  // Pace the visible text to token arrival (never slower than a smooth type-out).
   useTypewriterReveal(streaming, setStreaming, firstTokenRef);
+
+  // Esc while an answer streams: show it all now (click on the bubble does the same).
+  useEffect(() => {
+    if (!streaming) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setStreaming((st) => (st && !st.skip ? { ...st, skip: true } : st)); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [streaming]);
 
   // Warm the lazy Streamdown chunk on entry so the first answer renders
   // markdown without a fallback flash.
@@ -203,38 +246,74 @@ export default function ChatPage() {
       sid = created.id;
       setSessionId(sid);
     }
+    setAnswerMeta(null);
+    setLocalAnswer(null);
     setPendingUser(t);
     firstTokenRef.current = null;
-    setStreaming({ buffer: "", content: "" });
+    const ac = new AbortController();
+    abortRef.current = ac;
+    setStreaming({ buffer: "", content: "", steps: [] });
+    // Facts about the answer captured here, outside React state: the state
+    // mirror (streamRef) can lag a commit when the stream completes in one
+    // tick, and these must not depend on render timing.
+    let followUps: string[] = [];
+    let answerText = "";
+    let agent: string | undefined;
+    let confidence: number | undefined;
+    let widget: { widget_type: string; data: unknown } | undefined;
+    let errorText: string | undefined;
     try {
       await chatService.streamSend(t, sid, (ev) => {
+        if (ev.type === "done" && Array.isArray(ev.follow_ups)) followUps = ev.follow_ups.filter((q) => typeof q === "string");
+        if (ev.type === "token") answerText += ev.content ?? "";
+        if (ev.type === "route") { agent = ev.agent ?? agent; if (typeof ev.confidence === "number") confidence = ev.confidence; }
+        if (ev.type === "widget") widget = { widget_type: ev.widget_type, data: ev.data };
+        if (ev.type === "error") errorText = ev.content;
         setStreaming((s) => {
           if (!s) return s;
           switch (ev.type) {
-            case "thinking": return { ...s, thinking: ev.status === "start" ? ev.tool : undefined };
+            case "route":    return { ...s, agent: ev.agent ?? s.agent, confidence: typeof ev.confidence === "number" ? ev.confidence : s.confidence };
+            case "thinking": return { ...s, thinking: ev.status === "start" ? ev.tool : undefined, steps: stepUpdate(s.steps, ev.tool, ev.status) };
             // Tokens accumulate into `buffer`; the typewriter reveals `content`.
             case "token":    return { ...s, buffer: s.buffer + (ev.content ?? ""), thinking: undefined };
             case "widget":
-              // Start the reveal window at widget arrival so the staggered
-              // build (and the bubble hold) span ~10s even with little/no text.
               if (firstTokenRef.current == null) firstTokenRef.current = performance.now();
               return { ...s, widget: { widget_type: ev.widget_type, data: ev.data } };
             case "error":    return { ...s, error: ev.content };
             default:         return s;
           }
         });
-      });
+      }, { signal: ac.signal });
     } catch {
-      setStreaming((s) => (s ? { ...s, error: "Connection interrupted — please try again." } : s));
+      if (!ac.signal.aborted) {
+        setStreaming((s) => (s ? { ...s, error: "Connection interrupted — please try again." } : s));
+      }
     }
-    // Hold the bubble open until the paced reveal finishes its ~10s window
-    // (the stream itself may have completed in ~1s).
-    await new Promise((r) => setTimeout(r, remainingRevealMs(firstTokenRef.current)));
+    abortRef.current = null;
+    if (ac.signal.aborted) {
+      // Stopped by the user: keep what arrived (the server won't have persisted
+      // a partial answer), then refetch the thread.
+      if (answerText || widget) setLocalAnswer({ sessionId: sid, question: t, content: answerText, widget, note: "stopped" });
+    } else if (errorText || streamRef.current?.error) {
+      const err = errorText ?? streamRef.current?.error ?? "";
+      setLocalAnswer({ sessionId: sid, question: t, content: answerText || err, widget, note: "error" });
+    } else {
+      // Finish typing what is still hidden (capped) and let a widget build in —
+      // unless the user skipped. Only the VISIBLE length comes from the mirror.
+      const shown = streamRef.current?.content.length ?? 0;
+      await holdFor(remainingRevealMs(Math.max(0, answerText.length - shown), !!widget), () => !!streamRef.current?.skip);
+      setAnswerMeta({ sessionId: sid, agent, confidence, followUps });
+    }
     setStreaming(null);
     setPendingUser(null);
     qc.invalidateQueries({ queryKey: ["chat", "sessions", sid] });
     qc.invalidateQueries({ queryKey: ["chat", "sessions"] });
   };
+
+  /** Stop the in-flight answer (keeps what has arrived, see LocalAnswer). */
+  const handleStop = () => { abortRef.current?.abort(); };
+  /** Show everything that has arrived right now (click / Esc during a reveal). */
+  const handleSkip = () => { setStreaming((s) => (s && !s.skip ? { ...s, skip: true } : s)); };
 
   const handleSend = async () => {
     const text = composer.trim();
@@ -479,11 +558,15 @@ export default function ChatPage() {
     setSessionId(undefined);
     setComposer("");
     setHistoryOpen(false);
+    setAnswerMeta(null);
+    setLocalAnswer(null);
   };
 
   const handleOpen = (id: string) => {
     setSessionId(id);
     setHistoryOpen(false);
+    setAnswerMeta(null);
+    setLocalAnswer(null);
   };
 
   // Delete a conversation (and its messages) from history.
@@ -810,32 +893,71 @@ export default function ChatPage() {
             </div>
           )}
 
-          {/* live streaming answer */}
-          {streaming && (
-            <div className="flex gap-3.5">
+          {/* Agent ribbon + follow-up chips for the last completed answer */}
+          {answerMeta && answerMeta.sessionId === sessionId && !streaming && messages.length > 0 && messages[messages.length - 1].role !== "user" && (
+            <div className="pl-[52px] -mt-2 flex flex-col gap-3" data-testid="answer-meta">
+              {answerMeta.agent && <div><AgentRibbon agent={answerMeta.agent} confidence={answerMeta.confidence} /></div>}
+              <FollowUps items={answerMeta.followUps} onPick={(q) => void submitMessage(q)} disabled={isBusy} />
+            </div>
+          )}
+
+          {/* An answer the user stopped, or one that failed mid-stream — kept
+              locally (the server persists only complete answers). */}
+          {localAnswer && localAnswer.sessionId === sessionId && !streaming && (
+            <div className="flex gap-3.5" data-testid="local-answer">
               <span className="grid place-items-center h-9 w-9 rounded-md bg-ink text-on-accent font-display text-base leading-none shrink-0">न</span>
               <div className="flex-1 min-w-0">
+                {localAnswer.widget && WIDGET_TYPES.has(localAnswer.widget.widget_type) ? (
+                  <ChatWidget widget={localAnswer.widget} onAction={handleWidgetAction} />
+                ) : localAnswer.content ? (
+                  <Markdown className="text-[15.5px] leading-relaxed text-ink-2">{localAnswer.content}</Markdown>
+                ) : null}
+                <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                  <span className={cn("font-mono text-[10px] uppercase tracking-[.14em]", localAnswer.note === "error" ? "text-neg" : "text-ink-3")}>
+                    {localAnswer.note === "error" ? "Couldn't finish" : "Stopped"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void submitMessage(localAnswer.question)}
+                    className="rounded-full border border-hairline bg-surface-1 px-3 py-1 text-[12px] text-ink-2 hover:bg-surface-2 transition-colors"
+                  >
+                    Try again
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* live streaming answer — click it (or press Esc) to see it all now */}
+          {streaming && (
+            <div className="flex gap-3.5" data-testid="streaming-answer" onClick={handleSkip} title={streaming.skip ? undefined : "Click to show the whole answer"}>
+              <span className="grid place-items-center h-9 w-9 rounded-md bg-ink text-on-accent font-display text-base leading-none shrink-0">न</span>
+              <div className="flex-1 min-w-0 flex flex-col gap-2.5">
+                {streaming.agent && <div><AgentRibbon agent={streaming.agent} confidence={streaming.confidence} /></div>}
+                {streaming.steps.length > 0 && !streaming.widget && !streaming.content && (
+                  <div aria-live="polite"><ThinkingSteps steps={streaming.steps} /></div>
+                )}
                 {streaming.error ? (
                   <p className="text-[14px] text-neg">{streaming.error}</p>
                 ) : streaming.widget && WIDGET_TYPES.has(streaming.widget.widget_type) ? (
-                  // Widget is the answer: it builds in steps (sd-stagger) and its
+                  // Widget is the answer: it builds in quick steps (sd-stagger) and its
                   // hero line (section 1) types out the summary as it lands.
-                  <div className="sd-stagger">
+                  <div className={streaming.skip ? undefined : "sd-stagger"}>
                     <ChatWidget widget={streaming.widget} onAction={handleWidgetAction} />
                   </div>
                 ) : streaming.content ? (
-                  <Markdown caret className="text-[15.5px] leading-relaxed text-ink-2">
+                  <Markdown caret={streaming.content.length < streaming.buffer.length} className="text-[15.5px] leading-relaxed text-ink-2">
                     {streaming.content}
                   </Markdown>
-                ) : (
-                  <div className="flex items-center gap-2 text-ink-3">
+                ) : streaming.steps.length === 0 ? (
+                  <div className="flex items-center gap-2 text-ink-3" aria-live="polite">
                     {streaming.thinking ? (
                       <span className="text-[13px]">Reading your portfolio…</span>
                     ) : (
                       <><Dot delay={0} /><Dot delay={150} /><Dot delay={300} /></>
                     )}
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           )}
@@ -1006,6 +1128,7 @@ export default function ChatPage() {
               ref={inputRef}
               type="text"
               placeholder="Ask anything…"
+              aria-label="Ask the copilot"
               value={composer}
               onChange={(e) => { setComposer(e.target.value); setSuggestOpen(true); setActiveIdx(-1); }}
               onKeyDown={onComposerKeyDown}
@@ -1015,9 +1138,15 @@ export default function ChatPage() {
               className="flex-1 bg-transparent outline-none text-[14.5px]"
               disabled={isBusy}
             />
-            <Button variant="accent" size="sm" disabled={!composer.trim() || isBusy} onClick={handleSend}>
-              <Send className="h-3.5 w-3.5" /> Send
-            </Button>
+            {isBusy ? (
+              <Button variant="outline" size="sm" onClick={handleStop} data-testid="chat-stop" aria-label="Stop generating">
+                <Square className="h-3 w-3 fill-current" /> Stop
+              </Button>
+            ) : (
+              <Button variant="accent" size="sm" disabled={!composer.trim()} onClick={handleSend} data-testid="chat-send">
+                <Send className="h-3.5 w-3.5" /> Send
+              </Button>
+            )}
           </div>
         </div>
       </div>

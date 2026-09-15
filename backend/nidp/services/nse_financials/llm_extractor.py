@@ -558,6 +558,72 @@ def parse_screener_balance_sheet(
     return output
 
 
+def parse_screener_cash_flow(
+    symbol: str,
+    html: str,
+    consolidated: bool = False,
+) -> list[dict[str, Any]]:
+    """Parse Screener.in #cash-flow section -> list of annual dicts.
+
+    Each entry covers a fiscal year-end (March 31) and contains:
+      period_end, cfo_cr, cfi_cr, cff_cr, net_change_cash_cr, capex_cr, consolidated.
+    Screener reports all figures in Rs Crore -- no conversion needed.
+
+    Screener has no capex row, but it publishes Free Cash Flow, so capex is derived
+    as CFO - FCF and left None when either side is missing (never guessed).
+    Returns [] if the section is absent or no parseable rows are found.
+    """
+    result = _parse_screener_section(html, "cash-flow")
+    if not result:
+        logger.debug("parse_screener_cash_flow: no #cash-flow section for %s", symbol)
+        return []
+    col_labels, raw_table = result
+
+    def _row(*keys: str) -> list[Optional[float]]:
+        for k in keys:
+            for label, vals in raw_table.items():
+                if k in label:
+                    return vals
+        return [None] * len(col_labels)
+
+    cfo_vals = _row("operating activity")
+    cfi_vals = _row("investing activity")
+    cff_vals = _row("financing activity")
+    net_vals = _row("net cash flow")
+    fcf_vals = _row("free cash flow")
+
+    output: list[dict[str, Any]] = []
+    for i, label in enumerate(col_labels):
+        period_end = _screener_quarter_label_to_date(label)
+        if not period_end:
+            continue
+
+        def _v(vals: list) -> Optional[float]:
+            return vals[i] if i < len(vals) else None
+
+        cfo = _v(cfo_vals)
+        fcf = _v(fcf_vals)
+        capex = round(cfo - fcf, 4) if cfo is not None and fcf is not None else None
+        entry = {
+            "period_end":         period_end,
+            "consolidated":       consolidated,
+            "cfo_cr":             cfo,
+            "cfi_cr":             _v(cfi_vals),
+            "cff_cr":             _v(cff_vals),
+            "net_change_cash_cr": _v(net_vals),
+            "capex_cr":           capex,
+        }
+        # a column with no cash-flow figure at all is a layout artefact, not a year
+        if any(entry[k] is not None for k in ("cfo_cr", "cfi_cr", "cff_cr", "net_change_cash_cr")):
+            output.append(entry)
+
+    logger.info(
+        "parse_screener_cash_flow: %s -- %d annual entries (consolidated=%s)",
+        symbol, len(output), consolidated,
+    )
+    return output
+
+
 def parse_screener_profit_loss(
     symbol: str,
     html: str,
@@ -736,3 +802,34 @@ def parse_nse_xbrl_json(symbol: str, xbrl_text: str) -> Optional[dict[str, Any]]
         "interest_earned_cr":    _get("interestEarned"),
         "interest_expended_cr":  _get("interestExpended"),
     }
+
+
+_CLASSIFICATION_TITLES = {
+    "Broad Sector": "broad_sector",
+    "Sector": "sector",
+    "Broad Industry": "broad_industry",
+    "Industry": "industry",
+}
+
+
+def parse_screener_classification(symbol: str, html: str) -> Optional[dict[str, str]]:
+    """Parse NSE's four-level industry classification from a Screener.in company page.
+
+    The peers section links it as /market/ breadcrumbs, one per level, e.g. for HDFCBANK:
+      title="Broad Sector" Financial Services -> "Sector" Financial Services
+      -> "Broad Industry" Banks -> "Industry" Private Sector Bank
+    Returns None unless at least the Sector level is present.
+    """
+    import html as _html
+
+    out: dict[str, str] = {}
+    for tag in re.findall(r'<a\b[^>]*href="/market/[^"]*"[^>]*>[^<]*</a>', html or ""):
+        title = re.search(r'title="([^"]+)"', tag)
+        text = re.search(r">([^<]*)</a>", tag)
+        key = _CLASSIFICATION_TITLES.get(title.group(1)) if title else None
+        if key and text and key not in out:
+            out[key] = _html.unescape(text.group(1)).strip()
+    if not out.get("sector"):
+        logger.debug("parse_screener_classification: no sector breadcrumb for %s", symbol)
+        return None
+    return out

@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 
 from nidp.shared.logging_setup import setup_logging
 from nidp.shared.storage.pg import get_pool
+from nidp.shared.storage import reap_stale_runs
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,17 @@ async def _check_depths(conn) -> tuple[list[dict], list[dict]]:
 
 async def check() -> dict:
     fail_on_gaps = os.environ.get("NIDP_HEALTH_FAIL_ON_GAPS", "1") == "1"
+
+    # Close out runs stranded in RUNNING by a process that died. A stranded
+    # row that is an ingester's latest run makes a dead feed look busy, so
+    # the staleness checks below would never fire for it — reap first, then
+    # measure. Threshold is generous so a genuinely long run is never shot.
+    try:
+        await reap_stale_runs.reap(
+            int(os.environ.get("NIDP_STALE_RUN_MAX_AGE_HOURS",
+                               reap_stale_runs.DEFAULT_MAX_AGE_HOURS)))
+    except Exception:  # noqa: BLE001 - never let maintenance break the check
+        logger.exception("stale-run reaper failed; continuing with health check")
 
     pool = await get_pool()
     async with pool.acquire() as conn:
