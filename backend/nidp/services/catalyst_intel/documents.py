@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-EXCHANGE_SOURCES = ("nse_announcements_api", "nse_announcements_rss", "bse_subcat_api", "bse_announcements_rss")
+EXCHANGE_SOURCES = ("nse_announcements_api", "bse_subcat_api")   # the day APIs carry categories and cover the same filings as the RSS feeds; fetching for both doubled the PDFs
 ROUTINE = ("Trading Window", "Analysts/Institutional Investor Meet/Con. Call Updates", "Shareholders meeting", "Copy of Newspaper Publication", "ESOP/ESOS/ESPS", "Reply to Clarification- Financial results")
 _GENERIC = re.compile(r"has informed the exchange (?:about|regarding)\s+[A-Za-z()/ ,'-]{3,60}\.?$|as per attachment|please find (?:enclosed|attached)|^\s*$", re.I)
 
