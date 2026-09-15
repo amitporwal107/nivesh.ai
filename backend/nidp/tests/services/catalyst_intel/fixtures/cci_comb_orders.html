@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en" class="ltr" dir="ltr">
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Competition Commission of India, Government of India</title>
+    <meta name="Description" content="">
+    <meta name="Keywords" content="">
+    <!-- Fav Icon -->
+    <link rel="shortcut icon" href="https://www.cci.gov.in/assets/images/favicon.ico">
+    <!-- Owl carousel -->
+    <link href="https://www.cci.gov.in/assets/css/style.css" rel="stylesheet">
+    <link href="https://www.cci.gov.in/assets/css/mobile-responsive.css" rel="stylesheet">
+    <link href="https://www.cci.gov.in/assets/css/font-awesome.min.css" rel="stylesheet">
+    <link href="https://www.cci.gov.in/dist-assets/css/plugins/datatables.min.css" rel="stylesheet" />
+    <link href="https://www.cci.gov.in/dist-assets/css/themes/frontplugins.bundle.css" rel="stylesheet" />
+    </head>
+
+<body>
+    <article class="wrapper">
+        <style>
+.navigation{ margin-top:0px!important;}
+.menuIcon, .closeIcon{ padding: 25px 25px; margin:30px 0px 0px;}
+.slideshow {
+  margin: 113px 0px 0px;
+}
+.top{
+	height: 30px;
+	padding: 0px 80px 0 50px;
+	font-size: 11px;
+}
+.top ul{
+    list-style:none;
+}
+.top ul li {
+    float: left;
+    text-transform: uppercase;
+    /*padding: 0 10px;*/
+}
+.top ul > li > a {
+	font-size:120%;
+	padding: 5px;
+}
+.top ul li.hover a {
+    opacity: 1;
+	background: #d9d9d9;
+}
+
+.dropbtn {
+  border: none;
+  cursor: pointer;
+}
+
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background-color: #eee;
+  z-index: 1;
+  top: 30px;
+}
+
+.dropdown-content a {
+  color: black;
+  text-decoration: none;
+  display: block;
+  float: none;
+  border: none;
+  margin-right: 0px;
+  min-width: 36px;
+}
+
+.dropdown-content a:hover {background-color: #ddd; color: #000;}
+
+.dropdown:hover .dropdown-content {
+  display: block;
+}
+
+.dropdown:hover .dropbtn {
+  background-color: #eee;
+}
+.searchBox{
+	width: 350px;
+	right: 44px;
+	bottom: -13px;
+	top: -5px;
+}
+.searchBox::before{
+	border-color: transparent transparent transparent #002268;
+	top: 18px;
+	right: -13px;
+}
+.btn{
+	padding: 10px 10px;
+}
+.form-control-input {
+  padding: 10px 10px;
+}
+.header {
+  padding:7px 85px 7px 55px;
+}
+.logopanel{
+	color: #0c56a8;
+}
+.font28{
+	font-size:28px;
+}
+</style>
+<!-- header section -->
+<header class="row headerSection">
+<div class="row borderBottom">
+<div class="row paddingInBox top whiteBG">
+<div class="pull_left posRelative">
+<ul>
+<li class="borderRight"><a href="https://www.india.gov.in/" title="भारत सरकार (बाहरी वेबसाइट जो एक नई विंडो में खुलती है)" target="_blank">भारत सरकार</a></li>
+<li><a href="https://www.india.gov.in/" target="_blank">Government Of India</a></li>
+</ul>
+</div>
+<div class="pull_right posRelative">
+<ul>
+<li class="borderLeft"><a href="https://www.cci.gov.in">Home</a></li>
+
+<li class="borderLeft dropdown">
+    <a href="javascript:void(0);" class="dropbtn">				
+    	<img class="" src="https://www.cci.gov.in/assets/images/tt.png" alt="Accessibility Dropdown">
+    </a>
+	
+		  
+    <div class="dropdown-content">
+		<a href="javascript:void(0)" id="btn-decrease" class="fontSetting">A<sup>-</sup></a>
+		<a href="javascript:void(0)" id="btn-orig" class="fontSetting label">A</a>
+		<a href="javascript:void(0)" id="btn-increase" class="fontSetting">A<sup>+</sup></a>
+    </div>
+</li>
+
+<li class="borderLeft dropdown">
+
+		<a href="javascript:void(0);" class="dropbtn">Lang</a>
+		<div class="dropdown-content">
+			<a href="/set-locale?locale=en" class="fontSetting" style="width:79px;">English</a>
+			<a href="/set-locale?locale=hi" class="fontSetting" style="width:79px;">हिन्दी</a>
+		</div> 
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="row header whiteBG">
+<div class="pull_left mob75">
+<div class="logo-first"><a href="https://www.cci.gov.in" class="logopanel"><img src="https://www.cci.gov.in/assets/images/emblem_of_India.svg" width="" height="65" alt="Competition Commission of India" title="Competition Commission of India"/></a></div>
+<div class="padding-sm logomain">
+<a href="https://www.cci.gov.in" class="blue label fontweightNone font28">भारतीय प्रतिस्पर्धा आयोग</a>
+<a href="https://www.cci.gov.in" class="blue font20 fontBold" style="font-family:arial;">Competition Commission of India</a>
+</div>
+<div class="logolast">
+    <img src="https://www.cci.gov.in/assets/images/cci.png" width="" height="63" alt="" title=""/>
+</div>
+</div>
+
+<div class="pull_right menuIcon"><i class="fa fa-bars fa-2x"></i></div>
+<div class="pull_right closeIcon"><i class="fa fa-close fa-2x"></i></div>
+<div class="pull_right padding-sm marginTop mobMarginNone">
+
+<div class="pull_right marginRight marginLeft posRelative mobMarginNone">
+<div class="searchIcon searchmobile"><img src="https://www.cci.gov.in/assets/images/search-icon-white.png" width="20" height="20"/></div>
+
+<form method="POST" action="https://www.cci.gov.in/search-filter" accept-charset="UTF-8" class="form" id="searchform" enctype="multipart/form-data"><input name="_token" type="hidden" value="zNk8h3mZ7YoQvdoKG7FDiMQWtuyPa4LsE7Sb16LQ">
+<div class="searchBox">
+<input type="text" name="search_string" class="form-control-input marginBottomNone col-sm-8" placeholder="Search Keyword"/>
+<input type="submit" class="btn primary-btn marginBottomNone col-sm-2 alignCenter radiusNone" value="GO"/>
+</div>
+</form>
+</div> 
+
+</div>
+
+
+
+
+</div>
+</section>
+
+<nav class="row navigation">
+<div class="wrap">
+<div class="col-sm-2">
+<ul>
+		              <li>
+        <a href="https://www.cci.gov.in/contact-us">
+      <i class="fa fa-fa fa-sitemap  paddingRight orange paddingRight orange"></i> Contact Us </a>
+    </li>
+                          <li>
+        <a href="https://www.cci.gov.in/about-us">
+      <i class="fa fa-fa fa-building paddingRight orange"></i> About CCI </a>
+    </li>
+                  <li>
+        <a href="https://www.cci.gov.in/vision-and-mission">
+      <i class="fa fa-bullseye  paddingRight orange"></i> Vision and Mission </a>
+    </li>
+                  <li>
+        <a href="https://www.cci.gov.in/commission">
+      <i class="fa fa-suitcase  paddingRight orange"></i> The Commission </a>
+    </li>
+                  <li>
+        <a href="https://www.cci.gov.in/whoswho">
+      <i class="fa fa-user-o paddingRight orange"></i> Who&#039;s Who </a>
+    </li>
+                  <li>
+        <a href="https://www.cci.gov.in/organogram">
+      <i class="fa fa-sitemap  paddingRight orange"></i> Organogram </a>
+    </li>
+                </ul>
+</div>
+<div class="col-sm-8">
+<div class="row">
+
+
+	
+    <a href="https://www.cci.gov.in/legal-framwork/act" class="menuBox borderBottomNone">
+  <div class="row marginBottom"><img src="https://www.cci.gov.in/images/menu-icons/legal.png" width="40"></div>
+  <div class="row">Legal Framework </div>
+  </a>
+     <a href="https://www.cci.gov.in/antitrust/orders" class="menuBox borderBottomNone">
+  <div class="row marginBottom"><img src="https://www.cci.gov.in/images/menu-icons/antitrust.png" width="40"></div>
+  <div class="row">Antitrust </div>
+  </a>
+     <a href="https://www.cci.gov.in/combination/legal-framwork/act" class="menuBox borderBottomNone">
+  <div class="row marginBottom"><img src="https://www.cci.gov.in/images/menu-icons/combination.png" width="40"></div>
+  <div class="row">Combination </div>
+  </a>
+     <a href="https://www.cci.gov.in/economics-research/market-studies" class="menuBox borderBottomNone">
+  <div class="row marginBottom"><img src="https://www.cci.gov.in/images/menu-icons/competition-economics.png" width="40"></div>
+  <div class="row">Competition Economics </div>
+  </a>
+     <a href="https://www.cci.gov.in/advocacy/events" class="menuBox borderBottomNone">
+  <div class="row marginBottom"><img src="https://www.cci.gov.in/images/menu-icons/advocacy.png" width="40"></div>
+  <div class="row">Advocacy </div>
+  </a>
+     <a href="https://www.cci.gov.in/international-cooperation/events" class="menuBox borderBottomNone">
+  <div class="row marginBottom"><img src="https://www.cci.gov.in/images/menu-icons/intl-cooperation.png" width="40"></div>
+  <div class="row">Intl Co-operation </div>
+  </a>
+     <a href="https://www.cci.gov.in/capacity-building" class="menuBox ">
+  <div class="row marginBottom"><img src="https://www.cci.gov.in/images/menu-icons/capacity-building.png" width="40"></div>
+  <div class="row">Capacity Building </div>
+  </a>
+     <a href="https://www.cci.gov.in/filing/atd" class="menuBox ">
+  <div class="row marginBottom"><img src="https://www.cci.gov.in/images/menu-icons/filing.png" width="40"></div>
+  <div class="row">Filing </div>
+  </a>
+     <a href="https://www.cci.gov.in/events" class="menuBox ">
+  <div class="row marginBottom"><img src="https://www.cci.gov.in/images/menu-icons/events.png" width="40"></div>
+  <div class="row">Events </div>
+  </a>
+     <a href="https://www.cci.gov.in/career" class="menuBox ">
+  <div class="row marginBottom"><img src="https://www.cci.gov.in/images/menu-icons/career.png" width="40"></div>
+  <div class="row">Careers </div>
+  </a>
+     <a href="https://www.cci.gov.in/media-gallery/press-release" class="menuBox ">
+  <div class="row marginBottom"><img src="https://www.cci.gov.in/images/menu-icons/media-gallery.png" width="40"></div>
+  <div class="row">Media Gallery </div>
+  </a>
+     <a href="https://www.cci.gov.in/library-services" class="menuBox ">
+  <div class="row marginBottom"><img src="https://www.cci.gov.in/images/menu-icons/library-services.png" width="40"></div>
+  <div class="row">Library Services </div>
+  </a>
+   </div>
+</div>
+
+</div>
+</nav>
+
+</header>
+
+
+<!-- /header section -->
+            <!-- body Panel -->
+    <div class="row bodypanel">
+
+        <div class="row topBar greyBG ">
+            <div class="wrap posRelative">
+                <h2 class="innerPageTitle">Combination</h2>
+            </div>
+        </div>
+
+        <section class="wrap gapping">
+            <div class="row content">
+
+                <div class="row">
+                    <div class="breadcrumb">
+                        <a href="https://www.cci.gov.in">Home</a>
+                        <a href="#">Combination</a>
+                        <a href="#">Under Section 31</a>
+                    </div>
+                </div>
+            </div>
+                <div class="row paddingTop">
+                    <div class="col-sm-1Forth">
+                        <style>
+    .accordion_container {
+        background: #fbfbfb;
+        padding:0px;
+    }
+
+    .accordion_body {
+        padding: 0px 0px 0px 10px;
+        text-align: left;
+        background: #fbfbfb;
+    }
+
+    .accordion_body a {
+        padding: 5px 10px;
+        border-bottom: solid 1px #ddd;
+        width: 85%;
+        font-size: 14px;
+        float: right;
+    }
+
+    .accordion_body a:hover {
+        border-bottom: dashed 1px #002268;
+        color: #002268;
+    }
+
+    .accordion_head {
+        background: transparent;
+        padding: 20px 0px 20px 35px !important;
+        font-size: 15px !important;
+        margin:0px;
+    }
+
+    .submenu a {
+        border-left: 0px solid #1f5bd5 !important;
+    }
+
+    .statusicon {
+        display: none;
+    }
+
+    .tab-content{
+        display: block;
+    }
+
+</style>
+
+<div class="accordion_container accordian-mobile">
+    <a href="javascript:void(0)" class="accordion_head submenuheader " headerindex="0h">Legal Framework <i class="fa fa-angle-right paddingLeft"></i></a>
+    <div class="accordion_body" contentindex="0c" style="display: none;">
+        <div class="row submenu">
+            <a href="https://www.cci.gov.in/combination/legal-framwork/act">Act</a>
+            <a href="https://www.cci.gov.in/combination/legal-framwork/regulations">Regulations</a>
+            <a href="https://www.cci.gov.in/combination/legal-framwork/notifications">Notifications</a>
+        </div>
+    </div>
+	
+	
+	<a href="javascript:void(0)" class="accordion_head submenuheader " headerindex="1h">Filing of Combination Notices<i class="fa fa-angle-right paddingLeft"></i></a>
+		<div class="accordion_body" contentindex="1c" style="display: none;">
+			<div class="row submenu">
+				<a href="https://www.cci.gov.in/combination/combination/filing-of-combination-notice/introduction"> Introduction </a>
+				<a href="https://www.cci.gov.in/combination/combination/filing-of-combination-notice/procedure"> Procedure for Filing </a>
+				<!-- <a href="https://www.cci.gov.in/combination/combination/filing-of-combination-notice/doit"> Do it your self </a> -->
+				<a href="https://www.cci.gov.in/combination/combination/filing-of-combination-notice/form"> Forms For Filing </a>
+			</div>
+		</div>
+
+	<a href="https://www.cci.gov.in/combination/pre-filling-consultations" class="accordion_head "> Pre-Filing Consultations</span></a>
+ 
+    <div class="row">
+       
+       
+		
+		 <!-- <a href="https://www.cci.gov.in/combination/green-channel" class="accordion_head "> Green Channel</span></a> -->
+		 
+		 
+		 
+		 <a href="javascript:void(0)" class="accordion_head submenuheader " headerindex="1h">Green Channel<i class="fa fa-angle-right paddingLeft"></i></a>
+		<div class="accordion_body" contentindex="1c" style="display: none;">
+			<div class="row submenu">
+			<a href="https://www.cci.gov.in/combination/green-channel-view"> Green Channel </a>
+			<a href="https://www.cci.gov.in/combination/green-channel"> Green Channel Notices </a>
+			</div>
+		</div>
+		 <a href="https://www.cci.gov.in/combination/notice-under-review" class="accordion_head "> Notices Under Review</a>
+		<a href="javascript:void(0)" class="accordion_head submenuheader active" headerindex="1h">Orders <i class="fa fa-angle-right paddingLeft"></i></a>
+		<div class="accordion_body" contentindex="1c" style="display: none;">
+			<div class="row submenu">
+			<a href="https://www.cci.gov.in/combination/orders-section31">Under Section 31 / Form III</a>
+			<a href="https://www.cci.gov.in/combination/orders-section43a_44"> Under Section 43A and 44</a>
+			<a href="https://www.cci.gov.in/combination/cases-approved-with-modification"> Cases Approved with Modifications </a>
+			</div>
+		</div>
+      
+        <a href="https://www.cci.gov.in/combination/press-release" class="accordion_head ">Press Releases </a>
+       <a href="https://www.cci.gov.in/combination/faqs" class="accordion_head "> FAQs </a>
+    </div>
+</div>
+                    </div>
+                    <div class="col-sm-3Forth paddingLeft">
+                        <div id="tab2" class="row">
+						<div class="tab">
+						<div class="tab-content" style="display:block;">
+						<div class="row content">
+                            <h3>Under Section 31 / Form III</h3>
+							</div>
+                               <div class="row paddingInBox borderAll greyBG marginBottom roundCorner filterinput">
+									<div class="row"> 
+								
+										<div class="col-sm-2">                                    
+                                        <select class="form-control    select2 box-size" form_type="form_type" name="form_type"><option value="" selected="selected">Select Form</option><option value="I">I</option><option value="II">II</option><option value="III">III</option></select>                                  
+                                        </div>
+										
+										<div class="col-sm-2 paddingLeft">                                    
+                                        <select class="form-control    select2 box-size" id="order_status" name="order_status"><option value="" selected="selected">Order Status</option><option value="2">Approved</option><option value="3">Notice Not Valid</option><option value="4">Deemed approved (Regulation 5A)</option><option value="5">No AAEC</option><option value="6">Approved with modification</option><option value="7">Transaction called off</option><option value="8">Notice withdrawn</option><option value="9">Deemed Approved (Section 6(5))</option><option value="10">Exempt</option><option value="11">Under Review/Information incomplete &amp; RFI issued</option></select>                                  
+                                        </div>
+										
+										<div class="col-sm-2 paddingLeft">                                    
+                                        <select class="form-control    select2 box-size" id="search_type" name="search_type"><option value="" selected="selected">any</option><option value="caseno">Case no</option></select>                                  
+                                        </div>
+										
+                                        <div class="col-sm-4 paddingLeft">                                    
+                                        <input type="text" class="form-control-input marginBottomNone" name="searchString" placeholder="Please Enter Search Text">                                    
+                                        </div>
+									 </div>	
+										
+									<div class="row"> 	
+                                        <div class="col-sm-3 paddingRight">                                    
+                                        <input type="text" class="form-control-input input_date marginBottomNone" id="fromdate" name="fromdate" placeholder="From Date">                                    
+                                        </div>
+                                        <div class="col-sm-3 paddingLeft ">                                    
+                                        <input type="text" class="form-control-input input_date marginBottomNone" id="todate" name="todate" placeholder="To Date">                                    
+                                        </div>                                    
+                                        <div class="col-sm-2 paddingRight floatRight">
+												<input type="button" value="Search" class="btn primary-btn marginBottomNone" id="btn-filter" />
+												<a href="javascript:window.location.reload()" value="Reset" class="btn primary-btn marginBottomNone" id="btn-filter" >Reset</a>                                        
+										</div>                                    
+                                   </div>
+									
+									
+									
+                            </div>
+                            <div class="row marginTop table-responsive tableres">
+							
+							<table width="100%" border="0" cellspacing="0" cellpadding="0"
+                                class="display table table-striped table-bordered" id="datatable_ajax" >
+                                <thead>
+                                <tr class="heading">
+                                    <th width="3%">No.</th>
+                                    <th width="15%">Combination Registration No.</th>
+                                    <th width="25%">Notifying Parties</th>
+                                    <th width="6%">Form</th>
+                                    <th width="9%">Date of Notification</th>
+                                    <th width="9%">Status</th>
+                                    <th width="10%">Decision Date</th>
+                                    <th width="12%">Summary as submitted by Party/Parties</th>
+                                    <th width="10%">Order</th>
+                                    <!-- <th width="14%">Media</th> -->
+                                </tr>
+                                </thead>
+                            <tbody>                                         
+                            </tbody>                                               
+                                               
+                            </table>
+								
+                            </div>
+                           
+                        </div>
+                    </div>
+					 </div>
+                    </div>
+                </div>
+
+
+            
+        </section>
+        <!-- footer Panel -->
+<style>
+.youtubefo{ position:relative; background:#fff; width:24px; height:24px; float:left;}
+.youtubefo:after{ content:""; position:absolute; left:8px; top:7px; border:solid; border-width:5px 8px; border-color:transparent transparent transparent #0c56a8;}
+</style>
+<footer class="row footerSection darkBlueBG white">
+<div class="wrap paddingupdwn">
+<div class="row">
+<div class="col-sm-7  paddingInBox">
+<div class="row marginBottom font20 titleFont paddingupdwn" style="border-bottom:solid 1px #2872c4;">More Links</div>
+<div class="row link1">
+			<a href="https://www.cci.gov.in/right-information">RTI</a>
+				<a href="https://www.cci.gov.in/tenders">Tenders</a>
+				<a href="https://www.cci.gov.in/feedback">Feedback</a>
+			
+<!-- <a href="https://www.cci.gov.in/contents/sitemap">Sitemap</a> --> 
+<a href="https://nclat.nic.in" class="otherServicesBtn" target="_blank">NCLAT</a>
+<a href="https://mca.gov.in" target="_blank" class="otherServicesBtn">MCA</a>
+<a href="https://www.mygov.in" target="_blank" class="otherServicesBtn">My Gov</a>
+<a href="https://pgportal.gov.in" target="_blank" class="otherServicesBtn">CPGRAMS</a>
+<a href="https://egazette.gov.in" target="_blank" class="otherServicesBtn">e-Gazette</a>
+</div>
+</div>
+<div class="col-sm-3 paddingInBox" style="padding-right:0px;">
+<div class="row paddingupdwn marginBottom" style="border-bottom:solid 1px #2872c4;"> 
+<span class="marginRight font17 paddingRight titleFont lineheightExtra">Follow us at</span>
+		<a href="https://facebook.com/competitioncommissionofindia" target="_blank" class="paddingRight mobpaddingRight" title="Facebook"><i class="fa fa-lg fa-facebook blue whiteBG padding-sm"></i></a> 
+<a href="https://twitter.com/CCI_India?ref_src=twsrc%5Egoogle%7Ctwcamp%5Eserp%7Ctwgr%5Eauthor" target="_blank" class="paddingRight mobpaddingRight" title="Twitter">
+            <i class="blue whiteBG" style="display: inline-block; font-size: 1.2em; padding: 2px 4px;">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1227" style="height: 1em; width: auto; vertical-align: middle; fill: currentColor;">
+                    <path d="M1151 0L720 563l502 664H780L454 836 84 1227H0l447-538L0 0h420l292 380L992 0h159z"/>
+                </svg>
+            </i>
+   </a>		
+<a href="https://in.linkedin.com/company/competition-commission-of-india" target="_blank" class="paddingRight mobpaddingRight" title="Linkedin"><i class="fa fa-lg fa-linkedin blue whiteBG padding-sm"></i></a> 
+		<a href="https://www.youtube.com/channel/UCl8kNu7mBymD7jxfSmIxiPQ" target="_blank" class="marginRight mobpaddingLeft youtubefo" title="Youtube"></a> 
+		<a href="https://www.instagram.com/competitioncommissionofindia/" target="_blank" class="paddingRight mobpaddingRight" title="Instagram"><i class="fa fa-lg fa-instagram  blue whiteBG padding-sm"></i></a> 
+<a href="https://www.threads.net/@competitioncommissionofindia" target="_blank" class="paddingRight mobpaddingRight" title="Threads">
+            <i class="whiteBG" style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px;">
+                <img src="https://www.cci.gov.in/assets/images/threadicon.png" alt="Threads" style="width: 18px; height: 18px; object-fit: contain;">
+            </i>
+        </a>
+
+ </div>
+<div class="row marginBottom font20 titleFont paddingTop">Get in Touch</div>
+<div class="row content white">
+<p class="marginBottomNone paddingBottom"><i class="fa fa-building-o marginRight"></i> EPABX Board Number : <a href="tel:01124664100" class="floatNone white">011-24664100</a></p>
+<p class="marginBottomNone paddingBottom"><i class="fa fa-fax marginRight"></i> FAX Number : <a class="floatNone white">011-20815022</a></p>
+<p class="marginBottomNone"> Competition Commission of India</p>
+<p class="marginBottomNone"> 9th Floor, Office Block - 1, Kidwai Nagar (East),<br>New Delhi: 110023, India.</p>
+
+</div>
+ </div>
+ </div>
+
+  </div>
+   
+  <div class="row paddingTop paddingBottom borderTop whiteBG footerlogo">
+<div class="container paddingTop paddingBottom">
+  <img src="https://www.cci.gov.in/assets/images/data-gov-logo.png" width="" height="" class="pull_left mobContainer" />
+  <img src="https://www.cci.gov.in/assets/images/india-gov-logo.png" width="" height="" class="pull_left marginRight marginLeft mobContainer" />
+  <img src="https://www.cci.gov.in/assets/images/right-to-info-logo.png" width="" height=""  class="pull_left mobContainer"/>
+  </div>
+</div>
+
+<div class="row skyBlueBG borderTop">
+<div class="container paddingTop paddingBottom footerLink">
+<a href="https://www.cci.gov.in/contents/accessibilty">Accessibility Options </a>
+<a href="https://www.cci.gov.in/contents/disclaimer">Disclaimer </a>
+<a href="https://www.cci.gov.in/contents/copyright">Copyright Policy </a>
+<a href="https://www.cci.gov.in/contents/hyperlinks">Hyper Linking Policy </a>
+<a href="https://www.cci.gov.in/contents/termncond">Terms and Conditions </a>
+<a href="https://www.cci.gov.in/contents/privacypolicy">Privacy Policy </a>
+<a href="https://www.cci.gov.in/contents/help">Help </a>
+
+</div>
+</div>
+<div class="row alignCenter whiteBG borderTop borderBottom paddingupdwn grey">
+Copyright © 2026 Competition Commission of India, Government of India.
+<span class="alignRight" style="float: right;"> Website last updated on : 14/09/2026 |
+Visitors: 1540990</span>
+
+</div>
+
+
+</footer>
+<!-- footer Panel -->
+
+
+        <!-- Vendor JS Files -->
+        <!-- <script src="https://www.cci.gov.in/dist-assets/js/plugins/jquery-3.3.1.min.js"></script> -->
+          <script src="https://www.cci.gov.in/dist-assets/js/plugins/jquery-3.6.3.min.js"></script> 
+        
+
+
+        <script>
+            $(document).ready(function() {
+                $(".menuIcon").click(function() {
+                    $(".navigation").fadeToggle();
+                });
+                 $(".searchIcon").click(function() {
+                    $(".searchBox").fadeToggle();
+                }); 
+            });
+        </script>
+       
+
+        <script src="https://www.cci.gov.in/assets/js/lightbox.js"></script>
+       
+        <script type="text/javascript" src="https://www.cci.gov.in/assets/js/ddaccordion.js">
+            /***********************************************
+             * Accordion Content script- (c) Dynamic Drive DHTML code library (www.dynamicdrive.com)
+             * Visit http://www.dynamicDrive.com for hundreds of DHTML scripts
+             * Please keep this notice intact
+             ***********************************************/
+        </script>
+        <script type="text/javascript">
+            ddaccordion.init({
+                headerclass: "submenuheader",
+                contentclass: "accordion_body",
+                revealtype: "click",
+                mouseoverdelay: 200,
+                collapseprev: true,
+                defaultexpanded: [],
+                onemustopen: false,
+                animatedefault: false,
+                persiststate: true,
+                toggleclass: ["", ""],
+                togglehtml: ["suffix", "<img src='https://www.cci.gov.in/assets/images/plus.png' class='statusicon' />",
+                    "<img src='https://www.cci.gov.in/assets/images/minus.png' class='statusicon' />"
+                ],
+                animatespeed: "fast",
+                oninit: function(headers, expandedindices) {},
+                onopenclose: function(header, index, state, isuseractivated) {}
+            })
+
+
+            ddaccordion.init({
+                headerclass: "submenuheaderfaq",
+                contentclass: "accordion_body",
+                revealtype: "click",
+                mouseoverdelay: 200,
+                collapseprev: false,
+                defaultexpanded: [],
+                onemustopen: false,
+                animatedefault: false,
+                persiststate: true,
+                toggleclass: ["", ""],
+                togglehtml: ["suffix", "<img src='https://www.cci.gov.in/assets/images/plus.png' class='statusicon' />",
+                    "<img src='https://www.cci.gov.in/assets/images/minus.png' class='statusicon' />"
+                ],
+                animatespeed: "fast",
+                oninit: function(headers, expandedindices) {},
+                onopenclose: function(header, index, state, isuseractivated) {}
+            })
+			ddaccordion.init({
+                headerclass: "submenuheaderInner",
+                contentclass: "accordion_bodyInner",
+                revealtype: "click",
+                mouseoverdelay: 200,
+                collapseprev: true,
+                defaultexpanded: [],
+                onemustopen: false,
+                animatedefault: false,
+                persiststate: true,
+                toggleclass: ["", ""],
+                togglehtml: ["suffix", "<img src='https://www.cci.gov.in/assets/images/plus.png' class='statusicon' />",
+                    "<img src='https://www.cci.gov.in/assets/images/minus.png' class='statusicon' />"
+                ],
+                animatespeed: "fast",
+                oninit: function(headers, expandedindices) {},
+                onopenclose: function(header, index, state, isuseractivated) {}
+            })
+        </script>
+        <script type="text/javascript" src="https://www.cci.gov.in/assets/js/crawler.js"></script>
+        <script type="text/javascript" src="https://www.cci.gov.in/assets/js/scrolltopcontrol.js"></script>
+                <script>
+            $(document).ready(function() {
+                $(".menuIcon").click(function() {
+                    $(".navigation").fadeIn();
+                    $(".closeIcon").fadeIn();
+                });
+                $(".closeIcon").click(function() {
+                    $(".navigation").fadeOut();
+                    $(".menuIcon").fadeIn();
+                    $(".closeIcon").fadeOut();
+                });
+            });
+            /*$(".otherServicesBtn").click(function(){
+            $(".otherServices").slideToggle();
+            });
+            $(window).scroll(floatingIcons);
+            function floatingIcons() {
+            if ($(window).scrollTop() > 150 & $(window).scrollTop() < 12250) {
+            $(".logopanel").addClass("smLogo");
+            } else {
+            $(".logopanel").removeClass("smLogo");
+            } if ($(window).scrollTop() > 12250 && $(window).scrollTop() < 100025) {
+            }
+            }*/
+        </script>
+        <script>
+            $(document).ready(function() {
+                $(".tabs-menu a").click(function(event) {
+                    event.preventDefault();
+                    $(this).parent().addClass("current");
+                    $(this).parent().siblings().removeClass("current");
+                    var tab = $(this).attr("href");
+                    $(".tab-content").not(tab).css("display", "none");
+                    $(tab).fadeIn();
+                });
+                $(".tabs-menu1 a").click(function(event) {
+                    event.preventDefault();
+                    $(this).parent().addClass("current");
+                    $(this).parent().siblings().removeClass("current");
+                    var tab = $(this).attr("href");
+                    $(".tab-content1").not(tab).css("display", "none");
+                    $(tab).fadeIn();
+                });
+                $(".tabs-menu-verti a").click(function(event) {
+                    event.preventDefault();
+                    $(this).parent().addClass("current");
+                    $(this).parent().siblings().removeClass("current");
+                    var tab = $(this).attr("href");
+                    $(".tab-content-verti").not(tab).css("display", "none");
+                    $(tab).fadeIn();
+                });
+            });
+        </script>
+
+
+
+    </article>
+
+    <script src="https://www.cci.gov.in/dist-assets/js/plugins/plugins.bundle.js"></script>
+
+
+    <script src="https://www.cci.gov.in/dist-assets/js/plugins/frontdatatables.min.js"></script>
+    <script src="https://www.cci.gov.in/dist-assets/js/scripts/datatables.script.min.js"></script>
+    <!-- 
+        <script src="https://www.cci.gov.in/dist-assets/js/scripts/jquery.validate.min.js"></script>
+
+        old version validator v1.19.2
+    
+    -->
+    <script src="https://www.cci.gov.in/dist-assets/js/scripts/jquery-1.19.5.validate.js"></script>
+
+
+    <script src="https://www.cci.gov.in/dist-assets/js/scripts/validation.js"></script>
+    <script>
+        $(document).ready(function() {
+            $('.validationform').validate({});
+        });
+    </script>
+    
+    <script src="https://www.cci.gov.in/assets/js/slideshow.js"></script>
+        <script>
+            $(function() {
+                var $s = $('.slideshow').slides();
+            });
+        </script>
+
+     
+
+<script>
+
+	
+    $(function () {
+
+        var oTable = $('#datatable_ajax').DataTable({
+
+            processing: true,
+
+            serverSide: true,
+
+            stateSave: true,
+
+            searching: false,
+			
+			lengthChange: false,
+			
+			/* fixedHeader:true, */
+
+
+            "order": [[0, "desc"]],
+
+            paging: true,
+            destroy: true,
+			paging: true,
+			stateSave: true,
+			stateDuration: -1,
+            
+
+            ajax: {
+				complete: function (data) {
+                      document.querySelector('body ').scrollIntoView({behavior: "smooth", block: "start"})
+                 },
+                url: 'https://www.cci.gov.in/combination/orders-section31',
+
+                data: function (d) {
+					
+                   /*  d.lang = $('input[name=lang]').val();*/
+                    d.form_type = $('select[name=form_type]').val(); 
+					d.order_status = $('select[name=order_status]').val();
+					d.searchString = $('input[name=searchString]').val();
+					d.search_type = $('select[name=search_type]').val();
+					d.fromdate = $('input[name=fromdate]').val(); 
+					d.todate = $('input[name=todate]').val(); 
+					
+                }/* ,
+				success:function(data){
+					document.querySelector('.dataTables_wrapper ').scrollIntoView({behavior: "smooth", block: "start", inline: "nearest"})
+				} */
+
+				}, columns: [
+			
+				{data: 'DT_RowIndex', name: 'DT_RowIndex'},
+				{data: 'combination_no', name: 'combination_no'},
+                {data: 'party_name', name: 'party_name'},
+                {data: 'form_type', name: 'form_type'}, 
+                {data: 'notification_date', name: 'notification_date'},
+                {data: 'order_status', name: 'order_status'},
+                {data: 'decision_date', name: 'decision_date'},
+                {data: 'summary_files', name: 'summary_files'},
+                {data: 'order_files', name: 'order_files'}
+
+            ]
+        });
+
+
+
+        $('#search-form').on('submit', function (e) {
+
+            oTable.draw();
+
+            e.preventDefault();
+
+        });
+
+        $('#role_name').on('keyup', function (e) {
+
+            oTable.draw();
+
+            e.preventDefault();
+
+        });
+
+		
+$('#btn-filter').click(function () { //button filter event click
+        oTable.ajax.reload();  //just reload table
+    });
+    });
+
+
+
+
+	
+
+
+</script> 
+
+ 
+<script>
+$('#fromdate').flatpickr({
+         enableTime: false,
+         dateFormat: "Y-m-d",
+		
+    });
+	
+	$('#todate').flatpickr({
+         enableTime: false,
+         dateFormat: "Y-m-d",
+		
+    }); 
+
+</script>
+
+ 
+<script>
+$(document).ready(function(){
+       
+        var $affectedElements = $("*");
+        var counter1 = 1;
+        var counter2 = 1;
+		var increase_decrease_loop=6;
+        $affectedElements.each( function(){
+          var $this = $(this);
+          $this.data("orig-size", $this.css("font-size") );
+        });
+        $("#btn-increase").click(function(){
+            if (counter1 < increase_decrease_loop) {
+                changeFontSize(1);
+                counter1++;
+            }                    
+        })
+        $("#btn-decrease").click(function(){
+            if (counter2 < increase_decrease_loop) {
+                changeFontSize(-1);
+                counter2++;
+            }
+        })
+        $("#btn-orig").click(function(){
+            $affectedElements.each( function(){
+                var $this = $(this);
+                $this.css( "font-size" , $this.data("orig-size") );
+                counter1 = 1;
+                counter2 = 1;
+            });                    
+        })
+        function changeFontSize(direction){
+            $affectedElements.each( function(){
+                var $this = $(this);
+                $this.css( "font-size" , parseInt($this.css("font-size"))+direction );
+            });
+        }
+
+    });
+	
+	
+$(document).mouseup(function(e) 
+{
+    var container = $(".navigation");
+
+    // if the target of the click isn't the container nor a descendant of the container
+    if (!container.is(e.target) && container.has(e.target).length === 0) 
+    {
+        container.hide();
+		$('.closeIcon').hide();
+    }
+});
+</script>
+</body>
+
+</html>
