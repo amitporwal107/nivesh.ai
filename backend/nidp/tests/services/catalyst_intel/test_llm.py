@@ -72,7 +72,7 @@ def test_refine_validates_the_contract_bounds_materiality_and_drops_unresolved_e
     assert out["classifier"].startswith("llm:") and out["event_type"] == "regulatory_decision" and out["event_subtype"] == "registration_rejection"
     assert out["direction"] == "positive"                                  # the LLM may flip direction for a second-order reading, recorded as such
     assert out["direction_rules"] == "negative"
-    assert out["materiality"] == 60 and out["materiality_rules"] == rules["materiality"]   # 80+ clipped to rules − 20
+    assert out["materiality"] == rules["materiality"] - 20 and out["materiality_rules"] == rules["materiality"]   # 40 clipped to the rules prior − 20
     assert [a["symbol"] for a in out["affected_listed"]] == ["TATACHEM"] and out["dropped_entities"] == ["Unicorn Widgets Ltd"]
     assert out["usage"]["prompt_tokens"] == 500 and "sk-" not in json.dumps(out)
     kw = client.chat.completions.calls[0]
