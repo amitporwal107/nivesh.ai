@@ -161,3 +161,50 @@ def test_board_lists_exposed_stocks_by_score_with_the_top_event_and_hides_routin
     row = next(r for r in later if r["symbol"] == "TATACHEM")
     assert row["hops"] == 1 and "Tata Sons" in row["top_event"]["path"] and row["in_universe"]
     assert next(r for r in later if r["symbol"] == "TATAINVEST")["in_universe"] is False
+
+
+# ── first live board showed two rule traps and one entity trap (2026-09-16 00:25) ────────────────────────────────
+def test_negated_and_regulation_name_terms_do_not_fire():
+    from nidp.services.catalyst_intel.rules import classify
+
+    d = classify(_ev("nse_announcements_api", "NAUKRI: Change in Director(s)", "Info Edge has informed the Exchange about Change in Director(s)", category="Change in Director(s)", symbol="NAUKRI",
+                     doc_text="Mr X is not debarred from holding the office of director by virtue of any SEBI order or any other such authority. Appointment of Mr X as Independent Director."))
+    assert d["event_type"] == "management" and d["event_subtype"] != "debarment" and d["materiality"] < 50
+    t = classify(_ev("bse_subcat_api", "Varroc Engineering Ltd - 541578 - Closure of Trading Window", "pursuant to SEBI (Prohibition of Insider Trading) Regulations, 2015 the trading window shall remain closed", category="Insider Trading / SAST"))
+    assert t["event_type"] == "routine"
+    g = classify(_ev("nse_announcements_api", "ABDL: Granting/withdrawal/surrender/cancellation/suspension of key licenses/ regulatory approvals", "Grant of licence", category="Granting/withdrawal/surrender/cancellation/suspension of key licenses/ regulatory approvals", symbol="ABDL",
+                     doc_text="the Company has received the grant of licence from the Excise department in accordance with the Prohibition of Insider Trading code"))
+    assert g["event_subtype"] == "approval" and g["direction"] == "positive"
+    real = classify(_ev("nse_announcements_api", "SMCGLOBAL: Action(s) initiated or orders passed", "informed the Exchange", category="Action(s) initiated or orders passed", symbol="SMCGLOBAL",
+                        doc_text="SEBI has passed an order debarring the Company from the securities market for a period of two years"))
+    assert real["event_subtype"] == "debarment" and real["direction"] == "negative"
+
+
+def test_free_text_aliases_are_never_symbols_or_common_words():
+    from nidp.services.catalyst_intel.entities import EntityMap
+
+    names = ("symbol,isin,company_name,sector,industry\nNH,INE410P01011,Narayana Hrudayalaya Limited,Healthcare,Healthcare\nTOTAL,INE0AJP01015,Total Transport Systems Limited,Services,Logistics\n"
+             "BSE,INE118H01025,BSE Limited,Finance,Exchanges\nGLOBAL,INE0BDU01026,Global Education Limited,Services,Education\nFOCUS,INE0BXG01014,Focus Lighting And Fixtures Limited,Consumer Durables,Lighting\n"
+             "TATACHEM,INE092A01019,Tata Chemicals Limited,Chemicals,Chemicals\nPNC,INE00PNC0001,PNC Limited,Construction,Construction\n")
+    m = EntityMap.from_csv_text(names, seed_path=FX / "no_seed.csv")
+    hits = {h["entity_name"] for h in m.find_in_text("Work on NH 24 near Total shares outstanding; BSE Limited has informed the Exchange; a global focus on Tata Chemicals and PNC Infratech")}
+    assert hits == {"Tata Chemicals Limited"}
+    assert {h["entity_name"] for h in m.find_in_text("Narayana Hrudayalaya reported results; Total Transport Systems won a contract")} == {"Narayana Hrudayalaya Limited", "Total Transport Systems Limited"}
+    assert m.resolve_symbol("NH")["entity_name"] == "Narayana Hrudayalaya Limited"          # exact symbol fields still resolve
+
+
+def test_explain_finds_an_old_filing_among_thousands_of_newer_events(tmp_path):
+    import sqlite3
+    from nidp.services.catalyst_intel.catalysts import DDL, explain_symbol
+
+    names = tmp_path / "names.csv"; names.write_text("symbol,isin,company_name,sector,industry\nPNCINFRA,INE195J01029,PNC Infratech Limited,Construction,Construction\n")
+    db = sqlite3.connect(tmp_path / "events.sqlite"); db.executescript("""
+    CREATE TABLE raw_events (hash TEXT PRIMARY KEY, source_id TEXT, source_event_id TEXT, url TEXT, title TEXT, summary TEXT, category TEXT, symbol TEXT, scrip_code TEXT, entity_text TEXT, published_at TEXT, received_at TEXT, first_seen_at TEXT, day TEXT);"""); db.executescript(DDL)
+    db.execute("INSERT INTO raw_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", ("h_pnc", "nse_announcements_api", None, "https://x/pnc.pdf", "PNCINFRA: Action(s) taken or orders passed", "informed the Exchange about Action(s) taken or orders passed",
+               "Action(s) taken or orders passed", "PNCINFRA", None, "PNC Infratech Limited", "2026-09-14T21:02:44+05:30", "2026-09-14T21:15:00+05:30", "2026-09-14T21:15:00+05:30", "2026-09-14"))
+    for k in range(3000):
+        db.execute("INSERT INTO raw_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (f"h{k}", "bse_announcements_rss", None, "https://x/n", f"Other Co {k} - 500{k:03d} - Investor meet", "Investor meet", None, None, f"500{k:03d}", None, "2026-09-15T20:00:00+05:30", "2026-09-15T23:06:00+05:30", "2026-09-15T23:06:00+05:30", "2026-09-15"))
+    db.execute("INSERT INTO event_stock_impacts VALUES (?,?,?,?,?,?,?,?,?)", ("h_pnc", "PNCINFRA", 0, 1.0, "PNC Infratech Limited", None, "negative", 95, "2026-09-14T21:15:00+05:30")); db.commit(); db.close()
+    (tmp_path / "docs").mkdir(); (tmp_path / "docs" / "h_pnc.txt").write_text("NHAI extended the debarment of Awadh Expressway to the Company for three years; not able to participate in any bid of MoRTH/NHAI")
+    out = explain_symbol(tmp_path, names, "PNCINFRA", before="2026-09-15T09:15", docs=True)
+    assert out and out[0]["explanation"]["direction"] == "negative" and out[0]["explanation"]["when_first_available"].startswith("2026-09-14T21:15")
