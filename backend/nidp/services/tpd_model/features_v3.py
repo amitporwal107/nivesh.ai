@@ -30,18 +30,22 @@ def _missing_block(symbols: list[str], columns: tuple, flag: str) -> pd.DataFram
 def compute_features_v3(panel: pd.DataFrame, T: date, events: Optional[pd.DataFrame] = None,
                         actions: Optional[pd.DataFrame] = None, target_session: Optional[date] = None,
                         market_members: Optional[set] = None, financials: Optional[pd.DataFrame] = None,
-                        shareholding: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+                        shareholding: Optional[pd.DataFrame] = None, reference: Optional[pd.DataFrame] = None,
+                        cashflow: Optional[pd.DataFrame] = None, mf_monthly: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     v2 = compute_features(panel, T, events=events, actions=actions, target_session=target_session,
                           market_members=market_members)
     symbols = list(v2.index)
     upto = panel[panel["as_of_date"] <= pd.Timestamp(T)]
     tech = pd.DataFrame.from_dict({sym: extended_technical(g) for sym, g in upto.groupby("symbol", sort=False) if sym in v2.index},
                                   orient="index", columns=list(TECHNICAL_EXT_FEATURES)).reindex(symbols).astype("float64")
+    shares = None
     if financials is not None:
-        fund = pit_fundamentals(financials, symbols, T, close=v2["close_raw"].to_dict())[list(FUNDAMENTAL_FEATURES)]
+        full = pit_fundamentals(financials, symbols, T, close=v2["close_raw"].to_dict(), reference=reference, cashflow=cashflow)
+        fund, shares = full[list(FUNDAMENTAL_FEATURES)], full["shares_cr"].to_dict()
     else:
         fund = _missing_block(symbols, FUNDAMENTAL_FEATURES, "fund_missing")
-    own = pit_ownership(shareholding, symbols, T) if shareholding is not None else _missing_block(symbols, OWNERSHIP_FEATURES, "own_missing")
+    own = (pit_ownership(shareholding, symbols, T, mf_monthly=mf_monthly, shares_cr=shares) if shareholding is not None
+           else _missing_block(symbols, OWNERSHIP_FEATURES, "own_missing"))
     out = pd.concat([v2, tech, fund.astype("float64"), own.astype("float64")], axis=1)[list(FEATURE_LIST_V3)]
     out.index.name = "symbol"
     return out

@@ -219,16 +219,18 @@ def _features_v3(args):
     from . import backtest as bt
     T, D = args
     f = compute_features_v3(bt._G["panel"], T, events=bt._G["events"], actions=bt._G["factors"], target_session=D,
-                            market_members=set(bt._G["members"][D]), financials=bt._G["fin"], shareholding=bt._G["shp"])
+                            market_members=set(bt._G["members"][D]), financials=bt._G["fin"], shareholding=bt._G["shp"],
+                            reference=bt._G["ref"], cashflow=bt._G["cf"], mf_monthly=bt._G["mf"])
     return f.reset_index().assign(as_of_date=pd.Timestamp(T))
 
 
-def _feature_store_v3(store: Path, panel, events, factors, fin, shp, pairs, members_by_D, workers: int):
+def _feature_store_v3(store: Path, panel, events, factors, v3_inputs: dict, pairs, members_by_D, workers: int):
+    """Per-session v3 feature files (v3_inputs: fin, shp, ref, cf, mf), computed once, like the v2 store."""
     store.mkdir(parents=True, exist_ok=True)
     todo = [(T, D) for T, D in pairs if not (store / f"{T}.pkl").exists()]
     if todo:
         from . import backtest as bt
-        bt._G.update(panel=panel, events=events, factors=factors, members=members_by_D, fin=fin, shp=shp)
+        bt._G.update(panel=panel, events=events, factors=factors, members=members_by_D, **v3_inputs)
         import multiprocessing as mp
         with mp.get_context("fork").Pool(workers) as pool:
             for (T, _), f in zip(todo, pool.imap(_features_v3, todo, chunksize=2)):
@@ -247,12 +249,19 @@ def v3_alongside(compute) -> tuple[dict, dict]:
         return {}, {"error": f"{type(e).__name__}: {e}"}
 
 
-def _load_v3_inputs(exports: Path):
+def _load_v3_inputs(exports: Path) -> dict:
+    """fin (quarterly + annual rows), shp (shareholding pattern), ref (face values), cf (cash flows stamped by their
+    results filing), mf (monthly MF portfolio holdings per symbol)."""
     fin = pd.read_csv(exports / "financials.csv.gz", parse_dates=["period_end"])
     fin["broadcast_at"] = pd.to_datetime(fin["broadcast_at"], utc=True)
     shp = pd.read_csv(exports / "shareholding.csv", parse_dates=["period_end"])
     shp["broadcast_at"] = pd.to_datetime(shp["broadcast_at"], utc=True)
-    return fin, shp
+    ref = pd.read_csv(exports / "reference.csv")
+    cf = pd.read_csv(exports / "cashflow.csv.gz", parse_dates=["period_end"])
+    cf["broadcast_at"] = pd.to_datetime(cf["broadcast_at"], utc=True)
+    mf = pd.read_csv(exports / "mf_ownership_monthly.csv", parse_dates=["as_of_month"])
+    mf["ingested_at"] = pd.to_datetime(mf["ingested_at"], utc=True)
+    return {"fin": fin, "shp": shp, "ref": ref, "cf": cf, "mf": mf}
 
 
 def cmd_score(a) -> int:
@@ -308,8 +317,7 @@ def cmd_score(a) -> int:
     v3_extra, v3_meta = {}, None
     if a.with_v3:
         def _v3():
-            fin, shp = _load_v3_inputs(a.exports)
-            feats3 = _feature_store_v3(Path(a.store_v3), panel, events, factors, fin, shp, pairs, members, a.workers)
+            feats3 = _feature_store_v3(Path(a.store_v3), panel, events, factors, _load_v3_inputs(a.exports), pairs, members, a.workers)
             rows3 = assemble_rows(feats3[feats3["as_of_date"] < pd.Timestamp(T)], labels, members, [*sessions, D])
             bundle3 = train_bundle(rows3, fold, columns=MODEL_COLUMNS_V3)
             ft3 = feats3[feats3["as_of_date"] == pd.Timestamp(T)].set_index("symbol")

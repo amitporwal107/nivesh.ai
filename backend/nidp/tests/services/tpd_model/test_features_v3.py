@@ -122,4 +122,32 @@ def test_design_matrix_v3_has_the_new_columns_and_keeps_v2_ones():
     for c in ("vol_ratio_20", "atr5_atr20", "adx14", "pat_yoy", "pat_accel", "roe_ttm", "de_ratio", "pe_ttm",
               "promoter_pct", "pledge_pct", "fii_chg_qoq", "fund_missing", "own_missing", "days_since_results"):
         assert c in MODEL_COLUMNS_V3, c
-    assert "cfo_pat" not in MODEL_COLUMNS_V3  # no filing timestamp for cash flow -> not point-in-time
+    assert "cfo_pat" in MODEL_COLUMNS_V3 and len(MODEL_COLUMNS_V3) == 76  # stamped via its results filing since 2026-09-15
+
+
+def test_reference_cashflow_and_mf_months_flow_through_the_v3_block(panel, sessions, symbols):
+    """The gap-fix inputs reach the block: PB via the reference face value, cfo_pat via a stamped cash flow, mf_pct via
+    the monthly MF portfolios (complete months only); the ownership block gets the fundamentals' share count."""
+    from nidp.services.tpd_model.features_v3 import compute_features_v3
+
+    T = sessions[205]  # 2025-10-16
+    syms = symbols[:3]
+    fin = _financials(syms, last_end=date(2025, 6, 30))
+    fin["face_value"] = np.nan
+    ref = pd.DataFrame({"symbol": syms, "face_value": [10.0] * 3})
+    cf = pd.DataFrame([{"symbol": s, "period_end": pd.Timestamp("2025-03-31"), "consolidated": True, "cfo_cr": 500.0,
+                        "broadcast_at": ist(date(2025, 5, 20), 18, 0)} for s in syms])
+    mf = pd.DataFrame([{"symbol": s, "as_of_month": pd.Timestamp("2025-08-01"), "mf_shares": 2.0e7, "mf_schemes": 30,
+                        "month_schemes": 2300, "ingested_at": ist(date(2025, 9, 10), 12, 0)} for s in syms])
+    shp = _shareholding(syms)
+    shp["period_end"] = [pd.Timestamp("2025-03-31"), pd.Timestamp("2025-06-30")] * 3
+    shp["broadcast_at"] = [ist(date(2025, 4, 20), 17, 0), ist(date(2025, 7, 18), 17, 0)] * 3
+    shp["mf_pct"] = np.nan                                               # as in the warehouse: the pattern has no MF column
+    v3 = compute_features_v3(panel, T, financials=fin, shareholding=shp, reference=ref, cashflow=cf, mf_monthly=mf)
+    r = v3.loc["SYM001"]
+    assert np.isfinite(r["pb"]) and r["pb"] == pytest.approx(r["pb"])   # 100 cr capital / FV 10 = 10 cr shares
+    assert r["cfo_pat"] == pytest.approx(500 / (130 + 140 + 150 + 160))  # FY25 = quarters ending Jun-24 .. Mar-25
+    assert r["mf_pct"] == pytest.approx(2.0e7 / 1e8 * 100)              # 10 cr shares outstanding
+    without = compute_features_v3(panel, T, financials=fin, shareholding=shp)
+    assert np.isnan(without.loc["SYM001", "cfo_pat"]) and np.isnan(without.loc["SYM001", "mf_pct"])
+    assert without.loc["SYM001", "pb"] == pytest.approx(r["pb"])       # no reference: the period's own PAT/EPS count, same 10 cr

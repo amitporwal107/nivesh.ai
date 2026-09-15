@@ -190,19 +190,19 @@ def test_cfo_to_pat_from_a_cash_flow_known_by_T():
 
 
 def _mf_monthly():
-    rows = [  # (month, shares held by all schemes, distinct ISINs in that month's file, when the month landed)
-        ("2026-04-01", 1.0e7, 3300, date(2026, 6, 3)), ("2026-05-01", 1.2e7, 3500, date(2026, 6, 25)),
-        ("2026-06-01", 0.3e7, 2000, date(2026, 7, 12)),    # partial month: fewer than MF_COMPLETE_MONTH_MIN_ISINS
-        ("2026-07-01", 1.5e7, 3600, date(2026, 8, 19)),
+    rows = [  # (month, shares held by all schemes, distinct scheme codes in that month's file, when the month landed)
+        ("2026-04-01", 1.0e7, 2100, date(2026, 6, 3)), ("2026-05-01", 1.2e7, 2284, date(2026, 6, 25)),
+        ("2026-06-01", 0.3e7, 716, date(2026, 7, 12)),     # partial month: fewer than MF_COMPLETE_MONTH_MIN_SCHEMES
+        ("2026-07-01", 1.5e7, 2407, date(2026, 8, 19)),
     ]
-    return pd.DataFrame([{"symbol": "ACME", "as_of_month": pd.Timestamp(m), "mf_shares": s, "mf_schemes": 40, "month_isins": n,
+    return pd.DataFrame([{"symbol": "ACME", "as_of_month": pd.Timestamp(m), "mf_shares": s, "mf_schemes": 40, "month_schemes": n,
                           "ingested_at": ist(d, 12, 0)} for m, s, n, d in rows])
 
 
 def test_mf_holding_comes_from_the_latest_complete_month_known_by_T():
-    from nidp.services.tpd_model.fundamentals import MF_COMPLETE_MONTH_MIN_ISINS, pit_ownership
+    from nidp.services.tpd_model.fundamentals import MF_COMPLETE_MONTH_MIN_SCHEMES, pit_ownership
 
-    assert 2000 < MF_COMPLETE_MONTH_MIN_ISINS <= 3300
+    assert 716 < MF_COMPLETE_MONTH_MIN_SCHEMES <= 2100
     shp = pd.DataFrame([{"symbol": "ACME", "period_end": pd.Timestamp("2026-06-30"), "promoter_pct": 58.0, "promoter_pledged_pct": 2.0,
                          "fii_pct": 12.0, "dii_pct": 8.5, "mf_pct": np.nan, "broadcast_at": ist(date(2026, 7, 18), 17, 0)}])
     shares = {"ACME": 10.0}                                          # crore shares -> 1e8 shares outstanding
