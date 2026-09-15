@@ -17,12 +17,25 @@ AUTHORITY_ALIASES = {"Reserve Bank of India": ["rbi"], "Securities and Exchange 
                      "Ministry of New and Renewable Energy": ["mnre"], "Tata Sons": ["tata sons"], "Awadh Expressway Private Limited": ["awadh expressway"]}
 
 
+_COMMON = {"total", "global", "focus", "take", "marine", "sigma", "accuracy", "national", "india", "indian", "united", "modern", "premier", "standard", "supreme", "capital",
+           "century", "orient", "oriental", "eastern", "western", "northern", "southern", "central", "royal", "star", "sun", "crown", "prime", "first", "one", "new", "best", "power",
+           "energy", "finance", "industries", "infra", "tech", "systems", "solutions", "services", "trading", "exports", "textiles", "chemicals", "pharma", "steel", "cement", "motors",
+           "bank", "insurance", "housing", "digital", "network", "media", "group", "holdings", "ventures", "enterprises", "international", "universal", "general", "lal", "shah", "pnc", "bse", "nse"}
+
+
+def _free_text_ok(alias: str) -> bool:
+    """An alias may match free text only if it cannot be an ordinary word: two or more words, or one long uncommon word."""
+    words = alias.split()
+    if len(words) >= 2:
+        return not all(w in _COMMON for w in words)
+    return len(alias) >= 8 and alias not in _COMMON
+
+
 def _aliases(name: str) -> set[str]:
     base = re.sub(r"\s+", " ", _SUFFIX.sub(" ", name)).strip(" .,").lower()
-    out = {name.lower()}
-    if len(base) >= 4:
-        out.add(base)
-    return out
+    if len(base) < 4 or not _free_text_ok(base):          # "BSE Limited" is "bse" once the suffix goes: not a free-text alias
+        return set()
+    return {name.lower(), base}
 
 
 class EntityMap:
@@ -31,18 +44,19 @@ class EntityMap:
         self.entities: dict[str, dict] = {v["entity_name"]: v for v in self.by_symbol.values()}
         self.alias_index: dict[str, str] = {}
         for v in self.by_symbol.values():
-            for a in _aliases(v["entity_name"]) | {v["symbol"].lower()}:
+            for a in _aliases(v["entity_name"]):                 # symbols never match free text: NH, TOTAL, BSE are words too
                 self.alias_index.setdefault(a, v["entity_name"])
         self.edges = seed_rows
         for r in seed_rows:
             self.entities.setdefault(r["source_entity"], {"entity_name": r["source_entity"], "entity_type": r["source_type"], "symbol": None, "sector": None})
-            for a in _aliases(r["source_entity"]) | set(AUTHORITY_ALIASES.get(r["source_entity"], [])):
+            for a in _aliases(r["source_entity"]) | set(AUTHORITY_ALIASES.get(r["source_entity"], [])):   # curated aliases (rbi, nhai) are trusted
                 self.alias_index.setdefault(a, r["source_entity"])
         for name, al in AUTHORITY_ALIASES.items():
             self.entities.setdefault(name, {"entity_name": name, "entity_type": "regulator", "symbol": None, "sector": None})
             for a in al:
                 self.alias_index.setdefault(a, name)
-        self._rx = re.compile(r"(?<![A-Za-z0-9])(" + "|".join(sorted((re.escape(a) for a in self.alias_index), key=len, reverse=True)) + r")(?![A-Za-z0-9])", re.I)
+        keys = sorted((re.escape(a) for a in self.alias_index), key=len, reverse=True) or ["(?!x)x"]
+        self._rx = re.compile(r"(?<![A-Za-z0-9])(" + "|".join(keys) + r")(?![A-Za-z0-9])", re.I)
 
     @classmethod
     def from_csv_text(cls, names_csv: str, seed_path: Path = SEED_PATH) -> "EntityMap":

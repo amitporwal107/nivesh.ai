@@ -19,7 +19,7 @@ RULES = [
     ("regulatory_decision", "rejection", "negative", 80, [r"reject(?:ed|s|ion)", r"declin(?:ed|es)", r"not approved", r"refus(?:ed|al)"]),
     ("regulatory_decision", "penalty", "negative", 60, [r"\bpenalt", r"\bfine of\b", r"monetary penalty", r"show[- ]cause", r"adjudicat"]),
     ("regulatory_decision", "licence_cancellation", "negative", 85, [r"cancel(?:led|lation) of (?:the )?(?:licen[cs]e|registration|certificate)", r"licen[cs]e (?:cancel|suspend|revok)", r"withdraw(?:al|n) of (?:the )?(?:licen[cs]e|registration)"]),
-    ("regulatory_decision", "approval", "positive", 65, [r"\bapprov(?:al|ed|es)\b", r"\bgrant(?:ed|s)\b", r"\bauthori[sz]ed\b", r"in-principle", r"licen[cs]e (?:granted|received|obtained)", r"registration (?:granted|received)"]),
+    ("regulatory_decision", "approval", "positive", 65, [r"\bapprov(?:al|ed|es)\b", r"\bgrant(?:ed|s)?\b(?: of)?", r"\bauthori[sz]ed\b", r"in-principle", r"licen[cs]e (?:granted|received|obtained)", r"registration (?:granted|received)"]),
     ("regulatory_decision", "restriction", "negative", 70, [r"\brestrict(?:ion|ed)\b", r"embargo", r"cease and desist", r"directions? (?:issued|imposed)"]),
     ("operations", "warning_letter", "negative", 75, [r"warning letter"]),
     ("operations", "import_alert", "negative", 85, [r"import alert"]),
@@ -65,8 +65,21 @@ def _whole_word(low: str, m: "re.Match") -> str:
     return low[start:end]
 
 
+_REGULATION_NAMES = re.compile(r"\(?prohibition of insider trading\)?|prohibition of fraudulent|substantial acquisition of shares|listing obligations and disclosure|\bpit regulations?\b", re.I)
+_NEGATION_BEFORE = re.compile(r"\b(?:not|no|never|neither|nor|without|non)\b(?:\s+\w+){0,4}\s*$", re.I)
+_NEGATION_AFTER = re.compile(r"^\s*(?:\w+\s+){0,2}(?:not|no)\b", re.I)
+
+
+def _negated(low: str, m: "re.Match") -> bool:
+    """'is not debarred from holding the office', 'no order ... debarring': the standard clean-record sentences."""
+    before = low[max(0, m.start() - 60): m.start()]
+    after = low[m.end(): m.end() + 30]
+    return bool(_NEGATION_BEFORE.search(before) or _NEGATION_AFTER.match(after))
+
+
 def _text(e: dict) -> str:
-    return " ".join(x for x in (e.get("title"), e.get("summary"), e.get("doc_text")) if x)
+    raw = " ".join(x for x in (e.get("title"), e.get("summary"), e.get("doc_text")) if x)
+    return _REGULATION_NAMES.sub(" ", raw)       # the names of regulations are not events
 
 
 def _quantities(text: str) -> dict:
@@ -88,7 +101,12 @@ def classify(e: dict) -> dict:
                 "named_authorities": named, "quantities": {}, "raw_language": lang, "classifier": "rules-v1"}
     best = None
     for etype, sub, direction, prior, pats in RULES:
-        terms = [_whole_word(low, m) for p in pats if (m := re.search(p, low))]   # the words actually found, not the pattern
+        terms = []
+        for p in pats:
+            for m in re.finditer(p, low):
+                if direction == "negative" and _negated(low, m):
+                    continue                                    # a negated negative term is no event
+                terms.append(_whole_word(low, m)); break
         if terms and (best is None or prior > best[3]):
             best = (etype, sub, direction, prior, terms)
     if best is None and cat in CATEGORY_HINTS:

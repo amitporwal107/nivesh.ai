@@ -84,10 +84,16 @@ def _load_events(db: sqlite3.Connection, since: Optional[str], limit: int, only_
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
-def run(home: Path, names: Path, since: Optional[str], docs: bool, limit: int) -> dict:
+def run(home: Path, names: Path, since: Optional[str], docs: bool, limit: int, reclassify: bool = False) -> dict:
     db = sqlite3.connect(home / "events.sqlite", timeout=120); db.executescript(DDL)
     em = EntityMap.from_files(names); dc = DocumentCache(home / "docs")
     events = _load_events(db, since, limit)
+    if reclassify:                                       # the rules changed: drop this window's readings and impacts, keep documents and LLM cache
+        hashes = [e["hash"] for e in events]
+        for k in range(0, len(hashes), 500):
+            chunk = hashes[k:k + 500]; qm = ",".join("?" * len(chunk))
+            db.execute(f"DELETE FROM normalized_events WHERE hash IN ({qm})", chunk); db.execute(f"DELETE FROM event_stock_impacts WHERE hash IN ({qm})", chunk)
+        db.commit()
     done = {r[0] for r in db.execute("SELECT hash FROM normalized_events")}
     stats = {"seen": len(events), "classified": 0, "docs_fetched": 0, "impacts": 0, "by_type": {}}
     for e in events:
@@ -114,7 +120,10 @@ def explain_symbol(home: Path, names: Path, symbol: str, before: Optional[str], 
     db = sqlite3.connect(home / "events.sqlite", timeout=120); db.executescript(DDL)
     em = EntityMap.from_files(names); dc = DocumentCache(home / "docs")
     out = []
-    for e in _load_events(db, None, 2000, only_symbol=None):
+    q = """SELECT DISTINCT r.* FROM raw_events r LEFT JOIN event_stock_impacts i ON i.hash = r.hash
+           WHERE (r.symbol = ? OR i.symbol = ?) ORDER BY r.published_at DESC LIMIT 500"""
+    cur = db.execute(q, (symbol, symbol)); cols = [c[0] for c in cur.description]
+    for e in [dict(zip(cols, r)) for r in cur.fetchall()]:
         if before and e["published_at"] and e["published_at"] > before:
             continue
         if docs and needs_document(e) and (e.get("symbol") == symbol):
@@ -161,7 +170,7 @@ def main(argv=None) -> int:
     for name in ("run", "explain", "board"):
         p = sub.add_parser(name); p.add_argument("--home", type=Path, required=True); p.add_argument("--names", type=Path, required=False)
         if name == "run":
-            p.add_argument("--since", default=None); p.add_argument("--docs", action="store_true"); p.add_argument("--limit", type=int, default=50000)
+            p.add_argument("--since", default=None); p.add_argument("--docs", action="store_true"); p.add_argument("--limit", type=int, default=50000); p.add_argument("--reclassify", action="store_true")
         elif name == "explain":
             p.add_argument("--symbol", required=True); p.add_argument("--before", default=None); p.add_argument("--top", type=int, default=3)
         else:
@@ -170,7 +179,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     if a.cmd == "run":
-        print(json.dumps(run(a.home, a.names, a.since, a.docs, a.limit), indent=1)); return 0
+        print(json.dumps(run(a.home, a.names, a.since, a.docs, a.limit, a.reclassify), indent=1)); return 0
     if a.cmd == "board":
         uni = None
         if a.universe_csv:

@@ -73,9 +73,9 @@ def _entities():
 def test_entity_map_resolves_symbol_scrip_and_aliases():
     m = _entities()
     assert m.resolve_symbol("PNCINFRA")["entity_name"] == "PNC Infratech Limited"
-    hits = m.find_in_text("The move follows the RBI's rejection of Tata Sons' application; Tata Chemicals and TATAINVEST rallied")
+    hits = m.find_in_text("The move follows the RBI's rejection of Tata Sons' application; Tata Chemicals and Tata Investment Corporation rallied; TATAINVEST too")
     names = {h["entity_name"] for h in hits}
-    assert {"Tata Sons", "Tata Chemicals Limited", "Reserve Bank of India"} <= names and "Tata Investment Corporation Limited" in names
+    assert {"Tata Sons", "Tata Chemicals Limited", "Reserve Bank of India", "Tata Investment Corporation Limited"} <= names   # names resolve; bare symbols in prose do not
     assert m.find_in_text("nothing here") == []
 
 
