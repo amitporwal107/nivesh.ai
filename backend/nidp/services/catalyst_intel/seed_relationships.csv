@@ -1,0 +1,15 @@
+source_entity,source_type,target_entity,target_symbol,relationship_type,ownership_pct,source,source_url,confidence,note
+Tata Sons,group_holding,Tata Chemicals Limited,TATACHEM,INVESTEE,2.53,press,https://www.business-standard.com/markets/news/tata-sons-listing-eyed-tata-group-stocks-zoom-up-to-20-check-top-gainers-126091500174_1.html,0.8,press-reported 2026-09-15; replace with the annual-report page when extracted
+Tata Sons,group_holding,Tata Investment Corporation Limited,TATAINVEST,INVESTEE,,press,https://www.businesstoday.in/markets/stocks/story/tata-chemicals-tata-investment-shares-jump-check-near-term-targets-outlook-555595-2026-09-15,0.7,stake held; percentage not sourced
+Tata Sons,group_holding,Tata Chemicals Limited,TATACHEM,PROMOTER,,exchange,https://www.nseindia.com/get-quotes/equity?symbol=TATACHEM,0.9,promoter group per shareholding pattern
+Tata Sons,group_holding,Tata Investment Corporation Limited,TATAINVEST,PROMOTER,,exchange,https://www.nseindia.com/get-quotes/equity?symbol=TATAINVEST,0.9,promoter group per shareholding pattern
+Awadh Expressway Private Limited,unlisted_company,PNC Infratech Limited,PNCINFRA,SUBSIDIARY,,exchange_filing,https://nsearchives.nseindia.com/corporate/PNCINFRA_14092026210218_Intimationletter14092025.pdf,0.95,PNC is the promoter of the concessionaire per its 14-Sep-2026 filing
+National Highways Authority of India,regulator,Construction,,REGULATOR_SECTOR,,curated,https://nhai.gov.in/,1.0,road EPC and toll concessions
+Ministry of Road Transport and Highways,ministry,Construction,,REGULATOR_SECTOR,,curated,https://morth.nic.in/,1.0,
+Reserve Bank of India,regulator,Finance,,REGULATOR_SECTOR,,curated,https://www.rbi.org.in/,1.0,banks NBFCs payments
+Securities and Exchange Board of India,regulator,Finance,,REGULATOR_SECTOR,,curated,https://www.sebi.gov.in/,1.0,
+Central Drugs Standard Control Organisation,regulator,Healthcare,,REGULATOR_SECTOR,,curated,https://www.cdsco.gov.in/,1.0,pharma and devices
+US Food and Drug Administration,regulator,Healthcare,,REGULATOR_SECTOR,,curated,https://www.fda.gov/,1.0,
+Ministry of Defence,ministry,Capital Goods,,REGULATOR_SECTOR,,curated,https://mod.gov.in/,1.0,defence manufacturers
+Ministry of New and Renewable Energy,ministry,Power,,REGULATOR_SECTOR,,curated,https://mnre.gov.in/,1.0,
+Global Legal Entity Identifier Foundation,institution,Information Technology,,REGULATOR_SECTOR,,curated,https://www.gleif.org/,0.6,digital identity / LEI
