@@ -110,3 +110,109 @@ def test_ownership_uses_the_latest_stamped_filing_and_reports_qoq_change():
     assert o["promoter_pct"] == 58.0 and o["pledge_pct"] == 2.0 and o["fii_pct"] == 12.0
     assert o["promoter_chg_qoq"] == pytest.approx(-2.0) and o["pledge_chg_qoq"] == pytest.approx(-3.0)
     assert o["fii_chg_qoq"] == pytest.approx(2.0) and o["own_missing"] == 0.0
+
+
+# ── gap fixes 2026-09-15 (user: "fill the fundamental gaps that starve v3") ────────────────────────────────────
+# Balance sheets live on annual rows (Screener/Yahoo) that the block used to filter out; face value lives in the
+# reference table, not on the quarterly rows; cash flow rows get their timestamp from the results filing of the same
+# period; MF holding comes from the monthly portfolio disclosures (complete months only).
+
+def _annual_row(symbol="ACME", period_end=date(2026, 3, 31), broadcast=date(2026, 5, 20), ca=1500.0, cl=500.0, equity=3000.0):
+    return {"symbol": symbol, "period_end": pd.Timestamp(period_end), "period_type": "annual", "consolidated": True,
+            "revenue_from_ops_cr": np.nan, "ebitda_cr": np.nan, "pat_cr": np.nan, "eps_basic": np.nan,
+            "total_equity_cr": equity, "long_term_debt_cr": 450.0, "short_term_debt_cr": 150.0, "finance_costs_cr": np.nan,
+            "pbt_cr": np.nan, "current_assets_cr": ca, "current_liabilities_cr": cl, "equity_share_capital_cr": 100.0,
+            "face_value": np.nan, "broadcast_at": ist(broadcast, 18, 0)}
+
+
+def _quarters_without_balance_sheet(**kw):
+    q = _quarters(**kw)
+    q[["current_assets_cr", "current_liabilities_cr", "total_equity_cr", "long_term_debt_cr", "short_term_debt_cr", "face_value"]] = np.nan
+    return q
+
+
+def test_balance_sheet_comes_from_the_latest_known_row_of_any_period_type():
+    from nidp.services.tpd_model.fundamentals import pit_fundamentals
+
+    q = pd.concat([_quarters_without_balance_sheet(), pd.DataFrame([_annual_row()])], ignore_index=True)
+    f = pit_fundamentals(q, ["ACME"], T, close={"ACME": 500.0}).loc["ACME"]
+    assert f["current_ratio"] == pytest.approx(3.0)                 # 1500 / 500 from the annual row
+    assert f["de_ratio"] == pytest.approx(600 / 3000)
+    assert f["roe_ttm"] == pytest.approx((140 + 150 + 160 + 170) / 3000)
+    assert f["latest_period_end"] == pd.Timestamp("2026-06-30")     # the P&L series is still the quarterly one
+    late = q.copy()
+    late.loc[late["period_type"] == "annual", "broadcast_at"] = ist(T, 15, 30, 1)
+    f2 = pit_fundamentals(late, ["ACME"], T, close={"ACME": 500.0}).loc["ACME"]
+    assert np.isnan(f2["current_ratio"]) and np.isnan(f2["de_ratio"])
+
+
+def test_a_balance_sheet_older_than_the_staleness_limit_is_not_used():
+    from nidp.services.tpd_model.fundamentals import BALANCE_SHEET_MAX_AGE_DAYS, pit_fundamentals
+
+    old = _annual_row(period_end=date(2024, 3, 31), broadcast=date(2024, 5, 20))
+    q = pd.concat([_quarters_without_balance_sheet(), pd.DataFrame([old])], ignore_index=True)
+    f = pit_fundamentals(q, ["ACME"], T, close={"ACME": 500.0}).loc["ACME"]
+    assert (pd.Timestamp(T) - pd.Timestamp("2024-03-31")).days > BALANCE_SHEET_MAX_AGE_DAYS >= 500
+    assert np.isnan(f["current_ratio"]) and np.isnan(f["pb"])
+
+
+def test_pb_uses_the_reference_face_value_and_the_periods_own_share_count_after_a_split():
+    from nidp.services.tpd_model.fundamentals import pit_fundamentals
+
+    q = pd.concat([_quarters_without_balance_sheet(pat=[100, 100, 100, 100, 110, 125, 148, 180]), pd.DataFrame([_annual_row(equity=2350.0)])],
+                  ignore_index=True)
+    ref = pd.DataFrame({"symbol": ["ACME"], "face_value": [10.0]})
+    f = pit_fundamentals(q, ["ACME"], T, close={"ACME": 470.0}, reference=ref).loc["ACME"]
+    assert f["shares_cr"] == pytest.approx(10.0)                    # 100 cr capital / FV 10
+    assert f["pb"] == pytest.approx(470 / 235.0)                    # bvps = 2350 / 10
+    # the stock has since split 10:1 (reference FV now 1) but the period's PAT/EPS say 10 cr shares -> the period wins
+    f_split = pit_fundamentals(q, ["ACME"], T, close={"ACME": 470.0}, reference=ref.assign(face_value=1.0)).loc["ACME"]
+    assert f_split["shares_cr"] == pytest.approx(10.0) and f_split["pb"] == pytest.approx(470 / 235.0)
+    # no reference at all: the period's own count still gives PB
+    f_noref = pit_fundamentals(q, ["ACME"], T, close={"ACME": 470.0}).loc["ACME"]
+    assert f_noref["pb"] == pytest.approx(470 / 235.0)
+
+
+def test_cfo_to_pat_from_a_cash_flow_known_by_T():
+    from nidp.services.tpd_model.fundamentals import FUNDAMENTAL_FEATURES, pit_fundamentals
+
+    assert "cfo_pat" in FUNDAMENTAL_FEATURES
+    q = _quarters(pat=[100, 100, 100, 100, 110, 125, 148, 180], last_end=date(2026, 6, 30))
+    cf = pd.DataFrame([{"symbol": "ACME", "period_end": pd.Timestamp("2026-03-31"), "consolidated": True, "cfo_cr": 400.0,
+                        "broadcast_at": ist(date(2026, 5, 20), 18, 0)}])
+    f = pit_fundamentals(q, ["ACME"], T, close={"ACME": 500.0}, cashflow=cf).loc["ACME"]
+    assert f["cfo_pat"] == pytest.approx(400 / (100 + 110 + 125 + 148))   # FY26 = quarters ending Jun-25 .. Mar-26
+    unknown = cf.assign(broadcast_at=[ist(T, 15, 30, 1)])
+    assert np.isnan(pit_fundamentals(q, ["ACME"], T, close={"ACME": 500.0}, cashflow=unknown).loc["ACME", "cfo_pat"])
+    unstamped = cf.assign(broadcast_at=[pd.NaT])
+    assert np.isnan(pit_fundamentals(q, ["ACME"], T, close={"ACME": 500.0}, cashflow=unstamped).loc["ACME", "cfo_pat"])
+    assert np.isnan(pit_fundamentals(q, ["ACME"], T, close={"ACME": 500.0}).loc["ACME", "cfo_pat"])
+
+
+def _mf_monthly():
+    rows = [  # (month, shares held by all schemes, distinct ISINs in that month's file, when the month landed)
+        ("2026-04-01", 1.0e7, 3300, date(2026, 6, 3)), ("2026-05-01", 1.2e7, 3500, date(2026, 6, 25)),
+        ("2026-06-01", 0.3e7, 2000, date(2026, 7, 12)),    # partial month: fewer than MF_COMPLETE_MONTH_MIN_ISINS
+        ("2026-07-01", 1.5e7, 3600, date(2026, 8, 19)),
+    ]
+    return pd.DataFrame([{"symbol": "ACME", "as_of_month": pd.Timestamp(m), "mf_shares": s, "mf_schemes": 40, "month_isins": n,
+                          "ingested_at": ist(d, 12, 0)} for m, s, n, d in rows])
+
+
+def test_mf_holding_comes_from_the_latest_complete_month_known_by_T():
+    from nidp.services.tpd_model.fundamentals import MF_COMPLETE_MONTH_MIN_ISINS, pit_ownership
+
+    assert 2000 < MF_COMPLETE_MONTH_MIN_ISINS <= 3300
+    shp = pd.DataFrame([{"symbol": "ACME", "period_end": pd.Timestamp("2026-06-30"), "promoter_pct": 58.0, "promoter_pledged_pct": 2.0,
+                         "fii_pct": 12.0, "dii_pct": 8.5, "mf_pct": np.nan, "broadcast_at": ist(date(2026, 7, 18), 17, 0)}])
+    shares = {"ACME": 10.0}                                          # crore shares -> 1e8 shares outstanding
+    o = pit_ownership(shp, ["ACME"], T, mf_monthly=_mf_monthly(), shares_cr=shares).loc["ACME"]
+    assert o["mf_pct"] == pytest.approx(15.0)                        # July (complete, landed 19 Aug): 1.5e7 / 1e8
+    assert o["mf_chg_qoq"] == pytest.approx(5.0)                     # vs April, the latest complete month >= 3 months earlier
+    o2 = pit_ownership(shp, ["ACME"], date(2026, 8, 10), mf_monthly=_mf_monthly(), shares_cr=shares).loc["ACME"]
+    assert o2["mf_pct"] == pytest.approx(12.0)                       # July not yet landed, June partial -> May
+    assert np.isnan(o2["mf_chg_qoq"])                                # nothing complete 3 months before May
+    o3 = pit_ownership(shp, ["ACME"], T, mf_monthly=_mf_monthly(), shares_cr={"ACME": 0.2}).loc["ACME"]
+    assert np.isnan(o3["mf_pct"])                                    # 75% of the float is not credible: stale capital
+    o4 = pit_ownership(shp, ["ACME"], T).loc["ACME"]
+    assert np.isnan(o4["mf_pct"]) and o4["promoter_pct"] == 58.0     # without the monthly file: NaN, never zero
