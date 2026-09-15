@@ -91,3 +91,25 @@ def test_own_history_comparator_uses_the_heads_direction(head, own):
     from nidp.services.tpd_model.features import FEATURE_LIST
 
     assert OWN_HISTORY_COUNT[head] == own and own in FEATURE_LIST
+
+
+def test_gbm_tolerates_all_nan_and_constant_columns():
+    """A v3 block can be entirely unknown in an early training window (ownership has no filing timestamp before
+    2025-07-05; vol_ratio_250 needs 250 bars). sklearn's binner refuses a column with <2 distinct values, so the
+    fit must drop such columns, remember them, and re-select at predict — without changing the fit on the rest."""
+    import numpy as np
+    import pandas as pd
+    from nidp.services.tpd_model.walkforward import fit_gbm
+
+    rng = np.random.default_rng(3)
+    n = 12_000
+    X = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n), "c": rng.normal(size=n)})
+    y = (X["a"] + 0.5 * X["b"] + rng.normal(size=n) > 1.2).astype(int)
+    Xd = X.assign(all_nan=np.nan, constant=1.0, one_value_rest_nan=np.where(np.arange(n) % 7 == 0, 3.0, np.nan))
+    m = fit_gbm(Xd, y)
+    assert sorted(m.dropped) == ["all_nan", "constant", "one_value_rest_nan"]
+    p = m.predict_proba(Xd.astype(np.float64))[:, 1]
+    assert np.isfinite(p).all() and len(p) == n
+    p_plain = fit_gbm(X, y).predict_proba(X.astype(np.float64))[:, 1]
+    assert np.array_equal(p.view(np.uint64), p_plain.view(np.uint64)), "dropping a dead column must not change the fit"
+    assert fit_gbm(X, y).dropped == []

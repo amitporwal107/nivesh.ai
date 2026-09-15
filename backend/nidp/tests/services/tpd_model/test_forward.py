@@ -200,3 +200,15 @@ def test_v3_bundle_trains_on_v3_columns(panel, sessions):
     assert b2["models"]["p_up10_1d"]["gbm"].n_features_in_ == len(MODEL_COLUMNS)
     assert b3["models"]["p_up10_1d"]["gbm"].n_features_in_ == len(MODEL_COLUMNS_V3)
     assert b3["columns"] == list(MODEL_COLUMNS_V3)
+
+
+def test_v3_failure_never_costs_the_v2_snapshot():
+    """v3 rides along: if its scoring raises, the v2 snapshot is still frozen and the manifest records the error."""
+    from nidp.services.tpd_model.forward import v3_alongside
+
+    def boom():
+        raise ValueError("financials.csv.gz missing")
+
+    extra, meta = v3_alongside(boom)
+    assert extra == {} and meta == {"error": "ValueError: financials.csv.gz missing"}
+    assert v3_alongside(lambda: ({"x": b"1"}, {"rows": 1})) == ({"x": b"1"}, {"rows": 1})
