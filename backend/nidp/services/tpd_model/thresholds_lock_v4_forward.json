@@ -1,0 +1,27 @@
+{
+  "_what": "Ten-Percent Days 3.0 v4 FORWARD TEST, pre-registered 2026-09-15 before the first v4 snapshot. Runs alongside v2 and v3 in its own snapshot root. Decides whether v4's probabilities, including its >= 50% calls, can be trusted.",
+  "version": 1,
+  "role": "forward",
+  "locked_at": "2026-09-15",
+  "model": "v4: MODEL_COLUMNS_V4 (84 inputs), HEADS_V4 = p_up10_1d, p_down10_1d, p_up5_1d, p_down5_1d; monthly retrain as v2/v3; results-print block from the evening NSE capture merged with stamped warehouse rows",
+  "heads": ["p_up10_1d", "p_down10_1d", "p_up5_1d", "p_down5_1d"],
+  "forward_window": {"first_target_session": "2026-09-17", "interim_read_graded_sessions": 60, "verdict_min_graded_sessions": 250, "evaluate_by": "2027-09-30"},
+  "snapshot_rules": {"freeze_before": "09:15 IST on the target session", "score_after": "20:30 IST on T (print window closed)", "requires": "that evening's results capture file, hashed into the manifest"},
+  "bars": {
+    "ranking_all_heads": {"auc_min": {"p_up10_1d": 0.70, "p_down10_1d": 0.75, "p_up5_1d": 0.65, "p_down5_1d": 0.70}, "auc_must_beat_best_comparator": true},
+    "calibration_all_heads": {"mean_pred_rel_err_max": 0.15, "top_decile_rel_err_max": 0.15, "deciles_pred_inside_wilson95_min": 8, "logloss_below_base_rate": true, "brier_skill_positive": true},
+    "v4_vs_v3_on_10pct_heads": {"rows": "identical rows and sessions", "non_inferior": {"auc_margin": 0.003, "p5_margin_pp": 0.5}}
+  },
+  "high_confidence": {
+    "threshold": 0.50,
+    "min_rows_to_judge": 30,
+    "calibrated_if": "mean predicted probability of rows >= threshold inside the Wilson 95% interval of their realised rate",
+    "useful_if": "realised rate >= 0.40",
+    "judged_per_head": true,
+    "may_be_shown_as_high_confidence_only_if": "the head's high-confidence rule PASSES at the verdict; before that, >= 50% rows are logged, never labelled as confident",
+    "if_fewer_than_min_rows_at_verdict": "INSUFFICIENT: no high-confidence label for that head"
+  },
+  "capture_health": {"measure": "share of results filings broadcast in the print window that were captured and parsed that evening, checked against the next day's NSE listing", "min_share": 0.90,
+                     "if_below": "the night's v4 snapshot is flagged capture_degraded and excluded from the high-confidence judgement (still graded for ranking/calibration)"},
+  "serving": "nothing served until the verdict; the page stays hidden (empty allowlist)"
+}
