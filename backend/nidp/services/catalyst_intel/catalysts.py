@@ -76,7 +76,9 @@ def attribute(e: dict, c: dict, em: EntityMap) -> list[dict]:
     src = get_source(e["source_id"]); cred = CREDIBILITY[src.priority]
     known_at = e["first_seen_at"].isoformat() if hasattr(e["first_seen_at"], "isoformat") else e["first_seen_at"]
     event_time = e["published_at"].isoformat() if hasattr(e["published_at"], "isoformat") else e["published_at"]
-    authority = c["named_authorities"][0] if c.get("named_authorities") else None
+    tax_like = {"GST", "Income Tax", "SEBI"}
+    auths = [a for a in (c.get("named_authorities") or []) if not (a in tax_like and c["event_type"] not in ("REGULATORY", "LEGAL"))]   # a tax or SEBI mention only names the actor for regulatory / legal events
+    authority = auths[0] if auths else None
     from .entities import AUTHORITY_ALIASES
     authority_name = next((n for n, al in AUTHORITY_ALIASES.items() if authority and authority.lower() in [a.lower() for a in al] + [n.lower()]), authority)
     subjects: list[tuple[str, str, Optional[dict]]] = []          # (entity_name, match_type, entity)

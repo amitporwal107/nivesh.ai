@@ -104,7 +104,8 @@ CATEGORY_MAP = {
 }
 _DEVANAGARI = re.compile(r"[ऀ-ॿ]")
 _MONEY = re.compile(r"(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d+)?)\s*(crore|cr\b|lakh|million|mn|billion|bn)", re.I)
-_REGULATION_NAMES = re.compile(r"\(?prohibition of insider trading\)?|prohibition of fraudulent|substantial acquisition of shares|listing obligations and disclosure|\bpit regulations?\b", re.I)
+_REGULATION_NAMES = re.compile(r"\(?prohibition of insider trading\)?|prohibition of fraudulent|substantial acquisition of shares|listing obligations and disclosure|\bpit regulations?\b"
+                               r"|regulation \d+[a-z]? of (?:the )?sebi|sebi \(listing[^)]*\)?|sebi listing regulations?|sebi circular[^.]{0,40}|sebi \(lodr\)|securities and exchange board of india \(listing[^)]*\)?|(?:excluding|exclusive of|inclusive of|including|plus|\+) ?gst|gst extra", re.I)
 _NEGATION_BEFORE = re.compile(r"\b(?:not|no|never|neither|nor|without|non)\b(?:\s+\w+){0,4}\s*$", re.I)
 _NEGATION_AFTER = re.compile(r"^\s*(?:\w+\s+){0,2}(?:not|no)\b", re.I)
 
@@ -204,7 +205,9 @@ def classify(e: dict) -> dict:
     if cm and cm[0]:
         group, sub, direction, sev = cm
         head = _head(e).lower()
-        if cat == "Credit Rating":                                  # rating rationales quote definitions and disclaimers: only rating terms count
+        if cat == "Delay/default in the payment of fines/penalties/dues":
+            best = None                                             # late-compliance fines: the category is the whole event
+        elif cat == "Credit Rating":                                # rating rationales quote definitions and disclaimers: only rating terms count
             best = _best_rule(head, allowed_groups={"FINANCIAL"})
             best = best if best and best[1] in ("rating_upgrade", "rating_downgrade", "rating_watch") else None
         else:
