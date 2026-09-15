@@ -50,7 +50,7 @@ export function Sidebar({ className }: { className?: string }) {
     : "?";
 
   const portfolioLabel = summary?.totalValue
-    ? `₹ ${(summary.totalValue / 100 / 1_00_000).toFixed(1)} L · NIDP ✓`
+    ? `₹ ${(summary.totalValue / 100 / 1_00_000).toFixed(1)} L · synced`
     : "";
 
   return (
