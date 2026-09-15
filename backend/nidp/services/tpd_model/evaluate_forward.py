@@ -1,7 +1,7 @@
 """v2 forward verdict against thresholds_lock_v2_forward.json.
 
 Reads frozen, graded snapshots (verify() first: a tampered snapshot aborts the whole evaluation), ignores
-rehearsals, and refuses to judge before the locked number of graded sessions. Written before any real snapshot
+rehearsals, and reports an informational INTERIM read from 60 graded sessions and a verdict only from the locked minimum (250). Written before any real snapshot
 had been graded.
 
     python -m nidp.services.tpd_model.evaluate_forward --root <snapshots> [--out verdict.json]
@@ -121,10 +121,11 @@ def evaluate_forward(root: Path, expected_sessions: Optional[list[date]] = None,
            "missing_sessions": [str(d) for d in (expected_sessions or []) if d not in set(sessions)],
            "regimes": {"required": lock["regimes"]["required"], "note": lock["regimes"]["why"]},
            "policy": lock["failing_head"]}
-    need = lock["forward_window"]["graded_sessions"]
-    if len(sessions) < need:
-        out.update(status="NOT_EVALUATED", reason=f"{len(sessions)} graded sessions < {need}", heads={}, g_valid=False,
-                   exposure_blocked=True)
+    interim = lock["forward_window"]["interim_read_graded_sessions"]
+    need = lock["forward_window"]["verdict_min_graded_sessions"]
+    if len(sessions) < interim:
+        out.update(status="NOT_EVALUATED", reason=f"{len(sessions)} graded sessions < {interim} (interim read)", heads={},
+                   g_valid=False, exposure_blocked=True)
         return out
     heads = {}
     for head in lock["heads"]:
@@ -145,6 +146,15 @@ def evaluate_forward(root: Path, expected_sessions: Optional[list[date]] = None,
             required = [entry["ship"]["pass"], entry["calibration"]["pass"]]
         entry["served"] = bool(all(required))
         heads[head] = entry
+    if len(sessions) < need:
+        # Lock v2.1 interim read: same metrics, but a 60-session window cannot resolve the non-inferiority margin,
+        # so nothing is served and there is no verdict until the minimum is reached.
+        for h in heads.values():
+            h["served"] = False
+            h["interim_note"] = f"informational: verdict needs >= {need} graded sessions"
+        out.update(status="INTERIM", reason=f"{len(sessions)} graded sessions < {need} (verdict minimum)", heads=heads,
+                   g_valid=False, exposure_blocked=True)
+        return out
     blocked = not heads[lock["failing_head"]["block_exposure_if_fails"]]["served"]
     out.update(status="EVALUATED", heads=heads, exposure_blocked=blocked, g_valid=not blocked)
     return out

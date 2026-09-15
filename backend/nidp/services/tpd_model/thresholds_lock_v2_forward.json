@@ -1,7 +1,8 @@
 {
   "_what": "Ten-Percent Days 3.0 v2 FORWARD test pass bars, locked 2026-09-15 before the first forward session (2026-09-16). The v1 walk-forward (thresholds_lock.json) failed every head; per its policy re-evaluation is only a new locked run. This run is judged only on sessions scored and frozen before they opened. Editing any value after a forward session has been graded voids the test.",
-  "version": 2,
+  "version": 2.1,
   "locked_at": "2026-09-15",
+  "amended": "2026-09-15, before the first real snapshot (D=2026-09-16) and before any real session was graded: the verdict needs >= 250 graded sessions ('or more', user); 60 sessions is an informational interim read only. Reason: 60 sessions = ~300 top-5 slots, p@5 standard error ~2 pp, so the 0.5 pp non-inferiority margin cannot be resolved that early. No bar value changed.",
   "supersedes": "thresholds_lock.json for the forward test only; the v1 walk-forward verdict stands",
   "decisions": [
     "diagnose then forward test (user, 2026-09-15)",
@@ -15,7 +16,9 @@
     "p_up10_1d": "high(D) >= 1.10 x close(T)",
     "p_down10_1d": "low(D) <= 0.90 x close(T)"
   },
-  "forward_window": {"first_target_session": "2026-09-16", "graded_sessions": 60, "evaluate_by": "2026-12-31"},
+  "forward_window": {"first_target_session": "2026-09-16", "interim_read_graded_sessions": 60,
+                     "verdict_min_graded_sessions": 250, "evaluate_by": "2027-09-30"},
+  "interim_read": "at 60 graded sessions the same metrics are reported with status INTERIM; nothing is served and G-VALID stays false until the verdict",
   "scoring": {
     "filings_cutoff": "15:30 IST on T",
     "freeze_before": "09:15 IST on the target session",
@@ -47,7 +50,7 @@
     "brier_skill_positive": true
   },
   "regimes": {"required": false, "why": "60 sessions cannot fill volatility x trend cells; reported for information only"},
-  "insufficient": "fewer than 60 graded sessions by evaluate_by -> NOT_EVALUATED; extending needs a new lock",
+  "insufficient": "fewer than 250 graded sessions by evaluate_by -> NOT_EVALUATED; extending needs a new lock",
   "failing_head": {
     "policy": "hide_keep_logging",
     "block_exposure_if_fails": "p_up10_1d"

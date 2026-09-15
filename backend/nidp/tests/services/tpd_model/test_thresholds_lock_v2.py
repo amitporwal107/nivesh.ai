@@ -11,9 +11,11 @@ def _lock():
 
 def test_forward_window_and_heads():
     lock = _lock()
-    assert lock["version"] == 2
+    assert lock["version"] == 2.1
     assert lock["heads"] == ["p_up10_1d", "p_down10_1d"]
-    assert lock["forward_window"] == {"first_target_session": "2026-09-16", "graded_sessions": 60, "evaluate_by": "2026-12-31"}
+    assert lock["forward_window"] == {"first_target_session": "2026-09-16", "interim_read_graded_sessions": 60,
+                                      "verdict_min_graded_sessions": 250, "evaluate_by": "2027-09-30"}
+    assert "before any real session was graded" in lock["amended"]
     assert lock["scoring"]["filings_cutoff"] == "15:30 IST on T"
 
 

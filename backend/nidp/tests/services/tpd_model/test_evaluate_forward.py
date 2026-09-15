@@ -63,6 +63,19 @@ def test_under_sixty_graded_sessions_is_not_evaluated(tmp_path):
     root, _ = _root(tmp_path, 40)
     v = evaluate_forward(root)
     assert v["status"] == "NOT_EVALUATED" and v["graded_sessions"] == 40 and v["g_valid"] is False
+    assert v["heads"] == {}
+
+
+def test_sixty_to_249_sessions_is_an_interim_read_that_serves_nothing(tmp_path):
+    """Lock v2.1: the same metrics are reported at 60 sessions, but no verdict, no serving, G-VALID false."""
+    from nidp.services.tpd_model.evaluate_forward import evaluate_forward
+
+    root, _ = _root(tmp_path, 62, signal=2.0)
+    v = evaluate_forward(root)
+    assert v["status"] == "INTERIM" and v["graded_sessions"] == 62
+    assert set(v["heads"]) == {"p_up10_1d", "p_down10_1d"} and "b3" in v["heads"]["p_up10_1d"]
+    assert all(h["served"] is False for h in v["heads"].values())
+    assert v["g_valid"] is False and v["exposure_blocked"] is True
 
 
 def test_rehearsal_snapshots_are_not_counted(tmp_path):
@@ -87,9 +100,9 @@ def test_tampered_snapshot_is_refused(tmp_path):
 def test_strong_forward_run_passes_both_heads(tmp_path):
     from nidp.services.tpd_model.evaluate_forward import evaluate_forward
 
-    root, _ = _root(tmp_path, 62, signal=2.0)
+    root, _ = _root(tmp_path, 252, signal=2.0)
     v = evaluate_forward(root)
-    assert v["status"] == "EVALUATED" and len(v["lock_sha256"]) == 64
+    assert v["status"] == "EVALUATED" and v["graded_sessions"] == 252 and len(v["lock_sha256"]) == 64
     up, dn = v["heads"]["p_up10_1d"], v["heads"]["p_down10_1d"]
     assert up["b3"]["rows_compared"] > 0 and up["b3"]["bootstrap"]["block"] == "week"
     assert up["b3"]["non_inferior"] is True
@@ -104,8 +117,9 @@ def test_strong_forward_run_passes_both_heads(tmp_path):
 def test_useless_run_fails_ship_and_blocks_exposure(tmp_path):
     from nidp.services.tpd_model.evaluate_forward import evaluate_forward
 
-    root, _ = _root(tmp_path, 62, signal=0.0)
+    root, _ = _root(tmp_path, 252, signal=0.0)
     v = evaluate_forward(root)
+    assert v["status"] == "EVALUATED"
     assert v["heads"]["p_down10_1d"]["ship"]["pass"] is False
     assert v["heads"]["p_down10_1d"]["served"] is False
     assert v["exposure_blocked"] is True and v["g_valid"] is False
