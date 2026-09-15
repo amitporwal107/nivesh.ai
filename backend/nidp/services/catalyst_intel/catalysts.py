@@ -85,7 +85,7 @@ def _load_events(db: sqlite3.Connection, since: Optional[str], limit: int, only_
 
 
 def run(home: Path, names: Path, since: Optional[str], docs: bool, limit: int) -> dict:
-    db = sqlite3.connect(home / "events.sqlite"); db.executescript(DDL)
+    db = sqlite3.connect(home / "events.sqlite", timeout=120); db.executescript(DDL)
     em = EntityMap.from_files(names); dc = DocumentCache(home / "docs")
     events = _load_events(db, since, limit)
     done = {r[0] for r in db.execute("SELECT hash FROM normalized_events")}
@@ -104,12 +104,14 @@ def run(home: Path, names: Path, since: Optional[str], docs: bool, limit: int) -
                 db.execute("INSERT OR REPLACE INTO event_stock_impacts VALUES (?,?,?,?,?,?,?,?,?)", (e["hash"], i["symbol"], i["hops"], i["exposure"], i["path"], i["source_url"], i["direction"], i["impact_score"], i["known_at"]))
                 stats["impacts"] += 1
         stats["classified"] += 1; stats["by_type"][c["event_type"]] = stats["by_type"].get(c["event_type"], 0) + 1
+        if stats["classified"] % 50 == 0:
+            db.commit()                                   # short transactions: the cron chain and a manual run may overlap
     db.commit()
     return stats
 
 
 def explain_symbol(home: Path, names: Path, symbol: str, before: Optional[str], docs: bool = True) -> list[dict]:
-    db = sqlite3.connect(home / "events.sqlite"); db.executescript(DDL)
+    db = sqlite3.connect(home / "events.sqlite", timeout=120); db.executescript(DDL)
     em = EntityMap.from_files(names); dc = DocumentCache(home / "docs")
     out = []
     for e in _load_events(db, None, 2000, only_symbol=None):

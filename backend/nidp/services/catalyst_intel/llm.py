@@ -137,7 +137,7 @@ class RefineCache:
 
 def run(home: Path, names: Path, since: Optional[str], max_events: int, max_usd: float, model: str = DEFAULT_MODEL) -> dict:
     from .catalysts import DDL, _load_events, build_impacts
-    db = sqlite3.connect(home / "events.sqlite"); db.executescript(DDL)
+    db = sqlite3.connect(home / "events.sqlite", timeout=120); db.executescript(DDL)
     db.executescript("CREATE TABLE IF NOT EXISTS llm_refinements (hash TEXT PRIMARY KEY, model TEXT, event_type TEXT, event_subtype TEXT, direction TEXT, materiality INT, novelty INT, confidence REAL, time_horizon TEXT, economic_mechanism TEXT, affected_listed TEXT, dropped_entities TEXT, rationale TEXT, prompt_tokens INT, completion_tokens INT, refined_at TEXT, error TEXT);")
     em = EntityMap.from_files(names); cache = RefineCache(home / "llm"); client = make_client()
     done = {r[0] for r in db.execute("SELECT hash FROM llm_refinements")}
