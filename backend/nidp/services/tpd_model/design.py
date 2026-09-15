@@ -24,6 +24,14 @@ PASSTHROUGH = ("rsi14", "ret1", "ret5", "ret20", "ret60", "bb_pos", "vol_z20", "
 MODEL_COLUMNS = PASSTHROUGH + ("log_atr_pct", "log_bbw", "log_dist_52w_low", "log_turn", "log_price",
                                "lr_n_high_up_252", "lr_n_low_down_252")
 
+# v3 (user scope change 2026-09-15): the PRD's technical extensions, point-in-time fundamentals and ownership
+# are passed through raw — gradient-boosted trees split on them directly and handle NaN natively. Cash flow
+# (CFO/PAT) has no filing timestamp in the warehouse, so it is not point-in-time and stays out.
+from .fundamentals import FUNDAMENTAL_FEATURES, OWNERSHIP_FEATURES  # noqa: E402
+from .technical_ext import TECHNICAL_EXT_FEATURES  # noqa: E402
+
+MODEL_COLUMNS_V3 = MODEL_COLUMNS + TECHNICAL_EXT_FEATURES + FUNDAMENTAL_FEATURES + OWNERSHIP_FEATURES
+
 
 def own_rate(features: pd.DataFrame, count: str, prior: float) -> pd.Series:
     """log((past event days + K x prior) / (bars counted + K)): a young listing's few bars pull toward the
@@ -32,8 +40,9 @@ def own_rate(features: pd.DataFrame, count: str, prior: float) -> pd.Series:
     return np.log((features[count] + SHRINK_K * prior) / (bars + SHRINK_K))
 
 
-def design_matrix(features: pd.DataFrame, priors: dict[str, float]) -> pd.DataFrame:
-    """`priors` maps a one-day head to its training event rate (the heads in COUNT_PRIOR_HEAD)."""
+def design_matrix(features: pd.DataFrame, priors: dict[str, float], columns: tuple = MODEL_COLUMNS) -> pd.DataFrame:
+    """`priors` maps a one-day head to its training event rate (the heads in COUNT_PRIOR_HEAD). `columns`
+    selects the model version's inputs; any column beyond the v2 transforms is passed through as float."""
     Z = pd.DataFrame(index=features.index)
     for c in PASSTHROUGH:
         Z[c] = features[c].astype("float64")
@@ -44,4 +53,7 @@ def design_matrix(features: pd.DataFrame, priors: dict[str, float]) -> pd.DataFr
     Z["log_price"] = np.log(features["close_raw"].clip(lower=1))
     for count, head in COUNT_PRIOR_HEAD.items():
         Z[f"lr_{count}"] = own_rate(features, count, priors[head])
-    return Z[list(MODEL_COLUMNS)]
+    for c in columns:
+        if c not in Z.columns:
+            Z[c] = features[c].astype("float64")
+    return Z[list(columns)]
