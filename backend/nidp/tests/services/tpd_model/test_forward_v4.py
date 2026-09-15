@@ -83,3 +83,16 @@ def test_v4_forward_lock_is_pre_registered():
     assert lock["role"] == "forward" and lock["forward_window"]["first_target_session"] == "2026-09-17"
     assert lock["high_confidence"]["threshold"] == 0.50 and lock["high_confidence"]["min_rows_to_judge"] == 30
     assert lock["capture_health"]["min_share"] == 0.90 and len(sha) == 64
+
+
+def test_preview_scores_before_the_forward_window_but_never_counts():
+    """User 2026-09-15 'please run it for today': a real-clock snapshot for a target before the locked forward window
+    is allowed only as a preview, which is marked as not counting toward the verdict."""
+    from nidp.services.tpd_model.forward_v4 import window_decision
+
+    lock = {"forward_window": {"first_target_session": "2026-09-17"}}
+    assert window_decision(date(2026, 9, 16), lock, rehearsal=False, preview=False) == ("skip", None)
+    assert window_decision(date(2026, 9, 16), lock, rehearsal=False, preview=True) == ("score", {"preview": True, "counts_toward_verdict": False})
+    assert window_decision(date(2026, 9, 17), lock, rehearsal=False, preview=False) == ("score", {"preview": False, "counts_toward_verdict": True})
+    assert window_decision(date(2026, 9, 17), lock, rehearsal=False, preview=True) == ("score", {"preview": True, "counts_toward_verdict": False})
+    assert window_decision(date(2026, 8, 14), lock, rehearsal=True, preview=False) == ("score", {"preview": False, "counts_toward_verdict": False})
