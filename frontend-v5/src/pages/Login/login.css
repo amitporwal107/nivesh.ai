@@ -81,6 +81,13 @@
   flex: 1;
   min-height: 0;
 }
+/* the live ProductTour wrapper (was an inline style; in CSS so the phone rule
+   below can hide it — an inline `display` cannot be overridden by a stylesheet) */
+.nvx-login .stage .tour-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
 
 /* ---------- RIGHT : sign in ---------- */
 .nvx-login .auth {
@@ -451,4 +458,51 @@
   opacity: 0.5;
   cursor: default;
   text-decoration: none;
+}
+
+/* ---------- Phone: one column ----------
+   The two-column shell clipped the left column at 390px (eyebrow and lede ran
+   off the right edge) and the desktop product tour, with its floating
+   "Ask the copilot" demo pill, made no sense before sign-in. Stack the brand
+   and headline above the sign-in form and drop the showcase. */
+@media (max-width: 860px) {
+  .nvx-login .shell {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+  .nvx-login .stage {
+    min-width: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 18px;
+    gap: 10px;
+  }
+  .nvx-login .stage .tour-wrap {
+    display: none;
+  }
+  /* The scripted "Ask the copilot" demo (CopilotDemo) is a desktop showcase;
+     its fixed pill would sit over the sign-in form on a phone. Specificity
+     outranks `.nvx .cp-launch` in CopilotDemo.css regardless of import order. */
+  .nvx.nvx-login .cp-launch,
+  .nvx.nvx-login .cp-panel {
+    display: none;
+  }
+  .nvx-login .stage .lede p {
+    max-width: none;
+  }
+  /* The eyebrow is a flex row of star + one text run; let the run wrap and
+     ease the tracking so it fits a 350px column. */
+  .nvx-login .stage .eyebrow {
+    display: block;
+    white-space: normal;
+    letter-spacing: 0.14em;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+  }
+  .nvx-login .stage .eyebrow .star {
+    margin-right: 6px;
+  }
+  .nvx-login .auth {
+    padding: 26px 20px 40px;
+  }
 }

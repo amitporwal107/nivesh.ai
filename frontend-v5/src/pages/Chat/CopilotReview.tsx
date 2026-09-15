@@ -270,7 +270,7 @@ export default function CopilotReview({ onAsk }: { onAsk: (q: string) => void })
       <div className="nv-card-2" style={{ padding: "11px 13px", display: "flex", flexDirection: "column", gap: 6 }}>
         <div className="nv-mono" style={{ fontSize: 9, color: "var(--mint)" }}>● ANALYZED · LIVE</div>
         {[
-          holdingsCount != null ? `✓ FETCHED ${holdingsCount} HOLDINGS · NIDP` : "✓ FETCHED HOLDINGS · NIDP",
+          holdingsCount != null ? `✓ READ ${holdingsCount} HOLDINGS · LIVE` : "✓ READ YOUR HOLDINGS · LIVE",
           "✓ SCORED HEALTH · CONCENTRATION · OVERLAP",
           "✓ RANKED FIXES BY ₹ IMPACT",
         ].map((s) => (<div key={s} className="nv-mono" style={{ fontSize: 10, color: "rgb(var(--ink-2))", letterSpacing: ".04em" }}>{s}</div>))}
@@ -555,7 +555,7 @@ export default function CopilotReview({ onAsk }: { onAsk: (q: string) => void })
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span className="nv-serif" style={{ fontSize: 18 }}>Portfolio health review</span>
-          <span className="nv-pill nv-pill-mint" style={{ fontSize: 9 }}><span className="nv-dot" style={{ background: "var(--mint)" }} />NIDP CONNECTED</span>
+          <span className="nv-pill nv-pill-mint" style={{ fontSize: 9 }}><span className="nv-dot" style={{ background: "var(--mint)" }} />LIVE DATA</span>
           {holdingsCount != null && (<span className="nv-mono" style={{ fontSize: 9, color: "rgb(var(--ink-3))", letterSpacing: ".06em" }}>{holdingsCount} HOLDINGS</span>)}
         </div>
         <button onClick={() => onAsk("I'd like to talk to a human advisor")} className="nv-btn"

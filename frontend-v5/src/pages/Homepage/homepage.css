@@ -679,6 +679,28 @@
   .nvx-home .nav-links {
     display: none;
   }
+  /* Phone header: brand, Sign in and the CTA each stay on one line (they used
+     to wrap to two lines each at 390px) and the row never overflows. */
+  .nvx-home .nav-inner {
+    gap: 12px;
+    height: 56px;
+  }
+  .nvx-home .nav-inner .nvx-brand {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .nvx-home .nav-right {
+    gap: 10px;
+    min-width: 0;
+  }
+  .nvx-home .nav-right .signin {
+    white-space: nowrap;
+  }
+  .nvx-home .nav-right .btn-primary {
+    white-space: nowrap;
+    padding: 9px 13px;
+    font-size: 0.85rem;
+  }
   .nvx-home .tour {
     height: 64vh;
     min-height: 440px;
@@ -779,4 +801,11 @@
 }
 .nvx-home .blog-more:hover {
   color: var(--text);
+}
+
+/* Narrow phones: the CTA already leads to sign-in, so the text link yields. */
+@media (max-width: 400px) {
+  .nvx-home .nav-right .signin {
+    display: none;
+  }
 }
