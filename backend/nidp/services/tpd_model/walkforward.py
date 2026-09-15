@@ -53,8 +53,30 @@ def scored_rows(rows: pd.DataFrame, fold: Fold) -> pd.DataFrame:
     return rows[(ts >= pd.Timestamp(fold.first_scored)) & (ts <= pd.Timestamp(fold.last_scored))]
 
 
-def fit_gbm(X: pd.DataFrame, y) -> HistGradientBoostingClassifier:
-    return HistGradientBoostingClassifier(**GBM_PARAMS).fit(X.astype(np.float64), np.asarray(y, dtype=int))
+class GBM:
+    """HistGradientBoostingClassifier that tolerates dead columns. A column with fewer than two distinct non-NaN
+    values in the training rows (a v3 block wholly unknown in an early window, e.g. ownership before its first
+    filing timestamp) carries no information and makes sklearn's binner raise; it is dropped at fit, listed in
+    `dropped`, and re-selected at predict. The fit on the remaining columns is unchanged."""
+
+    def fit(self, X: pd.DataFrame, y) -> "GBM":
+        X = X.astype(np.float64)
+        self.dropped = [c for c in X.columns if X[c].nunique(dropna=True) < 2]
+        self.columns = [c for c in X.columns if c not in self.dropped]
+        self.model = HistGradientBoostingClassifier(**GBM_PARAMS).fit(X[self.columns], np.asarray(y, dtype=int))
+        return self
+
+    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+        return self.model.predict_proba(X[self.columns].astype(np.float64))
+
+    @property
+    def n_features_in_(self) -> int:
+        """Width of the design matrix this model was fitted on (dead columns included)."""
+        return len(self.columns) + len(self.dropped)
+
+
+def fit_gbm(X: pd.DataFrame, y) -> GBM:
+    return GBM().fit(X, y)
 
 
 class SingleFeatureLogit:

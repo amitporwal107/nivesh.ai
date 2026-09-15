@@ -237,6 +237,16 @@ def _feature_store_v3(store: Path, panel, events, factors, fin, shp, pairs, memb
     return pd.concat([pd.read_pickle(store / f"{T}.pkl") for T, _ in pairs], ignore_index=True)
 
 
+def v3_alongside(compute) -> tuple[dict, dict]:
+    """v3 rides along with the pre-registered v2 test: its failure is logged loudly and recorded in the manifest,
+    and must never cost the v2 snapshot."""
+    try:
+        return compute()
+    except Exception as e:  # noqa: BLE001 — any failure here is reported, not raised
+        logger.exception("v3 alongside FAILED; freezing v2 only")
+        return {}, {"error": f"{type(e).__name__}: {e}"}
+
+
 def _load_v3_inputs(exports: Path):
     fin = pd.read_csv(exports / "financials.csv.gz", parse_dates=["period_end"])
     fin["broadcast_at"] = pd.to_datetime(fin["broadcast_at"], utc=True)
@@ -297,15 +307,19 @@ def cmd_score(a) -> int:
     preds = score_session(ft, members[D], bundle)
     v3_extra, v3_meta = {}, None
     if a.with_v3:
-        fin, shp = _load_v3_inputs(a.exports)
-        feats3 = _feature_store_v3(Path(a.store_v3), panel, events, factors, fin, shp, pairs, members, a.workers)
-        rows3 = assemble_rows(feats3[feats3["as_of_date"] < pd.Timestamp(T)], labels, members, [*sessions, D])
-        bundle3 = train_bundle(rows3, fold, columns=MODEL_COLUMNS_V3)
-        ft3 = feats3[feats3["as_of_date"] == pd.Timestamp(T)].set_index("symbol")
-        preds3 = score_session(ft3, members[D], bundle3)
-        v3_extra = {V3_FILE: preds3.sort_values(["head", "symbol"], kind="mergesort").to_csv(index=False).encode()}
-        v3_meta = {"columns": len(MODEL_COLUMNS_V3), "rows": int(len(preds3)),
-                   "train": {h: {k: v for k, v in m.items() if k not in ("gbm", "atr", "own")} for h, m in bundle3["models"].items()}}
+        def _v3():
+            fin, shp = _load_v3_inputs(a.exports)
+            feats3 = _feature_store_v3(Path(a.store_v3), panel, events, factors, fin, shp, pairs, members, a.workers)
+            rows3 = assemble_rows(feats3[feats3["as_of_date"] < pd.Timestamp(T)], labels, members, [*sessions, D])
+            bundle3 = train_bundle(rows3, fold, columns=MODEL_COLUMNS_V3)
+            ft3 = feats3[feats3["as_of_date"] == pd.Timestamp(T)].set_index("symbol")
+            preds3 = score_session(ft3, members[D], bundle3)
+            extra = {V3_FILE: preds3.sort_values(["head", "symbol"], kind="mergesort").to_csv(index=False).encode()}
+            meta = {"columns": len(MODEL_COLUMNS_V3), "rows": int(len(preds3)),
+                    "dropped_columns": {h: m["gbm"].dropped for h, m in bundle3["models"].items()},
+                    "train": {h: {k: v for k, v in m.items() if k not in ("gbm", "atr", "own")} for h, m in bundle3["models"].items()}}
+            return extra, meta
+        v3_extra, v3_meta = v3_alongside(_v3)
     meta = {"data_as_of": str(T), "target_session": str(D), "skipped_holidays": [str(h) for h in skipped],
             "fold_month": fold.month, "train_start": str(fold.train_start), "lock_sha256": lock_sha, "git_sha": sha,
             "git_dirty": dirty, "universe_size": len(members[D]),
