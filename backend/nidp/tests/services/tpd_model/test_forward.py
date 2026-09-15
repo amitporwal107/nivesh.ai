@@ -124,3 +124,17 @@ def test_month_fold_purges_labels_that_reach_into_the_month():
     fold = month_fold(known, month_first_session=date(2026, 9, 1))
     assert fold.month == "2026-09" and fold.first_scored == date(2026, 9, 1)
     assert fold.train_start == date(2025, 3, 3)                # first session on/after 2026-09-01 minus 18 months
+
+
+def test_freeze_includes_extra_files_in_the_manifest_and_verify_checks_them(tmp_path):
+    """The fixed baseline's forward predictions are frozen in the same snapshot (lock v2: same sessions)."""
+    import hashlib
+    from nidp.services.tpd_model.forward import TamperError, freeze, verify
+
+    extra = {"baseline_predictions.csv": b"symbol,p_baseline\nAAA,0.11\nBBB,0.02\n"}
+    snap = freeze(tmp_path, _preds(), _meta(), now=datetime(2026, 9, 15, 22, 30, tzinfo=IST), extra_files=extra)
+    manifest = verify(snap)
+    assert manifest["files"]["baseline_predictions.csv"] == hashlib.sha256(extra["baseline_predictions.csv"]).hexdigest()
+    (snap / "baseline_predictions.csv").write_bytes(b"symbol,p_baseline\nAAA,0.99\nBBB,0.02\n")
+    with pytest.raises(TamperError):
+        verify(snap)

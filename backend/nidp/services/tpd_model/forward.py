@@ -55,7 +55,10 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def freeze(root: Path, preds: pd.DataFrame, meta: dict, now: datetime, rehearsal: bool = False) -> Path:
+def freeze(root: Path, preds: pd.DataFrame, meta: dict, now: datetime, rehearsal: bool = False,
+           extra_files: Optional[dict[str, bytes]] = None) -> Path:
+    """Write the snapshot once. `extra_files` (name -> bytes, e.g. the fixed baseline's predictions) are frozen
+    alongside and hashed into the manifest."""
     D = date.fromisoformat(meta["target_session"])
     if not rehearsal and now >= datetime.combine(D, OPEN, tzinfo=IST):
         raise LateSnapshotError(f"{now.isoformat()} is at or after the {D} open")
@@ -63,7 +66,12 @@ def freeze(root: Path, preds: pd.DataFrame, meta: dict, now: datetime, rehearsal
     snap.mkdir(parents=True, exist_ok=False)
     body = preds.sort_values(["head", "symbol"], kind="mergesort").to_csv(index=False).encode()
     (snap / "tpd3_predictions.csv").write_bytes(body)
-    manifest = {**meta, "sha256": _sha(body), "rows": int(len(preds)), "generated_at": now.isoformat(), "rehearsal": bool(rehearsal)}
+    files = {}
+    for name, data in (extra_files or {}).items():
+        (snap / name).write_bytes(data)
+        files[name] = _sha(data)
+    manifest = {**meta, "sha256": _sha(body), "files": files, "rows": int(len(preds)), "generated_at": now.isoformat(),
+                "rehearsal": bool(rehearsal)}
     text = json.dumps(manifest, indent=1, sort_keys=True).encode()
     (snap / "manifest.json").write_bytes(text)
     (snap / "manifest.sha256").write_text(_sha(text))
@@ -78,6 +86,9 @@ def verify(snap: Path) -> dict:
     manifest = json.loads(text)
     if _sha((snap / "tpd3_predictions.csv").read_bytes()) != manifest["sha256"]:
         raise TamperError(f"{snap}: tpd3_predictions.csv changed after freezing")
+    for name, digest in manifest.get("files", {}).items():
+        if not (snap / name).exists() or _sha((snap / name).read_bytes()) != digest:
+            raise TamperError(f"{snap}: {name} missing or changed after freezing")
     return manifest
 
 
@@ -249,8 +260,16 @@ def cmd_score(a) -> int:
             "fold_month": fold.month, "train_start": str(fold.train_start), "lock_sha256": lock_sha, "git_sha": sha,
             "git_dirty": dirty, "universe_size": len(members[D]),
             "train": {h: {k: v for k, v in m.items() if k not in ("gbm", "atr", "own")} for h, m in bundle["models"].items()}}
+    # The lock judges p_up10_1d against the fixed baseline on the same sessions, so a snapshot without the
+    # baseline's predictions would be ungradeable for that head: refuse rather than freeze half a test.
+    baseline = pd.read_csv(a.baseline_csv)
+    if set(baseline.columns) != {"symbol", "p_baseline"} or baseline.empty:
+        logger.error("refusing: %s is not a baseline prediction file", a.baseline_csv)
+        return 6
+    extra = {"baseline_predictions.csv": baseline.sort_values("symbol").to_csv(index=False).encode()}
+    meta["baseline_rows"] = int(len(baseline))
     try:
-        snap = freeze(Path(a.root), preds, meta, now=now, rehearsal=bool(a.rehearsal_T))
+        snap = freeze(Path(a.root), preds, meta, now=now, rehearsal=bool(a.rehearsal_T), extra_files=extra)
     except LateSnapshotError as e:
         logger.error("refusing: %s", e)
         return 5
@@ -288,6 +307,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         p.add_argument("--root", type=Path, required=True)
         if name == "score":
             p.add_argument("--store", type=Path, required=True)
+            p.add_argument("--baseline-csv", type=Path, required=True, help="fixed baseline predictions for the same T")
             p.add_argument("--workers", type=int, default=3)
             p.add_argument("--rehearsal-T", default=None, help="score as of this past session into a rehearsal root")
     a = ap.parse_args(argv)
