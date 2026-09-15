@@ -23,7 +23,7 @@ CREATE INDEX IF NOT EXISTS ix_raw_events_day ON raw_events(day);
 class EventStore:
     def __init__(self, home: Path):
         self.home = Path(home); (self.home / "raw").mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.home / "events.sqlite"); self.db.executescript(DDL)
+        self.db = sqlite3.connect(self.home / "events.sqlite", timeout=120); self.db.executescript(DDL)   # wait for a concurrent writer
 
     def add(self, events: list[dict]) -> int:
         new = 0
