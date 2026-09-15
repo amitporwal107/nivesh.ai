@@ -126,3 +126,38 @@ def test_explanation_answers_the_nine_questions_for_pnc():
         assert x[k] not in (None, "", []), k
     assert x["direction"] == "negative" and x["which_stocks"][0]["symbol"] == "PNCINFRA" and "NHAI" in x["why"]
     assert x["when_first_available"] == "2026-09-14T21:15:00+05:30" and x["where_found"].startswith("nse_announcements_api")
+
+
+# ── the board: which stocks are exposed to the events known by a cutoff ──────────────────────────────────────────
+def test_board_lists_exposed_stocks_by_score_with_the_top_event_and_hides_routine(tmp_path):
+    import sqlite3
+    from nidp.services.catalyst_intel.catalysts import DDL, board
+
+    db = sqlite3.connect(tmp_path / "events.sqlite"); db.executescript("""
+    CREATE TABLE raw_events (hash TEXT PRIMARY KEY, source_id TEXT, source_event_id TEXT, url TEXT, title TEXT, summary TEXT, category TEXT, symbol TEXT, scrip_code TEXT, entity_text TEXT, published_at TEXT, received_at TEXT, first_seen_at TEXT, day TEXT);
+    """); db.executescript(DDL)
+    rows = [("h_pnc", "nse_announcements_api", "https://x/pnc.pdf", "PNCINFRA: Action(s) taken or orders passed", "PNCINFRA", "2026-09-14T21:02:44+05:30", "2026-09-14T21:15:00+05:30"),
+            ("h_emu", "nse_announcements_api", "https://x/emu.pdf", "EMUDHRA: Press Release", "EMUDHRA", "2026-09-13T19:14:31+05:30", "2026-09-13T19:29:00+05:30"),
+            ("h_news", "bs_companies", "https://x/n", "RBI files caveat after rejecting Tata Sons bid", None, "2026-09-15T13:49:37+05:30", "2026-09-15T14:00:00+05:30"),
+            ("h_tw", "nse_announcements_api", "https://x/tw.pdf", "ACME: Trading Window", "ACME", "2026-09-14T18:00:00+05:30", "2026-09-14T18:15:00+05:30")]
+    for h, s, u, t, sym, pub, seen in rows:
+        db.execute("INSERT INTO raw_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (h, s, None, u, t, None, None, sym, None, None, pub, seen, seen, seen[:10]))
+    norm = [("h_pnc", "regulatory_decision", "debarment", "negative", 95), ("h_emu", "institution", "appointment", "positive", 60), ("h_news", "regulatory_decision", "rejection", "positive", 85), ("h_tw", "routine", "routine", "neutral", 5)]
+    for h, t, st, d, m in norm:
+        db.execute("INSERT INTO normalized_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", (h, t, st, d, m, 0.8, "[]", "[]", "{}", "en", "rules-v1", "2026-09-15T23:00:00+05:30", 1))
+    imps = [("h_pnc", "PNCINFRA", 0, 1.0, "PNC Infratech Limited", None, "negative", 95, "2026-09-14T21:15:00+05:30"),
+            ("h_emu", "EMUDHRA", 0, 1.0, "eMudhra Limited", None, "positive", 60, "2026-09-13T19:29:00+05:30"),
+            ("h_news", "TATACHEM", 1, 0.0253, "Tata Sons → (INVESTEE 2.53%) → Tata Chemicals Limited", "https://src", "positive", 41, "2026-09-15T14:00:00+05:30"),
+            ("h_news", "TATAINVEST", 1, None, "Tata Sons → (INVESTEE) → Tata Investment Corporation Limited", "https://src", "positive", 25, "2026-09-15T14:00:00+05:30"),
+            ("h_tw", "ACME", 0, 1.0, "ACME", None, "neutral", 3, "2026-09-14T18:15:00+05:30")]
+    for i in imps:
+        db.execute("INSERT INTO event_stock_impacts VALUES (?,?,?,?,?,?,?,?,?)", i)
+    db.commit(); db.close()
+    b = board(tmp_path, known_before="2026-09-15T09:15:00+05:30", since="2026-09-10", min_score=10, universe={"PNCINFRA", "EMUDHRA", "TATACHEM"})
+    syms = [r["symbol"] for r in b]
+    assert syms[:2] == ["PNCINFRA", "EMUDHRA"] and "ACME" not in syms and "TATACHEM" not in syms            # news landed after the cutoff; routine hidden
+    assert b[0]["direction"] == "negative" and b[0]["top_event"]["title"].startswith("PNCINFRA") and b[0]["in_universe"] and b[0]["n_events"] == 1
+    later = board(tmp_path, known_before="2026-09-15T20:30:00+05:30", since="2026-09-10", min_score=10, universe={"PNCINFRA", "EMUDHRA", "TATACHEM"})
+    row = next(r for r in later if r["symbol"] == "TATACHEM")
+    assert row["hops"] == 1 and "Tata Sons" in row["top_event"]["path"] and row["in_universe"]
+    assert next(r for r in later if r["symbol"] == "TATAINVEST")["in_universe"] is False

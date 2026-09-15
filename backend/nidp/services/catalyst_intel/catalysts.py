@@ -132,18 +132,58 @@ def explain_symbol(home: Path, names: Path, symbol: str, before: Optional[str], 
     return out
 
 
+def board(home: Path, known_before: str, since: str, min_score: int = 20, universe: Optional[set] = None, limit: int = 200) -> list[dict]:
+    """Stocks exposed to non-routine events published since `since` and known (first_seen_at) at or before `known_before`,
+    one row per stock: the best impact, its direction, the event behind it and how many events touch the stock."""
+    db = sqlite3.connect(home / "events.sqlite", timeout=120)
+    q = """SELECT i.symbol, i.hops, i.exposure, i.path, i.direction, i.impact_score, i.known_at, n.event_type, n.event_subtype, n.materiality, n.confidence, n.classifier,
+                  r.title, r.source_id, r.url, r.published_at, r.hash
+           FROM event_stock_impacts i JOIN normalized_events n ON n.hash = i.hash JOIN raw_events r ON r.hash = i.hash
+           WHERE i.known_at <= ? AND r.published_at >= ? AND n.event_type NOT IN ('routine') AND i.impact_score >= ?
+           ORDER BY i.symbol, i.impact_score DESC, i.known_at DESC"""
+    rows = db.execute(q, (known_before, since, min_score)).fetchall(); db.close()
+    out, cur = [], None
+    for sym, hops, exp, path, direction, score, known_at, etype, sub, mat, conf, clf, title, src, url, pub, h in rows:
+        if cur is None or cur["symbol"] != sym:
+            cur = {"symbol": sym, "in_universe": (sym in universe) if universe is not None else None, "best_score": int(score), "direction": direction, "hops": int(hops), "exposure": exp,
+                   "n_events": 0, "event_types": [], "top_event": {"hash": h, "title": title, "source_id": src, "url": url, "published_at": pub, "known_at": known_at, "event_type": etype,
+                                                                   "event_subtype": sub, "materiality": mat, "confidence": conf, "classifier": clf, "path": path}}
+            out.append(cur)
+        cur["n_events"] += 1
+        if etype not in cur["event_types"]:
+            cur["event_types"].append(etype)
+    out.sort(key=lambda r: (-r["best_score"], r["symbol"]))
+    return out[:limit]
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(); sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("run", "explain"):
-        p = sub.add_parser(name); p.add_argument("--home", type=Path, required=True); p.add_argument("--names", type=Path, required=True)
+    for name in ("run", "explain", "board"):
+        p = sub.add_parser(name); p.add_argument("--home", type=Path, required=True); p.add_argument("--names", type=Path, required=False)
         if name == "run":
             p.add_argument("--since", default=None); p.add_argument("--docs", action="store_true"); p.add_argument("--limit", type=int, default=50000)
-        else:
+        elif name == "explain":
             p.add_argument("--symbol", required=True); p.add_argument("--before", default=None); p.add_argument("--top", type=int, default=3)
+        else:
+            p.add_argument("--known-before", required=True); p.add_argument("--since", required=True); p.add_argument("--min-score", type=int, default=20)
+            p.add_argument("--universe-csv", type=Path, default=None, help="a predictions csv whose symbol column is the universe"); p.add_argument("--out", type=Path, default=None); p.add_argument("--top", type=int, default=60)
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     if a.cmd == "run":
         print(json.dumps(run(a.home, a.names, a.since, a.docs, a.limit), indent=1)); return 0
+    if a.cmd == "board":
+        uni = None
+        if a.universe_csv:
+            import csv
+            uni = {r["symbol"] for r in csv.DictReader(open(a.universe_csv))}
+        b = board(a.home, a.known_before, a.since, a.min_score, uni)
+        if a.out:
+            a.out.write_text(json.dumps(b, indent=1, ensure_ascii=False))
+        print(f"{'symbol':12s} {'uni':3s} {'score':>5s} {'dir':8s} {'hops':>4s} {'n':>3s} {'type/subtype':30s} {'known_at':25s} {'source':22s} title")
+        for r in b[: a.top]:
+            t = r["top_event"]
+            print(f"{r['symbol']:12s} {('yes' if r['in_universe'] else ('no' if r['in_universe'] is False else '-')):3s} {r['best_score']:5d} {r['direction']:8s} {r['hops']:4d} {r['n_events']:3d} {(t['event_type'] + '/' + str(t['event_subtype']))[:30]:30s} {t['known_at'][:19]:25s} {t['source_id'][:22]:22s} {t['title'][:70]}")
+        return 0
     for x in explain_symbol(a.home, a.names, a.symbol, a.before)[: a.top]:
         print(json.dumps(x, indent=1, default=str, ensure_ascii=False))
     return 0
