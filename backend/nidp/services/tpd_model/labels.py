@@ -15,23 +15,24 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
-_UP, _DOWN = Decimal("1.10"), Decimal("0.90")
-
-
 def _d(x) -> Decimal:
     return x if isinstance(x, Decimal) else Decimal(str(x))
 
 
-def touch_1d(prev_close, high, low) -> tuple[bool, bool]:
-    pc = _d(prev_close)
-    return _d(high) >= pc * _UP, _d(low) <= pc * _DOWN
+def _bounds(pct: int) -> tuple[Decimal, Decimal]:
+    return Decimal(100 + pct) / Decimal(100), Decimal(100 - pct) / Decimal(100)
 
 
-def touch_5d(close_T, highs: Sequence, lows: Sequence) -> Optional[tuple[bool, bool]]:
+def touch_1d(prev_close, high, low, pct: int = 10) -> tuple[bool, bool]:
+    pc = _d(prev_close); up, down = _bounds(pct)
+    return _d(high) >= pc * up, _d(low) <= pc * down
+
+
+def touch_5d(close_T, highs: Sequence, lows: Sequence, pct: int = 10) -> Optional[tuple[bool, bool]]:
     if len(highs) != 5 or len(lows) != 5:
         return None
-    c = _d(close_T)
-    return max(map(_d, highs)) >= c * _UP, min(map(_d, lows)) <= c * _DOWN
+    c = _d(close_T); up, down = _bounds(pct)
+    return max(map(_d, highs)) >= c * up, min(map(_d, lows)) <= c * down
 
 
 def _paise(values: pd.Series) -> np.ndarray:
@@ -39,14 +40,15 @@ def _paise(values: pd.Series) -> np.ndarray:
     return np.round(values.to_numpy(dtype="float64") * 100)
 
 
-def build_labels(panel: pd.DataFrame, actions: pd.DataFrame, muhurat_sessions=frozenset()) -> pd.DataFrame:
-    """One row per (symbol, prediction day T) with the four labels and why a label is missing.
+def build_labels(panel: pd.DataFrame, actions: pd.DataFrame, muhurat_sessions=frozenset(), pct: int = 10) -> pd.DataFrame:
+    """One row per (symbol, prediction day T) with the four labels (a `pct` % touch, default 10) and why a label is missing.
 
     Horizons are market sessions (every date in the panel), so a suspended stock's next bar is not
     mistaken for the next session. Missing labels carry a reason instead of a silent False.
     """
     sessions = pd.DatetimeIndex(sorted(panel["as_of_date"].unique()))
     n_s = len(sessions)
+    up_mult, dn_mult = 100 + pct, 100 - pct       # whole-paise comparison: high x 100 >= close x (100 + pct)
     muhurat = {pd.Timestamp(d) for d in muhurat_sessions}
     ex_by_symbol: dict[str, set] = {}
     if actions is not None and len(actions):
@@ -83,8 +85,8 @@ def build_labels(panel: pd.DataFrame, actions: pd.DataFrame, muhurat_sessions=fr
                 elif not present[j + 1]:
                     ex1[k] = "no_bar_on_target"
                 else:
-                    up1[k] = bool(high[j + 1] * 100 >= c * 110)
-                    dn1[k] = bool(low[j + 1] * 100 <= c * 90)
+                    up1[k] = bool(high[j + 1] * 100 >= c * up_mult)
+                    dn1[k] = bool(low[j + 1] * 100 <= c * dn_mult)
             w = slice(j + 1, j + 6)
             if j + 5 >= n_s:
                 ex5[k] = "incomplete_horizon"
@@ -95,8 +97,8 @@ def build_labels(panel: pd.DataFrame, actions: pd.DataFrame, muhurat_sessions=fr
             elif not present[w].all():
                 ex5[k] = "missing_bar_in_horizon"
             else:
-                up5[k] = bool(high[w].max() * 100 >= c * 110)
-                dn5[k] = bool(low[w].min() * 100 <= c * 90)
+                up5[k] = bool(high[w].max() * 100 >= c * up_mult)
+                dn5[k] = bool(low[w].min() * 100 <= c * dn_mult)
         frames.append(pd.DataFrame({
             "symbol": sym, "as_of_date": sessions[idx], "target_session": target,
             "up_1d": up1, "down_1d": dn1, "up_5d": up5, "down_5d": dn5, "excl_1d": ex1, "excl_5d": ex5,

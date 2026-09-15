@@ -88,9 +88,10 @@ def suspected_actions(panel: pd.DataFrame, known: pd.DataFrame) -> pd.DataFrame:
 
 
 def assemble_rows(features: pd.DataFrame, labels: pd.DataFrame, universe: dict, sessions: list[date],
-                  warmup: int = WARMUP_BARS) -> pd.DataFrame:
+                  warmup: int = WARMUP_BARS, labels5: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """One modelling row per (symbol, T): features at T, membership of the universe for the target session,
-    horizon ends in market sessions, and float labels (NaN where excluded)."""
+    horizon ends in market sessions, and float labels (NaN where excluded). `labels5` (build_labels(pct=5)) adds
+    the v4 one-day 5% labels y_p_up5_1d / y_p_down5_1d."""
     idx = pd.DatetimeIndex(sorted(sessions))
     pos = {t: i for i, t in enumerate(idx)}
     f = features[features["nbars"] >= warmup].copy()
@@ -104,6 +105,11 @@ def assemble_rows(features: pd.DataFrame, labels: pd.DataFrame, universe: dict, 
     for src, head in (("up_1d", "p_up10_1d"), ("down_1d", "p_down10_1d"), ("up_5d", "p_up10_5d"), ("down_5d", "p_down10_5d")):
         lab[f"y_{head}"] = lab[src].map(lambda v: np.nan if v is None or (isinstance(v, float) and np.isnan(v)) else float(v))
     lab = lab.drop(columns=["up_1d", "down_1d", "up_5d", "down_5d"])
+    if labels5 is not None:
+        l5 = labels5[["symbol", "as_of_date", "up_1d", "down_1d"]].copy()
+        for src, head in (("up_1d", "p_up5_1d"), ("down_1d", "p_down5_1d")):
+            l5[f"y_{head}"] = l5[src].map(lambda v: np.nan if v is None or (isinstance(v, float) and np.isnan(v)) else float(v))
+        lab = lab.merge(l5.drop(columns=["up_1d", "down_1d"]), on=["symbol", "as_of_date"], how="left")
     out = f.merge(lab, on=["symbol", "as_of_date"], how="left")
     return out.sort_values(["as_of_date", "symbol"], kind="mergesort").reset_index(drop=True)
 

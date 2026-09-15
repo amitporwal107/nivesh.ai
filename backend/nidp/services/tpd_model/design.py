@@ -12,7 +12,9 @@ HEADS = ("p_up10_1d", "p_down10_1d", "p_up10_5d", "p_down10_5d")
 OWN_HISTORY_COUNT = {
     "p_up10_1d": "n_high_up_252", "p_down10_1d": "n_low_down_252",
     "p_up10_5d": "n_high_up_252", "p_down10_5d": "n_low_down_252",
+    "p_up5_1d": "n_high_up_252", "p_down5_1d": "n_low_down_252",     # v4: the 10% counts stand in as the own-history comparator
 }
+HEADS_V4 = ("p_up10_1d", "p_down10_1d", "p_up5_1d", "p_down5_1d")
 # The one-day event whose training base rate anchors each count's shrinkage.
 COUNT_PRIOR_HEAD = {"n_high_up_252": "p_up10_1d", "n_low_down_252": "p_down10_1d"}
 SHRINK_K = 50.0
@@ -28,9 +30,11 @@ MODEL_COLUMNS = PASSTHROUGH + ("log_atr_pct", "log_bbw", "log_dist_52w_low", "lo
 # are passed through raw — gradient-boosted trees split on them directly and handle NaN natively. Cash flow
 # (CFO/PAT) has no filing timestamp in the warehouse, so it is not point-in-time and stays out.
 from .fundamentals import FUNDAMENTAL_FEATURES, OWNERSHIP_FEATURES  # noqa: E402
+from .results_print import RESULTS_PRINT_FEATURES
 from .technical_ext import TECHNICAL_EXT_FEATURES  # noqa: E402
 
 MODEL_COLUMNS_V3 = MODEL_COLUMNS + TECHNICAL_EXT_FEATURES + FUNDAMENTAL_FEATURES + OWNERSHIP_FEATURES
+MODEL_COLUMNS_V4 = MODEL_COLUMNS_V3 + RESULTS_PRINT_FEATURES
 
 
 def own_rate(features: pd.DataFrame, count: str, prior: float) -> pd.Series:

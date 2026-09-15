@@ -13,7 +13,7 @@ from nidp.tests.services.tpd_model.conftest import IST, ist, make_panel, weekday
 def test_labels_take_a_threshold_and_stay_exact_in_paise():
     from nidp.services.tpd_model.labels import build_labels, touch_1d
 
-    assert touch_1d(100.00, 105.00, 99.0) == (True, False)          # exactly +5% counts at pct=5 ...
+    assert touch_1d(100.00, 105.00, 99.0, pct=5) == (True, False) and touch_1d(100.00, 105.00, 99.0) == (False, False)
     s = weekday_sessions("2026-01-01", 8)
     p = make_panel(["AAA"], s)
     p.loc[p["as_of_date"] == pd.Timestamp(s[1]), ["high", "low"]] = [0.0, 0.0]
@@ -62,7 +62,10 @@ def _fin(symbol, broadcast, pat_by_quarter, rev_by_quarter=None):
     for k, e in enumerate(ends):
         b = broadcast if k == n - 1 else ist((e + pd.Timedelta(days=30)).date(), 18, 0)
         rows.append({"symbol": symbol, "period_end": e, "period_type": "quarterly", "consolidated": True, "revenue_from_ops_cr": float(rev[k]),
-                     "pat_cr": float(pat_by_quarter[k]), "eps_basic": pat_by_quarter[k] / 10, "ebitda_cr": 0.2 * rev[k], "broadcast_at": b})
+                     "pat_cr": float(pat_by_quarter[k]), "eps_basic": pat_by_quarter[k] / 10, "ebitda_cr": 0.2 * rev[k], "broadcast_at": b,
+                     "total_equity_cr": 2000.0, "long_term_debt_cr": 300.0, "short_term_debt_cr": 100.0, "finance_costs_cr": 8.0,
+                     "pbt_cr": 1.3 * pat_by_quarter[k], "current_assets_cr": 900.0, "current_liabilities_cr": 600.0,
+                     "equity_share_capital_cr": 100.0, "face_value": 10.0})
     return pd.DataFrame(rows)
 
 

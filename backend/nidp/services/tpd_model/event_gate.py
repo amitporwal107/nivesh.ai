@@ -11,8 +11,9 @@ IST = ZoneInfo("Asia/Kolkata")
 CUTOFF = time(15, 30)
 
 
-def cutoff_ist(T: date) -> datetime:
-    return datetime.combine(T, CUTOFF, tzinfo=IST)
+def cutoff_ist(T: date, at: time = CUTOFF) -> datetime:
+    """The information cutoff on session T (15:30 IST by default; v4's results-print block uses the freeze time)."""
+    return datetime.combine(T, at, tzinfo=IST)
 
 
 def results_flag(events: pd.DataFrame, symbol: str, T: date, event_day: date) -> tuple[Optional[bool], Optional[datetime]]:
