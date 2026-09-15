@@ -119,3 +119,15 @@ def test_run_manifest_isolates_a_failing_source(tmp_path):
     m = run_sources([get_source("sebi_rss"), get_source("rbi_press")], st, {"sebi_rss": ok, "rbi_press": boom}, today=date(2026, 9, 15))
     assert m["sources"]["sebi_rss"]["new"] >= 5 and m["sources"]["rbi_press"]["error"].startswith("ConnectionError")
     assert m["ok"] == 1 and m["failed"] == 1 and (tmp_path / "runs").exists()
+
+
+def test_cci_datatable_rows_become_events_with_clean_titles_and_pdf_links():
+    """CCI's listings are DataTables server-side JSON (found 2026-09-15): press releases and combination orders."""
+    ev = _events("parse_cci_datatable", "cci_press_datatable.json", source_id="cci_combination_press")
+    assert len(ev) == 25 and ev[0]["published_at"].date() == date(2026, 9, 2)
+    assert ev[0]["title"].startswith("CCI directs Trustees") and "<" not in ev[0]["title"] and ev[0]["url"].startswith("https://www.cci.gov.in/")
+    ev2 = _events("parse_cci_datatable", "cci_orders_datatable.json", source_id="cci_combination_orders")
+    assert len(ev2) == 25 and ev2[1]["entity_text"] == "General Atlantic Singapore Ack Pte. Ltd." and ev2[1]["category"] == "Approved"
+    assert ev2[1]["published_at"].date() == date(2026, 8, 18) and "C-2026/07/1441" in ev2[1]["title"]
+    from nidp.services.catalyst_intel.registry import get_source
+    assert get_source("cci_combination_press").status == "live" and get_source("cci_combination_press").fetch == "cci_datatable"
