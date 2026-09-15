@@ -216,3 +216,19 @@ def test_mf_holding_comes_from_the_latest_complete_month_known_by_T():
     assert np.isnan(o3["mf_pct"])                                    # 75% of the float is not credible: stale capital
     o4 = pit_ownership(shp, ["ACME"], T).loc["ACME"]
     assert np.isnan(o4["mf_pct"]) and o4["promoter_pct"] == 58.0     # without the monthly file: NaN, never zero
+
+
+def test_zero_share_capital_never_raises_and_falls_back_to_the_periods_own_count():
+    """A row with equity_share_capital_cr = 0 (a few warehouse rows) made capital/face-value a zero share count and the
+    split cross-check divided by it. Zero or negative capital is unknown, not zero."""
+    from nidp.services.tpd_model.fundamentals import pit_fundamentals
+
+    q = pd.concat([_quarters_without_balance_sheet(pat=[100, 100, 100, 100, 110, 125, 148, 180]), pd.DataFrame([_annual_row(equity=2350.0)])],
+                  ignore_index=True)
+    q["equity_share_capital_cr"] = 0.0
+    ref = pd.DataFrame({"symbol": ["ACME"], "face_value": [10.0]})
+    f = pit_fundamentals(q, ["ACME"], T, close={"ACME": 470.0}, reference=ref).loc["ACME"]
+    assert f["shares_cr"] == pytest.approx(10.0) and f["pb"] == pytest.approx(470 / 235.0)   # PAT 180 / EPS 18
+    q["eps_basic"] = 0.0                                                # no usable EPS either -> unknown, no exception
+    f2 = pit_fundamentals(q, ["ACME"], T, close={"ACME": 470.0}, reference=ref).loc["ACME"]
+    assert np.isnan(f2["shares_cr"]) and np.isnan(f2["pb"])

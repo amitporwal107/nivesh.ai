@@ -61,13 +61,15 @@ def _share_count_cr(bs: pd.Series, last_q: pd.Series, face_value: Optional[float
     """Crore shares: capital / reference face value, unless the period's own PAT/EPS count disagrees by more than
     SHARE_COUNT_DISAGREEMENT (a split or bonus since the period), in which case the period's count wins."""
     ref = _ratio(bs["equity_share_capital_cr"], face_value) if face_value is not None else np.nan
+    if not (np.isfinite(ref) and ref > 0):
+        ref = np.nan                                   # zero or negative capital is unknown, not a zero share count
     own = np.nan
     pat, eps = float(last_q["pat_cr"]), float(last_q["eps_basic"])
     if np.isfinite(pat) and np.isfinite(eps) and abs(eps) >= EPS_MIN_FOR_SHARE_COUNT and pat != 0 and pat / eps > 0:
         own = pat / eps
     if np.isfinite(ref) and (not np.isfinite(own) or abs(own / ref - 1) <= SHARE_COUNT_DISAGREEMENT):
         return ref
-    return own
+    return own if np.isfinite(own) and own > 0 else np.nan
 
 
 def _symbol_fundamentals(q: pd.DataFrame, allrows: pd.DataFrame, T: date, close: Optional[float],
