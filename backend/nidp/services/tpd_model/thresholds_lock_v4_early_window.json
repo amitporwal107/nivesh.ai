@@ -1,0 +1,28 @@
+{
+  "_what": "Ten-Percent Days 3.0 v4 EARLY READ on January-August 2025, pre-registered 2026-09-15 before any v4 model was scored. v4 = v3 (76 inputs) + the results-print block read at the 20:30 IST freeze cutoff (8 inputs) + 5% next-day heads. User request 2026-09-15: 'I need a confidence level of 50% probability by the model'.",
+  "version": 1,
+  "role": "early_read_only",
+  "locked_at": "2026-09-15",
+  "model": "v4: MODEL_COLUMNS_V4 = MODEL_COLUMNS_V3 + RESULTS_PRINT_FEATURES (84 inputs); same GBM settings and monthly protocol as v2/v3; a results filing counts for the print block only if its exchange broadcast is in (09:15, 20:30] IST on T; every other block keeps the 15:30 cutoff",
+  "heads": ["p_up10_1d", "p_down10_1d", "p_up5_1d", "p_down5_1d"],
+  "window": {"first_target_session": "2025-01-01", "last_target_session": "2025-08-29", "min_graded_sessions": 150},
+  "retrain": {"cadence": "monthly", "window": "growing from the first feature session, capped at 18 months", "purge": "label horizon ends before the scored month"},
+  "no_peek_disclosure": "The results-print effect was found by a descriptive study (evidence/attribution, 2026-09-15) over 2024-10..2026-09, which contains this window. This read therefore tests the implementation, calibration and the size of the effect inside a model, not the discovery. Only the forward test is a clean test.",
+  "bars": {
+    "ranking_all_heads": {"auc_min": {"p_up10_1d": 0.70, "p_down10_1d": 0.75, "p_up5_1d": 0.65, "p_down5_1d": 0.70},
+                          "auc_must_beat_best_comparator": true},
+    "calibration_all_heads": {"mean_pred_rel_err_max": 0.15, "top_decile_rel_err_max": 0.15, "deciles_pred_inside_wilson95_min": 8,
+                              "logloss_below_base_rate": true, "brier_skill_positive": true},
+    "v4_vs_v3_on_10pct_heads": {"rows": "identical rows", "non_inferior": {"auc_margin": 0.003, "p5_margin_pp": 0.5}},
+    "high_confidence_50": {
+      "threshold": 0.50,
+      "min_rows_to_judge": 30,
+      "calibrated_if": "the mean predicted probability of rows at or above the threshold lies inside the Wilson 95% interval of their realised rate",
+      "useful_if": "realised rate of those rows >= 0.40",
+      "if_fewer_than_min_rows": "INSUFFICIENT: no claim that the model gives trustworthy 50% calls may be made from this read",
+      "report": ["rows", "events", "realised_rate", "wilson95", "mean_p", "months_with_rows", "symbols"]
+    }
+  },
+  "power_caveat": "5% heads have ~7x the events of 10% heads; the >=50% bin is expected to be rare and concentrated in results seasons (Jan-Feb, Apr-May, Jul-Aug)",
+  "serving": "nothing served; this read informs the v4 forward test only"
+}
