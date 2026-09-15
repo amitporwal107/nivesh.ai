@@ -71,8 +71,11 @@ def test_technical_extension_columns_match_the_block(panel, sessions, symbols):
 def test_fundamentals_join_and_missing_flags(panel, sessions, symbols):
     from nidp.services.tpd_model.features_v3 import compute_features_v3
 
-    T = sessions[205]
-    v3 = compute_features_v3(panel, T, financials=_financials(symbols[:5]), shareholding=_shareholding(symbols[:5]))
+    T = sessions[205]  # 2025-10-16: filings must be dated 2025 to be known by then
+    shp = _shareholding(symbols[:5])
+    shp["period_end"] = [pd.Timestamp("2025-03-31"), pd.Timestamp("2025-06-30")] * 5
+    shp["broadcast_at"] = [ist(date(2025, 4, 20), 17, 0), ist(date(2025, 7, 18), 17, 0)] * 5
+    v3 = compute_features_v3(panel, T, financials=_financials(symbols[:5], last_end=date(2025, 6, 30)), shareholding=shp)
     assert v3.loc["SYM001", "fund_missing"] == 0.0 and v3.loc["SYM001", "pat_yoy"] == pytest.approx(170 / 130 - 1)
     assert v3.loc["SYM001", "own_missing"] == 0.0 and v3.loc["SYM001", "promoter_chg_qoq"] == pytest.approx(-2.0)
     assert v3.loc["SYM020", "fund_missing"] == 1.0 and np.isnan(v3.loc["SYM020", "pat_yoy"])

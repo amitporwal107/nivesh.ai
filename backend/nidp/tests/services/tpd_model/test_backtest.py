@@ -109,3 +109,27 @@ def test_small_walkforward_scores_only_out_of_sample_months():
     assert set(preds["head"]) == {"p_up10_1d", "p_down10_1d", "p_up10_5d", "p_down10_5d"}
     sep = preds[(preds["head"] == "p_up10_1d") & (preds["month"] == "2025-09")]
     assert (sep["train_end_max_horizon"] < pd.Timestamp("2025-09-01")).all()
+
+
+def test_walkforward_columns_select_the_model_version():
+    """v3 trains on MODEL_COLUMNS_V3; the fitted model must see exactly that many inputs."""
+    from nidp.services.tpd_model.backtest import run_walkforward
+    from nidp.services.tpd_model.design import MODEL_COLUMNS, MODEL_COLUMNS_V3
+
+    rng = np.random.default_rng(9)
+    s = [d.date() for d in pd.bdate_range("2025-06-02", "2025-10-31")]
+    rows = []
+    for i, T in enumerate(s[:-6]):
+        for k in range(40):
+            x = rng.normal()
+            rows.append({"symbol": f"S{k:02d}", "as_of_date": pd.Timestamp(T), "target_session": pd.Timestamp(s[i + 1]),
+                         "horizon_end_1d": pd.Timestamp(s[i + 1]), "horizon_end_5d": pd.Timestamp(s[i + 5]),
+                         "nbars": 200.0, "atr_pct": 2 + abs(x), "bb_width": 0.1, "dist_52w_low": 10.0, "turn_med20": 1e7,
+                         "close_raw": 100.0, "n_high_up_252": float(k % 4), "n_low_down_252": float(k % 3),
+                         **{c: float(rng.normal()) for c in MODEL_COLUMNS_V3 if not c.startswith(("log_", "lr_"))},
+                         "y_p_up10_1d": float(x > 1.6), "y_p_down10_1d": float(x < -1.6),
+                         "y_p_up10_5d": float(x > 1.2), "y_p_down10_5d": float(x < -1.2)})
+    frame = pd.DataFrame(rows)
+    preds = run_walkforward(frame, sessions=s, first=date(2025, 9, 1), last=date(2025, 10, 31),
+                            heads=("p_up10_1d",), columns=MODEL_COLUMNS_V3, return_models=True)
+    assert preds["models"]["2025-09"]["p_up10_1d"].n_features_in_ == len(MODEL_COLUMNS_V3) > len(MODEL_COLUMNS)

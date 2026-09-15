@@ -24,7 +24,7 @@ import pandas as pd
 
 from nidp.services.price_adjuster.factors import build_events
 
-from .design import HEADS, OWN_HISTORY_COUNT, design_matrix
+from .design import HEADS, MODEL_COLUMNS, OWN_HISTORY_COUNT, design_matrix
 from .features import compute_features
 from .labels import build_labels
 from .panel_source import select_nse_eq
@@ -110,21 +110,23 @@ def assemble_rows(features: pd.DataFrame, labels: pd.DataFrame, universe: dict, 
 
 def run_walkforward(rows: pd.DataFrame, sessions: list[date], first: date = date(2025, 9, 1),
                     last: date = date(2026, 8, 31), lock_path: Path = LOCK_PATH, heads=HEADS,
-                    cap_months: int = 18) -> pd.DataFrame:
+                    cap_months: int = 18, columns: tuple = MODEL_COLUMNS, return_models: bool = False):
+    """`columns` selects the model version's inputs (v2: MODEL_COLUMNS, v3: MODEL_COLUMNS_V3)."""
     load_lock(lock_path)  # no lock, no run
-    out = []
+    out, models = [], {}
     for fold in month_folds(sessions, first, last, cap_months):
         up = training_rows(rows, fold, "p_up10_1d")["y_p_up10_1d"].mean()
         dn = training_rows(rows, fold, "p_down10_1d")["y_p_down10_1d"].mean()
         priors = {"p_up10_1d": float(up), "p_down10_1d": float(dn)}
         sc = scored_rows(rows, fold)
-        Xsc = design_matrix(sc, priors)
+        Xsc = design_matrix(sc, priors, columns)
         for head in heads:
             t0 = time.time()
             tr = training_rows(rows, fold, head)
             y = tr[f"y_{head}"].astype(int)
-            Xtr = design_matrix(tr, priors)
+            Xtr = design_matrix(tr, priors, columns)
             gbm = fit_gbm(Xtr, y)
+            models.setdefault(fold.month, {})[head] = gbm
             atr = SingleFeatureLogit("log_atr_pct").fit(Xtr, y)
             own = SingleFeatureLogit(f"lr_{OWN_HISTORY_COUNT[head]}").fit(Xtr, y)
             horizon = "horizon_end_1d" if head.endswith("_1d") else "horizon_end_5d"
@@ -138,7 +140,8 @@ def run_walkforward(rows: pd.DataFrame, sessions: list[date], first: date = date
             }))
             logger.info("fold %s %s: %d train rows, %d events, %d scored, %.1fs",
                         fold.month, head, len(tr), int(y.sum()), len(sc), time.time() - t0)
-    return pd.concat(out, ignore_index=True)
+    preds = pd.concat(out, ignore_index=True)
+    return {"predictions": preds, "models": models} if return_models else preds
 
 
 _G: dict = {}
