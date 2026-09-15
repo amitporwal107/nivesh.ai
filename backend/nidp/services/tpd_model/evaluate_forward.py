@@ -25,18 +25,22 @@ from .report import b3_verdict, load_lock
 COMPARATORS = {"atr_only": "p_atr_only", "own_history_only": "p_own_history_only"}
 
 
-def load_graded(root: Path) -> tuple[pd.DataFrame, pd.DataFrame, int, int]:
-    """(graded tpd3 rows, baseline rows, rehearsal snapshots ignored, frozen-but-ungraded snapshots)."""
+GRADED_FILE = {"v2": "graded.csv", "v3": "graded_v3.csv"}
+
+
+def load_graded(root: Path, model: str = "v2") -> tuple[pd.DataFrame, pd.DataFrame, int, int]:
+    """(graded rows for `model`, baseline rows, rehearsal snapshots ignored, frozen-but-ungraded snapshots)."""
     frames, bases, rehearsals, ungraded = [], [], 0, 0
+    graded_name = GRADED_FILE[model]
     for snap in sorted(p for p in Path(root).iterdir() if p.is_dir()):
         manifest = verify(snap)
         if manifest.get("rehearsal"):
             rehearsals += 1
             continue
-        if not (snap / "graded.csv").exists():
+        if not (snap / graded_name).exists():
             ungraded += 1
             continue
-        g = pd.read_csv(snap / "graded.csv")
+        g = pd.read_csv(snap / graded_name)
         g["target_session"] = pd.Timestamp(manifest["target_session"])
         g["as_of_date"] = pd.Timestamp(manifest["data_as_of"])
         frames.append(g)
@@ -172,12 +176,13 @@ def evaluate_frames(graded: pd.DataFrame, base: pd.DataFrame, lock_path: Path = 
     return out
 
 
-def evaluate_forward(root: Path, expected_sessions: Optional[list[date]] = None, lock_path: Path = LOCK_V2) -> dict:
-    graded, base, rehearsals, ungraded = load_graded(root)
+def evaluate_forward(root: Path, expected_sessions: Optional[list[date]] = None, lock_path: Path = LOCK_V2,
+                     model: str = "v2") -> dict:
+    graded, base, rehearsals, ungraded = load_graded(root, model)
     labelled = graded[graded["y"].notna()]
     sessions = set(labelled["target_session"].dt.date.unique()) if len(labelled) else set()
     return evaluate_frames(graded, base, lock_path, extra={
-        "rehearsal_sessions_ignored": rehearsals, "frozen_ungraded": ungraded,
+        "model": model, "rehearsal_sessions_ignored": rehearsals, "frozen_ungraded": ungraded,
         "missing_sessions": [str(d) for d in (expected_sessions or []) if d not in sessions]})
 
 
@@ -185,8 +190,9 @@ def main(argv: Optional[list[str]] = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--root", type=Path, required=True)
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--model", choices=("v2", "v3"), default="v2")
     a = ap.parse_args(argv)
-    v = evaluate_forward(a.root)
+    v = evaluate_forward(a.root, model=a.model)
     blob = json.dumps(_jsonable(v), indent=1)
     if a.out:
         a.out.write_text(blob)

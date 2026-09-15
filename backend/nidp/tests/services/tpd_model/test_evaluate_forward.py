@@ -147,3 +147,17 @@ def test_qualifying_months_need_fifteen_graded_sessions(tmp_path):
     frame["target_session"] = frame["target_session"] + pd.to_timedelta(np.tile(np.arange(20), 3)[:45] % 20, unit="D")
     m = months_beating(frame, min_sessions=15)
     assert m["qualifying_months"] == 2 and m["beating"] == 2 and m["skipped_months"] == ["2026-11"]
+
+
+def test_verdict_can_read_the_v3_grades_from_the_same_snapshots(tmp_path):
+    """evaluate_forward(model='v3') reads graded_v3.csv; without it the v3 read has 0 graded sessions."""
+    from nidp.services.tpd_model.evaluate_forward import evaluate_forward, load_graded
+
+    root, _ = _root(tmp_path, 3)
+    assert evaluate_forward(root, model="v3")["graded_sessions"] == 0
+    for snap in root.iterdir():
+        g = pd.read_csv(snap / "graded.csv")
+        g.assign(p_tpd3=g["p_tpd3"] * 0.5).to_csv(snap / "graded_v3.csv", index=False)
+    graded, base, _, _ = load_graded(root, model="v3")
+    assert graded["target_session"].nunique() == 3 and len(base) > 0
+    assert evaluate_forward(root, model="v3")["graded_sessions"] == 3

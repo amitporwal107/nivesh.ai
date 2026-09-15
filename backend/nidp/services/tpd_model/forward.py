@@ -23,9 +23,10 @@ import numpy as np
 import pandas as pd
 
 from .calendar import cm_holidays, next_trading_day
-from .design import OWN_HISTORY_COUNT, design_matrix
+from .design import MODEL_COLUMNS, MODEL_COLUMNS_V3, OWN_HISTORY_COUNT, design_matrix
 from .event_gate import IST
 from .features import compute_features
+from .features_v3 import compute_features_v3
 from .labels import build_labels
 from .panel_source import select_nse_eq
 from .universe import pit_universe
@@ -34,6 +35,7 @@ from .walkforward import Fold, SingleFeatureLogit, fit_gbm, training_rows
 logger = logging.getLogger(__name__)
 
 HEADS = ("p_up10_1d", "p_down10_1d")
+V3_FILE = "tpd3_v3_predictions.csv"  # v3 (v2 + PRD technical/fundamental/ownership blocks) frozen alongside v2
 LOCK_V2 = Path(__file__).with_name("thresholds_lock_v2_forward.json")
 OPEN = time(9, 15)
 WARMUP_BARS = 60
@@ -101,19 +103,26 @@ def grade(snap: Path, panel: pd.DataFrame, exclusions: pd.DataFrame) -> Optional
     preds = pd.read_csv(Path(snap) / "tpd3_predictions.csv")
     sub = panel[panel["symbol"].isin(set(preds["symbol"])) & panel["as_of_date"].isin([T, D])]
     labels = build_labels(sub, exclusions).set_index(["symbol", "as_of_date"])
-    out = preds.copy()
     col = {"p_up10_1d": ("up_1d", "excl_1d"), "p_down10_1d": ("down_1d", "excl_1d")}
-    ys, reasons = [], []
-    for head, sym in zip(out["head"], out["symbol"]):
-        key = (sym, T)
-        if key not in labels.index:
-            ys.append(np.nan); reasons.append("no_bar_on_T")
-            continue
-        v, r = labels.loc[key, col[head][0]], labels.loc[key, col[head][1]]
-        ys.append(np.nan if v is None or (isinstance(v, float) and np.isnan(v)) else float(v))
-        reasons.append(None if r is None or (isinstance(r, float) and np.isnan(r)) else r)
-    out["y"], out["excluded_reason"] = ys, reasons
+
+    def label(frame: pd.DataFrame) -> pd.DataFrame:
+        out = frame.sort_values(["head", "symbol"], kind="mergesort").reset_index(drop=True)  # graded files share one order
+        ys, reasons = [], []
+        for head, sym in zip(out["head"], out["symbol"]):
+            key = (sym, T)
+            if key not in labels.index:
+                ys.append(np.nan); reasons.append("no_bar_on_T")
+                continue
+            v, r = labels.loc[key, col[head][0]], labels.loc[key, col[head][1]]
+            ys.append(np.nan if v is None or (isinstance(v, float) and np.isnan(v)) else float(v))
+            reasons.append(None if r is None or (isinstance(r, float) and np.isnan(r)) else r)
+        out["y"], out["excluded_reason"] = ys, reasons
+        return out
+
+    out = label(preds)
     out.to_csv(Path(snap) / "graded.csv", index=False)
+    if (Path(snap) / V3_FILE).exists():  # same labels, the v3 model's probabilities
+        label(pd.read_csv(Path(snap) / V3_FILE)).to_csv(Path(snap) / "graded_v3.csv", index=False)
     return out
 
 
@@ -137,23 +146,23 @@ def month_fold(known_sessions: list[date], month_first_session: date, cap_months
     return Fold(first.strftime("%Y-%m"), train_start, month_first_session, last_day)
 
 
-def train_bundle(rows: pd.DataFrame, fold: Fold, heads=HEADS) -> dict:
+def train_bundle(rows: pd.DataFrame, fold: Fold, heads=HEADS, columns: tuple = MODEL_COLUMNS) -> dict:
     priors = {h: float(training_rows(rows, fold, h)["y_" + h].mean()) for h in ("p_up10_1d", "p_down10_1d")}
     models = {}
     for head in heads:
         tr = training_rows(rows, fold, head)
         y = tr[f"y_{head}"].astype(int)
-        X = design_matrix(tr, priors)
+        X = design_matrix(tr, priors, columns)
         models[head] = {"gbm": fit_gbm(X, y), "atr": SingleFeatureLogit("log_atr_pct").fit(X, y),
                         "own": SingleFeatureLogit(f"lr_{OWN_HISTORY_COUNT[head]}").fit(X, y),
                         "base_rate": float(y.mean()), "train_rows": int(len(tr)), "train_events": int(y.sum()),
                         "train_end_max_horizon": str(tr["horizon_end_1d"].max().date())}
-    return {"fold": fold, "priors": priors, "models": models}
+    return {"fold": fold, "priors": priors, "models": models, "columns": list(columns)}
 
 
 def score_session(features_T: pd.DataFrame, members: list[str], bundle: dict, heads=HEADS) -> pd.DataFrame:
     f = features_T[features_T.index.isin(members) & (features_T["nbars"] >= WARMUP_BARS)]
-    X = design_matrix(f, bundle["priors"])
+    X = design_matrix(f, bundle["priors"], tuple(bundle.get("columns", MODEL_COLUMNS)))
     parts = []
     for head in heads:
         m = bundle["models"][head]
@@ -206,6 +215,36 @@ def _features_v2(args):
     return f.reset_index().assign(as_of_date=pd.Timestamp(T))
 
 
+def _features_v3(args):
+    from . import backtest as bt
+    T, D = args
+    f = compute_features_v3(bt._G["panel"], T, events=bt._G["events"], actions=bt._G["factors"], target_session=D,
+                            market_members=set(bt._G["members"][D]), financials=bt._G["fin"], shareholding=bt._G["shp"])
+    return f.reset_index().assign(as_of_date=pd.Timestamp(T))
+
+
+def _feature_store_v3(store: Path, panel, events, factors, fin, shp, pairs, members_by_D, workers: int):
+    store.mkdir(parents=True, exist_ok=True)
+    todo = [(T, D) for T, D in pairs if not (store / f"{T}.pkl").exists()]
+    if todo:
+        from . import backtest as bt
+        bt._G.update(panel=panel, events=events, factors=factors, members=members_by_D, fin=fin, shp=shp)
+        import multiprocessing as mp
+        with mp.get_context("fork").Pool(workers) as pool:
+            for (T, _), f in zip(todo, pool.imap(_features_v3, todo, chunksize=2)):
+                f.to_pickle(store / f"{T}.pkl")
+        logger.info("v3 feature store: computed %d sessions", len(todo))
+    return pd.concat([pd.read_pickle(store / f"{T}.pkl") for T, _ in pairs], ignore_index=True)
+
+
+def _load_v3_inputs(exports: Path):
+    fin = pd.read_csv(exports / "financials.csv.gz", parse_dates=["period_end"])
+    fin["broadcast_at"] = pd.to_datetime(fin["broadcast_at"], utc=True)
+    shp = pd.read_csv(exports / "shareholding.csv", parse_dates=["period_end"])
+    shp["broadcast_at"] = pd.to_datetime(shp["broadcast_at"], utc=True)
+    return fin, shp
+
+
 def cmd_score(a) -> int:
     from .backtest import assemble_rows, corporate_actions_from_archive, suspected_actions, universe_by_session
     from .report import load_lock
@@ -256,17 +295,29 @@ def cmd_score(a) -> int:
     bundle = train_bundle(rows, fold)
     ft = feats[feats["as_of_date"] == pd.Timestamp(T)].set_index("symbol")
     preds = score_session(ft, members[D], bundle)
+    v3_extra, v3_meta = {}, None
+    if a.with_v3:
+        fin, shp = _load_v3_inputs(a.exports)
+        feats3 = _feature_store_v3(Path(a.store_v3), panel, events, factors, fin, shp, pairs, members, a.workers)
+        rows3 = assemble_rows(feats3[feats3["as_of_date"] < pd.Timestamp(T)], labels, members, [*sessions, D])
+        bundle3 = train_bundle(rows3, fold, columns=MODEL_COLUMNS_V3)
+        ft3 = feats3[feats3["as_of_date"] == pd.Timestamp(T)].set_index("symbol")
+        preds3 = score_session(ft3, members[D], bundle3)
+        v3_extra = {V3_FILE: preds3.sort_values(["head", "symbol"], kind="mergesort").to_csv(index=False).encode()}
+        v3_meta = {"columns": len(MODEL_COLUMNS_V3), "rows": int(len(preds3)),
+                   "train": {h: {k: v for k, v in m.items() if k not in ("gbm", "atr", "own")} for h, m in bundle3["models"].items()}}
     meta = {"data_as_of": str(T), "target_session": str(D), "skipped_holidays": [str(h) for h in skipped],
             "fold_month": fold.month, "train_start": str(fold.train_start), "lock_sha256": lock_sha, "git_sha": sha,
             "git_dirty": dirty, "universe_size": len(members[D]),
-            "train": {h: {k: v for k, v in m.items() if k not in ("gbm", "atr", "own")} for h, m in bundle["models"].items()}}
+            "train": {h: {k: v for k, v in m.items() if k not in ("gbm", "atr", "own")} for h, m in bundle["models"].items()},
+            "v3": v3_meta}
     # The lock judges p_up10_1d against the fixed baseline on the same sessions, so a snapshot without the
     # baseline's predictions would be ungradeable for that head: refuse rather than freeze half a test.
     baseline = pd.read_csv(a.baseline_csv)
     if set(baseline.columns) != {"symbol", "p_baseline"} or baseline.empty:
         logger.error("refusing: %s is not a baseline prediction file", a.baseline_csv)
         return 6
-    extra = {"baseline_predictions.csv": baseline.sort_values("symbol").to_csv(index=False).encode()}
+    extra = {"baseline_predictions.csv": baseline.sort_values("symbol").to_csv(index=False).encode(), **v3_extra}
     meta["baseline_rows"] = int(len(baseline))
     try:
         snap = freeze(Path(a.root), preds, meta, now=now, rehearsal=bool(a.rehearsal_T), extra_files=extra)
@@ -310,7 +361,11 @@ def main(argv: Optional[list[str]] = None) -> int:
             p.add_argument("--baseline-csv", type=Path, required=True, help="fixed baseline predictions for the same T")
             p.add_argument("--workers", type=int, default=3)
             p.add_argument("--rehearsal-T", default=None, help="score as of this past session into a rehearsal root")
+            p.add_argument("--with-v3", action="store_true", help="also freeze the v3 model (PRD technical/fundamental blocks)")
+            p.add_argument("--store-v3", type=Path, default=None, help="v3 feature store (default: <store>_v3)")
     a = ap.parse_args(argv)
+    if a.cmd == "score" and a.store_v3 is None:
+        a.store_v3 = Path(str(a.store) + "_v3")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     return cmd_score(a) if a.cmd == "score" else cmd_grade(a)
 
