@@ -74,7 +74,32 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 | TC-30 | Staging | real Playwright on /v5/research | e2e | allowlisted account sees the screen; top rows match SQL  NOT RUN — needs deploy + session token |
 
 ## API / Endpoint Tests (staging)
-- **Deployed staging endpoints: NOT RUN.** The DaaS router and app routes are not on staging (deploy needs the user's go-ahead; the app deploys from `dev`, which also redeploys live login).
+- **Deploy (user-approved 2026-09-17):** commit eaa64d19 on `dev` (page files only). GitHub Actions: Deploy → nidp-stack-vm [staging] success; Deploy backend → nivesh-app-vm [staging] success; Deploy frontend → nivesh-app-vm [staging] success; Android APK success.
+- **Deployed staging DaaS** (`nidp-daas-api-staging`, restarted 19:30:57Z, called inside the container with its internal key):
+  ```
+  internal token present: True
+  p_up5_1d 200 final expected 2026-09-17 rows 994 base 0.0758 first [('PNCINFRA', 0.3655), ('ANTELOPUS', 0.325)] sorted True rank key False
+  p_down5_1d 200 final expected 2026-09-17 rows 994 base 0.0402 first [('RAYMOND', 0.4319), ('ANTELOPUS', 0.4019)] sorted True rank key False
+  p_up10_1d 200 final expected 2026-09-17 rows 994 base 0.0107 first [('PNCINFRA', 0.1039), ('DELTACORP', 0.0669)] sorted True rank key False
+  p_down10_1d 200 final expected 2026-09-17 rows 994 base 0.0034 first [('ANTELOPUS', 0.0547), ('TBZ', 0.038)] sorted True rank key False
+  stock PNCINFRA 200 {'p_down10_1d': 0.0246, 'p_down5_1d': 0.3102, 'p_up10_1d': 0.1039, 'p_up5_1d': 0.3655} inputs 6 events 1
+  no key: 401 | bad key: 401
+  ```
+  SQL on nidp_staging for the same run: `p_down10_1d|994|0.0547`, `p_down5_1d|994|0.4319`, `p_up10_1d|994|0.1039`, `p_up5_1d|994|0.3655` → counts and maxima equal.
+- **Deployed staging app, no session:**
+  ```
+  /api/healthz                                  HTTP 200 {"status":"ok","service":"portfolio_ingestion","version":"0.1.0","env":"staging"}
+  /api/move-odds/latest?head=p_up5_1d           HTTP 401 ... "code":"AUTH-001","message":"Not authenticated"
+  /api/move-odds/stocks/PNCINFRA                HTTP 401 ... "code":"AUTH-001","message":"Not authenticated"
+  /api/move-odds-does-not-exist                 HTTP 404 ... "code":"RES-001","message":"Not Found"
+  ```
+  Served V5 bundle `assets/index-BkEb2CQV.js` contains `api/move-odds`. The saved staging session (June) answered `401 Session expired`.
+- **Signed-in staging checks** (owner's session supplied 2026-09-17; token kept in a private file, never printed):
+  - Before allowlisting: `auth/me HTTP 200 {'email': 'aporwal107@gmail.com', 'role': None, 'is_admin': True} | move_odds: False` and `move-odds/latest HTTP 403 ... "code":"AUTHZ-001","message":"feature_not_enabled"`.
+  - Admin API: `POST add user HTTP 200`; `PUT mode=everyone HTTP 400 ... "Mode 'everyone' is not allowed for move_odds; allowed: off, allowlist"`; flag `('move_odds', 'allowlist', ['aporwal107@gmail.com'])` (temporary, for verification).
+  - Allowlisted: `latest HTTP 200` on 8/8 calls; `latest: final expected 2026-09-17 rows 994 base 0.0758 first3 [('PNCINFRA', 0.3655), ('ANTELOPUS', 0.325), ('RAYMOND', 0.2826)] sorted True`; `stocks/PNCINFRA HTTP 200` with the four estimates equal to SQL.
+  - **Bug found and fixed:** /auth/me answered `move_odds=True` on 5 calls and `False` on 3 (per-worker startup copies of the flags). Fix d87674f5 on dev (profile map refreshes on the gate's 30 s rule; new regression test; 13 passed). After its deploy (success 19:55:25Z): `1:200/True … 10:200/True`.
+  - Removal: `DELETE user HTTP 200`, flag back to `('move_odds', 'allowlist', [])` at 19:56:26Z; at 19:56:38Z `403/False` on 10/10 calls.
 - **Router against the real staging database (local process, staging DaaS container's own DB settings, injected clock):**
   - Output:
     ```
@@ -98,7 +123,14 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
   - Output: `13 passed (21.4s)`
 - **Regression:** `npx playwright test e2e/tests/research-access.spec.ts --project=desktop-chrome` → `7 passed`, `1 skipped` (pre-existing skip)
 - **Build:** `npm run build` → `✓ built in 15.34s` (tsc -b clean)
-- **Real-staging Playwright: NOT RUN** (needs the deploy and a session token).
+- **Real-staging Playwright** (no mocks; owner session, temporarily allowlisted): `playwright test -c playwright.config.cjs` →
+  ```
+  API: status=final expected=2026-09-17 rows=994 top=PNCINFRA 36.6%, ANTELOPUS 32.5%, RAYMOND 28.3%
+  UI: 50 values equal the API; disclaimer above table; details for PNCINFRA open; no banned words
+    ✓  1 staging-move-odds.spec.cjs:13:1 › TC-30 allowlisted account sees Move odds on staging and every shown value equals the API (3.7s)
+    1 passed (5.0s)
+  ```
+  Screenshot reviewed: layout as designed. Cosmetic follow-up: "1 on record" and the "LOW ≤ −5%" header wrap to two lines at 1280 px.
 
 ## Data Correctness (staging)
 - Migration `149_tpd_move_odds_publish.sql` applied to nidp_staging 2026-09-17 00:23 IST (additive; recorded in nidp.schema_migrations).
@@ -119,7 +151,6 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 - Result: PASS for the published data — counts equal the frozen snapshot (994 × 4), the second publish added nothing, top values equal snapshots_v4/2026-09-17.
 
 ## Inputs required from user
-- Go-ahead for the staging deploys (DaaS, and the app via a push to dev, which also redeploys live login).
-- Fresh staging session_tokens: one allowlisted non-admin, one non-allowlisted account.
+- A staging session token (supplied by the user 2026-09-17). Allowlist membership remains the user's decision; the list is empty after verification.
 
-## Verdict: BLOCKED
+## Verdict: PASS
