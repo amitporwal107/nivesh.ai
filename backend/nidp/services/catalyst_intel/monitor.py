@@ -26,7 +26,7 @@ from ..tpd_model.event_gate import IST
 from . import adapters
 from .browser_jobs import ADAPTER_NEEDS_BASE_URL, enqueue, ingest_results
 from .registry import RUNNABLE, SOURCES, Route, Source, get_source, routes_for
-from .transports import HttpTransport, classify, multipart
+from .transports import HttpTransport, captcha_gated, classify, multipart
 
 logger = logging.getLogger(__name__)
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"   # kept for callers that import it
@@ -70,9 +70,12 @@ def _parse(route: Route, raw: bytes, received_at: datetime, source: Source, **kw
     if route.adapter in ADAPTER_NEEDS_BASE_URL:
         kw.setdefault("base_url", route.url)
     try:
-        return fn(raw, received_at=received_at, source_id=source.id, **kw)
+        events = fn(raw, received_at=received_at, source_id=source.id, **kw)
     except Exception as e:  # noqa: BLE001 — a parse failure is a route failure, reported as such
         raise RouteFailed("adapter_error", f"{type(e).__name__}: {str(e)[:160]}") from e
+    if captcha_gated(raw, events):
+        raise RouteFailed("captcha_gated", f"captcha form and no rows at {route.url[:100]}")
+    return events
 
 
 def _run_route(source: Source, route: Route, days: list[date], received_at: datetime, transport) -> list[dict]:

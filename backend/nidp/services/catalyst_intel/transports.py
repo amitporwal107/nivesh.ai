@@ -67,9 +67,13 @@ def classify(r) -> str:
         full = r.body.decode("utf-8", errors="replace") if len(r.body) < 400_000 else head
         if _SESSION.search(full):
             return "session_required"
-        if "captcha" in full.lower() and full.count("<td") < 3:
-            return "captcha_gated"
     return "ok"
+
+
+def captcha_gated(body: bytes, events: list) -> bool:
+    """A captcha decides the outcome only when the adapter found nothing: ministry and ratings pages carry a search
+    captcha next to a perfectly readable listing (heavy_industries, GLEIF, ICRA on 2026-09-16)."""
+    return not events and b"captcha" in body[:400_000].lower()
 
 
 def multipart(fields: dict) -> tuple[bytes, str]:

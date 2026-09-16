@@ -60,8 +60,11 @@ def test_failure_classification_is_granular_not_a_permanent_blocked():
     assert classify(_Resp(404, (FX / "fda_abuse_detection.html").read_bytes(), {}, url="https://www.accessdata.fda.gov/apology_objects/abuse-detection-apology.html")) == "blocked_temporary"
     assert classify(_Resp(429, b"")) == "blocked_temporary" and classify(_Resp(503, b"")) == "blocked_temporary"
     assert classify(_Resp(200, b"")) == "empty_response"
-    assert classify(_Resp(200, (FX / "cppp_results_captcha.html").read_bytes())) == "captcha_gated"     # a captcha form and no rows
-    assert classify(_Resp(200, (FX / "cppp_latest_tenders.html").read_bytes())) == "ok"                  # a captcha widget but rows present
+    assert classify(_Resp(200, (FX / "cppp_results_captcha.html").read_bytes())) == "ok"                # a captcha alone proves nothing at HTTP level
+    from nidp.services.catalyst_intel.transports import captcha_gated
+    assert captcha_gated((FX / "cppp_results_captcha.html").read_bytes(), [])                             # captcha form AND the adapter found no rows
+    assert not captcha_gated((FX / "cppp_latest_tenders.html").read_bytes(), [{"title": "row"}])         # captcha widget next to a readable table
+    assert not captcha_gated((FX / "heavyind.html").read_bytes(), [{"title": "row"}]) and b"captcha" in (FX / "heavyind.html").read_bytes().lower()
     assert classify(_Resp(200, (FX / "eprocure_session_expired.html").read_bytes())) == "session_required"
     assert classify(_Resp(404, b"nope")) == "not_found"
     assert classify(_Resp(500, b"The website encountered an unexpected error.")) == "server_error"
