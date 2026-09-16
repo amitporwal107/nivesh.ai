@@ -122,4 +122,8 @@ CREATE TABLE IF NOT EXISTS nidp.tpd_band_record (
     PRIMARY KEY (model, head, source, band_lo)
 );
 
+INSERT INTO nidp.schema_migrations (filename)
+VALUES ('149_tpd_move_odds_publish.sql')
+ON CONFLICT (filename) DO NOTHING;
+
 COMMIT;

@@ -161,7 +161,12 @@ def test_tc4_an_older_run_is_never_served_for_a_later_session(make_client):
 
 
 def test_tc5_a_refusal_for_the_expected_session_is_withheld_with_no_rows(make_client):
-    c, _ = make_client(_db(refusal={"reason": "stale_data", "detail": '{"rows": 812, "median": 2640}', "recorded_at": datetime(2026, 9, 16, 20, 51, tzinfo=IST)}))
+    refusal = {"reason": "stale_data", "detail": '{"rows": 812, "median": 2640}', "recorded_at": datetime(2026, 9, 16, 20, 51, tzinfo=IST)}
+    # the 22:50 retry published a run for the same session: the run is served, the earlier refusal is not
+    c, _ = make_client(_db(refusal=refusal))
+    assert c.get("/v1/move-odds/latest?head=p_up5_1d", headers=H).json()["data"]["status"] == "final"
+    # no run for that session (only yesterday's): withheld
+    c, _ = make_client(_db(refusal=refusal, run={**RUN, "target_session": date(2026, 9, 16)}))
     r = c.get("/v1/move-odds/latest?head=p_up5_1d", headers=H)
     assert r.status_code == 503
     d = r.json()["data"]

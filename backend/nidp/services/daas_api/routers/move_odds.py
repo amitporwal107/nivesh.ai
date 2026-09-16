@@ -9,7 +9,8 @@ Honesty rules enforced here (spec C4, C7, D2):
   * The session the estimates apply to is decided from the clock and the NSE cash-market calendar. If the latest
     published run is for an earlier session, the answer is status not_published with no rows — an older run's numbers
     are never served for a later session.
-  * A refusal recorded for that session (incomplete data) answers 503 withheld, again with no rows.
+  * A refusal recorded for that session (incomplete data) answers 503 withheld, again with no rows — unless a later
+    retry published a run for that session, which is then served.
   * Numbers are exactly the frozen ones; rows are sorted by estimate and carry no rank.
 """
 from __future__ import annotations
@@ -99,9 +100,10 @@ async def latest(head: Head = Query("p_up5_1d"), model: Model = Query("v4")):
     pool = await pg.get_pool()
     async with pool.acquire() as conn:
         run, expected, refusal = await _resolve(conn, model)
-        if refusal is not None:
+        current = run is not None and run["target_session"] == expected
+        if refusal is not None and not current:          # a later successful retry outranks an earlier refusal
             return _withheld(expected, refusal)
-        if run is None or run["target_session"] != expected:
+        if not current:
             return {"data": {"status": "not_published", "head": head, "expected_session": expected.isoformat(),
                              "last_published_for": _iso(run["target_session"]) if run is not None else None, "rows": []}}
         rows = await conn.fetch(
@@ -149,9 +151,10 @@ async def stock(symbol: str = Path(..., min_length=1, max_length=20), model: Mod
     pool = await pg.get_pool()
     async with pool.acquire() as conn:
         run, expected, refusal = await _resolve(conn, model)
-        if refusal is not None:
+        current = run is not None and run["target_session"] == expected
+        if refusal is not None and not current:
             return _withheld(expected, refusal)
-        if run is None or run["target_session"] != expected:
+        if not current:
             raise HTTPException(status_code=404, detail=f"not published: no run for {expected.isoformat()}")
         st = await conn.fetchrow("SELECT symbol, company_name, sector, inputs, results_filed FROM nidp.tpd_run_stocks WHERE run_id = $1 AND symbol = $2",
                                  run["run_id"], sym)
