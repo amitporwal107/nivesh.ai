@@ -1,0 +1,34 @@
+{
+  "_what": "Ten-Percent Days 3.0 v4d FORWARD TEST (nightly refit challenger), pre-registered 2026-09-16 before the first v4d snapshot. User 2026-09-16: 'for every prediction each day please train the model to improve it'. v4 keeps its locked monthly refit and remains the model of record; v4d runs alongside in its own snapshot root and replaces v4 on any surface only if the comparison below says PROMOTE.",
+  "version": 1,
+  "role": "forward",
+  "locked_at": "2026-09-16",
+  "model": "v4d: identical to v4 (MODEL_COLUMNS_V4, HEADS_V4, GBM_PARAMS, 18-month cap, same evening results capture and feature store) except the fold: refit every night on every label whose horizon ended before the target session D, i.e. through the close of T (forward_v4.daily_fold). v4 refits once per month on labels that ended before the month's first session.",
+  "heads": ["p_up10_1d", "p_down10_1d", "p_up5_1d", "p_down5_1d"],
+  "forward_window": {"first_target_session": "2026-09-17", "evaluate_by": "2027-03-31"},
+  "snapshot_rules": {"freeze_before": "09:15 IST on the target session", "score_after": "20:30 IST on T and after the v4 snapshot for the same D is frozen", "requires": "the same evening results capture file v4 used, hashed into the manifest"},
+  "history_informing_this_lock": {
+    "source": ".claude/workspace/ten-percent-days-3/evidence/early_window/v4_daily/daily_vs_monthly.json (pre-registered in PREREGISTRATION.md, Jan-Aug 2025, 165 sessions)",
+    "result": "no detectable difference on any head. AUC higher for daily on all four heads (+0.003 to +0.020). Top-10 paired hits per session: +5% -0.055 [-0.24, +0.15], -5% +0.127 [-0.04, +0.30], +10% +0.091 [-0.04, +0.22], -10% +0.036 [-0.04, +0.12]. +5% calls at >= 0.30 realised 26.8% for daily against 31.5% for monthly (mean predicted 0.382 and 0.381)."
+  },
+  "comparison_with_v4": {
+    "rows": "graded rows of both snapshot roots; only target sessions graded in BOTH count",
+    "primary_head": "p_up5_1d",
+    "secondary_heads_reported_not_decisive": ["p_down5_1d", "p_up10_1d", "p_down10_1d"],
+    "top_k": 10,
+    "interim_read_at_paired_sessions": 60,
+    "read_at_paired_sessions": 120,
+    "non_inferiority_hits_per_session": -0.25,
+    "auc_margin": 0.005,
+    "high_band_calibration_guard": {"band_min": 0.30, "min_rows": 100, "max_extra_abs_error": 0.03},
+    "bootstrap": {"resamples": 2000, "seed": 7, "unit": "session"},
+    "outcomes": {
+      "PROMOTE": "95% CI lower bound of (v4d top-10 hits - v4 top-10 hits) per session >= -0.25, AND pooled AUC(v4d) >= AUC(v4) - 0.005, AND (when both have >= 100 rows at p >= 0.30) |mean p - realised| for v4d <= v4's + 0.03. The fresher model is preferred when it is not worse.",
+      "KEEP_V4": "the CI upper bound < 0, OR AUC(v4d) < AUC(v4) - 0.005, OR the high-band calibration guard fails.",
+      "INCONCLUSIVE": "fewer than 120 paired sessions, or the CI spans the margin: v4 stays the model of record and both keep running."
+    },
+    "code": "nidp.services.tpd_model.evaluate_v4.refit_verdict"
+  },
+  "high_confidence": {"inherits": "thresholds_lock_v4_forward.json high_confidence, judged on v4d's own rows; >= 50% rows are logged, never labelled as confident, before a verdict"},
+  "serving": "nothing served from v4d unless the comparison says PROMOTE and the v4 serving conditions are also met; the page shows v4"
+}

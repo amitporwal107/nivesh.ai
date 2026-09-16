@@ -26,6 +26,7 @@ from .event_gate import IST, cutoff_ist
 from .features_v4 import add_results_print
 from .forward import (LateSnapshotError, StaleDataError, WARMUP_BARS, _feature_store_v3, _load, _load_v3_inputs, check_fresh, freeze,
                       git_state, month_fold, score_session, train_bundle, verify)
+from .walkforward import Fold
 from .labels import build_labels
 from .report import load_lock
 from .results_live import merge_live
@@ -34,6 +35,8 @@ from .universe import pit_universe
 
 logger = logging.getLogger(__name__)
 LOCK_V4 = Path(__file__).with_name("thresholds_lock_v4_forward.json")
+LOCK_V4D = Path(__file__).with_name("thresholds_lock_v4d_forward.json")
+REFITS = {"monthly": (LOCK_V4, "v4"), "daily": (LOCK_V4D, "v4d")}
 HIGH_CONFIDENCE_FILE = "high_confidence.csv"
 LABEL_COLUMNS = {"p_up10_1d": ("l10", "up_1d"), "p_down10_1d": ("l10", "down_1d"), "p_up5_1d": ("l5", "up_1d"), "p_down5_1d": ("l5", "down_1d")}
 
@@ -69,6 +72,24 @@ def window_decision(D: date, lock: dict, rehearsal: bool, preview: bool) -> tupl
     return "score", {"preview": bool(preview), "counts_toward_verdict": bool(in_window and not rehearsal and not preview)}
 
 
+def daily_fold(sessions: list[date], D: date, cap_months: int = 18) -> Fold:
+    """The nightly refit: train on every label whose horizon ended before D (so through T's close), window capped at
+    `cap_months` before D. Same K2 rule as the monthly fold, just re-anchored on the target session."""
+    s = pd.DatetimeIndex(sorted(sessions))
+    return Fold(str(D), s[s >= pd.Timestamp(D) - pd.DateOffset(months=cap_months)].min().date(), D, D)
+
+
+def refit_plan(refit: str, sessions: list[date], D: date) -> tuple[Fold, Path, str]:
+    """(fold, lock, model name). monthly = the locked v4; daily = the v4d challenger under its own lock."""
+    if refit not in REFITS:
+        raise ValueError(f"unknown refit {refit!r}: expected one of {sorted(REFITS)}")
+    lock_path, model = REFITS[refit]
+    if refit == "monthly":
+        in_month = [x for x in [*sessions, D] if x >= D.replace(day=1)]
+        return month_fold(sessions, in_month[0]), lock_path, model
+    return daily_fold(sessions, D), lock_path, model
+
+
 def high_confidence_rows(preds: pd.DataFrame, threshold: float = 0.5) -> pd.DataFrame:
     hc = preds[preds["p_tpd3"] >= threshold].sort_values(["head", "p_tpd3", "symbol"], ascending=[True, False, True], kind="mergesort")
     return hc[["head", "symbol", "p_tpd3"] + [c for c in hc.columns if c not in ("head", "symbol", "p_tpd3")]].reset_index(drop=True)
@@ -101,7 +122,10 @@ def grade_v4(snap: Path, panel: pd.DataFrame, exclusions: pd.DataFrame) -> Optio
 def cmd_score(a) -> int:
     from .backtest import assemble_rows, corporate_actions_from_archive, suspected_actions, universe_by_session
 
-    lock, lock_sha = load_lock(LOCK_V4)
+    refit = getattr(a, "refit", "monthly")
+    if refit not in REFITS:
+        logger.error("refusing: unknown refit %r", refit); return 2
+    lock, lock_sha = load_lock(REFITS[refit][0])
     sha, dirty = git_state()
     if dirty and not a.rehearsal_T:
         logger.error("refusing: uncommitted changes in tpd_model"); return 3
@@ -133,8 +157,7 @@ def cmd_score(a) -> int:
     factors, known = corporate_actions_from_archive(pd.read_csv(a.ca_csv))
     excl = pd.concat([known, suspected_actions(panel, known)], ignore_index=True)
     l10, l5 = build_labels(panel, excl), build_labels(panel, excl, pct=5)
-    in_month = [s for s in [*sessions, D] if s >= D.replace(day=1)]
-    fold = month_fold(sessions, in_month[0])
+    fold, _, model = refit_plan(refit, sessions, D)
     train_T = [sessions[i] for i in range(WARMUP_BARS - 1, len(sessions) - 1) if sessions[i + 1] < fold.first_scored]
     pairs = [(t, sessions[i + 1]) for i, t in enumerate(sessions[:-1]) if t in set(train_T)] + [(T, D)]
     members = universe_by_session(panel, [d for _, d in pairs[:-1]])
@@ -154,7 +177,7 @@ def cmd_score(a) -> int:
     hc = high_confidence_rows(preds, lock["high_confidence"]["threshold"])
     meta = {"data_as_of": str(T), "target_session": str(D), "skipped_holidays": [str(h) for h in skipped], "fold_month": fold.month,
             "train_start": str(fold.train_start), "lock_sha256": lock_sha, "git_sha": sha, "git_dirty": dirty, "universe_size": len(members[D]),
-            "model": "v4", "columns": len(MODEL_COLUMNS_V4), "results_capture": cap, "filed_today_in_universe": int(ft.loc[ft.index.isin(members[D]), "filed_today"].sum()),
+            "model": model, **({"refit": refit} if refit != "monthly" else {}), "columns": len(MODEL_COLUMNS_V4), "results_capture": cap, "filed_today_in_universe": int(ft.loc[ft.index.isin(members[D]), "filed_today"].sum()),
             "high_confidence_rows": int(len(hc)), **flags, "dropped_columns": {h: m["gbm"].dropped for h, m in bundle["models"].items()},
             "train": {h: {k: v for k, v in m.items() if k not in ("gbm", "atr", "own")} for h, m in bundle["models"].items()}}
     extra = {HIGH_CONFIDENCE_FILE: hc.to_csv(index=False).encode(), "results_live.csv": live.to_csv(index=False).encode()}
@@ -162,7 +185,7 @@ def cmd_score(a) -> int:
         snap = freeze(Path(a.root), preds, meta, now=now, rehearsal=bool(a.rehearsal_T), extra_files=extra)
     except LateSnapshotError as e:
         logger.error("refusing: %s", e); return 5
-    logger.info("froze v4 %s: %d rows, %d at >= %.2f, print filings in universe %d, trained in %.0fs", snap, len(preds), len(hc),
+    logger.info("froze %s %s: %d rows, %d at >= %.2f, print filings in universe %d, trained in %.0fs", model, snap, len(preds), len(hc),
                 lock["high_confidence"]["threshold"], meta["filed_today_in_universe"], _time.time() - t0)
     return 0
 
@@ -197,6 +220,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             p.add_argument("--store-v3", type=Path, required=True); p.add_argument("--live-dir", type=Path, required=True)
             p.add_argument("--workers", type=int, default=3); p.add_argument("--rehearsal-T", default=None)
             p.add_argument("--preview", action="store_true", help="real-clock snapshot that never counts toward the verdict (use a separate --root)")
+            p.add_argument("--refit", choices=sorted(REFITS), default="monthly",
+                           help="monthly = locked v4 (default); daily = the v4d nightly-refit challenger (use its own --root)")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     return cmd_score(a) if a.cmd == "score" else cmd_grade(a)
