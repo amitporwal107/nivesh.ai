@@ -72,6 +72,11 @@ def test_v4d_forward_lock_is_pre_registered():
     assert c["primary_head"] == "p_up5_1d" and c["read_at_paired_sessions"] >= 60 and c["bootstrap"]["resamples"] >= 2000
     assert set(c["outcomes"]) == {"PROMOTE", "KEEP_V4", "INCONCLUSIVE"}
     assert lock["serving"].startswith("nothing served")
+    # cmd_score reads these keys for every refit: the challenger lock must carry them itself, not by reference
+    v4, _ = load_lock(LOCK_V4D.with_name("thresholds_lock_v4_forward.json"))
+    for k in ("threshold", "min_rows_to_judge", "calibrated_if", "useful_if"):
+        assert lock["high_confidence"][k] == v4["high_confidence"][k], k
+    assert lock["forward_window"]["first_target_session"] == "2026-09-17"
 
 
 def _graded(sessions, n=20, lift=0.0, seed=0):

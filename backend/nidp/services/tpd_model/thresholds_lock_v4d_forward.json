@@ -29,6 +29,6 @@
     },
     "code": "nidp.services.tpd_model.evaluate_v4.refit_verdict"
   },
-  "high_confidence": {"inherits": "thresholds_lock_v4_forward.json high_confidence, judged on v4d's own rows; >= 50% rows are logged, never labelled as confident, before a verdict"},
+  "high_confidence": {"threshold": 0.5, "min_rows_to_judge": 30, "calibrated_if": "mean predicted probability of rows >= threshold inside the Wilson 95% interval of their realised rate", "useful_if": "realised rate >= 0.40", "judged_per_head": true, "may_be_shown_as_high_confidence_only_if": "the head's high-confidence rule PASSES at the verdict; before that, >= 50% rows are logged, never labelled as confident", "if_fewer_than_min_rows_at_verdict": "INSUFFICIENT: no high-confidence label for that head", "note": "same rule and values as thresholds_lock_v4_forward.json, judged on v4d's own rows"},
   "serving": "nothing served from v4d unless the comparison says PROMOTE and the v4 serving conditions are also met; the page shows v4"
 }
