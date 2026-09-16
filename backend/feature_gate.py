@@ -29,6 +29,18 @@ async def refresh_if_stale(db, now: Optional[float] = None) -> bool:
     return True
 
 
+async def fresh_user_feature_map(db, email: Optional[str], now: Optional[float] = None) -> dict:
+    """The per-user feature map for /auth/me and /user/profile, refreshed on the same rule as the gate. Without this,
+    each worker answered from its startup copy, so an admin allowlist change made a flag flip between true and false
+    depending on which worker served the request. A failed refresh keeps this worker's copy: the map only decides what
+    the UI shows, and every gated API route still refuses on its own."""
+    try:
+        await refresh_if_stale(db, now)
+    except Exception as e:  # noqa: BLE001 — UI visibility only; routes stay fail-closed
+        logger.warning("feature flags refresh failed for the profile map: %s", e)
+    return ff.user_feature_map(email)
+
+
 def require_feature(flag: str, *, resolve_user: Optional[Callable[[Request], Awaitable[dict]]] = None,
                     get_db: Optional[Callable[[], object]] = None, clock: Optional[Callable[[], float]] = None):
     async def dependency(request: Request) -> dict:

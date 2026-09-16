@@ -152,3 +152,25 @@ def test_unreadable_flag_state_denies(monkeypatch):
     c, _ = _client(monkeypatch, Broken())
     r = _get(c, "/api/move-odds/latest", "invited")
     assert r.status_code == 503 and r.json()["detail"] == "feature_state_unavailable"
+
+
+def test_profile_feature_map_follows_a_flag_change_made_by_another_worker():
+    """Staging 2026-09-17: after an admin added an email to move_odds, /auth/me answered move_odds True on some calls
+    and False on others (per-worker startup copies). The profile map now refreshes on the gate's 30 s rule."""
+    import asyncio
+
+    db = _DB(flags={"move_odds": {"mode": "allowlist", "allowlist": []}})
+    run = asyncio.run
+    m = run(feature_gate.fresh_user_feature_map(db, "invited@example.com", now=100.0))
+    assert m["move_odds"] is False
+    db.system_config.docs[0]["flags"]["move_odds"] = {"mode": "allowlist", "allowlist": ["invited@example.com"]}   # admin write elsewhere
+    assert run(feature_gate.fresh_user_feature_map(db, "invited@example.com", now=110.0))["move_odds"] is False  # within 30 s
+    assert run(feature_gate.fresh_user_feature_map(db, "invited@example.com", now=131.0))["move_odds"] is True   # refreshed
+
+    class Broken(_DB):
+        def __init__(self):
+            super().__init__()
+            class C:
+                async def find_one(self, *a, **k): raise RuntimeError("mongo down")
+            self.system_config = C()
+    assert run(feature_gate.fresh_user_feature_map(Broken(), "invited@example.com", now=200.0))["move_odds"] is True   # keeps this worker's copy
