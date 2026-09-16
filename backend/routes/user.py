@@ -17,8 +17,8 @@ async def get_user_profile(request: Request):
     user = await get_current_user(request)
     profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
     holdings_count = await db.holdings.count_documents({"user_id": user["user_id"]})
-    import feature_flags
-    features = feature_flags.user_feature_map(user.get("email"))
+    from feature_gate import fresh_user_feature_map
+    features = await fresh_user_feature_map(db, user.get("email"))
     copilot_enabled = features.get("ai_copilot", False)
     if not profile:
         return {

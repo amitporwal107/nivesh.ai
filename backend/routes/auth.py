@@ -240,8 +240,8 @@ async def get_me(request: Request):
     # Per-user feature entitlements (same source as GET /api/user/profile). The V5
     # route guards read `features` off /auth/me (via useMe) to decide surface access
     # — notably `research` (can reach /research) and `research_only` (CONFINED to it).
-    import feature_flags
-    user["features"] = feature_flags.user_feature_map(user.get("email"))
+    from feature_gate import fresh_user_feature_map
+    user["features"] = await fresh_user_feature_map(db, user.get("email"))
     return user
 
 
