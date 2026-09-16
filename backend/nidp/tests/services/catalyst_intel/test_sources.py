@@ -11,18 +11,18 @@ FX = Path(__file__).parent / "fixtures"
 
 
 def test_registry_lists_the_user_priority_sources_with_a_status_each():
-    from nidp.services.catalyst_intel.registry import SOURCES, by_status
+    from nidp.services.catalyst_intel.registry import RUNNABLE, SOURCES, STATUSES, by_status, routes_for
 
     ids = {s.id for s in SOURCES}
     for must in ("nse_announcements_api", "nse_announcements_rss", "bse_announcements_rss", "bse_subcat_api", "rbi_press", "rbi_notifications",
                  "sebi_rss", "cci_combination_press", "cci_combination_orders", "cci_antitrust_orders", "mod", "cdsco_alerts", "gleif_press",
-                 "ibbi", "nclt", "mnre", "heavy_industries", "icra", "pib", "nhai", "eprocure", "fda_warning_letters", "fda_import_alerts",
+                 "ibbi", "nclt", "mnre", "heavy_industries", "icra", "pib", "nhai_press_release", "nhai_tenders", "cppp_tenders", "cppp_awards", "fda_warning_letters", "fda_import_alerts",
                  "dgft", "mca", "reuters", "et_stocks", "bs_companies", "mint_companies", "cnbc_market"):
         assert must in ids, must
     for s in SOURCES:
-        assert s.priority in ("P0", "P1", "P2", "P3") and s.status in ("live", "listing", "blocked", "js_rendered", "not_built") and s.klass
-        assert s.status != "live" or s.adapter, s.id
-    assert by_status("blocked") and by_status("live")
+        assert s.priority in ("P0", "P1", "P2", "P3") and s.status in STATUSES and s.klass
+        assert s.status not in RUNNABLE or routes_for(s), s.id
+    assert by_status("waf_blocked") and by_status("live")
 
 
 def _events(adapter, fixture, **kw):

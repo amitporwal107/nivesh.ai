@@ -14,8 +14,9 @@ import xml.etree.ElementTree as ET
 
 from ..tpd_model.event_gate import IST
 
-_FORMATS = ("%a, %d %b %Y %H:%M:%S", "%d %b, %Y", "%d-%b-%Y %H:%M:%S", "%d-%b-%Y", "%a, %d %b %Y %H:%M:%S %z", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S",
-            "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y", "%b %d, %Y", "%d %b %Y", "%d %B %Y", "%d %B, %Y", "%B %d, %Y", "%Y-%b-%d", "%d-%b-%y")
+_FORMATS = ("%a, %d %b %Y %H:%M:%S", "%d %b, %Y", "%d-%b-%Y %H:%M:%S", "%d-%b-%Y %I:%M %p", "%d-%b-%Y", "%a, %d %b %Y %H:%M:%S %z", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S%z",
+            "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y", "%b %d, %Y", "%d %b %Y", "%d %B %Y", "%d %B, %Y", "%B %d, %Y", "%Y-%b-%d", "%d-%b-%y", "%Y%m%d")
+_US_TZ = {" EDT": " -0400", " EST": " -0500", " PDT": " -0700", " PST": " -0800", " CDT": " -0500", " CST": " -0600", " GMT": " +0000", " UTC": " +0000"}
 
 
 def parse_feed_datetime(text: Optional[str], default_tz=IST) -> Optional[datetime]:
@@ -23,6 +24,9 @@ def parse_feed_datetime(text: Optional[str], default_tz=IST) -> Optional[datetim
         return None
     t = re.sub(r"\s+", " ", text.strip()).replace("Sept ", "Sep ")
     t = re.sub(r"(\d)(st|nd|rd|th)\b", r"\1", t)
+    for name, off in _US_TZ.items():                     # FDA / SEC feeds: "18:15:00 EDT"
+        if t.endswith(name):
+            t = t[: -len(name)] + off
     for fmt in _FORMATS:
         try:
             d = datetime.strptime(t, fmt)
@@ -225,4 +229,219 @@ def parse_cci_datatable(raw: bytes, received_at: datetime, source_id: str) -> li
             files = _HREF_RX.findall(r.get("files") or "")
             url = files[0] if files else f"https://www.cci.gov.in/combination/press-release#dt_row_{r.get('id')}"
             out.append(_event(source_id, url, title, pub, received_at, summary=unescape(_TAG_RX.sub(" ", r.get("description") or "")), source_event_id=str(r.get("id"))))
+    return out
+
+
+# ── Phase 1 adapters (2026-09-16): PIB postback, NHAI API, CPPP tables, SEC Atom, openFDA, FDA xlsx export ───────────
+_PIB_FIELDS = ("__VIEWSTATE", "__VIEWSTATEGENERATOR", "__EVENTVALIDATION", "__VIEWSTATEENCRYPTED")
+
+
+def pib_form_state(raw: bytes) -> dict:
+    """The ASP.NET hidden fields a postback must echo (they change on every response)."""
+    h = raw.decode("utf-8", errors="replace")
+    out = {}
+    for f in _PIB_FIELDS:
+        m = re.search(r'id="%s" value="([^"]*)"' % f, h)
+        out[f] = m.group(1) if m else ""
+    return out
+
+
+def pib_postback_body(state: dict, day: date, region: str = "3", lang: str = "1", ministry: str = "0") -> bytes:
+    """The day-select postback of allRel.aspx: region 3 = PIB Delhi, lang 1 = English, ministry 0 = all."""
+    from urllib.parse import urlencode
+
+    form = {"__EVENTTARGET": "ctl00$ContentPlaceHolder1$ddlday", "__EVENTARGUMENT": "", "__LASTFOCUS": "", **{k: state.get(k, "") for k in _PIB_FIELDS},
+            "ctl00$Bar1$ddlregion": region, "ctl00$Bar1$ddlLang": lang, "ctl00$ContentPlaceHolder1$hydregionid": region, "ctl00$ContentPlaceHolder1$hydLangid": lang,
+            "ctl00$ContentPlaceHolder1$ddlMinistry": ministry, "ctl00$ContentPlaceHolder1$ddlday": str(day.day), "ctl00$ContentPlaceHolder1$ddlMonth": str(day.month),
+            "ctl00$ContentPlaceHolder1$ddlYear": str(day.year)}
+    return urlencode(form).encode()
+
+
+_PIB_ITEM_RX = re.compile(r"<h3[^>]*>(.*?)</h3>|<a[^>]*href=['\"]([^'\"]*PressReleaseDetail\.aspx\?PRID=(\d+))['\"][^>]*>(.*?)</a>", re.S | re.I)
+
+
+def parse_pib_day(raw: bytes, received_at: datetime, source_id: str, day: date, base_url: str = "https://www.pib.gov.in/") -> list[dict]:
+    """One event per release on the day listing, grouped under its ministry heading. The listing carries the day
+    only, so published_at is the end of that day (conservative for any 'did it precede the move' question)."""
+    h = raw.decode("utf-8", errors="replace")
+    i = h.find('class="content-area"')
+    seg = re.sub(r"</?(?:i|b|em|strong|u|sup|sub)\b[^>]*>", "", h[i:] if i >= 0 else h)   # inline tags appear inside title='…' attributes
+    out, ministry, seen = [], None, set()
+    for m in _PIB_ITEM_RX.finditer(seg):
+        if m.group(1) is not None:
+            ministry = unescape(re.sub(r"<[^>]+>", " ", m.group(1))).strip() or ministry
+            continue
+        href, prid, text = m.group(2), m.group(3), m.group(4)
+        if prid in seen:
+            continue
+        seen.add(prid)
+        title = unescape(re.sub(r"<[^>]+>", " ", text)).strip()
+        pub = datetime(day.year, day.month, day.day, 23, 59, 59, tzinfo=IST)
+        out.append(_event(source_id, urljoin(base_url, href), title, pub, received_at, summary=f"PIB Delhi | {ministry or 'ministry unknown'} | day precision (listing has no time)",
+                          category=ministry, source_event_id=prid))
+    return out
+
+
+_NHAI_CATEGORY = {"news": "news", "press-release": "press_release", "tenderlist": "tender"}
+
+
+def parse_nhai_api(raw: bytes, received_at: datetime, source_id: str) -> list[dict]:
+    """nhai.gov.in/nhai/api/{news|press-release|tenderlist}: {"list": [{id, title, <date field>, upload_file: [{uf_target_id}], ...}]}"""
+    d = json.loads(raw)
+    rows = d.get("list", []) if isinstance(d, dict) else []
+    cat = "press_release" if "press" in source_id else "tender" if "tender" in source_id else "news"
+    out = []
+    for r in rows:
+        files = r.get("upload_file") or []
+        pdf = next((f.get("uf_target_id") for f in files if f.get("uf_target_id")), None)
+        pub = parse_feed_datetime(r.get("a_date_val") or r.get("ar_dt_val") or r.get("publish_date") or r.get("created") or r.get("date"))
+        title = r.get("title") or ""
+        if cat == "tender":
+            tno = r.get("tender_no") or ""
+            close = parse_feed_datetime(r.get("bid_submission_end_date")); opn = parse_feed_datetime(r.get("bid_opening_date"))
+            summary = f"tender {tno}; bid closes {close.date().isoformat() if close else '?'}; opens {opn.date().isoformat() if opn else '?'}"
+            out.append(_event(source_id, pdf or f"https://nhai.gov.in/#/tenders/{r.get('id')}", title, pub, received_at, summary=summary, category=cat, entity_text=tno or None, source_event_id=str(r.get("id"))))
+        else:
+            src = r.get("source_val") or (files[0].get("description") if files else None)
+            summary = " | ".join(x for x in (src, re.sub(r"<[^>]+>", " ", r.get("body_value") or "").strip()) if x) or None
+            out.append(_event(source_id, pdf or f"https://nhai.gov.in/#/{cat.replace('_', '-')}/{r.get('id')}", title, pub, received_at, summary=summary, category=cat, source_event_id=str(r.get("id"))))
+    return out
+
+
+def cppp_page_url(base_url: str, page: int) -> str:
+    """CPPP pages beyond the first are addressed by a base64 of '<base>?page=n' in the ?url= parameter."""
+    import base64
+    from urllib.parse import quote
+
+    if page <= 1:
+        return base_url
+    return f"{base_url}?url={quote(base64.b64encode(f'{base_url}?page={page}'.encode()).decode(), safe='')}"
+
+
+_TD_RX = re.compile(r"<td[^>]*>(.*?)</td>", re.S | re.I)
+_TR_RX = re.compile(r"<tr[^>]*>(.*?)</tr>", re.S | re.I)
+_A_RX = re.compile(r"<a[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>", re.S | re.I)
+
+
+def parse_cppp_table(raw: bytes, received_at: datetime, source_id: str, base_url: str) -> list[dict]:
+    """The CPPP listing tables: Sl.No | e-Published Date | Bid Submission Closing | Tender Opening | Title/Ref/Id | Organisation | Corrigendum."""
+    h = raw.decode("utf-8", errors="replace")
+    out, seen = [], set()
+    for tr in _TR_RX.findall(h):
+        tds = _TD_RX.findall(tr)
+        if len(tds) < 6:
+            continue
+        pub = parse_feed_datetime(re.sub(r"<[^>]+>", " ", tds[1]).strip())
+        if pub is None:
+            continue
+        a = _A_RX.search(tds[4])
+        if not a:
+            continue
+        href, title = urljoin(base_url, unescape(a.group(1))), unescape(re.sub(r"<[^>]+>", " ", a.group(2))).strip()
+        rest = unescape(re.sub(r"<[^>]+>", " ", tds[4][a.end():])).strip().strip("/")
+        parts = [p for p in rest.split("/") if p.strip()]
+        tid = parts[-1].strip() if parts and parts[-1].strip().isdigit() else None
+        ref = "/".join(p.strip() for p in parts[:-1]) if tid else rest
+        org = unescape(re.sub(r"<[^>]+>", " ", tds[5])).strip()
+        close = parse_feed_datetime(re.sub(r"<[^>]+>", " ", tds[2]).strip()); opn = parse_feed_datetime(re.sub(r"<[^>]+>", " ", tds[3]).strip())
+        cat = "corrigendum" if "corrig" in href or "corrig" in base_url else "tender"
+        if href in seen:
+            continue
+        seen.add(href)
+        summary = f"{org}; ref {ref or '-'}; bid closes {close.date().isoformat() if close else '?'}; opens {opn.date().isoformat() if opn else '?'}"
+        out.append(_event(source_id, href, title, pub, received_at, summary=summary, category=cat, entity_text=org or None, source_event_id=tid or href.rsplit('/', 1)[-1][:40]))
+    return out
+
+
+_ATOM = "{http://www.w3.org/2005/Atom}"
+
+
+def parse_sec_atom(raw: bytes, received_at: datetime, source_id: str) -> list[dict]:
+    """EDGAR current-filings Atom: title '6-K - ISSUER (CIK) (Filer)', link to the filing index, updated, id with the accession number."""
+    root = ET.fromstring(raw)
+    out = []
+    for e in root.iter(_ATOM + "entry"):
+        title = (e.findtext(_ATOM + "title") or "").strip()
+        link = e.find(_ATOM + "link"); href = link.get("href") if link is not None else ""
+        cat = e.find(_ATOM + "category"); form = (cat.get("term") if cat is not None else None) or title.split(" - ")[0]
+        m = re.match(r"^(?P<form>[^ ]+(?:/A)?) - (?P<name>.*?) \((?P<cik>\d{10})\) \((?P<role>[^)]+)\)\s*$", title)
+        name, cik, role = (m.group("name"), m.group("cik"), m.group("role")) if m else (title, None, None)
+        acc = re.search(r"accession-number=([\d-]+)", e.findtext(_ATOM + "id") or "")
+        acc = acc.group(1) if acc else (re.search(r"/(\d{10}-\d{2}-\d{6})", href).group(1) if re.search(r"/(\d{10}-\d{2}-\d{6})", href) else None)
+        pub = parse_feed_datetime(e.findtext(_ATOM + "updated"), default_tz=timezone.utc)
+        summ = re.sub(r"<[^>]+>", " ", e.findtext(_ATOM + "summary") or "")
+        summary = "; ".join(x for x in (f"CIK {cik}" if cik else None, f"role {role}" if role else None, summ.strip() or None) if x)
+        out.append(_event(source_id, href, f"{form}: {name}", pub, received_at, summary=summary, category=form, entity_text=name, source_event_id=acc))
+    return out
+
+
+def parse_openfda_enforcement(raw: bytes, received_at: datetime, source_id: str) -> list[dict]:
+    """openFDA enforcement (recalls): one event per recall_number; report_date YYYYMMDD; the recalling firm is the entity."""
+    d = json.loads(raw)
+    kind = "device" if "device" in source_id else "food" if "food" in source_id else "drug"
+    out = []
+    for r in d.get("results", []):
+        rn = r.get("recall_number") or ""
+        firm = (r.get("recalling_firm") or "").strip()
+        pub = parse_feed_datetime(r.get("report_date") or r.get("recall_initiation_date"), default_tz=timezone.utc)
+        product = re.sub(r"\s+", " ", r.get("product_description") or "").strip()
+        title = f"{r.get('classification') or 'Recall'} recall: {firm} — {product[:80]}"
+        summary = "; ".join(x for x in (r.get("reason_for_recall"), product, f"status {r.get('status')}" if r.get("status") else None,
+                                        f"{r.get('city') or ''} {r.get('state') or ''} {r.get('country') or ''}".strip() or None) if x)
+        out.append(_event(source_id, f"https://api.fda.gov/{kind}/enforcement.json?search=recall_number:%22{rn}%22", title, pub, received_at, summary=summary,
+                          category=r.get("classification"), entity_text=firm or None, source_event_id=rn or None))
+    return out
+
+
+def _xlsx_rows(raw: bytes) -> list[list[str]]:
+    import io
+    import zipfile
+
+    z = zipfile.ZipFile(io.BytesIO(raw))
+    strings = []
+    if "xl/sharedStrings.xml" in z.namelist():
+        ss = z.read("xl/sharedStrings.xml").decode("utf-8", "replace")
+        strings = [unescape(re.sub(r"<[^>]+>", "", s)) for s in re.findall(r"<si>(.*?)</si>", ss, flags=re.S)]
+    sheet = next((n for n in z.namelist() if n.startswith("xl/worksheets/sheet")), None)
+    if not sheet:
+        return []
+    sh = z.read(sheet).decode("utf-8", "replace")
+    rows = []
+    for r in re.findall(r"<row[^>]*>(.*?)</row>", sh, flags=re.S):
+        cells = []
+        for m in re.finditer(r'<c r="[A-Z]+\d+"([^>]*)>(?:<v>(.*?)</v>)?(?:<is><t>(.*?)</t></is>)?', r):
+            attrs, v, t = m.groups()
+            cells.append(strings[int(v)] if 't="s"' in attrs and v is not None and v.isdigit() and int(v) < len(strings) else (v if v is not None else (t or "")))
+        rows.append(cells)
+    return rows
+
+
+def parse_fda_warning_letters_xlsx(raw: bytes, received_at: datetime, source_id: str) -> list[dict]:
+    """The warning-letters DataTables export (xlsx): Posted Date | Letter Issue Date | Company Name | Issuing Office | Subject | ...
+    Partial (first 1,000 rows, index order) — the source is registered as degraded for that reason."""
+    rows = _xlsx_rows(raw)
+    if not rows:
+        return []
+    head = [c.strip().lower() for c in rows[0]]
+    def col(name):
+        return next((i for i, c in enumerate(head) if name in c), None)
+    ip, ii, ic, io_, isub = col("posted"), col("issue"), col("company"), col("office"), col("subject")
+    if ic is None or ip is None:
+        return []
+    page = "https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations/compliance-actions-and-activities/warning-letters"
+    out = []
+    for r in rows[1:]:
+        if len(r) <= max(ip, ic):
+            continue
+        try:
+            posted = datetime.strptime(r[ip].strip(), "%m/%d/%Y").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        company = r[ic].strip()
+        issued = r[ii].strip() if ii is not None and ii < len(r) else ""
+        subject = r[isub].strip() if isub is not None and isub < len(r) else ""
+        office = r[io_].strip() if io_ is not None and io_ < len(r) else ""
+        slug = re.sub(r"[^a-z0-9]+", "-", f"{company} {issued}".lower()).strip("-")
+        out.append(_event(source_id, f"{page}#{slug}", f"FDA warning letter: {company} — {subject[:90]}", posted, received_at,
+                          summary=f"issued {issued}; {office}; {subject}", category=subject or None, entity_text=company or None, source_event_id=slug))
     return out
