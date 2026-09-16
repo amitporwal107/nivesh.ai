@@ -1,0 +1,71 @@
+{
+ "_comment": "MOCK — not real data: response shape from backend/routes/move_odds.py, values copied from the 2026-09-17 v4 snapshot",
+ "data": {
+  "symbol": "ANTELOPUS",
+  "company_name": "Antelopus Selan Energy Limited",
+  "sector": "Oil Gas",
+  "results_filed": false,
+  "run": {
+   "model": "v4",
+   "refit": "monthly",
+   "status": "final",
+   "data_as_of": "2026-09-16",
+   "target_session": "2026-09-17",
+   "frozen_at": "2026-09-16T20:50:22.247116+05:30",
+   "git_sha": "0dc20f9",
+   "universe_size": 1000,
+   "scored": 994,
+   "input_count": 84,
+   "train_rows": 366080,
+   "train_end": "2026-08-31",
+   "counts_toward_verdict": true,
+   "skipped_holidays": []
+  },
+  "estimates": {
+   "p_up5_1d": 0.324981,
+   "p_down5_1d": 0.401928,
+   "p_up10_1d": 0.048866,
+   "p_down10_1d": 0.05469
+  },
+  "inputs": {
+   "close_change_pct": {
+    "v": 10.7,
+    "date": "2026-09-16"
+   },
+   "day_range_pct": {
+    "v": 20.64,
+    "date": "2026-09-16"
+   },
+   "volume_vs_20d_median": {
+    "v": 14.49,
+    "date": "2026-09-16"
+   },
+   "delivery_pct": {
+    "v": 16.55,
+    "date": "2026-09-15"
+   },
+   "change_5_sessions_pct": {
+    "v": 6.53,
+    "date": "2026-09-16"
+   },
+   "atr14_pct": {
+    "v": 8.25,
+    "date": "2026-09-16"
+   }
+  },
+  "events": [
+   {
+    "ord": 1,
+    "event_time": "2026-09-16T12:35:20+05:30",
+    "source_label": "BSE filing",
+    "is_media": false,
+    "event_type": "CORPORATE",
+    "event_subtype": "update",
+    "direction": "neutral",
+    "title": "Antelopus Selan Energy Ltd (530075)",
+    "url": "https://www.bseindia.com/xml-data/corpfiling/AttachLive/d37f94e7-3d7c-42e7-a63a-578def7ab9b0.pdf",
+    "method": "rules + model"
+   }
+  ]
+ }
+}

@@ -32,9 +32,11 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Search, FileText, ExternalLink, Sparkles, Loader2, Bell, Bookmark,
   ChevronLeft, ChevronRight, MoreVertical, Megaphone, X, Download, Star,
-  ClipboardCheck,
+  ClipboardCheck, Activity,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useMe } from "@/hooks/use-auth";
+import MoveOddsScreen from "./MoveOddsScreen";
 import { chatService } from "@/services";
 import { Markdown } from "@/components/chat/Markdown";
 import { filingsService } from "@/services/adapters/filings.adapter";
@@ -51,7 +53,7 @@ const PINNED_AGENT = "stocks_insights";
 const FEED_DAYS = 30;
 const PAGE_SIZE = 20;
 
-type Screen = "feed" | "alerts";
+type Screen = "feed" | "alerts" | "odds";
 
 /** sentiment → accent (matches the prototype's sig-* classes). */
 function sig(sentiment?: string | null): { cls: string; dot: string } {
@@ -89,6 +91,10 @@ interface Answer {
 export default function ResearchPage() {
   // ── shell ───────────────────────────────────────────────────────────────
   const [screen, setScreen] = useState<Screen>("feed");
+  // Move odds is allowlist-gated (feature move_odds); the API also answers 403 to anyone not on the list.
+  const { data: me } = useMe();
+  const oddsEnabled = !!me?.features?.move_odds;
+  useEffect(() => { if (screen === "odds" && !oddsEnabled) setScreen("feed"); }, [screen, oddsEnabled]);
 
   // ── feed state ──────────────────────────────────────────────────────────
   const [rows, setRows] = useState<FilingRow[]>([]);
@@ -317,6 +323,7 @@ export default function ResearchPage() {
   const navItems: Array<{ key: Screen; label: string; icon: typeof Bell; title: string }> = [
     { key: "feed", label: "Feed", icon: Sparkles, title: "Filings intelligence" },
     { key: "alerts", label: "Alerts", icon: Bell, title: "Alerts" },
+    ...(oddsEnabled ? [{ key: "odds" as Screen, label: "Odds", icon: Activity, title: "Move odds" }] : []),
   ];
 
   return (
@@ -500,6 +507,8 @@ export default function ResearchPage() {
                 held, todayOnly, setTodayOnly,
               }}
             />
+          ) : screen === "odds" && oddsEnabled ? (
+            <MoveOddsScreen />
           ) : (
             <AlertsScreen />
           )}

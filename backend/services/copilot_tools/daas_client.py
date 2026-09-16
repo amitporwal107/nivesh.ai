@@ -116,6 +116,24 @@ async def _post(path: str, body: Dict[str, Any], timeout: float = _DEFAULT_TIMEO
         raise DaasError(f"DAAS connectivity error on {path}: {exc}")
 
 
+async def get_raw(path: str, params: Optional[Dict[str, Any]] = None, timeout: float = _DEFAULT_TIMEOUT) -> tuple[int, Any]:
+    """(HTTP status, parsed JSON or None) without collapsing non-200 answers, for proxies that must pass a structured
+    error body through (e.g. /move-odds 503 withheld). Connectivity failures still raise DaasError."""
+    base, key = _creds()
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(f"{base}/v1{path}", params=params, headers={"X-API-Key": key, "Accept": "application/json"})
+    except httpx.TimeoutException:
+        raise DaasError(f"DAAS request timed out after {timeout}s: {path}")
+    except httpx.HTTPError as exc:
+        raise DaasError(f"DAAS connectivity error on {path}: {exc}")
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    return resp.status_code, body
+
+
 def is_configured() -> bool:
     """True when both NIDP_DAAS_BASE_URL and NIDP_DAAS_API_KEY are set.
     Callers use this to decide whether to attempt DaaS HTTP before

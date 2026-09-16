@@ -1,0 +1,197 @@
+{
+ "_comment": "MOCK — not real data: response shape from backend/routes/move_odds.py, values copied from the 2026-09-17 v4 snapshot",
+ "data": {
+  "status": "final",
+  "head": "p_down5_1d",
+  "expected_session": "2026-09-17",
+  "base_rate": 0.040155,
+  "run": {
+   "model": "v4",
+   "refit": "monthly",
+   "status": "final",
+   "data_as_of": "2026-09-16",
+   "target_session": "2026-09-17",
+   "frozen_at": "2026-09-16T20:50:22.247116+05:30",
+   "git_sha": "0dc20f9",
+   "universe_size": 1000,
+   "scored": 994,
+   "input_count": 84,
+   "train_rows": 366080,
+   "train_end": "2026-08-31",
+   "counts_toward_verdict": true,
+   "skipped_holidays": []
+  },
+  "rows": [
+   {
+    "symbol": "RAYMOND",
+    "company_name": "Raymond Limited",
+    "sector": "Capital Goods",
+    "p": 0.431903,
+    "p_opposite": 0.282616,
+    "events_on_record": 3
+   },
+   {
+    "symbol": "ANTELOPUS",
+    "company_name": "Antelopus Selan Energy Limited",
+    "sector": "Oil Gas",
+    "p": 0.401928,
+    "p_opposite": 0.324981,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "MOREPENLAB",
+    "company_name": "Morepen Laboratories Limited",
+    "sector": "Healthcare",
+    "p": 0.35269,
+    "p_opposite": 0.270595,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "PNCINFRA",
+    "company_name": "PNC Infratech Limited",
+    "sector": "Construction",
+    "p": 0.310191,
+    "p_opposite": 0.365521,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "TBZ",
+    "company_name": "Tribhovandas Bhimji Zaveri Limited",
+    "sector": "Consumer Durables",
+    "p": 0.271469,
+    "p_opposite": 0.204929,
+    "events_on_record": 2
+   },
+   {
+    "symbol": "PGIL",
+    "company_name": "Pearl Global Industries Limited",
+    "sector": "Textiles",
+    "p": 0.252366,
+    "p_opposite": 0.145856,
+    "events_on_record": 2
+   },
+   {
+    "symbol": "AFCONS",
+    "company_name": "Afcons Infrastructure Limited",
+    "sector": "Construction",
+    "p": 0.245077,
+    "p_opposite": 0.163965,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "FILATEX",
+    "company_name": "Filatex India Limited",
+    "sector": null,
+    "p": 0.242895,
+    "p_opposite": 0.201697,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "WELCORP",
+    "company_name": "Welspun Corp Limited",
+    "sector": "Capital Goods",
+    "p": 0.241738,
+    "p_opposite": 0.144987,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "RPEL",
+    "company_name": "Raghav Productivity Enhancers Limited",
+    "sector": "Capital Goods",
+    "p": 0.23462,
+    "p_opposite": 0.229752,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "HLEGLAS",
+    "company_name": "HLE Glascoat Limited",
+    "sector": null,
+    "p": 0.219742,
+    "p_opposite": 0.205062,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "ROSSTECH",
+    "company_name": "Rossell Techsys Limited",
+    "sector": "Capital Goods",
+    "p": 0.210499,
+    "p_opposite": 0.237908,
+    "events_on_record": 2
+   }
+  ],
+  "record": {
+   "window_label": "Jan–Aug 2025",
+   "sessions": 165,
+   "base_rate": 0.06624721521776385,
+   "top10_hit_rate": 0.26484848484848483,
+   "bands": [
+    {
+     "band_lo": 0.0,
+     "band_hi": 0.05,
+     "rows": 129344,
+     "realised": 0.04949591786244433
+    },
+    {
+     "band_lo": 0.05,
+     "band_hi": 0.1,
+     "rows": 17269,
+     "realised": 0.11500376397011987
+    },
+    {
+     "band_lo": 0.1,
+     "band_hi": 0.2,
+     "rows": 9399,
+     "realised": 0.13405681455473986
+    },
+    {
+     "band_lo": 0.2,
+     "band_hi": 0.3,
+     "rows": 3204,
+     "realised": 0.16697877652933832
+    },
+    {
+     "band_lo": 0.3,
+     "band_hi": 0.4,
+     "rows": 1827,
+     "realised": 0.1417624521072797
+    },
+    {
+     "band_lo": 0.4,
+     "band_hi": 0.5,
+     "rows": 1198,
+     "realised": 0.15275459098497496
+    },
+    {
+     "band_lo": 0.5,
+     "band_hi": 0.6,
+     "rows": 683,
+     "realised": 0.17276720351390923
+    },
+    {
+     "band_lo": 0.6,
+     "band_hi": 1.0,
+     "rows": 464,
+     "realised": 0.17456896551724138
+    }
+   ]
+  },
+  "live_record": {
+   "sessions": 0,
+   "top10_hits": null,
+   "touched": null,
+   "graded_rows": null,
+   "last_target": null,
+   "last_top10_hits": null,
+   "last_touched": null,
+   "last_graded_rows": null
+  },
+  "limits": {
+   "not_used": [
+    "intraday prices",
+    "analyst estimates",
+    "F&O positioning history",
+    "filing and news text (events are listed for context only)"
+   ]
+  }
+ }
+}
