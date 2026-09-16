@@ -283,8 +283,10 @@ def main(argv=None) -> int:
         panel, _, _ = _load(a.exports)
         names = pd.read_csv(a.exports / "company_names.csv").drop_duplicates("symbol").set_index("symbol")
         inputs = inputs_on_record(panel, symbols, T)
-        stocks = {s: {"company_name": names["company_name"].get(s) if s in names.index else None,
-                      "sector": names["sector"].get(s) if s in names.index else None, "inputs": inputs.get(s, {})} for s in symbols}
+        def text(col, s):
+            v = names[col].get(s) if s in names.index else None
+            return v if isinstance(v, str) and v.strip() else None       # NaN / blank → NULL, never the string "nan"
+        stocks = {s: {"company_name": text("company_name", s), "sector": text("sector", s), "inputs": inputs.get(s, {})} for s in symbols}
         frozen = datetime.fromisoformat(manifest["generated_at"])
         events = events_on_record(a.events_db, symbols, T, frozen) if a.events_db.exists() else {}
         logger.info("run %s %s -> %s: %d estimates, %d stocks with inputs, %d with events", manifest["model"], T, manifest["target_session"],

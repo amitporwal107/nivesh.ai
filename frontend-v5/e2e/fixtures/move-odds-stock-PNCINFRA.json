@@ -1,0 +1,71 @@
+{
+ "_comment": "MOCK — not real data: response shape from backend/routes/move_odds.py, values copied from the 2026-09-17 v4 snapshot",
+ "data": {
+  "symbol": "PNCINFRA",
+  "company_name": "PNC Infratech Limited",
+  "sector": "Construction",
+  "results_filed": false,
+  "run": {
+   "model": "v4",
+   "refit": "monthly",
+   "status": "final",
+   "data_as_of": "2026-09-16",
+   "target_session": "2026-09-17",
+   "frozen_at": "2026-09-16T20:50:22.247116+05:30",
+   "git_sha": "0dc20f9",
+   "universe_size": 1000,
+   "scored": 994,
+   "input_count": 84,
+   "train_rows": 366080,
+   "train_end": "2026-08-31",
+   "counts_toward_verdict": true,
+   "skipped_holidays": []
+  },
+  "estimates": {
+   "p_up5_1d": 0.365521,
+   "p_down5_1d": 0.310191,
+   "p_up10_1d": 0.103875,
+   "p_down10_1d": 0.024629
+  },
+  "inputs": {
+   "close_change_pct": {
+    "v": -4.19,
+    "date": "2026-09-16"
+   },
+   "day_range_pct": {
+    "v": 17.96,
+    "date": "2026-09-16"
+   },
+   "volume_vs_20d_median": {
+    "v": 44.4,
+    "date": "2026-09-16"
+   },
+   "delivery_pct": {
+    "v": 47.88,
+    "date": "2026-09-15"
+   },
+   "change_5_sessions_pct": {
+    "v": -24.07,
+    "date": "2026-09-16"
+   },
+   "atr14_pct": {
+    "v": 6.82,
+    "date": "2026-09-16"
+   }
+  },
+  "events": [
+   {
+    "ord": 1,
+    "event_time": "2026-09-14T21:02:44+05:30",
+    "source_label": "NSE filing",
+    "is_media": false,
+    "event_type": "REGULATORY",
+    "event_subtype": "debarment",
+    "direction": "negative",
+    "title": "PNCINFRA: Action(s) taken or orders passed",
+    "url": "https://nsearchives.nseindia.com/corporate/PNCINFRA_14092026210218_Intimationletter14092025.pdf",
+    "method": "rules"
+   }
+  ]
+ }
+}

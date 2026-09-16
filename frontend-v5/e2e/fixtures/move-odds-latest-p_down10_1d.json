@@ -1,0 +1,197 @@
+{
+ "_comment": "MOCK — not real data: response shape from backend/routes/move_odds.py, values copied from the 2026-09-17 v4 snapshot",
+ "data": {
+  "status": "final",
+  "head": "p_down10_1d",
+  "expected_session": "2026-09-17",
+  "base_rate": 0.003412,
+  "run": {
+   "model": "v4",
+   "refit": "monthly",
+   "status": "final",
+   "data_as_of": "2026-09-16",
+   "target_session": "2026-09-17",
+   "frozen_at": "2026-09-16T20:50:22.247116+05:30",
+   "git_sha": "0dc20f9",
+   "universe_size": 1000,
+   "scored": 994,
+   "input_count": 84,
+   "train_rows": 366080,
+   "train_end": "2026-08-31",
+   "counts_toward_verdict": true,
+   "skipped_holidays": []
+  },
+  "rows": [
+   {
+    "symbol": "ANTELOPUS",
+    "company_name": "Antelopus Selan Energy Limited",
+    "sector": "Oil Gas",
+    "p": 0.05469,
+    "p_opposite": 0.048866,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "TBZ",
+    "company_name": "Tribhovandas Bhimji Zaveri Limited",
+    "sector": "Consumer Durables",
+    "p": 0.038045,
+    "p_opposite": 0.020201,
+    "events_on_record": 2
+   },
+   {
+    "symbol": "KPL",
+    "company_name": "Kwality Pharmaceuticals Limited",
+    "sector": null,
+    "p": 0.035736,
+    "p_opposite": 0.023553,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "INDSWFTLAB",
+    "company_name": "Ind-Swift Laboratories Limited",
+    "sector": "Healthcare",
+    "p": 0.032789,
+    "p_opposite": 0.026507,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "RPEL",
+    "company_name": "Raghav Productivity Enhancers Limited",
+    "sector": "Capital Goods",
+    "p": 0.032474,
+    "p_opposite": 0.062145,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "MOREPENLAB",
+    "company_name": "Morepen Laboratories Limited",
+    "sector": "Healthcare",
+    "p": 0.028774,
+    "p_opposite": 0.032653,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "PNCINFRA",
+    "company_name": "PNC Infratech Limited",
+    "sector": "Construction",
+    "p": 0.024629,
+    "p_opposite": 0.103875,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "SBCL",
+    "company_name": "Shivalik Bimetal Controls Limited",
+    "sector": "Capital Goods",
+    "p": 0.021192,
+    "p_opposite": 0.017194,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "IFCI",
+    "company_name": "IFCI Limited",
+    "sector": "Finance",
+    "p": 0.020573,
+    "p_opposite": 0.034671,
+    "events_on_record": 3
+   },
+   {
+    "symbol": "SAKAR",
+    "company_name": "Sakar Healthcare Limited",
+    "sector": "Healthcare",
+    "p": 0.019248,
+    "p_opposite": 0.013865,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "IOLCP",
+    "company_name": "IOL Chemicals and Pharmaceuticals Limited",
+    "sector": "Healthcare",
+    "p": 0.019148,
+    "p_opposite": 0.023962,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "AEROENTER",
+    "company_name": "Aeroflex Enterprises Limited",
+    "sector": null,
+    "p": 0.017935,
+    "p_opposite": 0.051843,
+    "events_on_record": 0
+   }
+  ],
+  "record": {
+   "window_label": "Jan–Aug 2025",
+   "sessions": 165,
+   "base_rate": 0.005924547702401645,
+   "top10_hit_rate": 0.04363636363636364,
+   "bands": [
+    {
+     "band_lo": 0.0,
+     "band_hi": 0.05,
+     "rows": 162783,
+     "realised": 0.005682411554032055
+    },
+    {
+     "band_lo": 0.05,
+     "band_hi": 0.1,
+     "rows": 385,
+     "realised": 0.06233766233766234
+    },
+    {
+     "band_lo": 0.1,
+     "band_hi": 0.2,
+     "rows": 160,
+     "realised": 0.075
+    },
+    {
+     "band_lo": 0.2,
+     "band_hi": 0.3,
+     "rows": 34,
+     "realised": 0.11764705882352941
+    },
+    {
+     "band_lo": 0.3,
+     "band_hi": 0.4,
+     "rows": 18,
+     "realised": 0.1111111111111111
+    },
+    {
+     "band_lo": 0.4,
+     "band_hi": 0.5,
+     "rows": 6,
+     "realised": 0.16666666666666666
+    },
+    {
+     "band_lo": 0.5,
+     "band_hi": 0.6,
+     "rows": 2,
+     "realised": 0.0
+    },
+    {
+     "band_lo": 0.6,
+     "band_hi": 1.0,
+     "rows": 0,
+     "realised": null
+    }
+   ]
+  },
+  "live_record": {
+   "sessions": 0,
+   "top10_hits": null,
+   "touched": null,
+   "graded_rows": null,
+   "last_target": null,
+   "last_top10_hits": null,
+   "last_touched": null,
+   "last_graded_rows": null
+  },
+  "limits": {
+   "not_used": [
+    "intraday prices",
+    "analyst estimates",
+    "F&O positioning history",
+    "filing and news text (events are listed for context only)"
+   ]
+  }
+ }
+}

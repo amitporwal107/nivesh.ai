@@ -120,7 +120,8 @@ def test_tc13_upstream_failures(monkeypatch):
     r = _get(c, "/api/move-odds/latest", "invited"); assert r.status_code == 502 and r.json()["detail"] == "upstream_unavailable"
     withheld = {"data": {"status": "withheld", "reason": "stale_data", "detail": {"rows": 812}, "target_session": "2026-09-18"}}
     c, _ = _client(monkeypatch, db, daas=(503, withheld))
-    r = _get(c, "/api/move-odds/latest", "invited"); assert r.status_code == 503 and r.json() == withheld
+    r = _get(c, "/api/move-odds/latest", "invited")
+    assert r.status_code == 503 and r.json()["data"] == withheld["data"] and r.json()["detail"] == "withheld: stale_data"
     c, _ = _client(monkeypatch, db, daas=(500, {"error": {"status": 500}}))
     assert _get(c, "/api/move-odds/latest", "invited").status_code == 502
     c, _ = _client(monkeypatch, db, configured=False)

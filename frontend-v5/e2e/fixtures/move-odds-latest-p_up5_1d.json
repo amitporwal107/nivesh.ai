@@ -1,0 +1,581 @@
+{
+ "_comment": "MOCK — not real data: response shape from backend/routes/move_odds.py, values copied from the 2026-09-17 v4 snapshot",
+ "data": {
+  "status": "final",
+  "head": "p_up5_1d",
+  "expected_session": "2026-09-17",
+  "base_rate": 0.075822,
+  "run": {
+   "model": "v4",
+   "refit": "monthly",
+   "status": "final",
+   "data_as_of": "2026-09-16",
+   "target_session": "2026-09-17",
+   "frozen_at": "2026-09-16T20:50:22.247116+05:30",
+   "git_sha": "0dc20f9",
+   "universe_size": 1000,
+   "scored": 994,
+   "input_count": 84,
+   "train_rows": 366080,
+   "train_end": "2026-08-31",
+   "counts_toward_verdict": true,
+   "skipped_holidays": []
+  },
+  "rows": [
+   {
+    "symbol": "PNCINFRA",
+    "company_name": "PNC Infratech Limited",
+    "sector": "Construction",
+    "p": 0.365521,
+    "p_opposite": 0.310191,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "ANTELOPUS",
+    "company_name": "Antelopus Selan Energy Limited",
+    "sector": "Oil Gas",
+    "p": 0.324981,
+    "p_opposite": 0.401928,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "RAYMOND",
+    "company_name": "Raymond Limited",
+    "sector": "Capital Goods",
+    "p": 0.282616,
+    "p_opposite": 0.431903,
+    "events_on_record": 3
+   },
+   {
+    "symbol": "RATNAVEER",
+    "company_name": "Ratnaveer Precision Engineering Limited",
+    "sector": "Capital Goods",
+    "p": 0.27639,
+    "p_opposite": 0.149514,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "TRIVENI",
+    "company_name": "Triveni Engineering & Industries Limited",
+    "sector": "FMCG",
+    "p": 0.272234,
+    "p_opposite": 0.076455,
+    "events_on_record": 3
+   },
+   {
+    "symbol": "MOREPENLAB",
+    "company_name": "Morepen Laboratories Limited",
+    "sector": "Healthcare",
+    "p": 0.270595,
+    "p_opposite": 0.35269,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "IOLCP",
+    "company_name": "IOL Chemicals and Pharmaceuticals Limited",
+    "sector": "Healthcare",
+    "p": 0.267875,
+    "p_opposite": 0.183067,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "FCL",
+    "company_name": "Fineotex Chemical Limited",
+    "sector": "Chemicals",
+    "p": 0.266911,
+    "p_opposite": 0.166647,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "ASIANENE",
+    "company_name": "Asian Energy Services Limited",
+    "sector": "Oil Gas",
+    "p": 0.256368,
+    "p_opposite": 0.138088,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "KPL",
+    "company_name": "Kwality Pharmaceuticals Limited",
+    "sector": null,
+    "p": 0.249905,
+    "p_opposite": 0.131429,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "INDSWFTLAB",
+    "company_name": "Ind-Swift Laboratories Limited",
+    "sector": "Healthcare",
+    "p": 0.245267,
+    "p_opposite": 0.209248,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "ATALREAL",
+    "company_name": "Atal Realtech Limited",
+    "sector": "Realty",
+    "p": 0.240391,
+    "p_opposite": 0.120597,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "ROSSTECH",
+    "company_name": "Rossell Techsys Limited",
+    "sector": "Capital Goods",
+    "p": 0.237908,
+    "p_opposite": 0.210499,
+    "events_on_record": 2
+   },
+   {
+    "symbol": "HIKAL",
+    "company_name": "Hikal Limited",
+    "sector": "Healthcare",
+    "p": 0.230229,
+    "p_opposite": 0.090496,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "RPEL",
+    "company_name": "Raghav Productivity Enhancers Limited",
+    "sector": "Capital Goods",
+    "p": 0.229752,
+    "p_opposite": 0.23462,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "AEROENTER",
+    "company_name": "Aeroflex Enterprises Limited",
+    "sector": null,
+    "p": 0.22859,
+    "p_opposite": 0.155538,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "TATACHEM",
+    "company_name": "Tata Chemicals Limited",
+    "sector": "Chemicals",
+    "p": 0.225844,
+    "p_opposite": 0.149577,
+    "events_on_record": 3
+   },
+   {
+    "symbol": "JYOTISTRUC",
+    "company_name": "Jyoti Structures Limited",
+    "sector": "Capital Goods",
+    "p": 0.225768,
+    "p_opposite": 0.059286,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "AEROFLEX",
+    "company_name": "Aeroflex Industries Limited",
+    "sector": "Capital Goods",
+    "p": 0.224586,
+    "p_opposite": 0.134403,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "AVALON",
+    "company_name": "Avalon Technologies Limited",
+    "sector": "Capital Goods",
+    "p": 0.220682,
+    "p_opposite": 0.150299,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "PCJEWELLER",
+    "company_name": "PC Jeweller Limited",
+    "sector": "Consumer Durables",
+    "p": 0.217218,
+    "p_opposite": 0.152251,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "EXICOM",
+    "company_name": "Exicom Tele-Systems Limited",
+    "sector": "Capital Goods",
+    "p": 0.214991,
+    "p_opposite": 0.098139,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "SOUTHWEST",
+    "company_name": "South West Pinnacle Exploration Limited",
+    "sector": "Services",
+    "p": 0.214254,
+    "p_opposite": 0.075749,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "QUADFUTURE",
+    "company_name": "Quadrant Future Tek Limited",
+    "sector": "Capital Goods",
+    "p": 0.210508,
+    "p_opposite": 0.142682,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "INA",
+    "company_name": "Insolation Energy Limited",
+    "sector": "Power",
+    "p": 0.206654,
+    "p_opposite": 0.07539,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "HLEGLAS",
+    "company_name": "HLE Glascoat Limited",
+    "sector": null,
+    "p": 0.205062,
+    "p_opposite": 0.219742,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "TBZ",
+    "company_name": "Tribhovandas Bhimji Zaveri Limited",
+    "sector": "Consumer Durables",
+    "p": 0.204929,
+    "p_opposite": 0.271469,
+    "events_on_record": 2
+   },
+   {
+    "symbol": "FILATEX",
+    "company_name": "Filatex India Limited",
+    "sector": null,
+    "p": 0.201697,
+    "p_opposite": 0.242895,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "SUVEN",
+    "company_name": "Suven Life Sciences Limited",
+    "sector": "Healthcare",
+    "p": 0.198135,
+    "p_opposite": 0.080179,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "WHEELS",
+    "company_name": "Wheels India Limited",
+    "sector": "Automobile",
+    "p": 0.197962,
+    "p_opposite": 0.168138,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "MOTISONS",
+    "company_name": "Motisons Jewellers Limited",
+    "sector": "Consumer Durables",
+    "p": 0.196897,
+    "p_opposite": 0.153568,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "MARINE",
+    "company_name": "Marine Electricals (India) Limited",
+    "sector": "Capital Goods",
+    "p": 0.194578,
+    "p_opposite": 0.13165,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "KMEW",
+    "company_name": "Knowledge Marine & Engineering Works Limited",
+    "sector": "Services",
+    "p": 0.190826,
+    "p_opposite": 0.129752,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "SBCL",
+    "company_name": "Shivalik Bimetal Controls Limited",
+    "sector": "Capital Goods",
+    "p": 0.187916,
+    "p_opposite": 0.115467,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "SAKAR",
+    "company_name": "Sakar Healthcare Limited",
+    "sector": "Healthcare",
+    "p": 0.187371,
+    "p_opposite": 0.156202,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "MANINDS",
+    "company_name": "Man Industries (India) Limited",
+    "sector": "Capital Goods",
+    "p": 0.185434,
+    "p_opposite": 0.177533,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "ELLEN",
+    "company_name": "Ellenbarrie Industrial Gases Limited",
+    "sector": "Chemicals",
+    "p": 0.184947,
+    "p_opposite": 0.194536,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "KIRIINDUS",
+    "company_name": "Kiri Industries Limited",
+    "sector": "Chemicals",
+    "p": 0.18468,
+    "p_opposite": 0.087703,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "IFCI",
+    "company_name": "IFCI Limited",
+    "sector": "Finance",
+    "p": 0.182047,
+    "p_opposite": 0.098318,
+    "events_on_record": 3
+   },
+   {
+    "symbol": "WALCHANNAG",
+    "company_name": "Walchandnagar Industries Limited",
+    "sector": "Capital Goods",
+    "p": 0.180283,
+    "p_opposite": 0.058633,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "SGMART",
+    "company_name": "SG Mart Limited",
+    "sector": "Metals",
+    "p": 0.17938,
+    "p_opposite": 0.085197,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "GENESYS",
+    "company_name": "Genesys International Corporation Limited",
+    "sector": "Information Technology",
+    "p": 0.177705,
+    "p_opposite": 0.110725,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "PNGSREVA",
+    "company_name": "PNGS Reva Diamond Jewellery Limited",
+    "sector": "Consumer Durables",
+    "p": 0.177514,
+    "p_opposite": 0.041115,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "ZEEL",
+    "company_name": "Zee Entertainment Enterprises Limited",
+    "sector": "Media",
+    "p": 0.170954,
+    "p_opposite": 0.09806,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "DWARKESH",
+    "company_name": "Dwarikesh Sugar Industries Limited",
+    "sector": null,
+    "p": 0.167555,
+    "p_opposite": 0.051011,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "SOLARA",
+    "company_name": "Solara Active Pharma Sciences Limited",
+    "sector": "Healthcare",
+    "p": 0.165622,
+    "p_opposite": 0.121243,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "KPEL",
+    "company_name": "K.P. Energy Limited",
+    "sector": "Power",
+    "p": 0.16487,
+    "p_opposite": 0.059218,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "CYIENTDLM",
+    "company_name": "Cyient DLM Limited",
+    "sector": "Capital Goods",
+    "p": 0.164513,
+    "p_opposite": 0.122779,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "AFCONS",
+    "company_name": "Afcons Infrastructure Limited",
+    "sector": "Construction",
+    "p": 0.163965,
+    "p_opposite": 0.245077,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "CONFIPET",
+    "company_name": "Confidence Petroleum India Limited",
+    "sector": "Oil Gas",
+    "p": 0.163519,
+    "p_opposite": 0.125873,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "ALOKINDS",
+    "company_name": "Alok Industries Limited",
+    "sector": "Textiles",
+    "p": 0.160893,
+    "p_opposite": 0.04672,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "GSPCROP",
+    "company_name": "GSP Crop Science Limited",
+    "sector": null,
+    "p": 0.160693,
+    "p_opposite": 0.07242,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "NIACL",
+    "company_name": "The New India Assurance Company Limited",
+    "sector": "Finance",
+    "p": 0.160146,
+    "p_opposite": 0.043165,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "SASKEN",
+    "company_name": "Sasken Technologies Limited",
+    "sector": "Information Technology",
+    "p": 0.159438,
+    "p_opposite": 0.066103,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "KRISHNADEF",
+    "company_name": "Krishna Defence And Allied Industries Limited",
+    "sector": "Capital Goods",
+    "p": 0.15943,
+    "p_opposite": 0.046642,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "PARAGMILK",
+    "company_name": "Parag Milk Foods Limited",
+    "sector": "FMCG",
+    "p": 0.159124,
+    "p_opposite": 0.182078,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "SSWL",
+    "company_name": "Steel Strips Wheels Limited",
+    "sector": "Automobile",
+    "p": 0.158729,
+    "p_opposite": 0.11215,
+    "events_on_record": 2
+   },
+   {
+    "symbol": "CEINSYS",
+    "company_name": "Ceinsys Tech Limited",
+    "sector": "Information Technology",
+    "p": 0.155085,
+    "p_opposite": 0.032979,
+    "events_on_record": 2
+   },
+   {
+    "symbol": "CSBBANK",
+    "company_name": "CSB Bank Limited",
+    "sector": "Finance",
+    "p": 0.152651,
+    "p_opposite": 0.10151,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "PINELABS",
+    "company_name": "Pine Labs Limited",
+    "sector": "Finance",
+    "p": 0.152609,
+    "p_opposite": 0.178282,
+    "events_on_record": 1
+   }
+  ],
+  "record": {
+   "window_label": "Jan–Aug 2025",
+   "sessions": 165,
+   "base_rate": 0.08115651088207212,
+   "top10_hit_rate": 0.3103030303030303,
+   "bands": [
+    {
+     "band_lo": 0.0,
+     "band_hi": 0.05,
+     "rows": 72715,
+     "realised": 0.03534346420958537
+    },
+    {
+     "band_lo": 0.05,
+     "band_hi": 0.1,
+     "rows": 49513,
+     "realised": 0.0852705350110072
+    },
+    {
+     "band_lo": 0.1,
+     "band_hi": 0.2,
+     "rows": 31468,
+     "realised": 0.13181644845557391
+    },
+    {
+     "band_lo": 0.2,
+     "band_hi": 0.3,
+     "rows": 6926,
+     "realised": 0.209356049667918
+    },
+    {
+     "band_lo": 0.3,
+     "band_hi": 0.4,
+     "rows": 1950,
+     "realised": 0.2753846153846154
+    },
+    {
+     "band_lo": 0.4,
+     "band_hi": 0.5,
+     "rows": 589,
+     "realised": 0.3684210526315789
+    },
+    {
+     "band_lo": 0.5,
+     "band_hi": 0.6,
+     "rows": 171,
+     "realised": 0.47953216374269003
+    },
+    {
+     "band_lo": 0.6,
+     "band_hi": 1.0,
+     "rows": 56,
+     "realised": 0.6071428571428571
+    }
+   ]
+  },
+  "live_record": {
+   "sessions": 0,
+   "top10_hits": null,
+   "touched": null,
+   "graded_rows": null,
+   "last_target": null,
+   "last_top10_hits": null,
+   "last_touched": null,
+   "last_graded_rows": null
+  },
+  "limits": {
+   "not_used": [
+    "intraday prices",
+    "analyst estimates",
+    "F&O positioning history",
+    "filing and news text (events are listed for context only)"
+   ]
+  }
+ }
+}

@@ -37,7 +37,8 @@ async def _proxy(path: str, params: dict):
     if status == 200 and isinstance(body, dict):
         return body
     if status == 503 and isinstance(body, dict) and (body.get("data") or {}).get("status") == "withheld":
-        return JSONResponse(status_code=503, content=body)
+        # `detail` is the one field every client error parser reads; `data` keeps the structured reason
+        return JSONResponse(status_code=503, content={"detail": f"withheld: {body['data'].get('reason')}", "data": body["data"]})
     if status == 404:
         raise HTTPException(status_code=404, detail="not_found")
     logger.warning("move-odds DaaS %s answered HTTP %s", path, status)

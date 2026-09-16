@@ -1,0 +1,197 @@
+{
+ "_comment": "MOCK — not real data: response shape from backend/routes/move_odds.py, values copied from the 2026-09-17 v4 snapshot",
+ "data": {
+  "status": "final",
+  "head": "p_up10_1d",
+  "expected_session": "2026-09-17",
+  "base_rate": 0.010738,
+  "run": {
+   "model": "v4",
+   "refit": "monthly",
+   "status": "final",
+   "data_as_of": "2026-09-16",
+   "target_session": "2026-09-17",
+   "frozen_at": "2026-09-16T20:50:22.247116+05:30",
+   "git_sha": "0dc20f9",
+   "universe_size": 1000,
+   "scored": 994,
+   "input_count": 84,
+   "train_rows": 366080,
+   "train_end": "2026-08-31",
+   "counts_toward_verdict": true,
+   "skipped_holidays": []
+  },
+  "rows": [
+   {
+    "symbol": "PNCINFRA",
+    "company_name": "PNC Infratech Limited",
+    "sector": "Construction",
+    "p": 0.103875,
+    "p_opposite": 0.024629,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "DELTACORP",
+    "company_name": "Delta Corp Limited",
+    "sector": "Consumer Services",
+    "p": 0.066896,
+    "p_opposite": 0.005014,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "RPEL",
+    "company_name": "Raghav Productivity Enhancers Limited",
+    "sector": "Capital Goods",
+    "p": 0.062145,
+    "p_opposite": 0.032474,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "KPEL",
+    "company_name": "K.P. Energy Limited",
+    "sector": "Power",
+    "p": 0.055325,
+    "p_opposite": 0.001323,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "AEROENTER",
+    "company_name": "Aeroflex Enterprises Limited",
+    "sector": null,
+    "p": 0.051843,
+    "p_opposite": 0.017935,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "ROSSTECH",
+    "company_name": "Rossell Techsys Limited",
+    "sector": "Capital Goods",
+    "p": 0.050577,
+    "p_opposite": 0.011778,
+    "events_on_record": 2
+   },
+   {
+    "symbol": "ANTELOPUS",
+    "company_name": "Antelopus Selan Energy Limited",
+    "sector": "Oil Gas",
+    "p": 0.048866,
+    "p_opposite": 0.05469,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "FINOPB",
+    "company_name": "Fino Payments Bank Limited",
+    "sector": "Finance",
+    "p": 0.044391,
+    "p_opposite": 0.003286,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "QUADFUTURE",
+    "company_name": "Quadrant Future Tek Limited",
+    "sector": "Capital Goods",
+    "p": 0.041715,
+    "p_opposite": 0.006228,
+    "events_on_record": 0
+   },
+   {
+    "symbol": "CHEMPLASTS",
+    "company_name": "Chemplast Sanmar Limited",
+    "sector": "Chemicals",
+    "p": 0.039917,
+    "p_opposite": 0.000701,
+    "events_on_record": 2
+   },
+   {
+    "symbol": "MOTISONS",
+    "company_name": "Motisons Jewellers Limited",
+    "sector": "Consumer Durables",
+    "p": 0.037592,
+    "p_opposite": 0.010663,
+    "events_on_record": 1
+   },
+   {
+    "symbol": "KIRIINDUS",
+    "company_name": "Kiri Industries Limited",
+    "sector": "Chemicals",
+    "p": 0.036521,
+    "p_opposite": 0.005568,
+    "events_on_record": 0
+   }
+  ],
+  "record": {
+   "window_label": "Jan–Aug 2025",
+   "sessions": 165,
+   "base_rate": 0.010882072122799716,
+   "top10_hit_rate": 0.08303030303030302,
+   "bands": [
+    {
+     "band_lo": 0.0,
+     "band_hi": 0.05,
+     "rows": 160460,
+     "realised": 0.009834226598529228
+    },
+    {
+     "band_lo": 0.05,
+     "band_hi": 0.1,
+     "rows": 2314,
+     "realised": 0.059636992221261884
+    },
+    {
+     "band_lo": 0.1,
+     "band_hi": 0.2,
+     "rows": 535,
+     "realised": 0.08224299065420561
+    },
+    {
+     "band_lo": 0.2,
+     "band_hi": 0.3,
+     "rows": 62,
+     "realised": 0.1935483870967742
+    },
+    {
+     "band_lo": 0.3,
+     "band_hi": 0.4,
+     "rows": 13,
+     "realised": 0.38461538461538464
+    },
+    {
+     "band_lo": 0.4,
+     "band_hi": 0.5,
+     "rows": 4,
+     "realised": 0.25
+    },
+    {
+     "band_lo": 0.5,
+     "band_hi": 0.6,
+     "rows": 0,
+     "realised": null
+    },
+    {
+     "band_lo": 0.6,
+     "band_hi": 1.0,
+     "rows": 0,
+     "realised": null
+    }
+   ]
+  },
+  "live_record": {
+   "sessions": 0,
+   "top10_hits": null,
+   "touched": null,
+   "graded_rows": null,
+   "last_target": null,
+   "last_top10_hits": null,
+   "last_touched": null,
+   "last_graded_rows": null
+  },
+  "limits": {
+   "not_used": [
+    "intraday prices",
+    "analyst estimates",
+    "F&O positioning history",
+    "filing and news text (events are listed for context only)"
+   ]
+  }
+ }
+}
