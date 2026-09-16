@@ -10,6 +10,17 @@ from typing import Dict, List, Optional
 
 
 KNOWN_FEATURES: Dict[str, Dict] = {
+    "move_odds": {
+        "display_name": "Move odds (Research page)",
+        "description": (
+            "Ten-Percent Days estimates on /research: the chance each stock touches a +/-5% or +/-10% move next session. "
+            "Research preview for invited accounts only; the API returns 403 to everyone else. 'everyone' is not allowed "
+            "for this flag (spec D1), and a persisted 'everyone' is read as 'off'."
+        ),
+        "default_mode": "allowlist",
+        "default_allowlist": [],
+        "allowed_modes": ["off", "allowlist"],
+    },
     "ai_copilot": {
         "display_name": "AI Copilot (Scenario Engine)",
         "description": "Simulate scenarios, rebalance plans, custom builder, saved/pending plans",
@@ -148,6 +159,9 @@ def set_flag(flag: str, mode: Optional[str] = None, allowlist: Optional[List[str
     if mode is not None:
         if mode not in {"off", "allowlist", "everyone"}:
             raise ValueError(f"Invalid mode: {mode}")
+        allowed = KNOWN_FEATURES.get(flag, {}).get("allowed_modes")
+        if allowed and mode not in allowed:
+            raise ValueError(f"Mode '{mode}' is not allowed for {flag}; allowed: {', '.join(allowed)}")
         _flags[flag]["mode"] = mode
     if allowlist is not None:
         _flags[flag]["allowlist"] = sorted({e.lower().strip() for e in allowlist if e.strip()})
@@ -212,8 +226,12 @@ async def hydrate_from_db(db) -> None:
     if doc and "flags" in doc:
         for k, v in (doc["flags"] or {}).items():
             if isinstance(v, dict):
+                mode = v.get("mode", "off")
+                allowed = KNOWN_FEATURES.get(k, {}).get("allowed_modes")
+                if allowed and mode not in allowed:
+                    mode = "off"          # fail closed: a persisted mode this flag forbids never takes effect
                 _flags[k] = {
-                    "mode": v.get("mode", "off"),
+                    "mode": mode,
                     "allowlist": v.get("allowlist", []),
                 }
 

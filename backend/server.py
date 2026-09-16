@@ -86,6 +86,7 @@ from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reve
 from routes.market_events import router as market_events_router  # Market Event Intelligence — corporate events, AI signals, breakout feed
 from routes.markets import router as markets_router              # Markets home dashboard aggregator (/api/markets/home)
 from routes.filings import router as filings_router              # Filings Home — feed + signals (/api/filings/*)
+from routes.move_odds import router as move_odds_router          # Research → Move odds (/api/move-odds/*, allowlist flag)
 from routes.portfolio_exposure import router as portfolio_exposure_router  # Diversification & Concentration analytics — AMC / Sector / Company exposure
 from routes.portfolio_risk_analytics import router as portfolio_risk_analytics_router  # V3 risk analytics — beta/sharpe/volatility from DAAS
 from routes.portfolio_composition import router as portfolio_composition_router  # v5 Composition Explorer — asset_class/sector/fund/group breakdown
@@ -196,6 +197,7 @@ app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://
 app.include_router(market_events_router)           # Market Event Intelligence feed (/api/market/events, /signals)
 app.include_router(markets_router)                 # Markets home dashboard aggregator (/api/markets/home)
 app.include_router(filings_router)                # Filings Home — feed + signals (/api/filings/*)
+app.include_router(move_odds_router)              # Research → Move odds (/api/move-odds/*, allowlist flag)
 app.include_router(portfolio_exposure_router)      # Diversification & Concentration analytics (/api/portfolio/exposure/concentration)
 app.include_router(portfolio_risk_analytics_router) # V3 risk analytics (/api/portfolio/risk-analytics) — beta/sharpe/vol from DAAS
 app.include_router(portfolio_composition_router)   # v5 Composition Explorer (/api/portfolio/composition)
