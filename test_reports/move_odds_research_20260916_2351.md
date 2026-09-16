@@ -42,48 +42,83 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 
 | ID | Area | Scenario | Type | Expected | Result |
 |----|------|----------|------|----------|--------|
-| TC-1 | DaaS | latest for a published run | unit | rows sorted by p desc; no `rank` key; base_rate + run provenance present; field names contain no banned word | |
-| TC-2 | DaaS | unknown head or model | unit | 400 (DaaS validation convention; amended before first run) | |
-| TC-3 | DaaS | no run at all | unit | 200 status not_published, rows [] | |
-| TC-4 | DaaS | latest run targets an earlier session than expected | edge | status not_published; the older run's rows are NOT returned | |
-| TC-5 | DaaS | refusal recorded for the expected session | failure | 503 withheld with reason; no rows | |
-| TC-6 | DaaS | stock detail | unit | four estimates, inputs with data dates, events; media titles null | |
-| TC-7 | DaaS | symbol not in the run | edge | 404 | |
-| TC-8 | DaaS | non-internal key plan | edge | 403 | |
-| TC-9 | App | non-allowlisted user, default flag | api | 403 feature_not_enabled on both routes | |
-| TC-10 | App | allowlisted non-admin | api | 200, DaaS payload passed through | |
-| TC-11 | App | set move_odds to everyone | edge | ValueError; mode unchanged | |
-| TC-12 | App | admin not on allowlist | edge | 403 (fail closed) | |
-| TC-13 | App | DaaS down / DaaS 503 withheld | failure | 502 upstream_unavailable / 503 passed through | |
-| TC-14 | App | flag flipped in the DB by another worker | edge | honoured within 30 s (TTL re-read) | |
-| TC-15 | Publisher | tampered snapshot | failure | refuses (hash mismatch), writes nothing | |
-| TC-16 | Publisher | same snapshot published twice | edge | one tpd_runs row (idempotent on snapshot_sha256) | |
-| TC-17 | Publisher | inputs on record | unit | six inputs with values + data dates; delivery carries its own (lagged) date | |
-| TC-18 | Publisher | media vs filing events | unit | media title NULL, filing title kept, max 3 per symbol, window 5 calendar days to the freeze | |
-| TC-19 | Publisher | rehearsal or preview snapshot | edge | refused unless it counts toward the verdict | |
-| TC-20 | V5 | flag off vs on | e2e (mock) | rail item + mobile tab absent / present | |
-| TC-21 | V5 | final state | e2e (mock) | disclaimer above table; provenance strip; 4 tabs with base rates | |
-| TC-22 | V5 | table | e2e (mock) | sorted desc; no rank column; 50 per page; search filters | |
-| TC-23 | V5 | details expander | e2e (mock) | inputs with dates; events; media headline withheld text | |
-| TC-24 | V5 | not published / withheld | e2e (mock) | no percentages rendered; reason shown for withheld | |
-| TC-25 | V5 | 403 mid-session | e2e (mock) | access-not-enabled state; no percentages | |
-| TC-26 | V5 | D2 vocabulary | e2e (mock) | rendered text has no banned word (word boundaries; §8 disclaimer allowed) | |
-| TC-27 | V5 | C7 display precision | e2e (mock) | every shown % equals the API value at 1 decimal | |
-| TC-28 | Staging | DaaS latest with internal key | api | 200; row count = SQL count of tpd_run_estimates for the run and head | |
-| TC-29 | Staging | app routes with real sessions | api | non-allowlisted 403; allowlisted 200 | |
-| TC-30 | Staging | real Playwright on /v5/research | e2e | allowlisted account sees the screen; top rows match SQL | |
+| TC-1 | DaaS | latest for a published run | unit | rows sorted by p desc; no `rank` key; base_rate + run provenance present; field names contain no banned word  PASS (unit) + real staging DB: 994 rows sorted desc, no rank key |
+| TC-2 | DaaS | unknown head or model | unit | 400 (DaaS validation convention; amended before first run)  PASS (unit) |
+| TC-3 | DaaS | no run at all | unit | 200 status not_published, rows []  PASS (unit) |
+| TC-4 | DaaS | latest run targets an earlier session than expected | edge | status not_published; the older run's rows are NOT returned  PASS (unit) + real staging DB at 16:00 clock: not_published, 0 rows |
+| TC-5 | DaaS | refusal recorded for the expected session | failure | 503 withheld with reason; no rows  PASS (unit; later run outranks refusal) |
+| TC-6 | DaaS | stock detail | unit | four estimates, inputs with data dates, events; media titles null  PASS (unit) + real staging DB: 4 estimates, 6 inputs, 1 event |
+| TC-7 | DaaS | symbol not in the run | edge | 404  PASS (unit) + real staging DB: 404 |
+| TC-8 | DaaS | non-internal key plan | edge | 403  PASS (unit) |
+| TC-9 | App | non-allowlisted user, default flag | api | 403 feature_not_enabled on both routes  PASS (unit) |
+| TC-10 | App | allowlisted non-admin | api | 200, DaaS payload passed through  PASS (unit) |
+| TC-11 | App | set move_odds to everyone | edge | ValueError; mode unchanged  PASS (unit) |
+| TC-12 | App | admin not on allowlist | edge | 403 (fail closed)  PASS (unit) |
+| TC-13 | App | DaaS down / DaaS 503 withheld | failure | 502 upstream_unavailable / 503 passed through  PASS (unit) |
+| TC-14 | App | flag flipped in the DB by another worker | edge | honoured within 30 s (TTL re-read)  PASS (unit) |
+| TC-15 | Publisher | tampered snapshot | failure | refuses (hash mismatch), writes nothing  PASS (unit) |
+| TC-16 | Publisher | same snapshot published twice | edge | one tpd_runs row (idempotent on snapshot_sha256)  PASS (unit) + staging: published twice → 1 run, 3,976 estimates |
+| TC-17 | Publisher | inputs on record | unit | six inputs with values + data dates; delivery carries its own (lagged) date  PASS (unit) + staging: PNCINFRA delivery 47.88 @ 2026-09-15 |
+| TC-18 | Publisher | media vs filing events | unit | media title NULL, filing title kept, max 3 per symbol, window 5 calendar days to the freeze  PASS (unit) + staging: media rows with a title = 0 |
+| TC-19 | Publisher | rehearsal or preview snapshot | edge | refused unless it counts toward the verdict  PASS (unit) + real: 16 Sep preview snapshot refused |
+| TC-20 | V5 | flag off vs on | e2e (mock) | rail item + mobile tab absent / present  PASS (Playwright, mocked) |
+| TC-21 | V5 | final state | e2e (mock) | disclaimer above table; provenance strip; 4 tabs with base rates  PASS (Playwright, mocked) |
+| TC-22 | V5 | table | e2e (mock) | sorted desc; no rank column; 50 per page; search filters  PASS (Playwright, mocked) |
+| TC-23 | V5 | details expander | e2e (mock) | inputs with dates; events; media headline withheld text  PASS (Playwright, mocked) |
+| TC-24 | V5 | not published / withheld | e2e (mock) | no percentages rendered; reason shown for withheld  PASS (Playwright, mocked) |
+| TC-25 | V5 | 403 mid-session | e2e (mock) | access-not-enabled state; no percentages  PASS (Playwright, mocked) |
+| TC-26 | V5 | D2 vocabulary | e2e (mock) | rendered text has no banned word (word boundaries; §8 disclaimer allowed)  PASS (Playwright, mocked) |
+| TC-27 | V5 | C7 display precision | e2e (mock) | every shown % equals the API value at 1 decimal  PASS (Playwright, mocked) |
+| TC-28 | Staging | DaaS latest with internal key | api | 200; row count = SQL count of tpd_run_estimates for the run and head  NOT RUN — DaaS router not deployed to staging |
+| TC-29 | Staging | app routes with real sessions | api | non-allowlisted 403; allowlisted 200  NOT RUN — app not deployed; needs session tokens |
+| TC-30 | Staging | real Playwright on /v5/research | e2e | allowlisted account sees the screen; top rows match SQL  NOT RUN — needs deploy + session token |
 
 ## API / Endpoint Tests (staging)
-_pending_
+- **Deployed staging endpoints: NOT RUN.** The DaaS router and app routes are not on staging (deploy needs the user's go-ahead; the app deploys from `dev`, which also redeploys live login).
+- **Router against the real staging database (local process, staging DaaS container's own DB settings, injected clock):**
+  - Output:
+    ```
+    latest p_up5_1d: 200 final expected 2026-09-17 rows 994 base 0.0758
+      first 3: [('PNCINFRA', 0.3655, 0.3102, 1), ('ANTELOPUS', 0.325, 0.4019, 1), ('RAYMOND', 0.2826, 0.4319, 3)]
+      sorted desc: True | rank key present: False
+      run: {'model': 'v4', 'data_as_of': '2026-09-16', 'target_session': '2026-09-17', 'frozen_at': '2026-09-16T15:20:22.247116+00:00', 'git_sha': '0dc20f9', 'scored': 994, 'train_end': '2026-08-31'}
+      record: Jan–Aug 2025 165 0.3103 bands 8 | live: 0
+    stock PNCINFRA: 200 {'p_down10_1d': 0.0246, 'p_down5_1d': 0.3102, 'p_up10_1d': 0.1039, 'p_up5_1d': 0.3655} | inputs 6 | events [('NSE filing', 'debarment', False)]
+    stock NOSUCH: 404
+    after close: not_published expected 2026-09-18 last published for 2026-09-17 rows 0
+    ```
+- **pytest** (`PYTHONPATH=.:/opt/ray-env/lib/python3.11/site-packages venv/bin/python -m pytest …`):
+  - `nidp/tests/services/test_daas_move_odds.py nidp/tests/services/test_daas_api.py` → `49 passed, 7 warnings`
+  - `tests/test_move_odds_routes.py tests/test_research_feature_flags.py` → `12 passed`
+  - `nidp/tests/services/tpd_model nidp/tests/services/catalyst_intel` → `1 failed, 287 passed` (the failure is the live OpenAI smoke test: HTTP 429 insufficient_quota / credit_balance_exhausted on the account; unrelated to this feature)
 
 ## UI / Playwright Tests
-_pending_
+- **Spec:** `frontend-v5/e2e/tests/research-move-odds.spec.ts` (mocked; fixtures labelled MOCK, values copied from the 17 Sep v4 snapshot)
+  - Command: `npx playwright test e2e/tests/research-move-odds.spec.ts --project=desktop-chrome --reporter=list`
+  - Output: `13 passed (21.4s)`
+- **Regression:** `npx playwright test e2e/tests/research-access.spec.ts --project=desktop-chrome` → `7 passed`, `1 skipped` (pre-existing skip)
+- **Build:** `npm run build` → `✓ built in 15.34s` (tsc -b clean)
+- **Real-staging Playwright: NOT RUN** (needs the deploy and a session token).
 
 ## Data Correctness (staging)
-_pending_
+- Migration `149_tpd_move_odds_publish.sql` applied to nidp_staging 2026-09-17 00:23 IST (additive; recorded in nidp.schema_migrations).
+- Published the 2025 test record and the 17 Sep v4 run, then the run a second time:
+  ```
+  runs | 1
+  run | 1 v4 2026-09-16->2026-09-17 scored 994 frozen 2026-09-16 20:50
+  estimates | 3976
+  estimates by head | p_down10_1d=994 p_down5_1d=994 p_up10_1d=994 p_up5_1d=994
+  stocks | 994
+  events | 641
+  media rows with a title (must be 0) | 0
+  model_record | 4
+  band_record | 32
+  top3 p_up5_1d | PNCINFRA 0.3655, ANTELOPUS 0.3250, RAYMOND 0.2826
+  PNCINFRA delivery input | 47.88 @ 2026-09-15
+  ```
+- Result: PASS for the published data — counts equal the frozen snapshot (994 × 4), the second publish added nothing, top values equal snapshots_v4/2026-09-17.
 
 ## Inputs required from user
-- Go-ahead to apply migration 149 and publish snapshots into nidp_staging (additive, insert-only).
 - Go-ahead for the staging deploys (DaaS, and the app via a push to dev, which also redeploys live login).
 - Fresh staging session_tokens: one allowlisted non-admin, one non-allowlisted account.
 
