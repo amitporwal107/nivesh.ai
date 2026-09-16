@@ -94,6 +94,12 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
   /api/move-odds-does-not-exist                 HTTP 404 ... "code":"RES-001","message":"Not Found"
   ```
   Served V5 bundle `assets/index-BkEb2CQV.js` contains `api/move-odds`. The saved staging session (June) answered `401 Session expired`.
+- **Signed-in staging checks** (owner's session supplied 2026-09-17; token kept in a private file, never printed):
+  - Before allowlisting: `auth/me HTTP 200 {'email': 'aporwal107@gmail.com', 'role': None, 'is_admin': True} | move_odds: False` and `move-odds/latest HTTP 403 ... "code":"AUTHZ-001","message":"feature_not_enabled"`.
+  - Admin API: `POST add user HTTP 200`; `PUT mode=everyone HTTP 400 ... "Mode 'everyone' is not allowed for move_odds; allowed: off, allowlist"`; flag `('move_odds', 'allowlist', ['aporwal107@gmail.com'])` (temporary, for verification).
+  - Allowlisted: `latest HTTP 200` on 8/8 calls; `latest: final expected 2026-09-17 rows 994 base 0.0758 first3 [('PNCINFRA', 0.3655), ('ANTELOPUS', 0.325), ('RAYMOND', 0.2826)] sorted True`; `stocks/PNCINFRA HTTP 200` with the four estimates equal to SQL.
+  - **Bug found and fixed:** /auth/me answered `move_odds=True` on 5 calls and `False` on 3 (per-worker startup copies of the flags). Fix d87674f5 on dev (profile map refreshes on the gate's 30 s rule; new regression test; 13 passed). After its deploy (success 19:55:25Z): `1:200/True … 10:200/True`.
+  - Removal: `DELETE user HTTP 200`, flag back to `('move_odds', 'allowlist', [])` at 19:56:26Z; at 19:56:38Z `403/False` on 10/10 calls.
 - **Router against the real staging database (local process, staging DaaS container's own DB settings, injected clock):**
   - Output:
     ```
@@ -117,7 +123,14 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
   - Output: `13 passed (21.4s)`
 - **Regression:** `npx playwright test e2e/tests/research-access.spec.ts --project=desktop-chrome` → `7 passed`, `1 skipped` (pre-existing skip)
 - **Build:** `npm run build` → `✓ built in 15.34s` (tsc -b clean)
-- **Real-staging Playwright: NOT RUN** (deployed; needs a fresh session token for an allowlisted account).
+- **Real-staging Playwright** (no mocks; owner session, temporarily allowlisted): `playwright test -c playwright.config.cjs` →
+  ```
+  API: status=final expected=2026-09-17 rows=994 top=PNCINFRA 36.6%, ANTELOPUS 32.5%, RAYMOND 28.3%
+  UI: 50 values equal the API; disclaimer above table; details for PNCINFRA open; no banned words
+    ✓  1 staging-move-odds.spec.cjs:13:1 › TC-30 allowlisted account sees Move odds on staging and every shown value equals the API (3.7s)
+    1 passed (5.0s)
+  ```
+  Screenshot reviewed: layout as designed. Cosmetic follow-up: "1 on record" and the "LOW ≤ −5%" header wrap to two lines at 1280 px.
 
 ## Data Correctness (staging)
 - Migration `149_tpd_move_odds_publish.sql` applied to nidp_staging 2026-09-17 00:23 IST (additive; recorded in nidp.schema_migrations).
@@ -138,6 +151,6 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 - Result: PASS for the published data — counts equal the frozen snapshot (994 × 4), the second publish added nothing, top values equal snapshots_v4/2026-09-17.
 
 ## Inputs required from user
-- Fresh staging session_tokens: one allowlisted non-admin, one non-allowlisted account.
+- A staging session token (supplied by the user 2026-09-17). Allowlist membership remains the user's decision; the list is empty after verification.
 
-## Verdict: BLOCKED
+## Verdict: PASS

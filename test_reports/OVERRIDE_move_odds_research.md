@@ -1,5 +1,0 @@
-# OVERRIDE — Move odds screen on /research (not yet staging-verified)
-
-REASON: Deployed to staging with the user's approval (dev eaa64d19; all four workflows succeeded) and TC-28 passed on the deployed DaaS against real data. TC-29 and TC-30 need signed-in staging sessions: the user must supply fresh session tokens for one non-allowlisted account and one allowlisted account (adding any account to the move_odds allowlist is the user's decision; the v4 lock says nothing is served before its verdict). Everything that can run without them has run with real output in test_reports/move_odds_research_20260916_2351.md: unit tests (DaaS 49 passed, app 12 passed, publisher 6 passed), mocked Playwright (13 passed), production build, migration 149 applied to nidp_staging, and the published data checked by SQL against the frozen snapshot. The feature flag defaults to an empty allowlist, so nothing is visible to any user.
-
-Status: IN PROGRESS. The report's verdict stays BLOCKED until TC-28..TC-30 pass on staging.
