@@ -152,3 +152,12 @@
   .research-screen .mo-signal { white-space: normal; line-height: 1.35; padding: 2px 8px; }
   .research-screen .mo-live-hit { white-space: normal; }
 }
+
+/* paper-trade P&L indicator (user 2026-09-17): profit and loss are facts about a hypothetical trade, so they carry colour */
+.research-screen .mo-paper { font-family: var(--mono); font-size: 10.5px; border-radius: 999px; padding: 1px 8px; border: 1px solid var(--c-line-strong); white-space: nowrap; }
+.research-screen .mo-paper.up { color: var(--mint); border-color: var(--mint-line); background: var(--mint-soft); }
+.research-screen .mo-paper.down { color: var(--danger-hex); border-color: var(--danger-line); background: var(--danger-soft); }
+.research-screen .mo-papertrade { display: grid; gap: 6px; margin-top: 6px; }
+.research-screen .mo-up { color: var(--mint) !important; }
+.research-screen .mo-down { color: var(--danger-hex) !important; }
+@media (max-width: 1440px) { .research-screen .mo-paper { white-space: normal; } }

@@ -1,5 +1,5 @@
 {
- "_comment": "MOCK \u2014 not real data at test time: a Yahoo Finance snapshot taken 2026-09-17 ~10:02 IST via services.move_odds_live, frozen for the mocked UI tests; quotes[3] made unavailable on purpose; conditions on quotes[0] and quotes[1] come from MOCK hourly bars through services.move_odds_live.evaluate_conditions",
+ "_comment": "MOCK \u2014 not real data at test time: a Yahoo Finance snapshot taken 2026-09-17 ~10:02 IST via services.move_odds_live, frozen for the mocked UI tests; quotes[3] made unavailable on purpose; conditions on quotes[0] and quotes[1] come from MOCK hourly bars through services.move_odds_live.evaluate_conditions; paper on quotes[0] from MOCK 5-minute bars through services.move_odds_live.paper_trade",
  "source": "Yahoo Finance",
  "delay_note": "delayed up to about a minute",
  "fetched_at": "2026-09-17T09:59:26.629476+05:30",
@@ -78,7 +78,37 @@
     "entry_signal_since": "11:15-12:15",
     "close_at_signal_start": 138.74
    },
-   "error": null
+   "error": null,
+   "paper": {
+    "qty": 1000,
+    "entry_price": 138.74,
+    "entry_time": "12:15",
+    "exits": [
+     {
+      "pct": 5,
+      "level": 145.68,
+      "reached": true,
+      "at": "12:40",
+      "price": 145.68,
+      "state": "exited",
+      "gross": 6940.0,
+      "charges": 98.09,
+      "net": 6841.91
+     },
+     {
+      "pct": 10,
+      "level": 152.61,
+      "reached": false,
+      "at": null,
+      "price": 142.9,
+      "state": "open",
+      "gross": 4160.0,
+      "charges": 97.29,
+      "net": 4062.71
+     }
+    ],
+    "marked_at": "13:00"
+   }
   },
   {
    "symbol": "ANTELOPUS",
@@ -127,7 +157,8 @@
     "entry_signal_since": null,
     "close_at_signal_start": null
    },
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "RAYMOND",
@@ -154,11 +185,13 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "RATNAVEER",
-   "error": "unavailable"
+   "error": "unavailable",
+   "paper": null
   },
   {
    "symbol": "TRIVENI",
@@ -185,7 +218,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "MOREPENLAB",
@@ -212,7 +246,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "IOLCP",
@@ -239,7 +274,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "FCL",
@@ -266,7 +302,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "ASIANENE",
@@ -293,7 +330,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "KPL",
@@ -320,7 +358,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "INDSWFTLAB",
@@ -347,7 +386,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "ATALREAL",
@@ -374,7 +414,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "ROSSTECH",
@@ -401,7 +442,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "HIKAL",
@@ -428,7 +470,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "RPEL",
@@ -455,7 +498,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "AEROENTER",
@@ -482,7 +526,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "TATACHEM",
@@ -509,7 +554,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "JYOTISTRUC",
@@ -536,7 +582,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "AEROFLEX",
@@ -563,7 +610,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "AVALON",
@@ -590,7 +638,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "PCJEWELLER",
@@ -617,7 +666,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "EXICOM",
@@ -644,7 +694,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "SOUTHWEST",
@@ -671,7 +722,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "QUADFUTURE",
@@ -698,7 +750,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "INA",
@@ -725,7 +778,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "HLEGLAS",
@@ -752,7 +806,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "TBZ",
@@ -779,7 +834,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "FILATEX",
@@ -806,7 +862,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "SUVEN",
@@ -833,7 +890,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "WHEELS",
@@ -860,7 +918,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "MOTISONS",
@@ -887,7 +946,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "MARINE",
@@ -914,7 +974,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "KMEW",
@@ -941,7 +1002,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "SBCL",
@@ -968,7 +1030,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "SAKAR",
@@ -995,7 +1058,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "MANINDS",
@@ -1022,7 +1086,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "ELLEN",
@@ -1049,7 +1114,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "KIRIINDUS",
@@ -1076,7 +1142,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "IFCI",
@@ -1103,7 +1170,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "WALCHANNAG",
@@ -1130,7 +1198,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "SGMART",
@@ -1157,7 +1226,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "GENESYS",
@@ -1184,7 +1254,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "PNGSREVA",
@@ -1211,7 +1282,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "ZEEL",
@@ -1238,7 +1310,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "DWARKESH",
@@ -1265,7 +1338,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "SOLARA",
@@ -1292,7 +1366,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "KPEL",
@@ -1319,7 +1394,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "CYIENTDLM",
@@ -1346,7 +1422,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "AFCONS",
@@ -1373,7 +1450,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   },
   {
    "symbol": "CONFIPET",
@@ -1400,7 +1478,8 @@
     "p_down10_1d": false
    },
    "conditions": null,
-   "error": null
+   "error": null,
+   "paper": null
   }
  ]
 }

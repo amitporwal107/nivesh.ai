@@ -106,5 +106,31 @@ def test_signal_record_states_the_failed_test_and_no_field_name_carries_banned_v
         if isinstance(o, dict):
             for k, v in o.items(): keys.add(k); walk(v)
     walk(r); walk(live.SIGNAL_RECORD)
+    walk(live.paper_trade({"first_met_at": "10:15-11:15", "close_at_first_met": 100.0}, [], 101.0, datetime(2026, 9, 17, 13, 0, tzinfo=IST)))
     banned = re.compile(r"\b(buy|sell|invest|hold|stop|target|conviction|position|multibagger|best|pick)\b", re.I)   # "entry signal" allowed by the owner's decision 2026-09-17
     assert not [k for k in keys if banned.search(k.replace("_", " "))], [k for k in keys if banned.search(k.replace("_", " "))]
+
+
+def test_paper_trade_enters_on_the_early_signal_and_exits_at_plus5_or_marks_to_last():
+    from services.move_odds_live import intraday_charges, paper_trade
+
+    cond = {"first_met_at": "10:15-11:15", "close_at_first_met": 100.0}
+    bars5 = [{"start": datetime(2026, 9, 17, 11, 10, tzinfo=IST), "high": 106.0},       # before entry: ignored
+             {"start": datetime(2026, 9, 17, 12, 5, tzinfo=IST), "high": 105.3}]
+    p = paper_trade(cond, bars5, last=103.0, now=datetime(2026, 9, 17, 13, 0, tzinfo=IST))
+    assert p["qty"] == 1000 and p["entry_price"] == 100.0 and p["entry_time"] == "11:15"
+    e5, e10 = p["exits"]
+    assert (e5["pct"], e5["reached"], e5["at"], e5["price"], e5["state"], e5["gross"]) == (5, True, "12:05", 105.0, "exited", 5000.0)
+    assert (e10["pct"], e10["reached"], e10["price"], e10["state"], e10["gross"]) == (10, False, 103.0, "open", 3000.0)
+    assert e5["net"] == round(5000.0 - intraday_charges(100.0, 105.0), 2)
+    after = paper_trade(cond, bars5, last=99.5, now=datetime(2026, 9, 17, 15, 40, tzinfo=IST))
+    assert after["exits"][1]["state"] == "closed at day end" and after["exits"][1]["gross"] == -500.0
+
+
+def test_no_paper_trade_without_an_early_signal_or_on_the_last_bar():
+    from services.move_odds_live import paper_trade
+
+    now = datetime(2026, 9, 17, 15, 40, tzinfo=IST)
+    assert paper_trade(None, [], 100.0, now) is None
+    assert paper_trade({"first_met_at": None, "close_at_first_met": None}, [], 100.0, now) is None
+    assert paper_trade({"first_met_at": "15:15-16:15", "close_at_first_met": 100.0}, [], 100.0, now) is None

@@ -174,6 +174,12 @@ const ConditionsC = z.object({
   close_at_signal_start: z.number().nullable().default(null),
 });
 export type LiveConditions = z.infer<typeof ConditionsC>;
+const PaperExitC = z.object({
+  pct: z.number(), level: z.number(), reached: z.boolean(), at: z.string().nullable(), price: z.number(),
+  state: z.string(), gross: z.number(), charges: z.number(), net: z.number(),
+});
+const PaperC = z.object({ qty: z.number(), entry_price: z.number(), entry_time: z.string(), exits: z.array(PaperExitC), marked_at: z.string() });
+export type PaperTrade = z.infer<typeof PaperC>;
 const QuoteC = z.object({
   symbol: z.string(),
   error: z.string().nullable().optional(),
@@ -190,8 +196,10 @@ const QuoteC = z.object({
   levels: z.record(z.number()).optional(),
   touched: z.record(z.boolean()).optional(),
   conditions: ConditionsC.nullable().optional(),
+  paper: PaperC.nullable().optional(),
 });
 export type LiveQuote = z.infer<typeof QuoteC>;
+
 const LiveC = z.object({
   source: z.string(),
   delay_note: z.string().optional(),

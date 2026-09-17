@@ -169,6 +169,24 @@ test.describe("Move odds — final estimates", () => {
     await expect(page.getByTestId("mo-checks-ANTELOPUS").locator("li[data-met=\"yes\"]")).toHaveCount(1);
     await expect(page.getByTestId("mo-checks-ANTELOPUS")).toContainText("have not held together yet today");
     await expect(page.getByTestId("mo-signal-state-ANTELOPUS")).toContainText("Entry signal OFF · 1 of 5 checks hold");
+    await expect(page.getByTestId("mo-paper-ANTELOPUS")).toHaveCount(0);                                 // no early signal: no paper trade
+  });
+
+  test("TC-37 paper-trade P&L indicator on a signalled row, both exit rules in Details", async ({ page }) => {
+    const live = load("move-odds-live.json");
+    const p = live.quotes[0].paper;
+    const rupees = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}₹${Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+    await expect(page.getByTestId("mo-paper-PNCINFRA")).toHaveText(`Paper ${rupees(p.exits[0].net)} · +5% at ${p.exits[0].at}`);
+    await expect(page.getByTestId("mo-paper-PNCINFRA")).toHaveClass(/up/);
+    await page.getByTestId("mo-details-PNCINFRA").click();
+    const box = page.getByTestId("mo-papertrade-PNCINFRA");
+    await expect(box).toContainText(`1,000 shares from ₹${p.entry_price.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} at ${p.entry_time}`);
+    await expect(box.locator("tbody tr")).toHaveCount(2);
+    await expect(box.locator("tbody tr").nth(0)).toContainText(`reached ${p.exits[0].at}`);
+    await expect(box.locator("tbody tr").nth(1)).toContainText(p.exits[1].state);
+    await expect(box.locator("tbody tr").nth(1)).toContainText(rupees(p.exits[1].net));
+    const text = await page.getByTestId("move-odds-screen").innerText();
+    expect(text.match(BANNED), "banned vocabulary").toBeNull();
   });
 
   test("TC-27 every shown percentage equals the API value at one decimal", async ({ page }) => {
