@@ -454,7 +454,7 @@ function LiveCell({ q, head }: { q: LiveQuote | undefined; head: MoveHead }) {
       <span className="mo-live-chg">{signed(q.change_pct, "%")}</span>
       {hit && <span className="mo-live-hit" aria-label={`today's ${head.startsWith("p_up") ? "high" : "low"} reached the ${hit} level`}>{hit} reached</span>}
       {q.conditions?.entry_signal && (
-        <span className="mo-signal" data-testid={`mo-signal-${q.symbol}`} title="All five breakout checks hold at the latest completed hourly bar. This rule lost money in its 2025 test; see Details.">
+        <span className="mo-signal" data-testid={`mo-signal-${q.symbol}`} title="All five breakout checks are met at the latest completed hourly bar. This rule lost money in its 2025 test; see Details.">
           Entry signal · since {q.conditions.entry_signal_since?.split("-")[0]}
         </span>
       )}
@@ -564,7 +564,7 @@ function Checks({ q, record, symbol }: { q: LiveQuote | undefined; record: LiveP
       <p className="mo-signal-state" data-testid={`mo-signal-state-${symbol}`}>
         {c?.entry_signal
           ? <>Entry signal <b>ON</b> since the {c.entry_signal_since} bar (close ₹{money(c.close_at_signal_start)}).</>
-          : <>Entry signal <b>OFF</b>{latest ? ` · ${latest.met} of 5 checks hold` : ""}.</>}
+          : <>Entry signal <b>OFF</b>{latest ? ` · ${latest.met} of 5 checks met` : ""}.</>}
       </p>
       {q && !q.error && q.day_high != null && q.day_low != null && (
         <p className="mo-mini">Today so far: high {signed(q.high_pct ?? 0, "%")}, low {signed(q.low_pct ?? 0, "%")} against the previous close of ₹{money(q.prev_close)}.</p>
