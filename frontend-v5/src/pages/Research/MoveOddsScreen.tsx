@@ -13,12 +13,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import {
-  MOVE_HEADS, moveOddsService,
-  type MoveBand, type MoveFinal, type MoveHead, type MoveLatestResult, type MoveRow, type MoveStockResult,
+  MOVE_HEADS, fetchLive, moveOddsService,
+  type LiveConditions, type LivePayload, type LiveQuote, type MoveBand, type MoveFinal, type MoveHead, type MoveLatestResult, type MoveRow, type MoveStockResult,
 } from "@/services/adapters/moveOdds.adapter";
 import "./moveOdds.css";
 
 const PAGE = 50;
+const LIVE_REFRESH_MS = 60_000;
+const CHECKS: Array<{ key: keyof Pick<NonNullable<LiveConditions["latest"]>, "above_prev_close" | "above_opening_range" | "above_vwap" | "room_to_level" | "volume_pace">; label: string }> = [
+  { key: "above_prev_close", label: "Close above the previous close" },
+  { key: "above_opening_range", label: "Close above the first hour's high" },
+  { key: "above_vwap", label: "Close above the session VWAP" },
+  { key: "room_to_level", label: "The +5% level not yet reached" },
+  { key: "volume_pace", label: "Volume ahead of the 20-session pace" },
+];
 
 const META: Record<MoveHead, { label: string; long: string; opp: MoveHead; oppLabel: string }> = {
   p_up5_1d:    { label: "High ≥ +5%",  long: "session high at least 5% above the previous close",  opp: "p_down5_1d",  oppLabel: "Low ≤ −5%" },
@@ -50,6 +58,9 @@ function spoken(p: number | null | undefined): string {
   if (p == null) return "not scored";
   const v = p * 100;
   return v < 0.1 ? "under 0.1 percent" : `${v.toFixed(1)} percent`;
+}
+function money(v: number | null | undefined): string {
+  return v == null ? "—" : v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function signed(v: number, unit: string): string {
   return `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(1)}${unit}`;
@@ -89,6 +100,8 @@ export default function MoveOddsScreen() {
   const [stocks, setStocks] = useState<Record<string, MoveStockResult | "loading">>({});
   const [noAccess, setNoAccess] = useState(false);
   const [reload, setReload] = useState(0);
+  const [live, setLive] = useState<{ at: string; source: string; delay: string; record: LivePayload["signal_record"]; quotes: Record<string, LiveQuote> } | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
   const tabRefs = useRef<Partial<Record<MoveHead, HTMLButtonElement | null>>>({});
 
   const denyAll = useCallback(() => {          // 403 anywhere: drop every cached estimate before rendering the state
@@ -135,6 +148,28 @@ export default function MoveOddsScreen() {
   const pages = Math.max(1, Math.ceil(rows.length / PAGE));
   const safePage = Math.min(page, pages - 1);
   const slice = rows.slice(safePage * PAGE, safePage * PAGE + PAGE);
+  const sliceKey = slice.map((r) => r.symbol).join(",");
+
+  // Live prices for the rows on screen: fetched on every change of the visible slice and every 60 s while the tab is
+  // visible. Only the symbols shown are requested, and nothing is kept from an earlier session.
+  useEffect(() => {
+    if (!final || !sliceKey) return;
+    let cancelled = false;
+    const symbols = sliceKey.split(",");
+    const pull = async () => {
+      if (document.visibilityState !== "visible") return;
+      const r = await fetchLive(symbols);
+      if (cancelled) return;
+      if (r.kind === "no_access") { denyAll(); return; }
+      if (r.kind === "error") { setLiveError(r.message); return; }
+      setLiveError(null);
+      setLive((prev) => ({ at: r.data.fetched_at, source: r.data.source, delay: r.data.delay_note ?? "", record: r.data.signal_record,
+                           quotes: { ...(prev?.quotes ?? {}), ...Object.fromEntries(r.data.quotes.map((q) => [q.symbol, q])) } }));
+    };
+    void pull();
+    const id = window.setInterval(() => { void pull(); }, LIVE_REFRESH_MS);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [final, sliceKey, denyAll]);
 
   const onTabKey = (e: React.KeyboardEvent, h: MoveHead) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
@@ -183,6 +218,8 @@ export default function MoveOddsScreen() {
           <span>Frozen <b>{istTime(run.frozen_at)} IST</b></span>
           <span>Model <b>{run.model} · {run.git_sha}</b></span>
           <span><b>{run.scored.toLocaleString("en-IN")}</b> of {run.universe_size.toLocaleString("en-IN")} stocks scored</span>
+          {live && <span data-testid="mo-live-asof">Live prices <b>{live.source}</b> · {live.delay} · as of <b>{istTime(live.at)} IST</b></span>}
+          {!live && liveError && <span data-testid="mo-live-error">Live prices unavailable ({liveError})</span>}
         </div>
       )}
 
@@ -268,17 +305,19 @@ export default function MoveOddsScreen() {
                         <button type="button" onClick={() => toggleSort("est")} data-testid="mo-sort-est">{m.label} estimate</button>
                       </th>
                       <th scope="col" className="mo-col-opp">{m.oppLabel}</th>
+                      <th scope="col">Live</th>
                       <th scope="col">Events</th>
                       <th scope="col"><span className="sr-only">Details</span></th>
                     </tr>
                   </thead>
                   <tbody>
                     {slice.length === 0 && (
-                      <tr><td colSpan={6} className="mo-empty">No stock matches &quot;{q}&quot;{evOnly ? " with events on record" : ""}.</td></tr>
+                      <tr><td colSpan={7} className="mo-empty">No stock matches &quot;{q}&quot;{evOnly ? " with events on record" : ""}.</td></tr>
                     )}
                     {slice.map((r) => (
                       <RowGroup key={r.symbol} r={r} head={head} base={final.base_rate} open={open === r.symbol}
-                                onToggle={() => setOpen((o) => (o === r.symbol ? null : r.symbol))} stock={stocks[r.symbol]} />
+                                onToggle={() => setOpen((o) => (o === r.symbol ? null : r.symbol))} stock={stocks[r.symbol]}
+                                quote={live?.quotes[r.symbol]} record={live?.record ?? null} />
                     ))}
                   </tbody>
                 </table>
@@ -299,8 +338,22 @@ export default function MoveOddsScreen() {
   );
 }
 
-function RowGroup({ r, head, base, open, onToggle, stock }: {
+function LiveCell({ q, head }: { q: LiveQuote | undefined; head: MoveHead }) {
+  if (!q) return <span className="mo-live none" data-testid="mo-live-pending">…</span>;
+  if (q.error || q.last == null || q.change_pct == null) return <span className="mo-live none">—</span>;
+  const hit = q.touched?.[head] ? META[head].label.replace("High ≥ ", "").replace("Low ≤ ", "") : null;
+  return (
+    <span className="mo-live">
+      <span className="mo-live-last">₹{money(q.last)}</span>
+      <span className="mo-live-chg">{signed(q.change_pct, "%")}</span>
+      {hit && <span className="mo-live-hit" aria-label={`today's ${head.startsWith("p_up") ? "high" : "low"} reached the ${hit} level`}>{hit} reached</span>}
+    </span>
+  );
+}
+
+function RowGroup({ r, head, base, open, onToggle, stock, quote, record }: {
   r: MoveRow; head: MoveHead; base: number; open: boolean; onToggle: () => void; stock: MoveStockResult | "loading" | undefined;
+  quote: LiveQuote | undefined; record: LivePayload["signal_record"];
 }) {
   const m = META[head];
   const w = Math.min(100, r.p * 100);
@@ -322,6 +375,7 @@ function RowGroup({ r, head, base, open, onToggle, stock }: {
           </div>
         </td>
         <td className="mo-col-opp"><span className="mo-opp" aria-label={`${m.oppLabel} ${spoken(r.p_opposite)}`}>{pct(r.p_opposite)}</span></td>
+        <td data-testid={`mo-livecell-${r.symbol}`}><LiveCell q={quote} head={head} /></td>
         <td><span className={`mo-evc${r.events_on_record ? "" : " none"}`}>{r.events_on_record ? `${r.events_on_record} on record` : "none"}</span></td>
         <td>
           <button type="button" className="mo-xbtn" aria-expanded={open} aria-controls={`mo-d-${r.symbol}`} onClick={onToggle} data-testid={`mo-details-${r.symbol}`}>
@@ -331,7 +385,7 @@ function RowGroup({ r, head, base, open, onToggle, stock }: {
       </tr>
       {open && (
         <tr className="mo-detail" id={`mo-d-${r.symbol}`} data-testid={`mo-detail-${r.symbol}`}>
-          <td colSpan={6}><Detail stock={stock} /></td>
+          <td colSpan={7}><Detail stock={stock} /><Checks q={quote} record={record} symbol={r.symbol} /></td>
         </tr>
       )}
     </>
@@ -389,6 +443,41 @@ function Detail({ stock }: { stock: MoveStockResult | "loading" | undefined }) {
   );
 }
 
+function Checks({ q, record, symbol }: { q: LiveQuote | undefined; record: LivePayload["signal_record"]; symbol: string }) {
+  const c = q?.conditions ?? null;
+  const latest = c?.latest ?? null;
+  return (
+    <div className="mo-checks" data-testid={`mo-checks-${symbol}`}>
+      <h4>Breakout checks today · facts, not a call</h4>
+      {q && !q.error && q.day_high != null && q.day_low != null && (
+        <p className="mo-mini">Today so far: high {signed(q.high_pct ?? 0, "%")}, low {signed(q.low_pct ?? 0, "%")} against the previous close of ₹{money(q.prev_close)}.</p>
+      )}
+      {!c && <p className="mo-mini">Checks start after the first completed hour of trading (from 10:15 IST) and use completed hourly bars only.</p>}
+      {c && latest && (
+        <>
+          <ul className="mo-checklist">
+            {CHECKS.map((k) => (
+              <li key={k.key} data-met={latest[k.key] ? "yes" : "no"}><span className="mo-checkmark" aria-hidden="true">{latest[k.key] ? "✓" : "✗"}</span>{k.label}<span className="sr-only">: {latest[k.key] ? "met" : "not met"}</span></li>
+            ))}
+          </ul>
+          <p className="mo-mini">
+            {latest.met} of 5 held at the {latest.bar} bar (close ₹{money(latest.close)}, VWAP {latest.vwap == null ? "—" : `₹${money(latest.vwap)}`}).{" "}
+            {c.first_met_at ? `All five first held at the ${c.first_met_at} bar, close ₹${money(c.close_at_first_met)}.` : "All five have not held together yet today."}
+          </p>
+        </>
+      )}
+      {c && !latest && <p className="mo-mini">Only the first hour has completed; the checks start from the second bar.</p>}
+      {record && (
+        <p className="mo-mini mo-record" data-testid="mo-checks-record">
+          Tested on {record.window}, {record.candidates}: after all five held, the +5% level was reached {(record.touch_rate_after_checks * 100).toFixed(1)}% of the time
+          against {(record.touch_rate_unconditional * 100).toFixed(1)}% without them, but taking the breakout averaged {(record.mean_net_return * 100).toFixed(2)}% per trade after costs
+          (95% interval {(record.ci95_mean_net_return[0] * 100).toFixed(2)}% to {(record.ci95_mean_net_return[1] * 100).toFixed(2)}%, {record.trades} trades). The checks describe the tape; they did not make money.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Aside({ final, openRow }: { final: MoveFinal; openRow: MoveRow | null }) {
   const rec = final.record;
   const live = final.live_record;
@@ -428,6 +517,7 @@ function Aside({ final, openRow }: { final: MoveFinal; openRow: MoveRow | null }
           {rec && <li>In testing, the 10 highest estimates each session touched {(rec.top10_hit_rate * 100).toFixed(1)}% of the time.</li>}
           <li>Not used: {final.limits.not_used.join(", ")}.</li>
           <li>A touch can reverse within minutes; the estimate says nothing about the close.</li>
+          <li>Live prices come from Yahoo Finance, delayed up to about a minute, and are not part of the estimate.</li>
         </ul>
       </div>
       <div className="mo-panel">

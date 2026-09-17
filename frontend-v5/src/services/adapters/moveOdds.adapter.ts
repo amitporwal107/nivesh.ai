@@ -156,3 +156,61 @@ export const moveOddsService = {
     }
   },
 };
+
+// ── Live prices and breakout checks (GET /api/move-odds/live?symbols=…) ─────────────────────────────────────────────
+const ChecksC = z.object({
+  above_prev_close: z.boolean(), above_opening_range: z.boolean(), above_vwap: z.boolean(), room_to_level: z.boolean(), volume_pace: z.boolean(),
+  bar: z.string(), close: z.number(), vwap: z.number().nullable(), opening_range_high: z.number(), cum_volume: z.number(), volume_needed: z.number(), met: z.number(),
+});
+export type LiveChecks = z.infer<typeof ChecksC>;
+const ConditionsC = z.object({
+  evaluated_bars: z.number(),
+  latest: ChecksC.nullable(),
+  first_met_at: z.string().nullable(),
+  close_at_first_met: z.number().nullable(),
+  at_first_met: ChecksC.nullable(),
+});
+export type LiveConditions = z.infer<typeof ConditionsC>;
+const QuoteC = z.object({
+  symbol: z.string(),
+  error: z.string().nullable().optional(),
+  last: z.number().optional(),
+  prev_close: z.number().optional(),
+  change_pct: z.number().optional(),
+  day_high: z.number().nullable().optional(),
+  day_low: z.number().nullable().optional(),
+  high_pct: z.number().nullable().optional(),
+  low_pct: z.number().nullable().optional(),
+  volume: z.number().nullable().optional(),
+  quote_time: z.string().nullable().optional(),
+  session_date: z.string().nullable().optional(),
+  levels: z.record(z.number()).optional(),
+  touched: z.record(z.boolean()).optional(),
+  conditions: ConditionsC.nullable().optional(),
+});
+export type LiveQuote = z.infer<typeof QuoteC>;
+const LiveC = z.object({
+  source: z.string(),
+  delay_note: z.string().optional(),
+  fetched_at: z.string(),
+  entry_signal_validated: z.boolean(),
+  signal_record: z.object({
+    window: z.string(), candidates: z.string(), trades: z.number(), touch_rate_after_checks: z.number(), touch_rate_unconditional: z.number(),
+    mean_net_return: z.number(), ci95_mean_net_return: z.tuple([z.number(), z.number()]), verdict: z.string(),
+  }).nullable(),
+  quotes: z.array(QuoteC),
+});
+export type LivePayload = z.infer<typeof LiveC>;
+export type LiveResult = { kind: "ok"; data: LivePayload } | { kind: "no_access" } | { kind: "error"; message: string };
+
+export async function fetchLive(symbols: string[]): Promise<LiveResult> {
+  if (!symbols.length) return { kind: "error", message: "no symbols" };
+  try {
+    const res = await http<unknown>({ path: "/api/move-odds/live", query: { symbols: symbols.slice(0, 60).join(",") }, noRetry: true, timeoutMs: 30_000 });
+    const env = LiveC.safeParse(res.data);
+    return env.success ? { kind: "ok", data: env.data } : { kind: "error", message: "unexpected response shape" };
+  } catch (e) {
+    const f = fromError(e);
+    return f.kind === "no_access" ? f : { kind: "error", message: f.kind === "withheld" ? f.reason : f.message };
+  }
+}
