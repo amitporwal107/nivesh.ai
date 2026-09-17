@@ -243,5 +243,11 @@ test.describe("Move odds — live prices", () => {
     await page.clock.runFor(61_000);
     await expect.poll(() => liveCalls.length, { timeout: 5_000 }).toBeGreaterThan(before);
     expect(liveCalls[liveCalls.length - 1].split(",").length).toBeLessThanOrEqual(50);
+    // the seven-column table must fit its region at laptop width, also with a row open (no horizontal scroll, no jump)
+    await page.getByTestId("mo-details-PNCINFRA").click();
+    await expect(page.getByTestId("mo-detail-PNCINFRA")).toBeVisible();
+    const fit = await page.locator(".mo-tablewrap").evaluate((el) => ({ over: el.scrollWidth - el.clientWidth, left: el.scrollLeft }));
+    expect(fit.over).toBeLessThanOrEqual(1);
+    expect(fit.left).toBe(0);
   });
 });

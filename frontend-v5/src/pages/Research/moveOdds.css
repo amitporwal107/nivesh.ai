@@ -131,3 +131,14 @@
 .research-screen .mo-checklist li[data-met="yes"] { color: var(--c-ink); }
 .research-screen .mo-checkmark { display: inline-block; width: 16px; font-family: var(--mono); }
 .research-screen .mo-record { max-width: 90ch; }
+
+/* keep the seven-column table inside its region on laptop widths (no horizontal scroll, no jump when a row opens) */
+@media (max-width: 1440px) {
+  .research-screen .mo-table { min-width: 0; }
+  .research-screen .mo-table th, .research-screen .mo-table td { padding: 9px 10px; }
+  .research-screen .mo-sector { max-width: 110px; }
+  .research-screen .mo-co { max-width: 170px; }
+  .research-screen .mo-est { min-width: 150px; gap: 8px; }
+  .research-screen .mo-track { min-width: 70px; }
+  .research-screen .mo-live { white-space: normal; }
+}

@@ -76,7 +76,7 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 | TC-32 | Live | breakout checks on completed hourly bars only, first bar where all five hold, missing inputs → none; quote levels/touches | unit | matches the pre-registered rule exactly | PASS (unit, 8 cases) |
 | TC-33 | V5 | Live column: last price, change, touch marker per row, equal to the live API; unavailable → "—"; refresh every 60 s while visible | e2e (mock) | values shown = fixture values | PASS (Playwright, fake clock) |
 | TC-34 | V5 | Breakout checks panel in details: five checks, first-met bar, the failed 2025 test stated; no "entry"/"signal" wording | e2e (mock) | wording passes the D2 scan with "signal" added | PASS (Playwright) |
-| TC-35 | Staging | live prices on the real page during market hours | e2e | shown values equal the live API at the same minute | |
+| TC-35 | Staging | live prices on the real page during market hours | e2e | shown values equal the live API at the same minute | PASS (real staging 10:15 IST: 20 cells = the payload the page received; prices move by the minute, so the check is against the page's own response) |
 
 ## API / Endpoint Tests (staging)
 - **Deploy (user-approved 2026-09-17):** commit eaa64d19 on `dev` (page files only). GitHub Actions: Deploy → nidp-stack-vm [staging] success; Deploy backend → nivesh-app-vm [staging] success; Deploy frontend → nivesh-app-vm [staging] success; Android APK success.
@@ -143,6 +143,15 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 - **Playwright (mocked):** `research-move-odds.spec.ts` → `15 passed (27.8s)`; `npm run build` → `✓ built in 16.73s`.
 - **Deploy:** dev 18b08479 (files only). Staging TC-35 below once the workflows complete.
 
+- **Deploy:** dev 18b08479 — Deploy backend, Deploy frontend and Android APK all `success` (04:37–04:43Z). Lowest free disk during the build: 877 MB.
+- **Real-staging Playwright** (owner session; no mocks): `staging-move-odds-live.spec.cjs` →
+  ```
+  page received 50 live quotes (source Yahoo Finance, validated=false, fetched_at 2026-09-17T10:15:35.489147+05:30); cells equal the payload for 20, unavailable 0
+    ✓  1 staging-move-odds-live.spec.cjs:13:1 › TC-35 live prices on the real page equal the payload the page received (4.0s)
+    1 passed (4.8s)
+  ```
+  A first version compared cells against a separate API call and failed by design: prices move between calls. Screenshot reviewed: Live column renders (PNCINFRA ₹137.56 +2.3%); the wider table overflowed its region at 1280 px and shifted when a row opened → CSS fix with a fit assertion added to TC-33 (mocked spec re-run).
+
 ## UI / Playwright Tests
 - **Spec:** `frontend-v5/e2e/tests/research-move-odds.spec.ts` (mocked; fixtures labelled MOCK, values copied from the 17 Sep v4 snapshot)
   - Command: `npx playwright test e2e/tests/research-move-odds.spec.ts --project=desktop-chrome --reporter=list`
@@ -179,5 +188,4 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 ## Inputs required from user
 - A staging session token (supplied by the user 2026-09-17). Allowlist membership remains the user's decision; the list is empty after verification.
 
-## Verdict: BLOCKED
-<!-- reopened 2026-09-17 10:00 IST for the live-price addition (TC-31..TC-35); TC-1..TC-30 evidence above stands -->
+## Verdict: PASS
