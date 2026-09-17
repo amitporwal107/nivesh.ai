@@ -173,7 +173,9 @@ test.describe("Move odds — final estimates", () => {
     await page.getByTestId("mo-details-ANTELOPUS").click();
     await expect(page.getByTestId("mo-checks-ANTELOPUS").locator("li[data-met=\"yes\"]")).toHaveCount(1);
     await expect(page.getByTestId("mo-checks-ANTELOPUS")).toContainText("have not held together yet today");
-    await expect(page.getByTestId("mo-signal-state-ANTELOPUS")).toContainText("Entry signal OFF · 1 of 5 checks hold");
+    await expect(page.getByTestId("mo-signal-state-ANTELOPUS")).toContainText("Entry signal OFF · 1 of 5 checks met");
+    const detailText = await page.getByTestId("move-odds-screen").innerText();         // details open: the D2 scan covers the checks panel too
+    expect(detailText.match(BANNED), "banned vocabulary with details open").toBeNull();
     await expect(page.getByTestId("mo-paper-ANTELOPUS")).toHaveCount(0);                                 // no early signal: no paper trade
   });
 
