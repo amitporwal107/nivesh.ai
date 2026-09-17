@@ -13,8 +13,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import {
-  MOVE_HEADS, fetchLive, moveOddsService,
-  type LiveConditions, type LivePayload, type LiveQuote, type PaperTrade, type MoveBand, type MoveFinal, type MoveHead, type MoveLatestResult, type MoveRow, type MoveStockResult,
+  MOVE_HEADS, fetchDiagnostics, fetchLive, moveOddsService,
+  type DiagnosticsResult, type LiveConditions, type LivePayload, type LiveQuote, type PaperTrade, type MoveBand, type MoveFinal, type MoveHead, type MoveLatestResult, type MoveRow, type MoveStockResult,
 } from "@/services/adapters/moveOdds.adapter";
 import "./moveOdds.css";
 
@@ -102,6 +102,8 @@ export default function MoveOddsScreen() {
   const [reload, setReload] = useState(0);
   const [live, setLive] = useState<{ at: string; source: string; delay: string; record: LivePayload["signal_record"]; quotes: Record<string, LiveQuote> } | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
+  const [diag, setDiag] = useState<DiagnosticsResult | null>(null);
+  const [diagReload, setDiagReload] = useState(0);
   const tabRefs = useRef<Partial<Record<MoveHead, HTMLButtonElement | null>>>({});
 
   const denyAll = useCallback(() => {          // 403 anywhere: drop every cached estimate before rendering the state
@@ -119,6 +121,17 @@ export default function MoveOddsScreen() {
     });
     return () => { cancelled = true; };
   }, [reload, denyAll]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDiag(null);
+    fetchDiagnostics().then((r) => {
+      if (cancelled) return;
+      if (r.kind === "no_access") { denyAll(); return; }
+      setDiag(r);
+    });
+    return () => { cancelled = true; };
+  }, [diagReload, denyAll]);
 
   useEffect(() => {
     if (!open || stocks[open]) return;
@@ -334,7 +347,83 @@ export default function MoveOddsScreen() {
           </div>
         )}
       </div>
+
+      <SetupDiagnostics result={diag} onRetry={() => setDiagReload((n) => n + 1)} />
     </div>
+  );
+}
+
+const SETUP_ORDER = ["A", "B", "C", "D"] as const;
+function signedPct2(v: number | null): string {
+  if (v == null) return "—";
+  return `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v * 100).toFixed(2)}%`;
+}
+function dmy(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  return m >= 1 && m <= 12 ? `${d} ${MON[m - 1]} ${y}` : iso;
+}
+
+/** Research results for the four entry setups the owner rejected on 2026-09-17. Always A, B, C, D; numbers in ink, never
+ *  coloured or ranked; no prices, levels or amounts. */
+function SetupDiagnostics({ result, onRetry }: { result: DiagnosticsResult | null; onRetry: () => void }) {
+  const ok = result?.kind === "ok" ? result.data : null;
+  const setups = ok ? SETUP_ORDER.map((id) => ok.setups.find((s) => s.id === id)).filter((s): s is NonNullable<typeof s> => !!s) : [];
+  return (
+    <section className="mo-diag" aria-labelledby="mo-diag-h" data-testid="mo-diagnostics">
+      <div className="mo-diag-head">
+        <h3 id="mo-diag-h" className="nv-serif">Research diagnostics · entry setups</h3>
+        {ok && (
+          <p className="mo-mini" data-testid="mo-diag-summary">
+            Tested {dmy(ok.study.first_signal_day)} – {dmy(ok.study.last_signal_day)} · {ok.study.validated} of {ok.study.tested} validated · research only, not trading signals
+          </p>
+        )}
+      </div>
+      {!result && <p className="mo-mini" aria-busy="true" data-testid="mo-diag-loading">Loading research diagnostics…</p>}
+      {result && result.kind !== "ok" && (
+        <div className="mo-state" role="alert" data-testid="mo-diag-error">
+          <p>Research diagnostics could not be loaded ({result.kind === "error" ? result.message : "not enabled"}). No numbers are shown.</p>
+          <button type="button" className="mo-btn" onClick={onRetry} data-testid="mo-diag-retry">Try again</button>
+        </div>
+      )}
+      {ok && (
+        <>
+          <div className="mo-diag-grid">
+            {setups.map((s) => (
+              <article key={s.id} className="mo-diag-card" data-testid={`mo-diag-${s.id}`} aria-labelledby={`mo-diag-${s.id}-h`}>
+                <div className="mo-diag-cardhead">
+                  <h4 id={`mo-diag-${s.id}-h`}>{s.name}</h4>
+                  <span className="mo-chip" data-testid={`mo-diag-status-${s.id}`}>{s.status_label}</span>
+                </div>
+                <p className="mo-diag-rs" data-testid={`mo-diag-rs-${s.id}`}>{s.research_status}</p>
+                {s.headline !== s.status_label && <p className="mo-diag-headline">{s.headline}</p>}
+                <div className="mo-diag-tablewrap">
+                  <table className="mo-bands mo-diag-table">
+                    <thead>
+                      <tr><th scope="col">Version</th><th scope="col">Trades</th><th scope="col">Historical net average</th><th scope="col">Baseline</th><th scope="col">Signal status</th></tr>
+                    </thead>
+                    <tbody>
+                      {s.trades.map((t) => (
+                        <tr key={t.trade} data-testid={`mo-diag-${s.id}-${t.trade === "5%" ? "5" : "10"}`}>
+                          <th scope="row">{t.trade} trade</th>
+                          <td>{t.trades.toLocaleString("en-IN")}</td>
+                          <td>{signedPct2(t.mean_net)}</td>
+                          <td>{signedPct2(t.baseline_mean_net)}</td>
+                          <td>Failed validation</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mo-mini">{s.explanation}</p>
+              </article>
+            ))}
+          </div>
+          <p className="mo-mini mo-diag-method" data-testid="mo-diag-method">
+            {ok.study.universe}. {ok.study.exits}. Costs {(ok.study.cost_round_trip * 100).toFixed(2)}% per round trip. Baseline: {ok.study.baseline.charAt(0).toLowerCase() + ok.study.baseline.slice(1)}. {ok.study.rule}.
+          </p>
+        </>
+      )}
+    </section>
   );
 }
 

@@ -3,6 +3,7 @@
  *
  *   GET /api/move-odds/latest?head=…     → published estimates for the session they apply to
  *   GET /api/move-odds/stocks/{symbol}   → one stock: four estimates, inputs on record, events on record
+ *   GET /api/move-odds/diagnostics       → backtest results of the rejected entry setups (research, never signals)
  *
  * Every state is explicit so the screen can never show numbers it should not:
  *   final         → rows (sorted by estimate, no rank)
@@ -220,6 +221,40 @@ export async function fetchLive(symbols: string[]): Promise<LiveResult> {
     const res = await http<unknown>({ path: "/api/move-odds/live", query: { symbols: symbols.slice(0, 60).join(",") }, noRetry: true, timeoutMs: 30_000 });
     const env = LiveC.safeParse(res.data);
     return env.success ? { kind: "ok", data: env.data } : { kind: "error", message: "unexpected response shape" };
+  } catch (e) {
+    const f = fromError(e);
+    return f.kind === "no_access" ? f : { kind: "error", message: f.kind === "withheld" ? f.reason : f.message };
+  }
+}
+
+// ── Entry-setup diagnostics (GET /api/move-odds/diagnostics) ────────────────────────────────────────────────────────────
+// Owner decision 2026-09-17: setups A–D were rejected as entries (0 of 8 validated). Only their research results are shown.
+const DiagTradeC = z.object({
+  trade: z.enum(["5%", "10%"]), trades: z.number(), mean_net: z.number().nullable(), ci95: z.tuple([z.number(), z.number()]).nullable(),
+  baseline_mean_net: z.number(), half1_mean_net: z.number().nullable(), half2_mean_net: z.number().nullable(),
+  validation: z.literal("failed"),                       // a passed setup would need a new owner decision, so it cannot render here
+});
+const DiagSetupC = z.object({
+  id: z.enum(["A", "B", "C", "D"]), name: z.string(), status: z.enum(["not_validated", "research_only_insufficient_sample"]),
+  status_label: z.string(), headline: z.string(), research_status: z.string(), explanation: z.string(), trades: z.array(DiagTradeC).length(2),
+});
+const DiagC = z.object({
+  source_sha256: z.string(),
+  study: z.object({
+    first_signal_day: z.string(), last_signal_day: z.string(), universe: z.string(), cost_round_trip: z.number(),
+    exits: z.string(), rule: z.string(), baseline: z.string(), tested: z.number(), validated: z.number(),
+  }),
+  setups: z.array(DiagSetupC).length(4),
+});
+export type MoveDiagnostics = z.infer<typeof DiagC>;
+export type MoveDiagnosticSetup = z.infer<typeof DiagSetupC>;
+export type DiagnosticsResult = { kind: "ok"; data: MoveDiagnostics } | { kind: "no_access" } | { kind: "error"; message: string };
+
+export async function fetchDiagnostics(): Promise<DiagnosticsResult> {
+  try {
+    const res = await http<unknown>({ path: "/api/move-odds/diagnostics", noRetry: true });
+    const env = z.object({ data: DiagC }).safeParse(res.data);
+    return env.success ? { kind: "ok", data: env.data.data } : { kind: "error", message: "unexpected response shape" };
   } catch (e) {
     const f = fromError(e);
     return f.kind === "no_access" ? f : { kind: "error", message: f.kind === "withheld" ? f.reason : f.message };
