@@ -111,7 +111,9 @@ sentiment: market-impact directionality, NOT corporate-language polarity.
 Rules:
 - Output ONLY via the classify_announcement function. Never produce free text.
 - Be conservative on "high": a board-meeting notice IS NOT high impact even if results follow later.
-- "Newspaper publication of results" is low impact (regulatory boilerplate); the actual results filing is what counts."""
+- "Newspaper publication of results" is low impact (regulatory boilerplate); the actual results filing is what counts.
+- The Subject line is often a generic exchange label ("General Updates", "Announcement Pursuant to Regulation 30") that
+  says nothing about what happened. When a "Filing text" section is present, classify from what IT says, not the Subject."""
 
 def build_classify_tool(provider: str) -> dict[str, Any]:
     """The function spec, shaped for `provider`.
@@ -189,6 +191,12 @@ def _build_user_message(row: dict) -> str:
     parts.append(f"Subject: {row.get('subject') or '(no subject)'}")
     if row.get("description") and row["description"] != row.get("subject"):
         parts.append(f"Body: {row['description'][:1500]}")
+    # 2026-09-17: many filings (fund raises, management changes, ownership disclosures) carry
+    # their substance only in the attached PDF; subject/description are boilerplate. When a
+    # parsed document is on record for this filing, its text is the primary evidence — put it
+    # last so a long subject/body still reads first, but it is what should decide the category.
+    if row.get("filing_text"):
+        parts.append(f"Filing text (from the attached document, read this for the real content):\n{row['filing_text'][:4000]}")
     return "\n".join(parts)
 
 

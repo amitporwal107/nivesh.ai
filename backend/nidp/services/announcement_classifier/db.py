@@ -10,13 +10,29 @@ logger = logging.getLogger(__name__)
 
 # $2 = window in days; 0 means "no window". A fixed 30-day window permanently stranded
 # every older unclassified row: 42,359 rows sat outside it with no run able to reach them.
+#
+# filing_text (2026-09-17): many filings carry their substance only in the attached PDF —
+# the subject/description are boilerplate ("General Updates", "Announcement Pursuant To
+# Reg. 30 Of The SEBI LODR Regulations, 2015.") while the parsed attachment states the real
+# content (e.g. Tega's preferential-issue price and use of proceeds). 97% of currently
+# unclassified rows already have a parsed document sitting unused. The LEFT JOIN LATERAL
+# concatenates the first 3 parsed chunks (in page order) per announcement, capped so a long
+# annual-report-style attachment cannot blow the prompt; NULL when nothing is parsed yet, in
+# which case the classifier falls back to subject/description exactly as before.
 _FETCH_SQL = """
-SELECT announcement_id, source, ticker_symbol, isin, scrip_code, company_name,
-       subject, description, raw_category
-  FROM nidp.corporate_announcements
- WHERE event_category IS NULL
-   AND ($2::int = 0 OR filed_at >= NOW() - make_interval(days => $2::int))
- ORDER BY filed_at ASC  -- oldest first: newest-first starves the backlog once behind
+SELECT a.announcement_id, a.source, a.ticker_symbol, a.isin, a.scrip_code, a.company_name,
+       a.subject, a.description, a.raw_category, doc.filing_text
+  FROM nidp.corporate_announcements a
+  LEFT JOIN LATERAL (
+        SELECT left(string_agg(c.text, E'\n' ORDER BY c.chunk_index), 4000) AS filing_text
+          FROM nidp.documents d
+          JOIN nidp.document_chunks c ON c.doc_id = d.doc_id AND c.chunk_index < 3
+         WHERE d.announcement_id = a.announcement_id AND d.announcement_source = a.source
+           AND d.parse_status = 'parsed'
+       ) doc ON true
+ WHERE a.event_category IS NULL
+   AND ($2::int = 0 OR a.filed_at >= NOW() - make_interval(days => $2::int))
+ ORDER BY a.filed_at ASC  -- oldest first: newest-first starves the backlog once behind
  LIMIT $1
 """
 

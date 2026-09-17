@@ -49,9 +49,13 @@ class _FakeCompletions:
 
 
 class _FakeClient:
-    """Stands in for openai.OpenAI — records init args + the request."""
+    """Stands in for openai.OpenAI — records init args + the request.
 
-    def __init__(self, api_key=None, base_url=None):
+    **kwargs absorbs whatever else the installed SDK version's constructor is called with
+    (e.g. max_retries=... — HaikuClassifier passes it explicitly); the real SDK accepts it,
+    a hand-written fake must not choke on it."""
+
+    def __init__(self, api_key=None, base_url=None, **kwargs):
         self.api_key = api_key
         self.base_url = base_url
         self.last_request = None
@@ -95,6 +99,44 @@ ROW = {
     "subject": "Q1 FY27 results",
     "description": "Consolidated PAT up 42% YoY.",
 }
+
+
+# ── TC-8..TC-10: filing text from the parsed attachment (2026-09-17) ────
+
+def test_build_user_message_omits_filing_text_when_absent():
+    """TC-8 — no regression: a row with no parsed document reads exactly as before."""
+    msg = C._build_user_message(ROW)
+    assert "Filing text" not in msg
+    assert msg.startswith("Company: Acme Ltd")
+
+
+def test_build_user_message_includes_filing_text_when_present():
+    """TC-9 — the real gap this closes: Tega's preferential-issue price sat in the parsed PDF
+    while the exchange subject was generic. The filing text must reach the prompt."""
+    row = {**ROW, "subject": "General Updates", "description": "Tega Industries Limited has informed the Exchange about General Updates",
+           "filing_text": "The Board has fixed the issue price at Rs. 1,994 per equity share, raising approximately Rs. 95.40 Crores."}
+    msg = C._build_user_message(row)
+    assert "Filing text (from the attached document" in msg
+    assert "Rs. 1,994 per equity share" in msg
+    assert msg.index("Subject: General Updates") < msg.index("Filing text")   # subject still present, filing text is additional
+
+
+def test_build_user_message_truncates_filing_text_to_4000_chars():
+    """TC-10 — an annual report or a long attachment must not blow the prompt open-ended."""
+    row = {**ROW, "filing_text": "X" * 10_000}
+    msg = C._build_user_message(row)
+    tail = msg.split("Filing text (from the attached document, read this for the real content):\n", 1)[1]
+    assert len(tail) == 4000
+
+
+def test_forced_tool_call_uses_filing_text_in_the_actual_request(monkeypatch, fake_openai):
+    """TC-11 — end to end through classify(): the filing text reaches the wire request, not just the helper."""
+    monkeypatch.setattr(C, "get_groq_api_key", lambda: "gsk_test")
+    clf = C.HaikuClassifier()
+    row = {**ROW, "subject": "Announcement Pursuant To Reg. 30", "description": "", "filing_text": "Appointment of Mr. X as Chief Financial Officer with effect from 1 October 2026."}
+    clf.classify(row)
+    sent = fake_openai[0].last_request["messages"][1]["content"]
+    assert "Chief Financial Officer" in sent
 
 
 # ── TC-1 / TC-2 / TC-3: provider selection ──────────────────────────────
