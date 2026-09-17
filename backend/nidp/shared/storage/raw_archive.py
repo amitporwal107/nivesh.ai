@@ -22,6 +22,19 @@ from nidp.shared.storage.pg import get_pool
 from nidp.shared.storage_backend import get_backend
 
 logger = logging.getLogger(__name__)
+# Bodies above this size are gzipped before upload. The nse_shareholding run body is a ~669 MB JSON that compresses
+# ~18x; stored raw, three retries a day filled the staging host's disk (2026-09-17). Nothing reads bodies back through
+# this module, and the index row keeps the original size and content type.
+COMPRESS_OVER_BYTES = 4 * 1024 * 1024
+
+
+def prepare_body(body: bytes, key: str, content_type: Optional[str], metadata: dict) -> tuple[bytes, str, Optional[str], dict]:
+    if len(body) <= COMPRESS_OVER_BYTES:
+        return body, key, content_type, metadata
+    import gzip
+    packed = gzip.compress(body, compresslevel=6)
+    meta = {**metadata, "original_bytes": len(body), "original_content_type": content_type, "compression": "gzip"}
+    return packed, key + ".gz", "application/gzip", meta
 
 
 def _basename_for(url: str, sha: str) -> str:
@@ -69,7 +82,8 @@ async def store(
         if existing:
             return existing["archive_id"], existing["file_path"]
 
-        storage_uri = backend.put(key, body, content_type=content_type)
+        stored, key, stored_type, meta = prepare_body(body, key, content_type, metadata or {})
+        storage_uri = backend.put(key, stored, content_type=stored_type)
 
         archive_id = uuid.uuid4()
         await conn.execute(
@@ -81,11 +95,11 @@ async def store(
             """,
             archive_id, ingester, target_date, source_url, storage_uri,
             len(body), sha, content_type, http_status,
-            _json_dumps(metadata or {}),
+            _json_dumps(meta),
         )
     logger.info(
-        "archived %s/%s (%d bytes, sha=%s…, backend=%s)",
-        ingester, key, len(body), sha[:8], backend.scheme,
+        "archived %s/%s (%d bytes, stored %d, sha=%s…, backend=%s)",
+        ingester, key, len(body), len(stored), sha[:8], backend.scheme,
     )
     return archive_id, storage_uri
 
