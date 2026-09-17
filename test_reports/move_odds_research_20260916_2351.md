@@ -77,7 +77,7 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 | TC-33 | V5 | Live column: last price, change, touch marker per row, equal to the live API; unavailable → "—"; refresh every 60 s while visible | e2e (mock) | values shown = fixture values | PASS (Playwright, fake clock) |
 | TC-34 | V5 | Breakout checks panel in details: five checks, first-met bar, the failed 2025 test stated; no "entry"/"signal" wording | e2e (mock) | wording passes the D2 scan with "signal" added | PASS (Playwright) |
 | TC-35 | Staging | live prices on the real page during market hours | e2e | shown values equal the live API at the same minute | PASS (real staging 10:15 IST: 20 cells = the payload the page received; prices move by the minute, so the check is against the page's own response) |
-| TC-36 | Live + V5 | Entry signal (owner's decision 2026-09-17): ON only while all five checks hold at the latest completed hourly bar; row pill + Details state; failed 2025 test stated beside it; "entry signal" allowed, other D2 words still banned | unit + e2e (mock) + staging | pill and state equal the live payload's entry_signal | |
+| TC-36 | Live + V5 | Entry signal (owner's decision 2026-09-17): ON only while all five checks hold at the latest completed hourly bar; row pill + Details state; failed 2025 test stated beside it; "entry signal" allowed, other D2 words still banned | unit + e2e (mock) + staging | pill and state equal the live payload's entry_signal | PASS (unit 19; mocked Playwright 15; real staging 10:57 before-11:15 state and 11:17 with real ON signals for MOREPENLAB and KMEW) |
 
 ## API / Endpoint Tests (staging)
 - **Deploy (user-approved 2026-09-17):** commit eaa64d19 on `dev` (page files only). GitHub Actions: Deploy → nidp-stack-vm [staging] success; Deploy backend → nivesh-app-vm [staging] success; Deploy frontend → nivesh-app-vm [staging] success; Android APK success.
@@ -153,6 +153,28 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
   ```
   A first version compared cells against a separate API call and failed by design: prices move between calls. Screenshot reviewed: Live column renders (PNCINFRA ₹137.56 +2.3%); the wider table overflowed its region at 1280 px and shifted when a row opened → CSS fix with a fit assertion added to TC-33 (mocked spec re-run).
 
+- **Entry signal deploy:** dev 826578c2 — Deploy frontend, Android APK, Deploy backend all `success` (05:17–05:25Z); lowest free disk during the build 20.7 GB (after the disk fix d595553d).
+- **Real-staging Playwright at 10:57 IST** (owner session; no mocks), all three staging checks:
+  ```
+  payload 2026-09-17T10:56:57.078062+05:30: 50 quotes, 50 with checks (0 past the second bar), entry signal ON for 0: none
+  page received 50 live quotes (source Yahoo Finance, validated=false, fetched_at 2026-09-17T10:56:56.959649+05:30); cells equal the payload for 20, unavailable 0
+    ✓  1 staging-move-odds-live.spec.cjs:13:1 › TC-35 live prices on the real page equal the payload the page received (2.5s)
+  details for PNCINFRA: Entry signal OFF. | table overflow 0px
+    ✓  2 staging-move-odds-signal.spec.cjs:11:1 › TC-36 entry signal on the real page equals the live payload (2.7s)
+    ✓  3 staging-move-odds.spec.cjs:13:1 › TC-30 allowlisted account sees Move odds on staging and every shown value equals the API (2.4s)
+    3 passed (6.1s)
+  ```
+  The first TC-36 run failed on a test assumption (a check count before 11:15, when only the first bar has closed); the older TC-30/TC-35 staging specs still banned "entry"/"signal" and were updated to the owner's decision. A rerun after 11:15 IST covers the state with real check counts.
+
+- **Real-staging rerun at 11:17 IST** (after the 10:15–11:15 bar closed):
+  ```
+  payload 2026-09-17T11:17:16.059891+05:30: 50 quotes, 50 with checks (50 past the second bar), entry signal ON for 2: MOREPENLAB since 10:15-11:15, KMEW since 10:15-11:15
+  details for MOREPENLAB: Entry signal ON since the 10:15-11:15 bar (close ₹118.88). | table overflow 0px
+    ✓  1 staging-move-odds-signal.spec.cjs:11:1 › TC-36 entry signal on the real page equals the live payload (3.1s)
+    1 passed (4.0s)
+  ```
+  Screenshot reviewed: amber pill on MOREPENLAB's row; Details ON with all five checks and the failed 2025 test stated; RATNAVEER shows "+5% reached".
+
 ## UI / Playwright Tests
 - **Spec:** `frontend-v5/e2e/tests/research-move-odds.spec.ts` (mocked; fixtures labelled MOCK, values copied from the 17 Sep v4 snapshot)
   - Command: `npx playwright test e2e/tests/research-move-odds.spec.ts --project=desktop-chrome --reporter=list`
@@ -189,5 +211,4 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 ## Inputs required from user
 - A staging session token (supplied by the user 2026-09-17). Allowlist membership remains the user's decision; the list is empty after verification.
 
-## Verdict: BLOCKED
-<!-- reopened 2026-09-17 for TC-36 (entry signal, owner's decision); TC-1..TC-35 evidence above stands -->
+## Verdict: PASS
