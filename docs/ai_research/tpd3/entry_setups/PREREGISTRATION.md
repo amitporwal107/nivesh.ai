@@ -1,4 +1,7 @@
-# Entry setups A–E — pre-registered 2026-09-17 ~12:25 IST, before any setup backtest code was run
+# Entry setups A–E — pre-registered 2026-09-17 before 12:00 IST, before any setup backtest code was run
+
+Correction (12:25 IST): this header first said "~12:25 IST", a hand-typed estimate that was wrong. The file's own record: the
+addendum below was appended at 12:00:47 IST, and the backtest's first log line is 12:04 IST (run.log).
 
 Source: the user's specification of 2026-09-17 ("Highest-value entry signals", four classifications + supporting RS signal,
 EQS, risk filters, trade card, backtest plan). Thresholds below are the user's where given; where the user gave a range or

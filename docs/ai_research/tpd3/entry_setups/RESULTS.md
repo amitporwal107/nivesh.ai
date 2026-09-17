@@ -51,7 +51,7 @@ Every setup fails "mean > 0", "CI lower > 0", "beats baseline" and both halves; 
 - Four sampled trades (SAILIFE A, ASIANPAINT B, BEL C, BHARATFORG D) were re-derived by hand from the raw bhavcopy rows: highs,
   RVOL, CLV, fills, stops and exits all match. The vectorised simulation matches the tested scalar functions on 6,000 trades.
 
-## Owner decision (2026-09-17 ~14:10 IST, decisions-log.md)
+## Owner decision (2026-09-17 ~12:10 IST, decisions-log.md)
 
 All four setups are REJECTED as entry signals; no parameter tweaking to rescue them. Page: A and B "Setup detected — not
 validated", C and D "Research only; insufficient sample", shown only in a Diagnostics section (no per-stock tags, no buy
