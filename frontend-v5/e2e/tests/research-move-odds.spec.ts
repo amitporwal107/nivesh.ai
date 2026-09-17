@@ -13,7 +13,8 @@ import { mockAuthAs } from "../helpers/api-mock";
 const FX = path.join(process.cwd(), "e2e", "fixtures");
 const load = (name: string) => JSON.parse(fs.readFileSync(path.join(FX, name), "utf-8"));
 const HEADS = ["p_up5_1d", "p_down5_1d", "p_up10_1d", "p_down10_1d"] as const;
-const BANNED = /\b(buy|sell|invest|hold|entry|stop|target[_ ]price|conviction|position[_ ]size|multibagger|best|top pick|signal)\b/i;
+// "entry signal" is allowed on this page by the owner's decision of 2026-09-17 (decisions-log.md); everything else stays banned.
+const BANNED = /\b(buy|sell|invest|hold|stop|target[_ ]price|conviction|position[_ ]size|multibagger|best|top pick)\b/i;
 // MOCK — not real data: an extra media event so the withheld-headline path renders (the real PNCINFRA media report is de-duplicated).
 const MOCK_MEDIA_EVENT = {
   ord: 2, event_time: "2026-09-15T10:13:00+05:30", source_label: "Economic Times", is_media: true, event_type: "REGULATORY",
@@ -150,13 +151,15 @@ test.describe("Move odds — final estimates", () => {
     expect(hit, `banned word: ${hit?.[0]}`).toBeNull();
   });
 
-  test("TC-34 breakout checks are shown as facts with the failed test stated, in clean vocabulary", async ({ page }) => {
+  test("TC-34/36 entry signal pill and state follow the five checks, with the failed test stated beside them", async ({ page }) => {
     await page.getByTestId("mo-details-PNCINFRA").click();
+    await expect(page.getByTestId("mo-signal-PNCINFRA")).toHaveText("Entry signal · since 11:15");      // row pill
+    await expect(page.getByTestId("mo-signal-ANTELOPUS")).toHaveCount(0);                                  // 1 of 5: no pill
     const checks = page.getByTestId("mo-checks-PNCINFRA");
-    await expect(checks).toContainText("facts, not a call");
+    await expect(page.getByTestId("mo-signal-state-PNCINFRA")).toContainText("Entry signal ON since the 11:15-12:15 bar");
     await expect(checks.locator("li[data-met=\"yes\"]")).toHaveCount(5);
     await expect(checks).toContainText("All five first held at the 11:15-12:15 bar");
-    await expect(page.getByTestId("mo-checks-record")).toContainText("did not make money");
+    await expect(page.getByTestId("mo-checks-record")).toContainText("failed that test");
     await expect(page.getByTestId("mo-checks-record")).toContainText("-0.61% per trade");
     const text = await page.getByTestId("move-odds-screen").innerText();
     const hit = text.match(BANNED);
@@ -165,6 +168,7 @@ test.describe("Move odds — final estimates", () => {
     await page.getByTestId("mo-details-ANTELOPUS").click();
     await expect(page.getByTestId("mo-checks-ANTELOPUS").locator("li[data-met=\"yes\"]")).toHaveCount(1);
     await expect(page.getByTestId("mo-checks-ANTELOPUS")).toContainText("have not held together yet today");
+    await expect(page.getByTestId("mo-signal-state-ANTELOPUS")).toContainText("Entry signal OFF · 1 of 5 checks hold");
   });
 
   test("TC-27 every shown percentage equals the API value at one decimal", async ({ page }) => {
@@ -243,5 +247,11 @@ test.describe("Move odds — live prices", () => {
     await page.clock.runFor(61_000);
     await expect.poll(() => liveCalls.length, { timeout: 5_000 }).toBeGreaterThan(before);
     expect(liveCalls[liveCalls.length - 1].split(",").length).toBeLessThanOrEqual(50);
+    // the seven-column table must fit its region at laptop width, also with a row open (no horizontal scroll, no jump)
+    await page.getByTestId("mo-details-PNCINFRA").click();
+    await expect(page.getByTestId("mo-detail-PNCINFRA")).toBeVisible();
+    const fit = await page.locator(".mo-tablewrap").evaluate((el) => ({ over: el.scrollWidth - el.clientWidth, left: el.scrollLeft }));
+    expect(fit.over).toBeLessThanOrEqual(1);
+    expect(fit.left).toBe(0);
   });
 });

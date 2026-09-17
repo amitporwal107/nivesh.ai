@@ -72,11 +72,12 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 | TC-28 | Staging | DaaS latest with internal key | api | 200; row count = SQL count of tpd_run_estimates for the run and head  NOT RUN — DaaS router not deployed to staging |
 | TC-29 | Staging | app routes with real sessions | api | non-allowlisted 403; allowlisted 200  NOT RUN — app not deployed; needs session tokens |
 | TC-30 | Staging | real Playwright on /v5/research | e2e | allowlisted account sees the screen; top rows match SQL  NOT RUN — needs deploy + session token |
-| TC-31 | App | GET /api/move-odds/live gated; symbols validated (1–60, NSE symbol chars); payload passed through | unit | 403 not allowlisted; 422 bad symbols; 200 with quotes and entry_signal_validated=false | |
-| TC-32 | Live | breakout checks on completed hourly bars only, first bar where all five hold, missing inputs → none; quote levels/touches | unit | matches the pre-registered rule exactly | |
-| TC-33 | V5 | Live column: last price, change, touch marker per row, equal to the live API; unavailable → "—"; refresh every 60 s while visible | e2e (mock) | values shown = fixture values | |
-| TC-34 | V5 | Breakout checks panel in details: five checks, first-met bar, the failed 2025 test stated; no "entry"/"signal" wording | e2e (mock) | wording passes the D2 scan with "signal" added | |
-| TC-35 | Staging | live prices on the real page during market hours | e2e | shown values equal the live API at the same minute | |
+| TC-31 | App | GET /api/move-odds/live gated; symbols validated (1–60, NSE symbol chars); payload passed through | unit | 403 not allowlisted; 422 bad symbols; 200 with quotes and entry_signal_validated=false | PASS (unit) + real Yahoo call: 50/50 quotes, unknown symbol → unavailable |
+| TC-32 | Live | breakout checks on completed hourly bars only, first bar where all five hold, missing inputs → none; quote levels/touches | unit | matches the pre-registered rule exactly | PASS (unit, 8 cases) |
+| TC-33 | V5 | Live column: last price, change, touch marker per row, equal to the live API; unavailable → "—"; refresh every 60 s while visible | e2e (mock) | values shown = fixture values | PASS (Playwright, fake clock) |
+| TC-34 | V5 | Breakout checks panel in details: five checks, first-met bar, the failed 2025 test stated; no "entry"/"signal" wording | e2e (mock) | wording passes the D2 scan with "signal" added | PASS (Playwright) |
+| TC-35 | Staging | live prices on the real page during market hours | e2e | shown values equal the live API at the same minute | PASS (real staging 10:15 IST: 20 cells = the payload the page received; prices move by the minute, so the check is against the page's own response) |
+| TC-36 | Live + V5 | Entry signal (owner's decision 2026-09-17): ON only while all five checks hold at the latest completed hourly bar; row pill + Details state; failed 2025 test stated beside it; "entry signal" allowed, other D2 words still banned | unit + e2e (mock) + staging | pill and state equal the live payload's entry_signal | |
 
 ## API / Endpoint Tests (staging)
 - **Deploy (user-approved 2026-09-17):** commit eaa64d19 on `dev` (page files only). GitHub Actions: Deploy → nidp-stack-vm [staging] success; Deploy backend → nivesh-app-vm [staging] success; Deploy frontend → nivesh-app-vm [staging] success; Android APK success.
@@ -122,6 +123,36 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
   - `tests/test_move_odds_routes.py tests/test_research_feature_flags.py` → `12 passed`
   - `nidp/tests/services/tpd_model nidp/tests/services/catalyst_intel` → `1 failed, 287 passed` (the failure is the live OpenAI smoke test: HTTP 429 insufficient_quota / credit_balance_exhausted on the account; unrelated to this feature)
 
+
+### Live prices and breakout checks (added 2026-09-17)
+- **Pre-registered test** (`.claude/workspace/ten-percent-days-3/evidence/entry_signal/PREREGISTRATION.md`, written 09:55 IST before any intraday data was fetched; `entry_signal_result.json`):
+  ```
+  primary_top10: candidates 1650, simulated 1592, first_hour_touch_rate 0.203
+    signal:            trades 84, sessions 66, touch_rate 0.238, mean_net -0.0061, median -0.0049, win_rate 0.298, ci95 [-0.0098, -0.0022]
+    unconditional_1015: trades 1269, sessions 164, touch_rate 0.109, mean_net -0.0029, win_rate 0.429, ci95 [-0.0053, -0.0006]
+  secondary_p20: signal trades 380, touch_rate 0.274, mean_net -0.0012, ci95 [-0.0032, +0.0007]
+  decision: trades_ge_100 false, ci_lower_gt_0 false, touch_not_below_baseline true → show_entry_signal false
+  ```
+- **Unit:** `tests/test_move_odds_routes.py tests/test_move_odds_live.py` → `18 passed`.
+- **Real Yahoo call through the service** (09:57 IST, first hour still in progress so no checks yet):
+  ```
+  PNCINFRA   last   135.25  +0.6%  hi  +2.8% lo  -1.7%  touched []  bars None
+  ANTELOPUS  last  1165.95  -0.4%  hi  +2.3% lo  -2.4%  touched []  bars None
+  RAYMOND    last   978.00  -1.6%  hi  +0.4% lo  -2.8%  touched []  bars None
+  NOSUCHSYM -> unavailable
+  ```
+- **Playwright (mocked):** `research-move-odds.spec.ts` → `15 passed (27.8s)`; `npm run build` → `✓ built in 16.73s`.
+- **Deploy:** dev 18b08479 (files only). Staging TC-35 below once the workflows complete.
+
+- **Deploy:** dev 18b08479 — Deploy backend, Deploy frontend and Android APK all `success` (04:37–04:43Z). Lowest free disk during the build: 877 MB.
+- **Real-staging Playwright** (owner session; no mocks): `staging-move-odds-live.spec.cjs` →
+  ```
+  page received 50 live quotes (source Yahoo Finance, validated=false, fetched_at 2026-09-17T10:15:35.489147+05:30); cells equal the payload for 20, unavailable 0
+    ✓  1 staging-move-odds-live.spec.cjs:13:1 › TC-35 live prices on the real page equal the payload the page received (4.0s)
+    1 passed (4.8s)
+  ```
+  A first version compared cells against a separate API call and failed by design: prices move between calls. Screenshot reviewed: Live column renders (PNCINFRA ₹137.56 +2.3%); the wider table overflowed its region at 1280 px and shifted when a row opened → CSS fix with a fit assertion added to TC-33 (mocked spec re-run).
+
 ## UI / Playwright Tests
 - **Spec:** `frontend-v5/e2e/tests/research-move-odds.spec.ts` (mocked; fixtures labelled MOCK, values copied from the 17 Sep v4 snapshot)
   - Command: `npx playwright test e2e/tests/research-move-odds.spec.ts --project=desktop-chrome --reporter=list`
@@ -159,4 +190,4 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 - A staging session token (supplied by the user 2026-09-17). Allowlist membership remains the user's decision; the list is empty after verification.
 
 ## Verdict: BLOCKED
-<!-- reopened 2026-09-17 10:00 IST for the live-price addition (TC-31..TC-35); TC-1..TC-30 evidence above stands -->
+<!-- reopened 2026-09-17 for TC-36 (entry signal, owner's decision); TC-1..TC-35 evidence above stands -->

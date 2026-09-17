@@ -131,3 +131,24 @@
 .research-screen .mo-checklist li[data-met="yes"] { color: var(--c-ink); }
 .research-screen .mo-checkmark { display: inline-block; width: 16px; font-family: var(--mono); }
 .research-screen .mo-record { max-width: 90ch; }
+
+/* keep the seven-column table inside its region on laptop widths (no horizontal scroll, no jump when a row opens) */
+@media (max-width: 1440px) {
+  .research-screen .mo-table { min-width: 0; }
+  .research-screen .mo-table th, .research-screen .mo-table td { padding: 9px 10px; }
+  .research-screen .mo-sector { max-width: 110px; }
+  .research-screen .mo-co { max-width: 170px; }
+  .research-screen .mo-est { min-width: 150px; gap: 8px; }
+  .research-screen .mo-track { min-width: 70px; }
+  .research-screen .mo-live { white-space: normal; }
+}
+
+/* entry signal (owner's decision 2026-09-17): amber = caution, never green; the failed test is stated in Details */
+.research-screen .mo-signal { font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; border: 1px solid var(--amber-line); background: var(--amber-soft);
+  color: var(--amber); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.research-screen .mo-signal-state { margin: 0; font-size: 13px; color: var(--c-ink); }
+
+@media (max-width: 1440px) {
+  .research-screen .mo-signal { white-space: normal; line-height: 1.35; padding: 2px 8px; }
+  .research-screen .mo-live-hit { white-space: normal; }
+}

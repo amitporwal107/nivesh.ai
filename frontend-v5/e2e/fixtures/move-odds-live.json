@@ -15,7 +15,7 @@
    -0.0098,
    -0.0022
   ],
-  "verdict": "checks are not a signal"
+  "verdict": "failed its pre-registered test; shown at the owner's request"
  },
  "quotes": [
   {
@@ -73,7 +73,10 @@
      "cum_volume": 900000,
      "volume_needed": 480000,
      "met": 5
-    }
+    },
+    "entry_signal": true,
+    "entry_signal_since": "11:15-12:15",
+    "close_at_signal_start": 138.74
    },
    "error": null
   },
@@ -119,7 +122,10 @@
     },
     "first_met_at": null,
     "close_at_first_met": null,
-    "at_first_met": null
+    "at_first_met": null,
+    "entry_signal": false,
+    "entry_signal_since": null,
+    "close_at_signal_start": null
    },
    "error": null
   },

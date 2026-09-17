@@ -82,6 +82,19 @@ def test_adv20_uses_the_twenty_sessions_before_today():
     assert adv20_from_daily(res, today=datetime(2026, 9, 17).date()) == pytest.approx(sum(range(11, 31)) / 20)
 
 
+def test_entry_signal_is_on_only_while_all_five_hold_at_the_latest_completed_bar():
+    from services.move_odds_live import evaluate_conditions
+
+    now = datetime(2026, 9, 17, 12, 20, tzinfo=IST)                       # bars 09:15, 10:15, 11:15 complete
+    r = evaluate_conditions(BARS[:3], prev_close=100.0, adv20=1_000_000, now=now)
+    assert r["entry_signal"] is True and r["entry_signal_since"] == "11:15-12:15" and r["close_at_signal_start"] == pytest.approx(103.2)
+    later = evaluate_conditions(BARS, prev_close=100.0, adv20=1_000_000, now=datetime(2026, 9, 17, 13, 20, tzinfo=IST))
+    assert later["entry_signal"] is False and later["entry_signal_since"] is None      # the +5% level was reached: signal off
+    assert later["first_met_at"] == "11:15-12:15"                                        # history of the day is kept
+    early = evaluate_conditions(BARS[:2], prev_close=100.0, adv20=1_000_000, now=datetime(2026, 9, 17, 11, 20, tzinfo=IST))
+    assert early["entry_signal"] is False
+
+
 def test_signal_record_states_the_failed_test_and_no_field_name_carries_banned_vocabulary():
     import re
     from services import move_odds_live as live
@@ -93,5 +106,5 @@ def test_signal_record_states_the_failed_test_and_no_field_name_carries_banned_v
         if isinstance(o, dict):
             for k, v in o.items(): keys.add(k); walk(v)
     walk(r); walk(live.SIGNAL_RECORD)
-    banned = re.compile(r"\b(buy|sell|invest|hold|entry|stop|target|conviction|position|multibagger|best|pick|signal)\b", re.I)
+    banned = re.compile(r"\b(buy|sell|invest|hold|stop|target|conviction|position|multibagger|best|pick)\b", re.I)   # "entry signal" allowed by the owner's decision 2026-09-17
     assert not [k for k in keys if banned.search(k.replace("_", " "))], [k for k in keys if banned.search(k.replace("_", " "))]
