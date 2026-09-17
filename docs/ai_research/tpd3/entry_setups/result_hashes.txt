@@ -1,0 +1,2 @@
+033b8128703a8d99a12ed98ee63e9623b3ea8cca1784bf0206b17f959efea6ab  entry_setups_result.json
+f6b533d2d82bfa19f69b05cc7dc613ca0a1d1939d43634620f02f8f2c05d1539  trades.csv.gz
