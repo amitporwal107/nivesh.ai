@@ -174,3 +174,21 @@ def test_profile_feature_map_follows_a_flag_change_made_by_another_worker():
                 async def find_one(self, *a, **k): raise RuntimeError("mongo down")
             self.system_config = C()
     assert run(feature_gate.fresh_user_feature_map(Broken(), "invited@example.com", now=200.0))["move_odds"] is True   # keeps this worker's copy
+
+
+def test_live_route_is_gated_validates_symbols_and_passes_the_quote_payload_through(monkeypatch):
+    import services.move_odds_live as live
+
+    db = _DB(flags={"move_odds": {"mode": "allowlist", "allowlist": ["invited@example.com"]}})
+    c, _ = _client(monkeypatch, db)
+    seen = {}
+    async def fake_quotes(symbols, now=None):
+        seen["symbols"] = symbols
+        return {"source": "Yahoo Finance", "entry_signal_validated": False, "quotes": [{"symbol": s, "last": 1.0, "error": None} for s in symbols]}
+    monkeypatch.setattr(live, "live_quotes", fake_quotes)
+    assert _get(c, "/api/move-odds/live?symbols=PNCINFRA,antelopus", "other").status_code == 403
+    r = _get(c, "/api/move-odds/live?symbols=PNCINFRA,antelopus", "invited")
+    assert r.status_code == 200 and seen["symbols"] == ["PNCINFRA", "ANTELOPUS"] and r.json()["entry_signal_validated"] is False
+    assert _get(c, "/api/move-odds/live?symbols=", "invited").status_code == 422
+    assert _get(c, "/api/move-odds/live?symbols=" + ",".join(f"S{i}" for i in range(61)), "invited").status_code == 422
+    assert _get(c, "/api/move-odds/live?symbols=PNC;DROP", "invited").status_code == 422

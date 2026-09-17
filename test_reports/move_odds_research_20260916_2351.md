@@ -72,6 +72,11 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 | TC-28 | Staging | DaaS latest with internal key | api | 200; row count = SQL count of tpd_run_estimates for the run and head  NOT RUN — DaaS router not deployed to staging |
 | TC-29 | Staging | app routes with real sessions | api | non-allowlisted 403; allowlisted 200  NOT RUN — app not deployed; needs session tokens |
 | TC-30 | Staging | real Playwright on /v5/research | e2e | allowlisted account sees the screen; top rows match SQL  NOT RUN — needs deploy + session token |
+| TC-31 | App | GET /api/move-odds/live gated; symbols validated (1–60, NSE symbol chars); payload passed through | unit | 403 not allowlisted; 422 bad symbols; 200 with quotes and entry_signal_validated=false | |
+| TC-32 | Live | breakout checks on completed hourly bars only, first bar where all five hold, missing inputs → none; quote levels/touches | unit | matches the pre-registered rule exactly | |
+| TC-33 | V5 | Live column: last price, change, touch marker per row, equal to the live API; unavailable → "—"; refresh every 60 s while visible | e2e (mock) | values shown = fixture values | |
+| TC-34 | V5 | Breakout checks panel in details: five checks, first-met bar, the failed 2025 test stated; no "entry"/"signal" wording | e2e (mock) | wording passes the D2 scan with "signal" added | |
+| TC-35 | Staging | live prices on the real page during market hours | e2e | shown values equal the live API at the same minute | |
 
 ## API / Endpoint Tests (staging)
 - **Deploy (user-approved 2026-09-17):** commit eaa64d19 on `dev` (page files only). GitHub Actions: Deploy → nidp-stack-vm [staging] success; Deploy backend → nivesh-app-vm [staging] success; Deploy frontend → nivesh-app-vm [staging] success; Android APK success.
@@ -153,4 +158,5 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 ## Inputs required from user
 - A staging session token (supplied by the user 2026-09-17). Allowlist membership remains the user's decision; the list is empty after verification.
 
-## Verdict: PASS
+## Verdict: BLOCKED
+<!-- reopened 2026-09-17 10:00 IST for the live-price addition (TC-31..TC-35); TC-1..TC-30 evidence above stands -->
