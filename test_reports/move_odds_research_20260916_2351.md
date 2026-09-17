@@ -77,6 +77,7 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 | TC-33 | V5 | Live column: last price, change, touch marker per row, equal to the live API; unavailable → "—"; refresh every 60 s while visible | e2e (mock) | values shown = fixture values | PASS (Playwright, fake clock) |
 | TC-34 | V5 | Breakout checks panel in details: five checks, first-met bar, the failed 2025 test stated; no "entry"/"signal" wording | e2e (mock) | wording passes the D2 scan with "signal" added | PASS (Playwright) |
 | TC-35 | Staging | live prices on the real page during market hours | e2e | shown values equal the live API at the same minute | PASS (real staging 10:15 IST: 20 cells = the payload the page received; prices move by the minute, so the check is against the page's own response) |
+| TC-36 | Live + V5 | Entry signal (owner's decision 2026-09-17): ON only while all five checks hold at the latest completed hourly bar; row pill + Details state; failed 2025 test stated beside it; "entry signal" allowed, other D2 words still banned | unit + e2e (mock) + staging | pill and state equal the live payload's entry_signal | |
 
 ## API / Endpoint Tests (staging)
 - **Deploy (user-approved 2026-09-17):** commit eaa64d19 on `dev` (page files only). GitHub Actions: Deploy → nidp-stack-vm [staging] success; Deploy backend → nivesh-app-vm [staging] success; Deploy frontend → nivesh-app-vm [staging] success; Android APK success.
@@ -188,4 +189,5 @@ loading, not published, withheld, access not enabled (403 mid-session clears cac
 ## Inputs required from user
 - A staging session token (supplied by the user 2026-09-17). Allowlist membership remains the user's decision; the list is empty after verification.
 
-## Verdict: PASS
+## Verdict: BLOCKED
+<!-- reopened 2026-09-17 for TC-36 (entry signal, owner's decision); TC-1..TC-35 evidence above stands -->

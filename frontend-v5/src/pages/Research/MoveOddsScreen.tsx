@@ -347,6 +347,11 @@ function LiveCell({ q, head }: { q: LiveQuote | undefined; head: MoveHead }) {
       <span className="mo-live-last">₹{money(q.last)}</span>
       <span className="mo-live-chg">{signed(q.change_pct, "%")}</span>
       {hit && <span className="mo-live-hit" aria-label={`today's ${head.startsWith("p_up") ? "high" : "low"} reached the ${hit} level`}>{hit} reached</span>}
+      {q.conditions?.entry_signal && (
+        <span className="mo-signal" data-testid={`mo-signal-${q.symbol}`} title="All five breakout checks hold at the latest completed hourly bar. This rule lost money in its 2025 test; see Details.">
+          Entry signal · since {q.conditions.entry_signal_since?.split("-")[0]}
+        </span>
+      )}
     </span>
   );
 }
@@ -448,7 +453,12 @@ function Checks({ q, record, symbol }: { q: LiveQuote | undefined; record: LiveP
   const latest = c?.latest ?? null;
   return (
     <div className="mo-checks" data-testid={`mo-checks-${symbol}`}>
-      <h4>Breakout checks today · facts, not a call</h4>
+      <h4>Entry signal · five breakout checks on hourly bars</h4>
+      <p className="mo-signal-state" data-testid={`mo-signal-state-${symbol}`}>
+        {c?.entry_signal
+          ? <>Entry signal <b>ON</b> since the {c.entry_signal_since} bar (close ₹{money(c.close_at_signal_start)}).</>
+          : <>Entry signal <b>OFF</b>{latest ? ` · ${latest.met} of 5 checks hold` : ""}.</>}
+      </p>
       {q && !q.error && q.day_high != null && q.day_low != null && (
         <p className="mo-mini">Today so far: high {signed(q.high_pct ?? 0, "%")}, low {signed(q.low_pct ?? 0, "%")} against the previous close of ₹{money(q.prev_close)}.</p>
       )}
@@ -471,7 +481,7 @@ function Checks({ q, record, symbol }: { q: LiveQuote | undefined; record: LiveP
         <p className="mo-mini mo-record" data-testid="mo-checks-record">
           Tested on {record.window}, {record.candidates}: after all five held, the +5% level was reached {(record.touch_rate_after_checks * 100).toFixed(1)}% of the time
           against {(record.touch_rate_unconditional * 100).toFixed(1)}% without them, but taking the breakout averaged {(record.mean_net_return * 100).toFixed(2)}% per trade after costs
-          (95% interval {(record.ci95_mean_net_return[0] * 100).toFixed(2)}% to {(record.ci95_mean_net_return[1] * 100).toFixed(2)}%, {record.trades} trades). The checks describe the tape; they did not make money.
+          (95% interval {(record.ci95_mean_net_return[0] * 100).toFixed(2)}% to {(record.ci95_mean_net_return[1] * 100).toFixed(2)}%, {record.trades} trades). This signal failed that test and is shown at the account owner&apos;s request; it is a rule, not advice.
         </p>
       )}
     </div>

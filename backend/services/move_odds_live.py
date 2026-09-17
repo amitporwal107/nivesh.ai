@@ -33,10 +33,10 @@ LEVELS = {"p_up5_1d": 1.05, "p_down5_1d": 0.95, "p_up10_1d": 1.10, "p_down10_1d"
 # +5% touches (23.8% after the checks vs 10.9% unconditional) but buying the breakout lost money: mean −0.61% per
 # trade net of 0.10% costs, 95% CI [−0.98%, −0.22%], 84 trades, and fewer than the 100 required. So the checks are
 # shown as facts only and never labelled as a signal. These are test statistics, not model estimates.
-ENTRY_SIGNAL_VALIDATED = False
+ENTRY_SIGNAL_VALIDATED = False            # stays False: the test failed. The signal is shown by the owner's decision, with this record.
 SIGNAL_RECORD: Optional[dict] = {"window": "Jan–Aug 2025", "candidates": "each session's 10 highest +5% estimates", "trades": 84,
                                  "touch_rate_after_checks": 0.238, "touch_rate_unconditional": 0.109, "mean_net_return": -0.0061,
-                                 "ci95_mean_net_return": [-0.0098, -0.0022], "verdict": "checks are not a signal"}
+                                 "ci95_mean_net_return": [-0.0098, -0.0022], "verdict": "failed its pre-registered test; shown at the owner's request"}
 
 _quote_cache: dict[str, tuple[float, dict]] = {}
 _adv_cache: dict[tuple[str, date], tuple[float, Optional[float]]] = {}
@@ -98,6 +98,7 @@ def evaluate_conditions(bars: list[dict], prev_close: float, adv20: Optional[flo
     run_high = float("-inf")
     latest = at_first = None
     first_met = entry = None
+    run_since = run_close = None                 # the current unbroken run of bars where all five hold
     for i, b in enumerate(done):
         tp = (b["high"] + b["low"] + b["close"]) / 3
         cum_pv += tp * b["volume"]; cum_v += b["volume"]
@@ -112,9 +113,18 @@ def evaluate_conditions(bars: list[dict], prev_close: float, adv20: Optional[flo
         latest = {**checks, "bar": f"{b['start']:%H:%M}-{b['start'] + timedelta(minutes=60):%H:%M}", "close": round(b["close"], 2),
                   "vwap": round(vwap, 2) if vwap else None, "opening_range_high": round(first_high, 2), "cum_volume": int(cum_v),
                   "volume_needed": int(adv20 * elapsed / SESSION_MINUTES), "met": sum(checks.values())}
-        if first_met is None and all(checks.values()):
-            first_met, entry, at_first = latest["bar"], round(b["close"], 2), dict(latest)
-    return {"evaluated_bars": len(done), "latest": latest, "first_met_at": first_met, "close_at_first_met": entry, "at_first_met": at_first}
+        if all(checks.values()):
+            if first_met is None:
+                first_met, entry, at_first = latest["bar"], round(b["close"], 2), dict(latest)
+            if run_since is None:
+                run_since, run_close = latest["bar"], round(b["close"], 2)
+        else:
+            run_since = run_close = None
+    # Entry signal (user decision 2026-09-17, decisions-log.md): ON while all five checks hold at the latest completed
+    # hourly bar; "since" is the first bar of the current unbroken run. The rule failed its pre-registered 2025 test
+    # (SIGNAL_RECORD) and the page must say so beside every signal.
+    return {"evaluated_bars": len(done), "latest": latest, "first_met_at": first_met, "close_at_first_met": entry, "at_first_met": at_first,
+            "entry_signal": run_since is not None, "entry_signal_since": run_since, "close_at_signal_start": run_close}
 
 
 async def _get_json(client: httpx.AsyncClient, url: str, params: dict) -> Optional[dict]:

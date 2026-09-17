@@ -169,6 +169,9 @@ const ConditionsC = z.object({
   first_met_at: z.string().nullable(),
   close_at_first_met: z.number().nullable(),
   at_first_met: ChecksC.nullable(),
+  entry_signal: z.boolean().default(false),
+  entry_signal_since: z.string().nullable().default(null),
+  close_at_signal_start: z.number().nullable().default(null),
 });
 export type LiveConditions = z.infer<typeof ConditionsC>;
 const QuoteC = z.object({
