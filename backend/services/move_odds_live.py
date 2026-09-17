@@ -127,6 +127,58 @@ def evaluate_conditions(bars: list[dict], prev_close: float, adv20: Optional[flo
             "entry_signal": run_since is not None, "entry_signal_since": run_since, "close_at_signal_start": run_close}
 
 
+# ── Paper trade on the early signal (user 2026-09-17: "for early signal I enter a false 1000 quantity and sell at 5-10%
+# rise intraday… just give an indicator"). Entry: 1,000 shares at the close of the first bar where all five checks held.
+# Exit: the first 5-minute bar after entry whose high reaches +5% (or +10%) from entry, filled at that level; otherwise
+# marked at the latest price, which after 15:30 is the day's close. Charges are an estimate for discount-broker intraday.
+PAPER_QTY = 1000
+PAPER_EXITS = (0.05, 0.10)
+SESSION_CLOSE = (15, 30)
+
+
+def intraday_charges(buy: float, sell: float, qty: int = PAPER_QTY) -> float:
+    tb, ts = buy * qty, sell * qty
+    brokerage = min(20.0, 0.0003 * tb) + min(20.0, 0.0003 * ts)
+    txn = 0.0000297 * (tb + ts)
+    sebi = 10 / 1e7 * (tb + ts)
+    return round(brokerage + 0.00025 * ts + txn + sebi + 0.00003 * tb + 0.18 * (brokerage + txn + sebi), 2)
+
+
+def bars5_from_chart(res: dict) -> list[dict]:
+    q = ((res.get("indicators") or {}).get("quote") or [{}])[0]
+    out = []
+    for i, ts in enumerate(res.get("timestamp") or []):
+        hi = (q.get("high") or [None] * (i + 1))[i] if i < len(q.get("high") or []) else None
+        if hi is None:
+            continue
+        out.append({"start": datetime.fromtimestamp(ts, IST), "high": float(hi)})
+    return out
+
+
+def paper_trade(conditions: Optional[dict], bars5: list[dict], last: float, now: datetime) -> Optional[dict]:
+    """None unless an early signal fired on a bar that ends before the close."""
+    if not conditions or not conditions.get("first_met_at") or last is None:
+        return None
+    start_s, end_s = conditions["first_met_at"].split("-")
+    if start_s >= "15:15":
+        return None
+    local = now.astimezone(IST)
+    entry_time = local.replace(hour=int(end_s[:2]), minute=int(end_s[3:]), second=0, microsecond=0)
+    entry = float(conditions["close_at_first_met"])
+    closed = (local.hour, local.minute) >= SESSION_CLOSE
+    exits = []
+    for pct in PAPER_EXITS:
+        level = round(entry * (1 + pct), 2)
+        hit = next((b for b in bars5 if b["start"] >= entry_time and b["high"] >= level), None)
+        price = level if hit else round(float(last), 2)
+        gross = round((price - entry) * PAPER_QTY, 2)
+        cost = intraday_charges(entry, price)
+        exits.append({"pct": int(round(pct * 100)), "level": level, "reached": hit is not None, "at": hit["start"].strftime("%H:%M") if hit else None,
+                      "price": price, "state": "exited" if hit else ("closed at day end" if closed else "open"),
+                      "gross": gross, "charges": cost, "net": round(gross - cost, 2)})
+    return {"qty": PAPER_QTY, "entry_price": round(entry, 2), "entry_time": end_s, "exits": exits, "marked_at": local.strftime("%H:%M")}
+
+
 async def _get_json(client: httpx.AsyncClient, url: str, params: dict) -> Optional[dict]:
     try:
         r = await client.get(url, params=params, headers={"User-Agent": UA, "Accept": "application/json"})
@@ -156,6 +208,10 @@ async def _one(client: httpx.AsyncClient, sem: asyncio.Semaphore, symbol: str, n
             adv20 = adv20_from_daily(daily, today) if daily else None
             _adv_cache[(symbol, today)] = (time.monotonic(), adv20)
     q["conditions"] = evaluate_conditions(bars_from_chart(intraday), q["prev_close"], adv20, now) if q["session_date"] == now.astimezone(IST).date().isoformat() else None
+    q["paper"] = None
+    if q["conditions"] and q["conditions"].get("first_met_at"):
+        m5 = await _get_json(client, CHART.format(sym=symbol), {"interval": "5m", "range": "1d"})
+        q["paper"] = paper_trade(q["conditions"], bars5_from_chart(m5) if m5 else [], q["last"], now)
     q["error"] = None
     _quote_cache[symbol] = (time.monotonic(), q)
     return q

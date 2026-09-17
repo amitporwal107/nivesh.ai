@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import {
   MOVE_HEADS, fetchLive, moveOddsService,
-  type LiveConditions, type LivePayload, type LiveQuote, type MoveBand, type MoveFinal, type MoveHead, type MoveLatestResult, type MoveRow, type MoveStockResult,
+  type LiveConditions, type LivePayload, type LiveQuote, type PaperTrade, type MoveBand, type MoveFinal, type MoveHead, type MoveLatestResult, type MoveRow, type MoveStockResult,
 } from "@/services/adapters/moveOdds.adapter";
 import "./moveOdds.css";
 
@@ -338,6 +338,23 @@ export default function MoveOddsScreen() {
   );
 }
 
+function rupees(v: number): string {
+  const sign = v > 0 ? "+" : v < 0 ? "−" : "";
+  return `${sign}₹${Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+}
+
+function PaperIndicator({ p, symbol }: { p: PaperTrade; symbol: string }) {
+  const e = p.exits[0];                                     // the +5% exit is the indicator; Details shows +10% too
+  const tone = e.net > 0 ? "up" : e.net < 0 ? "down" : "flat";
+  const state = e.reached ? `+${e.pct}% at ${e.at}` : e.state === "open" ? "open" : "day close";
+  return (
+    <span className={`mo-paper ${tone}`} data-testid={`mo-paper-${symbol}`}
+          title={`Paper trade: ${p.qty.toLocaleString("en-IN")} shares from ₹${money(p.entry_price)} at ${p.entry_time}, exit at +${e.pct}% or the latest price; after estimated charges`}>
+      Paper {rupees(e.net)} · {state}
+    </span>
+  );
+}
+
 function LiveCell({ q, head }: { q: LiveQuote | undefined; head: MoveHead }) {
   if (!q) return <span className="mo-live none" data-testid="mo-live-pending">…</span>;
   if (q.error || q.last == null || q.change_pct == null) return <span className="mo-live none">—</span>;
@@ -352,6 +369,7 @@ function LiveCell({ q, head }: { q: LiveQuote | undefined; head: MoveHead }) {
           Entry signal · since {q.conditions.entry_signal_since?.split("-")[0]}
         </span>
       )}
+      {q.paper && <PaperIndicator p={q.paper} symbol={q.symbol} />}
     </span>
   );
 }
@@ -477,6 +495,27 @@ function Checks({ q, record, symbol }: { q: LiveQuote | undefined; record: LiveP
         </>
       )}
       {c && !latest && <p className="mo-mini">Only the first hour has completed; the checks start from the second bar.</p>}
+      {q?.paper && (
+        <div className="mo-papertrade" data-testid={`mo-papertrade-${symbol}`}>
+          <h4>Paper trade · {q.paper.qty.toLocaleString("en-IN")} shares from ₹{money(q.paper.entry_price)} at {q.paper.entry_time} · marked {q.paper.marked_at} IST</h4>
+          <table className="mo-bands">
+            <thead><tr><th scope="col">Exit rule</th><th scope="col">Status</th><th scope="col">Price</th><th scope="col">Gross</th><th scope="col">Charges</th><th scope="col">Net</th></tr></thead>
+            <tbody>
+              {q.paper.exits.map((e) => (
+                <tr key={e.pct}>
+                  <td>+{e.pct}% (₹{money(e.level)})</td>
+                  <td>{e.reached ? `reached ${e.at}` : e.state}</td>
+                  <td>₹{money(e.price)}</td>
+                  <td>{rupees(e.gross)}</td>
+                  <td>₹{money(e.charges)}</td>
+                  <td className={e.net > 0 ? "mo-up" : e.net < 0 ? "mo-down" : ""}>{rupees(e.net)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mo-mini">Hypothetical: entry at the close of the first hourly bar where all five checks held; exit at the first 5-minute high reaching the level after entry, otherwise the latest price (the day&apos;s close after 15:30). Charges are an estimate for a discount broker&apos;s intraday rates.</p>
+        </div>
+      )}
       {record && (
         <p className="mo-mini mo-record" data-testid="mo-checks-record">
           Tested on {record.window}, {record.candidates}: after all five held, the +5% level was reached {(record.touch_rate_after_checks * 100).toFixed(1)}% of the time
