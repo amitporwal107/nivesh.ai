@@ -64,10 +64,14 @@ def archive_raw(
     try:
         day_dir.mkdir(parents=True, exist_ok=True)
         target = day_dir / safe_filename
+        # Write to a sibling temp file and rename: identical filings across day folders are hard-linked by the
+        # nightly dedupe, and an in-place write would silently rewrite every linked older copy.
+        tmp = day_dir / f".{safe_filename}.tmp{os.getpid()}"
         if isinstance(content, str):
-            target.write_text(content, encoding="utf-8")
+            tmp.write_text(content, encoding="utf-8")
         else:
-            target.write_bytes(content)
+            tmp.write_bytes(content)
+        os.replace(tmp, target)
         logger.info(
             "archive_raw: %s / %s / %s (%d bytes)",
             ingester, date_str, safe_filename, len(content),
