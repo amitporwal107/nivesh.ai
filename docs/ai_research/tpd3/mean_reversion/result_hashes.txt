@@ -1,0 +1,2 @@
+3dc8e253026b1b959f76f1a9e8188c8a4927aad4b9221b273e91e8952a38c43a  mr_development_result.json
+a54e08565a6db2a1e1db0a79e2b169955036ffe9e34ed344b0fe9eeb7445dd4f  mr_development_trades.csv.gz
