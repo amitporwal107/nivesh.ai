@@ -1,0 +1,1400 @@
+{
+ "_comment": "MOCK \u2014 not real data at test time: a Yahoo Finance snapshot taken 2026-09-17 ~10:02 IST via services.move_odds_live, frozen for the mocked UI tests; quotes[3] made unavailable on purpose; conditions on quotes[0] and quotes[1] come from MOCK hourly bars through services.move_odds_live.evaluate_conditions",
+ "source": "Yahoo Finance",
+ "delay_note": "delayed up to about a minute",
+ "fetched_at": "2026-09-17T09:59:26.629476+05:30",
+ "entry_signal_validated": false,
+ "signal_record": {
+  "window": "Jan\u2013Aug 2025",
+  "candidates": "each session's 10 highest +5% estimates",
+  "trades": 84,
+  "touch_rate_after_checks": 0.238,
+  "touch_rate_unconditional": 0.109,
+  "mean_net_return": -0.0061,
+  "ci95_mean_net_return": [
+   -0.0098,
+   -0.0022
+  ],
+  "verdict": "checks are not a signal"
+ },
+ "quotes": [
+  {
+   "symbol": "PNCINFRA",
+   "last": 135.7,
+   "prev_close": 134.44,
+   "change_pct": 0.9372210651591661,
+   "day_high": 138.24,
+   "day_low": 132.2,
+   "high_pct": 2.8265397203213416,
+   "low_pct": -1.6661707825052163,
+   "volume": 1145146,
+   "quote_time": "2026-09-17T09:59:19+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 141.16,
+    "p_down5_1d": 127.72,
+    "p_up10_1d": 147.88,
+    "p_down10_1d": 121.0
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": {
+    "evaluated_bars": 3,
+    "latest": {
+     "above_prev_close": true,
+     "above_opening_range": true,
+     "above_vwap": true,
+     "room_to_level": true,
+     "volume_pace": true,
+     "bar": "11:15-12:15",
+     "close": 138.74,
+     "vwap": 136.54,
+     "opening_range_high": 137.13,
+     "cum_volume": 900000,
+     "volume_needed": 480000,
+     "met": 5
+    },
+    "first_met_at": "11:15-12:15",
+    "close_at_first_met": 138.74,
+    "at_first_met": {
+     "above_prev_close": true,
+     "above_opening_range": true,
+     "above_vwap": true,
+     "room_to_level": true,
+     "volume_pace": true,
+     "bar": "11:15-12:15",
+     "close": 138.74,
+     "vwap": 136.54,
+     "opening_range_high": 137.13,
+     "cum_volume": 900000,
+     "volume_needed": 480000,
+     "met": 5
+    }
+   },
+   "error": null
+  },
+  {
+   "symbol": "ANTELOPUS",
+   "last": 1161.65,
+   "prev_close": 1170.95,
+   "change_pct": -0.7942269097741095,
+   "day_high": 1198.0,
+   "day_low": 1143.0,
+   "high_pct": 2.3100900977838457,
+   "low_pct": -2.386950766471674,
+   "volume": 467643,
+   "quote_time": "2026-09-17T09:59:20+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 1229.5,
+    "p_down5_1d": 1112.4,
+    "p_up10_1d": 1288.05,
+    "p_down10_1d": 1053.86
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": {
+    "evaluated_bars": 2,
+    "latest": {
+     "above_prev_close": false,
+     "above_opening_range": false,
+     "above_vwap": false,
+     "room_to_level": true,
+     "volume_pace": false,
+     "bar": "10:15-11:15",
+     "close": 1153.39,
+     "vwap": 1158.81,
+     "opening_range_high": 1182.66,
+     "cum_volume": 180000,
+     "volume_needed": 1600000,
+     "met": 1
+    },
+    "first_met_at": null,
+    "close_at_first_met": null,
+    "at_first_met": null
+   },
+   "error": null
+  },
+  {
+   "symbol": "RAYMOND",
+   "last": 979.15,
+   "prev_close": 993.9,
+   "change_pct": -1.4840527216017696,
+   "day_high": 998.1,
+   "day_low": 966.05,
+   "high_pct": 0.4225777241171125,
+   "low_pct": -2.802092765871822,
+   "volume": 1120097,
+   "quote_time": "2026-09-17T09:59:25+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 1043.6,
+    "p_down5_1d": 944.2,
+    "p_up10_1d": 1093.29,
+    "p_down10_1d": 894.51
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "RATNAVEER",
+   "error": "unavailable"
+  },
+  {
+   "symbol": "TRIVENI",
+   "last": 237.65,
+   "prev_close": 239.45,
+   "change_pct": -0.7517226978492331,
+   "day_high": 241.0,
+   "day_low": 232.15,
+   "high_pct": 0.6473167675923985,
+   "low_pct": -3.0486531634996816,
+   "volume": 93396,
+   "quote_time": "2026-09-17T09:59:14+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 251.42,
+    "p_down5_1d": 227.48,
+    "p_up10_1d": 263.39,
+    "p_down10_1d": 215.5
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "MOREPENLAB",
+   "last": 116.4,
+   "prev_close": 114.73,
+   "change_pct": 1.4555913884773064,
+   "day_high": 118.5,
+   "day_low": 112.62,
+   "high_pct": 3.285975769197247,
+   "low_pct": -1.839100496818613,
+   "volume": 6587252,
+   "quote_time": "2026-09-17T09:59:19+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 120.47,
+    "p_down5_1d": 108.99,
+    "p_up10_1d": 126.2,
+    "p_down10_1d": 103.26
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "IOLCP",
+   "last": 193.47,
+   "prev_close": 194.57,
+   "change_pct": -0.5653492316390007,
+   "day_high": 197.5,
+   "day_low": 189.37,
+   "high_pct": 1.5058847715475165,
+   "low_pct": -2.6725600041116238,
+   "volume": 1071623,
+   "quote_time": "2026-09-17T09:59:22+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 204.3,
+    "p_down5_1d": 184.84,
+    "p_up10_1d": 214.03,
+    "p_down10_1d": 175.11
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "FCL",
+   "last": 53.14,
+   "prev_close": 53.07,
+   "change_pct": 0.13190126248350253,
+   "day_high": 54.06,
+   "day_low": 52.2,
+   "high_pct": 1.865460712266831,
+   "low_pct": -1.6393442622950727,
+   "volume": 4916328,
+   "quote_time": "2026-09-17T09:59:23+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 55.72,
+    "p_down5_1d": 50.42,
+    "p_up10_1d": 58.38,
+    "p_down10_1d": 47.76
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "ASIANENE",
+   "last": 487.75,
+   "prev_close": 494.1,
+   "change_pct": -1.2851649463671344,
+   "day_high": 496.25,
+   "day_low": 481.9,
+   "high_pct": 0.43513458814004036,
+   "low_pct": -2.4691358024691468,
+   "volume": 61036,
+   "quote_time": "2026-09-17T09:59:16+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 518.81,
+    "p_down5_1d": 469.39,
+    "p_up10_1d": 543.51,
+    "p_down10_1d": 444.69
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "KPL",
+   "last": 3397.6,
+   "prev_close": 3356.0,
+   "change_pct": 1.2395709177592362,
+   "day_high": 3450.0,
+   "day_low": 3346.3,
+   "high_pct": 2.8009535160905763,
+   "low_pct": -0.2890345649582793,
+   "volume": 6837,
+   "quote_time": "2026-09-17T09:59:22+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 3523.8,
+    "p_down5_1d": 3188.2,
+    "p_up10_1d": 3691.6,
+    "p_down10_1d": 3020.4
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "INDSWFTLAB",
+   "last": 379.5,
+   "prev_close": 363.9,
+   "change_pct": 4.286892003297615,
+   "day_high": 386.2,
+   "day_low": 362.45,
+   "high_pct": 6.128057158560041,
+   "low_pct": -0.39846111569111775,
+   "volume": 219585,
+   "quote_time": "2026-09-17T09:59:23+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 382.09,
+    "p_down5_1d": 345.7,
+    "p_up10_1d": 400.29,
+    "p_down10_1d": 327.51
+   },
+   "touched": {
+    "p_up5_1d": true,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "ATALREAL",
+   "last": 14.5,
+   "prev_close": 14.44,
+   "change_pct": 0.41551246537396835,
+   "day_high": 14.79,
+   "day_low": 14.43,
+   "high_pct": 2.423822714681445,
+   "low_pct": -0.06925207756232066,
+   "volume": 2660174,
+   "quote_time": "2026-09-17T09:58:41+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 15.16,
+    "p_down5_1d": 13.72,
+    "p_up10_1d": 15.88,
+    "p_down10_1d": 13.0
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "ROSSTECH",
+   "last": 1383.0,
+   "prev_close": 1349.9,
+   "change_pct": 2.4520334839617686,
+   "day_high": 1426.9,
+   "day_low": 1325.0,
+   "high_pct": 5.704126231572704,
+   "low_pct": -1.84458108008001,
+   "volume": 417518,
+   "quote_time": "2026-09-17T09:59:25+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 1417.4,
+    "p_down5_1d": 1282.4,
+    "p_up10_1d": 1484.89,
+    "p_down10_1d": 1214.91
+   },
+   "touched": {
+    "p_up5_1d": true,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "HIKAL",
+   "last": 227.11,
+   "prev_close": 224.38,
+   "change_pct": 1.2166859791425289,
+   "day_high": 231.35,
+   "day_low": 219.95,
+   "high_pct": 3.1063374632320118,
+   "low_pct": -1.9743292628576548,
+   "volume": 305865,
+   "quote_time": "2026-09-17T09:59:22+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 235.6,
+    "p_down5_1d": 213.16,
+    "p_up10_1d": 246.82,
+    "p_down10_1d": 201.94
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "RPEL",
+   "last": 1569.3,
+   "prev_close": 1547.0,
+   "change_pct": 1.4414996767937893,
+   "day_high": 1590.0,
+   "day_low": 1538.0,
+   "high_pct": 2.779573367808652,
+   "low_pct": -0.5817711700064621,
+   "volume": 20162,
+   "quote_time": "2026-09-17T09:59:20+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 1624.35,
+    "p_down5_1d": 1469.65,
+    "p_up10_1d": 1701.7,
+    "p_down10_1d": 1392.3
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "AEROENTER",
+   "last": 121.09,
+   "prev_close": 113.35,
+   "change_pct": 6.828407587119556,
+   "day_high": 121.15,
+   "day_low": 112.2,
+   "high_pct": 6.881340979267758,
+   "low_pct": -1.0145566828407504,
+   "volume": 401593,
+   "quote_time": "2026-09-17T09:59:20+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 119.02,
+    "p_down5_1d": 107.68,
+    "p_up10_1d": 124.69,
+    "p_down10_1d": 102.02
+   },
+   "touched": {
+    "p_up5_1d": true,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "TATACHEM",
+   "last": 735.35,
+   "prev_close": 731.8,
+   "change_pct": 0.4851052200054662,
+   "day_high": 744.7,
+   "day_low": 724.75,
+   "high_pct": 1.7627767149494433,
+   "low_pct": -0.9633779721235247,
+   "volume": 1154920,
+   "quote_time": "2026-09-17T09:59:20+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 768.39,
+    "p_down5_1d": 695.21,
+    "p_up10_1d": 804.98,
+    "p_down10_1d": 658.62
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "JYOTISTRUC",
+   "last": 9.07,
+   "prev_close": 9.02,
+   "change_pct": 0.5543237250554389,
+   "day_high": 9.19,
+   "day_low": 8.92,
+   "high_pct": 1.8847006651884657,
+   "low_pct": -1.1086474501108556,
+   "volume": 1057086,
+   "quote_time": "2026-09-17T09:59:17+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 9.47,
+    "p_down5_1d": 8.57,
+    "p_up10_1d": 9.92,
+    "p_down10_1d": 8.12
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "AEROFLEX",
+   "last": 502.6,
+   "prev_close": 481.1,
+   "change_pct": 4.468925379339006,
+   "day_high": 506.55,
+   "day_low": 483.1,
+   "high_pct": 5.289960507171054,
+   "low_pct": 0.4157139887757122,
+   "volume": 836428,
+   "quote_time": "2026-09-17T09:59:19+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 505.16,
+    "p_down5_1d": 457.05,
+    "p_up10_1d": 529.21,
+    "p_down10_1d": 432.99
+   },
+   "touched": {
+    "p_up5_1d": true,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "AVALON",
+   "last": 2272.0,
+   "prev_close": 2216.1,
+   "change_pct": 2.522449347953626,
+   "day_high": 2285.7,
+   "day_low": 2204.3,
+   "high_pct": 3.14065249763098,
+   "low_pct": -0.5324669464374265,
+   "volume": 125506,
+   "quote_time": "2026-09-17T09:59:20+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 2326.91,
+    "p_down5_1d": 2105.29,
+    "p_up10_1d": 2437.71,
+    "p_down10_1d": 1994.49
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "PCJEWELLER",
+   "last": 12.84,
+   "prev_close": 12.64,
+   "change_pct": 1.5822784810126445,
+   "day_high": 12.9,
+   "day_low": 12.35,
+   "high_pct": 2.0569620253164445,
+   "low_pct": -2.2943037974683667,
+   "volume": 74413637,
+   "quote_time": "2026-09-17T09:59:24+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 13.27,
+    "p_down5_1d": 12.01,
+    "p_up10_1d": 13.9,
+    "p_down10_1d": 11.38
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "EXICOM",
+   "last": 163.97,
+   "prev_close": 162.72,
+   "change_pct": 0.7681907571288171,
+   "day_high": 167.45,
+   "day_low": 162.13,
+   "high_pct": 2.9068338249754078,
+   "low_pct": -0.3625860373647982,
+   "volume": 281795,
+   "quote_time": "2026-09-17T09:59:17+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 170.86,
+    "p_down5_1d": 154.58,
+    "p_up10_1d": 178.99,
+    "p_down10_1d": 146.45
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "SOUTHWEST",
+   "last": 201.02,
+   "prev_close": 198.58,
+   "change_pct": 1.2287239399738192,
+   "day_high": 204.89,
+   "day_low": 198.9,
+   "high_pct": 3.177560680833902,
+   "low_pct": 0.16114412327525862,
+   "volume": 25737,
+   "quote_time": "2026-09-17T09:59:07+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 208.51,
+    "p_down5_1d": 188.65,
+    "p_up10_1d": 218.44,
+    "p_down10_1d": 178.72
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "QUADFUTURE",
+   "last": 506.65,
+   "prev_close": 491.95,
+   "change_pct": 2.988108547616619,
+   "day_high": 508.85,
+   "day_low": 484.0,
+   "high_pct": 3.4353084663075517,
+   "low_pct": -1.6160178879967457,
+   "volume": 260382,
+   "quote_time": "2026-09-17T09:59:21+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 516.55,
+    "p_down5_1d": 467.35,
+    "p_up10_1d": 541.14,
+    "p_down10_1d": 442.75
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "INA",
+   "last": 88.43,
+   "prev_close": 86.95,
+   "change_pct": 1.7021276595744705,
+   "day_high": 89.0,
+   "day_low": 86.48,
+   "high_pct": 2.357676825761934,
+   "low_pct": -0.540540540540535,
+   "volume": 121458,
+   "quote_time": "2026-09-17T09:59:10+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 91.3,
+    "p_down5_1d": 82.6,
+    "p_up10_1d": 95.65,
+    "p_down10_1d": 78.26
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "HLEGLAS",
+   "last": 414.85,
+   "prev_close": 416.85,
+   "change_pct": -0.4797888928871341,
+   "day_high": 429.9,
+   "day_low": 414.1,
+   "high_pct": 3.130622526088511,
+   "low_pct": -0.6597097277198039,
+   "volume": 82030,
+   "quote_time": "2026-09-17T09:59:24+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 437.69,
+    "p_down5_1d": 396.01,
+    "p_up10_1d": 458.54,
+    "p_down10_1d": 375.17
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "TBZ",
+   "last": 574.85,
+   "prev_close": 547.5,
+   "change_pct": 4.995433789954351,
+   "day_high": 574.85,
+   "day_low": 555.1,
+   "high_pct": 4.995433789954351,
+   "low_pct": 1.3881278538812936,
+   "volume": 233940,
+   "quote_time": "2026-09-17T09:59:19+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 574.88,
+    "p_down5_1d": 520.12,
+    "p_up10_1d": 602.25,
+    "p_down10_1d": 492.75
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "FILATEX",
+   "last": 89.79,
+   "prev_close": 87.22,
+   "change_pct": 2.946571887181837,
+   "day_high": 91.0,
+   "day_low": 85.56,
+   "high_pct": 4.3338683788122,
+   "low_pct": -1.9032332033937172,
+   "volume": 2484636,
+   "quote_time": "2026-09-17T09:59:22+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 91.58,
+    "p_down5_1d": 82.86,
+    "p_up10_1d": 95.94,
+    "p_down10_1d": 78.5
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "SUVEN",
+   "last": 341.7,
+   "prev_close": 336.45,
+   "change_pct": 1.5604101649576485,
+   "day_high": 344.0,
+   "day_low": 332.0,
+   "high_pct": 2.244018427700989,
+   "low_pct": -1.3226333779164823,
+   "volume": 93729,
+   "quote_time": "2026-09-17T09:59:20+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 353.27,
+    "p_down5_1d": 319.63,
+    "p_up10_1d": 370.1,
+    "p_down10_1d": 302.81
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "WHEELS",
+   "last": 2146.1,
+   "prev_close": 2110.5,
+   "change_pct": 1.686804074863768,
+   "day_high": 2184.6,
+   "day_low": 2102.0,
+   "high_pct": 3.511016346837237,
+   "low_pct": -0.4027481639421904,
+   "volume": 44564,
+   "quote_time": "2026-09-17T09:59:22+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 2216.03,
+    "p_down5_1d": 2004.97,
+    "p_up10_1d": 2321.55,
+    "p_down10_1d": 1899.45
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "MOTISONS",
+   "last": 16.44,
+   "prev_close": 16.62,
+   "change_pct": -1.0830324909747224,
+   "day_high": 16.81,
+   "day_low": 16.2,
+   "high_pct": 1.1432009626955342,
+   "low_pct": -2.527075812274382,
+   "volume": 5826683,
+   "quote_time": "2026-09-17T09:59:21+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 17.45,
+    "p_down5_1d": 15.79,
+    "p_up10_1d": 18.28,
+    "p_down10_1d": 14.96
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "MARINE",
+   "last": 377.2,
+   "prev_close": 373.3,
+   "change_pct": 1.0447361371551,
+   "day_high": 384.35,
+   "day_low": 372.5,
+   "high_pct": 2.960085721939465,
+   "low_pct": -0.21430484864720656,
+   "volume": 150463,
+   "quote_time": "2026-09-17T09:59:22+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 391.97,
+    "p_down5_1d": 354.63,
+    "p_up10_1d": 410.63,
+    "p_down10_1d": 335.97
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "KMEW",
+   "last": 2801.0,
+   "prev_close": 2708.7,
+   "change_pct": 3.4075386716875267,
+   "day_high": 2826.9,
+   "day_low": 2710.0,
+   "high_pct": 4.3637169121719,
+   "low_pct": 0.04799350241813105,
+   "volume": 19910,
+   "quote_time": "2026-09-17T09:59:15+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 2844.13,
+    "p_down5_1d": 2573.26,
+    "p_up10_1d": 2979.57,
+    "p_down10_1d": 2437.83
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "SBCL",
+   "last": 1098.4,
+   "prev_close": 1057.0,
+   "change_pct": 3.9167455061494882,
+   "day_high": 1111.9,
+   "day_low": 1057.2,
+   "high_pct": 5.193945127719979,
+   "low_pct": 0.018921475875122162,
+   "volume": 130524,
+   "quote_time": "2026-09-17T09:59:20+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 1109.85,
+    "p_down5_1d": 1004.15,
+    "p_up10_1d": 1162.7,
+    "p_down10_1d": 951.3
+   },
+   "touched": {
+    "p_up5_1d": true,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "SAKAR",
+   "last": 1137.0,
+   "prev_close": 1105.4,
+   "change_pct": 2.8586936855436784,
+   "day_high": 1163.85,
+   "day_low": 1100.0,
+   "high_pct": 5.287678668355333,
+   "low_pct": -0.4885109462638093,
+   "volume": 24993,
+   "quote_time": "2026-09-17T09:59:16+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 1160.67,
+    "p_down5_1d": 1050.13,
+    "p_up10_1d": 1215.94,
+    "p_down10_1d": 994.86
+   },
+   "touched": {
+    "p_up5_1d": true,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "MANINDS",
+   "last": 815.6,
+   "prev_close": 790.3,
+   "change_pct": 3.2013159559660886,
+   "day_high": 827.45,
+   "day_low": 785.8,
+   "high_pct": 4.700746551942303,
+   "low_pct": -0.5694040237884335,
+   "volume": 344879,
+   "quote_time": "2026-09-17T09:59:21+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 829.81,
+    "p_down5_1d": 750.78,
+    "p_up10_1d": 869.33,
+    "p_down10_1d": 711.27
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "ELLEN",
+   "last": 377.65,
+   "prev_close": 374.65,
+   "change_pct": 0.8007473642065888,
+   "day_high": 381.45,
+   "day_low": 371.8,
+   "high_pct": 1.8150273588682708,
+   "low_pct": -0.760709995996256,
+   "volume": 279314,
+   "quote_time": "2026-09-17T09:59:24+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 393.38,
+    "p_down5_1d": 355.92,
+    "p_up10_1d": 412.12,
+    "p_down10_1d": 337.19
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "KIRIINDUS",
+   "last": 536.5,
+   "prev_close": 513.4,
+   "change_pct": 4.4994156603038515,
+   "day_high": 543.5,
+   "day_low": 512.85,
+   "high_pct": 5.862874951305019,
+   "low_pct": -0.10712894429294462,
+   "volume": 259100,
+   "quote_time": "2026-09-17T09:59:21+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 539.07,
+    "p_down5_1d": 487.73,
+    "p_up10_1d": 564.74,
+    "p_down10_1d": 462.06
+   },
+   "touched": {
+    "p_up5_1d": true,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "IFCI",
+   "last": 77.1,
+   "prev_close": 75.06,
+   "change_pct": 2.7178257394084637,
+   "day_high": 80.97,
+   "day_low": 75.21,
+   "high_pct": 7.873701039168668,
+   "low_pct": 0.1998401278976658,
+   "volume": 85919475,
+   "quote_time": "2026-09-17T09:59:26+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 78.81,
+    "p_down5_1d": 71.31,
+    "p_up10_1d": 82.57,
+    "p_down10_1d": 67.55
+   },
+   "touched": {
+    "p_up5_1d": true,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "WALCHANNAG",
+   "last": 203.1,
+   "prev_close": 197.08,
+   "change_pct": 3.0545971179216425,
+   "day_high": 204.48,
+   "day_low": 197.5,
+   "high_pct": 3.7548203775116695,
+   "low_pct": 0.21311142683173578,
+   "volume": 100399,
+   "quote_time": "2026-09-17T09:59:00+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 206.93,
+    "p_down5_1d": 187.23,
+    "p_up10_1d": 216.79,
+    "p_down10_1d": 177.37
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "SGMART",
+   "last": 716.5,
+   "prev_close": 697.65,
+   "change_pct": 2.701927900809875,
+   "day_high": 722.8,
+   "day_low": 694.15,
+   "high_pct": 3.6049595069160834,
+   "low_pct": -0.5016842256145626,
+   "volume": 60563,
+   "quote_time": "2026-09-17T09:59:20+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 732.53,
+    "p_down5_1d": 662.77,
+    "p_up10_1d": 767.42,
+    "p_down10_1d": 627.88
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "GENESYS",
+   "last": 295.9,
+   "prev_close": 276.71,
+   "change_pct": 6.935058364352575,
+   "day_high": 301.0,
+   "day_low": 278.3,
+   "high_pct": 8.778143182393116,
+   "low_pct": 0.57460879621265,
+   "volume": 576875,
+   "quote_time": "2026-09-17T09:59:22+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 290.55,
+    "p_down5_1d": 262.87,
+    "p_up10_1d": 304.38,
+    "p_down10_1d": 249.04
+   },
+   "touched": {
+    "p_up5_1d": true,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "PNGSREVA",
+   "last": 505.4,
+   "prev_close": 496.95,
+   "change_pct": 1.7003722708522018,
+   "day_high": 508.0,
+   "day_low": 486.2,
+   "high_pct": 2.223563738806722,
+   "low_pct": -2.1631954925042773,
+   "volume": 20636,
+   "quote_time": "2026-09-17T09:55:43+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 521.8,
+    "p_down5_1d": 472.1,
+    "p_up10_1d": 546.64,
+    "p_down10_1d": 447.25
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "ZEEL",
+   "last": 79.09,
+   "prev_close": 79.6,
+   "change_pct": -0.6407035175879261,
+   "day_high": 80.19,
+   "day_low": 78.42,
+   "high_pct": 0.7412060301507539,
+   "low_pct": -1.4824120603014967,
+   "volume": 3521906,
+   "quote_time": "2026-09-17T09:59:20+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 83.58,
+    "p_down5_1d": 75.62,
+    "p_up10_1d": 87.56,
+    "p_down10_1d": 71.64
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "DWARKESH",
+   "last": 40.66,
+   "prev_close": 41.04,
+   "change_pct": -0.92592592592593,
+   "day_high": 41.27,
+   "day_low": 40.55,
+   "high_pct": 0.56042884990255,
+   "low_pct": -1.1939571150097472,
+   "volume": 349149,
+   "quote_time": "2026-09-17T09:59:10+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 43.09,
+    "p_down5_1d": 38.99,
+    "p_up10_1d": 45.14,
+    "p_down10_1d": 36.94
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "SOLARA",
+   "last": 747.55,
+   "prev_close": 711.5,
+   "change_pct": 5.066760365425149,
+   "day_high": 750.0,
+   "day_low": 715.95,
+   "high_pct": 5.411103302881237,
+   "low_pct": 0.6254392129304343,
+   "volume": 192460,
+   "quote_time": "2026-09-17T09:59:24+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 747.08,
+    "p_down5_1d": 675.92,
+    "p_up10_1d": 782.65,
+    "p_down10_1d": 640.35
+   },
+   "touched": {
+    "p_up5_1d": true,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "KPEL",
+   "last": 210.9,
+   "prev_close": 210.32,
+   "change_pct": 0.2757702548497498,
+   "day_high": 212.09,
+   "day_low": 209.6,
+   "high_pct": 0.8415747432483967,
+   "low_pct": -0.3423354887789998,
+   "volume": 31658,
+   "quote_time": "2026-09-17T09:58:08+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 220.84,
+    "p_down5_1d": 199.8,
+    "p_up10_1d": 231.35,
+    "p_down10_1d": 189.29
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "CYIENTDLM",
+   "last": 922.35,
+   "prev_close": 867.4,
+   "change_pct": 6.335024210283602,
+   "day_high": 933.8,
+   "day_low": 855.55,
+   "high_pct": 7.655061102144334,
+   "low_pct": -1.3661517177772642,
+   "volume": 383398,
+   "quote_time": "2026-09-17T09:59:26+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 910.77,
+    "p_down5_1d": 824.03,
+    "p_up10_1d": 954.14,
+    "p_down10_1d": 780.66
+   },
+   "touched": {
+    "p_up5_1d": true,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "AFCONS",
+   "last": 254.7,
+   "prev_close": 258.4,
+   "change_pct": -1.4318885448916352,
+   "day_high": 258.7,
+   "day_low": 253.95,
+   "high_pct": 0.11609907120744278,
+   "low_pct": -1.7221362229102088,
+   "volume": 241580,
+   "quote_time": "2026-09-17T09:59:26+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 271.32,
+    "p_down5_1d": 245.48,
+    "p_up10_1d": 284.24,
+    "p_down10_1d": 232.56
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  },
+  {
+   "symbol": "CONFIPET",
+   "last": 87.64,
+   "prev_close": 86.58,
+   "change_pct": 1.2243012243012164,
+   "day_high": 88.59,
+   "day_low": 86.2,
+   "high_pct": 2.3215523215523337,
+   "low_pct": -0.43890043890043584,
+   "volume": 595317,
+   "quote_time": "2026-09-17T09:59:26+05:30",
+   "session_date": "2026-09-17",
+   "levels": {
+    "p_up5_1d": 90.91,
+    "p_down5_1d": 82.25,
+    "p_up10_1d": 95.24,
+    "p_down10_1d": 77.92
+   },
+   "touched": {
+    "p_up5_1d": false,
+    "p_down5_1d": false,
+    "p_up10_1d": false,
+    "p_down10_1d": false
+   },
+   "conditions": null,
+   "error": null
+  }
+ ]
+}

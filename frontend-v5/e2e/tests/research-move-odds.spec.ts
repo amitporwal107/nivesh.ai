@@ -13,7 +13,7 @@ import { mockAuthAs } from "../helpers/api-mock";
 const FX = path.join(process.cwd(), "e2e", "fixtures");
 const load = (name: string) => JSON.parse(fs.readFileSync(path.join(FX, name), "utf-8"));
 const HEADS = ["p_up5_1d", "p_down5_1d", "p_up10_1d", "p_down10_1d"] as const;
-const BANNED = /\b(buy|sell|invest|hold|entry|stop|target[_ ]price|conviction|position[_ ]size|multibagger|best|top pick)\b/i;
+const BANNED = /\b(buy|sell|invest|hold|entry|stop|target[_ ]price|conviction|position[_ ]size|multibagger|best|top pick|signal)\b/i;
 // MOCK — not real data: an extra media event so the withheld-headline path renders (the real PNCINFRA media report is de-duplicated).
 const MOCK_MEDIA_EVENT = {
   ord: 2, event_time: "2026-09-15T10:13:00+05:30", source_label: "Economic Times", is_media: true, event_type: "REGULATORY",
@@ -21,7 +21,15 @@ const MOCK_MEDIA_EVENT = {
 };
 
 type Reply = { status: number; body: unknown };
+const liveCalls: string[] = [];
 async function mockOdds(page: Page, latest?: (head: string) => Reply) {
+  await page.route("**/api/move-odds/live**", (route) => {
+    const syms = (new URL(route.request().url()).searchParams.get("symbols") ?? "").split(",");
+    liveCalls.push(syms.join(","));
+    const body = load("move-odds-live.json");   // MOCK — a frozen Yahoo snapshot; only the requested symbols are answered
+    body.quotes = body.quotes.filter((q: { symbol: string }) => syms.includes(q.symbol));
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  });
   await page.route("**/api/move-odds/latest**", (route) => {
     const head = new URL(route.request().url()).searchParams.get("head") ?? "p_up5_1d";
     const r = latest ? latest(head) : { status: 200, body: load(`move-odds-latest-${head}.json`) };
@@ -142,6 +150,23 @@ test.describe("Move odds — final estimates", () => {
     expect(hit, `banned word: ${hit?.[0]}`).toBeNull();
   });
 
+  test("TC-34 breakout checks are shown as facts with the failed test stated, in clean vocabulary", async ({ page }) => {
+    await page.getByTestId("mo-details-PNCINFRA").click();
+    const checks = page.getByTestId("mo-checks-PNCINFRA");
+    await expect(checks).toContainText("facts, not a call");
+    await expect(checks.locator("li[data-met=\"yes\"]")).toHaveCount(5);
+    await expect(checks).toContainText("All five first held at the 11:15-12:15 bar");
+    await expect(page.getByTestId("mo-checks-record")).toContainText("did not make money");
+    await expect(page.getByTestId("mo-checks-record")).toContainText("-0.61% per trade");
+    const text = await page.getByTestId("move-odds-screen").innerText();
+    const hit = text.match(BANNED);
+    expect(hit, `banned word: ${hit?.[0]}`).toBeNull();
+    await page.getByTestId("mo-details-PNCINFRA").click();
+    await page.getByTestId("mo-details-ANTELOPUS").click();
+    await expect(page.getByTestId("mo-checks-ANTELOPUS").locator("li[data-met=\"yes\"]")).toHaveCount(1);
+    await expect(page.getByTestId("mo-checks-ANTELOPUS")).toContainText("have not held together yet today");
+  });
+
   test("TC-27 every shown percentage equals the API value at one decimal", async ({ page }) => {
     const data = load("move-odds-latest-p_up5_1d.json").data;
     for (const r of data.rows.slice(0, 50)) {
@@ -191,5 +216,32 @@ test.describe("Move odds — mobile", () => {
     await expect(page.getByTestId("mo-row-PNCINFRA")).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
+  });
+});
+
+test.describe("Move odds — live prices", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("TC-33 live column equals the live API, unavailable shows a dash, and it refreshes every minute", async ({ page }) => {
+    await page.clock.install();                          // before navigation, so the page's refresh interval runs on the fake clock
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await mockOdds(page);
+    await openOdds(page);
+    await expect(page.getByTestId("mo-row-PNCINFRA")).toBeVisible();
+    const live = load("move-odds-live.json");
+    const money = (v: number) => "₹" + v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const signed = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(1)}%`;
+    await expect(page.getByTestId("mo-live-asof")).toContainText("Yahoo Finance");
+    for (const q of live.quotes.slice(0, 6)) {
+      const cell = page.getByTestId(`mo-livecell-${q.symbol}`);
+      if (q.error) { await expect(cell).toHaveText("—"); continue; }
+      await expect(cell).toContainText(money(q.last));
+      await expect(cell).toContainText(signed(q.change_pct));
+    }
+    expect(live.quotes[3].error).toBe("unavailable");
+    const before = liveCalls.length;
+    await page.clock.runFor(61_000);
+    await expect.poll(() => liveCalls.length, { timeout: 5_000 }).toBeGreaterThan(before);
+    expect(liveCalls[liveCalls.length - 1].split(",").length).toBeLessThanOrEqual(50);
   });
 });

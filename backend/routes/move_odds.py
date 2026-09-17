@@ -10,6 +10,7 @@ older or cached run.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Literal
 
@@ -53,3 +54,17 @@ async def latest(head: Head = "p_up5_1d", user: dict = Depends(require_feature(F
 @router.get("/stocks/{symbol}")
 async def stock(symbol: str = Path(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9&\-]+$"), user: dict = Depends(require_feature(FLAG))):
     return await _proxy(f"/move-odds/stocks/{symbol.upper()}", {"model": MODEL})
+
+
+@router.get("/live")
+async def live(symbols: str, user: dict = Depends(require_feature(FLAG))):
+    """Live prices (Yahoo Finance, ~1 min delayed) and the pre-registered breakout conditions for up to 60 symbols
+    shown on the page. Never cached across sessions; a symbol Yahoo cannot answer is returned with error 'unavailable'."""
+    from services.move_odds_live import live_quotes
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    if not syms or len(syms) > 60 or any(not s.replace("&", "").replace("-", "").isalnum() or len(s) > 20 for s in syms):
+        raise HTTPException(status_code=422, detail="symbols: 1 to 60 NSE symbols, comma-separated")
+    try:
+        return await asyncio.wait_for(live_quotes(syms), timeout=25.0)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="live_prices_timeout")
