@@ -1,5 +1,6 @@
 /**
- * Research → Move odds (mocked layer). Test cases TC-20..TC-27 in test_reports/move_odds_research_20260916_2351.md.
+ * Research → Move odds (mocked layer). Test cases TC-20..TC-27 in test_reports/move_odds_research_20260916_2351.md;
+ * TC-42..TC-45 (entry-setup diagnostics) in test_reports/move_odds_diagnostics_20260917_1221.md.
  *
  * MOCK — not real data: every /api/move-odds response here is a fixture (e2e/fixtures/move-odds-*.json, shaped like
  * backend/routes/move_odds.py, values copied from the 2026-09-17 v4 snapshot). auth/me is mocked too. The staging run
@@ -23,7 +24,11 @@ const MOCK_MEDIA_EVENT = {
 
 type Reply = { status: number; body: unknown };
 const liveCalls: string[] = [];
-async function mockOdds(page: Page, latest?: (head: string) => Reply) {
+async function mockOdds(page: Page, latest?: (head: string) => Reply, diagnostics?: () => Reply) {
+  await page.route("**/api/move-odds/diagnostics**", (route) => {
+    const r = diagnostics ? diagnostics() : { status: 200, body: load("move-odds-diagnostics.json") };
+    return route.fulfill({ status: r.status, contentType: "application/json", body: JSON.stringify(r.body) });
+  });
   await page.route("**/api/move-odds/live**", (route) => {
     const syms = (new URL(route.request().url()).searchParams.get("symbols") ?? "").split(",");
     liveCalls.push(syms.join(","));
@@ -194,6 +199,89 @@ test.describe("Move odds — final estimates", () => {
     for (const r of data.rows.slice(0, 50)) {
       await expect(page.getByTestId(`mo-pct-${r.symbol}`)).toHaveText(pct(r.p));
     }
+  });
+});
+
+test.describe("Move odds — research diagnostics (entry setups rejected 2026-09-17)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+  const pct2 = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v * 100).toFixed(2)}%`;
+
+  test("TC-42 four cards in fixed order with their status, and every number equals the API", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await mockOdds(page);
+    await openOdds(page);
+    const d = load("move-odds-diagnostics.json").data;
+    const section = page.getByTestId("mo-diagnostics");
+    await expect(section.locator("article")).toHaveCount(4);
+    expect(await section.locator("article").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")))).toEqual(["mo-diag-A", "mo-diag-B", "mo-diag-C", "mo-diag-D"]);
+    await expect(page.getByTestId("mo-diag-summary")).toContainText("Tested 24 Oct 2024 – 8 Sep 2026 · 0 of 8 validated");
+    for (const s of d.setups) {
+      const card = page.getByTestId(`mo-diag-${s.id}`);
+      await expect(card.locator("h4")).toHaveText(s.name);
+      await expect(page.getByTestId(`mo-diag-status-${s.id}`)).toHaveText(["A", "B"].includes(s.id) ? "Not validated" : "Research only; insufficient sample");
+      await expect(page.getByTestId(`mo-diag-rs-${s.id}`)).toHaveText("Research status · Not a trading signal");
+      if (["A", "B"].includes(s.id)) await expect(card).toContainText("Setup detected — not validated");
+      await expect(card).toContainText(s.explanation);
+      for (const t of s.trades) {
+        const row = page.getByTestId(`mo-diag-${s.id}-${t.trade === "5%" ? "5" : "10"}`);
+        await expect(row.locator("td").nth(0)).toHaveText(t.trades.toLocaleString("en-IN"));
+        await expect(row.locator("td").nth(1)).toHaveText(pct2(t.mean_net));
+        await expect(row.locator("td").nth(2)).toHaveText(pct2(t.baseline_mean_net));
+        await expect(row.locator("td").nth(3)).toHaveText("Failed validation");
+      }
+    }
+    expect(d.setups.find((s: { id: string }) => s.id === "A").trades[0].mean_net).toBeCloseTo(-0.0065, 4);   // the published −0.65%
+  });
+
+  test("TC-43 nothing in the section reads as a trade, and cards are never reordered by result", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    const body = load("move-odds-diagnostics.json");
+    body.data.setups = [...body.data.setups].reverse();                                       // MOCK — API order D, C, B, A
+    body.data.setups[0].trades[0].mean_net = 0.05;                                            // MOCK — D given the "best" number
+    await mockOdds(page, undefined, () => ({ status: 200, body }));
+    await openOdds(page);
+    const section = page.getByTestId("mo-diagnostics");
+    await expect(section.locator("article")).toHaveCount(4);
+    expect(await section.locator("article").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")))).toEqual(["mo-diag-A", "mo-diag-B", "mo-diag-C", "mo-diag-D"]);
+    const text = await section.innerText();
+    expect(text.match(BANNED), "banned vocabulary").toBeNull();
+    expect(text).not.toMatch(/₹|\brank\b|#\d|conviction|entry price|\blevel\b/i);
+    await expect(section.locator(".mo-up, .mo-down, .mo-signal, .mo-paper")).toHaveCount(0);
+    const inks = await section.locator("td").evaluateAll((els) => [...new Set(els.map((e) => getComputedStyle(e).color))]);
+    expect(inks.length).toBe(1);                                                              // every number in one ink colour
+  });
+
+  test("TC-44 a diagnostics failure shows retry and no numbers, and the estimates still render", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    let fail = true;
+    await mockOdds(page, undefined, () => (fail ? { status: 503, body: { detail: "diagnostics_unavailable" } } : { status: 200, body: load("move-odds-diagnostics.json") }));
+    await openOdds(page);
+    await expect(page.getByTestId("mo-row-PNCINFRA")).toBeVisible();
+    await expect(page.getByTestId("mo-diag-error")).toContainText("Research diagnostics could not be loaded");
+    await expect(page.getByTestId("mo-diagnostics").locator("td")).toHaveCount(0);
+    await expect(page.getByTestId("mo-diagnostics")).not.toContainText("%");
+    fail = false;
+    await page.getByTestId("mo-diag-retry").click();
+    await expect(page.getByTestId("mo-diagnostics").locator("article")).toHaveCount(4);
+  });
+});
+
+test.describe("Move odds — research diagnostics on a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("TC-45 cards stack in one column and the page does not scroll sideways", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await mockOdds(page);
+    await page.goto("/v5/research");
+    await page.getByTestId("mnav-odds").click();
+    const a = page.getByTestId("mo-diag-A"), b = page.getByTestId("mo-diag-B");
+    await a.scrollIntoViewIfNeeded();
+    await expect(a).toBeVisible();
+    const [ba, bb] = [await a.boundingBox(), await b.boundingBox()];
+    expect(bb!.y).toBeGreaterThan(ba!.y + ba!.height - 1);                                    // B below A, not beside it
+    expect(Math.abs(bb!.x - ba!.x)).toBeLessThanOrEqual(1);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
   });
 });
 

@@ -2,6 +2,7 @@
 
     GET /api/move-odds/latest?head=p_up5_1d   → DaaS /v1/move-odds/latest (model v4)
     GET /api/move-odds/stocks/{symbol}        → DaaS /v1/move-odds/stocks/{symbol}
+    GET /api/move-odds/diagnostics            → the rejected entry setups' backtest results (committed snapshot)
 
 Only accounts on the move_odds allowlist get past the gate (403 feature_not_enabled otherwise, admins included).
 The payload is passed through unchanged, so every number shown is the published, frozen one (spec C7). A DaaS
@@ -54,6 +55,17 @@ async def latest(head: Head = "p_up5_1d", user: dict = Depends(require_feature(F
 @router.get("/stocks/{symbol}")
 async def stock(symbol: str = Path(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9&\-]+$"), user: dict = Depends(require_feature(FLAG))):
     return await _proxy(f"/move-odds/stocks/{symbol.upper()}", {"model": MODEL})
+
+
+@router.get("/diagnostics")
+async def diagnostics(user: dict = Depends(require_feature(FLAG))):
+    """Research results for the four entry setups the owner rejected on 2026-09-17 — shown as research, never as signals.
+    Fixed order A, B, C, D. A missing or malformed snapshot is 503, never partial numbers."""
+    from services.move_odds_diagnostics import load_setup_diagnostics
+    data = load_setup_diagnostics()
+    if data is None:
+        raise HTTPException(status_code=503, detail="diagnostics_unavailable")
+    return {"data": data}
 
 
 @router.get("/live")

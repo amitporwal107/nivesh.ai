@@ -161,3 +161,20 @@
 .research-screen .mo-up { color: var(--mint) !important; }
 .research-screen .mo-down { color: var(--danger-hex) !important; }
 @media (max-width: 1440px) { .research-screen .mo-paper { white-space: normal; } }
+
+/* Research diagnostics · entry setups (owner decision 2026-09-17): neutral ink only — results are never coloured or ranked */
+.research-screen .mo-diag { display: grid; gap: 12px; border-top: 1px solid var(--c-line); padding-top: 18px; margin-top: 6px; }
+.research-screen .mo-diag-head h3 { font-size: 20px; font-weight: 400; margin: 0 0 4px; }
+.research-screen .mo-diag-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.research-screen .mo-diag-card { border: 1px solid var(--c-line); border-radius: 12px; background: var(--bg-1); padding: 14px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.research-screen .mo-diag-cardhead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.research-screen .mo-diag-cardhead h4 { margin: 0; font-size: 15px; font-weight: 600; color: var(--c-ink); }
+.research-screen .mo-diag-cardhead .mo-chip { white-space: normal; }
+.research-screen .mo-diag-rs { margin: 0; font-family: var(--mono); font-size: 11px; letter-spacing: .04em; color: var(--c-ink-3); }
+.research-screen .mo-diag-headline { margin: 0; font-size: 13px; color: var(--c-ink-2); }
+.research-screen .mo-diag-tablewrap { overflow-x: auto; }
+.research-screen .mo-diag-table { width: 100%; }
+.research-screen .mo-diag-table th, .research-screen .mo-diag-table td { padding: 5px 10px 5px 0; }
+.research-screen .mo-diag-table th[scope="row"] { font-family: inherit; font-size: 12px; letter-spacing: 0; text-transform: none; color: var(--c-ink); font-weight: 500; }
+.research-screen .mo-diag-method { max-width: 110ch; }
+@media (max-width: 900px) { .research-screen .mo-diag-grid { grid-template-columns: minmax(0, 1fr); } }
