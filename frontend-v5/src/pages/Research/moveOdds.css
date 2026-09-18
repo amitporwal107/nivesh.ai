@@ -209,3 +209,37 @@
 .research-screen .mo-outcome.no { color: var(--c-ink-3); }
 .research-screen .mo-outcome.pending { color: var(--c-ink-3); font-style: italic; }
 @media (max-width: 760px) { .research-screen .mo-hist-table { min-width: 520px; } }
+
+/* v6 redefinition: movement and direction are separate questions (PRD Final Product Principle).
+ * Both directions render at equal weight — neither is the "main" number — and the direction column is a reading of
+ * the two, never a forecast, so it stays in ink rather than carrying a bullish colour. */
+.research-screen .mo-answers { border: 1px solid var(--c-line); border-radius: 12px; background: var(--bg-1); padding: 12px 14px; }
+.research-screen .mo-answers-h { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--c-ink-3); margin: 0 0 8px; font-weight: 500; }
+.research-screen .mo-answers-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.research-screen .mo-answers-list > li { display: grid; grid-template-columns: minmax(0, 20ch) auto; gap: 2px 12px; align-items: baseline; }
+.research-screen .mo-q { font-size: 13px; color: var(--c-ink); font-weight: 600; }
+.research-screen .mo-a { font-family: var(--mono); font-size: 11px; }
+.research-screen .mo-a.yes { color: var(--mint); }
+.research-screen .mo-a.no { color: var(--c-ink-3); }
+.research-screen .mo-answers-list .mo-mini { grid-column: 1 / -1; }
+@media (max-width: 720px) { .research-screen .mo-answers-list > li { grid-template-columns: minmax(0, 1fr); } }
+
+.research-screen .mo-est-down { font-family: var(--mono); font-size: 13px; color: var(--c-ink); }
+.research-screen .mo-dir { font-family: var(--mono); font-size: 10.5px; letter-spacing: .03em; color: var(--c-ink-2);
+  border: 1px solid var(--c-line-strong); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.research-screen .mo-dir.two-way { color: var(--c-ink-2); }
+.research-screen .mo-dir.up-leaning, .research-screen .mo-dir.down-leaning { color: var(--c-ink); }
+.research-screen .mo-histdir { display: inline-flex; gap: 4px; margin-left: auto; }
+.research-screen .mo-histdir button { border: 1px solid var(--c-line); background: var(--bg-1); color: var(--c-ink-3);
+  border-radius: 999px; padding: 3px 11px; font-size: 11.5px; cursor: pointer; }
+.research-screen .mo-histdir button[aria-pressed="true"] { border-color: var(--mint-line); background: var(--mint-soft); color: var(--c-ink); }
+
+/* The Direction column is an 8th column and pushed the table past its region at laptop width (measured: 39px over at
+ * 1280). Sector is the least load-bearing of the eight — it is repeated in the stock's details — so it gives way first,
+ * and the two direction estimates, which are the point of this table, always stay side by side. */
+@media (max-width: 1400px) {
+  .research-screen .mo-col-sector { display: none; }
+  .research-screen .mo-est { min-width: 128px; }
+  .research-screen .mo-dir { padding: 1px 6px; }
+}
