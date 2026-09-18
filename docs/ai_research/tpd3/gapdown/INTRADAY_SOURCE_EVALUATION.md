@@ -65,3 +65,64 @@ NEEDS-INPUT before any intraday-derived number is shown to users or sold.
 Start the Yahoo 5m collector now for forward accumulation (every day of delay is
 unrecoverable), build G1 on daily OHLC in parallel, and keep the vendor decision open —
 `source_version` on every row makes a later switch non-contaminating.
+
+---
+
+# ADDENDUM 2026-09-18 — SOURCE DECISION: Kite Connect. Yahoo dropped.
+
+Owner instruction: "FORGET YAHOO ... PLEASE CONNECT TO KITE CONNECT".
+Yahoo is removed as a candidate. Kite Connect is the source for BOTH history and live.
+
+## Why this changes the plan materially
+
+Yahoo's 60-day cap was the reason G2-G5 were deferred ~6 months. Kite's **historical data
+API** serves minute-resolution candles for **years** back, so G2-G5 become testable as soon
+as a backfill runs, not in 2027-03. This is the single biggest unblock in this workstream.
+
+## Verified this session (real output, no credentials used)
+
+- `https://api.kite.trade/` -> **HTTP 200** `{"status":"success","data":"Take the red pill with Kite Connect v3"}`
+- `https://kite.trade/connect/login?v=3` -> **HTTP 400** `Missing or empty field api_key` (reachable)
+- **Kite is NOT IP-blocked from nidp-stack-vm** (unlike NSE, which 403s even via tinyproxy).
+  No proxy needed.
+- `kiteconnect` SDK installed into the research venv.
+
+## Existing integration — REUSE, do not duplicate
+
+`backend/services/brokers/zerodha.py` already implements the full read-only OAuth flow:
+`auth_url()` -> `exchange_code()` (SHA-256 checksum -> `/session/token` -> `access_token`),
+plus `fetch_holdings/positions/funds`. Credentials resolve through `helpers.secrets`
+(**GSM -> env**) under:
+
+- `BROKER_ZERODHA_API_KEY`
+- `BROKER_ZERODHA_API_SECRET`
+
+The collector MUST use these same names and the same `_conf` resolution. No new secret path.
+
+## Operational constraint the owner must know
+
+Kite `access_token` **expires daily (~06:00 IST)** and renewal REQUIRES an interactive
+login (Zerodha credentials + 2FA). A cron collector therefore CANNOT run unattended
+indefinitely: it will fail every morning until a fresh token is supplied. Options:
+(a) owner completes a daily login; (b) a stored-session refresh the owner sets up;
+(c) collector runs on-demand. **NEEDS-INPUT — not decided.**
+
+## Subscription caveat
+
+The **historical data API is a paid add-on**, separate from Kite Connect itself. The app
+is described as "Kite connect + Historical Chart data", which suggests it is enabled, but
+this is **UNVERIFIED** until a real `historical_data()` call succeeds. Live streaming
+(websocket) is a different endpoint and does not substitute for historical backfill.
+
+## Security note
+
+The API key was shared via screenshot and is therefore no longer private.
+**Recommend regenerating it in the Kite developer console.** Credentials must be delivered
+as a file (never a screenshot, never pasted inline) and are never printed by any tool call.
+
+## Revised consequence for the strategy grid
+
+- G1 (official open) - testable now on daily OHLC (unchanged).
+- **G2-G5 - testable after a Kite minute-bar backfill** (was: ~6 months away). Major change.
+- Intraday exit matrix (10:30/11:30/14:30) - same; testable after backfill.
+- The `low` column needed to fix the invalidated target/stop grid can also come from Kite.
