@@ -21,19 +21,22 @@ IST = "Asia/Kolkata"
 
 # Local credential files, used only when GSM and env are both empty (dev / research runs).
 # Values are read at call time and never printed, logged or passed through argv.
-KEY_FILE = "/app/.KITE.API.KEY"
-SECRET_FILE = "/app/.KITE.API.SECRET"
+# One file, two lines: line 1 = api_key, line 2 = api_secret.
+CRED_FILE = "/app/.KITE.API.KEY"
+KEY_LINE, SECRET_LINE = 0, 1
 
 
-def _from_file(path: str) -> str:
+def _from_file(line: int, path: str = CRED_FILE) -> str:
+    """Read one line of the credential file. Never printed, logged or passed via argv."""
     try:
         with open(path) as fh:
-            return fh.read().strip()
+            lines = [l.strip() for l in fh if l.strip()]
     except OSError:
         return ""
+    return lines[line] if len(lines) > line else ""
 
 
-def _conf(key: str, file_fallback: str = "") -> str:
+def _conf(key: str, file_line: int = -1) -> str:
     """Read a Nivesh secret: GSM -> env -> local file (same order as brokers/zerodha.py,
     plus a file fallback so research runs need no shell-visible secrets)."""
     try:
@@ -44,15 +47,15 @@ def _conf(key: str, file_fallback: str = "") -> str:
     except Exception:  # noqa: BLE001 — secrets helper is optional outside the backend
         pass
     v = (os.environ.get(key) or "").strip()
-    return v or (_from_file(file_fallback) if file_fallback else "")
+    return v or (_from_file(file_line) if file_line >= 0 else "")
 
 
 def api_key() -> str:
-    return _conf("BROKER_ZERODHA_API_KEY", KEY_FILE)
+    return _conf("BROKER_ZERODHA_API_KEY", KEY_LINE)
 
 
 def _api_secret() -> str:
-    return _conf("BROKER_ZERODHA_API_SECRET", SECRET_FILE)
+    return _conf("BROKER_ZERODHA_API_SECRET", SECRET_LINE)
 
 
 def kite(access_token: str = ""):
