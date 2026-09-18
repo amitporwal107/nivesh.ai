@@ -233,3 +233,11 @@ Under the exact frozen Track 1 spec (no per-day cap, cost model v1) H-A close-on
 not +0.665% (which used a top-20 cap and a flat 0.25% cost). At 2× costs +0.175% (t 0.98); top 10 sessions = 58% of P&L;
 > Rs 25 cr t 1.66; the frozen −2/+3/close arm ≈ 0. H-A is an **exploratory finding**, not yet a validation candidate.
 Detail: `track1/PRIORITY1_RERUN.md`; priorities: `PLAN_AFTER_BACKFILL.md` v3.
+
+## 12. Sealed H-A test (2026-09-19 05:19 IST)
+Spec v2 frozen (D1, D2, D8, D12); owner accepted costs; run once on 2021–22. Registered verdict PASS (+1.328%/session,
+t 6.67), **not accepted**: ETFs (6.6% of trades) supplied 50.9% of P&L from stray opening-auction prints (NIFTYBEES
+2021-04-20 opened −14.3% while the Nifty opened +1.2%). Stocks only: +0.543% (t 3.34), 2× costs t 1.24, > Rs 25 cr t 1.44.
+Recommendation: close H-A, keep the final-test slice sealed, run H-B as registered at the next login.
+Detail: `sealed/HA_VALIDATION_RESULT.md`.
+

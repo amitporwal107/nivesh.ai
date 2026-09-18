@@ -1,0 +1,240 @@
+{
+ "test": "H-A sealed validation 2021-2022 (TRACK1_SCOPE_v2)",
+ "run_at": "2026-09-19T05:19:36",
+ "git_sha": "ece73957965b5e44077f3987aa4252fd872e5ca1",
+ "spec_sha256": "46b174caa6132274361e63ef63099682e5752b532ebe1b961d10228781a5ba3c",
+ "cost_model": "v1 (charges 0.10% accepted as-is by the owner 2026-09-19, precondition satisfied)",
+ "universe": "conditional on the available Kite historical universe (today's names only; delisted names absent)",
+ "kite_symbols_in_slice": 1762,
+ "market_sessions_in_slice": 496,
+ "signals_before_exclusion": 4564,
+ "excluded_open_at_band": 971,
+ "primary": {
+  "trades": 1267,
+  "sessions": 407,
+  "mean_session_net_pct": 1.328399581710443,
+  "ci95_nw_pct": [
+   0.9381179609902901,
+   1.7186812024305962
+  ],
+  "t_nw": 6.671242102941341,
+  "bootstrap95_pct": [
+   0.9895341764929606,
+   1.6827063751851117
+  ],
+  "median_session_pct": 0.9311549234070007,
+  "std_session_pct": 3.56105967097759,
+  "mean_trade_gross_pct": 1.5765229021142375,
+  "median_trade_net_pct": 0.1506878877798769,
+  "win_trades_pct": 50.98658247829518,
+  "win_sessions_pct": 62.16216216216216,
+  "worst10_sessions_pct": [
+   -8.856,
+   -8.76,
+   -8.55,
+   -6.628,
+   -5.854,
+   -5.833,
+   -5.715,
+   -5.092,
+   -4.872,
+   -4.451
+  ],
+  "top5_share_of_total_pct": 14.452448773071787,
+  "top10_share_of_total_pct": 24.98433499963506,
+  "max_positions_in_session": 5
+ },
+ "cost_2x": {
+  "trades": 1267,
+  "sessions": 407,
+  "mean_session_net_pct": 0.9832234965343578,
+  "ci95_nw_pct": [
+   0.5937084438032304,
+   1.3727385492654853
+  ],
+  "t_nw": 4.947480308386395,
+  "bootstrap95_pct": [
+   0.6446612741575943,
+   1.3386535123324923
+  ],
+  "median_session_pct": 0.5701067615658368,
+  "std_session_pct": 3.5545568472184113,
+  "mean_trade_gross_pct": 1.5765229021142375,
+  "median_trade_net_pct": -0.1656716417910424,
+  "win_trades_pct": 47.59273875295975,
+  "win_sessions_pct": 58.23095823095823,
+  "worst10_sessions_pct": [
+   -9.131,
+   -9.02,
+   -8.9,
+   -6.961,
+   -6.221,
+   -6.183,
+   -6.115,
+   -5.292,
+   -5.239,
+   -4.791
+  ],
+  "top5_share_of_total_pct": 19.076401783207693,
+  "top10_share_of_total_pct": 32.880855082116334,
+  "max_positions_in_session": 5
+ },
+ "by_year": {
+  "2021": {
+   "trades": 593,
+   "sessions": 197,
+   "mean_session_net_pct": 1.5143540366565527,
+   "ci95_nw_pct": [
+    0.9309656608410284,
+    2.097742412472077
+   ],
+   "t_nw": 5.087749490547629,
+   "bootstrap95_pct": [
+    0.9922572436543167,
+    2.079588634226701
+   ],
+   "median_session_pct": 0.9311549234070007,
+   "std_session_pct": 3.900457970904177,
+   "mean_trade_gross_pct": 1.6098621542430636,
+   "median_trade_net_pct": 0.20650406504063595,
+   "win_trades_pct": 51.93929173693086,
+   "win_sessions_pct": 62.944162436548226,
+   "worst10_sessions_pct": [
+    -5.854,
+    -5.833,
+    -5.092,
+    -4.408,
+    -4.327,
+    -3.909,
+    -3.906,
+    -3.531,
+    -3.496,
+    -3.265
+   ],
+   "top5_share_of_total_pct": 26.19213692133314,
+   "top10_share_of_total_pct": 44.82929642415121,
+   "max_positions_in_session": 5
+  },
+  "2022": {
+   "trades": 674,
+   "sessions": 210,
+   "mean_session_net_pct": 1.1539565930229023,
+   "ci95_nw_pct": [
+    0.644122635074283,
+    1.6637905509715216
+   ],
+   "t_nw": 4.436257897424766,
+   "bootstrap95_pct": [
+    0.717433953310383,
+    1.5917003738727267
+   ],
+   "median_session_pct": 0.9376914271587399,
+   "std_session_pct": 3.2099446487585483,
+   "mean_trade_gross_pct": 1.547190296012763,
+   "median_trade_net_pct": 0.006552760592965249,
+   "win_trades_pct": 50.14836795252226,
+   "win_sessions_pct": 61.42857142857143,
+   "worst10_sessions_pct": [
+    -8.856,
+    -8.76,
+    -8.55,
+    -6.628,
+    -5.715,
+    -4.872,
+    -4.451,
+    -4.156,
+    -4.156,
+    -3.587
+   ],
+   "top5_share_of_total_pct": 17.749143323214525,
+   "top10_share_of_total_pct": 33.52171616714629,
+   "max_positions_in_session": 5
+  }
+ },
+ "by_liquidity": {
+  ">Rs25cr": {
+   "trades": 488,
+   "sessions": 287,
+   "mean_session_net_pct": 0.5683019981197186,
+   "ci95_nw_pct": [
+    0.10892337725997284,
+    1.0276806189794645
+   ],
+   "t_nw": 2.4247360798593367,
+   "bootstrap95_pct": [
+    0.10607935446587063,
+    1.0380279293484216
+   ],
+   "median_session_pct": 0.07353466632116987,
+   "std_session_pct": 4.05034758855642,
+   "mean_trade_gross_pct": 0.6716756571549554,
+   "median_trade_net_pct": -0.3,
+   "win_trades_pct": 45.90163934426229,
+   "win_sessions_pct": 50.522648083623686,
+   "worst10_sessions_pct": [
+    -16.7,
+    -11.675,
+    -8.333,
+    -7.494,
+    -7.284,
+    -6.443,
+    -6.412,
+    -6.095,
+    -5.887,
+    -5.672
+   ],
+   "top5_share_of_total_pct": 43.14610653705772,
+   "top10_share_of_total_pct": 72.00706342679547,
+   "max_positions_in_session": 5
+  },
+  "Rs5-25cr": {
+   "trades": 779,
+   "sessions": 349,
+   "mean_session_net_pct": 1.594696872367312,
+   "ci95_nw_pct": [
+    1.1010160154992055,
+    2.088377729235419
+   ],
+   "t_nw": 6.33122760657292,
+   "bootstrap95_pct": [
+    1.1658382277514996,
+    2.030494266692957
+   ],
+   "median_session_pct": 0.9311549234070007,
+   "std_session_pct": 4.15078268611025,
+   "mean_trade_gross_pct": 2.1433591736676774,
+   "median_trade_net_pct": 0.5646302250803762,
+   "win_trades_pct": 54.17201540436457,
+   "win_sessions_pct": 59.02578796561605,
+   "worst10_sessions_pct": [
+    -14.664,
+    -10.013,
+    -8.25,
+    -6.913,
+    -6.54,
+    -5.715,
+    -5.224,
+    -5.123,
+    -5.094,
+    -5.069
+   ],
+   "top5_share_of_total_pct": 13.743513119980584,
+   "top10_share_of_total_pct": 25.54765723708866,
+   "max_positions_in_session": 5
+  }
+ },
+ "entries_per_session": {
+  "median_all_sessions": 2.0,
+  "median_sessions_with_entries": 3.0,
+  "sessions_with_entries_pct": 82.05645161290323
+ },
+ "abandon_checks": {
+  "1_ci_includes_zero": 0.0,
+  "2_years_disagree_in_sign": 0.0,
+  "3_only_in_Rs5_25cr": 0.0,
+  "4_median_entries_below_1_all_sessions": false,
+  "5_mean_le_0_at_2x_costs": 0.0
+ },
+ "success_rule_met": 1.0,
+ "verdict": "PASS"
+}
