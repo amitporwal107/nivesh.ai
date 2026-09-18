@@ -301,3 +301,48 @@ equal, or an exact back-adjustment ratio > 1.05; anything else is logged as a MI
 
 **Rule added:** every bulk join between two price sources is validated on a shared field (open vs open) before any
 result is computed from it.
+
+---
+
+# ADDENDUM 6 — 2026-09-19 ~04:00 IST: dividends, phantom gaps, and G1 close-only rebuilt
+
+## Kite also back-adjusts for DIVIDENDS (correction to Addendum 4)
+Joining Kite daily to the panel for the entry session: 729,870 rows. 651,024 exact; 47,213 split/bonus factor > 1.05;
+**31,186 with a factor of 1.002–1.05 on BOTH open and close** (e.g. COALINDIA 393.00/382.65 and 382.00/371.90, both
+×1.027; TECHM, CASTROLIND — high-dividend names). A date-shifted join cannot produce the same factor on two fields,
+so these are valid rows adjusted for dividends. Kite's long-horizon returns are therefore dividend-inclusive;
+bhavcopy's are not. **Join validation rule (replaces "factor ≈ 1 or > 1.05"): the same raw/Kite factor on open and
+close, within 0.3%.** Under it, 99.94% of rows validate (435 fail).
+
+## The research panel contains PHANTOM GAPS, concentrated in the gap-down sleeve
+The panel (built earlier by shifting each symbol's rows) takes `n_open/n_high/n_close` from the symbol's NEXT ROW.
+Where the symbol has no row for the next session, those values come from a later date. Example: LOVABLE as_of
+2024-08-29 → panel n_open 138.00 ("−21.6% gap"); Kite's real 2024-08-30 open 170.05.
+- Across the panel only **774 rows (0.106%)** have a gap more than 1pp away from Kite's real gap.
+- But **66% of same-factor failures are gap ≤ −3% rows**, and **447 of the 3,878 checkable G1 sleeve pairs (11.5%)
+  are phantom** (median panel gap −23.8%, median real gap **+0.1%**); **71% of the deepest-gap decile** is phantom.
+  By year: 2024 19.0%, 2025 12.3%, 2026 7.9%. Selecting extremes selects errors.
+
+## G1 close-only rebuilt on Kite's real gaps (discovery period; official open → official close; 0.25% cost)
+| version | pairs | sessions | mean/session | 95% NW CI | t |
+|---|---|---|---|---|---|
+| as reported earlier (panel gaps) | 4,313 | 501 | +0.4735% | [+0.2229, +0.7240] | 3.70 |
+| panel sleeve minus phantom pairs | 3,431 | 476 | +0.8805% | [+0.5793, +1.1817] | 5.73 |
+| **rebuilt on real gaps (top-20 deepest)** | **3,588** | **477** | **+0.8909%** | **[+0.5899, +1.1919]** | **5.80** |
+| — 2024 | 513 | 80 | +0.9019% | [+0.2538, +1.5499] | 2.73 |
+| — 2025 | 1,589 | 227 | +1.0734% | [+0.5931, +1.5537] | 4.38 |
+| — 2026 | 1,486 | 170 | +0.6420% | [+0.2028, +1.0812] | 2.86 |
+| — turnover Rs 50L–5cr | 1,015 | 361 | +1.6040% | [+1.1750, +2.0331] | 7.33 |
+| — turnover > Rs 5cr | 2,573 | 458 | +0.6970% | [+0.3501, +1.0439] | 3.94 |
+
+The "2024 is flat" caveat was an artefact of phantom gaps (2024 had the most). **This is NOT a pre-registration
+amendment**: the registered gap is `next_open / prev_close_adj − 1`; Kite's adjusted series implements it and the raw
+panel did not. **Cautions:** still the discovery period, explored heavily; Kite's instrument list is today's names
+only (survivorship); the pipeline changed twice tonight. The primary endpoint remains the registered MODERATE
+target/stop, to be run on validated minute bars; the decisive test is the untouched 2021..2024-07 period.
+
+## Rules added
+1. Define gaps and multi-day paths from Kite's adjusted daily series, never from raw row-shifted panel prices.
+2. Validate every bulk join on two fields (same factor on open and close), and, for minute bars, the 09:15 open against
+   Kite's daily open.
+3. When a result depends on selecting extremes, audit the extreme decile for data errors first.

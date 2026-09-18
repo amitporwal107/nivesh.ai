@@ -42,6 +42,25 @@ net-outcome labels in the framework.
 | >100 cr | 128,783 | 4.16 | 6.71 | −0.371 | −0.434 |
 
 ## Opening gap (known only at 09:15 — an open-conditional base rate)
+
+> ⚠️ **Corrected 2026-09-19 04:00.** The table below used the panel's raw, row-shifted gaps, which contain phantom gaps
+> (see gapdown/INTRADAY_SOURCE_EVALUATION.md Addendum 6). Recomputed on Kite's real gaps (Kite returns, 729,870 rows):
+>
+> | real gap | n | P1d+5% | P1d+10% | net1d | win1d | **net1d per session** |
+> |---|---|---|---|---|---|---|
+> | < −3% | 7,642 | 36.82 | 8.71 | +1.829 | 66.6 | **+0.794** |
+> | −3..−1% | 45,880 | 12.54 | 1.74 | +0.251 | 54.3 | +0.447 |
+> | −1..+1% | 577,284 | 5.53 | 0.77 | −0.450 | 35.9 | −0.425 |
+> | +1..+3% | 86,065 | 8.76 | 1.74 | −0.853 | 31.1 | −1.231 |
+> | > +3% | 12,999 | 15.73 | 4.18 | −1.173 | 32.7 | **−1.791** |
+>
+> Only the gap buckets are affected (774 rows, 0.106%, have a wrong panel gap); ATR, liquidity, breadth and sector
+> tables stand. Downside/direction labels (Kite-validated, 729,435 rows): P1d −3% 19.01%, P1d −5% 5.18%,
+> P5d −5% 32.37%, P5d −10% 7.28%; **+5% reached before −3% within 5 sessions: 24.43%** (same-session ambiguous 0.81%,
+> neither 23.54%). A driftless random walk gives 3/8 = 37.5% of decided cases; every ATR bucket is below it, real
+> gap-downs are above it (52.82% of all, ~56% of decided).
+
+**Original (panel-gap) table:**
 | gap | n | P1d+5% | P1d+10% | P5d+10% | net1d | win1d | net5d |
 |---|---|---|---|---|---|---|---|
 | < −3% | 8,736 | **36.14** | 8.85 | 34.47 | **+1.613** | 63.8 | +2.556 |

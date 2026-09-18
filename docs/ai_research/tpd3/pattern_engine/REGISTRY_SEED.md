@@ -18,7 +18,7 @@ When the `pattern_registry` / `pattern_validation` tables are built, these becom
 | 9 | Inverse-ATR (risk-parity) sizing, ATR ≥ 5% cohort | net return | **FAILED** | −0.5627% → −0.5508%/session | session record |
 | 10 | Skip gap-ups > +2% / +3% | net return | **Less bad, still negative** | −0.56% → −0.47% | session record |
 | 11 | +3% / +5% intraday limit exit, high-ATR cohort | net return | **Less bad, still negative** | −0.465% → −0.391% | session record |
-| 12 | **Gap-down ≤ −3%, open → close, no stop (G1 close-only)** | net return | **OPEN — survived abandon checks in discovery** | +0.4735%/session, CI [+0.2229, +0.7240], t 3.70; 2024 flat (t −0.15); >Rs5cr t 2.83; **5 market-wide gap days hold 36% of rows** | gapdown/PREREGISTRATION.md, PHASE1 |
+| 12 | **Gap-down ≤ −3%, open → close, no stop (G1 close-only)** | net return | **OPEN — strongest discovery result** | on Kite real gaps: **+0.8909%/session, CI [+0.5899, +1.1919], t 5.80**, positive every year, >Rs5cr +0.697% (t 3.94). Earlier +0.4735% was diluted by 11.5% phantom gaps. **5 market-wide gap days hold 36% of rows** | gapdown/PREREGISTRATION.md, PHASE1 |
 | 13 | G1 pre-registered target/stop grid | net return | **UNTESTED** — run 1 invalid (look-ahead), run 2 invalid (wrong session) | correct-session refetch in progress | INTRADAY_SOURCE_EVALUATION.md Add. 5 |
 | 14 | Multi-horizon move odds (opportunity board v3) | expected return | **Volatility only** | odds ≈ volatility, no expected-return edge | opportunity-board-v3 memory |
 | 15 | Weekday effect (Thursday −0.364% in 2025) | daily return | **Not tested — likely noise** | flagged as a multiple-testing artefact | session record |
