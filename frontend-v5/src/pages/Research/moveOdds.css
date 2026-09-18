@@ -516,3 +516,9 @@
 .research-screen .mo-pills > * { white-space: nowrap; }
 /* a suggested threshold is a placeholder, not a filter: keep it visibly fainter than a typed value */
 .research-screen .mo-cond-val::placeholder { color: var(--c-ink-4); opacity: 1; }
+
+/* the copilot chat's stock card inside the stock view (owner, 2026-09-18): rendered by the copilot's own ChatWidget,
+ * untouched; only its outer top margin is dropped so it sits flush under the disclaimer */
+.research-screen .mo-card > * { margin-top: 0; }
+.research-screen .mo-card-loading { display: grid; gap: 10px; border: 1px solid var(--c-line); border-radius: 12px; padding: 18px; }
+.research-screen .mo-card-off { border: 1px dashed var(--c-line-strong); border-radius: 10px; padding: 10px 12px; }

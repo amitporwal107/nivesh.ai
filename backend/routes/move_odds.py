@@ -6,6 +6,8 @@
     GET /api/move-odds/history                → DaaS /v1/move-odds/history (past sessions and how they turned out)
     GET /api/move-odds/profile                → DaaS /v1/move-odds/profile (quality rating, sector rating, cap, ratios,
                                                 event categories for the run the page shows)
+    GET /api/move-odds/stocks/{symbol}/card   → the copilot chat's stock card for that symbol, unchanged (owner,
+                                                2026-09-18): instrument research + the research hub, no LLM call
 
 Only accounts on the move_odds allowlist get past the gate (403 feature_not_enabled otherwise, admins included).
 The payload is passed through unchanged, so every number shown is the published, frozen one (spec C7). A DaaS
@@ -58,6 +60,25 @@ async def latest(head: Head = "p_up5_1d", user: dict = Depends(require_feature(F
 @router.get("/stocks/{symbol}")
 async def stock(symbol: str = Path(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9&\-]+$"), user: dict = Depends(require_feature(FLAG))):
     return await _proxy(f"/move-odds/stocks/{symbol.upper()}", {"model": MODEL})
+
+
+@router.get("/stocks/{symbol}/card")
+async def stock_card(symbol: str = Path(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9&\-]+$"),
+                     user: dict = Depends(require_feature(FLAG))):
+    """The copilot chat's stock card, exactly as the Stock Analyst node attaches it to an answer
+    (nidp/services/copilot_agent/nodes/stock.py): the instrument research widget with the research hub on top. The
+    owner asked for the pop-up to be this card completely unchanged, BUY/HOLD/SELL included (2026-09-18 12:17 IST)."""
+    from services.copilot_tools.instrument_research import get_stock_research
+    from services.copilot_tools.research_lenses import build_research_hub
+    try:
+        research = await asyncio.wait_for(get_stock_research(symbol.upper()), timeout=25.0)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="card_timeout")
+    if research.error == "source_unavailable":
+        raise HTTPException(status_code=502, detail="upstream_unavailable")
+    if not research.ok or not research.widget:
+        raise HTTPException(status_code=404, detail="not_found")
+    return {"data": {"widget_type": "instrument_detail", "data": build_research_hub("stock", research.widget)}}
 
 
 @router.get("/history")

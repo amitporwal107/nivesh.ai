@@ -15,16 +15,19 @@
  *   · Every percentage is the published value at one decimal; nothing is computed from the clock here — the API
  *     decides whether estimates exist for the next session.
  *   · Quality sits BESIDE movement and is never combined with it (PRD: movement probability is not investment
- *     quality). The stock view shows scores only — no buy/hold/sell row (owner decision, D2 unchanged) — and keeps the
- *     four estimates, inputs, events, the five checks and the paper trade.
+ *     quality). The stock view is the copilot chat's stock card, completely unchanged — its "Worth buying now?"
+ *     BUY/HOLD/SELL included (owner, 2026-09-18 12:17 IST, reversing the 11:20 "scores only" choice); D2 still applies
+ *     to everything outside that card. Below it the view keeps the four estimates, inputs, events, the five checks and
+ *     the paper trade. If the card cannot be loaded, the v7 quality block from the profile stands in.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import {
-  MOVE_HEADS, fetchDiagnostics, fetchHistory, fetchLive, fetchProfile, moveOddsService,
+  MOVE_HEADS, fetchDiagnostics, fetchHistory, fetchLive, fetchProfile, fetchStockCard, moveOddsService,
   type DiagnosticsResult, type HistoryResult, type LiveConditions, type MoveHistorySession, type LivePayload, type LiveQuote, type PaperTrade, type MoveBand, type MoveFinal, type MoveHead, type MoveLatestResult, type MoveRow, type MoveStockResult,
-  type MoveProfile, type MoveQuality, type MoveSectorRating, type ProfileResult,
+  type MoveProfile, type MoveQuality, type MoveSectorRating, type ProfileResult, type StockCardResult,
 } from "@/services/adapters/moveOdds.adapter";
+import { ChatWidget } from "@/components/chat/ChatWidget";
 import { EventBar, FilterBar, RatioPanel } from "./MoveOddsFilters";
 import { SHORT, answers, checkConds, condActive, fmtRatio, fundBand, gradeTone, peerMedian, qualityLabel, ratioIndex, techBand, valueOf, type Cap, type Cond } from "./moveOddsProfile";
 import "./moveOdds.css";
@@ -161,6 +164,7 @@ export default function MoveOddsScreen() {
   const [page, setPage] = useState(0);
   const [open, setOpen] = useState<string | null>(null);
   const [stocks, setStocks] = useState<Record<string, MoveStockResult | "loading">>({});
+  const [cards, setCards] = useState<Record<string, StockCardResult | "loading">>({});
   const [noAccess, setNoAccess] = useState(false);
   const [reload, setReload] = useState(0);
   const [live, setLive] = useState<{ at: string; source: string; delay: string; record: LivePayload["signal_record"]; quotes: Record<string, LiveQuote> } | null>(null);
@@ -190,7 +194,7 @@ export default function MoveOddsScreen() {
   const head: MoveHead = view === "history" ? ((histDir === "up" ? sz.up : sz.down) as MoveHead) : upHead;
 
   const denyAll = useCallback(() => {          // 403 anywhere: drop every cached estimate before rendering the state
-    setResults({}); setStocks({}); setOpen(null); setProfile(null); setNoAccess(true);
+    setResults({}); setStocks({}); setCards({}); setOpen(null); setProfile(null); setNoAccess(true);
   }, []);
 
   useEffect(() => {
@@ -253,6 +257,17 @@ export default function MoveOddsScreen() {
       setStocks((s) => ({ ...s, [open]: r }));
     });
   }, [open, stocks, denyAll]);
+
+  // The copilot's stock card for the open stock (owner, 2026-09-18: the pop-up is that card, unchanged). Fetched once
+  // per stock per visit; a failure leaves the move-odds sections untouched.
+  useEffect(() => {
+    if (!open || cards[open]) return;
+    setCards((c) => ({ ...c, [open]: "loading" }));
+    fetchStockCard(open).then((r) => {
+      if (r.kind === "no_access") { denyAll(); return; }
+      setCards((c) => ({ ...c, [open]: r }));
+    });
+  }, [open, cards, denyAll]);
 
   const current = results[upHead];
   const final: MoveFinal | null = current?.kind === "final" ? current.data : null;
@@ -688,7 +703,7 @@ export default function MoveOddsScreen() {
       {open && (
         <StockModal
           symbol={open} row={openRow} name={openRow?.company_name ?? (hist?.kind === "ok" ? hist.data.sessions.flatMap((s) => s.rows).find((x) => x.symbol === open)?.company_name ?? null : null)}
-          profile={prof} idx={idx} stock={stocks[open]} quote={live?.quotes[open]} record={live?.record ?? null}
+          profile={prof} idx={idx} stock={stocks[open]} card={cards[open]} quote={live?.quotes[open]} record={live?.record ?? null}
           estimates={estimatesFor(open)} baseRates={baseRates} evtLabel={evtLabel} onClose={closeStock}
         />
       )}
@@ -1042,9 +1057,10 @@ function standsOut(profile: MoveProfile, idx: Record<string, number>, sym: strin
   return out.slice(0, 5);
 }
 
-function StockModal({ symbol, row, name, profile, idx, stock, quote, record, estimates, baseRates, evtLabel, onClose }: {
+function StockModal({ symbol, row, name, profile, idx, stock, card, quote, record, estimates, baseRates, evtLabel, onClose }: {
   symbol: string; row: MoveRow | null; name: string | null; profile: MoveProfile | null; idx: Record<string, number>;
-  stock: MoveStockResult | "loading" | undefined; quote: LiveQuote | undefined; record: LivePayload["signal_record"];
+  stock: MoveStockResult | "loading" | undefined; card: StockCardResult | "loading" | undefined;
+  quote: LiveQuote | undefined; record: LivePayload["signal_record"];
   estimates: Partial<Record<MoveHead, number>>; baseRates: Partial<Record<MoveHead, number>>;
   evtLabel: (k: string) => string; onClose: () => void;
 }) {
@@ -1073,20 +1089,35 @@ function StockModal({ symbol, row, name, profile, idx, stock, quote, record, est
   const a = ans[chip];
   const so = profile ? standsOut(profile, idx, symbol, sector) : [];
   const titleId = `mo-modal-h-${symbol}`;
+  const cardOk = card !== undefined && card !== "loading" && card.kind === "ok";
   return (
     <div className="mo-modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} data-testid="mo-modal-back">
       <div ref={box} className="mo-modal" role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKey} data-testid={`mo-detail-${symbol}`}>
         <div className="mo-modal-head">
           <div>
-            <h3 id={titleId} className="nv-serif"><span className="mo-sym">{symbol}</span> {name ?? ""}</h3>
-            <p className="mo-mini">{[sector, pr?.cap ? `${pr.cap} cap` : null].filter(Boolean).join(" · ") || "Sector and market-cap bucket not on record"}</p>
+            <h3 id={titleId} className={cardOk ? "sr-only" : "nv-serif"}><span className="mo-sym">{symbol}</span> {name ?? ""}</h3>
+            {!cardOk && <p className="mo-mini">{[sector, pr?.cap ? `${pr.cap} cap` : null].filter(Boolean).join(" · ") || "Sector and market-cap bucket not on record"}</p>}
           </div>
           <button ref={closeBtn} type="button" className="mo-modal-x" onClick={onClose} aria-label={`Close details for ${symbol}`} data-testid="mo-modal-close"><X size={16} aria-hidden="true" /></button>
         </div>
         <div className="mo-modal-body">
           <div className="mo-disc mo-disc-sm" role="note" data-testid="mo-modal-disclaimer"><b>DISCLAIMER</b>{DISCLAIMER}</div>
 
-          {profile ? (
+          {(card === undefined || card === "loading") && (
+            <div className="mo-card-loading" aria-busy="true" data-testid="mo-card-loading"><div className="mo-skel" /><div className="mo-skel" style={{ width: "70%" }} /><div className="mo-skel" style={{ width: "85%" }} /></div>
+          )}
+          {cardOk && (
+            <div className="mo-card" data-testid="mo-card">
+              <ChatWidget widget={(card as { kind: "ok"; widget: { widget_type: string; data: Record<string, unknown> } }).widget} />
+            </div>
+          )}
+          {card !== undefined && card !== "loading" && card.kind !== "ok" && (
+            <p className="mo-mini mo-card-off" role="status" data-testid="mo-card-off">
+              The copilot stock card could not be loaded ({card.kind === "not_found" ? `no research data for ${symbol}` : card.kind === "error" ? card.message : "not enabled"}). The quality summary below is from this page&apos;s ratings.
+            </p>
+          )}
+
+          {card !== undefined && card !== "loading" && card.kind !== "ok" && (profile ? (
             <>
               <div className="mo-chips" role="group" aria-label="Questions about this stock">
                 {ans.map((x, i) => (
@@ -1129,14 +1160,14 @@ function StockModal({ symbol, row, name, profile, idx, stock, quote, record, est
             </>
           ) : (
             <p className="mo-mini" data-testid="mo-modal-noprofile">Ratings, ratios and the question answers could not be loaded. The move odds below are unaffected.</p>
-          )}
+          ))}
 
           <h4 className="mo-modal-sec">Move odds for the next session</h4>
           <Detail stock={stock} />
           <Checks q={quote} record={record} symbol={symbol} />
           <p className="mo-mini mo-modal-src" data-testid="mo-modal-source">
-            Rating: V3 stock score{profile ? ` as of ${day(profile.scores_as_of)}` : ""} (A ≥ 70, B 50–69.9, C below 50). Ratios{profile?.features_as_of ? ` as of ${day(profile.features_as_of)}` : ""}.
-            Ratings describe the business and the chart; they are shown beside the move odds and are not part of them.
+            {cardOk ? "The card above is the copilot chat's stock card for this stock, as served there. " : ""}Rating: V3 stock score{profile ? ` as of ${day(profile.scores_as_of)}` : ""} (A ≥ 70, B 50–69.9, C below 50). Ratios{profile?.features_as_of ? ` as of ${day(profile.features_as_of)}` : ""}.
+            Ratings and the card describe the business and the chart; they are shown beside the move odds and are not part of them.
           </p>
         </div>
         <div className="mo-modal-foot"><button type="button" className="mo-btn" onClick={onClose} data-testid="mo-modal-close-btn">Close</button></div>

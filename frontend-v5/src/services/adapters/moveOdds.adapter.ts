@@ -365,3 +365,27 @@ export async function fetchProfile(): Promise<ProfileResult> {
     return f.kind === "no_access" ? f : { kind: "error", message: f.kind === "withheld" ? `withheld: ${f.reason}` : f.message };
   }
 }
+
+// ── Stock card (GET /api/move-odds/stocks/{symbol}/card) ─────────────────────────────────────────────────────────────
+// The copilot chat's stock card, unchanged (owner, 2026-09-18): the same instrument_detail widget the Stock Analyst
+// attaches, rendered by the copilot's own ChatWidget. Its inner shape belongs to that widget, so it is not re-validated
+// here beyond the envelope.
+const CardC = z.object({ widget_type: z.literal("instrument_detail"), data: z.record(z.unknown()) });
+export type MoveStockCard = z.infer<typeof CardC>;
+export type StockCardResult =
+  | { kind: "ok"; widget: MoveStockCard }
+  | { kind: "not_found" }
+  | { kind: "no_access" }
+  | { kind: "error"; message: string };
+
+export async function fetchStockCard(symbol: string): Promise<StockCardResult> {
+  try {
+    const res = await http<unknown>({ path: `/api/move-odds/stocks/${encodeURIComponent(symbol)}/card`, noRetry: true, timeoutMs: 30_000 });
+    const env = z.object({ data: CardC }).safeParse(res.data);
+    return env.success ? { kind: "ok", widget: env.data.data } : { kind: "error", message: "unexpected response shape" };
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return { kind: "not_found" };
+    const f = fromError(e);
+    return f.kind === "no_access" ? f : { kind: "error", message: f.kind === "withheld" ? f.reason : f.message };
+  }
+}

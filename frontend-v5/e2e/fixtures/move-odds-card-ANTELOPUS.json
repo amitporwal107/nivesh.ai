@@ -1,0 +1,689 @@
+{
+ "_note": "MOCK — not real-time data. The real /api/move-odds/stocks/ANTELOPUS/card body, generated 2026-09-18 12:22 IST by running get_stock_research + build_research_hub against the staging DaaS.",
+ "data": {
+  "widget_type": "instrument_detail",
+  "data": {
+   "kind": "stock",
+   "name": "ANTELOPUS",
+   "badge": "STOCK",
+   "subtitle": "ANTELOPUS · NSE",
+   "meta": "Oil Gas & Consumable Fuels · Small cap",
+   "source": "NIDP DaaS",
+   "disclaimer_note": "Not investment advice",
+   "price": {
+    "label": "Last price",
+    "value": "₹1,170.95",
+    "change": "+10.70%",
+    "change_positive": true,
+    "asof": "16 Sep 2026"
+   },
+   "quality": {
+    "score": 56,
+    "label": "Average",
+    "tone": "warm"
+   },
+   "scores": {
+    "fundamental": {
+     "score": 56,
+     "label": "Average",
+     "tone": "warm"
+    },
+    "technical": {
+     "score": 79,
+     "label": "Bullish",
+     "tone": "pos"
+    },
+    "explainer": "Quality score blends fundamentals with short-term technicals into one read."
+   },
+   "recommendation": {
+    "long_term": {
+     "stance": "Hold",
+     "tone": "warm",
+     "rationale": "Fair fundamentals (56/100) — hold; wait for better value."
+    },
+    "short_term": {
+     "stance": "Buy",
+     "tone": "pos",
+     "rationale": "Bullish technicals (79/100) — momentum favours entry."
+    }
+   },
+   "summary": "A mixed business. Revenue is growing and the balance sheet is sound. Momentum is firm.",
+   "highlights": [
+    {
+     "tone": "info",
+     "text": "Pressing against resistance (₹1,218)."
+    },
+    {
+     "tone": "pos",
+     "text": "Profit grew 106.2% YoY on 45.9% higher sales."
+    },
+    {
+     "tone": "pos",
+     "text": "High return on equity at 20.2%."
+    }
+   ],
+   "fundamentals_grid": [
+    {
+     "label": "P / E",
+     "value": "31.0",
+     "note": "fair",
+     "tone": "warm"
+    },
+    {
+     "label": "ROE",
+     "value": "20.2%",
+     "note": "healthy · above 15",
+     "tone": "pos"
+    },
+    {
+     "label": "Debt / equity",
+     "value": "0.01",
+     "note": "conservative leverage",
+     "tone": "pos"
+    },
+    {
+     "label": "Sales growth (YoY)",
+     "value": "+45.9%",
+     "note": "top line expanding",
+     "tone": "pos"
+    },
+    {
+     "label": "Profit growth (YoY)",
+     "value": "+106.2%",
+     "note": "earnings growing",
+     "tone": "pos"
+    }
+   ],
+   "price_position": {
+    "current": 1170.95,
+    "current_label": "₹1,171",
+    "support": 773.7,
+    "support_label": "₹774",
+    "sma50": 871.756,
+    "sma50_label": "₹872",
+    "resistance": 1218.3,
+    "resistance_label": "₹1,218",
+    "trend": {
+     "label": "Bullish trend",
+     "tone": "pos"
+    }
+   },
+   "technicals_cards": [
+    {
+     "label": "RSI (14)",
+     "value": "68.7",
+     "note": "neutral",
+     "tone": "warm"
+    },
+    {
+     "label": "MACD",
+     "value": "Bullish crossover",
+     "tone": "pos"
+    },
+    {
+     "label": "Momentum (1M / 3M)",
+     "value": "+36.7% / +43.9%",
+     "tone": "pos"
+    }
+   ],
+   "risk": {
+    "title": "Risk profile",
+    "items": [
+     {
+      "label": "Beta (Nifty)",
+      "value": "-0.74",
+      "tone": "pos"
+     },
+     {
+      "label": "ATR",
+      "value": "7.2%"
+     }
+    ]
+   },
+   "score_breakdown": {
+    "weights": {
+     "cycle": 20,
+     "technical": 30,
+     "fundamental": 50
+    },
+    "fundamental": {
+     "score": 56,
+     "pillars": [
+      {
+       "label": "Valuation",
+       "score": 0
+      },
+      {
+       "label": "Governance",
+       "score": 86
+      },
+      {
+       "label": "Fcf quality",
+       "score": 36
+      },
+      {
+       "label": "Balance sheet",
+       "score": 70
+      },
+      {
+       "label": "Through cycle profit",
+       "score": 43
+      },
+      {
+       "label": "Operational efficiency",
+       "score": 85
+      }
+     ]
+    },
+    "technical": {
+     "score": 79,
+     "pillars": [
+      {
+       "label": "Trend",
+       "score": 97
+      },
+      {
+       "label": "Volume",
+       "score": 21
+      },
+      {
+       "label": "Momentum",
+       "score": 88
+      },
+      {
+       "label": "Volatility adj",
+       "score": 0
+      },
+      {
+       "label": "Relative strength",
+       "score": 100
+      }
+     ]
+    },
+    "cycle": {
+     "score": 21,
+     "pillars": [
+      {
+       "label": "Margin position",
+       "score": 50
+      },
+      {
+       "label": "Commodity position",
+       "score": 0
+      },
+      {
+       "label": "Has commodity data",
+       "score": 0
+      },
+      {
+       "label": "Capacity utilization",
+       "score": 20
+      }
+     ]
+    }
+   },
+   "quarterly": {
+    "rows": [
+     {
+      "quarter": "Q1 FY27",
+      "revenue": "₹131 cr",
+      "revenue_yoy": "+156.9%",
+      "pat": "₹54 cr",
+      "pat_yoy": "+390.9%",
+      "pat_yoy_positive": true,
+      "margin": "70.2%"
+     },
+     {
+      "quarter": "Q4 FY26",
+      "revenue": "₹102 cr",
+      "revenue_yoy": "+64.5%",
+      "pat": "₹38 cr",
+      "pat_yoy": "+153.3%",
+      "pat_yoy_positive": true,
+      "margin": "56.9%"
+     },
+     {
+      "quarter": "Q3 FY26",
+      "revenue": "₹71 cr",
+      "revenue_yoy": "+10.9%",
+      "pat": "₹28 cr",
+      "pat_yoy": "+55.6%",
+      "pat_yoy_positive": true,
+      "margin": "63.4%"
+     },
+     {
+      "quarter": "Q2 FY26",
+      "revenue": "₹55 cr",
+      "revenue_yoy": "-20.3%",
+      "pat": "₹12 cr",
+      "pat_yoy": "-40.0%",
+      "pat_yoy_positive": false,
+      "margin": "52.7%"
+     }
+    ]
+   },
+   "peers": {
+    "rows": [
+     {
+      "symbol": "CHENNPETRO",
+      "quality": 72,
+      "industry": "Oil Gas & Consumable Fuels",
+      "market_cap": "Mid cap",
+      "is_current": false
+     },
+     {
+      "symbol": "GANDHAR",
+      "quality": 65,
+      "industry": "Oil Gas & Consumable Fuels",
+      "market_cap": "Small cap",
+      "is_current": false
+     },
+     {
+      "symbol": "JINDRILL",
+      "quality": 64,
+      "industry": "Oil Gas & Consumable Fuels",
+      "market_cap": "Small cap",
+      "is_current": false
+     },
+     {
+      "symbol": "COALINDIA",
+      "quality": 63,
+      "industry": "Oil Gas & Consumable Fuels",
+      "market_cap": "Large cap",
+      "is_current": false
+     },
+     {
+      "symbol": "OIL",
+      "quality": 63,
+      "industry": "Oil Gas & Consumable Fuels",
+      "market_cap": "Large cap",
+      "is_current": false
+     },
+     {
+      "symbol": "CASTROLIND",
+      "quality": 61,
+      "industry": "Oil Gas & Consumable Fuels",
+      "market_cap": "Mid cap",
+      "is_current": false
+     },
+     {
+      "symbol": "PETRONET",
+      "quality": 60,
+      "industry": "Oil Gas & Consumable Fuels",
+      "market_cap": "Mid cap",
+      "is_current": false
+     },
+     {
+      "symbol": "ANTELOPUS",
+      "quality": 56,
+      "industry": "Oil Gas & Consumable Fuels",
+      "market_cap": "Small cap",
+      "is_current": true
+     }
+    ],
+    "total": 26,
+    "sector": "Oil Gas",
+    "current_rank": 10
+   },
+   "shareholding": {
+    "rows": [
+     {
+      "label": "Promoters",
+      "pct": 69.94,
+      "value": "69.94%"
+     },
+     {
+      "label": "FII",
+      "pct": 0.41,
+      "value": "0.41%",
+      "change": "+0.15%",
+      "change_positive": true
+     },
+     {
+      "label": "DII",
+      "pct": 0.76,
+      "value": "0.76%",
+      "change": "+0.74%",
+      "change_positive": true
+     }
+    ],
+    "pledge": {
+     "value": "0.00%",
+     "tone": "pos"
+    },
+    "as_of": "30 Jun 2026"
+   },
+   "actions": [
+    {
+     "label": "Explain the score",
+     "expands": "score_breakdown"
+    },
+    {
+     "label": "Quarterly results",
+     "expands": "quarterly"
+    },
+    {
+     "label": "Compare peers",
+     "expands": "peers"
+    },
+    {
+     "label": "Who holds it",
+     "expands": "shareholding"
+    }
+   ],
+   "research_rail": [
+    {
+     "id": "buy_verdict",
+     "primary": "Worth buying now?",
+     "alt": "Should I buy?"
+    },
+    {
+     "id": "performance",
+     "primary": "How's it performed?",
+     "alt": "Track record"
+    },
+    {
+     "id": "valuation",
+     "primary": "Cheap or pricey?",
+     "alt": "Fair value?"
+    },
+    {
+     "id": "risk",
+     "primary": "How risky is it?",
+     "alt": "Risk check"
+    },
+    {
+     "id": "peers",
+     "primary": "Compare to peers",
+     "alt": "Beats its peers?"
+    },
+    {
+     "id": "people",
+     "primary": "Who runs it?",
+     "alt": "The people behind it"
+    },
+    {
+     "id": "whats_new",
+     "primary": "What's new?",
+     "alt": "Latest updates"
+    }
+   ],
+   "lens_views": {
+    "buy_verdict": {
+     "view": "stock_verdict",
+     "quality": {
+      "score": 56,
+      "label": "Average",
+      "tone": "warm"
+     },
+     "scores": {
+      "fundamental": {
+       "score": 56,
+       "label": "Average",
+       "tone": "warm"
+      },
+      "technical": {
+       "score": 79,
+       "label": "Bullish",
+       "tone": "pos"
+      },
+      "explainer": "Quality score blends fundamentals with short-term technicals into one read."
+     },
+     "recommendation": {
+      "long_term": {
+       "stance": "Hold",
+       "tone": "warm",
+       "rationale": "Fair fundamentals (56/100) — hold; wait for better value."
+      },
+      "short_term": {
+       "stance": "Buy",
+       "tone": "pos",
+       "rationale": "Bullish technicals (79/100) — momentum favours entry."
+      }
+     },
+     "summary": "A mixed business. Revenue is growing and the balance sheet is sound. Momentum is firm.",
+     "highlights": [
+      {
+       "tone": "info",
+       "text": "Pressing against resistance (₹1,218)."
+      },
+      {
+       "tone": "pos",
+       "text": "Profit grew 106.2% YoY on 45.9% higher sales."
+      },
+      {
+       "tone": "pos",
+       "text": "High return on equity at 20.2%."
+      }
+     ]
+    },
+    "performance": {
+     "view": "stock_performance",
+     "price_position": {
+      "current": 1170.95,
+      "current_label": "₹1,171",
+      "support": 773.7,
+      "support_label": "₹774",
+      "sma50": 871.756,
+      "sma50_label": "₹872",
+      "resistance": 1218.3,
+      "resistance_label": "₹1,218",
+      "trend": {
+       "label": "Bullish trend",
+       "tone": "pos"
+      }
+     },
+     "technicals_cards": [
+      {
+       "label": "RSI (14)",
+       "value": "68.7",
+       "note": "neutral",
+       "tone": "warm"
+      },
+      {
+       "label": "MACD",
+       "value": "Bullish crossover",
+       "tone": "pos"
+      },
+      {
+       "label": "Momentum (1M / 3M)",
+       "value": "+36.7% / +43.9%",
+       "tone": "pos"
+      }
+     ]
+    },
+    "valuation": {
+     "view": "stock_valuation",
+     "fundamentals_grid": [
+      {
+       "label": "P / E",
+       "value": "31.0",
+       "note": "fair",
+       "tone": "warm"
+      },
+      {
+       "label": "ROE",
+       "value": "20.2%",
+       "note": "healthy · above 15",
+       "tone": "pos"
+      },
+      {
+       "label": "Debt / equity",
+       "value": "0.01",
+       "note": "conservative leverage",
+       "tone": "pos"
+      },
+      {
+       "label": "Sales growth (YoY)",
+       "value": "+45.9%",
+       "note": "top line expanding",
+       "tone": "pos"
+      },
+      {
+       "label": "Profit growth (YoY)",
+       "value": "+106.2%",
+       "note": "earnings growing",
+       "tone": "pos"
+      }
+     ]
+    },
+    "risk": {
+     "view": "stock_risk",
+     "title": "Risk profile",
+     "items": [
+      {
+       "label": "Beta (Nifty)",
+       "value": "-0.74",
+       "tone": "pos"
+      },
+      {
+       "label": "ATR",
+       "value": "7.2%"
+      }
+     ]
+    },
+    "peers": {
+     "view": "stock_peers",
+     "peers": {
+      "rows": [
+       {
+        "symbol": "CHENNPETRO",
+        "quality": 72,
+        "industry": "Oil Gas & Consumable Fuels",
+        "market_cap": "Mid cap",
+        "is_current": false
+       },
+       {
+        "symbol": "GANDHAR",
+        "quality": 65,
+        "industry": "Oil Gas & Consumable Fuels",
+        "market_cap": "Small cap",
+        "is_current": false
+       },
+       {
+        "symbol": "JINDRILL",
+        "quality": 64,
+        "industry": "Oil Gas & Consumable Fuels",
+        "market_cap": "Small cap",
+        "is_current": false
+       },
+       {
+        "symbol": "COALINDIA",
+        "quality": 63,
+        "industry": "Oil Gas & Consumable Fuels",
+        "market_cap": "Large cap",
+        "is_current": false
+       },
+       {
+        "symbol": "OIL",
+        "quality": 63,
+        "industry": "Oil Gas & Consumable Fuels",
+        "market_cap": "Large cap",
+        "is_current": false
+       },
+       {
+        "symbol": "CASTROLIND",
+        "quality": 61,
+        "industry": "Oil Gas & Consumable Fuels",
+        "market_cap": "Mid cap",
+        "is_current": false
+       },
+       {
+        "symbol": "PETRONET",
+        "quality": 60,
+        "industry": "Oil Gas & Consumable Fuels",
+        "market_cap": "Mid cap",
+        "is_current": false
+       },
+       {
+        "symbol": "ANTELOPUS",
+        "quality": 56,
+        "industry": "Oil Gas & Consumable Fuels",
+        "market_cap": "Small cap",
+        "is_current": true
+       }
+      ],
+      "total": 26,
+      "sector": "Oil Gas",
+      "current_rank": 10
+     }
+    },
+    "people": {
+     "view": "stock_people",
+     "shareholding": {
+      "rows": [
+       {
+        "label": "Promoters",
+        "pct": 69.94,
+        "value": "69.94%"
+       },
+       {
+        "label": "FII",
+        "pct": 0.41,
+        "value": "0.41%",
+        "change": "+0.15%",
+        "change_positive": true
+       },
+       {
+        "label": "DII",
+        "pct": 0.76,
+        "value": "0.76%",
+        "change": "+0.74%",
+        "change_positive": true
+       }
+      ],
+      "pledge": {
+       "value": "0.00%",
+       "tone": "pos"
+      },
+      "as_of": "30 Jun 2026"
+     }
+    },
+    "whats_new": {
+     "view": "stock_whats_new",
+     "quarterly": {
+      "rows": [
+       {
+        "quarter": "Q1 FY27",
+        "revenue": "₹131 cr",
+        "revenue_yoy": "+156.9%",
+        "pat": "₹54 cr",
+        "pat_yoy": "+390.9%",
+        "pat_yoy_positive": true,
+        "margin": "70.2%"
+       },
+       {
+        "quarter": "Q4 FY26",
+        "revenue": "₹102 cr",
+        "revenue_yoy": "+64.5%",
+        "pat": "₹38 cr",
+        "pat_yoy": "+153.3%",
+        "pat_yoy_positive": true,
+        "margin": "56.9%"
+       },
+       {
+        "quarter": "Q3 FY26",
+        "revenue": "₹71 cr",
+        "revenue_yoy": "+10.9%",
+        "pat": "₹28 cr",
+        "pat_yoy": "+55.6%",
+        "pat_yoy_positive": true,
+        "margin": "63.4%"
+       },
+       {
+        "quarter": "Q2 FY26",
+        "revenue": "₹55 cr",
+        "revenue_yoy": "-20.3%",
+        "pat": "₹12 cr",
+        "pat_yoy": "-40.0%",
+        "pat_yoy_positive": false,
+        "margin": "52.7%"
+       }
+      ]
+     }
+    }
+   },
+   "active_lens": "buy_verdict"
+  }
+ }
+}

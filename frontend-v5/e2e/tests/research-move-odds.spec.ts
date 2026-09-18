@@ -24,7 +24,8 @@ const MOCK_MEDIA_EVENT = {
 
 type Reply = { status: number; body: unknown };
 const liveCalls: string[] = [];
-async function mockOdds(page: Page, latest?: (head: string) => Reply, diagnostics?: () => Reply, history?: () => Reply, profile?: () => Reply) {
+async function mockOdds(page: Page, latest?: (head: string) => Reply, diagnostics?: () => Reply, history?: () => Reply, profile?: () => Reply,
+                        card?: (sym: string) => Reply) {
   await page.route("**/api/move-odds/profile**", (route) => {
     const r = profile ? profile() : { status: 200, body: load("move-odds-profile.json") };   // MOCK — see the fixture's _note
     return route.fulfill({ status: r.status, contentType: "application/json", body: JSON.stringify(r.body) });
@@ -50,12 +51,32 @@ async function mockOdds(page: Page, latest?: (head: string) => Reply, diagnostic
     return route.fulfill({ status: r.status, contentType: "application/json", body: JSON.stringify(r.body) });
   });
   await page.route("**/api/move-odds/stocks/**", (route) => {
-    const sym = decodeURIComponent(route.request().url().split("/stocks/")[1].split("?")[0]);
+    const tail = decodeURIComponent(route.request().url().split("/stocks/")[1].split("?")[0]);
+    if (tail.endsWith("/card")) {                       // the copilot stock card (move-odds-card-*.json: captured real cards)
+      const cs = tail.slice(0, -5);
+      const r = card ? card(cs) : fs.existsSync(path.join(FX, `move-odds-card-${cs}.json`))
+        ? { status: 200, body: load(`move-odds-card-${cs}.json`) } : { status: 404, body: { detail: "not_found" } };
+      return route.fulfill({ status: r.status, contentType: "application/json", body: JSON.stringify(r.body) });
+    }
+    const sym = tail;
     const file = path.join(FX, `move-odds-stock-${sym}.json`);
     if (!fs.existsSync(file)) return route.fulfill({ status: 404, contentType: "application/json", body: '{"detail":"not_found"}' });
     const body = load(`move-odds-stock-${sym}.json`);
     if (sym === "PNCINFRA") body.data.events = [...body.data.events, MOCK_MEDIA_EVENT];
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  });
+}
+
+/** The screen's rendered text with the copilot stock card hidden: the owner chose to show that card unchanged (BUY /
+ *  HOLD / SELL included, 2026-09-18), so D2 applies to everything on the page except it. */
+async function screenText(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const cards = Array.from(document.querySelectorAll('[data-testid="mo-card"]')) as HTMLElement[];
+    const prev = cards.map((c) => c.style.display);
+    cards.forEach((c) => { c.style.display = "none"; });
+    const t = (document.querySelector('[data-testid="move-odds-screen"]') as HTMLElement).innerText;
+    cards.forEach((c, i) => { c.style.display = prev[i]; });
+    return t;
   });
 }
 
@@ -95,7 +116,7 @@ test.describe("Move odds — access", () => {
     await openOdds(page);
     await expect(page.getByTestId("mo-state-no_access")).toBeVisible();
     await expect(page.locator('[data-testid^="mo-big-"]')).toHaveCount(0);
-    expect(await page.getByTestId("move-odds-screen").innerText()).not.toMatch(/\d+\.\d%/);
+    expect(await screenText(page)).not.toMatch(/\d+\.\d%/);
   });
 });
 
@@ -162,7 +183,7 @@ test.describe("Move odds — final estimates", () => {
   test("TC-26 rendered text carries no recommendation vocabulary", async ({ page }) => {
     await page.getByTestId("mo-details-PNCINFRA").click();
     await expect(page.getByTestId("mo-detail-PNCINFRA")).toBeVisible();
-    const text = await page.getByTestId("move-odds-screen").innerText();
+    const text = await screenText(page);
     const hit = text.match(BANNED);
     expect(hit, `banned word: ${hit?.[0]}`).toBeNull();
   });
@@ -177,7 +198,7 @@ test.describe("Move odds — final estimates", () => {
     await expect(checks).toContainText("All five first held at the 11:15-12:15 bar");
     await expect(page.getByTestId("mo-checks-record")).toContainText("failed that test");
     await expect(page.getByTestId("mo-checks-record")).toContainText("-0.61% per trade");
-    const text = await page.getByTestId("move-odds-screen").innerText();
+    const text = await screenText(page);
     const hit = text.match(BANNED);
     expect(hit, `banned word: ${hit?.[0]}`).toBeNull();
     await page.keyboard.press("Escape");                                                   // v7: details are a dialog
@@ -186,7 +207,7 @@ test.describe("Move odds — final estimates", () => {
     await expect(page.getByTestId("mo-checks-ANTELOPUS").locator("li[data-met=\"yes\"]")).toHaveCount(1);
     await expect(page.getByTestId("mo-checks-ANTELOPUS")).toContainText("have not held together yet today");
     await expect(page.getByTestId("mo-signal-state-ANTELOPUS")).toContainText("Entry signal OFF · 1 of 5 checks met");
-    const detailText = await page.getByTestId("move-odds-screen").innerText();         // details open: the D2 scan covers the checks panel too
+    const detailText = await screenText(page);         // details open: the D2 scan covers the checks panel too
     expect(detailText.match(BANNED), "banned vocabulary with details open").toBeNull();
     await expect(page.getByTestId("mo-paper-ANTELOPUS")).toHaveCount(0);                                 // no early signal: no paper trade
   });
@@ -204,7 +225,7 @@ test.describe("Move odds — final estimates", () => {
     await expect(box.locator("tbody tr").nth(0)).toContainText(`reached ${p.exits[0].at}`);
     await expect(box.locator("tbody tr").nth(1)).toContainText(p.exits[1].state);
     await expect(box.locator("tbody tr").nth(1)).toContainText(rupees(p.exits[1].net));
-    const text = await page.getByTestId("move-odds-screen").innerText();
+    const text = await screenText(page);
     expect(text.match(BANNED), "banned vocabulary").toBeNull();
   });
 
@@ -278,7 +299,7 @@ test.describe("Move odds — movement vs direction (TC-70..TC-76, test_reports/m
       checked++;
     }
     expect(checked).toBeGreaterThan(3);
-    const text = await page.getByTestId("move-odds-screen").innerText();
+    const text = await screenText(page);
     expect(text).not.toMatch(/will rise|will fall|forecast of direction|expected to rise/i);
   });
 
@@ -307,7 +328,7 @@ test.describe("Move odds — movement vs direction (TC-70..TC-76, test_reports/m
     const firstRow = page.locator('tbody tr[data-testid^="mo-row-"]').first();
     await expect(firstRow.locator('[data-testid^="mo-other-"]')).toHaveCount(1);
     await expect(firstRow.locator('[data-testid^="mo-dir-"]')).toHaveCount(1);
-    const text = await page.getByTestId("move-odds-screen").innerText();
+    const text = await screenText(page);
     expect(text.match(BANNED), "banned vocabulary").toBeNull();
   });
 });
@@ -371,7 +392,7 @@ test.describe("Move odds — history (TC-57..TC-60, test_reports/move_odds_histo
     await page.getByTestId("mo-hist-date-2026-09-18").click();
     await expect(page.getByTestId("mo-hist-pending")).toContainText("graded after its closing file lands");
     await expect(page.getByTestId("mo-hist-outcome-SHAREINDIA")).toHaveText("pending");
-    const text = await page.getByTestId("move-odds-screen").innerText();
+    const text = await screenText(page);
     expect(text.match(BANNED), "banned vocabulary").toBeNull();
   });
 });
@@ -713,30 +734,40 @@ test.describe("Move odds v7 — ratings, filters, stock view", () => {
     for (let i = 1; i < bigs.length; i++) expect(bigs[i]).toBeLessThanOrEqual(bigs[i - 1]);
   });
 
-  test("TC-95 the stock view: score, grade, bars, six questions, kept sections, Escape closes and focus returns", async ({ page }) => {
-    const pr = prof().rows.PNCINFRA;
+  test("TC-95/TC-105 the stock view is the copilot card, with the move-odds sections below; Escape closes and focus returns", async ({ page }) => {
+    const card = load("move-odds-card-PNCINFRA.json").data.data;
     await page.getByTestId("mo-row-PNCINFRA").locator(".mo-co").click();                   // a click anywhere on the row opens it
     const dlg = page.getByTestId("mo-detail-PNCINFRA");
     await expect(dlg).toBeVisible();
     await expect(dlg).toHaveAttribute("role", "dialog");
     await expect(dlg).toHaveAttribute("aria-modal", "true");
     await expect(page.getByTestId("mo-modal-close")).toBeFocused();
-    await expect(page.getByTestId("mo-modal-disclaimer")).toContainText("does not constitute investment advice");
-    await expect(page.getByTestId("mo-qscore")).toHaveText(`${pr.quality!.score.toFixed(1)}/100`);
-    await expect(page.getByTestId("mo-qbar-fundamentals")).toContainText(String(Math.round(pr.quality!.fundamental!)));
-    await expect(page.getByTestId("mo-qbar-technicals")).toContainText(String(Math.round(pr.quality!.technical!)));
-    const chips = dlg.locator('[data-testid^="mo-chip-"]');
-    await expect(chips).toHaveCount(6);
-    await expect(chips.first()).toHaveText("Quality in brief");
-    await expect(page.getByTestId("mo-answer-panel")).toContainText(`Rated ${pr.quality!.grade} (${pr.quality!.score.toFixed(1)}/100)`);
-    await page.getByTestId("mo-chip-2").click();
-    await expect(page.getByTestId("mo-answer-panel")).toContainText(`P/E ${ratio("PNCINFRA", "pe")!.toFixed(1)}×`);
-    await page.getByTestId("mo-chip-3").click();
-    await expect(page.getByTestId("mo-answer-panel")).toContainText("chance of touching +10%");
-    for (const id of ["mo-inputs", "mo-events", "mo-checks-PNCINFRA", "mo-stands"]) await expect(dlg.getByTestId(id)).toBeVisible();
-    const text = await page.getByTestId("move-odds-screen").innerText();
-    expect(text.match(BANNED), "banned vocabulary with the stock view open").toBeNull();
-    expect(await dlg.innerText()).not.toMatch(/\b(BUY|HOLD|SELL|ACCUMULATE|AVOID)\b/);
+    const c = page.getByTestId("mo-card");
+    await expect(c).toBeVisible();
+    // the copilot card, as served: header, price, and the lens chips in rail order starting "Worth buying now?"
+    await expect(c).toContainText(card.name);
+    await expect(c).toContainText(card.badge);
+    await expect(c).toContainText(card.price.value);
+    await expect(c).toContainText(card.price.change);
+    const chips = c.locator('[role="tablist"][aria-label="Research lenses"] [role="tab"]');
+    expect(await chips.allInnerTexts()).toEqual(card.research_rail.map((r: { primary: string }) => r.primary));
+    await expect(chips.first()).toHaveText("Worth buying now?");
+    const rec = card.lens_views.buy_verdict.recommendation;
+    await expect(c).toContainText("Recommendation");                                       // BUY/HOLD/SELL kept, as the owner chose
+    await expect(c).toContainText(rec.long_term.stance.toUpperCase());
+    await chips.filter({ hasText: "How's it performed?" }).click();
+    await expect(c).toContainText("Where price sits");
+    await expect(chips.filter({ hasText: "How's it performed?" })).toHaveAttribute("aria-selected", "true");
+    // the disclaimer sits above the card; the move-odds sections sit below it
+    const disc = await page.getByTestId("mo-modal-disclaimer").boundingBox();
+    const cb = await c.boundingBox();
+    const inputs = dlg.getByTestId("mo-inputs");
+    await expect(inputs).toBeVisible();
+    expect(disc!.y + disc!.height).toBeLessThanOrEqual(cb!.y);
+    expect((await inputs.boundingBox())!.y).toBeGreaterThan(cb!.y + cb!.height);
+    for (const id of ["mo-events", "mo-checks-PNCINFRA"]) await expect(dlg.getByTestId(id)).toBeVisible();
+    const text = await screenText(page);
+    expect(text.match(BANNED), "banned vocabulary outside the copilot card").toBeNull();
     await page.keyboard.press("Escape");
     await expect(dlg).toHaveCount(0);
     await expect(page.getByTestId("mo-details-PNCINFRA")).toBeFocused();
@@ -744,6 +775,15 @@ test.describe("Move odds v7 — ratings, filters, stock view", () => {
     await expect(dlg).toBeVisible();
     await page.getByTestId("mo-modal-close-btn").click();
     await expect(dlg).toHaveCount(0);
+  });
+
+  test("TC-107 the card subtitle joins strings only — no [object Object], also in copilot chat's component", async ({ page }) => {
+    const card = load("move-odds-card-PNCINFRA.json").data.data;
+    expect(typeof card.risk).toBe("object");                                                // the case that printed [object Object]
+    await page.getByTestId("mo-details-PNCINFRA").click();
+    const c = page.getByTestId("mo-card");
+    await expect(c).toContainText(`${card.subtitle} · ${card.meta}`);
+    await expect(c).not.toContainText("[object Object]");
   });
 
   test("TC-96 history shows today's rating and sector rating, and its headers sort", async ({ page }) => {
@@ -785,7 +825,7 @@ test.describe("Move odds v7 — profile failure", () => {
     for (const id of ["mo-cap-Mid", "mo-ratio-toggle", "mo-evt-toggle"]) await expect(page.getByTestId(id)).toBeDisabled();
     await expect(page.getByTestId("mo-profile-retry")).toBeVisible();
     await page.getByTestId("mo-details-PNCINFRA").click();
-    await expect(page.getByTestId("mo-modal-noprofile")).toBeVisible();
+    await expect(page.getByTestId("mo-card")).toBeVisible();                               // the copilot card does not need the profile
     await expect(page.getByTestId("mo-inputs")).toBeVisible();                             // the move-odds sections still work
   });
 
@@ -880,7 +920,7 @@ test.describe("Move odds v2 — hero and row reading", () => {
     await expect(page.getByTestId(`mo-detail-${both.symbol}`)).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("mo-hero-both")).toBeFocused();
-    const text = await page.getByTestId("move-odds-screen").innerText();
+    const text = await screenText(page);
     expect(text.match(BANNED), "banned vocabulary").toBeNull();
   });
 
@@ -911,5 +951,30 @@ test.describe("Move odds v2 — hero and row reading", () => {
     }
     await page.getByTestId("mo-hist-row-PNCINFRA").locator(".mo-coname").click();
     await expect(page.getByTestId("mo-detail-PNCINFRA")).toBeVisible();
+  });
+});
+
+test.describe("Move odds — stock card failure (TC-106, test_reports/move_odds_stock_card_20260918_1220.md)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("TC-106 a failed card says why, shows the page's own quality block, and the move-odds sections still render", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await mockOdds(page, undefined, undefined, undefined, undefined, () => ({ status: 502, body: { detail: "upstream_unavailable" } }));
+    await openOdds(page);
+    await expect(page.getByTestId("mo-row-PNCINFRA")).toBeVisible();
+    await expect(page.getByTestId("mo-rating-PNCINFRA")).toHaveAttribute("data-grade", /[ABC]/);
+    const pr = prof().rows.PNCINFRA;
+    await page.getByTestId("mo-details-PNCINFRA").click();
+    const dlg = page.getByTestId("mo-detail-PNCINFRA");
+    await expect(page.getByTestId("mo-card-off")).toContainText("could not be loaded (HTTP 502)");
+    await expect(page.getByTestId("mo-card")).toHaveCount(0);
+    await expect(page.getByTestId("mo-qscore")).toHaveText(`${pr.quality!.score.toFixed(1)}/100`);
+    await expect(page.getByTestId("mo-qbar-fundamentals")).toContainText(String(Math.round(pr.quality!.fundamental!)));
+    const chips = dlg.locator('[data-testid^="mo-chip-"]');
+    await expect(chips).toHaveCount(6);
+    await page.getByTestId("mo-chip-2").click();
+    await expect(page.getByTestId("mo-answer-panel")).toContainText(`P/E ${ratio("PNCINFRA", "pe")!.toFixed(1)}×`);
+    for (const id of ["mo-inputs", "mo-events", "mo-checks-PNCINFRA", "mo-stands"]) await expect(dlg.getByTestId(id)).toBeVisible();
+    expect((await screenText(page)).match(BANNED), "banned vocabulary").toBeNull();
   });
 });

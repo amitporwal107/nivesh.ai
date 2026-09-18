@@ -232,3 +232,55 @@ def test_tc88_profile_is_behind_the_flag_passes_through_and_fails_closed(monkeyp
     assert r.status_code == 503 and r.json()["detail"] == "withheld: stale_data" and "rows" not in r.json()["data"]
     c, _ = _client(monkeypatch, db, daas=DaasError("connect refused"))
     r = _get(c, "/api/move-odds/profile", "invited"); assert r.status_code == 502 and r.json()["detail"] == "upstream_unavailable"
+
+
+def test_tc104_stock_card_is_the_copilot_card_behind_the_flag(monkeypatch):
+    """TC-104 in test_reports/move_odds_stock_card_20260918_1220.md: the pop-up's card is the copilot's stock card —
+    get_stock_research(sym).widget through build_research_hub("stock", …) — unchanged, gated, and failing honestly."""
+    import asyncio
+    from services.copilot_tools import instrument_research as ir
+    from services.copilot_tools.research_lenses import build_research_hub
+
+    db = _DB(flags={"move_odds": {"mode": "allowlist", "allowlist": ["invited@example.com"]}})
+    widget = {"kind": "stock", "name": "PNC Infratech Limited", "badge": "STOCK", "subtitle": "PNCINFRA · NSE", "meta": "Construction · Small cap",
+              "price": {"value": "₹135.70", "change": "+0.9%"}, "quality": {"score": 28, "label": "Weak", "tone": "neg"},
+              "scores": {"fundamental": {"score": 44, "label": "Below average", "tone": "neg"}, "technical": {"score": 6, "label": "Bearish", "tone": "neg"}},
+              "recommendation": {"long_term": {"stance": "Hold", "tone": "warm", "rationale": "Average quality"}, "short_term": {"stance": "Sell", "tone": "neg", "rationale": "Bearish"}},
+              "risk": {"title": "Risk profile", "items": [{"label": "Volatility", "value": "High"}]}}
+    calls = []
+    outcome = {"r": ir.InstrumentResearch(ok=True, kind="stock", identifier="PNCINFRA", summary="", widget=copy.deepcopy(widget))}
+
+    async def fake_research(sym):
+        calls.append(sym)
+        r = outcome["r"]
+        if isinstance(r, Exception):
+            raise r
+        if r == "slow":
+            await asyncio.sleep(60)
+        return copy.deepcopy(r)
+    monkeypatch.setattr(ir, "get_stock_research", fake_research)
+    c, _ = _client(monkeypatch, db)
+
+    r = _get(c, "/api/move-odds/stocks/pncinfra/card", "invited")
+    assert r.status_code == 200 and calls == ["PNCINFRA"]                         # upper-cased
+    body = r.json()["data"]
+    assert body["widget_type"] == "instrument_detail"
+    assert body["data"] == build_research_hub("stock", copy.deepcopy(widget))     # the copilot's card, unchanged
+    assert body["data"]["research_rail"][0]["primary"] == "Worth buying now?"
+    assert body["data"]["lens_views"]["buy_verdict"]["recommendation"]["short_term"]["stance"] == "Sell"   # BUY/HOLD/SELL kept
+
+    n = len(calls)
+    assert _get(c, "/api/move-odds/stocks/PNCINFRA/card", "other").status_code == 403
+    assert _get(c, "/api/move-odds/stocks/PNCINFRA/card", "admin").status_code == 403
+    assert len(calls) == n                                                        # research never run for a denied user
+    assert _get(c, "/api/move-odds/stocks/PNC%20INFRA/card", "invited").status_code == 422
+
+    outcome["r"] = ir.InstrumentResearch(ok=False, kind="stock", identifier="NOPE", summary="", error="not_found")
+    r = _get(c, "/api/move-odds/stocks/NOPE/card", "invited"); assert r.status_code == 404 and r.json()["detail"] == "not_found"
+    outcome["r"] = ir.InstrumentResearch(ok=False, kind="stock", identifier="PNCINFRA", summary="", error="source_unavailable")
+    r = _get(c, "/api/move-odds/stocks/PNCINFRA/card", "invited"); assert r.status_code == 502 and r.json()["detail"] == "upstream_unavailable"
+
+    real_wait_for = asyncio.wait_for
+    monkeypatch.setattr(asyncio, "wait_for", lambda aw, timeout: real_wait_for(aw, 0.05))   # the 25 s limit, compressed
+    outcome["r"] = "slow"
+    r = _get(c, "/api/move-odds/stocks/PNCINFRA/card", "invited"); assert r.status_code == 504 and r.json()["detail"] == "card_timeout"
