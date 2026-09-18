@@ -22,7 +22,8 @@ and product. Two tracks:
 
 ## Why both tracks are needed (measured, not assumed)
 Liquid (> Rs 5 cr) gap-down signals occur in **86% of sessions**, median **4 per session**; per-session net return
-**+0.516%** (validated pairs, lower-circuit opens excluded — +0.697% before that exclusion), **std 3.50%**.
+**+0.516%** (validated pairs; ⚠️ that exclusion used the day's low — look-ahead, see G1_RESULT addendum), **std 3.50%**.
+Under the frozen Track 1 rules (exclusion knowable at 09:15, EQ only) H-A is **+0.665%/session, t 3.67**.
 | paper sessions | signal-sessions | 95% CI half-width |
 |---|---|---|
 | 20 | ~17 | ±1.66pp |
@@ -96,8 +97,8 @@ wrong — the cost sensitivity is still required, but the thin-name problem belo
 ## New owner decisions
 | # | Decision |
 |---|---|
-| D10 | Approve the Track 1 scope table (confirmation rule, stop/target/holding, cost model) before Day 2 |
-| D11 | Track 1 report form: a file on the VM, or a private artifact page (no product deploy) |
+| D10 | ✅ **Approved with five conditions** (owner, 2026-09-19): frozen as `track1/TRACK1_SCOPE_v1.md` — 09:45 reference = close of the 09:40 bar; VWAP over completed bars only; stop/target from the actual entry; both-touched → stop; one exit reason per trade; missing bars → UNRESOLVED; H-B labelled an operational test |
+| D11 | ✅ **Decided**: auto-generated private HTML report + CSV/JSON per day under `/app/research/reports/YYYY-MM-DD/` on the VM; dashboard deferred to D5 |
 
 ---
 

@@ -72,3 +72,20 @@ entry price. That is a NEW hypothesis: pre-register it and test it on 2021..2024
   names, where 0.25% flat is least realistic).
 
 Trade-level files: `/app/research/kite_history/gapdown_minute_v2/g1_pairs_validated.pkl`, `timing_trades_v2.pkl`.
+
+---
+
+## Addendum (2026-09-19 ~05:15 IST) — gate 3 used future information; verdict unchanged
+Gate 3 (lower-circuit open) was implemented as "open == the **day's** low at a band". The day's low is known only at
+the close, so the 430 exclusions used future information (and removed stocks that never traded below the open —
+biasing returns down). Re-run of the registered primary with look-ahead-free definitions:
+
+| gate 3 definition | excluded | MODERATE all | > Rs 5cr | Rs 50L–5cr | abandon condition 3 |
+|---|---|---|---|---|---|
+| as run: day low == open (look-ahead) | 430 | +0.335% (t 4.67) | +0.055% (t 0.72) | +0.895% (t 7.38) | triggers |
+| **entry-time: first-minute low == open** | 491 | +0.332% (t 4.67) | **+0.056% (t 0.75)** | +0.891% (t 7.26) | **triggers** |
+| no gate 3 (not the registered rule) | 0 | +0.402% (t 5.96) | +0.167% (t 2.32) | +0.901% (t 8.15) | would not trigger |
+
+**Verdict unchanged: ABANDONED** under the registered rule implemented without look-ahead. Dropping gate 3 is not
+permitted after seeing results; a no-gate variant would be a new hypothesis. For Track 1 the exclusion is defined on
+information available at 09:15 only (open at a band), see `track1/TRACK1_SCOPE_v1.md`.
