@@ -97,9 +97,11 @@ set `paper-v1`.
 | R11 dashboard | **Partial** | `/v5/research/paper-trades` shows trades, lifecycle, intraday charts and the evaluation; no pattern-level breakdowns. |
 
 ## 4. Recommendations (Claude)
-1. **Put G1 into the engine as the first pattern, in shadow mode** (Phase 1: frozen signals, no orders), with
-   `pattern_id = G1-gapdown`, a pattern version and a per-signal feature snapshot. It is the only Stage 1 candidate;
-   paper-trading only the failed v4 model measures a model we already know fails.
+1. **Put the first gap-down pattern into the engine in shadow mode** (Phase 1: frozen signals, no orders), with a
+   `pattern_id`, a pattern version and a per-signal feature snapshot. ⚠️ **Updated 04:25 IST:** G1 *with target/stop*
+   was ABANDONED under its pre-registered condition 3 (`gapdown/G1_RESULT.md`); the shadow candidate is the gap-down
+   **close-only, liquid-names (> Rs 5cr)** variant or an early-confirmation entry — each **only after its own
+   pre-registration**. Paper-trading only the failed v4 model measures a model we already know fails.
 2. **The signal ledger extends the existing tables rather than replacing them** — `prediction_snapshots` already has the
    immutability and supersession mechanics. Add pattern and feature-snapshot tables beside it.
 3. **Intraday execution will use Kite 5-minute bars.** Two operating constraints:
