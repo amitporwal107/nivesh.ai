@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS nidp.intraday_bars (
 CREATE INDEX IF NOT EXISTS idx_intraday_bars_symbol_ts
     ON nidp.intraday_bars (symbol, interval, bar_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_intraday_bars_date
-    ON nidp.intraday_bars (interval, (bar_ts AT TIME ZONE 'Asia/Kolkata')::date);
+    ON nidp.intraday_bars (interval, ((bar_ts AT TIME ZONE 'Asia/Kolkata')::date));
 
 -- Auditable ingestion record: which symbol/day/interval was attempted, and what happened.
 -- Absence of a bar row is then distinguishable from "never fetched" vs "fetched, no trades".
