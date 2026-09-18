@@ -49,7 +49,7 @@ V5: Research → "Paper" tab with the design's three screens (Today's portfolio 
 | TC-P18 | data | replay sessions/trades; forward and replay separate | data | 165 sessions × 2 portfolios; never pooled | PASS |
 | TC-P19 | data | Yahoo ^NSEI vs NSE Nifty 50 on every overlapping date | data | equal to the paisa | PASS (134 / 134 identical open and close) |
 | TC-P20 | api | DaaS shapes, internal-plan gate, 404, bad params | api | as designed | PASS (unit + staging) |
-| TC-P21 | api | app routes behind move_odds; pass-through; DaaS down → 502 | api | as designed | PASS (unit); staging: routes deployed (401 unauthenticated vs 404 unknown) — logged-in call BLOCKED on session |
+| TC-P21 | api | app routes behind move_odds; pass-through; DaaS down → 502 | api | as designed | PASS (unit + staging: logged-in responses byte-identical to the DaaS; 422 bad param; 404 unknown trade) |
 | TC-P22 | api | live status: await entry, UC open, target, stop, both-touched, gap, stale-date bars, unavailable | unit + real Yahoo | per pre-registered levels | PASS (unit 9) + real Yahoo run below |
 | TC-P23 | ui | Paper rail only with move_odds; frozen values; P5/P10; older date | e2e mocked | values equal fixture | PASS |
 | TC-P24 | ui | sizing: loss limit binds at each leg's stop, equal legs, custom basket, fixed stop | e2e mocked | hand-computed rupees | PASS |
@@ -57,8 +57,8 @@ V5: Research → "Paper" tab with the design's three screens (Today's portfolio 
 | TC-P26 | ui | evaluation: forward/replay separate; not established below 60 | e2e mocked | as payload | PASS |
 | TC-P27 | ui | 403 / error+retry / empty states; no NaN/undefined; wording scan | e2e mocked | clean | PASS |
 | TC-P28 | ui | 390 px: neither the document nor the screen's scroll region scrolls sideways | e2e mocked | pass | PASS (found and fixed three overflows) |
-| TC-P29 | staging | deployed endpoints answer real data | api (real) | 200 with real rows | PASS for DaaS (below); app leg BLOCKED on session |
-| TC-P30 | staging | page renders real data; cells equal the payload | e2e (real) | pass | BLOCKED — needs the owner's staging session_token |
+| TC-P29 | staging | deployed endpoints answer real data | api (real) | 200 with real rows | PASS (DaaS + app, below) |
+| TC-P30 | staging | page renders real data; cells equal the payload | e2e (real) | pass | PASS (real staging, desktop + 390 px) |
 
 ## Engine / unit tests (local, real commands)
 - `venv/bin/python -m pytest nidp/tests/services/tpd_model/test_paper_engine.py -q` → `19 passed in 1.35s` (rc 0)
@@ -103,11 +103,25 @@ P5-NEXT (predicted 17 Sep, entry 18 Sep, not counted): target 2 · holding 3
 P10-NEXT: holding 5 (ALOKINDS, QUADFUTURE, PNCINFRA, MOTISONS, CAMLINFINE); every stop CAP_8PCT
 ```
 
+**Staging, logged in (owner session, 17:12 IST) — TC-P29 app leg:**
+```
+GET /api/paper-trades/portfolio?sample=forward&portfolio=P5-NEXT                          200 0.33s
+GET /api/paper-trades/portfolio?sample=forward&portfolio=P10-NEXT&prediction_date=2026-09-16 200 0.27s
+GET /api/paper-trades/portfolio?sample=replay&portfolio=P5-NEXT&prediction_date=2025-03-10   200 4.29s
+GET /api/paper-trades/trades/531 200 · evaluation?sample=replay 200 · evaluation?sample=forward 200 · live?portfolio=P5-NEXT 200 0.41s
+GET /api/paper-trades/portfolio?portfolio=P20-NEXT 422 · trades/99999999 404
+app == DaaS (same query, compared as parsed JSON): fwd P5 True · fwd P10 16-Sep True · replay P5 10-Mar True · trade 531 True · eval replay True · eval forward True
+live P5 (from the staging app, Yahoo): target 2 (SHAREINDIA 10:40, RATNAVEER 09:55) · holding 3 — same as the 15:29 local run
+```
+
 ## UI / Playwright Tests
 - mocked `npx playwright test e2e/tests/research-paper-trades.spec.ts --project=desktop-chrome` → `10 passed (22.6s)` (rc 0)
 - regression `research-move-odds.spec.ts research-access.spec.ts` → `53 passed (1.5m)` (rc 0)
 - `npm run build` (tsc -b + vite build) → `✓ built in 20.06s` (rc 0)
-- real staging (TC-P30): **not run — needs the owner's staging session_token** (the 12:07 IST session was deleted after the move-odds runs).
+- real staging (TC-P30), owner session supplied 17:12 IST (private file, never printed, deleted after):
+  `STAGING_SESSION_FILE=… npx playwright test e2e/tests/staging-paper-trades.spec.ts --project=desktop-chrome` →
+  `✓ TC-P30 real staging: today's portfolio, older session, trade path and evaluation equal the payloads (3.6s)` ·
+  `✓ TC-P30 real staging at 390 px: no sideways scroll on the three screens (1.5s)` · `3 passed (14.7s)` (rc 0)
 - screenshots for visual review: taken, not reviewed (the image viewer's hook timed out) — UNVERIFIED visually.
 
 ## Known issues / caveats
@@ -119,7 +133,6 @@ P10-NEXT: holding 5 (ALOKINDS, QUADFUTURE, PNCINFRA, MOTISONS, CAMLINFINE); ever
 - Engine code lives on local branch feat/paper-trade-engine (off feat/tpd3-mvp, which is not on dev); the nightly job runs from that worktree.
 
 ## Inputs required from user
-- A fresh staging `session_token` for an allowlisted account (TC-P29 app leg, TC-P30 real UI run).
+- none (owner session supplied 17:12 IST, used for TC-P29/TC-P30, deleted after).
 
-## Verdict: BLOCKED
-Everything except the logged-in staging leg is verified above; TC-P29 (app route with a session) and TC-P30 are blocked on the session token.
+## Verdict: PASS
