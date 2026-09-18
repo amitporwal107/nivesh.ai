@@ -3,15 +3,17 @@
 # Cron calls this script with no arguments: never put a literal percent sign in a cron line (cron turns it into a newline).
 #   DRY_RUN=1          report only, delete nothing
 #   ARCHIVE_DELETE=1   allow archive deletion — ONLY files older than RETENTION_DAYS that have a verified copy in GCS
+# Per-VM settings (ARCHIVE_DELETE, ARCHIVE_MAP, RETENTION_DAYS) live in /etc/default/disk-cleanup, sourced below.
+#   ARCHIVE_MAP="local_dir|gs://bucket/prefix local_dir2|gs://bucket/prefix2"  (the same relative path under each prefix)
 # Never touched: Docker volumes, running containers, images in use, /var/lib/containerd, database data (/mnt/nidp-nfs/staging-postgres).
 set -uo pipefail
+[ -r /etc/default/disk-cleanup ] && . /etc/default/disk-cleanup
 LOG=${LOG:-/var/log/disk-cleanup.log}
 DRY_RUN=${DRY_RUN:-0}
 ARCHIVE_DELETE=${ARCHIVE_DELETE:-0}
 RETENTION_DAYS=${RETENTION_DAYS:-30}
 TMP_AGE_MIN=${TMP_AGE_MIN:-1440}                       # temp files untouched for a day
-ARCHIVE_DIRS=${ARCHIVE_DIRS:-}                         # set after inspecting the VM (space separated)
-GCS_PREFIX=${GCS_PREFIX:-}                             # e.g. gs://nidp-raw-niveshdataintelligence/<layout> — set after inspection
+ARCHIVE_MAP=${ARCHIVE_MAP:-}                           # empty = archive step skipped (e.g. nivesh-app-vm has none)
 free_mb() { df -Pm / | awk 'NR==2{print $4}'; }
 log() { echo "$(date -Is) $*" >> "$LOG"; }
 run() { if [ "$DRY_RUN" = 1 ]; then log "DRY_RUN would run: $*"; else "$@" >> "$LOG" 2>&1; fi; }
@@ -41,21 +43,23 @@ find /tmp /var/tmp -xdev -type f -mmin +"$TMP_AGE_MIN" -not -path '*/systemd-pri
 run journalctl --vacuum-size=100M
 run apt-get clean
 
-# 5. Archives: only older than RETENTION_DAYS AND present in GCS with the same size. Otherwise report, never delete.
-if [ -n "$ARCHIVE_DIRS" ]; then
-  for d in $ARCHIVE_DIRS; do
-    [ -d "$d" ] || continue
-    find "$d" -xdev -type f -mtime +"$RETENTION_DAYS" -print0 2>/dev/null | while IFS= read -r -d '' f; do
-      rel=${f#"$d"/}; size=$(stat -c%s "$f")
-      remote_size=""
-      if [ -n "$GCS_PREFIX" ]; then remote_size=$(gcloud storage ls -l "$GCS_PREFIX/$rel" 2>/dev/null | awk 'NR==1{print $1}'); fi
-      if [ "$ARCHIVE_DELETE" = 1 ] && [ "$DRY_RUN" != 1 ] && [ -n "$remote_size" ] && [ "$remote_size" = "$size" ]; then
-        rm -f -- "$f" && log "archive deleted (verified in GCS, $size bytes): $f"
-      else
-        log "archive kept (${remote_size:+gcs_size=$remote_size }local_size=$size; delete requires ARCHIVE_DELETE=1 and a verified GCS copy): $f"
-      fi
-    done
-  done
-fi
+# 5. Archives: only older than RETENTION_DAYS AND present in GCS at the same relative path with the same size.
+#    Anything unverified is reported and kept.
+for pair in $ARCHIVE_MAP; do
+  d=${pair%%|*}; prefix=${pair#*|}
+  [ -d "$d" ] || { log "archive dir missing: $d"; continue; }
+  kept=0; deleted=0
+  while IFS= read -r -d '' f; do
+    rel=${f#"$d"/}; size=$(stat -c%s "$f")
+    remote_size=$(gcloud storage ls -l "$prefix/$rel" 2>/dev/null | awk 'NR==1{print $1}')
+    if [ "$ARCHIVE_DELETE" = 1 ] && [ "$DRY_RUN" != 1 ] && [ -n "$remote_size" ] && [ "$remote_size" = "$size" ]; then
+      rm -f -- "$f" && deleted=$((deleted+1))
+    else
+      kept=$((kept+1))
+      [ "$DRY_RUN" = 1 ] && log "DRY_RUN archive $([ "$remote_size" = "$size" ] && echo 'verified, would delete' || echo "NOT verified (gcs=${remote_size:-none}), would keep"): $f"
+    fi
+  done < <(find "$d" -xdev -type f -mtime +"$RETENTION_DAYS" -print0 2>/dev/null)
+  log "archive $d -> $prefix: deleted $deleted, kept $kept (older than ${RETENTION_DAYS}d)"
+done
 
 after=$(free_mb); log "end free=${after}MB reclaimed=$((after - before))MB"
