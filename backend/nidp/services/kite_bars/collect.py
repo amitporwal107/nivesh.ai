@@ -90,7 +90,7 @@ def _write(inst: Instrument, interval: str, rows: list[dict]) -> int:
                 r["open"], r["high"], r["low"], r["close"], r.get("volume"), SOURCE_VERSION) for r in rows]
     # temp tables do not survive separate psql invocations, so do it in one session
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = csv.writer(buf, lineterminator="\n")
     for t in payload:
         w.writerow(["" if v is None else v for v in t])
     script = (

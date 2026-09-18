@@ -188,3 +188,57 @@ open -0.51%), so stops can fire on the low and the grid can be re-run honestly.
 
 Cheap in time; the row counts argue for starting with the gap-down universe rather than
 all 10,130 instruments.
+
+---
+
+# ADDENDUM 3 — 2026-09-18: BACKFILL SCOPE + SYMBOL COVERAGE
+
+## Scope: targeted, not continuous
+
+A continuous 750-day minute backfill of the 1,647 sleeve symbols would be **315M rows /
+~25 GB / ~125 min**. The app-vm had **16 GB free (81% used)**, and this disk has taken
+staging Postgres down before by filling. That backfill would have caused an outage.
+
+The sleeve only ever trades **(symbol, trade-day) pairs**, so only those days are fetched:
+
+| | rows | size | time |
+|---|---|---|---|
+| continuous 750d | 315M | 25.2 GB | ~125 min |
+| **targeted pairs** | **1.6M** | **~0.13 GB** | **~25 min** |
+
+**99.5% fewer rows for exactly the data the study needs.** Compression was considered and is
+unnecessary at 0.13 GB; it stays in reserve if the corpus is later widened to continuous history.
+
+## Symbol coverage: 9.3% of sleeve symbols are not in Kite's CURRENT instrument list
+
+Kite's `instruments("NSE")` returns names live **today** (10,130 EQ). Symbols renamed,
+delisted or moved segment since 2024 are absent, so their history cannot be fetched by name.
+
+- missing symbols: **153 of 1,647 (9.3%)**
+- affected pairs: **416 of 4,313 (9.6%)**
+
+### Survivorship check — is the gap systematic?
+
+| cohort | n | mean intraday | median turnover |
+|---|---|---|---|
+| missing | 416 | **+0.767%** | Rs 404 L |
+| present | 3,897 | **+0.842%** | Rs 1,367 L |
+
+The missing names are **less liquid** (expected — delisting skews small) but their mean
+intraday return is only **0.075pp lower**. Dropping them is unlikely to flip the sleeve's
+sign. This is a **real but small survivorship bias**, recorded here so it is not rediscovered
+later as a surprise.
+
+**Mitigation if it ever matters:** Kite instruments can be resolved by `instrument_token`
+from a historical dump rather than by current tradingsymbol. Not done now — the bias is
+smaller than the effect being measured.
+
+## Verified write path (smoke test, run smoke-002)
+
+`{'OK': 1, 'EMPTY': 0, 'ERROR': 0, 'rows': 360}` — RELIANCE 2026-09-17, 360 minute bars,
+09:15..15:14, low 1238.5 / high 1253.4 (matching the independent probe), `source_version`
+stamped, ingest log row written.
+
+Two defects were found and fixed by this smoke test before the bulk run: a Postgres index
+expression needing an extra paren (migration 152), and a CSV terminator landing on the last
+data row (`csv.writer` default `\r\n` -> `lineterminator="\n"`).
