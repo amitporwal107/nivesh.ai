@@ -4,6 +4,8 @@
     GET /api/move-odds/stocks/{symbol}        → DaaS /v1/move-odds/stocks/{symbol}
     GET /api/move-odds/diagnostics            → the rejected entry setups' backtest results (committed snapshot)
     GET /api/move-odds/history                → DaaS /v1/move-odds/history (past sessions and how they turned out)
+    GET /api/move-odds/profile                → DaaS /v1/move-odds/profile (quality rating, sector rating, cap, ratios,
+                                                event categories for the run the page shows)
 
 Only accounts on the move_odds allowlist get past the gate (403 feature_not_enabled otherwise, admins included).
 The payload is passed through unchanged, so every number shown is the published, frozen one (spec C7). A DaaS
@@ -64,6 +66,13 @@ async def history(head: Head = "p_up5_1d", sessions: int = Query(30, ge=1, le=12
     """Past published sessions: the top estimates and what actually happened. Outcomes come from the published run and
     the NSE closing rows behind it; a session whose prices are not in yet is returned pending, never guessed."""
     return await _proxy("/move-odds/history", {"head": head, "model": MODEL, "sessions": sessions, "top": top})
+
+
+@router.get("/profile")
+async def profile(user: dict = Depends(require_feature(FLAG))):
+    """Each stock's quality beside its move odds: V3 rating, sector rating, market-cap bucket, ratios and event
+    categories, for the run the page shows. Passed through unchanged; a withheld or unpublished session carries no rows."""
+    return await _proxy("/move-odds/profile", {"model": MODEL})
 
 
 @router.get("/diagnostics")

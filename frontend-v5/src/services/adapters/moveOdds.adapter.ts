@@ -303,3 +303,65 @@ export async function fetchHistory(head: MoveHead): Promise<HistoryResult> {
     return f.kind === "no_access" ? f : { kind: "error", message: f.kind === "withheld" ? f.reason : f.message };
   }
 }
+
+// ── Profile (GET /api/move-odds/profile) ───────────────────────────────────────────────────────────────────────────────
+// Quality beside movement, never combined with it: the V3 rating, the sector rating (median of the sector's
+// full-coverage scores), market-cap bucket, ratios aligned to `ratio_keys`, and event categories. Every value may be
+// null — a missing number is never a zero.
+const QualityC = z.object({
+  score: z.number(), grade: z.enum(["A", "B", "C"]), coverage: z.number().nullable(), partial: z.boolean(),
+  fundamental: z.number().nullable(), technical: z.number().nullable(), as_of: z.string().nullable(),
+});
+export type MoveQuality = z.infer<typeof QualityC>;
+const SectorC = z.object({ median: z.number().nullable(), grade: z.enum(["A", "B", "C"]).nullable(), n: z.number(), n_scored: z.number() });
+export type MoveSectorRating = z.infer<typeof SectorC>;
+const RatioDefC = z.object({
+  key: z.string(), label: z.string(), group: z.string(), column: z.enum(["recent", "preceding", "historical"]),
+  unit: z.enum(["cr", "pct", "x", "rs", "pts"]), note: z.string().nullable(), available: z.boolean(), n: z.number(),
+  covered_pct: z.number().optional(), reason: z.string().nullable(),
+});
+export type MoveRatioDef = z.infer<typeof RatioDefC>;
+const ProfileRowC = z.object({
+  cap: z.enum(["Large", "Mid", "Small", "Micro"]).nullable(),
+  sector: z.string().nullable(),
+  quality: QualityC.nullable(),
+  ratios: z.array(z.number().nullable()),
+  ratios_as_of: z.string().nullable(),
+  events: z.object({ n: z.number(), material: z.number(), latest: z.string().nullable(), categories: z.array(z.string()) }),
+});
+export type MoveProfileRow = z.infer<typeof ProfileRowC>;
+const ProfileC = z.object({
+  status: z.literal("final"),
+  expected_session: z.string(),
+  run: RunC,
+  scores_as_of: z.string().nullable(),
+  features_as_of: z.string().nullable(),
+  return_1y_window: z.object({ from: z.string(), to: z.string() }).nullable(),
+  grade_bands: z.object({ A: z.number(), B: z.number() }),
+  coverage_min: z.number(),
+  sectors: z.record(SectorC),
+  catalogue: z.array(RatioDefC),
+  groups: z.array(z.string()),
+  ratio_keys: z.array(z.string()),
+  event_categories: z.array(z.object({ key: z.string(), label: z.string() })),
+  rows: z.record(ProfileRowC),
+});
+export type MoveProfile = z.infer<typeof ProfileC>;
+const ProfilePendingC = z.object({ status: z.literal("not_published"), expected_session: z.string(), rows: z.record(z.unknown()) });
+export type ProfileResult =
+  | { kind: "ok"; data: MoveProfile }
+  | { kind: "not_published" }
+  | { kind: "no_access" }
+  | { kind: "error"; message: string };
+
+export async function fetchProfile(): Promise<ProfileResult> {
+  try {
+    const res = await http<unknown>({ path: "/api/move-odds/profile", noRetry: true, timeoutMs: 30_000 });
+    const env = z.object({ data: z.union([ProfileC, ProfilePendingC]) }).safeParse(res.data);
+    if (!env.success) return { kind: "error", message: "unexpected response shape" };
+    return env.data.data.status === "final" ? { kind: "ok", data: env.data.data as MoveProfile } : { kind: "not_published" };
+  } catch (e) {
+    const f = fromError(e);
+    return f.kind === "no_access" ? f : { kind: "error", message: f.kind === "withheld" ? `withheld: ${f.reason}` : f.message };
+  }
+}

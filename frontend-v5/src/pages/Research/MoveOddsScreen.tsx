@@ -1,21 +1,32 @@
 /**
- * Research → Move odds. Built to docs/ai_research/designs/Nivesh Move Odds (standalone).html (approved 2026-09-16).
+ * Research → Move odds. Built to docs/ai_research/designs/Nivesh Move Odds (standalone).html (approved 2026-09-16), the
+ * owner's v7 design of 2026-09-18 (ratings, cap/ratio/event filters, a stock view) and its v2 refinement the same day
+ * (docs/Move Odds v2 standalone (1).html: a hero, the four questions folded, a five-column table led by the larger
+ * estimate, a leaner history).
  *
- * Rules this screen keeps (ten-percent-days-3 spec D1–D3, C4, C7, UX-1):
+ * Rules this screen keeps (ten-percent-days-3 spec D1–D3, C4, C7, UX-1; owner decisions 2026-09-18):
  *   · Only rendered for accounts with features.move_odds; the API independently answers 403 to everyone else, and a
  *     403 mid-session clears every cached estimate before the "not enabled" state renders.
- *   · Estimates, not calls: the full scored list sorted by estimate, no rank numbers, no short-list cut, neutral
- *     colours for both directions, the base rate beside every number (fixed 0–100% track with a base-rate tick).
+ *   · Estimates, not calls: the full scored list sorted by estimate, no rank numbers, neutral colours for both
+ *     directions, the base rate beside every number (fixed 0–100% track with a base-rate tick). v2 leads each row with
+ *     the larger estimate and names its side; the hero names three stocks by stated rules over the full list — the
+ *     owner's design, noted in the v7 report as closer to a short list than D1 allowed.
  *   · The disclaimer sits above the numbers and never collapses.
  *   · Every percentage is the published value at one decimal; nothing is computed from the clock here — the API
  *     decides whether estimates exist for the next session.
+ *   · Quality sits BESIDE movement and is never combined with it (PRD: movement probability is not investment
+ *     quality). The stock view shows scores only — no buy/hold/sell row (owner decision, D2 unchanged) — and keeps the
+ *     four estimates, inputs, events, the five checks and the paper trade.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { X } from "lucide-react";
 import {
-  MOVE_HEADS, fetchDiagnostics, fetchHistory, fetchLive, moveOddsService,
+  MOVE_HEADS, fetchDiagnostics, fetchHistory, fetchLive, fetchProfile, moveOddsService,
   type DiagnosticsResult, type HistoryResult, type LiveConditions, type MoveHistorySession, type LivePayload, type LiveQuote, type PaperTrade, type MoveBand, type MoveFinal, type MoveHead, type MoveLatestResult, type MoveRow, type MoveStockResult,
+  type MoveProfile, type MoveQuality, type MoveSectorRating, type ProfileResult,
 } from "@/services/adapters/moveOdds.adapter";
+import { EventBar, FilterBar, RatioPanel } from "./MoveOddsFilters";
+import { SHORT, answers, checkConds, condActive, fmtRatio, fundBand, gradeTone, peerMedian, qualityLabel, ratioIndex, techBand, valueOf, type Cap, type Cond } from "./moveOddsProfile";
 import "./moveOdds.css";
 
 const PAGE = 50;
@@ -110,6 +121,34 @@ function bandLabel(b: MoveBand): string {
 }
 
 type Loaded = Partial<Record<MoveHead, MoveLatestResult>>;
+type SortKey = "est" | "sym" | "rating" | "other";
+type Sort = { key: SortKey; dir: "asc" | "desc" };
+const DEFAULT_PICKED = ["mcap", "roce", "pe"];
+
+// v2 design (owner, 2026-09-18): each row leads with the LARGER of its two estimates and names its side; the smaller sits
+// under "Other way". The larger figure is not a combined probability — no model produces one — and the row says which
+// side it is. Colour stays ink: direction is a reading of two estimates, never a forecast.
+function sides(r: MoveRow): { up: boolean; hi: number; lo: number | null } {
+  const up = r.p_opposite == null || r.p >= r.p_opposite;
+  return { up, hi: up ? r.p : (r.p_opposite as number), lo: up ? r.p_opposite : r.p };
+}
+function times(p: number, base: number | null | undefined): string {
+  if (!base) return "";
+  const x = p / base;
+  return `${x.toFixed(x >= 10 ? 0 : 1)}× base`;
+}
+function oneIn(p: number): string {
+  return p > 0 ? `about 1 session in ${Math.max(2, Math.round(1 / p))}` : "";
+}
+
+/** Nulls always sort last, whichever the direction. */
+function cmpNum(a: number | null | undefined, b: number | null | undefined, dir: "asc" | "desc"): number {
+  const an = a == null || !isFinite(a), bn = b == null || !isFinite(b);
+  if (an && bn) return 0;
+  if (an) return 1;
+  if (bn) return -1;
+  return dir === "desc" ? (b as number) - (a as number) : (a as number) - (b as number);
+}
 
 export default function MoveOddsScreen() {
   const [size, setSize] = useState<SizeKey>("5");
@@ -117,7 +156,8 @@ export default function MoveOddsScreen() {
   const [results, setResults] = useState<Loaded>({});
   const [q, setQ] = useState("");
   const [evOnly, setEvOnly] = useState(false);
-  const [sort, setSort] = useState<{ key: "est" | "sym"; dir: "asc" | "desc" }>({ key: "est", dir: "desc" });
+  const [sort, setSort] = useState<Sort>({ key: "est", dir: "desc" });
+  const [order, setOrder] = useState<"table" | "events">("table");
   const [page, setPage] = useState(0);
   const [open, setOpen] = useState<string | null>(null);
   const [stocks, setStocks] = useState<Record<string, MoveStockResult | "loading">>({});
@@ -130,7 +170,19 @@ export default function MoveOddsScreen() {
   const [view, setView] = useState<"estimates" | "history">("estimates");
   const [hist, setHist] = useState<HistoryResult | null>(null);
   const [histSession, setHistSession] = useState<string | null>(null);
+  const [histSort, setHistSort] = useState<{ key: "est" | "sym" | "rating" | "move"; dir: "asc" | "desc" }>({ key: "est", dir: "desc" });
+  const [honesty, setHonesty] = useState(false);
+  const [profile, setProfile] = useState<ProfileResult | null>(null);
+  const [profileReload, setProfileReload] = useState(0);
+  const [cap, setCap] = useState<Cap>("All");
+  const [picked, setPicked] = useState<string[]>([]);
+  const [conds, setConds] = useState<Record<string, Cond>>({});
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [evtOpen, setEvtOpen] = useState(false);
+  const [evtCat, setEvtCat] = useState("All");
+  const [evtSort, setEvtSort] = useState<"material" | "latest">("material");
   const tabRefs = useRef<Partial<Record<SizeKey, HTMLButtonElement | null>>>({});
+  const returnFocus = useRef<HTMLElement | null>(null);
 
   const sz = SIZES.find((x) => x.key === size) ?? SIZES[0];
   const upHead = sz.up as MoveHead;
@@ -138,7 +190,7 @@ export default function MoveOddsScreen() {
   const head: MoveHead = view === "history" ? ((histDir === "up" ? sz.up : sz.down) as MoveHead) : upHead;
 
   const denyAll = useCallback(() => {          // 403 anywhere: drop every cached estimate before rendering the state
-    setResults({}); setStocks({}); setOpen(null); setNoAccess(true);
+    setResults({}); setStocks({}); setOpen(null); setProfile(null); setNoAccess(true);
   }, []);
 
   useEffect(() => {
@@ -152,6 +204,20 @@ export default function MoveOddsScreen() {
     });
     return () => { cancelled = true; };
   }, [reload, denyAll]);
+
+  // The profile (ratings, ratios, event categories) loads alongside the estimates and never holds them up: if it fails,
+  // the estimates still render and the rating cells say why they are empty.
+  useEffect(() => {
+    let cancelled = false;
+    setProfile(null);
+    fetchProfile().then((r) => {
+      if (cancelled) return;
+      if (r.kind === "no_access") { denyAll(); return; }
+      setProfile(r);
+      if (r.kind === "ok") setPicked((cur) => (cur.length ? cur : DEFAULT_PICKED).filter((k) => r.data.ratio_keys.includes(k)));
+    });
+    return () => { cancelled = true; };
+  }, [reload, profileReload, denyAll]);
 
   // History is fetched only when that view is opened, and again whenever the head changes: the ranking it lists is
   // per head, so p_up5_1d's past top 20 is a different list from p_down10_1d's.
@@ -192,21 +258,88 @@ export default function MoveOddsScreen() {
   const final: MoveFinal | null = current?.kind === "final" ? current.data : null;
   const downFinal: MoveFinal | null = results[downHead]?.kind === "final" ? (results[downHead] as { data: MoveFinal }).data : null;
   const loading = !noAccess && current === undefined;
+  const prof: MoveProfile | null = profile?.kind === "ok" ? profile.data : null;
+  const idx = useMemo(() => (prof ? ratioIndex(prof) : {}), [prof]);
+  const profileOff = profile === null ? null
+    : profile.kind === "ok" ? null
+    : profile.kind === "not_published" ? "Ratings, ratios and event categories are not published for this session yet."
+    : `Ratings, ratios and event categories could not be loaded (${profile.kind === "error" ? profile.message : "not enabled"}). The estimates are unaffected.`;
 
-  // `p` is the up estimate and `p_opposite` the down one for the selected size; the sort key is the larger of the two,
-  // which is a comparison of two published numbers, not a combined probability.
+  // Filters that need the profile. "missing": the stock has no value for an active condition — excluded, and counted.
+  const profileFilter = useCallback((sym: string): "pass" | "fail" | "missing" => {
+    if (!prof) return "pass";
+    const pr = prof.rows[sym];
+    if (cap !== "All" && pr?.cap !== cap) return "fail";
+    if (evtCat !== "All" && !pr?.events.categories.includes(evtCat)) return "fail";
+    return checkConds(prof, idx, sym, conds);
+  }, [prof, idx, cap, evtCat, conds]);
+
+  // `p` is the up estimate and `p_opposite` the down one for the selected size; the default sort key is the larger of
+  // the two, which is a comparison of two published numbers, not a combined probability.
   const larger = (r: MoveRow) => Math.max(r.p, r.p_opposite ?? Number.NEGATIVE_INFINITY);
-  const rows = useMemo(() => {
-    if (!final) return [] as MoveRow[];
-    const term = q.trim().toLowerCase();
-    const list = final.rows.filter((r) =>
-      (!evOnly || r.events_on_record > 0) &&
-      (!term || r.symbol.toLowerCase().includes(term) || (r.company_name ?? "").toLowerCase().includes(term)));
-    return [...list].sort((a, b) => {
-      if (sort.key === "sym") return sort.dir === "asc" ? a.symbol.localeCompare(b.symbol) : b.symbol.localeCompare(a.symbol);
-      return sort.dir === "desc" ? larger(b) - larger(a) : larger(a) - larger(b);
+  const term = q.trim().toLowerCase();
+  const matches = useCallback((sym: string, name: string | null, sector: string | null) =>
+    !term || sym.toLowerCase().includes(term) || (name ?? "").toLowerCase().includes(term) || (sector ?? "").toLowerCase().includes(term), [term]);
+
+  const { rows, missingExcluded } = useMemo(() => {
+    if (!final) return { rows: [] as MoveRow[], missingExcluded: 0 };
+    let missing = 0;
+    const list = final.rows.filter((r) => {
+      if (evOnly && r.events_on_record === 0) return false;
+      if (!matches(r.symbol, r.company_name, r.sector)) return false;
+      const k = profileFilter(r.symbol);
+      if (k === "missing") { missing++; return false; }
+      return k === "pass";
     });
-  }, [final, q, evOnly, sort]);
+    const pr = (s: string) => prof?.rows[s];
+    const evKey = (s: string) => { const e = pr(s)?.events; if (!e || e.n === 0) return null; return evtSort === "material" ? e.material : (e.latest ? Date.parse(e.latest) : null); };
+    const val = (r: MoveRow): number | null => {
+      switch (sort.key) {
+        case "other": return sides(r).lo;
+        case "rating": return pr(r.symbol)?.quality?.score ?? null;
+        default: return larger(r);
+      }
+    };
+    const sorted = [...list].sort((a, b) => {
+      if (order === "events") return cmpNum(evKey(a.symbol), evKey(b.symbol), "desc") || larger(b) - larger(a) || a.symbol.localeCompare(b.symbol);
+      if (sort.key === "sym") return sort.dir === "asc" ? a.symbol.localeCompare(b.symbol) : b.symbol.localeCompare(a.symbol);
+      return cmpNum(val(a), val(b), sort.dir) || larger(b) - larger(a) || a.symbol.localeCompare(b.symbol);
+    });
+    return { rows: sorted, missingExcluded: missing };
+  }, [final, evOnly, matches, profileFilter, prof, sort, order, evtSort]);
+
+  const capCounts = useMemo(() => {
+    const out: Partial<Record<Cap, number>> = {};
+    if (!final || !prof) return out;
+    for (const r of final.rows) { const c = prof.rows[r.symbol]?.cap; if (c) out[c] = (out[c] ?? 0) + 1; }
+    return out;
+  }, [final, prof]);
+  const evtCounts = useMemo(() => {
+    const out: Record<string, number> = { __any: 0 };
+    if (!final || !prof) return out;
+    for (const r of final.rows) {
+      const e = prof.rows[r.symbol]?.events;
+      if (!e || e.n === 0) continue;
+      out.__any++;
+      for (const c of e.categories) out[c] = (out[c] ?? 0) + 1;
+    }
+    return out;
+  }, [final, prof]);
+
+  // Hero (v2 design): three stocks named by a stated rule over the full published list, never by the filters — the
+  // highest single estimate, the highest smaller-of-the-two, and the most material filings. Facts with their base rates.
+  const hero = useMemo(() => {
+    if (!final || !final.rows.length) return null;
+    const byLarger = [...final.rows].sort((a, b) => larger(b) - larger(a) || a.symbol.localeCompare(b.symbol));
+    const twoSided = final.rows.filter((r) => r.p_opposite != null);
+    const both = twoSided.length ? [...twoSided].sort((a, b) => sides(b).lo! - sides(a).lo! || a.symbol.localeCompare(b.symbol))[0] : null;
+    const withFilings = prof ? final.rows.filter((r) => (prof.rows[r.symbol]?.events.material ?? 0) > 0) : [];
+    const filings = withFilings.length ? [...withFilings].sort((a, b) => {
+      const ea = prof!.rows[a.symbol].events, eb = prof!.rows[b.symbol].events;
+      return eb.material - ea.material || eb.n - ea.n || larger(b) - larger(a) || a.symbol.localeCompare(b.symbol);
+    })[0] : null;
+    return { top: byLarger[0], both, filings };
+  }, [final, prof]);
 
   const pages = Math.max(1, Math.ceil(rows.length / PAGE));
   const safePage = Math.min(page, pages - 1);
@@ -241,10 +374,20 @@ export default function MoveOddsScreen() {
     const next = SIZES[i].key;
     setSize(next); setPage(0); tabRefs.current[next]?.focus();
   };
-  const toggleSort = (key: "est" | "sym") => {
-    setSort((s) => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: key === "sym" ? "asc" : "desc" }));
+  const toggleSort = (key: SortKey) => {
+    setOrder("table");
+    setSort((s) => (s.key === key && order === "table" ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: key === "sym" ? "asc" : "desc" }));
     setPage(0);
   };
+  const ariaSort = (key: SortKey) => (order === "table" && sort.key === key ? (sort.dir === "asc" ? "ascending" : "descending") : undefined);
+  const arrow = (key: SortKey) => (order === "table" && sort.key === key ? (sort.dir === "desc" ? " ↓" : " ↑") : "");
+  const openStock = (sym: string, from: HTMLElement | null) => { returnFocus.current = from; setOpen(sym); };
+  const closeStock = () => { setOpen(null); window.setTimeout(() => returnFocus.current?.focus(), 0); };
+  const setCond = (key: string, c: Cond) => { setConds((m) => ({ ...m, [key]: c })); setPage(0); };
+  const removePicked = (key: string) => { setPicked((p) => p.filter((k) => k !== key)); setConds((m) => { const n = { ...m }; delete n[key]; return n; }); setPage(0); };
+  const togglePicked = (key: string) => { if (picked.includes(key)) removePicked(key); else setPicked((p) => [...p, key]); };
+  const canClear = cap !== "All" || evtCat !== "All" || Object.values(conds).some(condActive) || !!q || evOnly;
+  const clearAll = () => { setCap("All"); setEvtCat("All"); setConds({}); setQ(""); setEvOnly(false); setOrder("table"); setPage(0); };
 
   if (noAccess) {
     return (
@@ -259,37 +402,107 @@ export default function MoveOddsScreen() {
   }
 
   const run = final?.run;
-  const m = META[head];
   const openRow = open && final ? final.rows.find((r) => r.symbol === open) ?? null : null;
+  const evtLabel = (k: string) => prof?.event_categories.find((e) => e.key === k)?.label ?? k;
+  const estimatesFor = (sym: string) => Object.fromEntries(MOVE_HEADS.map((h) => {
+    const r = results[h];
+    return [h, r?.kind === "final" ? r.data.rows.find((x) => x.symbol === sym)?.p : undefined];
+  })) as Partial<Record<MoveHead, number>>;
+  const baseRates = Object.fromEntries(MOVE_HEADS.map((h) => { const r = results[h]; return [h, r?.kind === "final" ? r.data.base_rate : undefined]; })) as Partial<Record<MoveHead, number>>;
+  const captionOrder = order === "events"
+    ? `Stocks ordered by ${evtSort === "material" ? "material events (classified positive, negative or mixed)" : "their latest event"}, then the larger of the two estimates`
+    : sort.key === "est" ? "Sorted by the larger of the two estimates" : `Sorted by ${SORT_NAME[sort.key]}`;
 
   return (
     <div className="mo" data-testid="move-odds-screen">
-      <div className="mo-titlerow">
-        <div>
+      <header className="mo-head">
+        <div className="mo-head-l">
+          <span className="mo-eyebrow">NSE · next session · estimate, not a forecast</span>
           <h2 className="nv-serif mo-title">Move odds</h2>
           <p className="mo-sub">Estimated chance that a stock&apos;s price touches a large move during the next session, for about 1,000 NSE stocks.</p>
         </div>
-        {final && <span className="mo-chip" data-testid="mo-status-final"><span className="mo-dot" />Final · NSE closing file</span>}
-      </div>
+        <div className="mo-head-r">
+          {final && <span className="mo-chip" data-testid="mo-status-final"><span className="mo-dot" />Final · NSE closing file</span>}
+          {run && (
+            <div className="mo-prov" data-testid="mo-provenance">
+              <span>From close of <b>{day(run.data_as_of)}</b> · for session <b>{day(run.target_session)}</b>{run.skipped_holidays.length ? ` (after ${run.skipped_holidays.map(day).join(", ")}: NSE holiday)` : ""}</span>
+              <span>Frozen <b>{istTime(run.frozen_at)} IST</b> · model <b>{run.model} · {run.git_sha}</b></span>
+              <span><b>{run.scored.toLocaleString("en-IN")}</b> of {run.universe_size.toLocaleString("en-IN")} stocks scored</span>
+            </div>
+          )}
+        </div>
+      </header>
 
       <div className="mo-disc" role="note" data-testid="mo-disclaimer"><b>DISCLAIMER</b>{DISCLAIMER}</div>
 
-      <section className="mo-answers" aria-labelledby="mo-answers-h" data-testid="mo-answers">
-        <h3 id="mo-answers-h" className="mo-answers-h">What these numbers answer</h3>
+      {final && hero && (() => {
+        const base = (up: boolean) => (up ? final.base_rate : downFinal?.base_rate);
+        const t = sides(hero.top);
+        const tb = hero.both ? sides(hero.both) : null;
+        const fe = hero.filings && prof ? prof.rows[hero.filings.symbol].events : null;
+        return (
+          <section className="mo-hero" aria-label="This session at a glance" data-testid="mo-hero">
+            <div className="mo-hero-l">
+              <p className="nv-serif mo-hero-lead" data-testid="mo-hero-lead">
+                {hero.top.symbol} carries the highest estimated chance of a {sz.key}% move on {day(final.run.target_session)} — {pct(t.hi)} on the {t.up ? "upside" : "downside"}
+                {base(t.up) ? `, roughly ${Math.round(t.hi / (base(t.up) as number))}× the base rate` : ""}.
+              </p>
+              <p className="mo-hero-sub">Direction is not predicted, cost and risk are not modelled, and no entry setup has passed its out-of-sample test. Read these as odds of a touch, nothing more.</p>
+              <button type="button" className="mo-honesty" aria-expanded={honesty} aria-controls="mo-answers" onClick={() => setHonesty((h) => !h)} data-testid="mo-honesty-toggle">
+                {honesty ? "Hide" : "What this does and doesn't tell you"}<span aria-hidden="true">{honesty ? " ▴" : " ▾"}</span>
+              </button>
+            </div>
+            <div className="mo-hero-cards">
+              <button type="button" className="mo-hcard mint" aria-haspopup="dialog" onClick={(e) => openStock(hero.top.symbol, e.currentTarget)} data-testid="mo-hero-odds">
+                <span className="mo-hcard-l">
+                  <span className="mo-hcard-eyebrow">Highest odds</span>
+                  <span className="mo-hcard-id"><span className="mo-sym">{hero.top.symbol}</span><span className="mo-co">{hero.top.company_name ?? ""}</span></span>
+                  <span className="mo-hcard-sub">{t.up ? "upside" : "downside"} · {times(t.hi, base(t.up))} · {oneIn(t.hi)}</span>
+                </span>
+                <span className="mo-hcard-v">{pct(t.hi)}</span>
+              </button>
+              {hero.both && tb && (
+                <button type="button" className="mo-hcard amber" aria-haspopup="dialog" onClick={(e) => openStock(hero.both!.symbol, e.currentTarget)} data-testid="mo-hero-both">
+                  <span className="mo-hcard-l">
+                    <span className="mo-hcard-eyebrow">Cuts both ways</span>
+                    <span className="mo-hcard-id"><span className="mo-sym">{hero.both.symbol}</span><span className="mo-co">{hero.both.company_name ?? ""}</span></span>
+                    <span className="mo-hcard-sub">up {times(hero.both.p, final.base_rate)} · down {times(hero.both.p_opposite as number, downFinal?.base_rate)}</span>
+                  </span>
+                  <span className="mo-hcard-v">{pct(hero.both.p)} / {pct(hero.both.p_opposite)}</span>
+                </button>
+              )}
+              {hero.filings && fe && (
+                <button type="button" className="mo-hcard indigo" aria-haspopup="dialog" onClick={(e) => openStock(hero.filings!.symbol, e.currentTarget)} data-testid="mo-hero-filings">
+                  <span className="mo-hcard-l">
+                    <span className="mo-hcard-eyebrow">Most material filings</span>
+                    <span className="mo-hcard-id"><span className="mo-sym">{hero.filings.symbol}</span><span className="mo-co">{hero.filings.company_name ?? ""}</span></span>
+                    <span className="mo-hcard-sub">{fe.categories.map(evtLabel).join(" · ").toLowerCase()} · latest {day(fe.latest)}</span>
+                  </span>
+                  <span className="mo-hcard-v">{fe.material} material</span>
+                </button>
+              )}
+            </div>
+          </section>
+        );
+      })()}
+
+      {honesty && (
+      <section id="mo-answers" className="mo-answers" aria-labelledby="mo-answers-h" data-testid="mo-answers">
+        <h3 id="mo-answers-h" className="sr-only">What these numbers answer</h3>
         <ol className="mo-answers-list">
           <li data-testid="mo-answer-1">
             <span className="mo-q">Is it likely to move 5% or 10%?</span>
             <span className="mo-a yes">Yes — that is what the estimate is</span>
-            <span className="mo-mini">Measured out of sample on Jan–Aug 2025. How each band actually turned out is in the panel beside a stock.</span>
+            <span className="mo-mini">Measured out of sample on Jan–Aug 2025. How each band actually turned out is in the panel beside the table.</span>
           </li>
           <li data-testid="mo-answer-2">
             <span className="mo-q">Up or down?</span>
-            <span className="mo-a no">Not predicted</span>
+            <span className="mo-a warn">Not predicted</span>
             <span className="mo-mini">Both directions are shown together because a stock likely to rise sharply is usually also likely to fall sharply. In that test the highest-scoring tenth touched +5% on 19% of days and −5% on 14.7%.</span>
           </li>
           <li data-testid="mo-answer-3">
             <span className="mo-q">Is the return worth it after costs and risk?</span>
-            <span className="mo-a no">Not modelled yet</span>
+            <span className="mo-a warn">Not modelled yet</span>
             <span className="mo-mini">Buying that highest-scoring tenth at the open and selling at the close averaged −0.23% before costs.</span>
           </li>
           <li data-testid="mo-answer-4">
@@ -299,20 +512,9 @@ export default function MoveOddsScreen() {
           </li>
         </ol>
       </section>
-
-      {run && (
-        <div className="mo-prov" data-testid="mo-provenance">
-          <span>From close of <b>{day(run.data_as_of)}</b></span>
-          <span>For session <b>{day(run.target_session)}</b>{run.skipped_holidays.length ? ` (after ${run.skipped_holidays.map(day).join(", ")}: NSE holiday)` : ""}</span>
-          <span>Frozen <b>{istTime(run.frozen_at)} IST</b></span>
-          <span>Model <b>{run.model} · {run.git_sha}</b></span>
-          <span><b>{run.scored.toLocaleString("en-IN")}</b> of {run.universe_size.toLocaleString("en-IN")} stocks scored</span>
-          {live && <span data-testid="mo-live-asof">Live prices <b>{live.source}</b> · {live.delay} · as of <b>{istTime(live.at)} IST</b></span>}
-          {!live && liveError && <span data-testid="mo-live-error">Live prices unavailable ({liveError})</span>}
-        </div>
       )}
 
-      <div className="mo-viewrow">
+      <div className="mo-viewrow mo-controlrow">
         <div className="mo-viewtoggle" role="group" aria-label="View">
           {(["estimates", "history"] as const).map((v) => (
             <button key={v} type="button" className="mo-viewbtn" aria-pressed={view === v} data-testid={`mo-view-${v}`} onClick={() => setView(v)}>
@@ -320,27 +522,65 @@ export default function MoveOddsScreen() {
             </button>
           ))}
         </div>
-        {view === "history" && <span className="mo-mini">Each past session&apos;s top {hist?.kind === "ok" ? hist.data.top_n : 20} and what actually happened.</span>}
+        <div className="mo-tabs" role="tablist" aria-label="Move size">
+          {SIZES.map((x) => {
+            const u = results[x.up as MoveHead], d = results[x.down as MoveHead];
+            const sel = size === x.key;
+            return (
+              <button
+                key={x.key} ref={(el) => { tabRefs.current[x.key] = el; }} role="tab" id={`mo-tab-${x.key}`} aria-controls="mo-panel"
+                aria-selected={sel} tabIndex={sel ? 0 : -1} className="mo-tab" data-testid={`mo-tab-${x.key}`}
+                onClick={() => { setSize(x.key); setPage(0); }} onKeyDown={(e) => onTabKey(e, x.key)}
+              >
+                <span className="mo-t1">{x.label}</span>
+                <span className="mo-t2">
+                  {u?.kind === "final" && d?.kind === "final" ? `base rate up ${pct(u.data.base_rate)} · down ${pct(d.data.base_rate)}` : " "}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <span className="mo-liveasof">
+          {live && <span data-testid="mo-live-asof">Live prices <b>{live.source}</b> · {live.delay} · as of <b>{istTime(live.at)} IST</b></span>}
+          {!live && liveError && <span data-testid="mo-live-error">Live prices unavailable ({liveError})</span>}
+        </span>
       </div>
 
-      <div className="mo-tabs" role="tablist" aria-label="Move size">
-        {SIZES.map((x) => {
-          const u = results[x.up as MoveHead], d = results[x.down as MoveHead];
-          const sel = size === x.key;
-          return (
-            <button
-              key={x.key} ref={(el) => { tabRefs.current[x.key] = el; }} role="tab" id={`mo-tab-${x.key}`} aria-controls="mo-panel"
-              aria-selected={sel} tabIndex={sel ? 0 : -1} className="mo-tab" data-testid={`mo-tab-${x.key}`}
-              onClick={() => { setSize(x.key); setPage(0); }} onKeyDown={(e) => onTabKey(e, x.key)}
-            >
-              <span className="mo-t1">{x.label}</span>
-              <span className="mo-t2">
-                {u?.kind === "final" && d?.kind === "final" ? `base rate up ${pct(u.data.base_rate)} · down ${pct(d.data.base_rate)}` : " "}
+      {(final || view === "history") && (
+        <div className="mo-filters">
+          <div className="mo-toolbar">
+            <div className="mo-filter">
+              <label className="sr-only" htmlFor="mo-q">Find a stock</label>
+              <input id="mo-q" type="search" placeholder="Find a symbol, company or sector" value={q} data-testid="mo-search"
+                     onChange={(e) => { setQ(e.target.value); setPage(0); }} />
+            </div>
+            <label className="mo-toggle" htmlFor="mo-evonly">
+              <input id="mo-evonly" type="checkbox" checked={evOnly} data-testid="mo-evonly" onChange={(e) => { setEvOnly(e.target.checked); setPage(0); }} />
+              With events on record
+            </label>
+            {view === "estimates" && (
+              <span className="mo-count" aria-live="polite" data-testid="mo-count">
+                {rows.length.toLocaleString("en-IN")} stocks
+                {missingExcluded > 0 && <span data-testid="mo-missing-excluded"> · {missingExcluded} without a value for an active condition left out</span>}
               </span>
-            </button>
-          );
-        })}
-      </div>
+            )}
+          </div>
+          <FilterBar profile={prof} unavailable={profileOff} cap={cap} setCap={(c) => { setCap(c); setPage(0); }} capCounts={capCounts}
+                     picked={picked} conds={conds} setCond={setCond} removePicked={removePicked}
+                     panelOpen={panelOpen} setPanelOpen={setPanelOpen} evtOpen={evtOpen} setEvtOpen={setEvtOpen} evtCat={evtCat}
+                     clearAll={clearAll} canClear={canClear} />
+          {profile === null && <p className="mo-mini" aria-busy="true" data-testid="mo-profile-loading">Loading ratings and ratios…</p>}
+          {profile?.kind === "error" && (
+            <button type="button" className="mo-btn" onClick={() => setProfileReload((n) => n + 1)} data-testid="mo-profile-retry">Try again</button>
+          )}
+          {prof && panelOpen && <RatioPanel profile={prof} picked={picked} toggle={togglePicked} close={() => setPanelOpen(false)} />}
+          {prof && evtOpen && (
+            <EventBar profile={prof} evtCat={evtCat} counts={evtCounts} evtSort={evtSort}
+                      setEvtCat={(k) => { setEvtCat(k); setOrder(k === "All" ? "table" : "events"); setPage(0); }}
+                      setEvtSort={(s) => { setEvtSort(s); setOrder("events"); setPage(0); }} />
+          )}
+        </div>
+      )}
 
       <div id="mo-panel" role="tabpanel" aria-labelledby={`mo-tab-${size}`}>
         {view === "history" && (
@@ -354,7 +594,8 @@ export default function MoveOddsScreen() {
                 ))}
               </span>
             </div>
-            <History result={hist} selected={histSession} onSelect={setHistSession} head={head} />
+            <History result={hist} selected={histSession} onSelect={setHistSession} head={head} profile={prof} keep={(r) => matches(r.symbol, r.company_name, r.sector) && profileFilter(r.symbol) === "pass"}
+                     sort={histSort} setSort={setHistSort} onOpen={openStock} />
           </>
         )}
 
@@ -392,78 +633,81 @@ export default function MoveOddsScreen() {
 
         {view === "estimates" && final && (
           <div className="mo-body">
-            <div>
-              <div className="mo-toolbar">
-                <div className="mo-filter">
-                  <label className="sr-only" htmlFor="mo-q">Find a stock</label>
-                  <input id="mo-q" type="search" placeholder="Find a symbol or company" value={q} data-testid="mo-search"
-                         onChange={(e) => { setQ(e.target.value); setPage(0); }} />
-                </div>
-                <label className="mo-toggle" htmlFor="mo-evonly">
-                  <input id="mo-evonly" type="checkbox" checked={evOnly} data-testid="mo-evonly" onChange={(e) => { setEvOnly(e.target.checked); setPage(0); }} />
-                  With events on record
-                </label>
-                <span className="mo-count" aria-live="polite" data-testid="mo-count">{rows.length.toLocaleString("en-IN")} stocks</span>
-              </div>
-
+            <div className="mo-maincol">
+              <p className="mo-mini mo-tablenote" data-testid="mo-tablenote">
+                The big number is the larger of the two estimates for a {sz.key}% touch on {day(final.run.target_session)}, with its side; the smaller sits under
+                Other way. The amber tick is the base rate ({pct(final.base_rate)} up, {downFinal ? pct(downFinal.base_rate) : "—"} down). Direction compares the two:
+                two-way when the smaller is at least {Math.round(TWO_WAY_RATIO * 100)}% of the larger. Ratings sit beside the odds and are not part of them. Open any row for the full read.
+              </p>
               <div className="mo-tablewrap" tabIndex={0} role="region" aria-label="Estimates table">
                 <table className="mo-table">
                   <caption>
-                    Chance that {day(final.run.target_session)} brings a {sz.key}% move, each direction estimated separately.{" "}
-                    Sorted by {sort.key === "est" ? "the larger of the two estimates" : "symbol"}, {sort.dir === "desc" ? "descending" : "ascending"}.{" "}
-                    Orange tick marks the base rate, {pct(final.base_rate)} up and {downFinal ? pct(downFinal.base_rate) : "—"} down.{" "}
-                    Direction compares the two estimates: two-way when the smaller is at least {Math.round(TWO_WAY_RATIO * 100)}% of the larger. It is not a forecast.
+                    {captionOrder}, {order === "table" ? (sort.dir === "desc" ? "descending" : "ascending") : "descending"}. Direction is a reading of two estimates. It is not a forecast.
                   </caption>
                   <thead>
                     <tr>
-                      <th scope="col" aria-sort={sort.key === "sym" ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}>
-                        <button type="button" onClick={() => toggleSort("sym")} data-testid="mo-sort-sym">Stock</button>
+                      <th scope="col" aria-sort={ariaSort("sym") ?? ariaSort("rating")}>
+                        <span className="mo-hbtns">
+                          <button type="button" onClick={() => toggleSort("sym")} data-testid="mo-sort-sym">Stock{arrow("sym")}</button>
+                          <span aria-hidden="true">·</span>
+                          <button type="button" onClick={() => toggleSort("rating")} data-testid="mo-sort-rating">rating{arrow("rating")}</button>
+                        </span>
                       </th>
-                      <th scope="col" className="mo-col-sector">Sector</th>
-                      <th scope="col" aria-sort={sort.key === "est" ? (sort.dir === "desc" ? "descending" : "ascending") : undefined}>
-                        <button type="button" onClick={() => toggleSort("est")} data-testid="mo-sort-est">{sz.upLabel}</button>
-                      </th>
-                      <th scope="col">{sz.downLabel}</th>
-                      <th scope="col">Direction</th>
-                      <th scope="col">Live</th>
-                      <th scope="col">Events</th>
-                      <th scope="col"><span className="sr-only">Details</span></th>
+                      <th scope="col" aria-sort={ariaSort("est")}><button type="button" onClick={() => toggleSort("est")} data-testid="mo-sort-est">Chance of a {sz.key}% touch{arrow("est")}</button></th>
+                      <th scope="col" aria-sort={ariaSort("other")}><button type="button" onClick={() => toggleSort("other")} data-testid="mo-sort-other">Other way{arrow("other")}</button></th>
+                      <th scope="col" className="mo-th-live">Live</th>
+                      <th scope="col" className="mo-th-chev"><span className="sr-only">Open</span></th>
                     </tr>
                   </thead>
                   <tbody>
                     {slice.length === 0 && (
-                      <tr><td colSpan={7} className="mo-empty">No stock matches &quot;{q}&quot;{evOnly ? " with events on record" : ""}.</td></tr>
+                      <tr><td colSpan={5} className="mo-empty" data-testid="mo-empty">No stock matches{q ? ` "${q}"` : ""}{evOnly ? " with events on record" : ""}{canClear ? " with these filters" : ""}.</td></tr>
                     )}
                     {slice.map((r) => (
-                      <RowGroup key={r.symbol} r={r} head={upHead} sz={sz} base={final.base_rate} open={open === r.symbol}
-                                onToggle={() => setOpen((o) => (o === r.symbol ? null : r.symbol))} stock={stocks[r.symbol]}
-                                quote={live?.quotes[r.symbol]} record={live?.record ?? null} />
+                      <Row key={r.symbol} r={r} head={upHead} baseUp={final.base_rate} baseDown={downFinal?.base_rate ?? null} profile={prof} idx={idx} picked={picked}
+                           onOpen={(el) => openStock(r.symbol, el)} quote={live?.quotes[r.symbol]} />
                     ))}
                   </tbody>
                 </table>
                 <div className="mo-pager">
                   <span>{rows.length ? `${safePage * PAGE + 1}–${Math.min(safePage * PAGE + PAGE, rows.length)} of ${rows.length}` : "0 of 0"}</span>
                   <span className="mo-pager-btns">
-                    <button type="button" className="mo-btn" disabled={safePage === 0} onClick={() => { setPage(safePage - 1); setOpen(null); }} data-testid="mo-page-prev">Previous</button>
-                    <button type="button" className="mo-btn" disabled={safePage >= pages - 1} onClick={() => { setPage(safePage + 1); setOpen(null); }} data-testid="mo-page-next">Next</button>
+                    <button type="button" className="mo-btn" disabled={safePage === 0} onClick={() => setPage(safePage - 1)} data-testid="mo-page-prev">Previous</button>
+                    <button type="button" className="mo-btn" disabled={safePage >= pages - 1} onClick={() => setPage(safePage + 1)} data-testid="mo-page-next">Next</button>
                   </span>
                 </div>
               </div>
             </div>
-            <Aside final={final} openRow={openRow} />
+            <Aside final={final} openRow={openRow} profile={prof} />
           </div>
         )}
       </div>
 
       <SetupDiagnostics result={diag} onRetry={() => setDiagReload((n) => n + 1)} />
+
+      {open && (
+        <StockModal
+          symbol={open} row={openRow} name={openRow?.company_name ?? (hist?.kind === "ok" ? hist.data.sessions.flatMap((s) => s.rows).find((x) => x.symbol === open)?.company_name ?? null : null)}
+          profile={prof} idx={idx} stock={stocks[open]} quote={live?.quotes[open]} record={live?.record ?? null}
+          estimates={estimatesFor(open)} baseRates={baseRates} evtLabel={evtLabel} onClose={closeStock}
+        />
+      )}
     </div>
   );
 }
 
+const SORT_NAME: Record<SortKey, string> = { est: "the larger of the two estimates", sym: "symbol", rating: "rating", other: "the smaller estimate (other way)" };
+
 /** Past published sessions: pick a date, see that session's top estimates and what actually happened. Outcomes are the
  *  published run's own — a session whose closing prices are not in yet reads "grades tonight", never a guess. Stocks the
- *  model promoted into the top list that session are marked, so a new name is visible at a glance. */
-function History({ result, selected, onSelect, head }: { result: HistoryResult | null; selected: string | null; onSelect: (d: string) => void; head: MoveHead }) {
+ *  model promoted into the top list that session are marked, so a new name is visible at a glance. The rating columns are
+ *  today's ratings (as of the scores date), not the ratings on that past session, and the caption says so. */
+type HistSort = { key: "est" | "sym" | "rating" | "move"; dir: "asc" | "desc" };
+function History({ result, selected, onSelect, head, profile, keep, sort, setSort, onOpen }: {
+  result: HistoryResult | null; selected: string | null; onSelect: (d: string) => void; head: MoveHead;
+  profile: MoveProfile | null; keep: (r: { symbol: string; company_name: string | null; sector: string | null }) => boolean;
+  sort: HistSort; setSort: (s: HistSort) => void; onOpen: (sym: string, from: HTMLElement | null) => void;
+}) {
   if (result === null) return <p className="mo-mini" aria-busy="true" data-testid="mo-hist-loading">Loading history…</p>;
   if (result.kind !== "ok") {
     return (
@@ -485,6 +729,19 @@ function History({ result, selected, onSelect, head }: { result: HistoryResult |
   const s: MoveHistorySession = sessions.find((x) => x.target_session === selected) ?? sessions[0];
   const m = META[head];
   const graded = s.state === "graded";
+  const pr = (sym: string) => profile?.rows[sym];
+  const secMed = (sym: string) => { const sec = pr(sym)?.sector; return sec ? profile?.sectors[sec] ?? null : null; };
+  const shown = s.rows.filter((r) => keep({ symbol: r.symbol, company_name: r.company_name, sector: pr(r.symbol)?.sector ?? null }));
+  const val = (r: (typeof s.rows)[number]): number | null =>
+    sort.key === "rating" ? pr(r.symbol)?.quality?.score ?? null
+    : sort.key === "move" ? r.outcome.move_pct ?? null
+    : r.p;
+  const rows = [...shown].sort((a, b) =>
+    sort.key === "sym" ? (sort.dir === "asc" ? a.symbol.localeCompare(b.symbol) : b.symbol.localeCompare(a.symbol))
+      : cmpNum(val(a), val(b), sort.dir) || b.p - a.p || a.symbol.localeCompare(b.symbol));
+  const toggle = (key: HistSort["key"]) => setSort(sort.key === key ? { key, dir: sort.dir === "desc" ? "asc" : "desc" } : { key, dir: key === "sym" ? "asc" : "desc" });
+  const aria = (key: HistSort["key"]) => (sort.key === key ? (sort.dir === "asc" ? "ascending" : "descending") : undefined);
+  const arr = (key: HistSort["key"]) => (sort.key === key ? (sort.dir === "desc" ? " ↓" : " ↑") : "");
   return (
     <div className="mo-hist" data-testid="mo-history">
       <div className="mo-hist-dates" role="group" aria-label="Session">
@@ -512,36 +769,63 @@ function History({ result, selected, onSelect, head }: { result: HistoryResult |
 
       <div className="mo-tablewrap" tabIndex={0} role="region" aria-label={`Top estimates for ${day(s.target_session)}`}>
         <table className="mo-table mo-hist-table">
-          <caption>Top {s.rows.length} by {m.label} estimate for {day(s.target_session)}, and what the session did.</caption>
+          <caption>
+            Top {s.rows.length} by {m.label} estimate for {day(s.target_session)}, and what the session did
+            {shown.length < s.rows.length ? ` (${shown.length} shown with the filters above)` : ""}.
+            {profile ? ` Rating and sector rating are as of ${day(profile.scores_as_of)}, not as of that session.` : ""}
+          </caption>
           <thead>
             <tr>
-              <th scope="col">Stock</th>
-              <th scope="col">{m.label} estimate</th>
+              <th scope="col" aria-sort={aria("sym")}><button type="button" onClick={() => toggle("sym")} data-testid="mo-hsort-sym">Stock{arr("sym")}</button></th>
+              <th scope="col" aria-sort={aria("rating")}><button type="button" onClick={() => toggle("rating")} data-testid="mo-hsort-rating">Rating now{arr("rating")}</button></th>
+              <th scope="col" aria-sort={aria("est")}><button type="button" onClick={() => toggle("est")} data-testid="mo-hsort-est">{m.label} est{arr("est")}</button></th>
               <th scope="col">That session</th>
-              <th scope="col">Move</th>
-              <th scope="col">Within 3</th>
-              <th scope="col">Within 5</th>
+              <th scope="col" aria-sort={aria("move")}><button type="button" onClick={() => toggle("move")} data-testid="mo-hsort-move">Move{arr("move")}</button></th>
+              <th scope="col" className="mo-th-chev"><span className="sr-only">Open</span></th>
             </tr>
           </thead>
           <tbody>
-            {s.rows.map((r) => (
-              <tr key={r.symbol} data-testid={`mo-hist-row-${r.symbol}`} className={r.is_new ? "mo-hist-new" : undefined}>
-                <th scope="row">
-                  <span className="mo-sym">{r.symbol}</span>
-                  {r.is_new && <span className="mo-newtag" data-testid={`mo-hist-new-${r.symbol}`}>new</span>}
-                  <span className="mo-coname">{r.company_name ?? ""}</span>
-                </th>
-                <td data-testid={`mo-hist-p-${r.symbol}`}>{pct(r.p)}</td>
-                <td data-testid={`mo-hist-outcome-${r.symbol}`}>
-                  {r.outcome.state === "pending" ? <span className="mo-outcome pending">pending</span>
-                    : r.outcome.touched ? <span className="mo-outcome yes">reached</span>
-                    : <span className="mo-outcome no">did not</span>}
-                </td>
-                <td>{r.outcome.move_pct != null ? signed(r.outcome.move_pct * 100, "%") : "—"}</td>
-                <td>{r.outcome.within3 == null ? "—" : r.outcome.within3 ? "reached" : "no"}</td>
-                <td>{r.outcome.within5 == null ? "—" : r.outcome.within5 ? "reached" : "no"}</td>
-              </tr>
-            ))}
+            {rows.length === 0 && <tr><td colSpan={6} className="mo-empty">No stock in this session&apos;s list matches the filters above.</td></tr>}
+            {rows.map((r) => {
+              const p = pr(r.symbol);
+              const sec = secMed(r.symbol);
+              return (
+                <tr key={r.symbol} data-testid={`mo-hist-row-${r.symbol}`} className={`mo-rowclick${r.is_new ? " mo-hist-new" : ""}`}
+                    onClick={(e) => { if (!(e.target as HTMLElement).closest("button,a,input")) onOpen(r.symbol, (e.currentTarget.querySelector(".mo-symbtn") as HTMLElement | null)); }}>
+                  <th scope="row">
+                    <span className="mo-stockline">
+                      <button type="button" className="mo-symbtn" aria-haspopup="dialog" onClick={(e) => onOpen(r.symbol, e.currentTarget)} data-testid={`mo-hist-open-${r.symbol}`}>
+                        <span className="mo-sym">{r.symbol}</span>
+                      </button>
+                      {r.is_new && <span className="mo-newtag" data-testid={`mo-hist-new-${r.symbol}`}>new</span>}
+                    </span>
+                    <span className="mo-coname">{r.company_name ?? ""}</span>
+                    {profile && (
+                      <span className="mo-subline" data-testid={`mo-hist-sec-${r.symbol}`}>
+                        {p?.cap ? `${p.cap} cap · ` : ""}sector {sec?.grade ?? "—"}
+                      </span>
+                    )}
+                  </th>
+                  <td data-testid={`mo-hist-rating-${r.symbol}`}>
+                    <span className="mo-hist-grade"><Badge q={p?.quality ?? null} off={!profile} testid={`mo-hist-badge-${r.symbol}`} />
+                      {p?.quality && <span className="mo-grade-n">{p.quality.score.toFixed(1)}</span>}</span>
+                  </td>
+                  <td data-testid={`mo-hist-p-${r.symbol}`} className="mo-hist-est">{pct(r.p)}</td>
+                  <td data-testid={`mo-hist-outcome-${r.symbol}`}>
+                    {r.outcome.state === "pending" ? <span className="mo-outcome pending">pending</span>
+                      : r.outcome.touched ? <span className="mo-outcome yes">reached</span>
+                      : <span className="mo-outcome no">did not</span>}
+                  </td>
+                  <td className="mo-hist-move">
+                    <span>{r.outcome.move_pct != null ? signed(r.outcome.move_pct * 100, "%") : "—"}</span>
+                    <span className="mo-hist-within" data-testid={`mo-hist-within-${r.symbol}`}>
+                      within 3: {r.outcome.within3 == null ? "—" : r.outcome.within3 ? "reached" : "no"} · within 5: {r.outcome.within5 == null ? "—" : r.outcome.within5 ? "reached" : "no"}
+                    </span>
+                  </td>
+                  <td className="mo-chev" aria-hidden="true">›</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -660,51 +944,204 @@ function LiveCell({ q, head }: { q: LiveQuote | undefined; head: MoveHead }) {
   );
 }
 
-function RowGroup({ r, head, sz, base, open, onToggle, stock, quote, record }: {
-  r: MoveRow; head: MoveHead; sz: (typeof SIZES)[number]; base: number; open: boolean; onToggle: () => void;
-  stock: MoveStockResult | "loading" | undefined;
-  quote: LiveQuote | undefined; record: LivePayload["signal_record"];
+function Row({ r, head, baseUp, baseDown, profile, idx, picked, onOpen, quote }: {
+  r: MoveRow; head: MoveHead; baseUp: number; baseDown: number | null;
+  profile: MoveProfile | null; idx: Record<string, number>; picked: string[];
+  onOpen: (from: HTMLElement | null) => void; quote: LiveQuote | undefined;
 }) {
-  const m = META[head];
   const dir = directionReading(r.p, r.p_opposite);
-  const w = Math.min(100, r.p * 100);
+  const sd = sides(r);
+  const base = sd.up ? baseUp : baseDown;
+  const btn = useRef<HTMLButtonElement | null>(null);
+  const pr = profile?.rows[r.symbol];
+  const q = pr?.quality ?? null;
+  const sector = pr?.sector ?? r.sector;
+  const sec = sector && profile ? profile.sectors[sector] : null;
+  const defs = profile ? Object.fromEntries(profile.catalogue.map((d) => [d.key, d])) : {};
+  const fund = profile ? picked.map((k) => {
+    const v = valueOf(profile, idx, r.symbol, k);
+    return defs[k] && v != null ? `${SHORT[k] ?? defs[k].label} ${fmtRatio(defs[k].unit, v)}` : null;
+  }).filter(Boolean).join(" · ") : "";
+  const sideWord = sd.up ? "upside" : "downside";
   return (
-    <>
-      <tr data-testid={`mo-row-${r.symbol}`}>
-        <th scope="row">
-          <span className="mo-sym">{r.symbol}</span>
-          <span className="mo-co" title={r.company_name ?? ""}>{r.company_name ?? r.symbol}</span>
-        </th>
-        <td className="mo-col-sector"><div className="mo-sector" title={r.sector ?? ""}>{r.sector ?? ""}</div></td>
-        <td>
-          <div className="mo-est">
-            <span className="mo-pct" aria-label={spoken(r.p)} data-testid={`mo-pct-${r.symbol}`}>{pct(r.p)}</span>
-            <span className="mo-track" aria-hidden="true">
-              <span className="mo-fill" style={{ width: `${w}%` }} />
-              <span className="mo-tick" style={{ left: `calc(${base * 100}% - 1px)` }} />
+    <tr data-testid={`mo-row-${r.symbol}`} className="mo-rowclick"
+        onClick={(e) => { if (!(e.target as HTMLElement).closest("button,a,input")) onOpen(btn.current); }}>
+      <th scope="row">
+        <div className="mo-stockcell">
+          <Badge q={q} off={!profile} testid={`mo-rating-${r.symbol}`} />
+          <div className="mo-stockmeta">
+            <div className="mo-stockline">
+              <button ref={btn} type="button" className="mo-symbtn" aria-haspopup="dialog" onClick={(e) => onOpen(e.currentTarget)} data-testid={`mo-details-${r.symbol}`}>
+                <span className="mo-sym">{r.symbol}</span><span className="sr-only">: open details</span>
+              </button>
+              <span className="mo-co" title={r.company_name ?? ""}>{r.company_name ?? r.symbol}</span>
+            </div>
+            <span className="mo-subline" data-testid={`mo-subline-${r.symbol}`}>
+              {sector ?? "Sector not on record"}
+              {profile && <> · <span data-testid={`mo-secrating-${r.symbol}`} data-grade={sec?.grade ?? undefined}
+                title={sec?.median != null ? `Sector rating ${sec.grade}: median ${sec.median.toFixed(1)} of ${sec.n} stocks with enough inputs` : "No sector rating on record"}>sector {sec?.grade ?? "—"}</span></>}
+              {pr?.cap ? ` · ${pr.cap} cap` : ""}
+            </span>
+            {profile && <span className="mo-fundline" title={fund || undefined} data-testid={`mo-fund-${r.symbol}`}>{fund || "no ratios on record for the picked columns"}</span>}
+            <span className="mo-pills">
+              <span className={`mo-dir ${dir.key}`} data-testid={`mo-dir-${r.symbol}`}>{dir.label}</span>
+              <span className={`mo-evc${r.events_on_record ? "" : " none"}`} data-testid={`mo-events-${r.symbol}`}>{r.events_on_record ? `${r.events_on_record} on record` : "no events"}</span>
+              {q?.partial && <span className="mo-grade-partial" title={`Rating from only ${q.coverage ?? "—"}% of its inputs`}>partial rating</span>}
             </span>
           </div>
-        </td>
-        <td data-testid={`mo-down-${r.symbol}`}>
-          <span className="mo-est-down" aria-label={`${m.oppLabel} ${spoken(r.p_opposite)}`}>{pct(r.p_opposite)}</span>
-        </td>
-        <td data-testid={`mo-dir-${r.symbol}`}>
-          <span className={`mo-dir ${dir.key}`}>{dir.label}</span>
-        </td>
-        <td data-testid={`mo-livecell-${r.symbol}`}><LiveCell q={quote} head={head} /></td>
-        <td><span className={`mo-evc${r.events_on_record ? "" : " none"}`}>{r.events_on_record ? `${r.events_on_record} on record` : "none"}</span></td>
-        <td>
-          <button type="button" className="mo-xbtn" aria-expanded={open} aria-controls={`mo-d-${r.symbol}`} onClick={onToggle} data-testid={`mo-details-${r.symbol}`}>
-            Details<span className="sr-only"> for {r.symbol}</span><ChevronDown size={12} aria-hidden="true" />
-          </button>
-        </td>
-      </tr>
-      {open && (
-        <tr className="mo-detail" id={`mo-d-${r.symbol}`} data-testid={`mo-detail-${r.symbol}`}>
-          <td colSpan={7}><Detail stock={stock} /><Checks q={quote} record={record} symbol={r.symbol} /></td>
-        </tr>
-      )}
-    </>
+        </div>
+      </th>
+      <td className="mo-bigcell">
+        <div className="mo-bigline">
+          <span className="mo-big" data-testid={`mo-big-${r.symbol}`} data-side={sd.up ? "up" : "down"} aria-label={`${sideWord} ${spoken(sd.hi)}`}>{pct(sd.hi)}</span>
+          <span className="mo-mult">{times(sd.hi, base)}</span>
+        </div>
+        <span className="mo-track" aria-hidden="true">
+          <span className="mo-fill" style={{ width: `${Math.min(100, sd.hi * 100)}%` }} />
+          {base != null && <span className="mo-tick" style={{ left: `calc(${base * 100}% - 1px)` }} />}
+        </span>
+        <span className="mo-sideword" data-testid={`mo-side-${r.symbol}`}>{sideWord} · {oneIn(sd.hi)}</span>
+      </td>
+      <td data-testid={`mo-other-${r.symbol}`}>
+        <span className="mo-other" aria-label={`${sd.up ? "downside" : "upside"} ${spoken(sd.lo)}`}>{pct(sd.lo)}</span>
+      </td>
+      <td data-testid={`mo-livecell-${r.symbol}`} className="mo-td-live"><LiveCell q={quote} head={head} /></td>
+      <td className="mo-chev" aria-hidden="true">›</td>
+    </tr>
+  );
+}
+
+/** The grade letter as a badge (v2 design); the score is in its label and in the stock view. */
+function Badge({ q, off, testid }: { q: MoveQuality | null; off: boolean; testid: string }) {
+  if (off) return <span className="mo-badge none" data-testid={testid} title="Ratings could not be loaded">—</span>;
+  if (!q) return <span className="mo-badge none" data-testid={testid} title="No V3 quality score on record">—<span className="sr-only"> no rating on record</span></span>;
+  const label = `Rated ${q.grade}, ${q.score.toFixed(1)} of 100${q.partial ? `, from only ${q.coverage ?? "—"}% of its inputs` : ""}`;
+  return (
+    <span className={`mo-badge ${gradeTone(q.grade)}${q.partial ? " partial" : ""}`} data-testid={testid} data-grade={q.grade} data-score={q.score.toFixed(1)} title={label}>
+      <span aria-hidden="true">{q.grade}</span><span className="sr-only">{label}</span>
+    </span>
+  );
+}
+
+/** Peer comparisons that stand out: this stock against the median of its sector's stocks scored in this run (the
+ *  stock included), stated with n. Ratios without at least 3 peers are listed together, uncompared. */
+function standsOut(profile: MoveProfile, idx: Record<string, number>, sym: string, sector: string | null) {
+  const out: Array<{ tone: "mint" | "danger" | "ink"; text: string }> = [];
+  const alone: string[] = [];
+  const unitOf = (k: string) => profile.catalogue.find((d) => d.key === k)?.unit ?? "x";
+  for (const [k, name, higherIsBetter] of [["roce", "ROCE", true], ["opm", "Operating margin", true], ["sg", "Sales growth", true], ["de", "Debt to equity", false], ["pe", "P/E", null]] as const) {
+    const v = valueOf(profile, idx, sym, k);
+    if (v == null) continue;
+    const pm = peerMedian(profile, idx, sector, k);
+    if (pm.median == null || pm.n < 3) { alone.push(`${name} ${fmtRatio(unitOf(k), v)}`); continue; }
+    const above = v > pm.median;
+    const tone = higherIsBetter == null || v === pm.median ? "ink" : above === higherIsBetter ? "mint" : "danger";
+    out.push({ tone, text: `${name} ${fmtRatio(unitOf(k), v)} against a median of ${fmtRatio(unitOf(k), pm.median)} for the ${pm.n} ${sector} stocks scored in this run.` });
+  }
+  if (alone.length) out.push({ tone: "ink", text: `${alone.join(", ")}: fewer than 3 ${sector ?? "same-sector"} stocks in this run have these, so they are not compared.` });
+  return out.slice(0, 5);
+}
+
+function StockModal({ symbol, row, name, profile, idx, stock, quote, record, estimates, baseRates, evtLabel, onClose }: {
+  symbol: string; row: MoveRow | null; name: string | null; profile: MoveProfile | null; idx: Record<string, number>;
+  stock: MoveStockResult | "loading" | undefined; quote: LiveQuote | undefined; record: LivePayload["signal_record"];
+  estimates: Partial<Record<MoveHead, number>>; baseRates: Partial<Record<MoveHead, number>>;
+  evtLabel: (k: string) => string; onClose: () => void;
+}) {
+  const [chip, setChip] = useState(0);
+  const box = useRef<HTMLDivElement | null>(null);
+  const closeBtn = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => { closeBtn.current?.focus(); }, [symbol]);
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") { e.stopPropagation(); onClose(); return; }
+    if (e.key !== "Tab" || !box.current) return;
+    const f = Array.from(box.current.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
+  const pr = profile?.rows[symbol] ?? null;
+  const sector = pr?.sector ?? row?.sector ?? null;
+  const q = pr?.quality ?? null;
+  const ans = profile ? answers({ sym: symbol, sector, profile, row: pr, idx, estimates, baseRates, day, eventLabel: evtLabel }) : [];
+  const a = ans[chip];
+  const so = profile ? standsOut(profile, idx, symbol, sector) : [];
+  const titleId = `mo-modal-h-${symbol}`;
+  return (
+    <div className="mo-modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} data-testid="mo-modal-back">
+      <div ref={box} className="mo-modal" role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKey} data-testid={`mo-detail-${symbol}`}>
+        <div className="mo-modal-head">
+          <div>
+            <h3 id={titleId} className="nv-serif"><span className="mo-sym">{symbol}</span> {name ?? ""}</h3>
+            <p className="mo-mini">{[sector, pr?.cap ? `${pr.cap} cap` : null].filter(Boolean).join(" · ") || "Sector and market-cap bucket not on record"}</p>
+          </div>
+          <button ref={closeBtn} type="button" className="mo-modal-x" onClick={onClose} aria-label={`Close details for ${symbol}`} data-testid="mo-modal-close"><X size={16} aria-hidden="true" /></button>
+        </div>
+        <div className="mo-modal-body">
+          <div className="mo-disc mo-disc-sm" role="note" data-testid="mo-modal-disclaimer"><b>DISCLAIMER</b>{DISCLAIMER}</div>
+
+          {profile ? (
+            <>
+              <div className="mo-chips" role="group" aria-label="Questions about this stock">
+                {ans.map((x, i) => (
+                  <button key={x.label} type="button" aria-pressed={chip === i} className="mo-qchip" data-testid={`mo-chip-${i}`} onClick={() => setChip(i)}>{x.label}</button>
+                ))}
+              </div>
+              {a && (
+                <div className="mo-answer" aria-live="polite" data-testid="mo-answer-panel">
+                  <p className="mo-answer-lead">{a.lead}</p>
+                  <ul>{a.bullets.map((b, i) => <li key={i} className={`mo-bullet ${b.tone}`}>{b.text}</li>)}</ul>
+                </div>
+              )}
+
+              <div className="mo-quality" data-testid="mo-quality">
+                <div className="mo-qscore">
+                  <span className="mo-eyebrow">Quality score</span>
+                  {q ? (
+                    <>
+                      <span className="mo-qbig" data-testid="mo-qscore">{q.score.toFixed(1)}<small>/100</small></span>
+                      <span className={`mo-grade ${gradeTone(q.grade)}`} data-grade={q.grade}><b>{q.grade}</b><span className="mo-grade-n">{qualityLabel(q.score)}</span></span>
+                      <span className="mo-mini">V3 score as of {day(q.as_of)}{q.coverage != null ? ` · ${q.coverage}% of inputs` : ""}{q.partial ? " · partial" : ""}</span>
+                    </>
+                  ) : <span className="mo-mini" data-testid="mo-qscore-none">No V3 quality score on record as of {day(profile.scores_as_of)}.</span>}
+                </div>
+                <div className="mo-qbars">
+                  {([["Fundamentals", q?.fundamental ?? null, fundBand], ["Technicals", q?.technical ?? null, techBand]] as const).map(([label, v, band]) => (
+                    <div key={label} className="mo-qbar" data-testid={`mo-qbar-${label.toLowerCase()}`}>
+                      <span className="mo-qbar-l">{label}</span>
+                      <span className="mo-qbar-track" aria-hidden="true"><span className={`mo-qbar-fill ${v == null ? "ink" : band(v).tone}`} style={{ width: `${v == null ? 0 : Math.max(0, Math.min(100, v))}%` }} /></span>
+                      <span className="mo-qbar-v">{v == null ? "not scored" : `${Math.round(v)} · ${band(v).label}`}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mo-stands" data-testid="mo-stands">
+                  <h4>What stands out</h4>
+                  {so.length ? <ul>{so.map((b, i) => <li key={i} className={`mo-bullet ${b.tone}`}>{b.text}</li>)}</ul>
+                    : <p className="mo-mini">No ratios on record to compare with its sector.</p>}
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="mo-mini" data-testid="mo-modal-noprofile">Ratings, ratios and the question answers could not be loaded. The move odds below are unaffected.</p>
+          )}
+
+          <h4 className="mo-modal-sec">Move odds for the next session</h4>
+          <Detail stock={stock} />
+          <Checks q={quote} record={record} symbol={symbol} />
+          <p className="mo-mini mo-modal-src" data-testid="mo-modal-source">
+            Rating: V3 stock score{profile ? ` as of ${day(profile.scores_as_of)}` : ""} (A ≥ 70, B 50–69.9, C below 50). Ratios{profile?.features_as_of ? ` as of ${day(profile.features_as_of)}` : ""}.
+            Ratings describe the business and the chart; they are shown beside the move odds and are not part of them.
+          </p>
+        </div>
+        <div className="mo-modal-foot"><button type="button" className="mo-btn" onClick={onClose} data-testid="mo-modal-close-btn">Close</button></div>
+      </div>
+    </div>
   );
 }
 
@@ -820,7 +1257,7 @@ function Checks({ q, record, symbol }: { q: LiveQuote | undefined; record: LiveP
   );
 }
 
-function Aside({ final, openRow }: { final: MoveFinal; openRow: MoveRow | null }) {
+function Aside({ final, openRow, profile }: { final: MoveFinal; openRow: MoveRow | null; profile: MoveProfile | null }) {
   const rec = final.record;
   const live = final.live_record;
   const here = openRow && rec ? rec.bands.findIndex((b) => openRow.p >= b.band_lo && (openRow.p < b.band_hi || b.band_hi >= 1)) : -1;
@@ -843,6 +1280,15 @@ function Aside({ final, openRow }: { final: MoveFinal; openRow: MoveRow | null }
           <p className="mo-mini">{rec.window_label}, {rec.sessions} sessions, each scored by a model trained only on earlier data.{openRow ? ` Highlighted: the band of ${openRow.symbol}.` : " Open a stock to see its band."}</p>
         </div>
       )}
+      <div className="mo-panel" data-testid="mo-aside-ratings">
+        <h3>Ratings</h3>
+        <ul className="mo-plain">
+          <li><span className="mo-grade mint"><b>A</b></span> score 70 or more · <span className="mo-grade amber"><b>B</b></span> 50–69.9 · <span className="mo-grade danger"><b>C</b></span> below 50, on the V3 stock score (0–100){profile ? ` as of ${day(profile.scores_as_of)}` : ""}.</li>
+          <li>&quot;Partial&quot;: fewer than {profile?.coverage_min ?? 80}% of the score&apos;s inputs were available.</li>
+          <li>Sector rating: the median score of the sector&apos;s stocks with at least {profile?.coverage_min ?? 80}% of their inputs.</li>
+          <li>Ratings describe the business and the chart. They are not part of the move odds and say nothing about the next session.</li>
+        </ul>
+      </div>
       <div className="mo-panel" data-testid="mo-live">
         <h3>Live record</h3>
         <div className="mo-big">{live.sessions} {live.sessions === 1 ? "session" : "sessions"}</div>

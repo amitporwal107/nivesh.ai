@@ -3,6 +3,8 @@
     GET /v1/move-odds/latest?head=p_up5_1d&model=v4   the scored list for the session the estimates apply to
     GET /v1/move-odds/stocks/{symbol}?model=v4        one stock: all four estimates, inputs on record, events on record
     GET /v1/move-odds/history?head=&model=v4          past published sessions: what was estimated and how it turned out
+    GET /v1/move-odds/profile?model=v4                each stock's quality rating, sector rating, cap, ratios and event
+                                                      categories, beside the estimates (never combined with them)
 
 Internal-plan keys only: the app is the one caller, and it gates end users with the move_odds allowlist flag.
 
@@ -24,6 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse
 
 import nidp.shared.storage.pg as pg
+from nidp.services.daas_api import move_odds_profile as prof
 from nidp.services.daas_api.auth import require_api_key
 from nidp.services.daas_api.responses import normalise_symbol
 
@@ -300,3 +303,99 @@ async def history(head: Head = Query("p_up5_1d"), model: Model = Query("v4"),
             "rows": session_rows,
         })
     return {"data": {"head": head, "model": model, "top_n": top, "sessions": out}}
+
+
+# ── Profile ────────────────────────────────────────────────────────────────────────────────────────────────────────
+# Quality beside movement (PRD: "distinguish movement probability from investment quality"). Resolved exactly like
+# /latest, so a profile is only ever served for the run the page is showing. Values are the latest rows on or before
+# the run's data_as_of; each block says which date it is from. Nothing here feeds the estimates.
+ANCHORS = ["RELIANCE", "HDFCBANK", "INFY", "TCS", "ICICIBANK", "SBIN", "ITC", "LT"]   # the session calendar: >= 6 of these traded
+
+
+@router.get("/profile", summary="Each stock's quality rating, sector rating, cap, ratios and event categories")
+async def profile(model: Model = Query("v4")):
+    pool = await pg.get_pool()
+    async with pool.acquire() as conn:
+        run, expected, refusal = await _resolve(conn, model)
+        current = run is not None and run["target_session"] == expected
+        if refusal is not None and not current:
+            return _withheld(expected, refusal)
+        if not current:
+            return {"data": {"status": "not_published", "expected_session": expected.isoformat(), "rows": {}}}
+        as_of = run["data_as_of"]
+        stocks = await conn.fetch("SELECT symbol, sector FROM nidp.tpd_run_stocks WHERE run_id = $1 ORDER BY symbol", run["run_id"])
+        syms = [s["symbol"] for s in stocks]
+        scores = await conn.fetch(
+            """
+            SELECT DISTINCT ON (symbol) symbol, as_of_date, sector, market_cap_bucket, quality_score, quality_coverage_pct,
+                   (quality_components->'fundamental'->>'score')::float8 AS fundamental_score,
+                   (quality_components->'technical'->>'score')::float8 AS technical_score
+              FROM nidp.v3_stock_scores_daily
+             WHERE symbol = ANY($1::text[]) AND as_of_date <= $2::date AND as_of_date > $2::date - 14
+             ORDER BY symbol, as_of_date DESC
+            """, syms, as_of)
+        score_date = max((r["as_of_date"] for r in scores), default=None)
+        sector_rows = (await conn.fetch("SELECT sector, quality_score, quality_coverage_pct FROM nidp.v3_stock_scores_daily WHERE as_of_date = $1",
+                                        score_date)) if score_date else []
+        feats = await conn.fetch(
+            f"""
+            SELECT DISTINCT ON (symbol) symbol, as_of_date, {", ".join(prof.FEATURE_COLUMNS)}
+              FROM nidp.stock_features_daily
+             WHERE symbol = ANY($1::text[]) AND as_of_date <= $2::date AND as_of_date > $2::date - 14
+             ORDER BY symbol, as_of_date DESC
+            """, syms, as_of)
+        sessions = await conn.fetch(
+            "SELECT as_of_date FROM nidp.prices_eod_adjusted WHERE symbol = ANY($1::text[]) AND as_of_date <= $2::date "
+            "AND as_of_date > $2::date - 420 GROUP BY as_of_date HAVING COUNT(*) >= 6 ORDER BY as_of_date DESC", ANCHORS, as_of)
+        d0 = sessions[0]["as_of_date"] if sessions else None
+        d252 = sessions[252]["as_of_date"] if len(sessions) > 252 else None
+        closes = (await conn.fetch("SELECT symbol, as_of_date, adj_close FROM nidp.prices_eod_adjusted WHERE symbol = ANY($1::text[]) "
+                                   "AND as_of_date = ANY($2::date[])", syms, [d0, d252])) if d252 else []
+        events = await conn.fetch("SELECT symbol, event_time, event_type, event_subtype, direction FROM nidp.tpd_run_events WHERE run_id = $1",
+                                  run["run_id"])
+
+    score_by = {r["symbol"]: dict(r) for r in scores}
+    feat_by = {r["symbol"]: r for r in feats}
+    close_by: Dict[tuple, float] = {(r["symbol"], r["as_of_date"]): float(r["adj_close"]) for r in closes if r["adj_close"] is not None}
+    ev_by: Dict[str, list] = {}
+    for e in events:
+        ev_by.setdefault(e["symbol"], []).append(dict(e))
+
+    def return_1y(sym: str):
+        c0, c1 = close_by.get((sym, d0)), close_by.get((sym, d252))
+        return round((c0 / c1 - 1) * 100, 2) if c0 is not None and c1 else None
+
+    served = [r for r in prof.CATALOGUE if r.source]
+    values = {r.key: [] for r in served}
+    for sym in syms:
+        f = feat_by.get(sym)
+        for r in served:
+            v = return_1y(sym) if r.source == "return_1y" else (prof._f(f[r.source]) if f is not None else None)
+            values[r.key].append(None if v is None else round(v, 2))
+    catalogue, keys = prof.build_catalogue(values, len(syms))
+
+    feat_dates = [r["as_of_date"] for r in feats]
+    common = max(set(feat_dates), key=feat_dates.count) if feat_dates else None
+    rows = {}
+    for i, s in enumerate(stocks):
+        sym = s["symbol"]
+        sc = score_by.get(sym)
+        f = feat_by.get(sym)
+        rows[sym] = {
+            "cap": prof.cap_label(sc.get("market_cap_bucket") if sc else None),
+            "sector": (sc.get("sector") if sc else None) or s["sector"],
+            "quality": prof.quality_block(sc),
+            "ratios": [values[k][i] for k in keys],
+            "ratios_as_of": _iso(f["as_of_date"]) if f is not None else None,
+            "events": prof.events_block(ev_by.get(sym, [])),
+        }
+    return {"data": {
+        "status": "final", "expected_session": expected.isoformat(), "run": _run_public(run),
+        "scores_as_of": _iso(score_date), "features_as_of": _iso(common),
+        "return_1y_window": {"from": _iso(d252), "to": _iso(d0)} if d252 else None,
+        "grade_bands": {"A": prof.GRADE_A, "B": prof.GRADE_B}, "coverage_min": prof.COVERAGE_MIN,
+        "sectors": prof.sector_ratings(dict(r) for r in sector_rows),
+        "catalogue": catalogue, "groups": prof.GROUPS, "ratio_keys": keys,
+        "event_categories": [{"key": k, "label": v} for k, v in prof.EVENT_LABELS.items()],
+        "rows": rows,
+    }}

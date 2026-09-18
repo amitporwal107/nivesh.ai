@@ -207,3 +207,28 @@ def test_tc56_history_is_behind_the_flag_and_passes_through(monkeypatch):
     assert calls == [("/move-odds/history", {"head": "p_up5_1d", "model": "v4", "sessions": 30, "top": 20})]
     assert _get(c, "/api/move-odds/history", "other").status_code == 403      # not allowlisted
     assert _get(c, "/api/move-odds/history?top=500", "invited").status_code == 422   # bounds enforced before the proxy
+
+
+def test_tc88_profile_is_behind_the_flag_passes_through_and_fails_closed(monkeypatch):
+    """TC-88 in test_reports/move_odds_v7_ratings_filters_20260918_1130.md."""
+    from services.copilot_tools.daas_client import DaasError
+
+    db = _DB(flags={"move_odds": {"mode": "allowlist", "allowlist": ["invited@example.com"]}})
+    payload = {"data": {"status": "final", "ratio_keys": ["mcap"], "sectors": {"Construction": {"median": 36.4, "grade": "C", "n": 27, "n_scored": 37}},
+                        "rows": {"PNCINFRA": {"cap": "Small", "quality": {"score": 28.5, "grade": "C"}, "ratios": [3428.22],
+                                              "events": {"n": 1, "material": 1, "categories": ["regulatory"]}}}}}
+    c, calls = _client(monkeypatch, db, daas=(200, payload))
+    r = _get(c, "/api/move-odds/profile", "invited")
+    assert r.status_code == 200 and r.json() == payload                       # passed through unchanged
+    assert calls == [("/move-odds/profile", {"model": "v4"})]
+    n = len(calls)
+    assert _get(c, "/api/move-odds/profile", "other").status_code == 403       # not allowlisted
+    assert _get(c, "/api/move-odds/profile", "admin").status_code == 403       # admins are not exempt
+    assert len(calls) == n                                                     # DaaS never called for a denied user
+
+    withheld = {"data": {"status": "withheld", "reason": "stale_data", "detail": {}, "target_session": "2026-09-18"}}
+    c, _ = _client(monkeypatch, db, daas=(503, withheld))
+    r = _get(c, "/api/move-odds/profile", "invited")
+    assert r.status_code == 503 and r.json()["detail"] == "withheld: stale_data" and "rows" not in r.json()["data"]
+    c, _ = _client(monkeypatch, db, daas=DaasError("connect refused"))
+    r = _get(c, "/api/move-odds/profile", "invited"); assert r.status_code == 502 and r.json()["detail"] == "upstream_unavailable"
