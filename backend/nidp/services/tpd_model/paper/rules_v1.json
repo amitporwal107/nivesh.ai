@@ -1,0 +1,109 @@
+{
+  "rules_id": "paper-v1",
+  "prd": "Ten-Percent Days — Paper Trade Simulation Engine v1 (owner, 2026-09-18) + design docs/Paper Trade Engine standalone (1).html",
+  "immutable": "These rules are fixed at registration. Any change is a new rules_id and is never applied retroactively. No threshold here may be tuned after outcomes are seen.",
+  "model": {
+    "name": "v4",
+    "source_forward": "/app/research/tpd3_forward/snapshots_v4/<target_session>/ (frozen, sha256 in manifest.json; model of record; v4d not used)",
+    "source_replay": ".claude/workspace/ten-percent-days-3/evidence/early_window/v4/early_window_v4_predictions.pkl (lock thresholds_lock_v4_early_window.json, monthly walk-forward, Jan-Aug 2025)",
+    "not_produced": ["direction_probability", "expected_return", "predicted_regime"],
+    "not_produced_policy": "stored NULL and shown as not produced; never synthesised"
+  },
+  "portfolios": {
+    "P5-NEXT":  {"head": "p_up5_1d",  "opposite": "p_down5_1d",  "other_threshold": "p_up10_1d", "target_pct": 5.0,  "atr_multiplier": 1.5},
+    "P10-NEXT": {"head": "p_up10_1d", "opposite": "p_down10_1d", "other_threshold": "p_up5_1d",  "target_pct": 10.0, "atr_multiplier": 2.0}
+  },
+  "not_run": {"P5-SWING": "v4 has no 5-session head", "P10-SWING": "v4 has no 5-session head"},
+  "positions_per_portfolio": 5,
+  "samples": {
+    "forward": "Predictions frozen nightly by run_v4.sh. Counts toward the forward evaluation only when the snapshot's generated_at is after this rule set's registration commit time (counts_from). Earlier forward sessions are recorded and shown, labelled 'before registration', and excluded from every forward statistic.",
+    "replay": "The same engine over the v4 early-window walk-forward predictions. Shown as 'historical replay'. Never pooled with the forward sample in any statistic. Caveat on record: that window informed v4 decisions."
+  },
+  "eligibility": {
+    "applied_at": "EOD of prediction_date using only bars dated on or before it",
+    "filters": [
+      {"id": "scored", "rule": "the symbol has an estimate for the portfolio's head in the frozen snapshot"},
+      {"id": "valid_ohlc", "rule": "a bar exists for prediction_date with open, high, low, close > 0, low <= min(open, close) and high >= max(open, close)"},
+      {"id": "fresh", "rule": "the symbol's latest bar is dated prediction_date (not stale)"},
+      {"id": "min_price", "rule": "close on prediction_date >= 5.00 INR"},
+      {"id": "min_traded_value", "rule": "median daily turnover over the 20 sessions ending prediction_date >= 1.0e7 INR (1 crore), with at least 15 bars in that window"},
+      {"id": "ca_validated", "rule": "no suspected corporate action in the 20 sessions ending prediction_date: an open/previous-close ratio <= 0.6 or >= 1.6 with no known action that day (backtest.suspected_actions)"},
+      {"id": "atr_available", "rule": "at least 15 adjusted bars ending prediction_date so ATR14 is defined"}
+    ],
+    "hard_risk_overrides": "none registered in v1",
+    "circuit_filter_at_selection": "none in v1 (circuit handling happens at entry)",
+    "excluded_rows": "stored in the ranked universe with selection_status EXCLUDED, the first failing filter id, rank NULL"
+  },
+  "ranking": "eligible rows by the portfolio head's probability descending, ties by symbol ascending; top 5 = SELECTED, the rest NOT_SELECTED",
+  "entry": {
+    "price": "official open of next_trading_session (NSE bhavcopy open via nidp.prices_eod, EQ series)",
+    "source": "NSE_BHAVCOPY / NSE_SEC_BHAVDATA as recorded on the bar",
+    "next_session": "the frozen snapshot's target_session (forward) or the walk-forward target_session (replay); both come from the NSE cash-market calendar",
+    "slippage": 0.0,
+    "adjustment": "if a known corporate action is ex-dated on the entry session, the gap is measured against the adjusted previous close",
+    "exceptions": {
+      "MISSING_OPEN": "bar exists but open is missing or <= 0 -> ENTRY_UNAVAILABLE",
+      "SUSPENDED": "no bar on the entry session while the market traded -> SUSPENDED, no trade",
+      "UPPER_CIRCUIT_OPEN": "open == high and the gap from the (adjusted) previous close is within 0.25 percentage points of a standard band (2, 5, 10, 20%) -> ENTRY_UNAVAILABLE (no fill assumed at a locked price)",
+      "LOWER_CIRCUIT_OPEN": "open == low and the gap is within 0.25 pp of minus a standard band -> entered (a long can be bought into a lower circuit) and flagged",
+      "GAP_RECORDED": "|open / (adjusted) previous close - 1| >= 5% -> entered and flagged; never silently rejected",
+      "CORPORATE_ACTION_REVIEW": "a suspected (unexplained) corporate action inside the observation window -> status CORPORATE_ACTION_REVIEW, excluded from automatic evaluation",
+      "CAPACITY": "allocation above 1% of the entry session's turnover -> entered and flagged ILLIQUID_OPEN"
+    }
+  },
+  "allocation": {
+    "capital_inr": 100000,
+    "weights": "equal, 20% per position (fixed notional 20,000 INR); an unfilled position's capital stays idle (not re-allocated)",
+    "quantity": "allocated / entry price, fractional (notional comparability)",
+    "leverage": false, "short_selling": false, "compounding": false
+  },
+  "costs": {"base_round_trip_pct": 0.25, "sensitivity_round_trip_pct": [0.5, 1.0], "applied": "net = gross - cost, on the entry notional; recorded separately from gross"},
+  "sessions": {
+    "numbering": "s1 = entry session (entry day), s2..s6 = the five sessions after it (PRD 7.1 'Day 1..Day 5'). Observation window s1..s6.",
+    "max_holding_sessions": 6,
+    "calendar": "NSE cash-market sessions as present in the price panel (weekends, holidays and special sessions follow the exchange); muhurat sessions are not counted"
+  },
+  "modes": {
+    "EOD-1": "exit at the close of s1 (end of the entry day)",
+    "EOD-3": "exit at the close of s3 (end of the third session)",
+    "EOD-5": "exit at the close of s5 (end of the fifth session)",
+    "FIXED": "no early exit; exit at the close of s6 (end of the full observation window, PRD 7.1 'Day 5 close')",
+    "TARGET_STOP": "first barrier within s1..s6, else the close of s6 (same horizon as FIXED so the pair isolates the barrier effect)"
+  },
+  "headline_mode": "EOD-1 (PRD: next-session portfolios are evaluated over 1 day; EOD-3/EOD-5/FIXED/TARGET_STOP reported alongside, never promoted after results)",
+  "primary_observation": "no forced target/stop; the path is recorded",
+  "target_stop": {
+    "target": "entry * (1 + target_pct/100); target_1 = entry*1.05 and target_2 = entry*1.10 are both recorded",
+    "atr": "Wilder ATR(14) on corporate-action-adjusted bars ending prediction_date (known at EOD)",
+    "support": "lowest adjusted low of the 10 sessions ending prediction_date",
+    "resistance": "highest adjusted high of the 20 sessions ending prediction_date (recorded, not used)",
+    "stop": "min(entry - atr_multiplier*ATR14, support) when support < entry, else entry - atr_multiplier*ATR14; then at least entry*(1-0.08) (8% maximum risk)",
+    "stop_method_labels": ["ATR", "SUPPORT", "CAP_8PCT"],
+    "same_session_tie": "if a session's range contains both the stop and the target, the stop counts (conservative)",
+    "gaps": "a session (s2..s6) opening at/above the target exits at that open; opening at/below the stop exits at that open",
+    "fill": "at the barrier price, or the open when gapped through"
+  },
+  "labels": {
+    "model_label_hit": "the model's own label: s1 high >= previous close * (1 + target_pct/100) (as v4's y, measured from the prior close)",
+    "trade_target_hit": "high >= entry * (1 + target_pct/100) within the mode's horizon (measured from the paper entry)",
+    "positive": "net return > 0"
+  },
+  "benchmarks": {
+    "A_ALL": "equal-weight average of every eligible, entered stock in the same session's ranked universe, same entry and exits",
+    "A_RANDOM5": "5 eligible entered stocks drawn with numpy default_rng(seed) where seed = int(sha256('A|<portfolio>|<entry_session>|paper-v1')[:16], 16)",
+    "B_MATCHED": "for each selected stock in rank order: candidates = eligible, entered, not selected, not yet used; keep the same sector if >= 3 candidates remain, then the same size group (turnover rank within the ranked universe: 1-100, 101-250, 251+) if >= 3 remain; z-score log ATR%, log close and log 20-session median turnover over the candidates plus the stock; take the 5 nearest by Euclidean distance and draw one with default_rng(seed of 'B|<portfolio>|<entry_session>|<symbol>|paper-v1')",
+    "C_MOVEMENT": "top 5 eligible by (head + opposite head) probability — movement without the direction split — entered long at the same open, same exits",
+    "D_NIFTY50": "Nifty 50 from s1 open to the mode's exit close; source nidp.index_eod (NSE_IND_CLOSE) where present, else Yahoo ^NSEI; source recorded per row",
+    "defined_before_analysis": true
+  },
+  "evaluation": {
+    "buckets": [0.0, 0.1, 0.2, 0.3, 0.4, 1.0],
+    "bucket_population": "every eligible, entered row of the ranked universe (prediction level); a selected-only view is shown separately",
+    "calibration_error": "observed model-label hit rate minus mean predicted probability, per bucket",
+    "trade_level": "per trade, all modes",
+    "portfolio_level": "daily mark-to-market series: each session, the equal-weight mean daily return of the cohorts open that session (overlapping cohorts share capital equally); no compounding, cumulative sum",
+    "confidence_intervals": "95% on the session-cohort mean series; EOD-1 = session-clustered (sd/sqrt(n)); multi-session modes = Newey-West HAC with lag = horizon - 1; incremental edge = paired session difference vs A_ALL with the same method",
+    "minimum_sample_for_a_statement": "an edge is described as established only with >= 60 counted sessions AND a 95% CI excluding zero; otherwise 'not established'",
+    "metrics": ["mean", "median", "total_inr", "win_rate", "profit_factor", "max_drawdown", "volatility", "sharpe_like", "mean_mfe", "mean_mae", "target_hit_rate", "target_before_stop_rate", "incremental_edge"]
+  }
+}
