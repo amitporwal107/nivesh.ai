@@ -32,11 +32,12 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Search, FileText, ExternalLink, Sparkles, Loader2, Bell, Bookmark,
   ChevronLeft, ChevronRight, MoreVertical, Megaphone, X, Download, Star,
-  ClipboardCheck, Activity,
+  ClipboardCheck, Activity, FlaskConical,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useMe } from "@/hooks/use-auth";
 import MoveOddsScreen from "./MoveOddsScreen";
+import PaperTradesScreen from "./PaperTradesScreen";
 import { chatService } from "@/services";
 import { Markdown } from "@/components/chat/Markdown";
 import { filingsService } from "@/services/adapters/filings.adapter";
@@ -53,7 +54,7 @@ const PINNED_AGENT = "stocks_insights";
 const FEED_DAYS = 30;
 const PAGE_SIZE = 20;
 
-type Screen = "feed" | "alerts" | "odds";
+type Screen = "feed" | "alerts" | "odds" | "paper";
 
 /** sentiment → accent (matches the prototype's sig-* classes). */
 function sig(sentiment?: string | null): { cls: string; dot: string } {
@@ -94,7 +95,7 @@ export default function ResearchPage() {
   // Move odds is allowlist-gated (feature move_odds); the API also answers 403 to anyone not on the list.
   const { data: me } = useMe();
   const oddsEnabled = !!me?.features?.move_odds;
-  useEffect(() => { if (screen === "odds" && !oddsEnabled) setScreen("feed"); }, [screen, oddsEnabled]);
+  useEffect(() => { if ((screen === "odds" || screen === "paper") && !oddsEnabled) setScreen("feed"); }, [screen, oddsEnabled]);
 
   // ── feed state ──────────────────────────────────────────────────────────
   const [rows, setRows] = useState<FilingRow[]>([]);
@@ -324,6 +325,7 @@ export default function ResearchPage() {
     { key: "feed", label: "Feed", icon: Sparkles, title: "Filings intelligence" },
     { key: "alerts", label: "Alerts", icon: Bell, title: "Alerts" },
     ...(oddsEnabled ? [{ key: "odds" as Screen, label: "Odds", icon: Activity, title: "Move odds" }] : []),
+    ...(oddsEnabled ? [{ key: "paper" as Screen, label: "Paper", icon: FlaskConical, title: "Paper trades" }] : []),
   ];
 
   return (
@@ -509,6 +511,8 @@ export default function ResearchPage() {
             />
           ) : screen === "odds" && oddsEnabled ? (
             <MoveOddsScreen />
+          ) : screen === "paper" && oddsEnabled ? (
+            <PaperTradesScreen />
           ) : (
             <AlertsScreen />
           )}

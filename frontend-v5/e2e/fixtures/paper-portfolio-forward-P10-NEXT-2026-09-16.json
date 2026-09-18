@@ -1,0 +1,2330 @@
+{
+ "_note": "MOCK \u2014 not live data: captured from the staging DaaS (/v1/paper-trades, nidp_staging) on 2026-09-18 after the engine's forward and replay runs; replayed by e2e/tests/research-paper-trades.spec.ts.",
+ "data": {
+  "status": "ok",
+  "sample": "forward",
+  "portfolio": "P10-NEXT",
+  "prediction_date": "2026-09-16",
+  "dates": [
+   {
+    "prediction_date": "2026-09-17",
+    "entry_session": "2026-09-18",
+    "counts": false
+   },
+   {
+    "prediction_date": "2026-09-16",
+    "entry_session": "2026-09-17",
+    "counts": false
+   }
+  ],
+  "provenance": {
+   "model_version": "v4@0dc20f9",
+   "feature_version": "v4-84in",
+   "snapshot_sha256": "01e789f143f6ecf638b2177dc324cec2b670efb7d7e86addef61a3be2d529491",
+   "prediction_timestamp": "2026-09-16T15:20:22.247116+00:00",
+   "data_cutoff_timestamp": "2026-09-16T15:00:00+00:00",
+   "next_trading_session": "2026-09-17",
+   "rules_id": "paper-v1",
+   "counts_toward_evaluation": false,
+   "scored": 994,
+   "eligible": 992,
+   "excluded": {
+    "min_price": 1,
+    "min_traded_value": 1
+   },
+   "rules": {
+    "rules_id": "paper-v1",
+    "rules_sha256": "ea4bf3825c185d4045da36aff9ad682d68b63d687aaada6bbe9a5eca8319c72f",
+    "git_sha": "c3a9fc7",
+    "registered_at": "2026-09-18T08:07:49+00:00"
+   }
+  },
+  "config": {
+   "target_pct": 10.0,
+   "atr_multiplier": 2.0,
+   "head": "p_up10_1d",
+   "other_threshold": "p_up5_1d",
+   "capital_inr": 100000,
+   "positions": 5,
+   "cost_pct": 0.25,
+   "cost_sensitivity_pct": [
+    0.5,
+    1.0
+   ],
+   "stop_cap_pct": 8.0,
+   "headline_mode": "EOD-1"
+  },
+  "positions": [
+   {
+    "trade_id": 6,
+    "prediction_id": 4977,
+    "sample": "forward",
+    "portfolio_type": "P10-NEXT",
+    "symbol": "PNCINFRA",
+    "prediction_date": "2026-09-16",
+    "intended_entry_date": "2026-09-17",
+    "entry_date": "2026-09-17",
+    "entry_timestamp": "2026-09-17T10:00:00+00:00",
+    "entry_price": 132.48,
+    "entry_source": "NSE_BHAVCOPY",
+    "entry_method": "next_session_official_open",
+    "entry_price_adjustment_status": "UNADJUSTED_NO_ACTION",
+    "prev_close": 134.44,
+    "gap_from_previous_close": -0.014579,
+    "entry_slippage": 0.0,
+    "quantity": 150.966184,
+    "allocated_capital": 20000.0,
+    "target_pct": 10.0,
+    "stop_pct": 8.0,
+    "max_holding_sessions": 6,
+    "atr_14": 9.593,
+    "support_level": 116.4,
+    "resistance_level": 215.88,
+    "stop_loss_price": 121.8816,
+    "stop_method": "CAP_8PCT",
+    "target_1_price": 139.104,
+    "target_2_price": 145.728,
+    "risk_percent": 0.08,
+    "reward_percent": 0.1,
+    "risk_reward_ratio": 1.25,
+    "status": "ENTERED",
+    "status_reason": null,
+    "flags": [],
+    "sessions_observed": 1,
+    "exit_mode": "EOD-1",
+    "exit_date": "2026-09-17",
+    "exit_price": 139.55,
+    "exit_reason": "close of s1 (EOD-1 headline)",
+    "gross_return": 0.053367,
+    "costs": 50.0,
+    "net_return": 0.050867,
+    "mfe": 0.070199,
+    "mae": -0.002114,
+    "max_drawdown": 0.0,
+    "target_hit": false,
+    "target_before_stop": null,
+    "counts_toward_evaluation": false,
+    "rank": 1,
+    "model_rank": 1,
+    "movement_probability": 0.10387,
+    "p_opposite": 0.02463,
+    "p_other_threshold": 0.36552,
+    "prediction_close": 134.44,
+    "company_name": "PNC Infratech Limited",
+    "sector": "Construction",
+    "size_group": "S",
+    "observations": [
+     {
+      "session_date": "2026-09-17",
+      "days_held": 0,
+      "open_price": 132.48,
+      "high_price": 141.78,
+      "low_price": 132.2,
+      "close_price": 139.55,
+      "volume": 5631335,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.053367,
+      "open_return": 0.0,
+      "high_return": 0.070199,
+      "low_return": -0.002114,
+      "high_watermark": 0.053367,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.070199,
+      "mae_to_date": -0.002114,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": "EOD-1",
+      "data_quality_status": "OK"
+     }
+    ],
+    "exits": {
+     "EOD-1": {
+      "state": "CLOSED",
+      "exit_date": "2026-09-17",
+      "exit_price": 139.55,
+      "exit_reason": "close of s1",
+      "sessions_held": 1,
+      "gross_return": 0.053367,
+      "cost_pct": 0.25,
+      "net_return": 0.050867,
+      "net_return_050": 0.048367,
+      "net_return_100": 0.043367,
+      "mfe": 0.070199,
+      "mae": -0.002114,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-3": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.070199,
+      "mae": -0.002114,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-5": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.070199,
+      "mae": -0.002114,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "FIXED": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.070199,
+      "mae": -0.002114,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "TARGET_STOP": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.070199,
+      "mae": -0.002114,
+      "target_hit": false,
+      "stop_hit": false
+     }
+    }
+   },
+   {
+    "trade_id": 7,
+    "prediction_id": 4978,
+    "sample": "forward",
+    "portfolio_type": "P10-NEXT",
+    "symbol": "DELTACORP",
+    "prediction_date": "2026-09-16",
+    "intended_entry_date": "2026-09-17",
+    "entry_date": "2026-09-17",
+    "entry_timestamp": "2026-09-17T10:00:00+00:00",
+    "entry_price": 55.56,
+    "entry_source": "NSE_BHAVCOPY",
+    "entry_method": "next_session_official_open",
+    "entry_price_adjustment_status": "UNADJUSTED_NO_ACTION",
+    "prev_close": 55.19,
+    "gap_from_previous_close": 0.006704,
+    "entry_slippage": 0.0,
+    "quantity": 359.971202,
+    "allocated_capital": 20000.0,
+    "target_pct": 10.0,
+    "stop_pct": 7.0194,
+    "max_holding_sessions": 6,
+    "atr_14": 1.9243,
+    "support_level": 51.66,
+    "resistance_level": 62.44,
+    "stop_loss_price": 51.66,
+    "stop_method": "SUPPORT",
+    "target_1_price": 58.338,
+    "target_2_price": 61.116,
+    "risk_percent": 0.070194,
+    "reward_percent": 0.1,
+    "risk_reward_ratio": 1.4246,
+    "status": "ENTERED",
+    "status_reason": null,
+    "flags": [],
+    "sessions_observed": 1,
+    "exit_mode": "EOD-1",
+    "exit_date": "2026-09-17",
+    "exit_price": 56.15,
+    "exit_reason": "close of s1 (EOD-1 headline)",
+    "gross_return": 0.010619,
+    "costs": 50.0,
+    "net_return": 0.008119,
+    "mfe": 0.022318,
+    "mae": -0.023398,
+    "max_drawdown": 0.0,
+    "target_hit": false,
+    "target_before_stop": null,
+    "counts_toward_evaluation": false,
+    "rank": 2,
+    "model_rank": 2,
+    "movement_probability": 0.0669,
+    "p_opposite": 0.00501,
+    "p_other_threshold": 0.09851,
+    "prediction_close": 55.19,
+    "company_name": "Delta Corp Limited",
+    "sector": "Consumer Services",
+    "size_group": "S",
+    "observations": [
+     {
+      "session_date": "2026-09-17",
+      "days_held": 0,
+      "open_price": 55.56,
+      "high_price": 56.8,
+      "low_price": 54.26,
+      "close_price": 56.15,
+      "volume": 1571230,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.010619,
+      "open_return": 0.0,
+      "high_return": 0.022318,
+      "low_return": -0.023398,
+      "high_watermark": 0.010619,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.022318,
+      "mae_to_date": -0.023398,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": "EOD-1",
+      "data_quality_status": "OK"
+     }
+    ],
+    "exits": {
+     "EOD-1": {
+      "state": "CLOSED",
+      "exit_date": "2026-09-17",
+      "exit_price": 56.15,
+      "exit_reason": "close of s1",
+      "sessions_held": 1,
+      "gross_return": 0.010619,
+      "cost_pct": 0.25,
+      "net_return": 0.008119,
+      "net_return_050": 0.005619,
+      "net_return_100": 0.000619,
+      "mfe": 0.022318,
+      "mae": -0.023398,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-3": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.022318,
+      "mae": -0.023398,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-5": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.022318,
+      "mae": -0.023398,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "FIXED": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.022318,
+      "mae": -0.023398,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "TARGET_STOP": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.022318,
+      "mae": -0.023398,
+      "target_hit": false,
+      "stop_hit": false
+     }
+    }
+   },
+   {
+    "trade_id": 8,
+    "prediction_id": 4979,
+    "sample": "forward",
+    "portfolio_type": "P10-NEXT",
+    "symbol": "RPEL",
+    "prediction_date": "2026-09-16",
+    "intended_entry_date": "2026-09-17",
+    "entry_date": "2026-09-17",
+    "entry_timestamp": "2026-09-17T10:00:00+00:00",
+    "entry_price": 1549.0,
+    "entry_source": "NSE_BHAVCOPY",
+    "entry_method": "next_session_official_open",
+    "entry_price_adjustment_status": "UNADJUSTED_NO_ACTION",
+    "prev_close": 1547.0,
+    "gap_from_previous_close": 0.001293,
+    "entry_slippage": 0.0,
+    "quantity": 12.911556,
+    "allocated_capital": 20000.0,
+    "target_pct": 10.0,
+    "stop_pct": 8.0,
+    "max_holding_sessions": 6,
+    "atr_14": 108.332,
+    "support_level": 1507.2,
+    "resistance_level": 1943.7,
+    "stop_loss_price": 1425.08,
+    "stop_method": "CAP_8PCT",
+    "target_1_price": 1626.45,
+    "target_2_price": 1703.9,
+    "risk_percent": 0.08,
+    "reward_percent": 0.1,
+    "risk_reward_ratio": 1.25,
+    "status": "ENTERED",
+    "status_reason": null,
+    "flags": [],
+    "sessions_observed": 1,
+    "exit_mode": "EOD-1",
+    "exit_date": "2026-09-17",
+    "exit_price": 1654.3,
+    "exit_reason": "close of s1 (EOD-1 headline)",
+    "gross_return": 0.067979,
+    "costs": 50.0,
+    "net_return": 0.065479,
+    "mfe": 0.094254,
+    "mae": -0.007101,
+    "max_drawdown": 0.0,
+    "target_hit": false,
+    "target_before_stop": null,
+    "counts_toward_evaluation": false,
+    "rank": 3,
+    "model_rank": 3,
+    "movement_probability": 0.06215,
+    "p_opposite": 0.03247,
+    "p_other_threshold": 0.22975,
+    "prediction_close": 1547.0,
+    "company_name": "Raghav Productivity Enhancers Limited",
+    "sector": "Capital Goods",
+    "size_group": "S",
+    "observations": [
+     {
+      "session_date": "2026-09-17",
+      "days_held": 0,
+      "open_price": 1549.0,
+      "high_price": 1695.0,
+      "low_price": 1538.0,
+      "close_price": 1654.3,
+      "volume": 221802,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.067979,
+      "open_return": 0.0,
+      "high_return": 0.094254,
+      "low_return": -0.007101,
+      "high_watermark": 0.067979,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.094254,
+      "mae_to_date": -0.007101,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": "EOD-1",
+      "data_quality_status": "OK"
+     }
+    ],
+    "exits": {
+     "EOD-1": {
+      "state": "CLOSED",
+      "exit_date": "2026-09-17",
+      "exit_price": 1654.3,
+      "exit_reason": "close of s1",
+      "sessions_held": 1,
+      "gross_return": 0.067979,
+      "cost_pct": 0.25,
+      "net_return": 0.065479,
+      "net_return_050": 0.062979,
+      "net_return_100": 0.057979,
+      "mfe": 0.094254,
+      "mae": -0.007101,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-3": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.094254,
+      "mae": -0.007101,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-5": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.094254,
+      "mae": -0.007101,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "FIXED": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.094254,
+      "mae": -0.007101,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "TARGET_STOP": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.094254,
+      "mae": -0.007101,
+      "target_hit": false,
+      "stop_hit": false
+     }
+    }
+   },
+   {
+    "trade_id": 9,
+    "prediction_id": 4980,
+    "sample": "forward",
+    "portfolio_type": "P10-NEXT",
+    "symbol": "KPEL",
+    "prediction_date": "2026-09-16",
+    "intended_entry_date": "2026-09-17",
+    "entry_date": "2026-09-17",
+    "entry_timestamp": "2026-09-17T10:00:00+00:00",
+    "entry_price": 209.6,
+    "entry_source": "NSE_BHAVCOPY",
+    "entry_method": "next_session_official_open",
+    "entry_price_adjustment_status": "UNADJUSTED_NO_ACTION",
+    "prev_close": 210.32,
+    "gap_from_previous_close": -0.003423,
+    "entry_slippage": 0.0,
+    "quantity": 95.419847,
+    "allocated_capital": 20000.0,
+    "target_pct": 10.0,
+    "stop_pct": 8.0,
+    "max_holding_sessions": 6,
+    "atr_14": 10.9673,
+    "support_level": 206.52,
+    "resistance_level": 273.0,
+    "stop_loss_price": 192.832,
+    "stop_method": "CAP_8PCT",
+    "target_1_price": 220.08,
+    "target_2_price": 230.56,
+    "risk_percent": 0.08,
+    "reward_percent": 0.1,
+    "risk_reward_ratio": 1.25,
+    "status": "ENTERED",
+    "status_reason": null,
+    "flags": [],
+    "sessions_observed": 1,
+    "exit_mode": "EOD-1",
+    "exit_date": "2026-09-17",
+    "exit_price": 212.48,
+    "exit_reason": "close of s1 (EOD-1 headline)",
+    "gross_return": 0.01374,
+    "costs": 50.0,
+    "net_return": 0.01124,
+    "mfe": 0.020802,
+    "mae": -0.002863,
+    "max_drawdown": 0.0,
+    "target_hit": false,
+    "target_before_stop": null,
+    "counts_toward_evaluation": false,
+    "rank": 4,
+    "model_rank": 4,
+    "movement_probability": 0.05533,
+    "p_opposite": 0.00132,
+    "p_other_threshold": 0.16487,
+    "prediction_close": 210.32,
+    "company_name": "K.P. Energy Limited",
+    "sector": "Power",
+    "size_group": "S",
+    "observations": [
+     {
+      "session_date": "2026-09-17",
+      "days_held": 0,
+      "open_price": 209.6,
+      "high_price": 213.96,
+      "low_price": 209.0,
+      "close_price": 212.48,
+      "volume": 130224,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.01374,
+      "open_return": 0.0,
+      "high_return": 0.020802,
+      "low_return": -0.002863,
+      "high_watermark": 0.01374,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.020802,
+      "mae_to_date": -0.002863,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": "EOD-1",
+      "data_quality_status": "OK"
+     }
+    ],
+    "exits": {
+     "EOD-1": {
+      "state": "CLOSED",
+      "exit_date": "2026-09-17",
+      "exit_price": 212.48,
+      "exit_reason": "close of s1",
+      "sessions_held": 1,
+      "gross_return": 0.01374,
+      "cost_pct": 0.25,
+      "net_return": 0.01124,
+      "net_return_050": 0.00874,
+      "net_return_100": 0.00374,
+      "mfe": 0.020802,
+      "mae": -0.002863,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-3": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.020802,
+      "mae": -0.002863,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-5": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.020802,
+      "mae": -0.002863,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "FIXED": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.020802,
+      "mae": -0.002863,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "TARGET_STOP": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.020802,
+      "mae": -0.002863,
+      "target_hit": false,
+      "stop_hit": false
+     }
+    }
+   },
+   {
+    "trade_id": 10,
+    "prediction_id": 4981,
+    "sample": "forward",
+    "portfolio_type": "P10-NEXT",
+    "symbol": "AEROENTER",
+    "prediction_date": "2026-09-16",
+    "intended_entry_date": "2026-09-17",
+    "entry_date": "2026-09-17",
+    "entry_timestamp": "2026-09-17T10:00:00+00:00",
+    "entry_price": 113.35,
+    "entry_source": "NSE_BHAVCOPY",
+    "entry_method": "next_session_official_open",
+    "entry_price_adjustment_status": "UNADJUSTED_NO_ACTION",
+    "prev_close": 113.35,
+    "gap_from_previous_close": 0.0,
+    "entry_slippage": 0.0,
+    "quantity": 176.44464,
+    "allocated_capital": 20000.0,
+    "target_pct": 10.0,
+    "stop_pct": 8.0,
+    "max_holding_sessions": 6,
+    "atr_14": 9.6957,
+    "support_level": 108.0,
+    "resistance_level": 159.6,
+    "stop_loss_price": 104.282,
+    "stop_method": "CAP_8PCT",
+    "target_1_price": 119.0175,
+    "target_2_price": 124.685,
+    "risk_percent": 0.08,
+    "reward_percent": 0.1,
+    "risk_reward_ratio": 1.25,
+    "status": "ENTERED",
+    "status_reason": null,
+    "flags": [],
+    "sessions_observed": 1,
+    "exit_mode": "EOD-1",
+    "exit_date": "2026-09-17",
+    "exit_price": 122.94,
+    "exit_reason": "close of s1 (EOD-1 headline)",
+    "gross_return": 0.084605,
+    "costs": 50.0,
+    "net_return": 0.082105,
+    "mfe": 0.097574,
+    "mae": -0.010146,
+    "max_drawdown": 0.0,
+    "target_hit": false,
+    "target_before_stop": null,
+    "counts_toward_evaluation": false,
+    "rank": 5,
+    "model_rank": 5,
+    "movement_probability": 0.05184,
+    "p_opposite": 0.01793,
+    "p_other_threshold": 0.22859,
+    "prediction_close": 113.35,
+    "company_name": "Aeroflex Enterprises Limited",
+    "sector": null,
+    "size_group": "S",
+    "observations": [
+     {
+      "session_date": "2026-09-17",
+      "days_held": 0,
+      "open_price": 113.35,
+      "high_price": 124.41,
+      "low_price": 112.2,
+      "close_price": 122.94,
+      "volume": 2191657,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.084605,
+      "open_return": 0.0,
+      "high_return": 0.097574,
+      "low_return": -0.010146,
+      "high_watermark": 0.084605,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.097574,
+      "mae_to_date": -0.010146,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": "EOD-1",
+      "data_quality_status": "OK"
+     }
+    ],
+    "exits": {
+     "EOD-1": {
+      "state": "CLOSED",
+      "exit_date": "2026-09-17",
+      "exit_price": 122.94,
+      "exit_reason": "close of s1",
+      "sessions_held": 1,
+      "gross_return": 0.084605,
+      "cost_pct": 0.25,
+      "net_return": 0.082105,
+      "net_return_050": 0.079605,
+      "net_return_100": 0.074605,
+      "mfe": 0.097574,
+      "mae": -0.010146,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-3": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.097574,
+      "mae": -0.010146,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-5": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.097574,
+      "mae": -0.010146,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "FIXED": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.097574,
+      "mae": -0.010146,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "TARGET_STOP": {
+      "state": "OPEN",
+      "exit_date": null,
+      "exit_price": null,
+      "exit_reason": null,
+      "sessions_held": null,
+      "gross_return": null,
+      "cost_pct": 0.25,
+      "net_return": null,
+      "net_return_050": null,
+      "net_return_100": null,
+      "mfe": 0.097574,
+      "mae": -0.010146,
+      "target_hit": false,
+      "stop_hit": false
+     }
+    }
+   }
+  ],
+  "universe": [
+   {
+    "rank": 1,
+    "symbol": "PNCINFRA",
+    "movement_probability": 0.10387,
+    "p_opposite": 0.02463,
+    "p_other_threshold": 0.36552,
+    "selection_status": "SELECTED",
+    "prediction_close": 134.44,
+    "company_name": "PNC Infratech Limited",
+    "sector": "Construction",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 132.47999572753906,
+    "gap": -0.014578989706933498,
+    "atr_14": 9.592994689941406,
+    "stop_loss_price": 121.88159942626953,
+    "stop_method": "CAP_8PCT",
+    "target_price": 145.72799682617188,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.07019927352666855
+    ],
+    "r_low": [
+     -0.00211352645419538
+    ],
+    "r_close": [
+     0.05336654558777809
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 2,
+    "symbol": "DELTACORP",
+    "movement_probability": 0.0669,
+    "p_opposite": 0.00501,
+    "p_other_threshold": 0.09851,
+    "selection_status": "SELECTED",
+    "prediction_close": 55.19,
+    "company_name": "Delta Corp Limited",
+    "sector": "Consumer Services",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 55.560001373291016,
+    "gap": 0.006704110186547041,
+    "atr_14": 1.9243186712265015,
+    "stop_loss_price": 51.65999984741211,
+    "stop_method": "SUPPORT",
+    "target_price": 61.11600112915039,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.022318214178085327
+    ],
+    "r_low": [
+     -0.023398127406835556
+    ],
+    "r_close": [
+     0.01061915047466755
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 3,
+    "symbol": "RPEL",
+    "movement_probability": 0.06215,
+    "p_opposite": 0.03247,
+    "p_other_threshold": 0.22975,
+    "selection_status": "SELECTED",
+    "prediction_close": 1547.0,
+    "company_name": "Raghav Productivity Enhancers Limited",
+    "sector": "Capital Goods",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 1549.0,
+    "gap": 0.0012928199721500278,
+    "atr_14": 108.33197784423828,
+    "stop_loss_price": 1425.0799560546875,
+    "stop_method": "CAP_8PCT",
+    "target_price": 1703.9000244140625,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.09425435960292816
+    ],
+    "r_low": [
+     -0.0071013555862009525
+    ],
+    "r_close": [
+     0.0679793432354927
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 4,
+    "symbol": "KPEL",
+    "movement_probability": 0.05533,
+    "p_opposite": 0.00132,
+    "p_other_threshold": 0.16487,
+    "selection_status": "SELECTED",
+    "prediction_close": 210.32,
+    "company_name": "K.P. Energy Limited",
+    "sector": "Power",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 209.60000610351562,
+    "gap": -0.0034233499318361282,
+    "atr_14": 10.967350006103516,
+    "stop_loss_price": 192.83200073242188,
+    "stop_method": "CAP_8PCT",
+    "target_price": 230.55999755859375,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.020801527425646782
+    ],
+    "r_low": [
+     -0.0028625954873859882
+    ],
+    "r_close": [
+     0.013740457594394684
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 5,
+    "symbol": "AEROENTER",
+    "movement_probability": 0.05184,
+    "p_opposite": 0.01793,
+    "p_other_threshold": 0.22859,
+    "selection_status": "SELECTED",
+    "prediction_close": 113.35,
+    "company_name": "Aeroflex Enterprises Limited",
+    "sector": null,
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 113.3499984741211,
+    "gap": 0.0,
+    "atr_14": 9.695733070373535,
+    "stop_loss_price": 104.28199768066406,
+    "stop_method": "CAP_8PCT",
+    "target_price": 124.68499755859375,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.09757388383150101
+    ],
+    "r_low": [
+     -0.010145566426217556
+    ],
+    "r_close": [
+     0.08460520207881927
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 6,
+    "symbol": "ROSSTECH",
+    "movement_probability": 0.05058,
+    "p_opposite": 0.01178,
+    "p_other_threshold": 0.23791,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 1349.9,
+    "company_name": "Rossell Techsys Limited",
+    "sector": "Capital Goods",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 1349.9000244140625,
+    "gap": 0.0,
+    "atr_14": 64.37513732910156,
+    "stop_loss_price": 1241.907958984375,
+    "stop_method": "CAP_8PCT",
+    "target_price": 1484.8900146484375,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.05704126134514809
+    ],
+    "r_low": [
+     -0.018445810303092003
+    ],
+    "r_close": [
+     0.005407807882875204
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 7,
+    "symbol": "ANTELOPUS",
+    "movement_probability": 0.04887,
+    "p_opposite": 0.05469,
+    "p_other_threshold": 0.32498,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 1170.95,
+    "company_name": "Antelopus Selan Energy Limited",
+    "sector": "Oil Gas",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 1171.0,
+    "gap": 4.270000135875307e-05,
+    "atr_14": 83.7839126586914,
+    "stop_loss_price": 1077.3199462890625,
+    "stop_method": "CAP_8PCT",
+    "target_price": 1288.0999755859375,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.02305721677839756
+    ],
+    "r_low": [
+     -0.04265584796667099
+    ],
+    "r_close": [
+     -0.03428693488240242
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 8,
+    "symbol": "FINOPB",
+    "movement_probability": 0.04439,
+    "p_opposite": 0.00329,
+    "p_other_threshold": 0.12856,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 136.05,
+    "company_name": "Fino Payments Bank Limited",
+    "sector": "Finance",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 136.0500030517578,
+    "gap": 0.0,
+    "atr_14": 5.936605930328369,
+    "stop_loss_price": 125.16600036621094,
+    "stop_method": "CAP_8PCT",
+    "target_price": 149.65499877929688,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.017052553594112396
+    ],
+    "r_low": [
+     -0.0058066886849701405
+    ],
+    "r_close": [
+     0.002793090883642435
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 9,
+    "symbol": "QUADFUTURE",
+    "movement_probability": 0.04172,
+    "p_opposite": 0.00623,
+    "p_other_threshold": 0.21051,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 491.95,
+    "company_name": "Quadrant Future Tek Limited",
+    "sector": "Capital Goods",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 490.0,
+    "gap": -0.003963820170611143,
+    "atr_14": 28.621883392333984,
+    "stop_loss_price": 450.79998779296875,
+    "stop_method": "CAP_8PCT",
+    "target_price": 539.0,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.09051020443439484
+    ],
+    "r_low": [
+     -0.01224489789456129
+    ],
+    "r_close": [
+     0.06428571790456772
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 10,
+    "symbol": "CHEMPLASTS",
+    "movement_probability": 0.03992,
+    "p_opposite": 0.0007,
+    "p_other_threshold": 0.14866,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 166.12,
+    "company_name": "Chemplast Sanmar Limited",
+    "sector": "Chemicals",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 166.1199951171875,
+    "gap": 0.0,
+    "atr_14": 8.513787269592285,
+    "stop_loss_price": 152.8303985595703,
+    "stop_method": "CAP_8PCT",
+    "target_price": 182.73199462890625,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.020166145637631416
+    ],
+    "r_low": [
+     -0.006681916769593954
+    ],
+    "r_close": [
+     0.010113171301782131
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 11,
+    "symbol": "MOTISONS",
+    "movement_probability": 0.03759,
+    "p_opposite": 0.01066,
+    "p_other_threshold": 0.1969,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 16.62,
+    "company_name": "Motisons Jewellers Limited",
+    "sector": "Consumer Durables",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 16.3700008392334,
+    "gap": -0.015042119659483433,
+    "atr_14": 0.9320323467254639,
+    "stop_loss_price": 15.060400009155273,
+    "stop_method": "CAP_8PCT",
+    "target_price": 18.006999969482422,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.1301160603761673
+    ],
+    "r_low": [
+     -0.010384850203990936
+    ],
+    "r_close": [
+     0.09590714424848557
+    ],
+    "model_label_hit": true
+   },
+   {
+    "rank": 12,
+    "symbol": "KIRIINDUS",
+    "movement_probability": 0.03652,
+    "p_opposite": 0.00557,
+    "p_other_threshold": 0.18468,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 513.4,
+    "company_name": "Kiri Industries Limited",
+    "sector": "Chemicals",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 513.0,
+    "gap": -0.0007791200187057257,
+    "atr_14": 31.183298110961914,
+    "stop_loss_price": 471.9599914550781,
+    "stop_method": "CAP_8PCT",
+    "target_price": 564.2999877929688,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.059454191476106644
+    ],
+    "r_low": [
+     -0.0002923976571764797
+    ],
+    "r_close": [
+     0.04376218467950821
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 13,
+    "symbol": "TRIVENI",
+    "movement_probability": 0.03626,
+    "p_opposite": 0.00167,
+    "p_other_threshold": 0.27223,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 239.45,
+    "company_name": "Triveni Engineering & Industries Limited",
+    "sector": "FMCG",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 239.4499969482422,
+    "gap": 0.0,
+    "atr_14": 14.47812271118164,
+    "stop_loss_price": 220.29400634765625,
+    "stop_method": "CAP_8PCT",
+    "target_price": 263.3949890136719,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.006473167799413204
+    ],
+    "r_low": [
+     -0.04489454999566078
+    ],
+    "r_close": [
+     -0.0292336605489254
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 14,
+    "symbol": "JYOTISTRUC",
+    "movement_probability": 0.03555,
+    "p_opposite": 0.00497,
+    "p_other_threshold": 0.22577,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 9.02,
+    "company_name": "Jyoti Structures Limited",
+    "sector": "Capital Goods",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 9.010000228881836,
+    "gap": -0.0011086500016972423,
+    "atr_14": 0.4349885880947113,
+    "stop_loss_price": 8.289199829101562,
+    "stop_method": "CAP_8PCT",
+    "target_price": 9.91100025177002,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.01997780241072178
+    ],
+    "r_low": [
+     -0.00998890120536089
+    ],
+    "r_close": [
+     0.011098778806626797
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 15,
+    "symbol": "IFCI",
+    "movement_probability": 0.03467,
+    "p_opposite": 0.02057,
+    "p_other_threshold": 0.18205,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 75.06,
+    "company_name": "IFCI Limited",
+    "sector": "Finance",
+    "size_group": "L",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 75.20999908447266,
+    "gap": 0.0019984000828117132,
+    "atr_14": 5.460310935974121,
+    "stop_loss_price": 69.19319915771484,
+    "stop_method": "CAP_8PCT",
+    "target_price": 82.73100280761719,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.0765855610370636
+    ],
+    "r_low": [
+     0.0
+    ],
+    "r_close": [
+     0.024996675550937653
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 16,
+    "symbol": "PINELABS",
+    "movement_probability": 0.03418,
+    "p_opposite": 0.00696,
+    "p_other_threshold": 0.15261,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 185.71,
+    "company_name": "Pine Labs Limited",
+    "sector": "Finance",
+    "size_group": "L",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 185.77999877929688,
+    "gap": 0.00037692999467253685,
+    "atr_14": 10.277502059936523,
+    "stop_loss_price": 170.9176025390625,
+    "stop_method": "CAP_8PCT",
+    "target_price": 204.35800170898438,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.04688341170549393
+    ],
+    "r_low": [
+     -0.01577134244143963
+    ],
+    "r_close": [
+     -0.006997523829340935
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 17,
+    "symbol": "DENTA",
+    "movement_probability": 0.03397,
+    "p_opposite": 0.00304,
+    "p_other_threshold": 0.12042,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 282.05,
+    "company_name": "Denta Water and Infra Solutions Limited",
+    "sector": "Utilities",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 282.8999938964844,
+    "gap": 0.003013649955391884,
+    "atr_14": 13.361248970031738,
+    "stop_loss_price": 260.26800537109375,
+    "stop_method": "CAP_8PCT",
+    "target_price": 311.19000244140625,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.01201838068664074
+    ],
+    "r_low": [
+     -0.023683279752731323
+    ],
+    "r_close": [
+     -0.0159066803753376
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 18,
+    "symbol": "FILATEX",
+    "movement_probability": 0.03385,
+    "p_opposite": 0.00395,
+    "p_other_threshold": 0.2017,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 87.22,
+    "company_name": "Filatex India Limited",
+    "sector": null,
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 87.98999786376953,
+    "gap": 0.008828249759972095,
+    "atr_14": 5.173727512359619,
+    "stop_loss_price": 80.95079803466797,
+    "stop_method": "CAP_8PCT",
+    "target_price": 96.78900146484375,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.04443686828017235
+    ],
+    "r_low": [
+     -0.027616774663329124
+    ],
+    "r_close": [
+     0.026821229606866837
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 19,
+    "symbol": "MOREPENLAB",
+    "movement_probability": 0.03265,
+    "p_opposite": 0.02877,
+    "p_other_threshold": 0.2706,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 114.73,
+    "company_name": "Morepen Laboratories Limited",
+    "sector": "Healthcare",
+    "size_group": "L",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 115.0,
+    "gap": 0.00235334993340075,
+    "atr_14": 7.583454608917236,
+    "stop_loss_price": 105.80000305175781,
+    "stop_method": "CAP_8PCT",
+    "target_price": 126.5,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.05478261038661003
+    ],
+    "r_low": [
+     -0.020695652812719345
+    ],
+    "r_close": [
+     0.048347827047109604
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 20,
+    "symbol": "NACLIND",
+    "movement_probability": 0.03218,
+    "p_opposite": 0.00519,
+    "p_other_threshold": 0.14804,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 151.18,
+    "company_name": "NACL Industries Limited",
+    "sector": "Chemicals",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 150.4499969482422,
+    "gap": -0.004828679841011763,
+    "atr_14": 7.271824359893799,
+    "stop_loss_price": 138.41400146484375,
+    "stop_method": "CAP_8PCT",
+    "target_price": 165.4949951171875,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.03994682803750038
+    ],
+    "r_low": [
+     -0.015287471003830433
+    ],
+    "r_close": [
+     -0.010435360483825207
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 21,
+    "symbol": "SUVEN",
+    "movement_probability": 0.03214,
+    "p_opposite": 0.00302,
+    "p_other_threshold": 0.19814,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 336.45,
+    "company_name": "Suven Life Sciences Limited",
+    "sector": "Healthcare",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 332.0,
+    "gap": -0.013226330280303955,
+    "atr_14": 19.304166793823242,
+    "stop_loss_price": 305.44000244140625,
+    "stop_method": "CAP_8PCT",
+    "target_price": 365.20001220703125,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.0602409653365612
+    ],
+    "r_low": [
+     0.0
+    ],
+    "r_close": [
+     0.053765058517456055
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 22,
+    "symbol": "AWFIS",
+    "movement_probability": 0.03171,
+    "p_opposite": 0.00135,
+    "p_other_threshold": 0.13417,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 271.1,
+    "company_name": "Awfis Space Solutions Limited",
+    "sector": "Services",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 270.29998779296875,
+    "gap": -0.0029509400483220816,
+    "atr_14": 13.76080322265625,
+    "stop_loss_price": 248.67599487304688,
+    "stop_method": "CAP_8PCT",
+    "target_price": 297.3299865722656,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.014243433251976967
+    ],
+    "r_low": [
+     -0.026637069880962372
+    ],
+    "r_close": [
+     -0.020717721432447433
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 23,
+    "symbol": "SSWL",
+    "movement_probability": 0.03159,
+    "p_opposite": 0.00809,
+    "p_other_threshold": 0.15873,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 350.05,
+    "company_name": "Steel Strips Wheels Limited",
+    "sector": "Automobile",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 350.95001220703125,
+    "gap": 0.00257106008939445,
+    "atr_14": 17.38282012939453,
+    "stop_loss_price": 322.8739929199219,
+    "stop_method": "CAP_8PCT",
+    "target_price": 386.0450134277344,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.016811512410640717
+    ],
+    "r_low": [
+     -0.01324975024908781
+    ],
+    "r_close": [
+     -0.007693403400480747
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 24,
+    "symbol": "INA",
+    "movement_probability": 0.03123,
+    "p_opposite": 0.00204,
+    "p_other_threshold": 0.20665,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 86.95,
+    "company_name": "Insolation Energy Limited",
+    "sector": "Power",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 86.5999984741211,
+    "gap": -0.004025300033390522,
+    "atr_14": 4.3441362380981445,
+    "stop_loss_price": 79.6719970703125,
+    "stop_method": "CAP_8PCT",
+    "target_price": 95.26000213623047,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.027713626623153687
+    ],
+    "r_low": [
+     -0.0013856813311576843
+    ],
+    "r_close": [
+     0.009006928652524948
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 25,
+    "symbol": "HGINFRA",
+    "movement_probability": 0.03061,
+    "p_opposite": 0.00094,
+    "p_other_threshold": 0.03106,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 461.5,
+    "company_name": "H.G. Infra Engineering Limited",
+    "sector": "Construction",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 463.1499938964844,
+    "gap": 0.0035753000993281603,
+    "atr_14": 12.723395347595215,
+    "stop_loss_price": 437.7032165527344,
+    "stop_method": "ATR",
+    "target_price": 509.4649963378906,
+    "sessions_observed": 1,
+    "session_dates": [
+     "2026-09-17"
+    ],
+    "r_open": [
+     0.0
+    ],
+    "r_high": [
+     0.019108280539512634
+    ],
+    "r_low": [
+     -0.006801252253353596
+    ],
+    "r_close": [
+     -0.005397819448262453
+    ],
+    "model_label_hit": false
+   }
+  ],
+  "exceptions": [],
+  "benchmarks": [
+   {
+    "benchmark": "A_ALL",
+    "mode": "EOD-1",
+    "state": "CLOSED",
+    "n": 991,
+    "members": [],
+    "gross_mean": 0.0102262,
+    "net_mean": 0.0077262,
+    "target_hit_rate": 0.0110999,
+    "positive_rate": 0.6629667,
+    "source": null
+   },
+   {
+    "benchmark": "A_ALL",
+    "mode": "EOD-3",
+    "state": "OPEN",
+    "n": 0,
+    "members": [],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "A_ALL",
+    "mode": "EOD-5",
+    "state": "OPEN",
+    "n": 0,
+    "members": [],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "A_ALL",
+    "mode": "FIXED",
+    "state": "OPEN",
+    "n": 0,
+    "members": [],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "A_ALL",
+    "mode": "TARGET_STOP",
+    "state": "OPEN",
+    "n": 11,
+    "members": [],
+    "gross_mean": 0.1,
+    "net_mean": 0.0975,
+    "target_hit_rate": 1.0,
+    "positive_rate": 1.0,
+    "source": null
+   },
+   {
+    "benchmark": "A_RANDOM5",
+    "mode": "EOD-1",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "BUILDPRO",
+     "DWARKESH",
+     "GLAXO",
+     "IDBI",
+     "PFIZER"
+    ],
+    "gross_mean": -0.01127215,
+    "net_mean": -0.01377215,
+    "target_hit_rate": 0.0,
+    "positive_rate": 0.2,
+    "source": null
+   },
+   {
+    "benchmark": "A_RANDOM5",
+    "mode": "EOD-3",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "BUILDPRO",
+     "DWARKESH",
+     "GLAXO",
+     "IDBI",
+     "PFIZER"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "A_RANDOM5",
+    "mode": "EOD-5",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "BUILDPRO",
+     "DWARKESH",
+     "GLAXO",
+     "IDBI",
+     "PFIZER"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "A_RANDOM5",
+    "mode": "FIXED",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "BUILDPRO",
+     "DWARKESH",
+     "GLAXO",
+     "IDBI",
+     "PFIZER"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "A_RANDOM5",
+    "mode": "TARGET_STOP",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "BUILDPRO",
+     "DWARKESH",
+     "GLAXO",
+     "IDBI",
+     "PFIZER"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "B_MATCHED",
+    "mode": "EOD-1",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "KNRCON",
+     "RTNINDIA",
+     "SBCL",
+     "GMRP&UI",
+     "EXICOM"
+    ],
+    "gross_mean": -0.00304511,
+    "net_mean": -0.00554511,
+    "target_hit_rate": 0.0,
+    "positive_rate": 0.2,
+    "source": null
+   },
+   {
+    "benchmark": "B_MATCHED",
+    "mode": "EOD-3",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "KNRCON",
+     "RTNINDIA",
+     "SBCL",
+     "GMRP&UI",
+     "EXICOM"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "B_MATCHED",
+    "mode": "EOD-5",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "KNRCON",
+     "RTNINDIA",
+     "SBCL",
+     "GMRP&UI",
+     "EXICOM"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "B_MATCHED",
+    "mode": "FIXED",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "KNRCON",
+     "RTNINDIA",
+     "SBCL",
+     "GMRP&UI",
+     "EXICOM"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "B_MATCHED",
+    "mode": "TARGET_STOP",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "KNRCON",
+     "RTNINDIA",
+     "SBCL",
+     "GMRP&UI",
+     "EXICOM"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "C_MOVEMENT",
+    "mode": "EOD-1",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "PNCINFRA",
+     "ANTELOPUS",
+     "RPEL",
+     "DELTACORP",
+     "AEROENTER"
+    ],
+    "gross_mean": 0.03645666,
+    "net_mean": 0.03395666,
+    "target_hit_rate": 0.0,
+    "positive_rate": 0.8,
+    "source": null
+   },
+   {
+    "benchmark": "C_MOVEMENT",
+    "mode": "EOD-3",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "PNCINFRA",
+     "ANTELOPUS",
+     "RPEL",
+     "DELTACORP",
+     "AEROENTER"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "C_MOVEMENT",
+    "mode": "EOD-5",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "PNCINFRA",
+     "ANTELOPUS",
+     "RPEL",
+     "DELTACORP",
+     "AEROENTER"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "C_MOVEMENT",
+    "mode": "FIXED",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "PNCINFRA",
+     "ANTELOPUS",
+     "RPEL",
+     "DELTACORP",
+     "AEROENTER"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "C_MOVEMENT",
+    "mode": "TARGET_STOP",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "PNCINFRA",
+     "ANTELOPUS",
+     "RPEL",
+     "DELTACORP",
+     "AEROENTER"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "D_NIFTY50",
+    "mode": "EOD-1",
+    "state": "CLOSED",
+    "n": 1,
+    "members": [
+     "NIFTY 50"
+    ],
+    "gross_mean": 0.00324851,
+    "net_mean": 0.00324851,
+    "target_hit_rate": null,
+    "positive_rate": 1.0,
+    "source": "NSE_IND_CLOSE"
+   },
+   {
+    "benchmark": "D_NIFTY50",
+    "mode": "EOD-3",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "NIFTY 50"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "D_NIFTY50",
+    "mode": "EOD-5",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "NIFTY 50"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "D_NIFTY50",
+    "mode": "FIXED",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "NIFTY 50"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "D_NIFTY50",
+    "mode": "TARGET_STOP",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "NIFTY 50"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "MODEL",
+    "mode": "EOD-1",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "PNCINFRA",
+     "DELTACORP",
+     "RPEL",
+     "KPEL",
+     "AEROENTER"
+    ],
+    "gross_mean": 0.04606214,
+    "net_mean": 0.04356214,
+    "target_hit_rate": 0.0,
+    "positive_rate": 1.0,
+    "source": null
+   },
+   {
+    "benchmark": "MODEL",
+    "mode": "EOD-3",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "PNCINFRA",
+     "DELTACORP",
+     "RPEL",
+     "KPEL",
+     "AEROENTER"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "MODEL",
+    "mode": "EOD-5",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "PNCINFRA",
+     "DELTACORP",
+     "RPEL",
+     "KPEL",
+     "AEROENTER"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "MODEL",
+    "mode": "FIXED",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "PNCINFRA",
+     "DELTACORP",
+     "RPEL",
+     "KPEL",
+     "AEROENTER"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   },
+   {
+    "benchmark": "MODEL",
+    "mode": "TARGET_STOP",
+    "state": "OPEN",
+    "n": 0,
+    "members": [
+     "PNCINFRA",
+     "DELTACORP",
+     "RPEL",
+     "KPEL",
+     "AEROENTER"
+    ],
+    "gross_mean": null,
+    "net_mean": null,
+    "target_hit_rate": null,
+    "positive_rate": null,
+    "source": null
+   }
+  ]
+ }
+}

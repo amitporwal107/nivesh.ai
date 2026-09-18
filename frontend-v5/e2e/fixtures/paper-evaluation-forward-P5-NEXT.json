@@ -1,0 +1,259 @@
+{
+ "_note": "MOCK \u2014 not live data: captured from the staging DaaS (/v1/paper-trades, nidp_staging) on 2026-09-18 after the engine's forward and replay runs; replayed by e2e/tests/research-paper-trades.spec.ts.",
+ "data": {
+  "status": "ok",
+  "sample": "forward",
+  "portfolio": "P5-NEXT",
+  "as_of_session": "2026-09-17",
+  "computed_at": "2026-09-18T08:35:39.388556+00:00",
+  "inputs_sha256": "1acf96b751e0b013687b024cc8de2b52d008d729a40b3ef51d2a583e71a5255a",
+  "evaluation": {
+   "costs": {
+    "base": 0.25,
+    "sensitivity": [
+     0.5,
+     1.0
+    ]
+   },
+   "modes": [
+    {
+     "ci95": {
+      "n": 0,
+      "hi": null,
+      "lo": null,
+      "mean": null
+     },
+     "mode": "EOD-1",
+     "label": "close of the entry day (s1)",
+     "headline": true,
+     "mean_mae": null,
+     "mean_mfe": null,
+     "net_mean": null,
+     "sessions": 0,
+     "win_rate": null,
+     "portfolio": {
+      "sessions": 0,
+      "sharpe_like": null,
+      "total_pnl_inr": 0.0,
+      "capital_base_inr": 100000,
+      "max_drawdown_inr": 0.0,
+      "volatility_daily": null,
+      "mean_daily_return": null
+     },
+     "gross_mean": null,
+     "net_median": null,
+     "established": false,
+     "net_mean_050": null,
+     "net_mean_100": null,
+     "closed_trades": 0,
+     "edge_vs_a_all": {
+      "n": 0,
+      "hi": null,
+      "lo": null,
+      "mean": null
+     },
+     "profit_factor": null,
+     "total_net_inr": 0.0,
+     "target_hit_rate": null
+    },
+    {
+     "ci95": {
+      "n": 0,
+      "hi": null,
+      "lo": null,
+      "mean": null
+     },
+     "mode": "EOD-3",
+     "label": "close of the third session (s3)",
+     "headline": false,
+     "mean_mae": null,
+     "mean_mfe": null,
+     "net_mean": null,
+     "sessions": 0,
+     "win_rate": null,
+     "portfolio": {
+      "sessions": 0,
+      "sharpe_like": null,
+      "total_pnl_inr": 0.0,
+      "capital_base_inr": 300000,
+      "max_drawdown_inr": 0.0,
+      "volatility_daily": null,
+      "mean_daily_return": null
+     },
+     "gross_mean": null,
+     "net_median": null,
+     "established": false,
+     "net_mean_050": null,
+     "net_mean_100": null,
+     "closed_trades": 0,
+     "edge_vs_a_all": {
+      "n": 0,
+      "hi": null,
+      "lo": null,
+      "mean": null
+     },
+     "profit_factor": null,
+     "total_net_inr": 0.0,
+     "target_hit_rate": null
+    },
+    {
+     "ci95": {
+      "n": 0,
+      "hi": null,
+      "lo": null,
+      "mean": null
+     },
+     "mode": "EOD-5",
+     "label": "close of the fifth session (s5)",
+     "headline": false,
+     "mean_mae": null,
+     "mean_mfe": null,
+     "net_mean": null,
+     "sessions": 0,
+     "win_rate": null,
+     "portfolio": {
+      "sessions": 0,
+      "sharpe_like": null,
+      "total_pnl_inr": 0.0,
+      "capital_base_inr": 500000,
+      "max_drawdown_inr": 0.0,
+      "volatility_daily": null,
+      "mean_daily_return": null
+     },
+     "gross_mean": null,
+     "net_median": null,
+     "established": false,
+     "net_mean_050": null,
+     "net_mean_100": null,
+     "closed_trades": 0,
+     "edge_vs_a_all": {
+      "n": 0,
+      "hi": null,
+      "lo": null,
+      "mean": null
+     },
+     "profit_factor": null,
+     "total_net_inr": 0.0,
+     "target_hit_rate": null
+    },
+    {
+     "ci95": {
+      "n": 0,
+      "hi": null,
+      "lo": null,
+      "mean": null
+     },
+     "mode": "FIXED",
+     "label": "no early exit, close of s6",
+     "headline": false,
+     "mean_mae": null,
+     "mean_mfe": null,
+     "net_mean": null,
+     "sessions": 0,
+     "win_rate": null,
+     "portfolio": {
+      "sessions": 0,
+      "sharpe_like": null,
+      "total_pnl_inr": 0.0,
+      "capital_base_inr": 600000,
+      "max_drawdown_inr": 0.0,
+      "volatility_daily": null,
+      "mean_daily_return": null
+     },
+     "gross_mean": null,
+     "net_median": null,
+     "established": false,
+     "net_mean_050": null,
+     "net_mean_100": null,
+     "closed_trades": 0,
+     "edge_vs_a_all": {
+      "n": 0,
+      "hi": null,
+      "lo": null,
+      "mean": null
+     },
+     "profit_factor": null,
+     "total_net_inr": 0.0,
+     "target_hit_rate": null
+    },
+    {
+     "ci95": {
+      "n": 0,
+      "hi": null,
+      "lo": null,
+      "mean": null
+     },
+     "mode": "TARGET_STOP",
+     "label": "first barrier in s1\u2013s6, else close of s6",
+     "headline": false,
+     "mean_mae": null,
+     "mean_mfe": null,
+     "net_mean": null,
+     "sessions": 0,
+     "win_rate": null,
+     "portfolio": {
+      "sessions": 0,
+      "sharpe_like": null,
+      "total_pnl_inr": 0.0,
+      "capital_base_inr": 600000,
+      "max_drawdown_inr": 0.0,
+      "volatility_daily": null,
+      "mean_daily_return": null
+     },
+     "stop_rate": null,
+     "gross_mean": null,
+     "net_median": null,
+     "established": false,
+     "net_mean_050": null,
+     "net_mean_100": null,
+     "closed_trades": 0,
+     "edge_vs_a_all": {
+      "n": 0,
+      "hi": null,
+      "lo": null,
+      "mean": null
+     },
+     "profit_factor": null,
+     "total_net_inr": 0.0,
+     "target_hit_rate": null,
+     "target_before_stop_rate": null
+    }
+   ],
+   "sample": "forward",
+   "buckets": {
+    "selected": [],
+    "universe": []
+   },
+   "rules_id": "paper-v1",
+   "sessions": {
+    "counted": 0,
+    "recorded": 1,
+    "not_counted": [
+     "2026-09-17"
+    ],
+    "last_counted": null,
+    "first_counted": null,
+    "with_closed_headline": 0
+   },
+   "portfolio": "P5-NEXT",
+   "statement": {
+    "text": "Not established: 0 counted sessions, fewer than the 60 the pre-registration requires.",
+    "established": false,
+    "min_sessions": 60
+   },
+   "benchmarks": [],
+   "exceptions": {
+    "selected": 0
+   },
+   "as_of_session": "2026-09-17",
+   "computed_from": {
+    "rules_sha256": "ea4bf3825c185d4045da36aff9ad682d68b63d687aaada6bbe9a5eca8319c72f",
+    "registered_at": "2026-09-18T13:37:49+05:30",
+    "prediction_sets": 2,
+    "panel_last_session": "2026-09-17"
+   },
+   "headline_mode": "EOD-1",
+   "refused_snapshots": []
+  }
+ }
+}
