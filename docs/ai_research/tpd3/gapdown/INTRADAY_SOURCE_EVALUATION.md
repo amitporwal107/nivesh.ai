@@ -242,3 +242,35 @@ stamped, ingest log row written.
 Two defects were found and fixed by this smoke test before the bulk run: a Postgres index
 expression needing an extra paren (migration 152), and a CSV terminator landing on the last
 data row (`csv.writer` default `\r\n` -> `lineterminator="\n"`).
+
+---
+
+# ADDENDUM 4 — 2026-09-19: pricing correction, adjustment behaviour, display restriction
+
+## Correction — historical data is NOT a separate add-on
+Addendum 1 said the historical API is "a paid add-on, separate from Kite Connect itself". Per the Zerodha
+pricing the owner cited (2026-09-19): Kite Connect is Rs 500/month per API key and **includes** real-time
+and historical candle data. That claim of mine was outdated. (The subscription question was already moot:
+historical calls were VERIFIED working on this app in Addendum 2.)
+
+## Kite historical candles are BACK-ADJUSTED for splits and bonuses (verified)
+Close on the session before the ex-date, bhavcopy raw vs Kite:
+
+| symbol | action (NSE notation) | pre-ex date | bhavcopy raw | Kite | raw/Kite | expected factor |
+|---|---|---|---|---|---|---|
+| TDPOWERSYS | split 2:1 | 2026-08-21 | 1534.80 | 767.40 | **2.000** | 2 |
+| TRENT | bonus 1:2 (1 new per 2 held) | 2026-06-03 | 4257.60 | 2838.40 | **1.500** | 1.5 |
+| GOODLUCK | bonus 2:1 (2 new per 1 held) | 2026-08-20 | 1439.40 | 479.80 | **3.000** | 3 |
+
+Rules that follow:
+- **Returns** across dates: use Kite (continuous through corporate actions).
+- **Rupee levels** (pivots, circuit bands, "price < Rs X" filters, round numbers): Kite history is NOT the traded
+  price. Un-adjust with the corporate-action factor, or take levels from raw bhavcopy.
+- **Adjusted history is rewritten** whenever a new action is ex-dated, so a stored pull goes stale for that
+  symbol. Store the pull date (`fetched_at`) and re-pull a symbol after any new split/bonus.
+- The G1 result (Addendum 3) is unaffected: every return there is a ratio of Kite's own same-day o/h/l/c.
+
+## Display restriction (owner-cited Zerodha policy)
+Kite Connect data may not be displayed on other platforms under exchange data-vending rules. Use is limited
+to internal research / backtesting. Anything user-facing in Nivesh.ai needs an exchange-authorised vendor.
+This applies to the paper-trades page's intraday chart if its source were switched to Kite.
