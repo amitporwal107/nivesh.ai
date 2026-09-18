@@ -274,3 +274,30 @@ Rules that follow:
 Kite Connect data may not be displayed on other platforms under exchange data-vending rules. Use is limited
 to internal research / backtesting. Anything user-facing in Nivesh.ai needs an exchange-authorised vendor.
 This applies to the paper-trades page's intraday chart if its source were switched to Kite.
+
+---
+
+# ⚠️ ADDENDUM 5 — 2026-09-19 03:30 IST: RETRACTION — the Kite minute backfill fetched the WRONG SESSION
+
+**What was wrong.** A panel row dated *t* carries the gap of session *t+1* (`n_open/n_high/n_close` are the NEXT
+session). The backfill built its pairs as `trade_day = as_of_date`, so all 1,396,641 minute bars (run
+`gapdown-20260918T230903`, `nidp.intraday_bars`) are from the session **before** each gap-down, not the gap-down
+session. The single-symbol cross-check (RELIANCE, Addendum 2) mapped the dates correctly; the bulk script did not,
+and the join was never validated in bulk.
+
+**Retracted:**
+- "Pre-registered G1 grid re-run with a TRUE intraday low: all 4 variants FAIL (MODERATE −0.6531%, t −13.28)."
+  **INVALID — measured the day before the gap.** G1 with a real intraday low is **UNTESTED**.
+- The first delayed-stop timing study (same bars). It also divided bhavcopy's raw close by Kite's back-adjusted
+  open, which is why it showed impossible means (+10%).
+
+**Still valid** (they use only panel columns for the correct session): the first grid's look-ahead diagnosis
+(target from the high, stop checked only at the close), the close-only result (+0.4735%/session, t = +3.70), the
+abandon-condition checks, and all Phase 1 base rates.
+
+**Fix in progress:** `/app/research/kite_history/gapdown_minute_v2/refetch.py` refetches minute bars for
+`trade_day = next session after as_of_date` and validates every pair (Kite 09:15 open vs panel raw `n_open`:
+equal, or an exact back-adjustment ratio > 1.05; anything else is logged as a MISMATCH).
+
+**Rule added:** every bulk join between two price sources is validated on a shared field (open vs open) before any
+result is computed from it.
