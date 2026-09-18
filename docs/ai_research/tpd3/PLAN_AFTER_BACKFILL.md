@@ -25,7 +25,7 @@ until spec v2 is frozen.
 Three-way gate rerun, session-level metrics, excluded observations, liquidity, 2× costs, capacity. Under the frozen
 spec H-A close-only is **+0.498%/session (t 2.79)**; **+0.175% (t 0.98) at 2× costs**; top 10 sessions = 58% of P&L;
 > Rs 25 cr t 1.66; the frozen −2/+3/close arm ≈ 0; up to 749 positions in one session.
-**Before the sealed test, spec v2 must freeze (owner decisions):**
+**Spec v2 FROZEN (`track1/TRACK1_SCOPE_v2.md`): D1 validate 2021–22 / final test 2023-01 → 2024-07 · D2 H-A and H-B only · D8 max 5 positions per session, deepest gaps first · D12 H-A open→close.** Original decision text:
 - **D12 — which H-A goes to the sealed test.** Discovery evidence: close-only positive, −2/+3/close ≈ 0. v1 registered
   the −2/+3/close arm as co-primary and close-only only as a reference. Recommendation: register **close-only** as H-A's
   endpoint, keep −2/+3/close as a secondary description. A discovery-informed choice is legitimate *before* the sealed
