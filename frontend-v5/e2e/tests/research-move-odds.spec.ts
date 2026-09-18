@@ -24,7 +24,11 @@ const MOCK_MEDIA_EVENT = {
 
 type Reply = { status: number; body: unknown };
 const liveCalls: string[] = [];
-async function mockOdds(page: Page, latest?: (head: string) => Reply, diagnostics?: () => Reply) {
+async function mockOdds(page: Page, latest?: (head: string) => Reply, diagnostics?: () => Reply, history?: () => Reply) {
+  await page.route("**/api/move-odds/history**", (route) => {
+    const r = history ? history() : { status: 200, body: load("move-odds-history.json") };
+    return route.fulfill({ status: r.status, contentType: "application/json", body: JSON.stringify(r.body) });
+  });
   await page.route("**/api/move-odds/diagnostics**", (route) => {
     const r = diagnostics ? diagnostics() : { status: 200, body: load("move-odds-diagnostics.json") };
     return route.fulfill({ status: r.status, contentType: "application/json", body: JSON.stringify(r.body) });
@@ -201,6 +205,70 @@ test.describe("Move odds — final estimates", () => {
     for (const r of data.rows.slice(0, 50)) {
       await expect(page.getByTestId(`mo-pct-${r.symbol}`)).toHaveText(pct(r.p));
     }
+  });
+});
+
+test.describe("Move odds — history (TC-57..TC-60, test_reports/move_odds_history_20260918_0820.md)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("TC-57 the History view lists sessions newest-first and shows the selected one's outcomes", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await mockOdds(page);
+    await openOdds(page);
+    await page.getByTestId("mo-view-history").click();
+    const h = load("move-odds-history.json").data;
+    await expect(page.getByTestId("mo-history")).toBeVisible();
+    const dates = await page.locator('[data-testid^="mo-hist-date-"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+    expect(dates).toEqual(["mo-hist-date-2026-09-18", "mo-hist-date-2026-09-17"]);   // newest first
+    await page.getByTestId("mo-hist-date-2026-09-17").click();
+    const graded = h.sessions[1];
+    await expect(page.getByTestId("mo-hist-summary")).toContainText("2 of the top 3 reached it");
+    await expect(page.getByTestId("mo-hist-summary")).toContainText("86");
+    for (const r of graded.rows) {
+      await expect(page.getByTestId(`mo-hist-p-${r.symbol}`)).toHaveText(pct(r.p));
+      await expect(page.getByTestId(`mo-hist-outcome-${r.symbol}`)).toHaveText(r.outcome.touched ? "reached" : "did not");
+    }
+    await expect(page.getByTestId("mo-hist-row-PNCINFRA")).toContainText("+5.5%");
+  });
+
+  test("TC-58 new entries are marked and explained, and returning stocks are not", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await mockOdds(page);
+    await openOdds(page);
+    await page.getByTestId("mo-view-history").click();
+    await page.getByTestId("mo-hist-date-2026-09-18").click();
+    await expect(page.getByTestId("mo-hist-new-SHAREINDIA")).toBeVisible();          // is_new true
+    await expect(page.getByTestId("mo-hist-new-RATNAVEER")).toHaveCount(0);          // is_new false
+    await expect(page.getByTestId("mo-hist-legend")).toContainText("new to the top 3 this session");
+    await page.getByTestId("mo-hist-date-2026-09-17").click();
+    await expect(page.locator('[data-testid^="mo-hist-new-"]')).toHaveCount(0);      // is_new null on the earliest session: never marked
+  });
+
+  test("TC-59 a pending session says so and shows no outcome, with no banned vocabulary", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await mockOdds(page);
+    await openOdds(page);
+    await page.getByTestId("mo-view-history").click();
+    await page.getByTestId("mo-hist-date-2026-09-18").click();
+    await expect(page.getByTestId("mo-hist-pending")).toContainText("graded after its closing file lands");
+    await expect(page.getByTestId("mo-hist-outcome-SHAREINDIA")).toHaveText("pending");
+    const text = await page.getByTestId("move-odds-screen").innerText();
+    expect(text.match(BANNED), "banned vocabulary").toBeNull();
+  });
+});
+
+test.describe("Move odds — history on a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("TC-60 the history table fits the screen", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await mockOdds(page);
+    await page.goto("/v5/research");
+    await page.getByTestId("mnav-odds").click();
+    await page.getByTestId("mo-view-history").click();
+    await expect(page.getByTestId("mo-history")).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
   });
 });
 

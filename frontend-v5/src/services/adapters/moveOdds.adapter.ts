@@ -4,6 +4,7 @@
  *   GET /api/move-odds/latest?head=…     → published estimates for the session they apply to
  *   GET /api/move-odds/stocks/{symbol}   → one stock: four estimates, inputs on record, events on record
  *   GET /api/move-odds/diagnostics       → backtest results of the rejected entry setups (research, never signals)
+ *   GET /api/move-odds/history           → past sessions: what was estimated and how it turned out
  *
  * Every state is explicit so the screen can never show numbers it should not:
  *   final         → rows (sorted by estimate, no rank)
@@ -254,6 +255,48 @@ export async function fetchDiagnostics(): Promise<DiagnosticsResult> {
   try {
     const res = await http<unknown>({ path: "/api/move-odds/diagnostics", noRetry: true });
     const env = z.object({ data: DiagC }).safeParse(res.data);
+    return env.success ? { kind: "ok", data: env.data.data } : { kind: "error", message: "unexpected response shape" };
+  } catch (e) {
+    const f = fromError(e);
+    return f.kind === "no_access" ? f : { kind: "error", message: f.kind === "withheld" ? f.reason : f.message };
+  }
+}
+
+// ── History (GET /api/move-odds/history) ───────────────────────────────────────────────────────────────────────────────
+// Each past published session with its top estimates and what actually happened. A session whose prices are not in yet
+// comes back pending; outcome fields stay null rather than reading as a miss.
+const OutcomeC = z.object({
+  state: z.enum(["graded", "pending"]),
+  touched: z.boolean().nullable(),
+  move_pct: z.number().nullable(),
+  reference_close: z.number().nullable(),
+  within3: z.boolean().nullable(),
+  within5: z.boolean().nullable(),
+  sessions_available: z.number(),
+});
+const HistoryRowC = z.object({
+  rank: z.number(), symbol: z.string(), company_name: z.string().nullable(), sector: z.string().nullable(),
+  p: z.number(), is_new: z.boolean().nullable(), outcome: OutcomeC,
+});
+const HistorySessionC = z.object({
+  target_session: z.string(), data_as_of: z.string().nullable(), frozen_at: z.string().nullable(),
+  scored: z.number().nullable(), base_rate: z.number().nullable(), state: z.enum(["graded", "pending"]),
+  summary: z.object({
+    graded_rows: z.number().nullable(), touched: z.number().nullable(), touch_rate: z.number().nullable(),
+    top10_touched: z.number().nullable(), top_n_touched: z.number().nullable(),
+  }),
+  rows: z.array(HistoryRowC),
+});
+const HistoryC = z.object({ head: z.enum(MOVE_HEADS), model: z.string(), top_n: z.number(), sessions: z.array(HistorySessionC) });
+export type MoveHistory = z.infer<typeof HistoryC>;
+export type MoveHistorySession = z.infer<typeof HistorySessionC>;
+export type MoveHistoryRow = z.infer<typeof HistoryRowC>;
+export type HistoryResult = { kind: "ok"; data: MoveHistory } | { kind: "no_access" } | { kind: "error"; message: string };
+
+export async function fetchHistory(head: MoveHead): Promise<HistoryResult> {
+  try {
+    const res = await http<unknown>({ path: "/api/move-odds/history", query: { head }, noRetry: true });
+    const env = z.object({ data: HistoryC }).safeParse(res.data);
     return env.success ? { kind: "ok", data: env.data.data } : { kind: "error", message: "unexpected response shape" };
   } catch (e) {
     const f = fromError(e);

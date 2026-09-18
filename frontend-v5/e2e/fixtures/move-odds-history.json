@@ -1,0 +1,146 @@
+{
+  "_comment": "MOCK \u2014 not real data at test time: shaped like GET /api/move-odds/history. The 2026-09-17 rows mirror the real graded session (PNCINFRA/RATNAVEER/MOREPENLAB reached +5%); 2026-09-18 is pending.",
+  "data": {
+    "head": "p_up5_1d",
+    "model": "v4",
+    "top_n": 3,
+    "sessions": [
+      {
+        "target_session": "2026-09-18",
+        "data_as_of": "2026-09-17",
+        "frozen_at": "2026-09-17T20:50:24+05:30",
+        "scored": 997,
+        "base_rate": 0.0758,
+        "state": "pending",
+        "summary": {
+          "graded_rows": null,
+          "touched": null,
+          "touch_rate": null,
+          "top10_touched": null,
+          "top_n_touched": null
+        },
+        "rows": [
+          {
+            "rank": 1,
+            "symbol": "SHAREINDIA",
+            "company_name": "Share India Securities Limited",
+            "sector": "Finance",
+            "p": 0.341,
+            "is_new": true,
+            "outcome": {
+              "state": "pending",
+              "touched": null,
+              "move_pct": null,
+              "reference_close": null,
+              "within3": null,
+              "within5": null,
+              "sessions_available": 0
+            }
+          },
+          {
+            "rank": 2,
+            "symbol": "RATNAVEER",
+            "company_name": "Ratnaveer Precision Engineering Limited",
+            "sector": "Capital Goods",
+            "p": 0.287,
+            "is_new": false,
+            "outcome": {
+              "state": "pending",
+              "touched": null,
+              "move_pct": null,
+              "reference_close": null,
+              "within3": null,
+              "within5": null,
+              "sessions_available": 0
+            }
+          },
+          {
+            "rank": 3,
+            "symbol": "PNCINFRA",
+            "company_name": "PNC Infratech Limited",
+            "sector": "Construction",
+            "p": 0.263,
+            "is_new": false,
+            "outcome": {
+              "state": "pending",
+              "touched": null,
+              "move_pct": null,
+              "reference_close": null,
+              "within3": null,
+              "within5": null,
+              "sessions_available": 0
+            }
+          }
+        ]
+      },
+      {
+        "target_session": "2026-09-17",
+        "data_as_of": "2026-09-16",
+        "frozen_at": "2026-09-16T20:50:22+05:30",
+        "scored": 994,
+        "base_rate": 0.0758,
+        "state": "graded",
+        "summary": {
+          "graded_rows": 994,
+          "touched": 86,
+          "touch_rate": 0.08651911468812877,
+          "top10_touched": 3,
+          "top_n_touched": 2
+        },
+        "rows": [
+          {
+            "rank": 1,
+            "symbol": "PNCINFRA",
+            "company_name": "PNC Infratech Limited",
+            "sector": "Construction",
+            "p": 0.366,
+            "is_new": null,
+            "outcome": {
+              "state": "graded",
+              "touched": true,
+              "move_pct": 0.0551,
+              "reference_close": 134.44,
+              "within3": null,
+              "within5": null,
+              "sessions_available": 1
+            }
+          },
+          {
+            "rank": 2,
+            "symbol": "ANTELOPUS",
+            "company_name": "Antelopus Selan Energy Limited",
+            "sector": "Oil Gas",
+            "p": 0.325,
+            "is_new": null,
+            "outcome": {
+              "state": "graded",
+              "touched": false,
+              "move_pct": 0.0231,
+              "reference_close": 1170.95,
+              "within3": null,
+              "within5": null,
+              "sessions_available": 1
+            }
+          },
+          {
+            "rank": 3,
+            "symbol": "RATNAVEER",
+            "company_name": "Ratnaveer Precision Engineering Limited",
+            "sector": "Capital Goods",
+            "p": 0.276,
+            "is_new": null,
+            "outcome": {
+              "state": "graded",
+              "touched": true,
+              "move_pct": 0.1226,
+              "reference_close": 286.75,
+              "within3": null,
+              "within5": null,
+              "sessions_available": 1
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

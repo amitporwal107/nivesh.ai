@@ -13,8 +13,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import {
-  MOVE_HEADS, fetchDiagnostics, fetchLive, moveOddsService,
-  type DiagnosticsResult, type LiveConditions, type LivePayload, type LiveQuote, type PaperTrade, type MoveBand, type MoveFinal, type MoveHead, type MoveLatestResult, type MoveRow, type MoveStockResult,
+  MOVE_HEADS, fetchDiagnostics, fetchHistory, fetchLive, moveOddsService,
+  type DiagnosticsResult, type HistoryResult, type LiveConditions, type MoveHistorySession, type LivePayload, type LiveQuote, type PaperTrade, type MoveBand, type MoveFinal, type MoveHead, type MoveLatestResult, type MoveRow, type MoveStockResult,
 } from "@/services/adapters/moveOdds.adapter";
 import "./moveOdds.css";
 
@@ -104,6 +104,9 @@ export default function MoveOddsScreen() {
   const [liveError, setLiveError] = useState<string | null>(null);
   const [diag, setDiag] = useState<DiagnosticsResult | null>(null);
   const [diagReload, setDiagReload] = useState(0);
+  const [view, setView] = useState<"estimates" | "history">("estimates");
+  const [hist, setHist] = useState<HistoryResult | null>(null);
+  const [histSession, setHistSession] = useState<string | null>(null);
   const tabRefs = useRef<Partial<Record<MoveHead, HTMLButtonElement | null>>>({});
 
   const denyAll = useCallback(() => {          // 403 anywhere: drop every cached estimate before rendering the state
@@ -121,6 +124,21 @@ export default function MoveOddsScreen() {
     });
     return () => { cancelled = true; };
   }, [reload, denyAll]);
+
+  // History is fetched only when that view is opened, and again whenever the head changes: the ranking it lists is
+  // per head, so p_up5_1d's past top 20 is a different list from p_down10_1d's.
+  useEffect(() => {
+    if (view !== "history") return;
+    let cancelled = false;
+    setHist(null);
+    fetchHistory(head).then((r) => {
+      if (cancelled) return;
+      if (r.kind === "no_access") { denyAll(); return; }
+      setHist(r);
+      if (r.kind === "ok") setHistSession((cur) => (cur && r.data.sessions.some((x) => x.target_session === cur) ? cur : r.data.sessions[0]?.target_session ?? null));
+    });
+    return () => { cancelled = true; };
+  }, [view, head, denyAll]);
 
   useEffect(() => {
     let cancelled = false;
@@ -236,6 +254,17 @@ export default function MoveOddsScreen() {
         </div>
       )}
 
+      <div className="mo-viewrow">
+        <div className="mo-viewtoggle" role="group" aria-label="View">
+          {(["estimates", "history"] as const).map((v) => (
+            <button key={v} type="button" className="mo-viewbtn" aria-pressed={view === v} data-testid={`mo-view-${v}`} onClick={() => setView(v)}>
+              {v === "estimates" ? "Estimates" : "History"}
+            </button>
+          ))}
+        </div>
+        {view === "history" && <span className="mo-mini">Each past session&apos;s top {hist?.kind === "ok" ? hist.data.top_n : 20} and what actually happened.</span>}
+      </div>
+
       <div className="mo-tabs" role="tablist" aria-label="Move size and direction">
         {MOVE_HEADS.map((h) => {
           const r = results[h];
@@ -254,7 +283,11 @@ export default function MoveOddsScreen() {
       </div>
 
       <div id="mo-panel" role="tabpanel" aria-labelledby={`mo-tab-${head}`}>
-        {loading && (
+        {view === "history" && (
+          <History result={hist} selected={histSession} onSelect={setHistSession} head={head} />
+        )}
+
+        {view === "estimates" && loading && (
           <div className="mo-tablewrap" aria-busy="true" aria-label="Loading estimates" data-testid="mo-state-loading">
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="mo-skelrow"><div className="mo-skel" /><div className="mo-skel" style={{ width: `${80 - i * 6}%` }} /><div className="mo-skel" /></div>
@@ -262,7 +295,7 @@ export default function MoveOddsScreen() {
           </div>
         )}
 
-        {current?.kind === "not_published" && (
+        {view === "estimates" && current?.kind === "not_published" && (
           <div className="mo-state" role="status" data-testid="mo-state-not_published">
             <h3 className="nv-serif">Estimates for {day(current.data.expected_session)} are not published yet</h3>
             <p>They are frozen after NSE&apos;s closing file is in and the 15:30–20:30 results window has closed, usually by 21:00 IST.</p>
@@ -270,7 +303,7 @@ export default function MoveOddsScreen() {
           </div>
         )}
 
-        {current?.kind === "withheld" && (
+        {view === "estimates" && current?.kind === "withheld" && (
           <div className="mo-state" role="alert" data-testid="mo-state-withheld">
             <h3 className="nv-serif">Estimates withheld for the next session</h3>
             <p>The run was refused because its input data was incomplete (reason: {current.reason}). A run on incomplete data is not published.</p>
@@ -278,7 +311,7 @@ export default function MoveOddsScreen() {
           </div>
         )}
 
-        {current?.kind === "error" && (
+        {view === "estimates" && current?.kind === "error" && (
           <div className="mo-state" role="alert" data-testid="mo-state-error">
             <h3 className="nv-serif">Estimates could not be loaded</h3>
             <p>The service did not answer ({current.message}). No earlier numbers are shown.</p>
@@ -286,7 +319,7 @@ export default function MoveOddsScreen() {
           </div>
         )}
 
-        {final && (
+        {view === "estimates" && final && (
           <div className="mo-body">
             <div>
               <div className="mo-toolbar">
@@ -349,6 +382,96 @@ export default function MoveOddsScreen() {
       </div>
 
       <SetupDiagnostics result={diag} onRetry={() => setDiagReload((n) => n + 1)} />
+    </div>
+  );
+}
+
+/** Past published sessions: pick a date, see that session's top estimates and what actually happened. Outcomes are the
+ *  published run's own — a session whose closing prices are not in yet reads "grades tonight", never a guess. Stocks the
+ *  model promoted into the top list that session are marked, so a new name is visible at a glance. */
+function History({ result, selected, onSelect, head }: { result: HistoryResult | null; selected: string | null; onSelect: (d: string) => void; head: MoveHead }) {
+  if (result === null) return <p className="mo-mini" aria-busy="true" data-testid="mo-hist-loading">Loading history…</p>;
+  if (result.kind !== "ok") {
+    return (
+      <div className="mo-state" role="alert" data-testid="mo-hist-error">
+        <h3 className="nv-serif">History could not be loaded</h3>
+        <p>The service did not answer ({result.kind === "error" ? result.message : "not enabled"}). No numbers are shown.</p>
+      </div>
+    );
+  }
+  const sessions = result.data.sessions;
+  if (sessions.length === 0) {
+    return (
+      <div className="mo-state" role="status" data-testid="mo-hist-empty">
+        <h3 className="nv-serif">No sessions published yet</h3>
+        <p>Each published session is added here after its estimates are graded, one per trading day.</p>
+      </div>
+    );
+  }
+  const s: MoveHistorySession = sessions.find((x) => x.target_session === selected) ?? sessions[0];
+  const m = META[head];
+  const graded = s.state === "graded";
+  return (
+    <div className="mo-hist" data-testid="mo-history">
+      <div className="mo-hist-dates" role="group" aria-label="Session">
+        {sessions.map((x) => (
+          <button key={x.target_session} type="button" className="mo-hist-date" aria-pressed={x.target_session === s.target_session}
+                  data-testid={`mo-hist-date-${x.target_session}`} onClick={() => onSelect(x.target_session)}>
+            <span className="mo-hist-d1">{day(x.target_session)}</span>
+            <span className="mo-hist-d2">{x.state === "graded" ? `${x.summary.top_n_touched ?? 0} of ${x.rows.length}` : "pending"}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="mo-hist-head" data-testid="mo-hist-summary">
+        <h3 className="nv-serif">{day(s.target_session)} · {m.label}</h3>
+        {graded ? (
+          <p className="mo-mini">
+            {s.summary.top_n_touched ?? 0} of the top {s.rows.length} reached it · across all {s.summary.graded_rows?.toLocaleString("en-IN") ?? s.scored?.toLocaleString("en-IN")} scored stocks{" "}
+            {s.summary.touched?.toLocaleString("en-IN") ?? "—"} did ({s.summary.touch_rate != null ? pct(s.summary.touch_rate) : "—"}), against a base rate of {s.base_rate != null ? pct(s.base_rate) : "—"}
+          </p>
+        ) : (
+          <p className="mo-mini" data-testid="mo-hist-pending">Estimates published from the close of {day(s.data_as_of)}. This session is graded after its closing file lands, usually by 21:00 IST.</p>
+        )}
+        <p className="mo-mini mo-hist-legend" data-testid="mo-hist-legend"><span className="mo-newdot" aria-hidden="true" /> new to the top {result.data.top_n} this session</p>
+      </div>
+
+      <div className="mo-tablewrap" tabIndex={0} role="region" aria-label={`Top estimates for ${day(s.target_session)}`}>
+        <table className="mo-table mo-hist-table">
+          <caption>Top {s.rows.length} by {m.label} estimate for {day(s.target_session)}, and what the session did.</caption>
+          <thead>
+            <tr>
+              <th scope="col">Stock</th>
+              <th scope="col">{m.label} estimate</th>
+              <th scope="col">That session</th>
+              <th scope="col">Move</th>
+              <th scope="col">Within 3</th>
+              <th scope="col">Within 5</th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.rows.map((r) => (
+              <tr key={r.symbol} data-testid={`mo-hist-row-${r.symbol}`} className={r.is_new ? "mo-hist-new" : undefined}>
+                <th scope="row">
+                  <span className="mo-sym">{r.symbol}</span>
+                  {r.is_new && <span className="mo-newtag" data-testid={`mo-hist-new-${r.symbol}`}>new</span>}
+                  <span className="mo-coname">{r.company_name ?? ""}</span>
+                </th>
+                <td data-testid={`mo-hist-p-${r.symbol}`}>{pct(r.p)}</td>
+                <td data-testid={`mo-hist-outcome-${r.symbol}`}>
+                  {r.outcome.state === "pending" ? <span className="mo-outcome pending">pending</span>
+                    : r.outcome.touched ? <span className="mo-outcome yes">reached</span>
+                    : <span className="mo-outcome no">did not</span>}
+                </td>
+                <td>{r.outcome.move_pct != null ? signed(r.outcome.move_pct * 100, "%") : "—"}</td>
+                <td>{r.outcome.within3 == null ? "—" : r.outcome.within3 ? "reached" : "no"}</td>
+                <td>{r.outcome.within5 == null ? "—" : r.outcome.within5 ? "reached" : "no"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mo-mini">&quot;Within 3&quot; and &quot;within 5&quot; ask whether the level was reached at any point in that many sessions, measured from the same close the estimate was made against. A dash means those sessions have not happened yet.</p>
     </div>
   );
 }

@@ -20,6 +20,9 @@ class _Conn:
     async def fetch(self, q, *a):
         self.queries.append(q)
         if "nidp.nse_holidays" in q: return self.db.get("holidays", [])
+        if "WITH ranked AS" in q: return self.db.get("hist_rows", [])            # history: top-N per run with its price window
+        if "FROM nidp.tpd_runs WHERE model" in q: return self.db.get("runs", [])  # history: the published sessions
+        if "graded_rows, touched, top10_hits" in q: return self.db.get("grades", [])
         if "nidp.tpd_run_estimates e" in q: return self.db.get("rows", [])
         if "nidp.tpd_band_record" in q: return self.db.get("bands", [])
         if "nidp.tpd_run_events" in q: return self.db.get("events", [])
@@ -28,6 +31,7 @@ class _Conn:
 
     async def fetchrow(self, q, *a):
         self.queries.append(q)
+        if "SELECT p_base_rate" in q: return self.db.get("base")
         if "nidp.tpd_run_refusals" in q: return self.db.get("refusal")
         if "nidp.tpd_model_record" in q: return self.db.get("record")
         if "nidp.tpd_run_grades" in q: return self.db.get("live")
@@ -192,3 +196,126 @@ def test_tc8_non_internal_key_plan_is_403(make_client):
     c, _ = make_client(_db(), plan="pro")
     assert c.get("/v1/move-odds/latest?head=p_up5_1d", headers=H).status_code == 403
     assert c.get("/v1/move-odds/stocks/PNCINFRA", headers=H).status_code == 403
+
+
+# ── History (TC-50..TC-55 in test_reports/move_odds_history_20260918_0820.md) ────────────────────────────────────────
+
+def _hrun(run_id, target, scored=994):
+    return {"run_id": run_id, "target_session": target, "data_as_of": target - timedelta(days=1),
+            "frozen_at": datetime(target.year, target.month, target.day - 1, 20, 50, tzinfo=IST), "scored": scored, "universe_size": 1000}
+
+
+def _hrow(run_id, symbol, p, rk, *, prev_close=100.0, d_high=None, d_low=None, h3=None, l3=None, n3=3, h5=None, l5=None, n5=5):
+    return {"run_id": run_id, "symbol": symbol, "p": p, "rk": rk, "company_name": f"{symbol} Ltd", "sector": "Test",
+            "prev_close": prev_close, "d_high": d_high, "d_low": d_low, "h3": h3, "l3": l3, "n3": n3, "h5": h5, "l5": l5, "n5": n5}
+
+
+def _hist_db(**over):
+    """Two sessions. 18 Sep: ALPHA touched +5% on the day, BETA did not but got there within 5.
+    17 Sep: ALPHA and GAMMA. So on 18 Sep, BETA is new and ALPHA is not."""
+    db = _db(
+        runs=[_hrun(3, date(2026, 9, 18)), _hrun(1, date(2026, 9, 17))],
+        hist_rows=[
+            _hrow(3, "ALPHA", 0.30, 1, prev_close=100.0, d_high=106.0, d_low=99.0, h3=106.0, l3=98.0, h5=106.0, l5=98.0),
+            _hrow(3, "BETA",  0.25, 2, prev_close=200.0, d_high=203.0, d_low=198.0, h3=205.0, l3=196.0, h5=212.0, l5=196.0),
+            _hrow(1, "ALPHA", 0.28, 1, prev_close=95.0, d_high=99.0, d_low=94.0, h3=99.0, l3=94.0, h5=101.0, l5=94.0),
+            _hrow(1, "GAMMA", 0.22, 2, prev_close=50.0, d_high=53.0, d_low=49.0, h3=53.0, l3=49.0, h5=53.0, l5=49.0),
+        ],
+        grades=[{"run_id": 1, "graded_rows": 994, "touched": 86, "top10_hits": 3}],
+        base={"p_base_rate": 0.0758},
+    )
+    db.update(over)
+    return db
+
+
+def test_tc50_history_lists_sessions_newest_first_with_ranked_rows(make_client):
+    c, _ = make_client(_hist_db())
+    r = c.get("/v1/move-odds/history?head=p_up5_1d&top=2", headers=H)
+    assert r.status_code == 200
+    d = r.json()["data"]
+    assert d["head"] == "p_up5_1d" and d["top_n"] == 2
+    assert [s["target_session"] for s in d["sessions"]] == ["2026-09-18", "2026-09-17"]
+    first = d["sessions"][0]
+    assert [row["rank"] for row in first["rows"]] == [1, 2]
+    assert [row["symbol"] for row in first["rows"]] == ["ALPHA", "BETA"]
+    assert first["rows"][0]["p"] == 0.30 and first["scored"] == 994
+    assert first["base_rate"] == 0.0758
+
+
+def test_tc51_outcome_uses_the_heads_own_rule_against_the_reference_close(make_client):
+    c, _ = make_client(_hist_db())
+    d = c.get("/v1/move-odds/history?head=p_up5_1d&top=2", headers=H).json()["data"]
+    alpha, beta = d["sessions"][0]["rows"]
+    assert alpha["outcome"]["touched"] is True                       # 106 >= 100 x 1.05
+    assert alpha["outcome"]["reference_close"] == 100.0
+    assert alpha["outcome"]["move_pct"] == pytest.approx(0.06)
+    assert beta["outcome"]["touched"] is False                       # 203 < 200 x 1.05 on the day
+    assert beta["outcome"]["within5"] is True                        # but 212 >= 210 within five sessions
+    assert beta["outcome"]["within3"] is False                       # 205 < 210 within three
+    # the down head reads the low against the same reference, not the high
+    dn = c.get("/v1/move-odds/history?head=p_down5_1d&top=2", headers=H).json()["data"]
+    a_dn = dn["sessions"][0]["rows"][0]
+    assert a_dn["outcome"]["touched"] is False                       # low 99 > 100 x 0.95
+    assert a_dn["outcome"]["move_pct"] == pytest.approx(-0.01)
+
+
+def test_tc51b_published_session_summary_comes_from_the_official_grade(make_client):
+    c, _ = make_client(_hist_db())
+    d = c.get("/v1/move-odds/history?head=p_up5_1d&top=2", headers=H).json()["data"]
+    sep17 = d["sessions"][1]
+    assert sep17["summary"]["touched"] == 86 and sep17["summary"]["graded_rows"] == 994
+    assert sep17["summary"]["top10_touched"] == 3
+    assert sep17["summary"]["touch_rate"] == pytest.approx(86 / 994)
+
+
+def test_tc52_a_session_with_no_prices_yet_is_pending_and_invents_no_outcome(make_client):
+    db = _hist_db(hist_rows=[_hrow(3, "ALPHA", 0.30, 1, prev_close=None, d_high=None, d_low=None, n3=0, n5=0)], grades=[])
+    c, _ = make_client(db)
+    d = c.get("/v1/move-odds/history?head=p_up5_1d&top=2", headers=H).json()["data"]
+    row = d["sessions"][0]["rows"][0]
+    assert d["sessions"][0]["state"] == "pending"
+    assert row["outcome"] == {"state": "pending", "touched": None, "move_pct": None, "reference_close": None,
+                              "within3": None, "within5": None, "sessions_available": 0}
+    assert d["sessions"][0]["summary"]["touched"] is None and d["sessions"][0]["summary"]["top_n_touched"] is None
+
+
+def test_tc53_new_entries_are_flagged_against_the_previous_session_only(make_client):
+    c, _ = make_client(_hist_db())
+    d = c.get("/v1/move-odds/history?head=p_up5_1d&top=2", headers=H).json()["data"]
+    newest = {row["symbol"]: row["is_new"] for row in d["sessions"][0]["rows"]}
+    assert newest == {"ALPHA": False, "BETA": True}                  # ALPHA was in 17 Sep's top 2, BETA was not
+    oldest = {row["symbol"]: row["is_new"] for row in d["sessions"][1]["rows"]}
+    assert oldest == {"ALPHA": None, "GAMMA": None}                  # nothing before it: unknowable, never "new"
+
+
+def test_tc54_an_incomplete_forward_window_stays_null_rather_than_reading_as_a_miss(make_client):
+    db = _hist_db(hist_rows=[_hrow(3, "ALPHA", 0.30, 1, prev_close=100.0, d_high=101.0, d_low=99.0,
+                                   h3=101.0, l3=99.0, n3=2, h5=101.0, l5=99.0, n5=2)])
+    c, _ = make_client(db)
+    d = c.get("/v1/move-odds/history?head=p_up5_1d&top=2", headers=H).json()["data"]
+    o = d["sessions"][0]["rows"][0]["outcome"]
+    assert o["touched"] is False and o["within3"] is None and o["within5"] is None and o["sessions_available"] == 2
+
+
+def test_tc55_history_is_internal_plan_only_and_validates_the_head(make_client):
+    c, _ = make_client(_hist_db(), plan="pro")
+    assert c.get("/v1/move-odds/history", headers=H).status_code == 403
+    c2, _ = make_client(_hist_db())
+    # the DaaS app's validation handler answers 400, not FastAPI's default 422
+    assert c2.get("/v1/move-odds/history?head=p_up20_1d", headers=H).status_code == 400
+    assert c2.get("/v1/move-odds/history?top=500", headers=H).status_code == 400
+
+
+def test_history_carries_no_recommendation_vocabulary(make_client):
+    c, _ = make_client(_hist_db())
+    body = c.get("/v1/move-odds/history?head=p_up5_1d&top=2", headers=H).text
+    keys = set()
+    def walk(o):
+        if isinstance(o, list):
+            for v in o: walk(v)
+        if isinstance(o, dict):
+            for k, v in o.items(): keys.add(k); walk(v)
+    walk(c.get("/v1/move-odds/history?head=p_up5_1d&top=2", headers=H).json())
+    banned = re.compile(r"\b(buy|sell|invest|hold|stop|target_price|conviction|position_size|multibagger|best|top_?pick)\b", re.I)
+    assert not [k for k in keys if banned.search(k.replace("_", " "))], [k for k in keys if banned.search(k.replace("_", " "))]
+    assert "recommend" not in body.lower()

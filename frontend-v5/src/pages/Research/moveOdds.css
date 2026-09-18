@@ -178,3 +178,34 @@
 .research-screen .mo-diag-table th[scope="row"] { font-family: inherit; font-size: 12px; letter-spacing: 0; text-transform: none; color: var(--c-ink); font-weight: 500; }
 .research-screen .mo-diag-method { max-width: 110ch; }
 @media (max-width: 900px) { .research-screen .mo-diag-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* History — past sessions and their outcomes (user request 2026-09-18). "Reached" / "did not" are facts about a past
+ * session, so they carry colour; the estimate itself stays in ink like everywhere else on this page. */
+.research-screen .mo-viewrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.research-screen .mo-viewtoggle { display: inline-flex; border: 1px solid var(--c-line-strong); border-radius: 999px; overflow: hidden; }
+.research-screen .mo-viewbtn { border: 0; background: none; padding: 6px 15px; font-size: 12.5px; color: var(--c-ink-3); cursor: pointer; }
+.research-screen .mo-viewbtn[aria-pressed="true"] { background: var(--mint-soft); color: var(--c-ink); }
+.research-screen .mo-viewbtn:focus-visible { outline: 2px solid var(--mint); outline-offset: -2px; }
+
+.research-screen .mo-hist { display: grid; gap: 14px; margin-top: 16px; }
+.research-screen .mo-hist-dates { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.research-screen .mo-hist-date { flex: 0 0 auto; display: grid; gap: 2px; text-align: left; cursor: pointer;
+  border: 1px solid var(--c-line); border-radius: 10px; background: var(--bg-1); padding: 7px 12px; color: var(--c-ink-3); }
+.research-screen .mo-hist-date[aria-pressed="true"] { border-color: var(--mint-line); background: var(--mint-soft); color: var(--c-ink); }
+.research-screen .mo-hist-date:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+.research-screen .mo-hist-d1 { font-size: 12.5px; font-weight: 600; }
+.research-screen .mo-hist-d2 { font-family: var(--mono); font-size: 10.5px; }
+.research-screen .mo-hist-head h3 { font-size: 18px; font-weight: 400; margin: 0 0 4px; }
+.research-screen .mo-hist-legend { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.research-screen .mo-newdot { width: 9px; height: 9px; border-radius: 3px; background: var(--mint); display: inline-block; }
+.research-screen .mo-hist-table { min-width: 620px; }
+.research-screen .mo-hist-table th[scope="row"] { display: grid; gap: 1px; }
+.research-screen .mo-hist-new th[scope="row"] { box-shadow: inset 3px 0 0 var(--mint); padding-left: 9px; }
+.research-screen .mo-newtag { font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--mint); border: 1px solid var(--mint-line); border-radius: 4px; padding: 0 4px; margin-left: 6px; }
+.research-screen .mo-coname { font-size: 11px; color: var(--c-ink-3); font-weight: 400; }
+.research-screen .mo-outcome { font-family: var(--mono); font-size: 11px; }
+.research-screen .mo-outcome.yes { color: var(--mint); }
+.research-screen .mo-outcome.no { color: var(--c-ink-3); }
+.research-screen .mo-outcome.pending { color: var(--c-ink-3); font-style: italic; }
+@media (max-width: 760px) { .research-screen .mo-hist-table { min-width: 520px; } }
