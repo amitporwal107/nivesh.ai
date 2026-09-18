@@ -269,10 +269,7 @@ export default function MoveOddsScreen() {
           <h2 className="nv-serif mo-title">Move odds</h2>
           <p className="mo-sub">Estimated chance that a stock&apos;s price touches a large move during the next session, for about 1,000 NSE stocks.</p>
         </div>
-        {final && final.session_state === "closed" && (
-          <span className="mo-chip" data-testid="mo-status-closed">Session closed · {day(final.run.target_session)} · next estimates by ~21:00 IST</span>
-        )}
-        {final && final.session_state !== "closed" && <span className="mo-chip" data-testid="mo-status-final"><span className="mo-dot" />Final · NSE closing file</span>}
+        {final && <span className="mo-chip" data-testid="mo-status-final"><span className="mo-dot" />Final · NSE closing file</span>}
       </div>
 
       <div className="mo-disc" role="note" data-testid="mo-disclaimer"><b>DISCLAIMER</b>{DISCLAIMER}</div>
@@ -306,7 +303,7 @@ export default function MoveOddsScreen() {
       {run && (
         <div className="mo-prov" data-testid="mo-provenance">
           <span>From close of <b>{day(run.data_as_of)}</b></span>
-          <span>For session <b>{day(run.target_session)}</b>{final?.session_state === "closed" ? " (closed)" : ""}{run.skipped_holidays.length ? ` (after ${run.skipped_holidays.map(day).join(", ")}: NSE holiday)` : ""}</span>
+          <span>For session <b>{day(run.target_session)}</b>{run.skipped_holidays.length ? ` (after ${run.skipped_holidays.map(day).join(", ")}: NSE holiday)` : ""}</span>
           <span>Frozen <b>{istTime(run.frozen_at)} IST</b></span>
           <span>Model <b>{run.model} · {run.git_sha}</b></span>
           <span><b>{run.scored.toLocaleString("en-IN")}</b> of {run.universe_size.toLocaleString("en-IN")} stocks scored</span>
