@@ -38,6 +38,7 @@ import LoginPage from "./pages/Login";
 import OnboardingPage from "./pages/Onboarding";
 import CasCallbackPage from "./pages/CasCallback";
 import GmailCallbackPage from "./pages/GmailCallback";
+import KiteCallbackPage from "./pages/KiteCallback";
 import GoalsPage from "./pages/Goals";
 import TaxPage from "./pages/Tax";
 import PlanPage from "./pages/Plan";
@@ -103,6 +104,7 @@ export function AppRoutes() {
 
       {/* Gmail OAuth popup callback — relays outcome to opener, no layout */}
       <Route path="/gmail-callback" element={<GmailCallbackPage />} />
+      <Route path="/kite-callback" element={<KiteCallbackPage />} />
 
       {/* Diagnostics — standalone, no auth required (reachable even in failure scenarios) */}
       <Route path="/diagnostics"          element={<DiagnosticsPage />} />
