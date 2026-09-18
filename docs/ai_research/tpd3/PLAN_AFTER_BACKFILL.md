@@ -8,6 +8,99 @@
 thesis changes — not "find stocks likely to rise 5%".** Trades are executed **manually** by the owner, so the product is
 an **Early Signal + Entry Zone + Exit Intelligence** system (Phase H), not an automated trading system.
 
+
+---
+
+# ▶ v2 — RESTRUCTURED after the owner's roadblock review (2026-09-19 ~05:00 IST). This section governs; the
+# phases below are now **Track 2 detail**.
+
+**Strategic change:** prove a small, dependable **manual signal workflow** first, then expand data, strategies, models
+and product. Two tracks:
+- **Track 1 — Minimum Viable Signal Loop (10 working days).** Uses only data that is already certified. Proves the
+  workflow, not the edge.
+- **Track 2 — Research certification and sealed validation (background).** Provides the edge evidence.
+
+## Why both tracks are needed (measured, not assumed)
+Liquid (> Rs 5 cr) gap-down signals occur in **86% of sessions**, median **4 per session**; per-session net return
+**+0.516%** (validated pairs, lower-circuit opens excluded — +0.697% before that exclusion), **std 3.50%**.
+| paper sessions | signal-sessions | 95% CI half-width |
+|---|---|---|
+| 20 | ~17 | ±1.66pp |
+| 30 | ~26 | ±1.34pp |
+| 60 | ~52 | ±0.95pp |
+| 120 | ~104 | ±0.67pp |
+| 250 | ~216 | ±0.47pp |
+**A 20–30 session paper run cannot distinguish +0.5% from zero**; confirming a +0.5% edge needs ~205 trading sessions
+(~10 months). So Track 1's paper run measures **operations** (signals generated, acted on, missed, entry delay,
+execution differences, alert load). **Expectancy evidence comes from Track 2's sealed test** (≈ 495 sessions in
+2021–22), which costs one Kite login.
+
+## Track 1 — Minimum Viable Signal Loop
+**Scope (frozen before it starts; registered like a hypothesis):**
+| Item | Proposal (owner to approve — decision D10) |
+|---|---|
+| Strategy family | **Gap-down in liquid names, two arms recorded side by side for every qualifying signal:** H-A enter at the open; H-B enter only after a fixed confirmation. Measures whether confirmation adds value vs the open — the owner's Step 5 |
+| Universe | 20-day turnover > Rs 5 cr, from NIDP's own EOD data |
+| Confirmation rule (H-B) | One rule, fixed in advance; candidate: observe 09:15–09:45; confirm if the price at 09:45 is no more than 0.5% below the open and above the session VWAP; entry at the next 5-minute bar's open + slippage |
+| Stop / target / holding | Fixed and registered: e.g. −2% from entry / +3% / exit at the close (time stop). No adaptive exits |
+| Cost model | Statutory charges + a conservative spread/slippage assumption by turnover bucket; sensitivity at ×2 |
+| Outcome reporting | **Realised historical outcome distributions** — target-first, stop-first, timeout rates, average return by outcome, MFE/MAE, cost-adjusted return. **No forward probabilities** |
+
+**Build (all on nidp-stack-vm, no product deploy):**
+| Day | Deliverable |
+|---|---|
+| 1 | Scope frozen and committed (D10) |
+| 2–3 | **EOD watchlist job** from NIDP bhavcopy (no Kite needed): symbol, setup, reference close, gap trigger price (−3%), entry-zone logic, invalidation, initial target, reason, data freshness, liquidity warning |
+| 3–4 | **Signal lifecycle ledger** (append-only, hashed files first): `WATCHLIST → TRIGGER_APPROACHING → ENTRY_CONFIRMED → EXPIRED / INVALIDATED`, every transition with timestamp and feature snapshot; a separate row for the owner's **actual manual entry** vs the theoretical one |
+| 4–5 | **Post-close outcome job**: resolves both arms from that day's 5-minute bars (Kite historical API after the close). **If there was no Kite login that day**, it resolves on daily OHLC with the conservative both-touched rule and marks the day "intraday unresolved" — so the loop never depends on the token |
+| 5–6 | Historical replay of the same code on the 100 certified 5-minute symbols (2024-08 →) as a dry run of the pipeline — discovery data, not evidence |
+| 6–10 | **Daily paper report** (a file or private page): signals generated, acted on, missed, entry delay, target/stop/timeout, net after costs, manual-vs-theoretical difference, alert count |
+| then | Paper observation 20–30 sessions, **no optimisation during it** |
+
+**Real-time path is manual in v0:** the owner sees the open and the first 30 minutes in his own Kite app; the system
+supplies the levels the evening before and resolves outcomes after the close. Live alerts (Kite WebSocket, needs the
+morning login) are v1.
+
+**Blocker to note:** any product UI needs a `dev` push, and the app-vm had ~5.2 GB free (03:08) — **below the ≥ 6 GB
+rule** set after tonight's incident. Track 1 therefore ships as research-side jobs and a report; the UI waits for D5.
+
+**Explicitly excluded from Track 1:** HMM/regime models, event and accumulation strategies, full 800-symbol 5-minute
+coverage, probability claims, numeric readiness scores, AI-generated explanations, production deployment.
+
+## Track 2 — Research (background; detail in the phases below)
+Priority order: (1) resume the 5-minute pull and the 7 daily symbols at the next login — not blocking; (2) **pre-register
+H-A and H-B and run the sealed 2021–22 test** — the only route to edge evidence at useful precision; (3) cost-model
+sensitivity for H-A by turnover bucket (conservative slippage, spread, impact, partial fills) — **if the effect
+disappears, stop engineering that family**; (4) data foundation v2 and the discovery engine.
+Survivorship: results labelled **survivorship-limited** with the limitation quantified; delisted-name recovery is a
+separate workstream, not a dependency.
+
+## Changes to the plan below (owner review, adopted)
+| Item | Change |
+|---|---|
+| A1–A2 full downloads | Continue in the background; do not block Track 1 |
+| B4 survivorship | Limitation assessment, not a hard dependency |
+| B6 delivery / B7 announcements / B8 sector | Accumulation, event and sector-relative work **deferred**; none blocks the MVP |
+| E4b six-family engine | Start with a small feature set; test incremental value |
+| E4c readiness score | **Transparent components only** (Trend: Positive · Momentum: Improving · RS: Weak/Neutral/Strong · Volume: Present/Absent · Structure: Breakout/Pullback/Range · Entry readiness: Watchlist only). A number only after out-of-sample incremental value |
+| H2 probabilities | Deterministic trade-plan outcomes and realised distributions first; calibrated probabilities later, evaluated on unseen data |
+| H3 exit intelligence | Fixed registered stop/target/time rules first |
+| H6 dashboard | Minimal watchlist + signal ledger first |
+| H7 daily Kite login | Dependency of intraday mode only; EOD mode works without it |
+| F4 calibration | Deferred until enough out-of-sample paper outcomes exist |
+
+**One factual correction to the review:** the liquidity concentration that ended G1 was in **thin** names
+(Rs 50L–5cr, t 7.38 vs t 0.72 above Rs 5cr). H-A is defined on **liquid** names (> Rs 5cr), where a flat cost is less
+wrong — the cost sensitivity is still required, but the thin-name problem belongs to the abandoned G1.
+
+## New owner decisions
+| # | Decision |
+|---|---|
+| D10 | Approve the Track 1 scope table (confirmation rule, stop/target/holding, cost model) before Day 2 |
+| D11 | Track 1 report form: a file on the VM, or a private artifact page (no product deploy) |
+
+---
+
 ## 0. Where we stand
 
 | Asset | State |
