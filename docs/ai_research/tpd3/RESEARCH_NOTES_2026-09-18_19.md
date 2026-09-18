@@ -225,3 +225,11 @@ Chronological. "Outcome" records what was concluded or done, including where the
 
 **Next research steps:** G1 grid + timing study on validated bars → gap-down event study with market-day resampling →
 delayed-stop pre-registration → four labels with logistic baselines → one-shot test on 2021–24 → forward paper trading.
+
+---
+
+## 11. Update after the Priority 1 rerun (2026-09-19 ~05:30 IST)
+Under the exact frozen Track 1 spec (no per-day cap, cost model v1) H-A close-only is **+0.498%/session, t 2.79**,
+not +0.665% (which used a top-20 cap and a flat 0.25% cost). At 2× costs +0.175% (t 0.98); top 10 sessions = 58% of P&L;
+> Rs 25 cr t 1.66; the frozen −2/+3/close arm ≈ 0. H-A is an **exploratory finding**, not yet a validation candidate.
+Detail: `track1/PRIORITY1_RERUN.md`; priorities: `PLAN_AFTER_BACKFILL.md` v3.

@@ -11,6 +11,79 @@ an **Early Signal + Entry Zone + Exit Intelligence** system (Phase H), not an au
 
 ---
 
+# ▶ v3 — PRIORITIES after the owner's "honest and practical" review (2026-09-19 ~05:30 IST). Governs.
+
+**Immediate objective: establish whether the corrected liquid gap-down effect survives independent sessions,
+realistic costs, survivorship limits and a sealed test. If it survives, build the signal engine around it. If not,
+close the gap-down family without rescuing it by tuning.** The next action is not more modelling.
+
+**Labels:** Exploratory finding (seen in discovery data) · Validation candidate (frozen rule awaiting an unseen-period
+test) · Validated strategy (passed predefined out-of-sample and execution tests). **H-A is an exploratory finding**
+until spec v2 is frozen.
+
+## Priority 1 — Research integrity (done 2026-09-19, `track1/PRIORITY1_RERUN.md`)
+Three-way gate rerun, session-level metrics, excluded observations, liquidity, 2× costs, capacity. Under the frozen
+spec H-A close-only is **+0.498%/session (t 2.79)**; **+0.175% (t 0.98) at 2× costs**; top 10 sessions = 58% of P&L;
+> Rs 25 cr t 1.66; the frozen −2/+3/close arm ≈ 0; up to 749 positions in one session.
+**Before the sealed test, spec v2 must freeze (owner decisions):**
+- **D12 — which H-A goes to the sealed test.** Discovery evidence: close-only positive, −2/+3/close ≈ 0. v1 registered
+  the −2/+3/close arm as co-primary and close-only only as a reference. Recommendation: register **close-only** as H-A's
+  endpoint, keep −2/+3/close as a secondary description. A discovery-informed choice is legitimate *before* the sealed
+  test; it must be frozen, with this rationale, before any sealed outcome is read.
+- **D8 (now blocking) — maximum positions per session and the ordering rule** (e.g. deepest gaps first), set from manual
+  capacity, not from the sensitivity table.
+
+## Priority 2 — Sealed validation
+Data manifest (with code version and configuration hash) · survivorship quantified per period (in universe,
+unavailable from Kite, delisted, suspended, corporate actions, incomplete intraday, could-have-qualified) and results
+labelled **"conditional on the available Kite historical universe"** · cost model confirmed from actual contract notes,
+with entry and exit slippage separate, spread, impact vs position size, position value capped at a fixed % of traded
+value, circuit restrictions and unsellable exits · run the 2021–22 test **once** · no tuning or reruns after it · the
+final 2023–24 test answers a question, never selects among variants.
+
+## Priority 3 — Operational MVP (smaller, per the review)
+| Days | Deliverable |
+|---|---|
+| 1–3 | Evening watchlist; immutable signal snapshot; data freshness and missing data; entry, stop, target |
+| 4–5 | Signal ledger: state transitions, manual entry and exit capture, no edits to past definitions, explicit invalid/expired states |
+| 6–7 | Outcome reconciliation: 5-minute bars where available, unresolved otherwise, official close reconciled independently, daily exception report |
+| 8–10 | Operational dry run without rule changes: failures, processing time, alert delivery, manual response delay, basic HTML report |
+Then 20–30 sessions without changing rules. Categorical fields only: data quality CERTIFIED/DEGRADED/UNRESOLVED ·
+liquidity PASS/WARNING/FAIL · entry NOT_READY/APPROACHING/CONFIRMED · execution GOOD/PARTIAL/UNKNOWN · research status
+EXPLORATORY/VALIDATION/FAILED/PASSED. No composite score.
+
+## Priority 4 — Only if evidence survives
+More entry variants, regime classification, calibration, machine learning, broader discovery, dashboard, production.
+
+## Evidence ladder
+| Evidence | Establishes |
+|---|---|
+| 10-day operational run | The system works reliably |
+| 30-session paper run | The manual workflow is usable |
+| Historical sealed test | Whether the rule had historical net expectancy |
+| Long paper run | Whether the live process resembles the backtest |
+| Live trading | Whether the edge survives real execution and behaviour |
+
+## Success, in three separate dimensions
+**Research:** no look-ahead; reproducible manifest; positive net expectancy on the frozen validation period; robust to
+reasonable costs; not dependent on a few sessions; reported by liquidity and regime.
+**Operational:** daily job reliable; signals immutable; no silent missing-data assumptions; states reconcile; manual
+fills quick to record; reports never affect production.
+**Trading-readiness (only after both):** positive untouched final test; realistic execution; stable across periods;
+acceptable drawdown and concentration; enough opportunities; manual process tested; capital and risk limits.
+
+## Infrastructure (owner review: the shared-VM risk is unacceptable)
+Research compute and data already run on nidp-stack-vm's own disk; **the coupling that remains is `nidp_staging`
+Postgres on the app VM's disk over NFS** (it holds migration 152's 1.4M bars). Proposed, each needing owner approval
+because they touch prod: move research data off the app VM; multi-threshold disk alerts; hard deploy block below the
+floor; Docker log rotation (`/etc/docker/daemon.json` is absent on the app VM; enabling it restarts Docker, i.e. prod
+containers — needs a maintenance window); a tested database backup and restore (NIDP backup automation was producing
+nothing, per memory); a written rollback procedure. **No heavy pulls or model jobs on the app VM.**
+
+---
+
+---
+
 # ▶ v2 — RESTRUCTURED after the owner's roadblock review (2026-09-19 ~05:00 IST). This section governs; the
 # phases below are now **Track 2 detail**.
 
