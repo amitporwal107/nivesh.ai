@@ -70,18 +70,34 @@ TRADE_KEYS = ("trade_id", "prediction_id", "sample", "portfolio_type", "symbol",
               "exit_date", "exit_price", "exit_reason", "gross_return", "costs", "net_return", "mfe", "mae", "max_drawdown", "target_hit",
               "target_before_stop", "counts_toward_evaluation")
 SNAP_KEYS = ("rank", "model_rank", "movement_probability", "p_opposite", "p_other_threshold", "prediction_close", "company_name", "sector", "size_group")
+LEVEL_KEYS = ("beta_1y", "swing_high_20", "swing_low_20", "sma20", "sma50", "sma200", "rsi14",
+              "pivot_point", "resistance_1", "resistance_2", "support_1", "support_2")
 OBS_KEYS = ("session_date", "days_held", "open_price", "high_price", "low_price", "close_price", "volume", "adjustment_factor", "return_from_entry",
             "open_return", "high_return", "low_return", "high_watermark", "drawdown_from_entry", "mfe_to_date", "mae_to_date", "target_hit",
             "stop_hit", "exit_status", "data_quality_status")
 EXIT_KEYS = ("mode", "state", "exit_date", "exit_price", "exit_reason", "sessions_held", "gross_return", "cost_pct", "net_return", "net_return_050",
              "net_return_100", "mfe", "mae", "target_hit", "stop_hit")
+# Levels shown beside each position for research: the classic pivot set and beta, computed from the
+# prediction date's own bar (point-in-time — nothing after the cutoff is read). They are DISPLAY ONLY: the
+# pivot breakout tested at 2.5x lift on the +5% move but -0.54% net after costs, so nothing trades on them
+# (docs/ai_research/tpd3/v5_net_return/).
 TRADE_SQL = """
     SELECT t.*, s.rank, s.model_rank, s.movement_probability, s.p_opposite, s.p_other_threshold,
-           (s.eligibility_snapshot->>'close')::numeric AS prediction_close, sm.company_name, COALESCE(u.sector, sm.sector) AS sector, u.size_group
+           (s.eligibility_snapshot->>'close')::numeric AS prediction_close, sm.company_name,
+           COALESCE(u.sector, sm.sector) AS sector, u.size_group,
+           f.beta_1y, f.swing_high_20, f.swing_low_20, f.sma20, f.sma50, f.sma200, f.rsi14,
+           (p.high_price + p.low_price + p.close_price) / 3.0                                  AS pivot_point,
+           2*((p.high_price + p.low_price + p.close_price)/3.0) - p.low_price                  AS resistance_1,
+           ((p.high_price + p.low_price + p.close_price)/3.0) + (p.high_price - p.low_price)   AS resistance_2,
+           2*((p.high_price + p.low_price + p.close_price)/3.0) - p.high_price                 AS support_1,
+           ((p.high_price + p.low_price + p.close_price)/3.0) - (p.high_price - p.low_price)   AS support_2
       FROM nidp.tpd_paper_trades t
       JOIN nidp.tpd_paper_prediction_snapshots s ON s.prediction_id = t.prediction_id
       LEFT JOIN nidp.tpd_paper_universe_outcomes u ON u.prediction_id = t.prediction_id
       LEFT JOIN nidp.sector_master sm ON sm.symbol = t.symbol
+      LEFT JOIN nidp.stock_features_daily f ON f.symbol = t.symbol AND f.as_of_date = t.prediction_date
+      LEFT JOIN nidp.prices_eod p ON p.symbol = t.symbol AND p.as_of_date = t.prediction_date
+                                 AND p.series = 'EQ' AND p.source = 'NSE_BHAVCOPY'
 """
 
 
@@ -99,7 +115,8 @@ async def _paths(conn, trade_ids: list[int]) -> tuple[dict, dict]:
 
 
 def _trade(r, obs: list, exits: dict) -> dict:
-    out = _row(r, TRADE_KEYS + SNAP_KEYS)
+    keys = TRADE_KEYS + SNAP_KEYS + tuple(k for k in LEVEL_KEYS if k in r.keys())
+    out = _row(r, keys)
     out["flags"] = out["flags"] or []
     out["observations"] = obs
     out["exits"] = {m: exits.get(m) for m in MODES}

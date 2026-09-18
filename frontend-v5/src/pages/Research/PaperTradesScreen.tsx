@@ -624,6 +624,21 @@ function TradeView({ data, tradeId, onPick }: { data: PaperPortfolioData; tradeI
                 </tbody>
               </table>
             </div>
+            <div className="mo-panel" data-testid="pt-levels">
+              <h3>Chart levels on the prediction date</h3>
+              <dl className="pt-kv">
+                <dt>pivot point</dt><dd>{price(t.pivot_point)}</dd>
+                <dt>resistance 1 / 2</dt><dd>{price(t.resistance_1)} · {price(t.resistance_2)}</dd>
+                <dt>support 1 / 2</dt><dd>{price(t.support_1)} · {price(t.support_2)}</dd>
+                <dt>20-day high / low</dt><dd>{price(t.swing_high_20)} · {price(t.swing_low_20)}</dd>
+                <dt>20 / 50 / 200 SMA</dt><dd>{price(t.sma20)} · {price(t.sma50)} · {price(t.sma200)}</dd>
+                <dt>RSI-14</dt><dd>{t.rsi14 != null ? t.rsi14.toFixed(1) : "—"}</dd>
+                <dt>beta (1 year)</dt><dd>{t.beta_1y != null ? t.beta_1y.toFixed(2) : "—"}</dd>
+              </dl>
+              <p className="pt-note">Shown for research only. On this engine's own record a pivot breakout raised the chance of a 5% move
+                2.5×, yet returned −0.54% after costs, because the move is priced into the open before the entry. No level here changes
+                a target or a stop; those stay as pre-registered.</p>
+            </div>
             <div className="mo-panel" data-testid="pt-log">
               <h3>Lifecycle log</h3>
               <ul className="pt-log">

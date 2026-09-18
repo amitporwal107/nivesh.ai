@@ -42,6 +42,12 @@ const PositionC = z.object({
   risk_reward_ratio: n, status: z.string(), status_reason: s, flags: z.array(z.string()), sessions_observed: n,
   counts_toward_evaluation: z.boolean().nullable(), rank: n, model_rank: n, movement_probability: z.number(), p_opposite: n,
   p_other_threshold: n, prediction_close: n, company_name: s, sector: s, size_group: s,
+  // research-only levels (display, never traded): the pivot breakout tested at 2.5x lift on the +5% move but
+  // -0.54% net after costs, so nothing here drives a decision — see docs/ai_research/tpd3/v5_net_return/
+  beta_1y: n.optional(), swing_high_20: n.optional(), swing_low_20: n.optional(),
+  sma20: n.optional(), sma50: n.optional(), sma200: n.optional(), rsi14: n.optional(),
+  pivot_point: n.optional(), resistance_1: n.optional(), resistance_2: n.optional(),
+  support_1: n.optional(), support_2: n.optional(),
   observations: z.array(ObsC), exits: z.record(ExitC.nullable()),
 });
 export type PaperPosition = z.infer<typeof PositionC>;
