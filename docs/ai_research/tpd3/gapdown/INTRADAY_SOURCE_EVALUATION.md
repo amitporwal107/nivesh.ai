@@ -126,3 +126,65 @@ as a file (never a screenshot, never pasted inline) and are never printed by any
 - **G2-G5 - testable after a Kite minute-bar backfill** (was: ~6 months away). Major change.
 - Intraday exit matrix (10:30/11:30/14:30) - same; testable after backfill.
 - The `low` column needed to fix the invalidated target/stop grid can also come from Kite.
+
+---
+
+# ADDENDUM 2 — 2026-09-18: KITE HISTORICAL VERIFIED LIVE
+
+Authenticated as user WVX837 (login_time 2026-09-18 22:42:15). Real output below.
+
+## The add-on IS active
+
+- NSE EQ instruments: **10,130** (RELIANCE token 738561)
+- 1 day of minute bars -> **360 candles**, 2026-09-17 09:15 .. 15:14 IST
+- 5 days of 5-minute   -> **288 candles**, 2026-09-15 .. 2026-09-18
+
+## History depth: at least 5 years of MINUTE bars
+
+| Probe | Result |
+|---|---|
+| 1y ago (2025-09-18) | 1,500 candles |
+| 2y ago (2024-09-18) | 1,500 candles |
+| 3y ago (2023-09-19) | 1,125 candles |
+| 5y ago (2021-09-19) | 1,875 candles |
+
+This retires the Yahoo 60-day ceiling entirely. **G2-G5 and the intraday exit matrix are
+now testable on history, not six months from now.**
+
+## Cross-check against the bhavcopy panel (RELIANCE 2026-09-17)
+
+| Field | Kite | Panel | Match |
+|---|---|---|---|
+| open | 1244.8 | 1244.8 | **exact** |
+| high | 1253.4 | 1253.4 | **exact** |
+| close | 1245.0 | 1243.9 | **differs +0.088%** |
+
+### The close divergence is explained, not a defect
+
+Kite's last minute candle OPENS at 15:14 (covering 15:14-15:15). NSE continuous trading
+ends 15:30 and the **closing auction (15:30-15:40)** sets the official close that bhavcopy
+records. Kite's final candle is the last *traded* minute, not the auction print.
+
+**RULE — do not mix sources for the same field:**
+- **Official close** -> bhavcopy (it is the auction price; the paper engine already uses it)
+- **Intraday path** (open, high, **low**, every intermediate bar) -> Kite
+
+Violating this silently biases any exit study by ~0.09% per trade.
+
+## The low column — what unblocks the invalidated grid
+
+The target/stop grid was invalidated because the panel had no `n_low`: targets were credited
+from the intraday HIGH while stops were only checked at the CLOSE, booking the best of both
+paths. Kite supplies a true per-minute low (RELIANCE 2026-09-17 day low 1238.5, MAE from
+open -0.51%), so stops can fire on the low and the grid can be re-run honestly.
+
+## Backfill cost (minute bars, 2 years, 0.35s pacing under the 3 req/s cap)
+
+| Universe | Wall time | Approx rows |
+|---|---|---|
+| 50 symbols | ~4 min | ~9.6M |
+| 200 symbols | ~15 min | ~38M |
+| 500 symbols | ~38 min | ~96M |
+
+Cheap in time; the row counts argue for starting with the gap-down universe rather than
+all 10,130 instruments.
