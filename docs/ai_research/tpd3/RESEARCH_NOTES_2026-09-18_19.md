@@ -18,10 +18,10 @@ validated trading model without no-look-ahead simulation and positive out-of-sam
    raise the net return after costs. The Phase 1 base rates show it in one table: the chance of a +5% intraday move
    rises 40-fold from the calmest to the most volatile stocks, while the net open-to-close return stays flat (~−0.44%)
    and is worst in the most volatile bucket (−0.74%).
-2. **The only consistently positive result is buying real gap-downs of 3% or more at the open and selling at the close
-   (G1 close-only): +0.8909% per session, t 5.80, positive in 2024, 2025 and 2026.** This is on the heavily explored
-   2024–26 data. It has not yet been tested on the untouched 2021–24 period, and the pre-registered target/stop version
-   is still being run.
+2. **The pre-registered gap-down strategy (G1 with target/stop) is ABANDONED** under its own abandon condition 3: the
+   primary passed (+0.3349%/session, t 4.67), but the edge exists only in Rs 50L–5cr names (t 7.38), not above Rs 5cr
+   (t 0.72). Close-only in liquid names (+0.697%, t 3.94) and early-confirmation entry remain exploratory hypotheses
+   for the untouched 2021–24 period. See `gapdown/G1_RESULT.md`.
 3. **Three data errors were found tonight, each of which had produced a confident wrong answer** (section 7). The rules
    they led to now apply to all future work.
 
@@ -108,8 +108,8 @@ EXTENDED +5/−3, ATR-based 0.75/0.50×ATR; success = mean > 0 and lower CI > 0.
 | Grid run 2 (Kite minute lows) | MODERATE −0.6531%, t −13.28, "all four FAIL" | 🚫 **wrong session** — bars were the day before each gap |
 | Close-only on panel gaps | +0.4735%/session, CI [+0.2229, +0.7240], t 3.70; 2024 flat | ⚠️ diluted by phantom gaps |
 | **Close-only on Kite real gaps** | **+0.8909%/session, CI [+0.5899, +1.1919], t 5.80** (3,588 pairs, 477 sessions). 2024 +0.9019% (t 2.73), 2025 +1.0734% (t 4.38), 2026 +0.6420% (t 2.86). Turnover Rs 50L–5cr +1.6040% (t 7.33); > Rs 5cr +0.6970% (t 3.94) | ⚠️ strongest result; discovery period only |
-| Grid on validated correct-session minute bars | — | ⏳ refetch finishing, then run |
-| Timing study (when the low is set, stop-then-recover, fills below the stop) | First version invalid (wrong session + mixed adjusted/raw prices) | 🚫 → ⏳ rerun on validated bars |
+| **Grid on validated real-gap minute bars** | **MODERATE +0.3349%, CI [+0.1945, +0.4754], t 4.67 — primary passes; but > Rs 5cr +0.0549% (t 0.72) vs Rs 50L–5cr +0.8952% (t 7.38)** | ❌ **ABANDONED — pre-registered condition 3 (liquidity artefact)** |
+| Timing study (validated) | Median low 2 min after open; −2% stop hit 44%, median 1 min; drawdown by 10:00 < −5% → close −4.95%, > −0.5% → +3.60% | ✅ delayed stop contradicted; early confirmation suggested |
 
 **Concentration caveat:** five market-wide gap days hold 36% of gap-down rows (the session after 2025-04-04 alone:
 1,303 stocks gapped ≤ −3%, mean +4.96%). Per stock-day +1.61% vs per session +0.39% (panel gaps). The real sample is

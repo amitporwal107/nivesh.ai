@@ -84,5 +84,5 @@ be audited).
 | Pattern | Stage reached | Gate status |
 |---|---|---|
 | G1 gap-down close-only (Kite real gaps) | **Stage 1 — research candidate** | Gate 1 ✅ (entry at the open, exit at the close, gap known at 09:15; data joins validated). Gate 2 ⏳ — positive only on the explored 2024–26 data (+0.8909%/session, t 5.80); the untouched 2021..2024-07 period is not yet tested. Gate 3 n/a (rule, no probabilities). Gate 4 partial (positive 2024/25/26; market-day concentration unresolved). Gate 5 partial (costs flat 0.25%; no slippage or impact model; survivorship from Kite's current-names list). |
-| G1 pre-registered target/stop grid | Not yet evaluable | Both earlier runs retracted; correct run pending on validated minute bars. |
+| G1 pre-registered target/stop grid | **Abandoned** (pre-registered condition 3) | Primary passed on discovery data, but the edge exists only in Rs 50L–5cr names — a liquidity artefact by the registered definition. See `gapdown/G1_RESULT.md`. |
 | v4 movement model, v5 net-return model, owner setups A–D, hourly signal, single-feature lifts | **Failed Stage 1 or 2** | Movement without positive net expectancy; must not be presented as trading-opportunity models. |

@@ -20,11 +20,13 @@ Every entry is judged against `SUCCESS_CRITERIA.md` (five gates, three stages).
 | 10 | Skip gap-ups > +2% / +3% | net return | **Less bad, still negative** | −0.56% → −0.47% | session record |
 | 11 | +3% / +5% intraday limit exit, high-ATR cohort | net return | **Less bad, still negative** | −0.465% → −0.391% | session record |
 | 12 | **Gap-down ≤ −3%, open → close, no stop (G1 close-only)** | net return | **OPEN — strongest discovery result** | on Kite real gaps: **+0.8909%/session, CI [+0.5899, +1.1919], t 5.80**, positive every year, >Rs5cr +0.697% (t 3.94). Earlier +0.4735% was diluted by 11.5% phantom gaps. **5 market-wide gap days hold 36% of rows** | gapdown/PREREGISTRATION.md, PHASE1 |
-| 13 | G1 pre-registered target/stop grid | net return | **UNTESTED** — run 1 invalid (look-ahead), run 2 invalid (wrong session) | correct-session refetch in progress | INTRADAY_SOURCE_EVALUATION.md Add. 5 |
+| 13 | G1 pre-registered target/stop grid | net return | **ABANDONED (condition 3)** — primary passed (MODERATE +0.3349%, t 4.67) but the effect is only in Rs 50L–5cr (t 7.38), not > Rs 5cr (t 0.72) | runs 1–2 invalid; run 3 on validated real-gap bars | gapdown/G1_RESULT.md |
 | 14 | Multi-horizon move odds (opportunity board v3) | expected return | **Volatility only** | odds ≈ volatility, no expected-return edge | opportunity-board-v3 memory |
 | 15 | Weekday effect (Thursday −0.364% in 2025) | daily return | **Not tested — likely noise** | flagged as a multiple-testing artefact | session record |
 | 16 | Gap-up continuation over 5 days (Phase 1: −1.207% day 1, +0.457% over 5 days) | net5d | **Candidate only** | descriptive, discovery period | PHASE1_BASE_RATES.md |
 | 17 | Breadth regime (weak breadth → better 5-day net) | net5d | **Candidate only, non-monotonic** | descriptive | PHASE1_BASE_RATES.md |
 
-**Count so far: 17 families, several with multiple variants.** Any new discovery-period result should be judged
+**Count so far: 19 families, several with multiple variants.** Any new discovery-period result should be judged
 against this many looks: a single t ≈ 2 is expected by chance.
+| 18 | Delayed stop ("give it room, it recovers") | close return | **Contradicted descriptively** | median low 2 min after open; drawdown by 10:00 < −5% → close −4.95%, > −0.5% → +3.60% | gapdown/G1_RESULT.md |
+| 19 | Early-confirmation entry (G2–G5) | net return from the later entry | **Candidate only — new hypothesis** | suggested by the timing study; needs pre-registration and 2021–24 test | gapdown/G1_RESULT.md |
