@@ -1,0 +1,4 @@
+# Two-hourly disk cleanup (owner request 2026-09-19). Logic lives in the script: no percent sign may appear on a cron line.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+15 */2 * * * root /usr/local/sbin/disk-cleanup.sh
