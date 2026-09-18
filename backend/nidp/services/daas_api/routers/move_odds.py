@@ -2,6 +2,7 @@
 
     GET /v1/move-odds/latest?head=p_up5_1d&model=v4   the scored list for the session the estimates apply to
     GET /v1/move-odds/stocks/{symbol}?model=v4        one stock: all four estimates, inputs on record, events on record
+    GET /v1/move-odds/history?head=&model=v4          past published sessions: what was estimated and how it turned out
 
 Internal-plan keys only: the app is the one caller, and it gates end users with the move_odds allowlist flag.
 
@@ -172,3 +173,130 @@ async def stock(symbol: str = Path(..., min_length=1, max_length=20), model: Mod
         "events": [{**{k: _iso(e[k]) for k in ("ord", "event_time", "source_label", "event_type", "event_subtype", "direction", "url", "method")},
                     "is_media": bool(e["is_media"]), "title": None if e["is_media"] else e["title"]} for e in evs],
     }}
+
+
+# ── History ────────────────────────────────────────────────────────────────────────────────────────────────────────
+# What was published for each past session and how it turned out. Outcomes are derived from the same NSE closing rows the
+# grader reads (nidp.prices_eod), using the head's own rule — verified on run 1 (2026-09-17) to reproduce
+# nidp.tpd_run_grades exactly: up5 86, up10 11, down5 7, down10 0 of 994. tpd_run_grades itself only stores per-session
+# totals, so per-stock outcomes have to come from the prices.
+#
+# within3 / within5 answer "did it get there eventually": the SAME reference close the estimate was made against
+# (the target session's previous close), checked against the highest high / lowest low of the target session plus the
+# next 2 / 4 sessions that exist. While a window is still incomplete both stay null and sessions_available says how many
+# of the 5 are in — a partial window must never read as a miss.
+LEVEL = {"p_up5_1d": 1.05, "p_up10_1d": 1.10, "p_down5_1d": 0.95, "p_down10_1d": 0.90}
+
+
+def _reached(head: str, reference: float, hi, lo) -> Optional[bool]:
+    """True when the head's level was reached. None when the bar it needs is missing."""
+    level = reference * LEVEL[head]
+    if head.startswith("p_up"):
+        return None if hi is None else float(hi) >= level
+    return None if lo is None else float(lo) <= level
+
+
+@router.get("/history", summary="Past published sessions: the top estimates and how they turned out")
+async def history(head: Head = Query("p_up5_1d"), model: Model = Query("v4"),
+                  sessions: int = Query(30, ge=1, le=120), top: int = Query(20, ge=1, le=50)):
+    pool = await pg.get_pool()
+    async with pool.acquire() as conn:
+        runs = await conn.fetch(
+            "SELECT run_id, target_session, data_as_of, frozen_at, scored, universe_size FROM nidp.tpd_runs "
+            "WHERE model = $1 AND status = 'final' AND counts_toward_verdict ORDER BY target_session DESC LIMIT $2",
+            model, sessions + 1)                      # +1: the extra oldest run is only read to decide is_new on the one above it
+        if not runs:
+            return {"data": {"head": head, "model": model, "top_n": top, "sessions": []}}
+        ids = [r["run_id"] for r in runs]
+        rows = await conn.fetch(
+            """
+            WITH ranked AS (
+              SELECT e.run_id, e.symbol, e.p, e.p_base_rate,
+                     ROW_NUMBER() OVER (PARTITION BY e.run_id ORDER BY e.p DESC, e.symbol) AS rk
+                FROM nidp.tpd_run_estimates e
+               WHERE e.head = $1 AND e.run_id = ANY($2::bigint[])
+            )
+            SELECT r.run_id, r.symbol, r.p, r.rk, s.company_name, s.sector,
+                   ref.prev_close, ref.high_price AS d_high, ref.low_price AS d_low,
+                   w3.max_high AS h3, w3.min_low AS l3, w3.n AS n3,
+                   w5.max_high AS h5, w5.min_low AS l5, w5.n AS n5
+              FROM ranked r
+              JOIN nidp.tpd_runs u ON u.run_id = r.run_id
+              LEFT JOIN nidp.tpd_run_stocks s ON s.run_id = r.run_id AND s.symbol = r.symbol
+              LEFT JOIN LATERAL (
+                    SELECT prev_close, high_price, low_price FROM nidp.prices_eod
+                     WHERE symbol = r.symbol AND as_of_date = u.target_session AND series = 'EQ'
+                     ORDER BY source LIMIT 1
+                   ) ref ON true
+              LEFT JOIN LATERAL (
+                    SELECT MAX(high_price) AS max_high, MIN(low_price) AS min_low, COUNT(*) AS n
+                      FROM (SELECT DISTINCT ON (as_of_date) as_of_date, high_price, low_price FROM nidp.prices_eod
+                             WHERE symbol = r.symbol AND series = 'EQ' AND as_of_date >= u.target_session
+                             ORDER BY as_of_date, source LIMIT 3) x
+                   ) w3 ON true
+              LEFT JOIN LATERAL (
+                    SELECT MAX(high_price) AS max_high, MIN(low_price) AS min_low, COUNT(*) AS n
+                      FROM (SELECT DISTINCT ON (as_of_date) as_of_date, high_price, low_price FROM nidp.prices_eod
+                             WHERE symbol = r.symbol AND series = 'EQ' AND as_of_date >= u.target_session
+                             ORDER BY as_of_date, source LIMIT 5) x
+                   ) w5 ON true
+             WHERE r.rk <= $3
+             ORDER BY r.run_id DESC, r.rk
+            """, head, ids, top)
+        grades = await conn.fetch("SELECT run_id, graded_rows, touched, top10_hits FROM nidp.tpd_run_grades "
+                                  "WHERE head = $1 AND run_id = ANY($2::bigint[])", head, ids)
+        base = await conn.fetchrow("SELECT p_base_rate FROM nidp.tpd_run_estimates WHERE run_id = $1 AND head = $2 LIMIT 1", ids[0], head)
+
+    by_run: Dict[Any, list] = {}
+    for r in rows:
+        by_run.setdefault(r["run_id"], []).append(r)
+    graded_by_run = {g["run_id"]: g for g in grades}
+
+    out = []
+    for i, run in enumerate(runs[:sessions]):
+        rid = run["run_id"]
+        mine = by_run.get(rid, [])
+        prev = runs[i + 1]["run_id"] if i + 1 < len(runs) else None
+        prev_top = {r["symbol"] for r in by_run.get(prev, [])} if prev is not None else None
+        g = graded_by_run.get(rid)
+        session_rows = []
+        for r in mine:
+            ref = float(r["prev_close"]) if r["prev_close"] is not None else None
+            if ref is None:
+                outcome = {"state": "pending", "touched": None, "move_pct": None, "reference_close": None,
+                           "within3": None, "within5": None, "sessions_available": 0}
+            else:
+                hi, lo = r["d_high"], r["d_low"]
+                move = (float(hi) / ref - 1) if head.startswith("p_up") and hi is not None else (
+                       (float(lo) / ref - 1) if lo is not None else None)
+                n5 = int(r["n5"] or 0)
+                outcome = {
+                    "state": "graded", "touched": _reached(head, ref, hi, lo),
+                    "move_pct": move, "reference_close": ref,
+                    "within3": _reached(head, ref, r["h3"], r["l3"]) if int(r["n3"] or 0) >= 3 else None,
+                    "within5": _reached(head, ref, r["h5"], r["l5"]) if n5 >= 5 else None,
+                    "sessions_available": n5,
+                }
+            session_rows.append({
+                "rank": int(r["rk"]), "symbol": r["symbol"], "company_name": r["company_name"], "sector": r["sector"],
+                "p": float(r["p"]),
+                "is_new": None if prev_top is None else (r["symbol"] not in prev_top),
+                "outcome": outcome,
+            })
+        touched_in_top = [row for row in session_rows if row["outcome"]["touched"] is True]
+        state = "graded" if g is not None else ("graded" if session_rows and all(row["outcome"]["state"] == "graded" for row in session_rows) else "pending")
+        out.append({
+            "target_session": _iso(run["target_session"]), "data_as_of": _iso(run["data_as_of"]), "frozen_at": _iso(run["frozen_at"]),
+            "scored": int(run["scored"]) if run["scored"] is not None else None,
+            "base_rate": float(base["p_base_rate"]) if base and base["p_base_rate"] is not None else None,
+            "state": state,
+            "summary": {
+                "graded_rows": int(g["graded_rows"]) if g else None,
+                "touched": int(g["touched"]) if g else None,
+                "touch_rate": (float(g["touched"]) / float(g["graded_rows"])) if g and g["graded_rows"] else None,
+                "top10_touched": int(g["top10_hits"]) if g else None,
+                "top_n_touched": len(touched_in_top) if state == "graded" else None,
+            },
+            "rows": session_rows,
+        })
+    return {"data": {"head": head, "model": model, "top_n": top, "sessions": out}}

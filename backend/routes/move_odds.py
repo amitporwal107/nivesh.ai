@@ -3,6 +3,7 @@
     GET /api/move-odds/latest?head=p_up5_1d   → DaaS /v1/move-odds/latest (model v4)
     GET /api/move-odds/stocks/{symbol}        → DaaS /v1/move-odds/stocks/{symbol}
     GET /api/move-odds/diagnostics            → the rejected entry setups' backtest results (committed snapshot)
+    GET /api/move-odds/history                → DaaS /v1/move-odds/history (past sessions and how they turned out)
 
 Only accounts on the move_odds allowlist get past the gate (403 feature_not_enabled otherwise, admins included).
 The payload is passed through unchanged, so every number shown is the published, frozen one (spec C7). A DaaS
@@ -15,7 +16,7 @@ import asyncio
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
 
 from feature_gate import require_feature
@@ -55,6 +56,14 @@ async def latest(head: Head = "p_up5_1d", user: dict = Depends(require_feature(F
 @router.get("/stocks/{symbol}")
 async def stock(symbol: str = Path(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9&\-]+$"), user: dict = Depends(require_feature(FLAG))):
     return await _proxy(f"/move-odds/stocks/{symbol.upper()}", {"model": MODEL})
+
+
+@router.get("/history")
+async def history(head: Head = "p_up5_1d", sessions: int = Query(30, ge=1, le=120), top: int = Query(20, ge=1, le=50),
+                  user: dict = Depends(require_feature(FLAG))):
+    """Past published sessions: the top estimates and what actually happened. Outcomes come from the published run and
+    the NSE closing rows behind it; a session whose prices are not in yet is returned pending, never guessed."""
+    return await _proxy("/move-odds/history", {"head": head, "model": MODEL, "sessions": sessions, "top": top})
 
 
 @router.get("/diagnostics")

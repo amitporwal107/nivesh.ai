@@ -192,3 +192,18 @@ def test_live_route_is_gated_validates_symbols_and_passes_the_quote_payload_thro
     assert _get(c, "/api/move-odds/live?symbols=", "invited").status_code == 422
     assert _get(c, "/api/move-odds/live?symbols=" + ",".join(f"S{i}" for i in range(61)), "invited").status_code == 422
     assert _get(c, "/api/move-odds/live?symbols=PNC;DROP", "invited").status_code == 422
+
+
+def test_tc56_history_is_behind_the_flag_and_passes_through(monkeypatch):
+    """TC-56 in test_reports/move_odds_history_20260918_0820.md."""
+    db = _DB(flags={"move_odds": {"mode": "allowlist", "allowlist": ["invited@example.com"]}})
+    payload = {"data": {"head": "p_up5_1d", "model": "v4", "top_n": 20, "sessions": [
+        {"target_session": "2026-09-17", "state": "graded", "summary": {"touched": 86, "top10_touched": 3},
+         "rows": [{"rank": 1, "symbol": "PNCINFRA", "p": 0.366, "is_new": None,
+                   "outcome": {"state": "graded", "touched": True, "move_pct": 0.055}}]}]}}
+    c, calls = _client(monkeypatch, db, daas=(200, payload))
+    r = _get(c, "/api/move-odds/history?head=p_up5_1d&top=20", "invited")
+    assert r.status_code == 200 and r.json() == payload                       # passed through unchanged
+    assert calls == [("/move-odds/history", {"head": "p_up5_1d", "model": "v4", "sessions": 30, "top": 20})]
+    assert _get(c, "/api/move-odds/history", "other").status_code == 403      # not allowlisted
+    assert _get(c, "/api/move-odds/history?top=500", "invited").status_code == 422   # bounds enforced before the proxy
