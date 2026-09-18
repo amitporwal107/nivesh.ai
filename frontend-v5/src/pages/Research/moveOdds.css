@@ -514,3 +514,5 @@
 .research-screen .mo-pills { flex-wrap: nowrap; }
 @media (max-width: 640px) { .research-screen .mo-body .mo-table tbody th[scope="row"] { min-width: 210px; } .research-screen .mo-pills { flex-wrap: wrap; } }
 .research-screen .mo-pills > * { white-space: nowrap; }
+/* a suggested threshold is a placeholder, not a filter: keep it visibly fainter than a typed value */
+.research-screen .mo-cond-val::placeholder { color: var(--c-ink-4); opacity: 1; }

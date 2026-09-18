@@ -216,7 +216,7 @@ export function answers(c: AnswerCtx): Answer[] {
   out.push({
     label: "Any events?",
     lead: !ev || ev.n === 0 ? "No classified filings or reports on record in the five days to the freeze." :
-      `${ev.n} on record — ${ev.categories.map(c.eventLabel).join(", ").toLowerCase()}; latest ${ev.latest ? c.day(ev.latest) : "—"}.`,
+      `${ev.n} on record — ${ev.categories.map(c.eventLabel).join(", ")}; latest ${ev.latest ? c.day(ev.latest) : "—"}.`,
     bullets: [
       { tone: ev && ev.material > 0 ? "amber" : "ink", text: `${ev?.material ?? 0} classified positive, negative or mixed (material); the rest neutral.` },
       { tone: "ink", text: "Events are listed for context; they are not model inputs. The full list is below." },

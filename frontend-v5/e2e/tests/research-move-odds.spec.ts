@@ -869,6 +869,9 @@ test.describe("Move odds v2 — hero and row reading", () => {
         || larger(b) - larger(a) || a.symbol.localeCompare(b.symbol))[0];
     await expect(page.getByTestId("mo-hero-filings")).toContainText(f.symbol);
     await expect(page.getByTestId("mo-hero-filings")).toContainText(`${P.rows[f.symbol].events.material} material`);
+    const labels = load("move-odds-profile.json").data.event_categories as Array<{ key: string; label: string }>;
+    const first = labels.find((l) => l.key === P.rows[f.symbol].events.categories[0])!.label;
+    await expect(page.getByTestId("mo-hero-filings")).toContainText(first);             // labels keep their casing ("M&A", not "m&a")
     // the disclaimer still sits above every number, the hero included
     const disc = await page.getByTestId("mo-disclaimer").boundingBox();
     const hero = await page.getByTestId("mo-hero").boundingBox();

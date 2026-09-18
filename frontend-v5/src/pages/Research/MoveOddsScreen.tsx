@@ -476,7 +476,7 @@ export default function MoveOddsScreen() {
                   <span className="mo-hcard-l">
                     <span className="mo-hcard-eyebrow">Most material filings</span>
                     <span className="mo-hcard-id"><span className="mo-sym">{hero.filings.symbol}</span><span className="mo-co">{hero.filings.company_name ?? ""}</span></span>
-                    <span className="mo-hcard-sub">{fe.categories.map(evtLabel).join(" · ").toLowerCase()} · latest {day(fe.latest)}</span>
+                    <span className="mo-hcard-sub">{fe.categories.map(evtLabel).join(" · ")} · latest {day(fe.latest)}</span>
                   </span>
                   <span className="mo-hcard-v">{fe.material} material</span>
                 </button>
