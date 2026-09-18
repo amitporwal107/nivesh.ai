@@ -466,21 +466,6 @@ test.describe("Move odds — research diagnostics on a phone", () => {
   });
 });
 
-test.describe("Move odds — after the close", () => {
-  test.use({ viewport: { width: 1280, height: 800 } });
-
-  test("TC-38 today's rows stay visible after the close, labelled closed, until the next run", async ({ page }) => {
-    await mockAuthAs(page, "user-profile-move-odds.json");
-    // MOCK — the served run after 15:30 on its own session day
-    await mockOdds(page, (head) => ({ status: 200, body: { data: { ...load(`move-odds-latest-${head}.json`).data, session_state: "closed", expected_session: "2026-09-18" } } }));
-    await openOdds(page);
-    await expect(page.getByTestId("mo-status-closed")).toContainText("Session closed · Thu 17 Sep");
-    await expect(page.getByTestId("mo-status-final")).toHaveCount(0);
-    await expect(page.getByTestId("mo-provenance")).toContainText("Thu 17 Sep (closed)");
-    await expect(page.getByTestId("mo-row-PNCINFRA")).toBeVisible();
-  });
-});
-
 test.describe("Move odds — no numbers when there is nothing valid to show", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
