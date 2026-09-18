@@ -376,3 +376,23 @@ def test_copy_cells_and_guards():
     sql = store.run_sql(store.rules_sql("paper-v1", "h", "g", "2026-09-18T13:37:49+05:30", {"x": 1}), [], [], [], [], [], [], [], [], [])
     assert "immutable snapshot differs" in sql and "refusing to overwrite" in sql and "registered with a different hash" in sql
     assert sql.startswith("BEGIN;") and sql.rstrip().endswith("COMMIT;")
+
+
+# ── TC-P3: the entry session is the snapshot's own next session on the exchange calendar ─────────────────────────────
+def test_entry_session_follows_calendar_not_weekday_arithmetic():
+    from nidp.services.tpd_model.paper.__main__ import build
+    from nidp.services.tpd_model.paper.engine import session_inputs
+    d = [x for x in sessions(41) if x != pd.Timestamp("2025-02-19")]          # a Wednesday holiday: no session that day
+    rows = []
+    for s in "AFGH":
+        rows += bars(s, d, [100 + 0.5 * k for k in range(len(d))])
+    m = build_market(pd.DataFrame(rows), EMPTY_CA)
+    D = pd.Timestamp("2025-02-18")
+    probs = {s: [0.3 - 0.01 * k, 0.1, 0.05, 0.01] for k, s in enumerate("AFGH")}
+    ps = pset(D, pd.Timestamp("2025-02-20"), probs)
+    _, sess = session_inputs(m, ["A"], ps)
+    assert sess[0] == pd.Timestamp("2025-02-20") and pd.Timestamp("2025-02-19") not in sess
+    idx = pd.DataFrame(columns=["open_price", "close_price", "source"])
+    reg = datetime(2026, 9, 18, 13, 37, 49, tzinfo=IST)
+    with pytest.raises(SystemExit, match="not the panel's next session"):
+        build([pset(D, pd.Timestamp("2025-02-19"), probs)], m, RULES, NAMES, idx, reg)   # weekday arithmetic would say the 19th

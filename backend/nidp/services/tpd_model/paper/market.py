@@ -147,6 +147,8 @@ def build_market(panel: pd.DataFrame, ca: pd.DataFrame) -> Market:
     # suspected (unexplained) corporate actions and known events without a factor
     susp = np.zeros_like(c, dtype=bool)
     s = suspected_actions(p, known)
+    if s.empty:                                    # backtest.suspected_actions returns a frame without columns when there are none
+        s = pd.DataFrame(columns=["symbol", "ex_date"])
     for sym, ex in zip(s["symbol"], pd.to_datetime(s["ex_date"])):
         k, t = col_of.get(sym), dates.searchsorted(ex)
         if k is not None and t < len(dates) and dates[t] == ex:
