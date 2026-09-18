@@ -19,11 +19,22 @@ import subprocess
 from datetime import date, datetime
 from typing import Iterable, Optional, Sequence
 
+import numpy as np
+import pandas as pd
+
 CONTAINER = "nidp-postgres-staging"
 PSQL = ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-U", "nidp_staging", "-d", "nidp_staging"]
 
 
+def _plain(v):
+    """numpy/pandas scalars as Python values (np.float64 subclasses float but reprs as 'np.float64(...)'); NA as None."""
+    if isinstance(v, np.generic):
+        v = v.item()
+    return None if v is pd.NA or v is pd.NaT else v
+
+
 def _cell(v) -> str:
+    v = _plain(v)
     if v is None:
         return ""
     if isinstance(v, float):
@@ -35,8 +46,9 @@ def _cell(v) -> str:
     if isinstance(v, (date, datetime)):
         return v.isoformat()
     if isinstance(v, (list, tuple)):
+        items = [_plain(x) for x in v]
         return "{" + ",".join("NULL" if x is None or (isinstance(x, float) and (math.isnan(x) or math.isinf(x))) else
-                              (x.isoformat() if isinstance(x, (date, datetime)) else str(x)) for x in v) + "}"
+                              (x.isoformat() if isinstance(x, (date, datetime)) else str(x)) for x in items) + "}"
     if isinstance(v, dict):
         return json.dumps(v, separators=(",", ":"), default=str)
     return str(v)

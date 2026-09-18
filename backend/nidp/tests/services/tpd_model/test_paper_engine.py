@@ -359,6 +359,9 @@ def test_evaluation_uses_counted_sessions_only():
     assert out["sessions"]["counted"] == 1 and out["sessions"]["not_counted"] == ["2026-09-17"]
     assert head["gross_mean"] == pytest.approx(u.loc[u["selection_status"] == "SELECTED", "EOD-1|gross_return"].mean())   # the 9.0 never enters
     assert out["statement"]["established"] is False and "Not established" in out["statement"]["text"]
+    none = evaluate.evaluate([early], pd.DataFrame(columns=["benchmark", "mode", "state", "entry_session", "net_mean", "n", "target_hit_rate",
+                                                            "positive_rate"]), RULES, "forward", "P5-NEXT", all_recorded=1)
+    assert none["sessions"]["counted"] == 0 and none["sessions"]["first_counted"] is None     # JSON null, not the text "None"
 
 
 # ── TC-P2 / TC-P14 (structure): SQL guards and COPY formatting ────────────────────────────────────────────────────────
@@ -366,6 +369,10 @@ def test_copy_cells_and_guards():
     assert store._cell(None) == "" and store._cell(float("nan")) == "" and store._cell(True) == "true"
     assert store._cell([1.5, None, float("nan")]) == "{1.5,NULL,NULL}"
     assert store._cell({"a": 1}) == '{"a":1}'
+    assert store._cell(np.float64(150.96618357)) == "150.96618357"          # numpy 2 reprs this as np.float64(...)
+    assert store._cell(np.int64(3)) == "3" and store._cell(np.bool_(True)) == "true"
+    assert store._cell(pd.NA) == "" and store._cell(np.float64("nan")) == ""
+    assert store._cell([np.float64(0.5), np.float64("nan")]) == "{0.5,NULL}"
     sql = store.run_sql(store.rules_sql("paper-v1", "h", "g", "2026-09-18T13:37:49+05:30", {"x": 1}), [], [], [], [], [], [], [], [], [])
     assert "immutable snapshot differs" in sql and "refusing to overwrite" in sql and "registered with a different hash" in sql
     assert sql.startswith("BEGIN;") and sql.rstrip().endswith("COMMIT;")
