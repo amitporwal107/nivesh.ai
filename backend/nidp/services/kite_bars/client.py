@@ -19,8 +19,23 @@ MAX_DAYS = {"minute": 60, "3minute": 100, "5minute": 100, "15minute": 200, "60mi
 IST = "Asia/Kolkata"
 
 
-def _conf(key: str) -> str:
-    """Read a Nivesh secret with env fallback (same order as brokers/zerodha.py)."""
+# Local credential files, used only when GSM and env are both empty (dev / research runs).
+# Values are read at call time and never printed, logged or passed through argv.
+KEY_FILE = "/app/.KITE.API.KEY"
+SECRET_FILE = "/app/.KITE.API.SECRET"
+
+
+def _from_file(path: str) -> str:
+    try:
+        with open(path) as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
+def _conf(key: str, file_fallback: str = "") -> str:
+    """Read a Nivesh secret: GSM -> env -> local file (same order as brokers/zerodha.py,
+    plus a file fallback so research runs need no shell-visible secrets)."""
     try:
         from helpers import secrets as _s
         v = (_s.get(key) or "").strip()
@@ -28,15 +43,16 @@ def _conf(key: str) -> str:
             return v
     except Exception:  # noqa: BLE001 — secrets helper is optional outside the backend
         pass
-    return (os.environ.get(key) or "").strip()
+    v = (os.environ.get(key) or "").strip()
+    return v or (_from_file(file_fallback) if file_fallback else "")
 
 
 def api_key() -> str:
-    return _conf("BROKER_ZERODHA_API_KEY")
+    return _conf("BROKER_ZERODHA_API_KEY", KEY_FILE)
 
 
 def _api_secret() -> str:
-    return _conf("BROKER_ZERODHA_API_SECRET")
+    return _conf("BROKER_ZERODHA_API_SECRET", SECRET_FILE)
 
 
 def kite(access_token: str = ""):
