@@ -133,6 +133,16 @@ test.describe("Paper — today's portfolio", () => {
     await expect(page.getByTestId("pt-live-RATNAVEER")).toHaveText("Exit · target");
     await expect(page.getByTestId("pt-live-TEGA")).toHaveText("Await entry");
     await expect(page.getByTestId("pt-live")).toContainText("provisional");
+    // signals never appear without the measured record beside them (owner decision 2026-09-18)
+    const ev = page.getByTestId("pt-live-evidence");
+    await expect(ev).toContainText("lost money in testing");
+    await expect(ev).toContainText("402 sessions");
+    await expect(ev).toContainText("FAIL");
+    // and the session chart draws the pre-registered levels on the candles
+    await expect(page.getByTestId("pt-chart-SHAREINDIA")).toBeVisible();
+    await expect(page.getByTestId("pt-chart-SHAREINDIA")).toContainText("target");
+    await expect(page.getByTestId("pt-chart-SHAREINDIA")).toContainText("stop");
+    await expect(page.locator('[data-testid^="pt-chart-"]')).toHaveCount(4);   // the no-entry position has no bars
     await cleanText(page);
   });
 

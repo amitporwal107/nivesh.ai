@@ -120,14 +120,28 @@ const EvaluationC = z.object({
 export type PaperEvaluation = z.infer<typeof EvaluationC>;
 export type PaperEvalMode = z.infer<typeof EvalModeC>;
 
+const BarC = z.object({ t: z.string(), o: z.number(), h: z.number(), l: z.number(), c: z.number() });
+export type PaperBar = z.infer<typeof BarC>;
 const LivePosC = z.object({
   trade_id: z.number(), symbol: z.string(), entry_session: z.string(), entry: n, entry_source: s, provisional: z.boolean(), stop: n, target: n,
   stop_method: s, last: n, return_from_entry: n, day_high: n, day_low: n, at: s, quote_time: s, state: z.string(), label: z.string(), note: z.string(),
+  bars: z.array(BarC).default([]),
 });
 export type PaperLivePosition = z.infer<typeof LivePosC>;
+// the measured record of these levels, shown beside every signal (owner decision 2026-09-18)
+const EvidenceC = z.object({
+  headline: z.string(),
+  walk_forward: z.object({ sessions: z.number(), window: z.string(), mean_net_per_trade_pct: z.number(),
+                           ci95: z.tuple([z.number(), z.number()]), verdict: z.string(), edge_vs_universe_pp: z.number() }),
+  movement_vs_profit: z.object({ selections_touch_5pct_pct: z.number(), universe_touch_5pct_pct: z.number(), note: z.string() }),
+  why: z.string(),
+  strongest_signal_tested: z.object({ name: z.string(), lift_on_5pct_move: z.number(), net_after_costs_pct: z.number() }),
+});
+export type PaperEvidence = z.infer<typeof EvidenceC>;
 const LiveC = z.object({
   status: z.literal("ok"), source: z.string(), delay_note: z.string(), fetched_at: z.string(), prediction_date: z.string(), portfolio: z.string(),
   experiment: z.string(), official_note: z.string(), counts: z.object({ holding: z.number(), target: z.number(), stop: z.number(), awaiting: z.number() }),
+  evidence: EvidenceC.optional(),
   positions: z.array(LivePosC),
 });
 export type PaperLive = z.infer<typeof LiveC>;

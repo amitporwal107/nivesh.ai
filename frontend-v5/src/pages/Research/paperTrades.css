@@ -94,3 +94,8 @@
   .research-screen .pt-seg { border-radius: 14px; }
   .research-screen .pt-datefield, .research-screen .pt-datefield .pt-select { width: 100%; }
 }
+
+/* Intraday session chart: 5-minute candles with the pre-registered levels drawn on them. The levels are a frozen
+   experiment whose measured result (-0.19%/trade over 402 sessions, FAIL) is shown beside them, never alone. */
+.research-screen .pt-chart { width: 100%; height: auto; display: block; margin-top: 2px;
+  border: 1px solid var(--c-line); border-radius: 10px; background: var(--bg-1); }

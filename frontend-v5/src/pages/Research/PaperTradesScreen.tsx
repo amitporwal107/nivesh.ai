@@ -20,6 +20,7 @@ import {
   type PaperSample, type PaperUniverseRow, type PortfolioResult, type TradeResult, type PaperExit,
 } from "@/services/adapters/paperTrades.adapter";
 import { MODE_SESSION, clock, day, dayYear, inr, levels, modeResult, pct, price, prob, sizeBasket, type Path, type Sizing } from "./paperMath";
+import PaperIntradayChart from "./PaperIntradayChart";
 import "./moveOdds.css";
 import "./paperTrades.css";
 
@@ -522,10 +523,29 @@ function LivePanel({ live }: { live: LiveResult | null }) {
             <div className="pt-stat"><span className="pt-stat-l">Exit · stop</span><span className="pt-stat-v neg">{live.data.counts.stop}</span></div>
             <div className="pt-stat"><span className="pt-stat-l">Await entry</span><span className="pt-stat-v warn">{live.data.counts.awaiting}</span></div>
           </div>
+          {live.data.evidence && (
+            <div className="pt-banner" data-testid="pt-live-evidence">
+              <b>{live.data.evidence.headline}</b>
+              <div className="pt-note" style={{ marginTop: 4 }}>
+                Walk-forward over {live.data.evidence.walk_forward.sessions} sessions ({live.data.evidence.walk_forward.window}):
+                {" "}<b>{pct(live.data.evidence.walk_forward.mean_net_per_trade_pct / 100)}</b> per trade after costs,
+                95% interval [{pct(live.data.evidence.walk_forward.ci95[0] / 100)}, {pct(live.data.evidence.walk_forward.ci95[1] / 100)}],
+                verdict <b>{live.data.evidence.walk_forward.verdict}</b>. Selections touch +5% on
+                {" "}{live.data.evidence.movement_vs_profit.selections_touch_5pct_pct.toFixed(1)}% of days against
+                {" "}{live.data.evidence.movement_vs_profit.universe_touch_5pct_pct.toFixed(1)}% for the universe — they move far
+                more often than average and still lose money. {live.data.evidence.why}
+              </div>
+            </div>
+          )}
           <ul className="pt-list">
             {live.data.positions.map((p) => (
-              <li key={p.symbol} data-testid={`pt-live-row-${p.symbol}`}><span><span className="pt-mono">{p.symbol}</span> <span className="pt-small">{p.note}</span></span>
-                <span className="pt-mono">{p.last != null ? `${price(p.last)} · ${pct(p.return_from_entry)}` : "—"}</span></li>
+              <li key={p.symbol} data-testid={`pt-live-row-${p.symbol}`} style={{ display: "grid", gap: 6 }}>
+                <span style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <span><span className="pt-mono">{p.symbol}</span> <span className="pt-small">{p.note}</span></span>
+                  <span className="pt-mono">{p.last != null ? `${price(p.last)} · ${pct(p.return_from_entry)}` : "—"}</span>
+                </span>
+                {p.bars && p.bars.length > 1 && <PaperIntradayChart p={p} />}
+              </li>
             ))}
           </ul>
           <p className="pt-note">{live.data.source}, {live.data.delay_note} · as of {clock(live.data.fetched_at)}.

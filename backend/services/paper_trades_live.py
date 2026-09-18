@@ -28,6 +28,19 @@ import httpx
 from services.move_odds_live import CHART, _get_json
 
 IST = timezone(timedelta(hours=5, minutes=30))
+# What these levels have actually returned when tested. Sources, all committed:
+#   docs/ai_research/tpd3/v5_net_return/{FULL_HISTORY_RESULT,FEATURE_STUDY_FINDINGS,OVERNIGHT_VARIANT}.md
+TESTED_RECORD = {
+    "headline": "These levels lost money in testing. Movement is predicted well; direction is not.",
+    "walk_forward": {"sessions": 402, "window": "2024-08 to 2026-09", "mean_net_per_trade_pct": -0.1944,
+                     "ci95": [-0.4203, 0.0315], "verdict": "FAIL", "edge_vs_universe_pp": 0.2128},
+    "movement_vs_profit": {"selections_touch_5pct_pct": 24.73, "universe_touch_5pct_pct": 8.27,
+                           "note": "picks move 3x more often than average and still lose after costs"},
+    "why": "Selections carry beta 1.48, and the average intraday move across 26 months is -0.24% before "
+           "0.25% round-trip costs. The overnight gap was positive in 25 of 26 months; intraday negative in 21.",
+    "strongest_signal_tested": {"name": "closed locked near an upper circuit band", "lift_on_5pct_move": 6.86,
+                                "net_after_costs_pct": -0.89},
+}
 OPEN, CLOSE = dtime(9, 15), dtime(15, 30)
 STOP_CAP = 0.08
 BANDS = (0.02, 0.05, 0.10, 0.20)
@@ -163,8 +176,16 @@ async def live_status(portfolio: dict, now: Optional[datetime] = None) -> dict:
         got = await asyncio.gather(*[_bars(client, sem, p["symbol"], today) for p in need])
     bars = {p["symbol"]: b for p, b in zip(need, got)}
     rows = [position_status(p, cfg, bars.get(p["symbol"]), today, now_t) for p in positions]
+    # the 5-minute bars themselves, so the page can draw the session with its pre-registered levels on it
+    for r in rows:
+        b = bars.get(r["symbol"])
+        r["bars"] = [{"t": x["start"].isoformat(), "o": round(x["open"], 2), "h": round(x["high"], 2),
+                      "l": round(x["low"], 2), "c": round(x["close"], 2)} for x in b] if b else []
     counts = {k: sum(1 for r in rows if r["state"] in ks) for k, ks in (("holding", ("holding",)), ("target", ("target", "exited_target")),
                                                                       ("stop", ("stop", "exited_stop")), ("awaiting", ("awaiting_open", "no_entry", "unavailable")))}
     return {"source": "Yahoo Finance 5-minute bars", "delay_note": "delayed up to about a minute", "fetched_at": now.isoformat(),
+            # Shown beside every signal, by the owner's decision (2026-09-18): these levels are a frozen experiment
+            # whose measured result is a loss. Never present entry/stop/target without this record.
+            "evidence": TESTED_RECORD,
             "prediction_date": portfolio["prediction_date"], "portfolio": portfolio["portfolio"], "experiment": "TARGET_STOP (secondary, pre-registered levels)",
             "official_note": "Official entries, levels and exits are written after the close from the NSE bhavcopy.", "counts": counts, "positions": rows}
