@@ -35,6 +35,28 @@ const META: Record<MoveHead, { label: string; long: string; opp: MoveHead; oppLa
   p_down10_1d: { label: "Low ≤ −10%",  long: "session low at least 10% below the previous close",  opp: "p_up10_1d",   oppLabel: "High ≥ +10%" },
 };
 
+// PRD v6: movement and direction are different questions, so the tabs are move SIZES and both directions show as
+// equals. A row's "larger" figure is just the bigger of two published estimates — it is not a combined probability and
+// no model produces it; the column says so.
+const SIZES = [
+  { key: "5", label: "5% move", up: "p_up5_1d", down: "p_down5_1d", upLabel: "Up ≥ +5%", downLabel: "Down ≤ −5%" },
+  { key: "10", label: "10% move", up: "p_up10_1d", down: "p_down10_1d", upLabel: "Up ≥ +10%", downLabel: "Down ≤ −10%" },
+] as const;
+type SizeKey = (typeof SIZES)[number]["key"];
+
+// The one place the direction reading is defined. It compares two estimates; it is not a forecast, and the direction
+// model does not exist yet (PRD Phase 3). "two-way" is the honest answer for most stocks: in the 2025 test the top
+// decile by +5% score touched +5% on 19% of days and −5% on 14.7%.
+export const TWO_WAY_RATIO = 0.6;
+export function directionReading(up: number | null | undefined, down: number | null | undefined):
+  { key: "two-way" | "up-leaning" | "down-leaning" | "unknown"; label: string } {
+  if (up == null || down == null || !isFinite(up) || !isFinite(down)) return { key: "unknown", label: "—" };
+  const larger = Math.max(up, down), smaller = Math.min(up, down);
+  if (larger <= 0) return { key: "unknown", label: "—" };
+  if (smaller >= TWO_WAY_RATIO * larger) return { key: "two-way", label: "two-way" };
+  return up > down ? { key: "up-leaning", label: "up-leaning" } : { key: "down-leaning", label: "down-leaning" };
+}
+
 const INPUTS: Array<{ key: string; label: string; fmt: (v: number) => string; note?: string }> = [
   { key: "close_change_pct", label: "Close vs previous close", fmt: (v) => signed(v, "%") },
   { key: "day_range_pct", label: "Day's range", fmt: (v) => `${v.toFixed(1)}%`, note: "high − low" },
@@ -90,7 +112,8 @@ function bandLabel(b: MoveBand): string {
 type Loaded = Partial<Record<MoveHead, MoveLatestResult>>;
 
 export default function MoveOddsScreen() {
-  const [head, setHead] = useState<MoveHead>("p_up5_1d");
+  const [size, setSize] = useState<SizeKey>("5");
+  const [histDir, setHistDir] = useState<"up" | "down">("up");
   const [results, setResults] = useState<Loaded>({});
   const [q, setQ] = useState("");
   const [evOnly, setEvOnly] = useState(false);
@@ -107,7 +130,12 @@ export default function MoveOddsScreen() {
   const [view, setView] = useState<"estimates" | "history">("estimates");
   const [hist, setHist] = useState<HistoryResult | null>(null);
   const [histSession, setHistSession] = useState<string | null>(null);
-  const tabRefs = useRef<Partial<Record<MoveHead, HTMLButtonElement | null>>>({});
+  const tabRefs = useRef<Partial<Record<SizeKey, HTMLButtonElement | null>>>({});
+
+  const sz = SIZES.find((x) => x.key === size) ?? SIZES[0];
+  const upHead = sz.up as MoveHead;
+  const downHead = sz.down as MoveHead;
+  const head: MoveHead = view === "history" ? ((histDir === "up" ? sz.up : sz.down) as MoveHead) : upHead;
 
   const denyAll = useCallback(() => {          // 403 anywhere: drop every cached estimate before rendering the state
     setResults({}); setStocks({}); setOpen(null); setNoAccess(true);
@@ -160,10 +188,14 @@ export default function MoveOddsScreen() {
     });
   }, [open, stocks, denyAll]);
 
-  const current = results[head];
+  const current = results[upHead];
   const final: MoveFinal | null = current?.kind === "final" ? current.data : null;
+  const downFinal: MoveFinal | null = results[downHead]?.kind === "final" ? (results[downHead] as { data: MoveFinal }).data : null;
   const loading = !noAccess && current === undefined;
 
+  // `p` is the up estimate and `p_opposite` the down one for the selected size; the sort key is the larger of the two,
+  // which is a comparison of two published numbers, not a combined probability.
+  const larger = (r: MoveRow) => Math.max(r.p, r.p_opposite ?? Number.NEGATIVE_INFINITY);
   const rows = useMemo(() => {
     if (!final) return [] as MoveRow[];
     const term = q.trim().toLowerCase();
@@ -172,7 +204,7 @@ export default function MoveOddsScreen() {
       (!term || r.symbol.toLowerCase().includes(term) || (r.company_name ?? "").toLowerCase().includes(term)));
     return [...list].sort((a, b) => {
       if (sort.key === "sym") return sort.dir === "asc" ? a.symbol.localeCompare(b.symbol) : b.symbol.localeCompare(a.symbol);
-      return sort.dir === "desc" ? b.p - a.p : a.p - b.p;
+      return sort.dir === "desc" ? larger(b) - larger(a) : larger(a) - larger(b);
     });
   }, [final, q, evOnly, sort]);
 
@@ -202,12 +234,12 @@ export default function MoveOddsScreen() {
     return () => { cancelled = true; window.clearInterval(id); };
   }, [final, sliceKey, denyAll]);
 
-  const onTabKey = (e: React.KeyboardEvent, h: MoveHead) => {
+  const onTabKey = (e: React.KeyboardEvent, k: SizeKey) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     e.preventDefault();
-    const i = (MOVE_HEADS.indexOf(h) + (e.key === "ArrowRight" ? 1 : -1) + MOVE_HEADS.length) % MOVE_HEADS.length;
-    const next = MOVE_HEADS[i];
-    setHead(next); setPage(0); tabRefs.current[next]?.focus();
+    const i = (SIZES.findIndex((x) => x.key === k) + (e.key === "ArrowRight" ? 1 : -1) + SIZES.length) % SIZES.length;
+    const next = SIZES[i].key;
+    setSize(next); setPage(0); tabRefs.current[next]?.focus();
   };
   const toggleSort = (key: "est" | "sym") => {
     setSort((s) => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: key === "sym" ? "asc" : "desc" }));
@@ -237,15 +269,44 @@ export default function MoveOddsScreen() {
           <h2 className="nv-serif mo-title">Move odds</h2>
           <p className="mo-sub">Estimated chance that a stock&apos;s price touches a large move during the next session, for about 1,000 NSE stocks.</p>
         </div>
-        {final && <span className="mo-chip" data-testid="mo-status-final"><span className="mo-dot" />Final · NSE closing file</span>}
+        {final && final.session_state === "closed" && (
+          <span className="mo-chip" data-testid="mo-status-closed">Session closed · {day(final.run.target_session)} · next estimates by ~21:00 IST</span>
+        )}
+        {final && final.session_state !== "closed" && <span className="mo-chip" data-testid="mo-status-final"><span className="mo-dot" />Final · NSE closing file</span>}
       </div>
 
       <div className="mo-disc" role="note" data-testid="mo-disclaimer"><b>DISCLAIMER</b>{DISCLAIMER}</div>
 
+      <section className="mo-answers" aria-labelledby="mo-answers-h" data-testid="mo-answers">
+        <h3 id="mo-answers-h" className="mo-answers-h">What these numbers answer</h3>
+        <ol className="mo-answers-list">
+          <li data-testid="mo-answer-1">
+            <span className="mo-q">Is it likely to move 5% or 10%?</span>
+            <span className="mo-a yes">Yes — that is what the estimate is</span>
+            <span className="mo-mini">Measured out of sample on Jan–Aug 2025. How each band actually turned out is in the panel beside a stock.</span>
+          </li>
+          <li data-testid="mo-answer-2">
+            <span className="mo-q">Up or down?</span>
+            <span className="mo-a no">Not predicted</span>
+            <span className="mo-mini">Both directions are shown together because a stock likely to rise sharply is usually also likely to fall sharply. In that test the highest-scoring tenth touched +5% on 19% of days and −5% on 14.7%.</span>
+          </li>
+          <li data-testid="mo-answer-3">
+            <span className="mo-q">Is the return worth it after costs and risk?</span>
+            <span className="mo-a no">Not modelled yet</span>
+            <span className="mo-mini">Buying that highest-scoring tenth at the open and selling at the close averaged −0.23% before costs.</span>
+          </li>
+          <li data-testid="mo-answer-4">
+            <span className="mo-q">Has any of this shown an edge out of sample?</span>
+            <span className="mo-a no">No</span>
+            <span className="mo-mini">Four entry setups and five mean-reversion variants were tested with their rules fixed in advance; none passed. Research diagnostics are at the foot of this page.</span>
+          </li>
+        </ol>
+      </section>
+
       {run && (
         <div className="mo-prov" data-testid="mo-provenance">
           <span>From close of <b>{day(run.data_as_of)}</b></span>
-          <span>For session <b>{day(run.target_session)}</b>{run.skipped_holidays.length ? ` (after ${run.skipped_holidays.map(day).join(", ")}: NSE holiday)` : ""}</span>
+          <span>For session <b>{day(run.target_session)}</b>{final?.session_state === "closed" ? " (closed)" : ""}{run.skipped_holidays.length ? ` (after ${run.skipped_holidays.map(day).join(", ")}: NSE holiday)` : ""}</span>
           <span>Frozen <b>{istTime(run.frozen_at)} IST</b></span>
           <span>Model <b>{run.model} · {run.git_sha}</b></span>
           <span><b>{run.scored.toLocaleString("en-IN")}</b> of {run.universe_size.toLocaleString("en-IN")} stocks scored</span>
@@ -265,26 +326,39 @@ export default function MoveOddsScreen() {
         {view === "history" && <span className="mo-mini">Each past session&apos;s top {hist?.kind === "ok" ? hist.data.top_n : 20} and what actually happened.</span>}
       </div>
 
-      <div className="mo-tabs" role="tablist" aria-label="Move size and direction">
-        {MOVE_HEADS.map((h) => {
-          const r = results[h];
-          const sel = head === h;
+      <div className="mo-tabs" role="tablist" aria-label="Move size">
+        {SIZES.map((x) => {
+          const u = results[x.up as MoveHead], d = results[x.down as MoveHead];
+          const sel = size === x.key;
           return (
             <button
-              key={h} ref={(el) => { tabRefs.current[h] = el; }} role="tab" id={`mo-tab-${h}`} aria-controls="mo-panel"
-              aria-selected={sel} tabIndex={sel ? 0 : -1} className="mo-tab" data-testid={`mo-tab-${h}`}
-              onClick={() => { setHead(h); setPage(0); }} onKeyDown={(e) => onTabKey(e, h)}
+              key={x.key} ref={(el) => { tabRefs.current[x.key] = el; }} role="tab" id={`mo-tab-${x.key}`} aria-controls="mo-panel"
+              aria-selected={sel} tabIndex={sel ? 0 : -1} className="mo-tab" data-testid={`mo-tab-${x.key}`}
+              onClick={() => { setSize(x.key); setPage(0); }} onKeyDown={(e) => onTabKey(e, x.key)}
             >
-              <span className="mo-t1">{META[h].label}</span>
-              <span className="mo-t2">{r?.kind === "final" ? `base rate ${pct(r.data.base_rate)}` : " "}</span>
+              <span className="mo-t1">{x.label}</span>
+              <span className="mo-t2">
+                {u?.kind === "final" && d?.kind === "final" ? `base rate up ${pct(u.data.base_rate)} · down ${pct(d.data.base_rate)}` : " "}
+              </span>
             </button>
           );
         })}
       </div>
 
-      <div id="mo-panel" role="tabpanel" aria-labelledby={`mo-tab-${head}`}>
+      <div id="mo-panel" role="tabpanel" aria-labelledby={`mo-tab-${size}`}>
         {view === "history" && (
-          <History result={hist} selected={histSession} onSelect={setHistSession} head={head} />
+          <>
+            <div className="mo-viewrow mo-histrow">
+              <span className="mo-mini">Ranked by the {histDir === "up" ? sz.upLabel : sz.downLabel} estimate for each session.</span>
+              <span className="mo-histdir" role="group" aria-label="Direction">
+                {(["up", "down"] as const).map((d) => (
+                  <button key={d} type="button" aria-pressed={histDir === d} data-testid={`mo-histdir-${d}`}
+                          onClick={() => setHistDir(d)}>{d === "up" ? sz.upLabel : sz.downLabel}</button>
+                ))}
+              </span>
+            </div>
+            <History result={hist} selected={histSession} onSelect={setHistSession} head={head} />
+          </>
         )}
 
         {view === "estimates" && loading && (
@@ -338,8 +412,10 @@ export default function MoveOddsScreen() {
               <div className="mo-tablewrap" tabIndex={0} role="region" aria-label="Estimates table">
                 <table className="mo-table">
                   <caption>
-                    Chance of a {m.long} on {day(final.run.target_session)}. Sorted by {sort.key === "est" ? "estimate" : "symbol"},{" "}
-                    {sort.dir === "desc" ? "descending" : "ascending"}. Orange tick marks the base rate, {pct(final.base_rate)}.
+                    Chance that {day(final.run.target_session)} brings a {sz.key}% move, each direction estimated separately.{" "}
+                    Sorted by {sort.key === "est" ? "the larger of the two estimates" : "symbol"}, {sort.dir === "desc" ? "descending" : "ascending"}.{" "}
+                    Orange tick marks the base rate, {pct(final.base_rate)} up and {downFinal ? pct(downFinal.base_rate) : "—"} down.{" "}
+                    Direction compares the two estimates: two-way when the smaller is at least {Math.round(TWO_WAY_RATIO * 100)}% of the larger. It is not a forecast.
                   </caption>
                   <thead>
                     <tr>
@@ -348,9 +424,10 @@ export default function MoveOddsScreen() {
                       </th>
                       <th scope="col" className="mo-col-sector">Sector</th>
                       <th scope="col" aria-sort={sort.key === "est" ? (sort.dir === "desc" ? "descending" : "ascending") : undefined}>
-                        <button type="button" onClick={() => toggleSort("est")} data-testid="mo-sort-est">{m.label} estimate</button>
+                        <button type="button" onClick={() => toggleSort("est")} data-testid="mo-sort-est">{sz.upLabel}</button>
                       </th>
-                      <th scope="col" className="mo-col-opp">{m.oppLabel}</th>
+                      <th scope="col">{sz.downLabel}</th>
+                      <th scope="col">Direction</th>
                       <th scope="col">Live</th>
                       <th scope="col">Events</th>
                       <th scope="col"><span className="sr-only">Details</span></th>
@@ -361,7 +438,7 @@ export default function MoveOddsScreen() {
                       <tr><td colSpan={7} className="mo-empty">No stock matches &quot;{q}&quot;{evOnly ? " with events on record" : ""}.</td></tr>
                     )}
                     {slice.map((r) => (
-                      <RowGroup key={r.symbol} r={r} head={head} base={final.base_rate} open={open === r.symbol}
+                      <RowGroup key={r.symbol} r={r} head={upHead} sz={sz} base={final.base_rate} open={open === r.symbol}
                                 onToggle={() => setOpen((o) => (o === r.symbol ? null : r.symbol))} stock={stocks[r.symbol]}
                                 quote={live?.quotes[r.symbol]} record={live?.record ?? null} />
                     ))}
@@ -586,11 +663,13 @@ function LiveCell({ q, head }: { q: LiveQuote | undefined; head: MoveHead }) {
   );
 }
 
-function RowGroup({ r, head, base, open, onToggle, stock, quote, record }: {
-  r: MoveRow; head: MoveHead; base: number; open: boolean; onToggle: () => void; stock: MoveStockResult | "loading" | undefined;
+function RowGroup({ r, head, sz, base, open, onToggle, stock, quote, record }: {
+  r: MoveRow; head: MoveHead; sz: (typeof SIZES)[number]; base: number; open: boolean; onToggle: () => void;
+  stock: MoveStockResult | "loading" | undefined;
   quote: LiveQuote | undefined; record: LivePayload["signal_record"];
 }) {
   const m = META[head];
+  const dir = directionReading(r.p, r.p_opposite);
   const w = Math.min(100, r.p * 100);
   return (
     <>
@@ -609,7 +688,12 @@ function RowGroup({ r, head, base, open, onToggle, stock, quote, record }: {
             </span>
           </div>
         </td>
-        <td className="mo-col-opp"><span className="mo-opp" aria-label={`${m.oppLabel} ${spoken(r.p_opposite)}`}>{pct(r.p_opposite)}</span></td>
+        <td data-testid={`mo-down-${r.symbol}`}>
+          <span className="mo-est-down" aria-label={`${m.oppLabel} ${spoken(r.p_opposite)}`}>{pct(r.p_opposite)}</span>
+        </td>
+        <td data-testid={`mo-dir-${r.symbol}`}>
+          <span className={`mo-dir ${dir.key}`}>{dir.label}</span>
+        </td>
         <td data-testid={`mo-livecell-${r.symbol}`}><LiveCell q={quote} head={head} /></td>
         <td><span className={`mo-evc${r.events_on_record ? "" : " none"}`}>{r.events_on_record ? `${r.events_on_record} on record` : "none"}</span></td>
         <td>

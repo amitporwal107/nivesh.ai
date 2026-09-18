@@ -105,7 +105,7 @@ test.describe("Move odds — final estimates", () => {
     await expect(page.getByTestId("mo-row-PNCINFRA")).toBeVisible();
   });
 
-  test("TC-21 disclaimer above the numbers, provenance, four tabs with base rates", async ({ page }) => {
+  test("TC-21 disclaimer above the numbers, provenance, size tabs with both base rates", async ({ page }) => {
     const disc = await page.getByTestId("mo-disclaimer").boundingBox();
     const table = await page.locator(".mo-table").boundingBox();
     expect(disc && table && disc.y + disc.height <= table.y).toBeTruthy();
@@ -114,9 +114,11 @@ test.describe("Move odds — final estimates", () => {
     await expect(prov).toContainText("Wed 16 Sep");
     await expect(prov).toContainText("Thu 17 Sep");
     await expect(prov).toContainText("994 of 1,000 stocks scored");
-    for (const h of HEADS) {
-      const base = load(`move-odds-latest-${h}.json`).data.base_rate;
-      await expect(page.getByTestId(`mo-tab-${h}`)).toContainText(`base rate ${pct(base)}`);
+    // v6: two size tabs, each carrying the base rate for BOTH directions
+    for (const [key, up, down] of [["5", "p_up5_1d", "p_down5_1d"], ["10", "p_up10_1d", "p_down10_1d"]] as const) {
+      const tab = page.getByTestId(`mo-tab-${key}`);
+      await expect(tab).toContainText(`base rate up ${pct(load(`move-odds-latest-${up}.json`).data.base_rate)}`);
+      await expect(tab).toContainText(`down ${pct(load(`move-odds-latest-${down}.json`).data.base_rate)}`);
     }
   });
 
@@ -125,17 +127,18 @@ test.describe("Move odds — final estimates", () => {
     expect(headers.join("|")).not.toMatch(/#|rank/i);
     const rows = page.locator('tbody tr[data-testid^="mo-row-"]');
     await expect(rows).toHaveCount(50);
+    // v6: rows rank by the LARGER of the two published estimates, so the shown up-figures follow that order
     const shown = await page.locator('[data-testid^="mo-pct-"]').allInnerTexts();
-    const values = load("move-odds-latest-p_up5_1d.json").data.rows.map((r: { p: number }) => r.p);
-    const sorted = [...values].sort((a, b) => b - a);
-    expect(shown).toEqual(sorted.slice(0, 50).map(pct));
+    const rowsFx = load("move-odds-latest-p_up5_1d.json").data.rows as Array<{ p: number; p_opposite: number | null }>;
+    const ranked = [...rowsFx].sort((a, b) => Math.max(b.p, b.p_opposite ?? -Infinity) - Math.max(a.p, a.p_opposite ?? -Infinity));
+    expect(shown).toEqual(ranked.slice(0, 50).map((r) => pct(r.p)));
     await page.getByTestId("mo-page-next").click();
     await expect(rows).toHaveCount(10);
     await page.getByTestId("mo-search").fill("antelopus");
     await expect(page.getByTestId("mo-count")).toHaveText("1 stocks");
     await expect(page.getByTestId("mo-row-ANTELOPUS")).toBeVisible();
-    await page.getByTestId("mo-tab-p_down5_1d").click();
-    await expect(page.getByTestId("mo-tab-p_down5_1d")).toHaveAttribute("aria-selected", "true");
+    await page.getByTestId("mo-tab-10").click();
+    await expect(page.getByTestId("mo-tab-10")).toHaveAttribute("aria-selected", "true");
   });
 
   test("TC-23 details show dated inputs, events, a withheld media headline and the stock's band", async ({ page }) => {
@@ -201,10 +204,118 @@ test.describe("Move odds — final estimates", () => {
   });
 
   test("TC-27 every shown percentage equals the API value at one decimal", async ({ page }) => {
+    // v6: the first page is the 50 highest by the LARGER of the two estimates, so rank the fixture the same way
     const data = load("move-odds-latest-p_up5_1d.json").data;
-    for (const r of data.rows.slice(0, 50)) {
+    const ranked = [...data.rows as Array<{ symbol: string; p: number; p_opposite: number | null }>]
+      .sort((a, b) => Math.max(b.p, b.p_opposite ?? -Infinity) - Math.max(a.p, a.p_opposite ?? -Infinity));
+    for (const r of ranked.slice(0, 50)) {
       await expect(page.getByTestId(`mo-pct-${r.symbol}`)).toHaveText(pct(r.p));
+      await expect(page.getByTestId(`mo-down-${r.symbol}`)).toHaveText(pct(r.p_opposite));
     }
+  });
+});
+
+test.describe("Move odds — movement vs direction (TC-70..TC-76, test_reports/move_odds_ui_v6_20260918_0907.md)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+  const upFx = () => load("move-odds-latest-p_up5_1d.json").data;
+  const downFx = () => load("move-odds-latest-p_down5_1d.json").data;
+
+  test.beforeEach(async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await mockOdds(page);
+    await openOdds(page);
+  });
+
+  test("TC-70 two size tabs, each showing both base rates", async ({ page }) => {
+    const tabs = page.locator('[role="tablist"] [data-testid^="mo-tab-"]');
+    await expect(tabs).toHaveCount(2);
+    expect(await tabs.evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")))).toEqual(["mo-tab-5", "mo-tab-10"]);
+    await expect(page.getByTestId("mo-tab-5")).toContainText("5% move");
+    await expect(page.getByTestId("mo-tab-5")).toContainText(`base rate up ${pct(upFx().base_rate)}`);
+    await expect(page.getByTestId("mo-tab-5")).toContainText(`down ${pct(downFx().base_rate)}`);
+  });
+
+  test("TC-71 every row shows both directions, each equal to the API", async ({ page }) => {
+    const rows = upFx().rows.slice(0, 5) as Array<{ symbol: string; p: number; p_opposite: number }>;
+    for (const r of rows) {
+      const up = page.getByTestId(`mo-pct-${r.symbol}`);
+      const down = page.getByTestId(`mo-down-${r.symbol}`);
+      if (await up.count() === 0) continue;                       // not on the first page
+      await expect(up).toHaveText(pct(r.p));
+      await expect(down).toHaveText(pct(r.p_opposite));
+      // neither direction is visually subordinate: same font size
+      const sizes = await page.evaluate(([a, b]) => {
+        const s1 = getComputedStyle(document.querySelector(`[data-testid="mo-pct-${a}"]`)!);
+        const s2 = getComputedStyle(document.querySelector(`[data-testid="mo-down-${b}"] span`)!);
+        return [s1.fontSize, s2.fontSize];
+      }, [r.symbol, r.symbol]);
+      expect(sizes[0]).toBe(sizes[1]);
+    }
+  });
+
+  test("TC-72 rows rank by the larger of the two estimates, and the table says so", async ({ page }) => {
+    const shown = await page.locator('[data-testid^="mo-row-"] [data-testid^="mo-pct-"]').allInnerTexts();
+    const downs = await page.locator('[data-testid^="mo-down-"]').allInnerTexts();
+    const larger = shown.map((u, i) => Math.max(parseFloat(u), parseFloat(downs[i])));
+    for (let i = 1; i < larger.length; i++) expect(larger[i]).toBeLessThanOrEqual(larger[i - 1] + 0.05);
+    await expect(page.locator("table caption").first()).toContainText("the larger of the two estimates");
+    await expect(page.locator("table caption").first()).toContainText("It is not a forecast");
+  });
+
+  test("TC-73 the direction reading follows the stated rule and never claims a forecast", async ({ page }) => {
+    const rows = upFx().rows as Array<{ symbol: string; p: number; p_opposite: number }>;
+    let checked = 0;
+    for (const r of rows.slice(0, 12)) {
+      const cell = page.getByTestId(`mo-dir-${r.symbol}`);
+      if (await cell.count() === 0) continue;
+      const smaller = Math.min(r.p, r.p_opposite), bigger = Math.max(r.p, r.p_opposite);
+      const expected = smaller >= 0.6 * bigger ? "two-way" : r.p > r.p_opposite ? "up-leaning" : "down-leaning";
+      await expect(cell, r.symbol).toHaveText(expected);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(3);
+    const text = await page.getByTestId("move-odds-screen").innerText();
+    expect(text).not.toMatch(/will rise|will fall|forecast of direction|expected to rise/i);
+  });
+
+  test("TC-74 the four questions are stated with their honest status", async ({ page }) => {
+    const panel = page.getByTestId("mo-answers");
+    await expect(panel).toContainText("Is it likely to move 5% or 10%?");
+    await expect(page.getByTestId("mo-answer-1")).toContainText("Yes");
+    await expect(page.getByTestId("mo-answer-2")).toContainText("Up or down?");
+    await expect(page.getByTestId("mo-answer-2")).toContainText("Not predicted");
+    await expect(page.getByTestId("mo-answer-3")).toContainText("Not modelled yet");
+    await expect(page.getByTestId("mo-answer-4")).toContainText("No");
+    await expect(page.getByTestId("mo-answer-2")).toContainText("19%");        // the evidence, not just the claim
+  });
+
+  test("TC-75 switching size keeps both directions and never becomes a one-way list", async ({ page }) => {
+    await page.getByTestId("mo-tab-10").click();
+    await expect(page.getByTestId("mo-tab-10")).toHaveAttribute("aria-selected", "true");
+    const headers = await page.locator("table thead th").allInnerTexts();
+    const joined = headers.join("|").toLowerCase();                 // the header row is uppercased by CSS
+    expect(joined).toContain("up ≥ +10%");
+    expect(joined).toContain("down ≤ −10%");
+    expect(joined).toContain("direction");
+    const firstRow = page.locator('tbody tr[data-testid^="mo-row-"]').first();
+    await expect(firstRow.locator('[data-testid^="mo-down-"]')).toHaveCount(1);
+    const text = await page.getByTestId("move-odds-screen").innerText();
+    expect(text.match(BANNED), "banned vocabulary").toBeNull();
+  });
+});
+
+test.describe("Move odds — movement vs direction on a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("TC-76 both directions stay reachable and the page does not scroll sideways", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await mockOdds(page);
+    await page.goto("/v5/research");
+    await page.getByTestId("mnav-odds").click();
+    await expect(page.locator('tbody tr[data-testid^="mo-row-"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid^="mo-down-"]').first()).toHaveCount(1);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
   });
 });
 
@@ -352,6 +463,21 @@ test.describe("Move odds — research diagnostics on a phone", () => {
     expect(Math.abs(bb!.x - ba!.x)).toBeLessThanOrEqual(1);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
+  });
+});
+
+test.describe("Move odds — after the close", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("TC-38 today's rows stay visible after the close, labelled closed, until the next run", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    // MOCK — the served run after 15:30 on its own session day
+    await mockOdds(page, (head) => ({ status: 200, body: { data: { ...load(`move-odds-latest-${head}.json`).data, session_state: "closed", expected_session: "2026-09-18" } } }));
+    await openOdds(page);
+    await expect(page.getByTestId("mo-status-closed")).toContainText("Session closed · Thu 17 Sep");
+    await expect(page.getByTestId("mo-status-final")).toHaveCount(0);
+    await expect(page.getByTestId("mo-provenance")).toContainText("Thu 17 Sep (closed)");
+    await expect(page.getByTestId("mo-row-PNCINFRA")).toBeVisible();
   });
 });
 
