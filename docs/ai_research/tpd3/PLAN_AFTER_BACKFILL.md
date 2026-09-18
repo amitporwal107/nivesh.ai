@@ -12,9 +12,9 @@ an **Early Signal + Entry Zone + Exit Intelligence** system (Phase H), not an au
 
 | Asset | State |
 |---|---|
-| Kite daily candles, 2021-01-01 → 2026-09-18 | 2,895 symbols, 2,916,948 rows (+7 hyphenated symbols top-up) — `/app/research/kite_history/day_2021/` |
+| Kite daily candles, 2021-01-01 → 2026-09-18 | 2,895 symbols OK, 347 empty, 0 errors; 2,916,948 rows — `/app/research/kite_history/day_2021/`. **7 hyphenated symbols (BAJAJ-AUTO, NAM-INDIA, …) still to fetch** (top-up failed on the rejected token) |
 | Kite minute bars, gap-down sessions 2024–26 | 4,052 pairs (3,887 + 165), validated — `gapdown_minute_v2/` |
-| Kite 5-minute bars, top-800 liquid, 2024-08 → | BACKFILL_RESULT_5MIN — `five_min_2024/` |
+| Kite 5-minute bars, top-800 liquid, 2024-08 → | **Partial: 100 of 800 symbols** (3,809,641 rows, 50,535 sessions) — `five_min_2024/`. Certified: open = Kite daily open 99.81%, high 99.42%, low 99.44%, 0 missing sessions, 94.18% with exactly 75 bars. **698 symbols remain** (the Kite token was rejected at ~04:30 IST, after the credentials file changed at 03:24) |
 | Research panel 2024–26 (bhavcopy) | Durable copy; **phantom gaps** — use only with Kite-derived gaps (`/app/research/tpd3_panel/README.md`) |
 | Paper Trade Engine v1 | Replay done (no edge); forward run of the v4 model counts from **Mon 2026-09-21** |
 | Pattern registry | 19 hypothesis families tested on 2024–26 (`pattern_engine/REGISTRY_SEED.md`) |
@@ -44,11 +44,14 @@ single-feature lifts have **failed**.
 
 ## 2. Phases
 
-### Phase A — Certify the backfill (today, after it completes)
+### Phase A — Certify the backfill
+**First action at the next Kite login (~60 minutes, both scripts resume where they stopped):**
+`python pull_5min.py` (698 symbols) then `python pull_daily.py` (7 symbols), in `/app/research/kite_history/`.
+
 | # | Task | Output / acceptance |
 |---|---|---|
-| A1 | Validate 5-minute bars: first bar open = Kite daily open; session max-high / min-low vs daily high/low; bars per session (75 expected); missing sessions; status errors | Check report with pass rates; exclusions listed |
-| A2 | Confirm the 7-symbol daily top-up | Status rows OK |
+| A1 | Validate 5-minute bars (`validate_5min.py`): first bar open = Kite daily open; session max-high / min-low vs daily high/low; bars per session (75 expected); missing sessions; status errors | **Done for the first 100 symbols** (pass rates above); re-run after the resume |
+| A2 | Confirm the 7-symbol daily top-up | **Pending the next login** |
 | A3 | **Data manifest**: every dataset's range, rows, `fetched_at`, adjustment state (splits/bonuses/dividends), known gaps (survivorship: Kite lists today's names only) | `DATA_MANIFEST.md` |
 | A4 | Turn the three join checks into **pytest tests** over the research datasets | Tests run in CI-style locally; a failing check blocks any study |
 
@@ -151,6 +154,7 @@ plus one login. E runs alongside. F1–F2 after D3 has a result worth shadowing.
 ## 4. Kite logins needed
 | When | Purpose |
 |---|---|
+| **Next login (any day)** | Resume the 5-minute pull (698 symbols) and the 7-symbol daily top-up — ≈ 60 minutes |
 | Phase D | Sealed-slice intraday bars (≈ 1.5 h of requests on one token) |
 | D4 | Final-test-slice intraday bars |
 | Each trading day in F3+ | Live 5-minute collection for shadow/paper signals |

@@ -51,8 +51,9 @@ validated trading model without no-look-ahead simulation and positive out-of-sam
 **Data now held (all on nidp-stack-vm's own disk, not the prod-shared app-vm):**
 - `/app/research/kite_history/day_2021/` — daily candles 2021-01-01 → 2026-09-18, 2,895 symbols, 2,916,948 rows.
   **2021-01..2024-07 is the reserved, untouched validation period.**
-- `/app/research/kite_history/gapdown_minute_v2/` — minute bars for the correct gap-down sessions (⏳ in progress).
-- `/app/research/kite_history/five_min_2024/` — 5-minute bars, top-800 liquid names, 2024-08 → (⏳ queued).
+- `/app/research/kite_history/gapdown_minute_v2/` — minute bars for the correct gap-down sessions: 4,052 pairs, validated.
+- `/app/research/kite_history/five_min_2024/` — 5-minute bars, top-800 liquid names, 2024-08 →: **100 of 800 done**
+  (3,809,641 rows, certified 99.4–99.8% against Kite daily); 698 resume at the next login.
 - `/app/research/tpd3_panel/` — durable copy of the research panel (see its README for the phantom-gap flaw).
 - `nidp.intraday_bars` (nidp_staging) — 1,396,641 minute bars from the first backfill. **These are the sessions BEFORE
   each gap-down** (section 7); real data, wrong days for the study.
