@@ -10,6 +10,10 @@ honest summary.
 
 ## 1. Headline conclusions
 
+Every result here is judged against the owner's success criteria (`pattern_engine/SUCCESS_CRITERIA.md`): no pattern is a
+validated trading model without no-look-ahead simulation and positive out-of-sample net expectancy after costs.
+
+
 1. **Our models predict movement, not profit.** Across every study, features that raise the chance of a big move do not
    raise the net return after costs. The Phase 1 base rates show it in one table: the chance of a +5% intraday move
    rises 40-fold from the calmest to the most volatile stocks, while the net open-to-close return stays flat (~−0.44%)
@@ -199,6 +203,7 @@ Chronological. "Outcome" records what was concluded or done, including where the
 | 20 | Kite pricing, data and display policy | Rs 500/month includes historical; websocket gives ticks, not candles; Kite data cannot be displayed on other platforms | Corrected my "separate add-on" claim. For research, after-close historical pulls replace tick aggregation. Display restriction affects the paper-trades chart (decision pending). |
 | 21 | Model combination | Event study + bootstrap, logistic, LightGBM, competing-risk survival, HMM, clustering, GARCH, walk-forward | Agreed on the four-target split. Changes: resample whole market days; fixed-horizon multinomial before survival; rule-based regime first; ATR/realised vol over per-stock GARCH; evaluate on net return, not AUC. |
 | 22 | Python libraries | scikit-learn, LightGBM, XGBoost, scikit-survival, lifelines, statsmodels, PyMC, hmmlearn, arch, SHAP, Optuna, vectorbt | Checked against the installed environment and library source (section 6). statsmodels first; XGBoost dropped; scikit-survival not used for competing risks; research environment only. |
+| 23 | Success criteria for pattern models | Six dimensions (predictive, trading, statistical, stability, execution, operational); three-stage lifecycle; five production gates — no look-ahead, positive out-of-sample net expectancy, calibration, stability, transparent reporting | Recorded as standing policy: `pattern_engine/SUCCESS_CRITERIA.md`, with where each candidate stands. G1 close-only is a Stage 1 research candidate; gate 2 awaits the 2021–24 test. |
 
 ---
 

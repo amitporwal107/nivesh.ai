@@ -4,6 +4,7 @@ Purpose: the multiple-testing count must start honest. Every family below was ex
 bhavcopy panel**, which is therefore the DISCOVERY period — no result from it counts as validation.
 The untouched validation period is **2021-01..2024-07** (Kite daily, pulled 2026-09-19, not yet read).
 When the `pattern_registry` / `pattern_validation` tables are built, these become the first rows (status as below).
+Every entry is judged against `SUCCESS_CRITERIA.md` (five gates, three stages).
 
 | # | Hypothesis family | Target | Status | Evidence | Source |
 |---|---|---|---|---|---|
