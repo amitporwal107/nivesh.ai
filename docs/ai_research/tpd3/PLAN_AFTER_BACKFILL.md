@@ -181,7 +181,7 @@ wrong — the cost sensitivity is still required, but the thin-name problem belo
 |---|---|
 | Kite daily candles, 2021-01-01 → 2026-09-18 | 2,895 symbols OK, 347 empty, 0 errors; 2,916,948 rows — `/app/research/kite_history/day_2021/`. **7 hyphenated symbols (BAJAJ-AUTO, NAM-INDIA, …) still to fetch** (top-up failed on the rejected token) |
 | Kite minute bars, gap-down sessions 2024–26 | 4,052 pairs (3,887 + 165), validated — `gapdown_minute_v2/` |
-| Kite 5-minute bars, top-800 liquid, 2024-08 → | **Partial: 320 of 800 symbols** after two sessions (the second stopped at 05:25 IST with a Kite PermissionException 23 minutes after login; first 100 certified) — `five_min_2024/`. Certified: open = Kite daily open 99.81%, high 99.42%, low 99.44%, 0 missing sessions, 94.18% with exactly 75 bars. **698 symbols remain** (the Kite token was rejected at ~04:30 IST, after the credentials file changed at 03:24) |
+| Kite 5-minute bars, top-800 liquid, 2024-08 → | **747 of 800 symbols** (27.9M rows) after three sessions — certified 2026-09-19 06:12: high 99.68%, low 99.59% vs Kite daily, 0 of 372,802 sessions missing; 37 symbols remain (token reset ~06:10 IST) — `five_min_2024/`. Certified: open = Kite daily open 99.81%, high 99.42%, low 99.44%, 0 missing sessions, 94.18% with exactly 75 bars. **698 symbols remain** (the Kite token was rejected at ~04:30 IST, after the credentials file changed at 03:24) |
 | Research panel 2024–26 (bhavcopy) | Durable copy; **phantom gaps** — use only with Kite-derived gaps (`/app/research/tpd3_panel/README.md`) |
 | Paper Trade Engine v1 | Replay done (no edge); forward run of the v4 model counts from **Mon 2026-09-21** |
 | Pattern registry | 19 hypothesis families tested on 2024–26 (`pattern_engine/REGISTRY_SEED.md`) |
@@ -213,7 +213,7 @@ single-feature lifts have **failed**.
 
 ### Phase A — Certify the backfill
 **First action at the next Kite login (~60 minutes, both scripts resume where they stopped):**
-`python pull_5min.py` (480 symbols left) then `python pull_daily.py` (7 symbols), in `/app/research/kite_history/`.
+`python pull_5min.py` (37 symbols left), `python pull_daily.py` (7 symbols), then `python research/sealed/hb_fetch.py` (3,593 H-B signal-days, ~35 min) and the H-B sealed run + audit, in `/app/research/kite_history/`.
 
 | # | Task | Output / acceptance |
 |---|---|---|
