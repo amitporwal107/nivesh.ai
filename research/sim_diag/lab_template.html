@@ -74,6 +74,7 @@ select{font-family:var(--mono);font-size:11px;padding:8px 10px;border-radius:10p
 .good{color:var(--mint)}.bad{color:var(--danger)}.warn{color:var(--amber)}
 .note{border-left:3px solid var(--amber);padding:10px 14px;background:var(--amber-soft);border-radius:0 10px 10px 0;font-size:13px;color:var(--ink-2)}
 .heat td{text-align:center;font-family:var(--mono);font-size:11px;color:var(--ink)}
+.sub{opacity:.88}.sub table{font-size:11px}.sub th{font-size:9px}.sub td{padding:6px 10px}
 .sp{height:14px}
 @media (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.grid2{grid-template-columns:1fr}.wrap{padding:0 16px 48px}.h1{font-size:26px}}
 </style>
@@ -110,7 +111,8 @@ const f = (x, d = 3) => x == null ? "—" : Number(x).toFixed(d);
 const cls = x => x == null ? "" : x > 0 ? "good" : x < 0 ? "bad" : "";
 const pill = (t, k) => `<span class="pill ${k || ""}">${esc(t)}</span>`;
 const R = DATA.results, SC = DATA.scorecard;
-const state = {tab: "run", session: R.replay_dates[14], candFilter: "TOP30", cause: "ALL", scope: "replay", trade: null, modeScope: "year"};
+const state = {tab: "run", session: R.replay_dates[14], candFilter: "TOP30", cause: "ALL", scope: "replay", trade: null,
+  modeScope: "year", matrixScope: "year", matrixRun: null};
 
 function table(cols, rows, opts = {}) {
   const head = cols.map(c => `<th class="${c.r ? "r" : ""}">${esc(c.h)}</th>`).join("");
@@ -132,7 +134,8 @@ function kpis() {
 }
 
 const TABS = [["run", "Run · frozen inputs"], ["data", "Data quality"], ["candidates", "Candidate ledger"], ["trades", "Trade audit · RC-1"],
-  ["recon", "Reconciliation"], ["signal", "Signal · Mode A"], ["score", "Scorecard"], ["matrix", "Matrix A–H · comparison"], ["deliverables", "Deliverables"]];
+  ["recon", "Reconciliation"], ["signal", "Signal · Mode A"], ["score", "Scorecard"], ["matrix", "Matrix A–H"],
+  ["comparison", "Run comparison"], ["permutations", "Permutations"], ["deliverables", "Deliverables"]];
 
 function tabs() {
   $("#tabs").innerHTML = TABS.map(([id, l]) => `<button role="tab" aria-selected="${state.tab === id}" data-tab="${id}">${l}</button>`).join("");
@@ -328,13 +331,306 @@ function viewScore() {
   </div><div class="sp"></div><div class="note">Configuration A is a fixed-notional run: it needs up to ${inr(D.max_capital_in_use_inr)} at once, so a return on ₹5,00,000 would be wrong here. Portfolio returns and drawdown in % appear only for the risk-engine configurations D and F.</div>`;
 }
 
-function viewMatrix() {
-  return `<section class="card"><div class="eyebrow">Matrix A–H · run comparison · permutations</div><h2 class="h2">Not run</h2>
-  <p class="body" style="max-width:820px">These runs need the matrix pre-registration (deliverable D5) frozen by the owner first: the entry and stop/target parameters of PRD §10–§11, controls G and H, the tax regime, and a scorecard rubric if grades are wanted. Nothing here is sample data; the tab stays empty until that run exists.</p>
+// ---------------- Matrix A–H · run comparison (deliverable D5, pre-registration §4–§8) ----------------
+const MX = (function (o) {          // matrix_results.json. A NaN (a median over no values) becomes null, so it renders "—"
+  const walk = x => Array.isArray(x) ? x.map(walk)
+    : (x && typeof x === "object") ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, walk(v)]))
+    : (typeof x === "number" && !isFinite(x)) ? null : x;
+  return o ? walk(o) : null;
+})(DATA.matrix);
+const RUN_ORDER = ["A", "B", "C", "D", "E", "F", "G", "H"];
+const RUN_INFO = {                                   // §4: what each run isolates, and the one thing it changes
+  A: ["Baseline — reconciled in D3", "M8 top 5 · s1 open · 2% stop · 5% target · ₹50,000 · costs on"],
+  B: ["Stop and target", "1.5 × ATR(14) stop, 2R target"],
+  C: ["Entry", "buy-stop at D high + 0.1%, s1 only"],
+  D: ["Sizing", "risk engine, no allocation caps"],
+  E: ["Cost drag", "costs off"],
+  F: ["Full realism", "risk engine, all caps"],
+  G: ["Selection vs execution", "random 5 a session, 200 seeds"],
+  H: ["The stop and target rule itself", "no stop, no target, held 5 sessions"],
+};
+const SEC_INFO = {                                   // §4 secondary rows: reported below the matrix, never used to pick a winner
+  S1_STRUCTURE: "stop = lowest low of the 10 sessions to D less 0.1%, bounded 1–8% below entry; target 2R",
+  S2_VOL_ADJ: "stop = entry × (1 − 1.5 σ20), σ20 over the 20 sessions to D, bounded 1–8%; target 2.5R",
+  S3_LIMIT: "entry = limit at D close × 0.995, s1 only",
+  S4_VWAP: "entry = s1 (high + low + close) / 3 — an approximation: true VWAP needs intraday data",
+  S5_POOL: "every eligible candidate of every session under A's rules (the rank-band and control-G reference set)",
+};
+const READS = [["A vs E", "the cost drag"], ["A vs D, D vs F", "the allocation effect: sizing first, then the caps"],
+  ["A vs B (and S1, S2)", "the stop and target rule"], ["A vs C (and S3, S4)", "the entry rule"],
+  ["A vs H", "whether the stop and target rule helps at all against a plain hold"],
+  ["A vs G", "whether the selection is worth anything against random picks under the same execution"],
+  ["Rank bands in S5", "whether the score orders outcomes at all"],
+  ["Every run negative", "the loss is in the signal (direction), not in execution — Phase 4 C/D stays paused"]];
+const SCOPE_LABEL = {year: "Full year · 2022", replay: "Replay window"};
+const pp = (x, d = 2) => x == null ? "—" : (x < 0 ? "−" : "") + Math.abs(x).toFixed(d) + "%";   // already in percent units
+const cnt = x => x == null ? "—" : Number(x).toLocaleString("en-IN");
+const mapline = o => o && Object.keys(o).length ? Object.entries(o).map(([k, v]) => `${esc(k)} ${v}`).join(" · ") : "none";
+const isPort = m => !!m && (m.max_drawdown_pct != null || m.return_on_capital_pct != null);
+const secInfo = k => { const pre = String(k).split("_")[0]; const hit = Object.keys(SEC_INFO).find(x => x === k || x.split("_")[0] === pre); return hit ? SEC_INFO[hit] : ""; };
+
+function notRunCard(what) {
+  return `<section class="card"><div class="eyebrow">${esc(what)}</div><h2 class="h2">Not run</h2>
+  <p class="body" style="max-width:820px">This run folder holds no <span class="mono">matrix_results.json</span>, so the matrix (deliverable D5) has not been run against these inputs. The pre-registration that fixes the runs, the metrics and the rubric is <span class="mono">docs/ai_research/tpd3/sim_diag/PREREGISTRATION_SIM_MATRIX.md</span>. Nothing here is sample data: the tab stays empty until that file sits beside the other ledgers.</p>
   <div class="grid3" style="margin-top:14px">
-  <div class="card2"><div class="eyebrow">Ready</div><div class="body" style="margin-top:6px">Configuration A reconciled (${R.reconciliation_2022.trades} trades). Entry, stop and target models implemented and tested in the simulator; not run on market data.</div></div>
-  <div class="card2"><div class="eyebrow">Needs the portfolio loop</div><div class="body" style="margin-top:6px">D and F need target exits in engine.py and a rule for a second signal on a symbol already held (23.7% of H#32 trades overlap one).</div></div>
-  <div class="card2"><div class="eyebrow">Permutations</div><div class="body" style="margin-top:6px">The design's grid is 1,300 configurations, 240 of them invalid (no stop with risk sizing). Searching it on 2022 needs a trials ledger and a multiple-comparison rule before any run.</div></div></div></section>`;
+  <div class="card2"><div class="eyebrow">Ready</div><div class="body" style="margin-top:6px">Configuration A reconciled (${R.reconciliation_2022.trades} trades). Entry, stop and target models implemented and tested in the simulator.</div></div>
+  <div class="card2"><div class="eyebrow">Needs the portfolio loop</div><div class="body" style="margin-top:6px">D and F need target exits in engine.py and a rule for a second signal on a symbol already held.</div></div>
+  <div class="card2"><div class="eyebrow">Permutations</div><div class="body" style="margin-top:6px">No permutation grid is pre-registered, and none is waiting to be run — see the Permutations tab.</div></div></div></section>`;
+}
+
+function mxScope() {
+  const sc = (MX && MX.scopes) || {};
+  if (!sc[state.matrixScope]) state.matrixScope = Object.keys(sc)[0];
+  return sc[state.matrixScope] || {};
+}
+function mxRows() {
+  const S = mxScope(), runs = S.runs || {};
+  const primary = RUN_ORDER.filter(k => runs[k]).map(k => ({k, m: runs[k], info: RUN_INFO[k] || [k, ""]}));
+  const stray = Object.keys(runs).filter(k => !RUN_ORDER.includes(k)).sort().map(k => ({k, m: runs[k], info: [k, secInfo(k)]}));
+  const sec = Object.keys(S.secondary || {}).sort().map(k => ({k, m: S.secondary[k], info: [k, secInfo(k)]})).concat(stray);
+  return {S, primary, sec, missing: RUN_ORDER.filter(k => !runs[k])};
+}
+function mxHead() {
+  const sc = (MX && MX.scopes) || {};
+  const opts = Object.entries(sc).map(([k, v]) => `<option value="${esc(k)}" ${k === state.matrixScope ? "selected" : ""}>${esc(SCOPE_LABEL[k] || k)}${v && v.sessions != null ? " · " + v.sessions + " sessions" : ""}</option>`).join("");
+  return `<div class="row" style="margin-bottom:14px"><span class="eyebrow">Scope</span><select id="mxs">${opts}</select>
+  ${pill(MX.prereg || "pre-registration not named in the file", "p-indigo")}
+  ${pill("descriptive · no configuration here is a candidate", "p-amber")}
+  ${MX.cost_model ? pill("costs " + MX.cost_model) : ""}
+  ${MX.code_commit ? pill("code " + String(MX.code_commit).slice(0, 8)) : ""}
+  ${MX.smoke ? pill("smoke run", "p-danger") : ""}
+  ${MX.baseline_vs_d3 ? pill(MX.baseline_vs_d3.pass ? "A reproduces D3" : "A does not reproduce D3", MX.baseline_vs_d3.pass ? "p-mint" : "p-danger") : ""}</div>
+  ${MX.smoke ? '<div class="note" style="border-left-color:var(--danger);background:var(--danger-soft);margin-bottom:14px"><b>This file is a smoke run.</b> The runner labels it a plumbing check, never a result: it covers the replay window only and may have been run on a dirty tree. Nothing on these two tabs may be reported as a finding.</div>' : ""}
+  ${MX.baseline_vs_d3 && !MX.baseline_vs_d3.pass ? `<div class="note" style="border-left-color:var(--danger);background:var(--danger-soft);margin-bottom:14px"><b>Configuration A does not reproduce the D3 numbers</b> (§9): only now ${cnt(MX.baseline_vs_d3.only_now)}, only D3 ${cnt(MX.baseline_vs_d3.only_d3)}, exit-reason mismatches ${cnt(MX.baseline_vs_d3.exit_reason_mismatches)}, exit-date mismatches ${cnt(MX.baseline_vs_d3.exit_date_mismatches)}, largest net-return difference ${MX.baseline_vs_d3.max_abs_net_ret_diff == null ? "—" : Number(MX.baseline_vs_d3.max_abs_net_ret_diff).toExponential(1)}. The run's own acceptance criterion is not met.</div>` : ""}`;
+}
+function paired(r) {
+  if (r.k === "A") return '<span style="color:var(--ink-3)">baseline</span>';
+  const p = r.m.paired_vs_A;
+  if (!p) return "—";
+  if (!p.n_common) return '<span style="color:var(--ink-3)">no common trades</span>';
+  const ci = p.ci95 || [null, null];
+  return `<span class="${cls(p.mean_diff)}">${pct(p.mean_diff)}</span> <span style="color:var(--ink-3)">[${pct(ci[0])}, ${pct(ci[1])}] · n ${cnt(p.n_common)} · better ${pct(p.share_better, 0)}</span>`;
+}
+const mxWhat = r => r.info[0] === r.k                    // secondary rows carry only the one change they make
+  ? `<div style="white-space:normal;max-width:430px">${esc(r.info[1])}</div>`
+  : `<div style="color:var(--ink)">${esc(r.info[0])}</div><div style="font-size:11px;color:var(--ink-3);white-space:normal;max-width:430px">${esc(r.info[1])}</div>`;
+const MXCOLS = (first, second) => [
+  {h: first, v: r => `<b style="color:var(--ink)">${esc(r.k)}</b>`},
+  {h: second, v: mxWhat},
+  {h: "Trades", r: 1, v: r => cnt(r.m.trades)},
+  {h: "No entry", r: 1, v: r => cnt(r.m.no_entry)},
+  {h: "Net / trade", r: 1, v: r => pct(r.m.net_per_trade), cls: r => cls(r.m.net_per_trade)},
+  {h: "Gross / trade", r: 1, v: r => pct(r.m.gross_per_trade), cls: r => cls(r.m.gross_per_trade)},
+  {h: "Cost drag", r: 1, v: r => pct(r.m.cost_drag)},
+  {h: "Win rate", r: 1, v: r => pct(r.m.win_rate, 1)},
+  {h: "Profit factor", r: 1, v: r => f(r.m.profit_factor, 2)},
+  {h: "Expectancy ₹", r: 1, v: r => inr(r.m.expectancy_inr), cls: r => cls(r.m.expectancy_inr)},
+  {h: "Stop hit", r: 1, v: r => pct(r.m.stop_hit_rate, 1)},
+  {h: "vs A · net per trade [95%]", r: 1, v: paired},
+];
+
+const noteBlock = rows => {                             // a run that carries its own caveat says so under the table
+  const n = rows.filter(r => r.m.note);
+  return n.length ? `<div class="body" style="font-size:11.5px;margin-top:8px">${n.map(r => `<b>${esc(r.k)}</b> — ${esc(r.m.note)}`).join("<br>")}</div>` : "";
+};
+
+function randomCard(S) {
+  const g = S.random_control;
+  if (!g) return `<section class="card"><div class="eyebrow">§4a · Control G · random selection</div><div class="sp"></div>
+    <div class="body">No random-control block for this scope in <span class="mono">matrix_results.json</span>.</div></section>`;
+  const p = g.a_percentile;
+  return `<section class="card"><div class="eyebrow">§4a · Control G · random ${cnt(g.picks_per_session)} a session from the same pool</div><div class="sp"></div><div class="kv">
+  <div>Seeds</div><div>${cnt(g.seeds)} · base <span class="mono">${esc(g.seed_base)}</span> · ${f(g.mean_trades_per_seed, 1)} trades a seed on average</div>
+  <div>Net per trade</div><div>mean of the seed means ${pct(g.mean_of_means)} · median ${pct(g.p50)} · 90% range ${pct(g.p05)} to ${pct(g.p95)}</div>
+  <div>Range</div><div>min ${pct(g.min)} · max ${pct(g.max)}</div>
+  <div>Configuration A</div><div>sits at the <b>${f(p, 1)}th</b> percentile of those ${cnt(g.seeds)} seeds</div></div>
+  <div class="sp"></div><div class="bar"><i style="width:${p == null ? 0 : Math.max(0, Math.min(100, p))}%;background:var(--indigo)"></i></div>
+  <div class="body" style="font-size:11.5px;margin-top:6px;color:var(--ink-3)">0 = below every seed, 100 = above every seed. §8 score B is PASS only if the top-5 net per trade is positive <i>and</i> above the 95th percentile here; at or below the median it is FAIL.</div></section>`;
+}
+function bandsCard(S) {
+  const b = S.rank_bands;
+  if (!b) return `<section class="card"><div class="eyebrow">§6 · Rank bands</div><div class="sp"></div>
+    <div class="body">No rank-band block for this scope in <span class="mono">matrix_results.json</span>.</div></section>`;
+  const order = ["1-5", "6-10", "11-20", "21+"];
+  const keys = order.filter(k => b[k]).concat(Object.keys(b).filter(k => !order.includes(k)));
+  const rows = keys.map(k => Object.assign({k}, b[k]));
+  return `<section class="card" style="padding:14px"><div class="eyebrow" style="padding:6px">§6 · Rank bands within S5 — does the score order outcomes at all?</div>${table([
+    {h: "M8 rank band", v: r => `<b style="color:var(--ink)">${esc(r.k)}</b>`}, {h: "Trades", r: 1, v: r => cnt(r.trades)},
+    {h: "Net / trade", r: 1, v: r => pct(r.net_per_trade), cls: r => cls(r.net_per_trade)},
+    {h: "Gross / trade", r: 1, v: r => pct(r.gross_per_trade), cls: r => cls(r.gross_per_trade)},
+    {h: "Win rate", r: 1, v: r => pct(r.win_rate, 1)}, {h: "Stop hit", r: 1, v: r => pct(r.stop_hit_rate, 1)},
+  ], rows, {scroll: false})}</section>`;
+}
+
+function viewMatrix() {
+  if (!MX) return notRunCard("Matrix A–H · the eight pre-registered runs");
+  const {S, primary, sec, missing} = mxRows();
+  const reps = (primary.find(r => r.m.paired_vs_A && r.m.paired_vs_A.reps) || {m: {}}).m.paired_vs_A;
+  const label = SCOPE_LABEL[state.matrixScope] || state.matrixScope;
+  return mxHead() + `<section class="card" style="padding:14px">
+  <div class="eyebrow" style="padding:6px 6px 0">§4 · The matrix · ${esc(label)}${S.sessions == null ? "" : " · " + S.sessions + " sessions"} · run ${esc(MX.run || "—")}</div>
+  ${table(MXCOLS("Run", "Isolates"), primary, {scroll: false})}
+  ${noteBlock(primary)}
+  ${missing.length ? `<div class="note" style="margin-top:10px">Not in this file for this scope: ${esc(missing.join(", "))}.</div>` : ""}
+  <div class="body" style="font-size:11.5px;margin-top:8px">Gross is pre-slippage for the fixed-notional runs and post-slippage for the engine runs D and F (the engine's fills carry slippage inside the price), so only the <b>net</b> figures compare across the two. The paired column is the mean difference in net per trade over the trades both runs entered, with a date-clustered bootstrap interval${reps ? " (" + cnt(reps.reps) + " resamples)" : ""}: descriptive, no p-value, nothing accepted or rejected (§5). No rule may be adopted because it scores best here (§1).</div></section>
+  <div class="sp"></div>
+  <section class="card2 sub" style="padding:10px 12px"><div class="eyebrow">§4 · Secondary rows — one change each, reported below the matrix, never used to pick a winner</div><div class="sp"></div>
+  ${sec.length ? table(MXCOLS("Row", "Change"), sec, {scroll: false}) : '<div class="body">No secondary rows in this file for this scope.</div>'}</section>
+  <div class="sp"></div>
+  <div class="grid2">${randomCard(S)}${bandsCard(S)}</div>
+  <div class="sp"></div>
+  <section class="card"><div class="eyebrow">§6 · How each comparison reads (fixed before the run)</div><div class="sp"></div>
+  <div class="kv">${READS.map(([a, b]) => `<div>${esc(a)}</div><div>${esc(b)}</div>`).join("")}</div>
+  <div class="sp"></div><div class="note">A configuration that comes out positive is not a result. It is a candidate hypothesis for a fresh pre-registration and an out-of-sample test (§1, §6).</div></section>`;
+}
+
+// ---------------- Run comparison: rupees, capital, tax annex, sensitivity ----------------
+const FIXCOLS = [
+  {h: "Run", v: r => `<b style="color:var(--ink)">${esc(r.k)}</b>`},
+  {h: "Trades", r: 1, v: r => cnt(r.m.trades)},
+  {h: "Gross ₹", r: 1, v: r => inr(r.m.gross_inr), cls: r => cls(r.m.gross_inr)},
+  {h: "Slippage ₹", r: 1, v: r => r.m.slippage_inr == null ? "—" : inr(-Math.abs(r.m.slippage_inr)), cls: () => "bad"},
+  {h: "Charges ₹", r: 1, v: r => r.m.charges_inr == null ? "—" : inr(-Math.abs(r.m.charges_inr)), cls: () => "bad"},
+  {h: "Net ₹", r: 1, v: r => `<b>${inr(r.m.net_inr)}</b>`, cls: r => cls(r.m.net_inr)},
+  {h: "Net / trade", r: 1, v: r => pct(r.m.net_per_trade), cls: r => cls(r.m.net_per_trade)},
+  {h: "Expectancy ₹", r: 1, v: r => inr(r.m.expectancy_inr), cls: r => cls(r.m.expectancy_inr)},
+  {h: "Profit factor", r: 1, v: r => f(r.m.profit_factor, 2)},
+  {h: "Largest win ₹", r: 1, v: r => inr(r.m.largest_win_inr)},
+  {h: "Largest loss ₹", r: 1, v: r => inr(r.m.largest_loss_inr), cls: r => cls(r.m.largest_loss_inr)},
+  {h: "Losing streak", r: 1, v: r => cnt(r.m.longest_losing_streak)},
+  {h: "Worst cumulative net ₹", r: 1, v: r => inr(r.m.worst_cumulative_net_inr), cls: r => cls(r.m.worst_cumulative_net_inr)},
+  {h: "Worst peak-to-trough ₹", r: 1, v: r => inr(r.m.worst_peak_to_trough_inr)},
+  {h: "Peak capital required ₹", r: 1, v: r => inr(r.m.peak_capital_required_inr)},
+  {h: "Max concurrent", r: 1, v: r => cnt(r.m.max_concurrent_trades)},
+];
+const PORTCOLS = [
+  {h: "Run", v: r => `<b style="color:var(--ink)">${esc(r.k)}</b>`},
+  {h: "Sizing", v: r => esc(r.info ? r.info[1] : "")},
+  {h: "Risk / positions", v: r => r.m.risk_per_trade_pct == null ? "—" : `${esc(r.m.risk_per_trade_pct)}% · ${cnt(r.m.max_open_positions)} positions`},
+  {h: "Trades", r: 1, v: r => cnt(r.m.trades)},
+  {h: "Gross ₹", r: 1, v: r => inr(r.m.gross_inr), cls: r => cls(r.m.gross_inr)},
+  {h: "Charges ₹", r: 1, v: r => r.m.charges_inr == null ? "—" : inr(-Math.abs(r.m.charges_inr)), cls: () => "bad"},
+  {h: "Net ₹", r: 1, v: r => `<b>${inr(r.m.net_inr)}</b>`, cls: r => cls(r.m.net_inr)},
+  {h: "Net / trade", r: 1, v: r => pct(r.m.net_per_trade), cls: r => cls(r.m.net_per_trade)},
+  {h: "Expectancy ₹", r: 1, v: r => inr(r.m.expectancy_inr), cls: r => cls(r.m.expectancy_inr)},
+  {h: "Profit factor", r: 1, v: r => f(r.m.profit_factor, 2)},
+  {h: "Final equity ₹", r: 1, v: r => inr(r.m.final_equity_inr)},
+  {h: "Return on capital", r: 1, v: r => pp(r.m.return_on_capital_pct), cls: r => cls(r.m.return_on_capital_pct)},
+  {h: "Max drawdown ₹", r: 1, v: r => inr(r.m.max_drawdown_inr)},
+  {h: "Max drawdown %", r: 1, v: r => pp(r.m.max_drawdown_pct)},
+  {h: "Max positions open", r: 1, v: r => cnt(r.m.max_positions_open)},
+];
+const EXITCOLS = [
+  {h: "Run", v: r => `<b style="color:${r.sec ? "var(--ink-3)" : "var(--ink)"}">${esc(r.k)}</b>`},
+  {h: "Exit mix", v: r => `<span class="mono" style="font-size:11px">${mapline(r.m.exit_mix)}</span>`},
+  {h: "Stop hit", r: 1, v: r => pct(r.m.stop_hit_rate, 1)},
+  {h: "Target hit", r: 1, v: r => pct(r.m.target_hit_rate, 1)},
+  {h: "Ambiguous bars", r: 1, v: r => cnt(r.m.ambiguous_bars)},
+  {h: "Gap-through stops", r: 1, v: r => cnt(r.m.gap_through_stops)},
+  {h: "Lock-affected", r: 1, v: r => cnt(r.m.lock_affected_trades)},
+  {h: "Median stop (ATR)", r: 1, v: r => f(r.m.median_stop_distance_atr, 2)},
+  {h: "Median MFE", r: 1, v: r => pct(r.m.median_mfe, 1)},
+  {h: "Median MAE", r: 1, v: r => pct(r.m.median_mae, 1)},
+  {h: "No entry", r: 1, v: r => cnt(r.m.no_entry)},
+  {h: "Reasons", v: r => `<span class="mono" style="font-size:11px">${mapline(r.m.no_entry_reasons)}</span>`},
+];
+const TAXCOLS = [
+  {h: "Run", v: r => `<b style="color:${r.sec ? "var(--ink-3)" : "var(--ink)"}">${esc(r.k)}</b>`},
+  {h: "Net ₹ (pre-tax, primary)", r: 1, v: r => inr(r.m.net_inr), cls: r => cls(r.m.net_inr)},
+  {h: "STCG 2022 · 15% + 4% cess", r: 1, v: r => r.m.tax && r.m.tax.applies ? inr(r.m.tax.stcg_2022_15pct_plus_cess) : "—"},
+  {h: "STCG since 23 Jul 2024 · 20% + 4% cess", r: 1, v: r => r.m.tax && r.m.tax.applies ? inr(r.m.tax.stcg_current_20pct_plus_cess) : "—"},
+  {h: "Note", v: r => `<span style="font-size:11px;color:var(--ink-3)">${esc(r.m.tax ? (r.m.tax.note || "") : "no tax annex in this file")}</span>`},
+];
+
+function variantsCard(S) {
+  const v = S.portfolio_variants || [];
+  if (!v.length) return `<section class="card"><div class="eyebrow">§4b · Portfolio sensitivity</div><div class="sp"></div>
+    <div class="body">No portfolio-variant block for this scope in <span class="mono">matrix_results.json</span>.</div></section>`;
+  const rows = v.map(m => ({k: m.config, m}));
+  return `<section class="card" style="padding:14px"><div class="eyebrow" style="padding:6px">§4b · Sensitivity of the portfolio runs — risk per trade × position limit. A sensitivity table, <b>not</b> candidates.</div>${table([
+    {h: "Variant", v: r => `<b style="color:var(--ink)">${esc(r.k)}</b>`},
+    {h: "Config", v: r => `<span class="mono" style="font-size:11px">${esc(r.m.config_id)}</span>`},
+    {h: "Risk / trade", r: 1, v: r => r.m.risk_per_trade_pct == null ? "—" : esc(r.m.risk_per_trade_pct) + "%"},
+    {h: "Max positions", r: 1, v: r => cnt(r.m.max_open_positions)},
+    {h: "Trades", r: 1, v: r => cnt(r.m.trades)},
+    {h: "Net ₹", r: 1, v: r => inr(r.m.net_inr), cls: r => cls(r.m.net_inr)},
+    {h: "Net / trade", r: 1, v: r => pct(r.m.net_per_trade), cls: r => cls(r.m.net_per_trade)},
+    {h: "Win rate", r: 1, v: r => pct(r.m.win_rate, 1)},
+    {h: "Profit factor", r: 1, v: r => f(r.m.profit_factor, 2)},
+    {h: "Final equity ₹", r: 1, v: r => inr(r.m.final_equity_inr)},
+    {h: "Return on capital", r: 1, v: r => pp(r.m.return_on_capital_pct), cls: r => cls(r.m.return_on_capital_pct)},
+    {h: "Max drawdown ₹", r: 1, v: r => inr(r.m.max_drawdown_inr)},
+    {h: "Max drawdown %", r: 1, v: r => pp(r.m.max_drawdown_pct)},
+    {h: "Max positions open", r: 1, v: r => cnt(r.m.max_positions_open)},
+  ], rows, {scroll: false})}</section>`;
+}
+
+function extremesCard(all) {
+  const withX = all.filter(r => r.m.extremes);
+  if (!withX.length) return `<section class="card"><div class="eyebrow">§9 · Extreme-trade audit</div><div class="sp"></div>
+    <div class="body">No extreme-trade block in <span class="mono">matrix_results.json</span> for this scope.</div></section>`;
+  if (!withX.some(r => r.k === state.matrixRun)) state.matrixRun = withX[0].k;
+  const r = withX.find(x => x.k === state.matrixRun), x = r.m.extremes;
+  const cols = [
+    {h: "Symbol", v: t => `<b style="color:var(--ink)">${esc(t.symbol)}</b>${t.etf_like ? ' <span class="warn">ETF-like</span>' : ""}`},
+    {h: "Company", v: t => `<span style="font-size:11px;color:var(--ink-3)">${esc(t.company)}</span>`},
+    {h: "Decision", v: t => esc(t.decision_date)}, {h: "Entry", v: t => esc(t.entry_date)}, {h: "Exit", v: t => esc(t.exit_date)},
+    {h: "Exit reason", v: t => esc(t.exit_reason)}, {h: "Qty", r: 1, v: t => cnt(t.qty)},
+    {h: "Buy value ₹", r: 1, v: t => inr(t.buy_value)}, {h: "Gross ₹", r: 1, v: t => inr(t.gross_inr), cls: t => cls(t.gross_inr)},
+    {h: "Charges ₹", r: 1, v: t => inr(t.charges_inr)}, {h: "Net ₹", r: 1, v: t => `<b>${inr(t.net_inr)}</b>`, cls: t => cls(t.net_inr)},
+    {h: "Net", r: 1, v: t => pct(t.net_ret), cls: t => cls(t.net_ret)},
+    {h: "Flags", v: t => `<span class="mono" style="font-size:11px">${esc(t.flags)}</span>`},
+  ];
+  return `<section class="card" style="padding:14px"><div class="row" style="padding:6px"><div class="eyebrow">§9 · Extreme-trade audit — the run is not reported unless this is clean</div>
+  <select id="mxrun">${withX.map(o => `<option value="${esc(o.k)}" ${o.k === state.matrixRun ? "selected" : ""}>${esc(o.k)}</option>`).join("")}</select></div>
+  <div class="kv" style="padding:0 6px 10px"><div>ETF-like trades</div><div>${cnt(x.etf_like_trades)}</div>
+  <div>Share of absolute P&amp;L in these extremes</div><div>${pct(x.share_of_absolute_pnl_in_extremes, 1)}</div></div>
+  <div class="eyebrow" style="padding:6px">Largest gains</div>${table(cols, x.largest_gains || [], {scroll: false})}
+  <div class="sp"></div><div class="eyebrow" style="padding:6px">Largest losses</div>${table(cols, x.largest_losses || [], {scroll: false})}
+  <div class="body" style="font-size:11.5px;margin-top:8px">Opening prints on ETFs produced a false pass on 2026-09-19; that is why every run's extremes are read before its headline number is.</div></section>`;
+}
+
+function viewComparison() {
+  if (!MX) return notRunCard("Run comparison · rupees, capital and the tax annex");
+  const {S, primary, sec} = mxRows();
+  const fixed = primary.filter(r => !isPort(r.m)), port = primary.filter(r => isPort(r.m));
+  const secFixed = sec.map(r => Object.assign({sec: true}, r));
+  const peakA = (S.runs && S.runs.A) ? S.runs.A.peak_capital_required_inr : null;
+  const cap = MX.capital_inr;
+  return mxHead() + `<section class="card"><div class="eyebrow">§5 · Which figures are valid for which run</div><div class="sp"></div>
+  <div class="body" style="max-width:940px">The fixed-notional runs put <b>₹50,000 into each trade</b> and are not funded from a ${cap == null ? "portfolio" : inr(cap)} account${peakA == null ? "" : " — configuration A alone needs up to " + inr(peakA) + " at once"}. A return or a drawdown as a percentage of ${cap == null ? "the portfolio capital" : inr(cap)} is <b>invalid</b> for them and is not shown here: they get per-trade returns, rupee totals, the <i>worst cumulative net</i> over the trade sequence and the peak capital the sequence required. <b>Max drawdown</b>, return on capital and drawdown in percent are shown only for the portfolio runs D and F, on the engine's daily equity curve. The two are different things and are never put in the same column.</div></section>
+  <div class="sp"></div>
+  <section class="card" style="padding:14px"><div class="eyebrow" style="padding:6px">Profit and loss in rupees · fixed-notional runs (₹50,000 a trade)</div>
+  ${fixed.length ? table(FIXCOLS, fixed, {scroll: false}) : '<div class="body">No fixed-notional runs in this file for this scope.</div>'}
+  ${noteBlock(fixed)}
+  ${S.runs && S.runs.G && S.runs.G.trades != null && S.runs.G.peak_capital_required_inr == null ? '<div class="body" style="font-size:11.5px;margin-top:8px">Control G carries no capital figure: its random selections are parallel universes, so a peak capital over their union would be meaningless. It is left out rather than reported wrong.</div>' : ""}</section>
+  <div class="sp"></div>
+  <section class="card" style="padding:14px"><div class="eyebrow" style="padding:6px">Portfolio runs · risk engine${cap == null ? "" : " on " + inr(cap)}, FIXED basis, no leverage, no compounding</div>
+  ${port.length ? table(PORTCOLS, port, {scroll: false}) : '<div class="body">No portfolio runs (D, F) in this file for this scope.</div>'}</section>
+  <div class="sp"></div>
+  <section class="card2 sub" style="padding:10px 12px"><div class="eyebrow">Secondary rows · rupees (fixed-notional, same basis)</div><div class="sp"></div>
+  ${secFixed.length ? table(FIXCOLS, secFixed, {scroll: false}) : '<div class="body">No secondary rows in this file for this scope.</div>'}</section>
+  <div class="sp"></div>
+  <section class="card" style="padding:14px"><div class="eyebrow" style="padding:6px">Exits, ambiguity and entry rejections · every run in the file</div>
+  ${table(EXITCOLS, primary.concat(secFixed), {scroll: false})}
+  <div class="body" style="font-size:11.5px;margin-top:8px">Known engine defects are not fixed in this run (§7): the circuit-lock heuristic's false positives and the blocked-stop recovery. Their reach is the <i>lock-affected</i> column; in D3 they made the baseline loss larger, not smaller.</div></section>
+  <div class="sp"></div>
+  <section class="card" style="padding:14px"><div class="eyebrow" style="padding:6px">§5a · Tax annex — <b>illustrative only</b>, both regimes, never the headline</div>
+  ${table(TAXCOLS, primary.concat(secFixed), {scroll: false})}
+  <div class="body" style="font-size:11.5px;margin-top:8px">Pre-tax is primary. The trades are 2022 and the cost model is 2026, so both regimes are shown: STCG 15% + 4% cess (the law in 2022) and 20% + 4% cess (after 23 July 2024). Computed only where a run's net is positive; no surcharge, no set-off, no carry-forward.</div></section>
+  <div class="sp"></div>${variantsCard(S)}
+  <div class="sp"></div>${extremesCard(primary.concat(secFixed))}`;
+}
+
+// ---------------- Permutations (§7: there is no grid) ----------------
+function viewPermutations() {
+  return `<section class="card"><div class="eyebrow">§7 · Governance</div><h2 class="h2">No permutation grid is run</h2>
+  <p class="body" style="max-width:880px">The pre-registration settles this before the run: <b>no permutation grid.</b> The Lab design's 1,300-configuration sweep is not part of this study — it is a forking-paths hazard. If it is ever run it needs its own pre-registration, a trials ledger, a multiplicity adjustment, and it may only run on data that has not been used to choose anything.</p>
+  <div class="grid3" style="margin-top:14px">
+  <div class="card2"><div class="eyebrow">Why it is not offered</div><div class="body" style="margin-top:6px">Searching many configurations on data that has already been used produces a best-looking rule by construction. The matrix changes one thing at a time against a baseline that was reconciled against an independent implementation (§4).</div></div>
+  <div class="card2"><div class="eyebrow">What it would take</div><div class="body" style="margin-top:6px">Its own pre-registration, a ledger of every trial, a multiplicity adjustment, and data that has not been used to choose anything.</div></div>
+  <div class="card2"><div class="eyebrow">And even then</div><div class="body" style="margin-top:6px">A configuration that looks better is a candidate hypothesis for a fresh pre-registration and an out-of-sample test — never a result (§1, owner policy <span class="mono">TPD model success gates</span>).</div></div></div>
+  <div class="sp"></div><div class="note">This tab carries no numbers because there is no such run, and none is planned. ${MX ? "The matrix in this folder is the one pre-registered run." : "The matrix itself has not been run in this folder either."}</div></section>`;
 }
 
 function viewDeliverables() {
@@ -343,19 +639,23 @@ function viewDeliverables() {
     ["D2", "Target exits, ambiguity flag, new entry fills (execution.py)", "Built", "p-mint", "tests written first; deliberate breaks caught; engine.py portfolio targets wait for D5"],
     ["D3", "Configuration A vs labels.py, all 2022 trades", rc.unexplained ? "Unexplained left" : "Explained", rc.unexplained ? "p-danger" : "p-mint", `${rc.trades} trades; classes ${Object.entries(rc.mismatch_classes).map(([k, v]) => k + " " + v).join(", ")}`],
     ["D4", "20-session replay, trade audit, RC-1", "Run", "p-mint", `raw-bar check ${Object.entries(R.raw_bar_check_replay).map(([k, v]) => k + " " + v).join(", ")}`],
-    ["D5", "Matrix pre-registration, then A–H once", "Waiting for owner", "p-amber", "parameters, G/H, tax regime, rubric"],
-    ["D6", "Root-cause report and scorecard", "Waiting for D5", "", "RC-1 for configuration A is already in the trade audit"],
+    ["D5", "Matrix pre-registration, then A–H once", MX ? "Run" : "Waiting for owner", MX ? "p-mint" : "p-amber",
+     MX ? `matrix_results.json · run ${MX.run} · ${MX.prereg || "pre-registration not named in the file"} · ${Object.entries(MX.scopes || {}).map(([k, v]) => k + " " + (v.sessions == null ? "?" : v.sessions) + " sessions").join(", ")}`
+        : "parameters, G/H, tax regime, rubric"],
+    ["D6", "Root-cause report and scorecard", MX ? "Not in this file" : "Waiting for D5", "", "RC-1 for configuration A is already in the trade audit"],
     ["D7", "Fix only verified simulation defects", "Needs owner approval", "p-amber", `lock test false positives (${rc.simulator_defects}) and blocked-stop recovery (${rc.stop_blocked_then_recovered}) in execution.py / engine.py`]];
   return `<section class="card" style="padding:14px">${table([{h: "#", v: r => `<b>${r[0]}</b>`}, {h: "Deliverable", v: r => esc(r[1])}, {h: "Status", v: r => pill(r[2], r[3])}, {h: "Evidence", v: r => esc(r[4])}], rows, {scroll: false})}</section>`;
 }
 
 function render() {
   tabs();
-  const v = {run: viewRun, data: viewData, candidates: viewCandidates, trades: viewTrades, recon: viewRecon, signal: viewSignal, score: viewScore, matrix: viewMatrix, deliverables: viewDeliverables}[state.tab];
+  const v = {run: viewRun, data: viewData, candidates: viewCandidates, trades: viewTrades, recon: viewRecon, signal: viewSignal,
+    score: viewScore, matrix: viewMatrix, comparison: viewComparison, permutations: viewPermutations, deliverables: viewDeliverables}[state.tab];
   $("#view").innerHTML = v();
   const on = (id, fn) => { const el = $("#" + id); if (el) el.onchange = e => { fn(e.target.value); render(); }; };
   on("sess", x => state.session = x); on("cf", x => state.candFilter = x); on("scope", x => { state.scope = x; state.trade = null; });
   on("cause", x => { state.cause = x; state.trade = null; }); on("ms", x => state.modeScope = x);
+  on("mxs", x => state.matrixScope = x); on("mxrun", x => state.matrixRun = x);
   if (state.tab === "trades") document.querySelectorAll("tr.click").forEach(tr => tr.onclick = () => { state.trade = +tr.dataset.i; render(); window.scrollTo({top: document.body.scrollHeight, behavior: "smooth"}); });
 }
 

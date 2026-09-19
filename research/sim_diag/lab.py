@@ -1,8 +1,9 @@
 """Builds the Simulation Lab page (the owner's Nivesh V5 design, 2026-09-19) from one run directory.
 
-Every number on the page is read from the run's ledgers; nothing is typed in. Tabs that need runs which do not exist
-yet (matrix A-H, comparison, permutations) say so instead of showing sample data. The page embeds Kite-derived prices,
-so it is an internal file: it is written next to the run, not published."""
+Every number on the page is read from the run's ledgers; nothing is typed in. The matrix tabs (A-H, run comparison)
+read `matrix_results.json` when deliverable D5 has been run into the same folder, and say plainly that the run does
+not exist yet when it has not; no sample data is ever shown. The page embeds Kite-derived prices, so it is an
+internal file: it is written next to the run, not published."""
 from __future__ import annotations
 
 import json
@@ -42,6 +43,8 @@ def build(run_dir: str) -> str:
     rec = pd.read_csv(os.path.join(run_dir, "reconciliation_A.csv"), float_precision="round_trip")
     bars = pd.read_csv(os.path.join(run_dir, "bars_used_replay.csv"), float_precision="round_trip")
     expo = pd.read_csv(os.path.join(run_dir, "exposure_A.csv"))
+    mx_path = os.path.join(run_dir, "matrix_results.json")          # deliverable D5; absent until the matrix is run
+    matrix = j("matrix_results.json") if os.path.exists(mx_path) else None
     attempts = sorted(f for f in os.listdir(os.path.dirname(run_dir)) if f.startswith("run_attempt") and f.endswith(".log"))
     cand_cols = ["date", "rank", "symbol", "isin", "industry", "tbs_probability", "tbs_probability_calibrated_in_sample",
                  "direction_probability", "movement_probability", "value20", "atr_pct", "selection_status",
@@ -64,6 +67,7 @@ def build(run_dir: str) -> str:
         "exposure": _records(expo, list(expo.columns)),
         "attempts": [{"file": a, "tail": open(os.path.join(os.path.dirname(run_dir), a)).read().strip().splitlines()[-1][:300]}
                      for a in attempts],
+        "matrix": matrix,
     }
     html = open(TEMPLATE).read().replace("/*__DATA__*/null", json.dumps(data, default=str, separators=(",", ":")))
     out = os.path.join(run_dir, "SimulationLab.html")
