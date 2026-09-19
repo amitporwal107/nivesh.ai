@@ -124,7 +124,8 @@ def main() -> str:
 
     # ---- D3 reconciliation ----
     either = [t for t in trades if t["status"] == "CLOSED" or ds.at[t["row"], "entry_status"] == "OK"]
-    rec_rows = [dict(RC.compare(t, ds.loc[t["row"]]), row=t["row"]) for t in either]
+    rec_rows = [dict(RC.compare(t, ds.loc[t["row"]], store.bar(t["symbol"], store.sessions_after(pd.Timestamp(t["decision_date"]), 1)[0])),
+                     row=t["row"]) for t in either]
     rec = pd.DataFrame(rec_rows)
     rec_summary = RC.summarise(rec) | {"entry_status_agree": int(sum(entry_agree)), "picks": int(len(trades))}
     log("reconciliation", rec_summary)

@@ -12,8 +12,12 @@ A difference is explained only by a recomputation that removes one known differe
 - NET_QTY_BOUNDARY: the unrounded path agrees, and its quantity differs from the rounded fill's;
 - LOCKED_LOWER_FULL_DAY: the simulator could not sell because every blocked bar was locked all day (high == low);
   labels.py sold at that bar's open, a price at which nothing could be sold (a labels.py defect);
-- LOCKED_LOWER_HEURISTIC: at least one blocked bar traded away from its open, so the lock test (execution.locked_lower:
-  open == low at a band) was a false positive and a sale at the open was possible (a simulator defect).
+- LOCKED_LOWER_HEURISTIC: at least one blocked bar traded away from its open, so the lock test was a false positive
+  and a sale at the open was possible (a simulator defect; fixed in D7, so this class can no longer arise);
+- LOCKED_UPPER_LABELS_HEURISTIC: labels.py skipped the entry as locked at the upper circuit, but the s1 bar traded
+  away from its open (high > low), so the stock was buyable. The simulator takes the trade. This is the OLD lock
+  test surviving in labels.py, which is frozen with the H#32 dataset and is deliberately not changed (D7,
+  2026-09-20).
 
 Anything else is UNEXPLAINED. RC-1 treats UNEXPLAINED and simulator defects as a SIMULATION_FAILURE."""
 from __future__ import annotations
@@ -25,7 +29,8 @@ OUTCOME = {"STOP_HIT": "STOP", "GAP_THROUGH_STOP": "STOP", "TARGET_HIT": "TARGET
            "LIQUIDITY_EXIT": "EXPIRED"}
 LEVEL_TOL, NET_TOL = 0.01, 1e-6
 DEFECT_SIDE = {"NET_PAISA_ROUNDING": "convention", "NET_QTY_BOUNDARY": "convention",
-               "LOCKED_LOWER_FULL_DAY": "labels.py", "LOCKED_LOWER_HEURISTIC": "simulator", "UNEXPLAINED": "unknown"}
+               "LOCKED_LOWER_FULL_DAY": "labels.py", "LOCKED_LOWER_HEURISTIC": "simulator",
+               "LOCKED_UPPER_LABELS_HEURISTIC": "labels.py", "UNEXPLAINED": "unknown"}
 SIMULATION_FAILURE_CLASSES = ("UNEXPLAINED", "LOCKED_LOWER_HEURISTIC")
 
 
@@ -36,13 +41,21 @@ def _locked_class(flags: str) -> str:
     return "LOCKED_LOWER_FULL_DAY" if "LOCKED_LOWER_FULLDAY" in f else "UNEXPLAINED"
 
 
-def compare(trade: dict, lab: pd.Series) -> dict:
-    """One trade vs its label row. Returns the field checks and the classification of any difference."""
+def compare(trade: dict, lab: pd.Series, s1_bar=None) -> dict:
+    """One trade vs its label row. Returns the field checks and the classification of any difference.
+
+    `s1_bar` is the trade's first session bar; it is what distinguishes a genuine disagreement from labels.py's own
+    circuit-lock heuristic, so a caller that cannot supply it gets UNEXPLAINED rather than a guess."""
     out = {"symbol": trade["symbol"], "decision_date": str(trade["decision_date"])}
     lab_entry = lab.get("entry_status", "OK")
     if trade.get("status") != "CLOSED" or lab_entry != "OK":
         detail = f"simulator {trade.get('status')} ({trade.get('entry_rejection_reason') or trade.get('exit_reason')}), labels {lab_entry}"
-        out.update(ok=False, ok_outcome=False, ok_date=False, ok_level=False, ok_net=False, classes="UNEXPLAINED",
+        cls = "UNEXPLAINED"
+        if (trade.get("status") == "CLOSED" and lab_entry == "LOCKED_UPPER_OPEN"
+                and s1_bar is not None and s1_bar.high > s1_bar.low):
+            cls = "LOCKED_UPPER_LABELS_HEURISTIC"
+            detail += " (the s1 bar traded away from its open, so the stock was buyable)"
+        out.update(ok=False, ok_outcome=False, ok_date=False, ok_level=False, ok_net=False, classes=cls,
                    detail=detail, level_diff=float("nan"), net_diff=float("nan"), net_exact_diff=float("nan"),
                    flags=trade.get("flags", ""))
         return out

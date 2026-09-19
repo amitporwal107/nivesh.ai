@@ -259,3 +259,23 @@ def test_session_report_fail_flag_and_pass():
     assert r["status"] == "PASS_WITH_FLAGS" and r["flags_trade_bars"] == {"ca_volume": ["A@2022-10-03"]}
     assert DQ.session_report(D, DQ.bar_flags(b), **(args | {"uni": uni.assign(isin=[None, "INE2"])}))["status"] == "FAIL"
     assert DQ.session_report(D, DQ.bar_flags(b), **(args | {"cutoff": {"violations": 3}}))["status"] == "FAIL"
+
+
+def test_reconcile_labels_own_lock_heuristic_is_attributed_to_labels_not_left_unexplained():
+    """D7, 2026-09-20: the simulator now buys a bar that opened at the upper circuit and then traded. labels.py is
+    frozen with the H#32 dataset and keeps the old test, so it skips the same pick. That is labels.py's heuristic,
+    not an unexplained difference - but only when the bar really did trade."""
+    t = trade()
+    lab_locked = lab(); lab_locked["entry_status"] = "LOCKED_UPPER_OPEN"
+    class B:                                   # the s1 bar: opened at the band, then traded away from it
+        high, low = RC.np.float64(110), RC.np.float64(104)
+    r = RC.compare(t, lab_locked, B())
+    assert r["classes"] == "LOCKED_UPPER_LABELS_HEURISTIC" and not r["ok"]
+    assert RC.DEFECT_SIDE[r["classes"]] == "labels.py"
+    assert "buyable" in r["detail"]
+
+    class FullDay:                             # locked all day: labels.py was right to skip it
+        high, low = RC.np.float64(110), RC.np.float64(110)
+    assert RC.compare(t, lab_locked, FullDay())["classes"] == "UNEXPLAINED"
+    assert RC.compare(t, lab_locked, None)["classes"] == "UNEXPLAINED"          # no bar: never guessed
+    assert "LOCKED_UPPER_LABELS_HEURISTIC" not in RC.SIMULATION_FAILURE_CLASSES  # not a simulator defect
