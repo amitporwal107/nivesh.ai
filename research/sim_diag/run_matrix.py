@@ -27,6 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import audit as AU  # noqa: E402
 import candidates as CD  # noqa: E402
+import dq as DQ  # noqa: E402
 import inputs as IN  # noqa: E402
 import matrix as MX  # noqa: E402
 import panel as P  # noqa: E402
@@ -156,11 +157,27 @@ def main(smoke: bool = False) -> str:
         ranked = ranked[ranked.date.isin(replay_dates)]
     cm = TS.CC.load_cost_model(IN.DS.COST_MODEL)
 
+    # ---- data-quality maps for RC-1 (the same inputs the D4 audit used) ----
+    dqflags = DQ.bar_flags(bars)
+    raw_dups = raw[raw.duplicated(["symbol", "date"], keep=False)]
+    fl = dqflags.set_index(["symbol", "date"])
+    dq_fail = fl.ohlc_invalid.to_dict()
+    for (sy, dd) in zip(raw_dups.symbol, raw_dups.date):
+        dq_fail[(sy, dd)] = True
+    dq_flag = {}
+    for k, r in fl[fl.any_flag].iterrows():
+        dq_flag[k] = [c for c in DQ.FLAG_COLS if r[c]] + ([r.special_session] if isinstance(r.special_session, str) else [])
+    log("data-quality flags built")
+
+    def with_rc1(fr: pd.DataFrame, trades: list) -> pd.DataFrame:
+        rc = MX.rc1_column(trades, dq_fail, dq_flag)
+        return fr.merge(rc, on=["symbol", "decision_date"], how="left", validate="1:1")
+
     # ---- trade-isolated runs on the frozen picks ----
     raw_trades, frames = {}, {}
     for name, spec in list(MX.MATRIX.items()) + list(MX.SECONDARY.items()):
         t = MX.simulate_rows(spec, picks, store, ds, cm)
-        raw_trades[name], frames[name] = t, MX.frame(t)
+        raw_trades[name], frames[name] = t, with_rc1(MX.frame(t), t)
         log(f"run {name}: {len(frames[name])} trades of {len(t)} picks")
     base = check_baseline(frames["A"], strict=not smoke)
     log("configuration A vs D3:", base)
@@ -171,6 +188,7 @@ def main(smoke: bool = False) -> str:
     pool_trades = MX.simulate_rows(MX.POOL, ranked[["symbol", "date"]], store, ds, cm)
     pool = MX.frame(pool_trades)
     log(f"pool run: {len(pool)} trades of {len(ranked)} candidates")
+    pool = with_rc1(pool, pool_trades)
     frames["S5_POOL"], raw_trades["S5_POOL"] = pool, pool_trades
     pool_reason = {(pd.Timestamp(t["decision_date"]), t["symbol"]): (t.get("entry_rejection_reason") or t.get("status"))
                    for t in pool_trades if t.get("status") != "CLOSED"}

@@ -82,6 +82,16 @@ def frame(trades: list) -> pd.DataFrame:
             "config": t["config"], "symbol": t["symbol"], "decision_date": pd.Timestamp(t["decision_date"]),
             "entry_date": pd.Timestamp(t["entry_date"]), "exit_date": pd.Timestamp(t["exit_date"]),
             "exit_reason": t["exit_reason"], "exit_detail": t["exit_detail"], "qty": int(t["fill_quantity"]),
+            "entry_method": t["entry_method"], "order_kind": t["order_kind"], "exit_session": int(t["exit_session"]),
+            "signal_close": float(t["signal_close"]), "next_session_open": float(t["next_session_open"]),
+            "gap_pct": float(t["gap_pct"]), "intended_entry": float(t["intended_entry"]),
+            "entry_price": float(t["actual_entry"]), "exit_level": float(t["exit_level"]),
+            "exit_price": float(t["exit_price"]), "fill_status": t["fill_status"],
+            "stop": None if t["initial_stop"] is None else float(t["initial_stop"]),
+            "target": None if t["initial_target"] is None else float(t["initial_target"]),
+            "risk_reward_ratio": t["risk_reward_ratio"], "target_distance_atr": t["target_distance_atr"],
+            "close_last_pct": t["close_last_pct"], "path_min_low_pct": t["path_min_low_pct"],
+            "high_after_exit_pct": t["high_after_exit_pct"],
             "buy_value": float(t["fills"][0]["value"]), "sell_value": float(t["fills"][1]["value"]),
             "gross_inr": float(t["gross_inr"]), "slippage_inr": float(t["slippage_inr"]),
             "charges_inr": float(t["charges_inr"]), "net_inr": float(t["net_inr"]),
@@ -121,6 +131,9 @@ def metrics(name: str, tr: pd.DataFrame, rejected: dict, cal, industry: dict, *,
         "win_rate": float((tr.net_inr > 0).mean()),
         "gross_per_trade": float(tr.gross_ret.mean()), "net_per_trade": float(tr.net_ret.mean()),
         "cost_drag": float(tr.gross_ret.mean() - tr.net_ret.mean()),
+        "cost_basis": ("gross is measured after slippage (it is inside the engine's fills), so the cost drag here is "
+                       "statutory charges only" if portfolio else
+                       "gross is measured before slippage, so the cost drag here is slippage plus statutory charges"),
         "slippage_per_trade": float((tr.slippage_inr / tr.buy_value).mean()) if tr.slippage_inr.notna().any() else None,
         "charges_per_trade": float((tr.charges_inr / tr.buy_value).mean()),
         "gross_inr": float(tr.gross_inr.sum()), "slippage_inr": float(tr.slippage_inr.sum()),
@@ -137,6 +150,10 @@ def metrics(name: str, tr: pd.DataFrame, rejected: dict, cal, industry: dict, *,
         "lock_affected_trades": int(tr["flags"].fillna("").str.contains("LOCKED_LOWER").sum()),
         "median_mfe": float(tr.mfe_pct.median()), "median_mae": float(tr.mae_pct.median()),
     }
+    if "rc1_primary" in tr.columns:
+        m["rc1_primary"] = tr.rc1_primary.value_counts().to_dict()
+        m["rc1_primary_excl_unreviewed_flags"] = tr.rc1_primary_excl_unreviewed_flags.value_counts().to_dict()
+        m["rc1_net_by_cause"] = {k: float(v) for k, v in tr.groupby("rc1_primary").net_inr.sum().items()}
     if portfolio:
         eq = equity.equity.astype(float)
         m |= {"max_drawdown_inr": float((eq.cummax() - eq).max()),
@@ -201,7 +218,7 @@ def random_picks(pool: pd.DataFrame, k: int = TOP_K, seeds: int = RANDOM_SEEDS, 
     return out
 
 
-def random_control(draws: list, pool_trades: pd.DataFrame, a_net_per_trade: float) -> dict:
+def random_control(draws: list, pool_trades: pd.DataFrame, a_net_per_trade: float, *, seed_base: int = SEED_RANDOM) -> dict:
     """Each seed's mean net per trade, from the pool run's already-simulated outcomes, and A's place in them."""
     lookup = pool_trades.set_index(["decision_date", "symbol"]).net_ret
     means, counts = [], []
@@ -211,7 +228,8 @@ def random_control(draws: list, pool_trades: pd.DataFrame, a_net_per_trade: floa
         means.append(float(vals.mean()))
         counts.append(int(len(vals)))
     means = np.array(means)
-    return {"seeds": len(draws), "seed_base": SEED_RANDOM, "picks_per_session": TOP_K,
+    return {"seeds": len(draws), "seed_base": seed_base,
+            "picks_per_session": max((len(v) for d in draws for v in d.values()), default=0),
             "mean_trades_per_seed": float(np.mean(counts)),
             "mean_of_means": float(means.mean()), "p05": float(np.percentile(means, 5)),
             "p50": float(np.percentile(means, 50)), "p95": float(np.percentile(means, 95)),
@@ -239,6 +257,33 @@ def rank_bands(pool_trades: pd.DataFrame, ranked: pd.DataFrame) -> dict:
     return out
 
 
+def rc1_column(trades: list, dq_fail: dict, dq_flag: dict) -> pd.DataFrame:
+    """The frozen RC-1 rule set (audit.rc1) applied to every closed trade of one configuration, with the same
+    data-quality inputs the D4 audit used, so a configuration's causes are comparable with the audited baseline.
+
+    As in the audit: RC-1 explains LOSSES, so a trade with a positive net is WIN and is not classified further, and
+    the primary cause is the FIRST rule the trade matches in the frozen order. `unexplained` (SIMULATION_FAILURE) is
+    raised for the circuit-lock heuristic's false positives, the one simulator defect D3 found (owner decision D7)."""
+    rows = []
+    for t in trades:
+        if t.get("status") != "CLOSED":
+            continue
+        d = pd.Timestamp(t["decision_date"])
+        used = [pd.Timestamp(x) for x in t["bars_used"]] + [d]
+        fail = any(dq_fail.get((t["symbol"], x), False) for x in used)
+        flags = sorted({f for x in used for f in dq_flag.get((t["symbol"], x), [])})
+        unexplained = "LOCKED_LOWER_PARTIAL" in (t.get("flags") or "")
+        net = float(t["net_inr"])
+        causes = AU.rc1(t, fail, bool(flags), unexplained) if net <= 0 else []
+        no_flag = [c for c in causes if c != "DATA_FAILURE" or fail]
+        rows.append({"symbol": t["symbol"], "decision_date": d,
+                     "rc1_primary": causes[0] if causes else ("WIN" if net > 0 else "UNCLASSIFIED"),
+                     "rc1_primary_excl_unreviewed_flags": no_flag[0] if no_flag else ("WIN" if net > 0 else "UNCLASSIFIED"),
+                     "rc1_all": ";".join(causes), "dq_flags": ";".join(flags),
+                     "dq_status": "FAIL" if fail else ("FLAGGED" if flags else "PASS")})
+    return pd.DataFrame(rows)
+
+
 # ---------------- extreme-trade audit (§9) ----------------
 
 def extremes(tr: pd.DataFrame, names: dict, n: int = 10) -> dict:
@@ -253,8 +298,9 @@ def extremes(tr: pd.DataFrame, names: dict, n: int = 10) -> dict:
         return d.to_dict("records")
     top, bottom = tr.nlargest(n, "net_inr"), tr.nsmallest(n, "net_inr")
     share = float(pd.concat([top, bottom]).net_inr.abs().sum() / tr.net_inr.abs().sum())
+    company = tr.symbol.map(names).fillna("").str.upper()
     return {"largest_gains": rows(top), "largest_losses": rows(bottom),
-            "etf_like_trades": int(tr.symbol.str.contains("ETF").sum()),
+            "etf_like_trades": int((tr.symbol.str.contains("ETF") | company.str.contains("ETF")).sum()),
             "share_of_absolute_pnl_in_extremes": share}
 
 
