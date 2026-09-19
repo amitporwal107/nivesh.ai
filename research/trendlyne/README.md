@@ -41,5 +41,5 @@ Tests: `python -m pytest research/trendlyne -q` (fake Redis and fake server; no 
 - Cron `/etc/cron.d/tl-daily` runs `/app/research/trendlyne/run_daily.sh` at 07:30 IST Mon–Sat (just after the 07:00
   end-of-day expiry) with a deployed copy of this code in `/app/research/trendlyne/bin/`: bulk parameters for the
   universe every run (~1 call per 10 stocks), per-stock views (overview incl. ASM status, events, bulk/block deals, news)
-  on Saturdays (~4 calls per stock). Writes `screens/<date>/screen.{csv,html}`. Logs: `/app/research/trendlyne/logs/`.
+  daily (news, overview, deals; ~3 calls per stock); events and quarterly data only when the stock's news shows a new filing or event (7-day safety expiry). Writes `screens/<date>/screen.{csv,html}`. Logs: `/app/research/trendlyne/logs/`.
   Re-deploy after code changes: `install -m 644 research/trendlyne/{tl_client,tl_cache,screen_list,daily_archive}.py /app/research/trendlyne/bin/`.

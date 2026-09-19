@@ -3,8 +3,9 @@
 Freshness classes (IST):
   eod     prices, volumes, delivery, technicals, scores, price-based ratios (PE, PEG, P/S, market cap)
           -> expire at the next 07:00 IST (Trendlyne serves end-of-day data; it changes once per trading day)
-  filing  shareholding, quarterly results, annual statements and ratios
-          -> daily while filings are due (day 1-60 after a quarter end), else 7 days
+  filing  shareholding, quarterly results, annual statements and ratios -> 7 days, and invalidated for a stock as soon
+          as its news shows a new results / shareholding / capital filing (news_triggers + invalidate)
+  event   corporate events (board meetings, dividends, splits, bonus, rights) -> 7 days, invalidated the same way
   static  entity resolution, parameter search, label map -> 30 days
   docs    document search -> 7 days;  news -> 1 hour
   neg     stock codes Trendlyne cannot resolve -> 1 day (one bad code rejects a whole batch)
@@ -62,23 +63,47 @@ def next_0700_ist(now: dt.datetime) -> dt.datetime:
     return t if t > n else t + dt.timedelta(days=1)
 
 
-def in_filing_season(d: dt.date) -> bool:
-    """Day 1..60 after a quarter end (Mar/Jun/Sep/Dec): results and shareholding filings are still arriving."""
-    for y in (d.year - 1, d.year):
-        for m, day in ((3, 31), (6, 30), (9, 30), (12, 31)):
-            q = dt.date(y, m, day)
-            if 1 <= (d - q).days <= 60:
-                return True
-    return False
-
-
 def expiry(cls: str, now: dt.datetime) -> int:
-    """Seconds to live for a freshly fetched value of this class."""
+    """Seconds to live for a freshly fetched value of this class. Data that does not change daily is never refetched
+    daily: filing/event data lives 7 days unless news invalidates it for that stock."""
     if cls == "eod":
         return max(60, int((next_0700_ist(now) - now).total_seconds()))
-    if cls == "filing":
-        return expiry("eod", now) if in_filing_season(now.astimezone(IST).date()) else 7 * DAY
-    return {"static": 30 * DAY, "docs": 7 * DAY, "news": 3600, "neg": DAY}[cls]
+    return {"filing": 7 * DAY, "event": 7 * DAY, "static": 30 * DAY, "docs": 7 * DAY, "news": 3600, "neg": DAY}[cls]
+
+
+FILING_NEWS = re.compile(r"financial result|quarterly result|audited result|unaudited|outcome of (the )?board meeting|"
+                         r"results? for the (quarter|year|period)|shareholding pattern|allotment|\bqip\b|qualified institution|"
+                         r"preferential|buy-?back|scheme of arrangement|amalgamation|merger|open offer", re.I)
+EVENT_NEWS = re.compile(r"board meeting|dividend|record date|bonus|split|sub-division|rights issue|"
+                        r"annual general meeting|\bagm\b|book closure|buy-?back", re.I)
+
+
+def news_triggers(news_text: str, since: str) -> tuple[set, str]:
+    """From a get_overview_news_corp_events(type='news') payload: ({'filing', 'event'} subset, newest pubDate seen).
+    Only items published after `since` (an ISO timestamp, or a date meaning 'from that day') count, so each
+    announcement triggers one refetch."""
+    hdr, hits, newest = None, set(), since
+    for l in news_text.splitlines():
+        if "|" not in l:
+            continue
+        cells = [x.strip() for x in l.strip().split("|")]
+        if hdr is None:
+            if "pubDate" in cells and "title" in cells:
+                hdr = cells
+            continue
+        if len(cells) != len(hdr):
+            continue
+        r = dict(zip(hdr, cells))
+        pub = r.get("pubDate", "")
+        if pub <= since:
+            continue
+        newest = max(newest, pub)
+        text = f"{r.get('title', '')} {r.get('description', '')}"
+        if FILING_NEWS.search(text):
+            hits.add("filing")
+        if EVENT_NEWS.search(text):
+            hits.add("event")
+    return hits, newest
 
 
 def plan_batches(missing: dict) -> list[tuple[list[str], list[str]]]:
@@ -129,6 +154,13 @@ class RedisStore:
     def hgetall(self, k):
         return self.r.hgetall(k)
 
+    def scan(self, pattern):
+        return list(self.r.scan_iter(pattern, count=1000))
+
+    def delete(self, keys):
+        if keys:
+            self.r.delete(*keys)
+
     def hset_many(self, k, mapping, ttl):
         if mapping:
             p = self.r.pipeline()
@@ -164,6 +196,7 @@ class TLCache:
         self.client, self.store = client, store
         self.archive_dir = archive_dir
         self.daily_cap = daily_cap if daily_cap is not None else int(os.environ.get("TL_DAILY_CALL_CAP", "300"))
+        self.monthly_cap = int(os.environ.get("TL_MONTHLY_CALL_CAP", "9000"))
         self._now = now or (lambda: dt.datetime.now(IST))
         self.stats = {"calls": 0, "rejected": 0, "hits": 0, "misses": 0}
 
@@ -175,14 +208,35 @@ class TLCache:
         if self.calls_today() >= self.daily_cap:
             raise BudgetExceeded(f"daily Trendlyne call cap {self.daily_cap} reached")
         now = self._now()
+        if int(self.store.get(f"{PREFIX}calls:{now:%Y-%m}") or 0) >= self.monthly_cap:
+            raise BudgetExceeded(f"monthly Trendlyne call cap {self.monthly_cap} reached")
         self.store.incr(f"{PREFIX}calls:{now.date()}", 3 * DAY)
         self.store.incr(f"{PREFIX}calls:{now:%Y-%m}", 40 * DAY)
         self.stats["calls"] += 1
         return self.client.call(tool, args)
 
     # ---- cached whole-response tools ------------------------------------------------------------------------------
+    @staticmethod
+    def _tool_key(tool: str, args: dict) -> str:
+        return PREFIX + "tool:" + tool + ":" + hashlib.sha1(json.dumps(args, sort_keys=True).encode()).hexdigest()[:20]
+
+    def invalidate(self, code: str, what: str) -> int:
+        """Drop cached data for one stock so the next request refetches it. what='filing': its filing-class bulk values
+        and shareholding view; what='event': its corporate-events view. Returns the number of keys removed."""
+        code = code.strip().upper()
+        if what == "filing":
+            keys = [k for k in self.store.scan(f"{PREFIX}pv:{code}:*")
+                    if (self.store.get(k) or "").find('"cls": "filing"') >= 0]
+            keys.append(self._tool_key("get_ownership_deals_insider_sast", {"stock_code": code, "type": "shareholding"}))
+        elif what == "event":
+            keys = [self._tool_key("get_overview_news_corp_events", {"stock_code": code, "type": "events"})]
+        else:
+            raise ValueError(what)
+        self.store.delete(keys)
+        return len(keys)
+
     def _cached_tool(self, tool: str, args: dict, cls: str) -> str:
-        key = PREFIX + "tool:" + tool + ":" + hashlib.sha1(json.dumps(args, sort_keys=True).encode()).hexdigest()[:20]
+        key = self._tool_key(tool, args)
         hit = self.store.get(key)
         if hit is not None:
             self.stats["hits"] += 1
@@ -211,7 +265,7 @@ class TLCache:
 
     def overview(self, code: str, kind: str = "overview") -> str:
         return self._cached_tool("get_overview_news_corp_events", {"stock_code": code, "type": kind},
-                                 "news" if kind == "news" else "eod")
+                                 {"news": "news", "events": "event"}.get(kind, "eod"))
 
     def documents(self, query: str) -> str:
         return self._cached_tool("get_document_search_results", {"query": query}, "docs")

@@ -1,12 +1,12 @@
-"""Daily Trendlyne archive run (cron). Refreshes expired data for a universe through the Redis cache, which appends
-every fetched response to the archive, then writes the day's screen.
+"""Daily Trendlyne archive run (cron, Max plan). Only data that changes daily is fetched daily; quarterly and event
+data is refetched for a stock only when its news shows a new filing or event (7-day expiry as a safety net).
+Every fetched response is appended to the archive by TLCache; the run ends by writing the day's screen.
 
-Default budget (fits the Pro plan): bulk parameters every run (~1 call per 10 stocks: prices, technicals, scores,
-insider buys/sells, delivery; shareholding/results refresh when their cache expires), and the per-stock views
-(overview incl. ASM status, events, bulk/block deals, news) on --views-days (default Saturday). Set --views-days
-0-6 for daily per-stock views (~4 calls per stock per day).
+Per stock per run: news (the change trigger) + overview (ASM status, technicals, valuation) + bulk/block deals
+= 3 calls; bulk parameters ~1 call per 10 stocks (daily fields only, plus invalidated quarterly fields);
+events and quarterly data only when triggered. ~155 calls/day for 50 stocks.
 
-usage: python daily_archive.py UNIVERSE_CSV REPORTS_DIR [--views-days 5] [--max-calls 250]
+usage: python daily_archive.py UNIVERSE_CSV REPORTS_DIR [--max-calls 400]
 """
 import argparse
 import datetime as dt
@@ -23,29 +23,47 @@ from tl_client import TLClient
 ap = argparse.ArgumentParser()
 ap.add_argument("universe")
 ap.add_argument("reports")
-ap.add_argument("--views-days", default="5", help="weekdays (0=Mon) for per-stock views, e.g. '5' or '0,1,2,3,4,5'")
-ap.add_argument("--max-calls", type=int, default=250, help="stop this run after this many calls")
+ap.add_argument("--max-calls", type=int, default=400, help="stop this run after this many calls")
 a = ap.parse_args()
 now = dt.datetime.now(T.IST)
 U = pd.read_csv(a.universe)
-c = T.TLCache(TLClient(), T.RedisStore(), daily_cap=int(os.environ.get("TL_DAILY_CALL_CAP", "300")))
-c.get_params(U.code.tolist(), P50 + P2)
-views = now.weekday() in {int(x) for x in a.views_days.split(",") if x.strip()}
-if views:
-    for code in U.code:
-        if c.stats["calls"] >= a.max_calls:
-            print(f"stopping per-stock views at the run limit ({a.max_calls} calls)")
-            break
-        for fn, kind in ((c.overview, "overview"), (c.overview, "events"), (c.ownership, "bulblockdeal"), (c.overview, "news")):
-            try:
-                fn(code, kind)
-            except T.BudgetExceeded as e:
-                print("STOP:", e)
-                break
-            except Exception as e:  # one stock failing must not stop the archive; it is retried next run
-                print(f"{code} {kind}: {type(e).__name__}: {str(e)[:150]}")
-print(f"{now:%Y-%m-%d %H:%M} views={views} stats={dict(c.stats, unmapped=sorted(c.stats.get('unmapped', [])))} "
-      f"calls_today={c.calls_today()}")
+c = T.TLCache(TLClient(), T.RedisStore())
+triggered = {"filing": [], "event": []}
+errors = []
+
+
+def safe(fn, *args):
+    if c.stats["calls"] >= a.max_calls:
+        raise T.BudgetExceeded(f"run limit {a.max_calls} calls")
+    try:
+        return fn(*args)
+    except T.BudgetExceeded:
+        raise
+    except Exception as e:  # one stock failing must not stop the archive; it is retried next run
+        errors.append(f"{args[0]} {args[-1]}: {type(e).__name__}: {str(e)[:120]}")
+        return None
+
+
+try:
+    for code in U.code:  # 1) news: daily, and the trigger for quarterly / event refetches
+        news = safe(c.overview, code, "news")
+        if news is None:
+            continue
+        seen_key = f"{T.PREFIX}newsseen:{code.upper()}"
+        since = c.store.get(seen_key) or str((now - dt.timedelta(days=3)).date())
+        hits, newest = T.news_triggers(news, since)
+        for h in hits:
+            c.invalidate(code, h)
+            triggered[h].append(code)
+        c.store.set_many({seen_key: (newest, 90 * T.DAY)})
+    c.get_params(U.code.tolist(), P50 + P2)  # 2) bulk: expired daily fields + invalidated quarterly fields only
+    for code in U.code:  # 3) per-stock views; events come from cache unless invalidated / older than 7 days
+        for kind_fn, kind in ((c.overview, "overview"), (c.ownership, "bulblockdeal"), (c.overview, "events")):
+            safe(kind_fn, code, kind)
+except T.BudgetExceeded as e:
+    print("STOP:", e)
+print(f"{now:%Y-%m-%d %H:%M} stats={dict(c.stats, unmapped=sorted(c.stats.get('unmapped', [])))} calls_today={c.calls_today()} "
+      f"triggered={ {k: v for k, v in triggered.items() if v} } errors={errors[:5]}")
 out = os.path.join(a.reports, f"{now:%Y-%m-%d}")
 sys.exit(subprocess.call([sys.executable, os.path.join(os.path.dirname(__file__), "screen_list.py"), a.universe, out,
                           "--as-of", f"{now:%Y-%m-%d}"]))

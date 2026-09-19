@@ -48,6 +48,14 @@ class FakeStore:
     def hset_many(self, k, mapping, ttl):
         self.h.setdefault(k, {}).update(mapping)
 
+    def scan(self, pattern):
+        import fnmatch
+        return [k for k in list(self.d) if fnmatch.fnmatch(k, pattern) and self._live(k) is not None]
+
+    def delete(self, keys):
+        for k in keys:
+            self.d.pop(k, None)
+
 
 LABELS = {"roea": "ROE Ann. %", "prompct": "Promoter holding latest %", "pettm": "PE TTM", "currentprice": "LTP",
           "npqgrowth": "Net Profit Qtr Growth YoY %", "cvolday": "Consolidated EOD Volume"}
@@ -104,11 +112,9 @@ def test_expiry_rules():
     sat = dt.datetime(2026, 9, 19, 9, 40, tzinfo=IST)
     assert T.next_0700_ist(sat) == dt.datetime(2026, 9, 20, 7, 0, tzinfo=IST)
     assert T.next_0700_ist(sat.replace(hour=6)) == dt.datetime(2026, 9, 19, 7, 0, tzinfo=IST)
-    assert not T.in_filing_season(dt.date(2026, 9, 19)) and T.in_filing_season(dt.date(2026, 10, 15))
-    assert T.in_filing_season(dt.date(2026, 8, 20)) and T.in_filing_season(dt.date(2027, 1, 5))
-    assert T.expiry("filing", sat) == 7 * T.DAY
-    oct15 = dt.datetime(2026, 10, 15, 20, 0, tzinfo=IST)
-    assert T.expiry("filing", oct15) == T.expiry("eod", oct15) == 11 * 3600
+    oct15 = dt.datetime(2026, 10, 15, 20, 0, tzinfo=IST)  # results season: quarterly data is still NOT refetched daily
+    assert T.expiry("filing", sat) == T.expiry("filing", oct15) == T.expiry("event", oct15) == 7 * T.DAY
+    assert T.expiry("eod", oct15) == 11 * 3600
 
 
 def test_second_request_makes_no_calls(env):
@@ -239,3 +245,33 @@ def test_exact_label_beats_lookalikes_and_restore_recaches(env):
     finally:
         for k in ("sma20", "sma200", "sma50"):
             LABELS.pop(k)
+
+
+def test_invalidate_filing_refetches_only_that_stock(env):
+    clock, _, srv, c = env
+    c.get_params(["S01", "S02", "S03"], list(LABELS))
+    n = len(srv.calls)
+    assert c.invalidate("S02", "filing") >= 3
+    out = c.get_params(["S01", "S02", "S03"], list(LABELS))
+    assert len(srv.calls) == n + 1
+    assert srv.calls[-1][1]["stock_codes"] == ["S02"] and sorted(srv.calls[-1][1]["parameters"]) == ["npqgrowth", "prompct", "roea"]
+    assert out["S02"]["roea"] == "S02-roea"
+
+
+def test_news_triggers():
+    news = ("newsList:\n  NSEcode | pubDate | title | description\n"
+            "  X | 2026-09-18T06:00:00+00:00 | X Ltd - Outcome of Board Meeting | Financial results for the quarter\n"
+            "  X | 2026-09-18T07:00:00+00:00 | X Ltd - Record Date for Dividend | Interim dividend\n"
+            "  X | 2026-09-01T07:00:00+00:00 | X Ltd - Shareholding Pattern | old item\n")
+    hits, newest = T.news_triggers(news, "2026-09-17")
+    assert hits == {"filing", "event"} and newest == "2026-09-18T07:00:00+00:00"
+    assert T.news_triggers(news, newest) == (set(), newest)  # already processed -> no second trigger
+    assert T.news_triggers(news, "2026-09-19")[0] == set()
+
+
+def test_monthly_cap(env):
+    _, store, srv, c = env
+    c.monthly_cap = 1
+    c.get_params(["S01"], ["roea"])
+    with pytest.raises(T.BudgetExceeded, match="monthly"):
+        c.get_params(["S02"], ["roea"])
