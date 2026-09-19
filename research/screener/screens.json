@@ -1,0 +1,78 @@
+{
+  "gainers": {
+    "description": "Daily return > {X}%",
+    "filter": "daily_change_pct > {X}",
+    "params": {"X": 5},
+    "sort": {"field": "daily_change_pct", "desc": true},
+    "fields": ["symbol", "last_price", "daily_change_pct", "volume", "traded_value_cr"]
+  },
+  "losers": {
+    "description": "Daily return < -{X}%",
+    "filter": "daily_change_pct < -{X}",
+    "params": {"X": 5},
+    "sort": {"field": "daily_change_pct", "desc": false},
+    "fields": ["symbol", "last_price", "daily_change_pct", "volume", "traded_value_cr"]
+  },
+  "high_touch": {
+    "description": "Day high >= +{X}% over the previous close (the v4 P5/P10-NEXT outcome)",
+    "filter": "high_pct >= {X}",
+    "params": {"X": 5},
+    "sort": {"field": "high_pct", "desc": true},
+    "fields": ["symbol", "prev_close", "high", "high_pct", "last_price", "daily_change_pct", "traded_value_cr"]
+  },
+  "faded_highs": {
+    "description": "Touched +{X}% but closed at least {F} points below the high (movement without direction)",
+    "filter": "high_pct >= {X} and daily_change_pct <= high_pct - {F}",
+    "params": {"X": 5, "F": 3},
+    "sort": {"field": "high_pct", "desc": true},
+    "fields": ["symbol", "high_pct", "daily_change_pct", "close_in_range", "traded_value_cr"]
+  },
+  "strong_close": {
+    "description": "Daily return > {X}% and close in the top 10% of the day's range",
+    "filter": "daily_change_pct > {X} and close_in_range >= 0.9",
+    "params": {"X": 3},
+    "sort": {"field": "daily_change_pct", "desc": true},
+    "fields": ["symbol", "last_price", "daily_change_pct", "close_in_range", "volume", "traded_value_cr"]
+  },
+  "liquid_gainers": {
+    "description": "Daily return > {X}% with traded value >= Rs {V} crore",
+    "filter": "daily_change_pct > {X} and traded_value_cr >= {V}",
+    "params": {"X": 3, "V": 25},
+    "sort": {"field": "daily_change_pct", "desc": true},
+    "fields": ["symbol", "last_price", "daily_change_pct", "volume", "traded_value_cr"]
+  },
+  "gap_up": {
+    "description": "Opened >= +{X}% over the previous close (did it hold?)",
+    "filter": "gap_pct >= {X}",
+    "params": {"X": 3},
+    "sort": {"field": "gap_pct", "desc": true},
+    "fields": ["symbol", "gap_pct", "daily_change_pct", "high_pct", "low_pct", "traded_value_cr"]
+  },
+  "gap_down": {
+    "description": "Opened <= -{X}% under the previous close (the H-A / H-B signal)",
+    "filter": "gap_pct <= -{X}",
+    "params": {"X": 3},
+    "sort": {"field": "gap_pct", "desc": false},
+    "fields": ["symbol", "gap_pct", "daily_change_pct", "high_pct", "low_pct", "traded_value_cr"]
+  },
+  "upper_circuit": {
+    "description": "Closed at the upper price band",
+    "filter": "at_upper_circuit == True",
+    "sort": {"field": "daily_change_pct", "desc": true},
+    "fields": ["symbol", "last_price", "upper_circuit", "daily_change_pct", "volume", "traded_value_cr"]
+  },
+  "lower_circuit": {
+    "description": "Closed at the lower price band",
+    "filter": "at_lower_circuit == True",
+    "sort": {"field": "daily_change_pct", "desc": false},
+    "fields": ["symbol", "last_price", "lower_circuit", "daily_change_pct", "volume", "traded_value_cr"]
+  },
+  "value_leaders": {
+    "description": "Top {N} by traded value",
+    "filter": "traded_value_cr > 0",
+    "params": {"N": 20},
+    "sort": {"field": "traded_value_cr", "desc": true},
+    "limit": 20,
+    "fields": ["symbol", "last_price", "daily_change_pct", "volume", "traded_value_cr"]
+  }
+}
