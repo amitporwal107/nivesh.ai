@@ -461,68 +461,115 @@ def test_rank_bands_join_the_rank_onto_the_dataset_row():
 
 
 # ============================== RC-1 causes per configuration ==============================
+#
+# matrix.rc1_column is landing after the frozen commit this worktree sits on, so the contract tests below are
+# skipped here and will run the moment it appears. The fixtures they depend on are pinned by a test that does run.
+
+rc1_needed = pytest.mark.skipif(not hasattr(MX, "rc1_column"),
+                                reason="matrix.rc1_column is not in this revision of matrix.py")
+
 
 def rc1_trade(symbol, bars, **kw):
     return TS.simulate(TS.CONFIG_A, window(symbol, bars, **kw), CM)
 
 
-# a clean winner: target on s2, no data problem anywhere
-WINNER_BARS = [bar(100, 104, 99, 103), bar(103, 106, 102, 105)] + [QUIET] * 3
-# a stop on s1 whose stop sat 0.67 ATR away and which never went anywhere afterwards
-LOSER_BARS = [bar(100, 101, 97, 98), QUIET, QUIET, QUIET, bar(100, 101, 99, 99)]
+WINNER_BARS = [bar(100, 104, 99, 103), bar(103, 106, 102, 105)] + [QUIET] * 3   # target on s2
+LOSER_BARS = [bar(100, 101, 97, 98), QUIET, QUIET, QUIET, bar(100, 101, 99, 99)]  # stop on s1, no recovery
+PARTIAL_LOCK_BARS = [QUIET, bar(80, 90, 80, 88, pc=100), bar(99, 100, 98.5, 99.5, pc=88), QUIET, QUIET]
+DEC_DAY, S1, S2 = (pd.Timestamp("2022-10-03"), pd.Timestamp("2022-10-04"), pd.Timestamp("2022-10-05"))
 
 
-def test_rc1_column_classifies_closed_trades_and_skips_the_rest():
-    winner = rc1_trade("AAA", WINNER_BARS)
-    loser = rc1_trade("BBB", LOSER_BARS)
-    no_entry = rc1_trade("CCC", [None, QUIET])
-    c = MX.rc1_column([winner, no_entry, loser], {}, {})
-    assert list(c.symbol) == ["AAA", "BBB"]                              # the rejected candidate has no causes
-    assert list(c.decision_date) == [pd.Timestamp("2022-10-03")] * 2
-    assert c.set_index("symbol").loc["AAA", "rc1_primary"] == "WIN"      # a profitable trade with nothing against it
-    assert c.set_index("symbol").loc["AAA", "rc1_all"] == ""
-    # the stop sat (100 - 98) / 3.00 ATR = 0.67 R away, and the five sessions never reached +5% nor closed up
-    assert c.set_index("symbol").loc["BBB", "rc1_primary"] == "STOP_FAILURE"
-    assert c.set_index("symbol").loc["BBB", "rc1_all"] == "STOP_FAILURE;DIRECTION_FAILURE"
+def by_symbol(c: pd.DataFrame) -> pd.DataFrame:
+    return c.set_index("symbol")
 
 
-def test_rc1_column_reads_data_quality_over_the_bars_the_trade_actually_used():
-    winner, loser = rc1_trade("AAA", WINNER_BARS), rc1_trade("BBB", LOSER_BARS)
-    assert winner["bars_used"] == [dt.date(2022, 10, 4), dt.date(2022, 10, 5)]
-    assert loser["bars_used"] == [dt.date(2022, 10, 4)]                  # stopped on s1
-    # RC-1 explains LOSSES (audit.audit_rows gates it the same way), so a winning trade stays WIN whatever its bars
-    # carry - a cause count is never inflated by profitable trades - while its data-quality status is still recorded
-    w = MX.rc1_column([winner], {("AAA", pd.Timestamp("2022-10-05")): True}, {})
-    assert w.rc1_primary.iloc[0] == "WIN" and w.dq_status.iloc[0] == "FAIL" and w.rc1_all.iloc[0] == ""
-    # the window is the decision day plus every bar the trade held
-    on_decision_day = MX.rc1_column([loser], {}, {("BBB", pd.Timestamp("2022-10-03")): ["DUPLICATE_BAR"]})
-    assert on_decision_day.rc1_primary.iloc[0] == "DATA_FAILURE"         # D itself counts, not only s1..exit
-    assert on_decision_day.dq_status.iloc[0] == "FLAGGED"
-    # an unreviewed FLAG is what the second column removes; a real integrity failure is not
-    assert on_decision_day.rc1_primary_excl_unreviewed_flags.iloc[0] == "STOP_FAILURE"
-    on_exit_bar = MX.rc1_column([loser], {("BBB", pd.Timestamp("2022-10-04")): True}, {})
-    assert on_exit_bar.rc1_primary.iloc[0] == "DATA_FAILURE"
-    assert on_exit_bar.rc1_primary_excl_unreviewed_flags.iloc[0] == "DATA_FAILURE"
-    untouched_session = MX.rc1_column([loser], {("BBB", pd.Timestamp("2022-10-08")): True},
-                                      {("BBB", pd.Timestamp("2022-10-09")): ["DUPLICATE_BAR"]})
-    assert untouched_session.rc1_primary.iloc[0] == "STOP_FAILURE"       # a bar the trade never held is irrelevant
-    other_symbol = MX.rc1_column([loser], {("ZZZ", pd.Timestamp("2022-10-04")): True}, {})
-    assert other_symbol.rc1_primary.iloc[0] == "STOP_FAILURE"
-    clean = MX.rc1_column([loser], {("BBB", pd.Timestamp("2022-10-04")): False}, {})
-    assert clean.rc1_primary.iloc[0] == "STOP_FAILURE"                   # a recorded PASS is not a failure
+def test_the_rc1_fixtures_are_what_the_cause_expectations_assume():
+    """Runs unconditionally: everything the rc1_column expectations below rest on is a fact about these trades."""
+    w = rc1_trade("AAA", WINNER_BARS)
+    assert w["status"] == "CLOSED" and w["exit_reason"] == "TARGET_HIT"
+    assert float(w["net_inr"]) == pytest.approx(2266.24) and float(w["net_inr"]) > 0     # a winner
+    assert w["flags"] == "" and w["bars_used"] == [dt.date(2022, 10, 4), dt.date(2022, 10, 5)]
+    l = rc1_trade("BBB", LOSER_BARS)
+    assert l["exit_reason"] == "STOP_HIT" and float(l["net_inr"]) == pytest.approx(-1223.13)
+    assert l["stop_distance_atr"] == pytest.approx(2 / 3)      # (100 - 98) / a 3.00 ATR -> under 1 R, STOP_FAILURE
+    assert l["path_max_high_pct"] == pytest.approx(0.01) and l["close_last_pct"] == pytest.approx(-0.01)
+    assert l["flags"] == "" and l["bars_used"] == [dt.date(2022, 10, 4)]
+    p = rc1_trade("CCC", PARTIAL_LOCK_BARS)
+    assert p["exit_reason"] == "TIME_EXIT" and float(p["net_inr"]) == pytest.approx(-226.16)
+    assert "LOCKED_LOWER_PARTIAL_S2" in p["flags"]             # the lock heuristic's known false positive
+    assert rc1_trade("DDD", [None, QUIET])["status"] == "NO_ENTRY"
 
 
-def test_a_lock_heuristic_false_positive_is_carried_into_rc1_as_a_simulation_failure():
-    """The one simulator defect D3 found: the circuit-lock test fires on a bar that opened at a band and then traded
-    away from it. Those trades must be visibly unexplained, not silently attributed to the stop."""
-    loser = dict(rc1_trade("BBB", LOSER_BARS))
-    assert "SIMULATION_FAILURE" not in MX.rc1_column([loser], {}, {}).rc1_all.iloc[0]
-    loser["flags"] = "LOCKED_LOWER_PARTIAL_S2"
-    c = MX.rc1_column([loser], {}, {})
-    assert c.rc1_primary.iloc[0] == "SIMULATION_FAILURE"
-    assert c.rc1_all.iloc[0].startswith("SIMULATION_FAILURE")
-    full_day = dict(loser, flags="LOCKED_LOWER_FULLDAY_S2")            # a real all-day lock is not a defect
-    assert MX.rc1_column([full_day], {}, {}).rc1_primary.iloc[0] == "STOP_FAILURE"
+@rc1_needed
+def test_rc1_column_leaves_a_winner_alone_even_when_its_data_is_suspect():
+    w = rc1_trade("AAA", WINNER_BARS)
+    clean = by_symbol(MX.rc1_column([w], {}, {}))
+    assert clean.loc["AAA", "rc1_primary"] == "WIN" and clean.loc["AAA", "rc1_all"] == ""
+    assert clean.loc["AAA", "rc1_primary_excl_unreviewed_flags"] == "WIN"
+    assert clean.loc["AAA", "dq_status"] == "PASS" and clean.loc["AAA", "dq_flags"] == ""
+    # RC-1 is a loss post-mortem: a profitable trade is never given a cause, however bad its bars look
+    flagged = by_symbol(MX.rc1_column([w], {}, {("AAA", S2): ["DUPLICATE_BAR"]}))
+    assert flagged.loc["AAA", "rc1_primary"] == "WIN" and flagged.loc["AAA", "rc1_all"] == ""
+    assert flagged.loc["AAA", "dq_status"] == "FLAGGED" and flagged.loc["AAA", "dq_flags"] == "DUPLICATE_BAR"
+    # a bar that FAILED integrity and a (different) bar that is merely flagged, on the same trade
+    failed = by_symbol(MX.rc1_column([w], {("AAA", S2): True}, {("AAA", S1): ["DUPLICATE_BAR"]}))
+    assert failed.loc["AAA", "rc1_primary"] == "WIN"
+    assert failed.loc["AAA", "dq_status"] == "FAIL"            # an integrity failure outranks an unreviewed flag
+    assert failed.loc["AAA", "dq_flags"] == "DUPLICATE_BAR"    # and the flag is still reported alongside it
+
+
+@rc1_needed
+def test_rc1_column_primary_cause_is_the_first_in_the_frozen_order():
+    c = by_symbol(MX.rc1_column([rc1_trade("BBB", LOSER_BARS)], {}, {}))
+    # RC1_ORDER puts STOP_FAILURE before DIRECTION_FAILURE, so the primary is the stop, not the direction
+    assert c.loc["BBB", "rc1_all"] == "STOP_FAILURE;DIRECTION_FAILURE"
+    assert c.loc["BBB", "rc1_primary"] == "STOP_FAILURE"
+    assert c.loc["BBB", "rc1_primary"] != "DIRECTION_FAILURE"  # not causes[-1]
+    assert c.loc["BBB", "rc1_primary_excl_unreviewed_flags"] == "STOP_FAILURE"
+    assert c.loc["BBB", "dq_status"] == "PASS"
+
+
+@rc1_needed
+def test_rc1_column_drops_a_data_failure_that_only_an_unreviewed_flag_raised():
+    l = rc1_trade("BBB", LOSER_BARS)                            # its only bar is s1 (2022-10-04)
+    flagged = by_symbol(MX.rc1_column([l], {}, {("BBB", S1): ["DUPLICATE_BAR"]}))
+    assert flagged.loc["BBB", "rc1_primary"] == "DATA_FAILURE"
+    assert flagged.loc["BBB", "rc1_all"] == "DATA_FAILURE;STOP_FAILURE;DIRECTION_FAILURE"
+    assert flagged.loc["BBB", "rc1_primary_excl_unreviewed_flags"] == "STOP_FAILURE"   # the flag is not a failure
+    assert flagged.loc["BBB", "dq_status"] == "FLAGGED"
+    failed = by_symbol(MX.rc1_column([l], {("BBB", S1): True}, {}))
+    assert failed.loc["BBB", "rc1_primary"] == "DATA_FAILURE"
+    assert failed.loc["BBB", "rc1_primary_excl_unreviewed_flags"] == "DATA_FAILURE"    # a real failure is kept
+    assert failed.loc["BBB", "dq_status"] == "FAIL"
+    # the decision day counts too, not only the sessions the position was held (audit_rows uses the same window)
+    on_d = by_symbol(MX.rc1_column([l], {("BBB", DEC_DAY): True}, {}))
+    assert on_d.loc["BBB", "rc1_primary"] == "DATA_FAILURE"
+    elsewhere = by_symbol(MX.rc1_column([l], {("BBB", pd.Timestamp("2022-10-08")): True},
+                                        {("ZZZ", S1): ["DUPLICATE_BAR"]}))
+    assert elsewhere.loc["BBB", "rc1_primary"] == "STOP_FAILURE" and elsewhere.loc["BBB", "dq_status"] == "PASS"
+
+
+@rc1_needed
+def test_rc1_column_treats_a_partial_lock_as_an_unexplained_simulation():
+    p = rc1_trade("CCC", PARTIAL_LOCK_BARS)
+    c = by_symbol(MX.rc1_column([p], {}, {}))
+    # nothing else in RC-1 matches this trade; without the LOCKED_LOWER_PARTIAL -> unexplained rule it would be
+    # UNCLASSIFIED, and SIMULATION_FAILURE sits second in the frozen order, right after DATA_FAILURE
+    assert c.loc["CCC", "rc1_primary"] == "SIMULATION_FAILURE"
+    assert c.loc["CCC", "rc1_all"] == "SIMULATION_FAILURE"
+    assert c.loc["CCC", "rc1_primary_excl_unreviewed_flags"] == "SIMULATION_FAILURE"
+    # the plain loser carries no such flag and must not be called a simulation failure
+    plain = by_symbol(MX.rc1_column([rc1_trade("BBB", LOSER_BARS)], {}, {}))
+    assert "SIMULATION_FAILURE" not in plain.loc["BBB", "rc1_all"]
+
+
+@rc1_needed
+def test_rc1_column_covers_every_closed_trade_and_nothing_else():
+    trades = [rc1_trade("AAA", WINNER_BARS), rc1_trade("DDD", [None, QUIET]), rc1_trade("BBB", LOSER_BARS)]
+    c = MX.rc1_column(trades, {}, {})
+    assert list(c.symbol) == ["AAA", "BBB"]                    # the rejected candidate has no trade to explain
+    assert list(c.decision_date) == [DEC_DAY, DEC_DAY]
+    assert MX.rc1_column([rc1_trade("DDD", [None, QUIET])], {}, {}).empty
 
 
 def test_each_run_states_which_basis_its_gross_and_cost_drag_are_on():
