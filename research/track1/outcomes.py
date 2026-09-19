@@ -92,7 +92,8 @@ def load_bars(session: str, symbols: list[str], source: str) -> tuple[dict, str]
 
 def run(session: str, bars_source: str, label: str | None, repo: str) -> dict:
     out = os.path.join(REPORTS, session)
-    wl = os.path.join(out, "watchlist.csv")
+    versions = sorted(glob.glob(os.path.join(out, "watchlist_v*.csv")), key=lambda f: int(f.rsplit("_v", 1)[1].split(".")[0]))
+    wl = versions[-1] if versions else os.path.join(out, "watchlist.csv")        # the latest frozen evening watchlist
     if not os.path.exists(wl):
         raise SystemExit(f"no watchlist for {session} ({wl})")
     for fn in ("signals.csv", "outcomes.csv", "outcome_data_quality.json", "outcome_manifest.json", "daily_signal_report.html"):

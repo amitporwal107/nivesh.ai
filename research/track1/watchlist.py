@@ -51,6 +51,16 @@ def build(prev: dt.date | None = None) -> tuple[pd.DataFrame, dict]:
     ca = q("SELECT symbol, action_type, ratio, face_value_pre, face_value_post, ex_date FROM nidp.corporate_actions "
            f"WHERE series='EQ' AND ex_date = '{nxt}'")
     w["ca_ex_next_session"] = w.index.isin(ca.symbol)
+    # spec v3: ETFs excluded; band shown as INDICATIVE (the session's own band row arrives 07:30 on the session date)
+    ref = q("SELECT symbol, band_raw, price_band_pct, is_etf FROM nidp.security_reference_daily WHERE series='EQ' AND "
+            "as_of_date = (SELECT max(as_of_date) FROM nidp.security_reference_daily WHERE as_of_date <= '" + str(prev) + "')")
+    if len(ref):
+        ref = ref.set_index("symbol")
+        etf = pd.Series(w.index.map(ref.is_etf), index=w.index).map(lambda v: v in (True, 1, "t", "true", "True", "1")).astype(bool)
+        w["band_indicative"] = w.index.map(ref.band_raw)
+        excluded_etf = int(etf.sum()); w = w[~etf]
+    else:
+        w["band_indicative"] = None; excluded_etf = None
     w["p0_adj"] = w.p0_raw          # split/bonus factor applied at 09:15 from the published open; flagged here
     w["trigger_open_at_or_below"] = (w.p0_adj * GAP_TRIGGER).round(2)
     for b in BANDS:
@@ -64,7 +74,7 @@ def build(prev: dt.date | None = None) -> tuple[pd.DataFrame, dict]:
     now_ist = dt.datetime.now(dt.timezone(dt.timedelta(hours=5, minutes=30)))
     dq = {"prev_session": str(prev), "next_session": str(nxt), "generated_at_ist": now_ist.isoformat(timespec="seconds"),
           "eq_symbols_on_prev_session": int(last.shape[0]), "watchlist_symbols": int(len(w)),
-          "excluded_missing_20_sessions": int(len(missing_hist)), "ca_ex_next_session": int(w.ca_ex_next_session.sum()),
+          "excluded_missing_20_sessions": int(len(missing_hist)), "excluded_etf_v3": excluded_etf, "ca_ex_next_session": int(w.ca_ex_next_session.sum()),
           "latest_available": str(latest), "stale": prev != latest, "status": "CERTIFIED" if len(w) and prev == latest else "HISTORICAL_DRY_RUN" if len(w) else "DEGRADED"}
     return w, dq
 
