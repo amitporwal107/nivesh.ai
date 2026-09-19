@@ -119,9 +119,21 @@ def sector_logit():
                          LogisticRegression(C=1.0, max_iter=2000))
 
 
+FIT_LOG: list = []           # (n_train, columns dropped because they were never observed in the training rows)
+
+
 def _fit_predict(model, Xtr, ytr, Xva):
+    """Fit and score. A gradient-boosting fit drops a column that is entirely missing in its training rows (a feature
+    needing 251 bars does not exist in 2021): the model could not split on it anyway, and scikit-learn's binner fails on
+    it. Each drop is logged; the fitted model keeps its columns in feature_names_in_. The logistic pipelines' median
+    imputer drops such a column itself."""
     if ytr.nunique() < 2:
         raise ValueError("a training set has a single class")
+    if isinstance(model, HistGradientBoostingClassifier):
+        empty = [c for c in Xtr.columns if Xtr[c].isna().all()]
+        if empty:
+            FIT_LOG.append((int(len(Xtr)), empty))
+            Xtr, Xva = Xtr.drop(columns=empty), Xva.drop(columns=empty)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
         model.fit(Xtr, ytr)
@@ -382,6 +394,8 @@ def main(path: str, out_dir: str = DS.OUT) -> str:
         "c6_calibration_in_sample_buckets_ge100": [r for r in rel8 if r["n"] >= 100],
     }
     res["conditional_M8"] = conditional(ds, m8)
+    res["fold_fits_with_all_missing_columns"] = [{"n_train": n, "dropped": c} for n, c in FIT_LOG]
+    FIT_LOG.clear()
     print("evaluation done", dt.datetime.now().strftime("%H:%M:%S"), flush=True)
 
     # final models on every development row (D <= 2022-12-22), frozen for the locked test
@@ -395,6 +409,7 @@ def main(path: str, out_dir: str = DS.OUT) -> str:
             pickle.dump(obj, fh)
         files[f"{key}.pkl"] = _sha256(p)
     res["models_dir"], res["model_files"] = mdir, files
+    res["final_fits_with_all_missing_columns"] = [{"n_train": n, "dropped": c} for n, c in FIT_LOG]
 
     oof_df = pd.DataFrame({f"{m}|{label}": s for (m, label), s in oof.items()})
     oof_df = ds.loc[oof_df.index, ["date", "symbol"]].join(oof_df)

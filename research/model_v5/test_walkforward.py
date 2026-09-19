@@ -191,3 +191,17 @@ def test_purged_oof_predicts_every_usable_row_only():
     oof = WF.purged_oof(ds, CAL, rows, "big_move_10_5d")
     _, ok = WF.target(ds, "big_move_10_5d")
     assert oof[rows & ok].notna().all() and oof[~(rows & ok)].isna().all()
+
+
+def test_a_feature_missing_in_every_training_row_is_dropped_and_logged():
+    ds = WF.prepare(synth())
+    train, valid = WF.fold_masks(ds, CAL, str(CAL[55].date()), str(CAL[69].date()))
+    ds.loc[train, "vol_ratio_250"] = np.nan                     # not yet observable in the training window
+    ds.loc[train & (ds.symbol == "S00"), "dist_sma200"] = np.nan  # partly missing: kept
+    WF.FIT_LOG.clear()
+    S, fitted = WF.model_scores(ds, CAL, train, valid, np.random.default_rng(WF.SEED), labels=("tbs_5_2",))
+    assert WF.FIT_LOG and all(cols == ["vol_ratio_250"] for _, cols in WF.FIT_LOG)
+    m8 = fitted["M8__tbs_5_2"]
+    assert "vol_ratio_250" not in m8.feature_names_in_ and "dist_sma200" in m8.feature_names_in_
+    assert S[("M8", "tbs_5_2")].between(0, 1).all() and S[("M7", "tbs_5_2")].between(0, 1).all()
+    WF.FIT_LOG.clear()
