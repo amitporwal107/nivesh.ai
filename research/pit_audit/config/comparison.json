@@ -1,0 +1,105 @@
+{
+ "_doc": "Per-metric comparison tolerance and materiality (plan \u00a75; TOL-01). A value is WITHIN_TOLERANCE when |a-b| <= max(abs, rel*max(|a|,|b|)); near zero only 'abs' applies (|value| < zero_band). Materiality is reported separately. Missing is never zero.",
+ "revenue_cr": {
+  "abs": 0.5,
+  "rel": 0.005,
+  "zero_band": 1.0,
+  "materiality_rel": 0.05,
+  "materiality_abs": null,
+  "unit": "INR crore"
+ },
+ "pat_cr": {
+  "abs": 0.5,
+  "rel": 0.005,
+  "zero_band": 1.0,
+  "materiality_rel": 0.05,
+  "materiality_abs": null,
+  "unit": "INR crore"
+ },
+ "eps_basic": {
+  "abs": 0.01,
+  "rel": 0.01,
+  "zero_band": 0.05,
+  "materiality_rel": 0.05,
+  "materiality_abs": null,
+  "unit": "INR per share"
+ },
+ "promoter_pct": {
+  "abs": 0.01,
+  "rel": 0.0,
+  "zero_band": 0.0,
+  "materiality_rel": null,
+  "materiality_abs": 0.5,
+  "unit": "percent of shares"
+ },
+ "fii_pct": {
+  "abs": 0.01,
+  "rel": 0.0,
+  "zero_band": 0.0,
+  "materiality_rel": null,
+  "materiality_abs": 0.5,
+  "unit": "percent of shares"
+ },
+ "dii_pct": {
+  "abs": 0.01,
+  "rel": 0.0,
+  "zero_band": 0.0,
+  "materiality_rel": null,
+  "materiality_abs": 0.5,
+  "unit": "percent of shares"
+ },
+ "mf_pct": {
+  "abs": 0.01,
+  "rel": 0.0,
+  "zero_band": 0.0,
+  "materiality_rel": null,
+  "materiality_abs": 0.5,
+  "unit": "percent of shares"
+ },
+ "public_pct": {
+  "abs": 0.01,
+  "rel": 0.0,
+  "zero_band": 0.0,
+  "materiality_rel": null,
+  "materiality_abs": 0.5,
+  "unit": "percent of shares"
+ },
+ "rounding_display_decimals": {
+  "revenue_cr": 2,
+  "pat_cr": 2,
+  "eps_basic": 2,
+  "promoter_pct": 2,
+  "fii_pct": 2,
+  "dii_pct": 2,
+  "mf_pct": 2,
+  "public_pct": 2,
+  "total_income_cr": 2,
+  "pat_owners_cr": 2
+ },
+ "total_income_cr": {
+  "abs": 0.5,
+  "rel": 0.005,
+  "zero_band": 1.0,
+  "materiality_rel": 0.05,
+  "materiality_abs": null,
+  "unit": "INR crore"
+ },
+ "pat_owners_cr": {
+  "abs": 0.5,
+  "rel": 0.005,
+  "zero_band": 1.0,
+  "materiality_rel": 0.05,
+  "materiality_abs": null,
+  "unit": "INR crore"
+ },
+ "source_display_decimals": {
+  "_doc": "Display precision of a provider surface, overriding rounding_display_decimals for that surface only (Trendlyne's ownership chart shows 1 decimal; its summary row 2).",
+  "trendlyne_ownership_chart": {
+   "promoter_pct": 1,
+   "fii_pct": 1,
+   "dii_pct": 1,
+   "mf_pct": 1,
+   "public_pct": 1
+  }
+ }
+}

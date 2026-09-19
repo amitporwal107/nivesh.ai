@@ -1,0 +1,15 @@
+{
+  "_doc": "Per-category PIT policy metadata (plan §6-§7; POL-01..06). archive_start_at / policy_effective_at are configuration, never hardcoded. Classes are set by the audit report; 'UNVERIFIED' until evidence exists.",
+  "safety_margin_minutes": 5,
+  "categories": {
+    "trendlyne_financials":   {"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
+    "trendlyne_ownership":    {"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
+    "trendlyne_ratios_scores":{"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
+    "trendlyne_events":       {"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
+    "trendlyne_news":         {"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
+    "trendlyne_sast":         {"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
+    "trendlyne_deals":        {"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
+    "nse_filed_results":      {"pit_class": "UNVERIFIED", "archive_start_at": null, "policy_effective_at": null, "rule": null},
+    "nse_filed_shareholding": {"pit_class": "UNVERIFIED", "archive_start_at": null, "policy_effective_at": null, "rule": null}
+  }
+}

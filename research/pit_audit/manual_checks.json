@@ -1,0 +1,41 @@
+{
+ "_doc": "QA-06 manual spot-checks. Values were READ BY EYE from the primary documents (BSE results PDF via pdftotext -layout; the filed SHP XBRL instance's raw fact text), then compared with the audit archive (parser pit_audit-0.1.5) and Trendlyne. performed_by: agent (Claude), 2026-09-19 ~13:00 IST. owner_confirmation: PENDING.",
+ "performed_by": "agent",
+ "performed_at": "2026-09-19T13:05:00+05:30",
+ "owner_confirmation": "PENDING",
+ "checks": [
+  {
+   "symbol": "LICHSGFIN", "period_end": "2024-09-30", "filing_format": "legacy Reg-33 (NBFC Ind-AS)",
+   "results_pdf": {"source": "BSE AttachHis (AttachLive returned 404)", "sha256": "d5440a118ed63bea8521d9e8ac4d516d73fe97c60380186adee2f4ba44f995f8"},
+   "as_filed_pat_cr": {"pdf_standalone": 1328.89, "archive_standalone": 1328.899, "pdf_consolidated": 1327.79, "archive_consolidated": 1327.79,
+                       "trendlyne": 1327.71, "trendlyne_class": "FIRST_FILED_MATCH (consolidated, within tolerance; not exact)", "result": "MATCH"},
+   "timing": {"board_meeting": "commenced 11:00, concluded 15:00 (PDF cover letter)", "bse_dissemination": "2024-10-28T15:13:13+05:30",
+              "nse_xbrl_broadcast": "2024-10-28T19:16:10+05:30", "note": "results public on BSE 13 min after the meeting; NSE XBRL listing 4 h later (F-5)"},
+   "promoter_pct": {"filed_shp_xbrl_fact": "45.24 (context ShareholdingOfPromoterAndPromoterGroupI, percent; total fact 100)", "archive": 45.24,
+                    "trendlyne": null, "trendlyne_note": "Trendlyne ownership chart starts Mar 2025", "nse_shp_broadcast": "2024-10-15T10:32:22+05:30", "result": "MATCH"}
+  },
+  {
+   "symbol": "3MINDIA", "period_end": "2026-06-30", "filing_format": "Integrated Filing (Ind-AS)",
+   "results_pdf": {"source": "BSE AttachLive", "sha256": "e67ecc53baf476fc9001d67d8bf5d2d64e35c084177a40e3b7da20106e7a32a0"},
+   "as_filed_pat_cr": {"pdf_standalone": 233.07, "archive_standalone": 233.07, "trendlyne": 233.07, "trendlyne_class": "NO_DIFFERENCE", "result": "MATCH",
+                       "note": "includes a Rs 73.13 cr exceptional gain (Pimpri land sale); basic EPS 206.90 in PDF, archive and Trendlyne"},
+   "timing": {"board_meeting": "commenced 11:59, concluded 12:50 (PDF)", "bse_dissemination": "2026-08-14T13:00:52+05:30",
+              "nse_xbrl_broadcast": "2026-08-14T17:04:16+05:30", "note": "BSE 11 min after the meeting; NSE XBRL 4 h later (F-5)"},
+   "promoter_pct": {"filed_shp_xbrl_fact": "0.75 (context ShareholdingOfPromoterAndPromoterGroup_ContextI, fraction; total fact 1)", "archive": 75.0,
+                    "trendlyne": 75.0, "nse_shp_broadcast": "2026-07-17T18:35:05+05:30", "result": "MATCH"}
+  },
+  {
+   "symbol": "HINDUNILVR", "period_end": "2025-12-31", "filing_format": "Integrated Filing (Ind-AS), discontinued operations (ice-cream demerger)",
+   "results_pdf": {"source": "BSE AttachHis (AttachLive returned 404)", "sha256": "877d8c7e398a9e6b6abfbc5a0b3b5e9d92304403ed17c8fe909c8ba41e7cad07"},
+   "as_filed_pat_cr": {"pdf_consolidated": 6603, "archive_consolidated": 6603.0, "pdf_standalone": 7075, "archive_standalone": 7075.0,
+                       "trendlyne": 6607.0, "trendlyne_class": "FIRST_FILED_MATCH (within 0.5% tolerance; not exact: +4 cr)", "result": "MATCH",
+                       "eps_basic_consolidated_pdf": {"continuing": 9.03, "discontinued": 19.09, "total": 28.12},
+                       "eps_note": "Trendlyne 28.12 = TOTAL EPS; the audit's eps_basic is continuing (9.03) -> DEFINITION_DIFFERENCE, confirmed from the PDF"},
+   "timing": {"board_meeting": "commenced 08:30, results item concluded 09:42 (PDF)", "bse_dissemination": "2026-02-12T10:21:32+05:30",
+              "nse_xbrl_broadcast": "2026-02-12T17:25:10+05:30",
+              "note": "results public on BSE during market hours; NSE XBRL after the close - a MEDIUM (XBRL) available_at loses the same-session intraday window (conservative)"},
+   "promoter_pct": {"filed_shp_xbrl_fact": "0.619 (current context, fraction; total fact 1)", "archive": 61.9, "trendlyne": 61.9,
+                    "nse_shp_broadcast": "2026-01-20T19:35:48+05:30", "result": "MATCH"}
+  }
+ ]
+}
