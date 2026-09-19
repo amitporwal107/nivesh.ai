@@ -61,13 +61,14 @@ def load_frozen(data: str = DATA) -> dict:
     iso_path = verified(os.path.join(res["models_dir"], f"iso__{MODEL}__{LABEL}.pkl"),
                         res["model_files"][f"iso__{MODEL}__{LABEL}.pkl"])
     ds = WF.load(ds_path)
-    oof = pd.read_csv(oof_path, parse_dates=["date"])
+    # round_trip: pandas' default float parser can be one ulp off, which changes stored scores and tie draws
+    oof = pd.read_csv(oof_path, parse_dates=["date"], float_precision="round_trip")
     key = ds[["date", "symbol"]].reset_index().rename(columns={"index": "row"})
     m = oof.merge(key, on=["date", "symbol"], how="left", validate="1:1")
     if m.row.isna().any():
         raise InputError(f"{int(m.row.isna().sum())} out-of-fold rows have no dataset row")
     scores = m.set_index(m.row.astype(int)).drop(columns=["row", "date", "symbol"]).sort_index()
-    picks = pd.read_csv(picks_path, index_col=0, parse_dates=["date"])
+    picks = pd.read_csv(picks_path, index_col=0, parse_dates=["date"], float_precision="round_trip")
     with open(iso_path, "rb") as fh:
         iso = pickle.load(fh)
     cal, idx_close = DS.load_calendar(DEV)
