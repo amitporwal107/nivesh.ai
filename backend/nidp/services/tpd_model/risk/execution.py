@@ -39,6 +39,7 @@ class Fill:
     price: Optional[Decimal]
     qty: int
     reason: Optional[str]
+    base: Optional[Decimal] = None   # the raw price the fill keyed on, before slippage and paisa rounding
 
 
 def px(x: Decimal) -> Decimal:
@@ -98,7 +99,7 @@ def fill_entry(kind: str, bar: Bar, *, qty: int, slippage_pct: Decimal, particip
     price = px(base * (1 + slippage_pct / 100))
     if kind == "LIMIT":
         price = min(price, px(limit))                 # a limit order never fills above its limit
-    return Fill("FILLED" if q == qty else "PARTIAL", price, q, None if q == qty else "PARTICIPATION_CAP")
+    return Fill("FILLED" if q == qty else "PARTIAL", price, q, None if q == qty else "PARTICIPATION_CAP", base)
 
 
 def check_stop(bar: Bar, stop: Decimal, slippage_pct: Decimal) -> Optional[Fill]:

@@ -11,7 +11,10 @@ Order of events inside a session d (daily bars, so nothing inside a bar is order
   6. closes update breakeven / trailing stops (effective from the next session), equity is marked, end_day runs.
   7. signals dated d (MOO / BUY_STOP) are gated, sized against end-of-day state and become orders for d+1.
 Signals columns: signal_id, date, symbol, arm, order_type (MOO|BUY_STOP|MOC), trigger, valid_sessions, stop,
-reference_price, atr, rank [, model_version, feature_snapshot_id, available_at].
+reference_price, atr, rank [, model_version, feature_snapshot_id, available_at, target, stop_pct, target_pct].
+A signal may carry a profit target (`target`), and may set its levels relative to the fill instead of to the
+reference price: `stop_pct` / `target_pct` re-derive the stop and target from the fill's raw base at fill time, which
+is what a "2% stop, 5% target from the entry" rule means. Sizing always uses the signal's own `stop`.
 Bars columns: symbol, date, open, high, low, close, volume, value20 [, prev_close].
 """
 from __future__ import annotations
@@ -19,7 +22,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Callable, Optional
 
@@ -32,6 +35,10 @@ from . import sizing as SZ
 from .drawdown import DrawdownMonitor
 from .ledger import Ledger
 from .portfolio import Portfolio, Position
+
+
+SAME_DAY_EXIT = {"STOP": "STOP_SAME_DAY", "GAP_THROUGH": "STOP_SAME_DAY", "TARGET": "TARGET_SAME_DAY",
+                 "GAP_OVER_TARGET": "TARGET_SAME_DAY"}
 
 
 @dataclass
@@ -78,9 +85,12 @@ def _load_bars(bars: pd.DataFrame) -> tuple[dict, list, dict, dict]:
 def run(signals: pd.DataFrame, bars: pd.DataFrame, cfg: RC.RiskConfig, cost_model: CC.CostModel, sectors: dict,
         exits: dict, *, eligibility: Optional[Callable] = None, allow_retroactive_costs: bool = False,
         exchange: str = "NSE", profile: str = "delivery", slippage_mult: Decimal = Decimal(1),
-        ledger_path: Optional[str] = None, stops_active: bool = True, prepared: Optional[tuple] = None) -> Result:
+        ledger_path: Optional[str] = None, stops_active: bool = True, prepared: Optional[tuple] = None,
+        intrabar_policy: str = "STOP_FIRST") -> Result:
     """stops_active=False is the risk-management ablation: same entries and quantities (sizing still uses the stop),
     no stop, breakeven or trailing exits — every position leaves at its time exit (or stays open at the end)."""
+    if intrabar_policy not in EX.INTRABAR_POLICIES:
+        raise ValueError(f"unknown intrabar policy {intrabar_policy!r}")
     errs = RC.validate(cfg)
     if errs:
         raise ValueError(f"invalid risk config {cfg.config_id}: {errs}")
@@ -124,7 +134,7 @@ def run(signals: pd.DataFrame, bars: pd.DataFrame, cfg: RC.RiskConfig, cost_mode
         net = gross - p.entry_costs - c["total"]
         r_den = Decimal(p.qty) * p.r_per_share
         t = {"symbol": p.symbol, "sector": p.sector, "arm": p.arm, "signal_id": p.signal_id, "entry_date": p.entry_date,
-             "entry_price": p.entry_price, "qty": p.qty, "initial_stop": p.initial_stop, "exit_date": d,
+             "entry_price": p.entry_price, "qty": p.qty, "initial_stop": p.initial_stop, "target": p.target, "exit_date": d,
              "exit_price": price, "exit_reason": reason, "gross_pnl": gross, "costs": p.entry_costs + c["total"],
              "net_pnl": net, "r_multiple": float(net / r_den) if r_den > 0 else None,
              "sessions_held": idx[d] - p.entry_index + 1, "stop_kind": p.stop_kind,
@@ -178,10 +188,24 @@ def run(signals: pd.DataFrame, bars: pd.DataFrame, cfg: RC.RiskConfig, cost_mode
         led.append("decision", dec)
         return (res if status != "REJECTED" else None), dec
 
+    def levels(o: dict, fill: EX.Fill) -> tuple[Decimal, Optional[Decimal]]:
+        """The position's stop and target. `stop_pct` / `target_pct` re-derive them from the fill's raw base."""
+        base = fill.base if fill.base is not None else fill.price
+        stop = base * (1 - o["stop_pct"] / 100) if o.get("stop_pct") is not None else o["stop"]
+        if o.get("target_pct") is not None:
+            target = base * (1 + o["target_pct"] / 100)
+        else:
+            target = o.get("target")
+        return stop, target
+
     def enter(o: dict, d: dt.date, fill: EX.Fill):
         pf.reservations.pop(o["order_id"], None)
-        if fill.price <= o["stop"]:
+        stop, target = levels(o, fill)
+        if fill.price <= stop:
             led.append("order", {"order_id": o["order_id"], "status": "CANCELLED", "reason": "FILL_AT_OR_BELOW_STOP", "date": d})
+            return None
+        if target is not None and target <= fill.price:
+            led.append("order", {"order_id": o["order_id"], "status": "CANCELLED", "reason": "TARGET_AT_OR_BELOW_FILL", "date": d})
             return None
         c = costs("BUY", Decimal(fill.qty) * fill.price, d)
         qty = fill.qty
@@ -189,9 +213,9 @@ def run(signals: pd.DataFrame, bars: pd.DataFrame, cfg: RC.RiskConfig, cost_mode
             led.append("order", {"order_id": o["order_id"], "status": "CANCELLED", "reason": "INSUFFICIENT_CASH_AT_FILL", "date": d})
             return None
         pf.cash -= Decimal(qty) * fill.price + c["total"]
-        p = Position(o["symbol"], o["sector"], qty, fill.price, o["stop"], d, entry_index=idx[d], entry_costs=c["total"],
-                     signal_id=o["signal_id"], arm=o["arm"], atr=o["atr"], binding_constraint=o["binding"],
-                     retroactive_costs=c["retroactive"])
+        p = Position(o["symbol"], o["sector"], qty, fill.price, stop, d, target=target, entry_index=idx[d],
+                     entry_costs=c["total"], signal_id=o["signal_id"], arm=o["arm"], atr=o["atr"],
+                     binding_constraint=o["binding"], retroactive_costs=c["retroactive"])
         pf.add(p)
         led.append("fill", {"order_id": o["order_id"], "symbol": o["symbol"], "side": "BUY", "date": d, "price": fill.price,
                             "qty": qty, "status": fill.status, "costs": {k: c[k] for k in CC.COMPONENTS + ("total",)}})
@@ -227,24 +251,38 @@ def run(signals: pd.DataFrame, bars: pd.DataFrame, cfg: RC.RiskConfig, cost_mode
                                          "reason": f.reason, "date": d})
                 continue
             p = enter(o, d, f)
-            if stops_active and p is not None and b.low <= p.stop:                        # stop touched on the entry bar: stop-first
-                close_position(p, d, EX.px(p.stop * (1 - slip(p.symbol, d) / 100)), "STOP_SAME_DAY")
+            if p is not None and (stops_active or p.target is not None):
+                # the fill may be inside the bar (a buy-stop trigger), so the bar is evaluated from the fill's base,
+                # stop-first: a daily bar cannot say whether its low came before or after the entry
+                eb = b if (f.base is None or f.base == b.open) else replace(b, open=f.base)
+                x = EX.exit_on_bar(eb, p.stop if stops_active else None, p.target, slip(p.symbol, d), intrabar_policy)
+                if x.ambiguous:
+                    led.append("event", {"date": d.isoformat(), "event_type": "INTRABAR_AMBIGUOUS", "symbol": p.symbol,
+                                         "reason": f"both levels reached on the entry bar; {intrabar_policy}"})
+                if x.fill is not None and x.fill.status == "NO_FILL":
+                    led.append("event", {"date": d.isoformat(), "event_type": "EXIT_BLOCKED", "symbol": p.symbol,
+                                         "reason": x.fill.reason})
+                elif x.fill is not None:
+                    close_position(p, d, x.fill.price, SAME_DAY_EXIT[x.fill.reason])
         pending = still
-        # 3. stop exits for positions entered before d
-        for sym in (sorted(pf.positions) if stops_active else []):
+        # 3. stop and target exits for positions entered before d
+        for sym in sorted(pf.positions):
             p = pf.positions[sym]
-            if p.entry_index >= i:
+            if p.entry_index >= i or not (stops_active or p.target is not None):
                 continue
             b = bar_of.get((sym, d))
             if b is None:
                 continue
-            f = EX.check_stop(b, p.stop, slip(sym, d))
-            if f is None:
+            x = EX.exit_on_bar(b, p.stop if stops_active else None, p.target, slip(sym, d), intrabar_policy)
+            if x.fill is None:
                 continue
-            if f.status == "NO_FILL":
-                led.append("event", {"date": d.isoformat(), "event_type": "EXIT_BLOCKED", "symbol": sym, "reason": f.reason})
+            if x.ambiguous:
+                led.append("event", {"date": d.isoformat(), "event_type": "INTRABAR_AMBIGUOUS", "symbol": sym,
+                                     "reason": f"both levels reached on one bar; {intrabar_policy}"})
+            if x.fill.status == "NO_FILL":
+                led.append("event", {"date": d.isoformat(), "event_type": "EXIT_BLOCKED", "symbol": sym, "reason": x.fill.reason})
                 continue
-            close_position(p, d, f.price, f.reason)
+            close_position(p, d, x.fill.price, x.fill.reason)
         # 4. time exits at the close of the max_sessions-th session
         for sym in sorted(pf.positions):
             p = pf.positions[sym]
@@ -265,7 +303,9 @@ def run(signals: pd.DataFrame, bars: pd.DataFrame, cfg: RC.RiskConfig, cost_mode
                 b = bar_of.get((s["symbol"], d))
                 o = {"order_id": f"o{oid}", "signal_id": s["signal_id"], "symbol": s["symbol"], "arm": s.get("arm"),
                      "sector": sectors[s["symbol"]], "kind": "MOC", "qty": res.quantity, "trigger": None,
-                     "stop": _dec(s["stop"]), "atr": _dec(s.get("atr")), "binding": res.binding}
+                     "stop": _dec(s["stop"]), "atr": _dec(s.get("atr")), "binding": res.binding,
+                     "target": _dec(s.get("target")), "stop_pct": _dec(s.get("stop_pct")),
+                     "target_pct": _dec(s.get("target_pct"))}
                 oid += 1
                 if b is None:
                     led.append("order", {"order_id": o["order_id"], "status": "NO_FILL", "reason": "NO_BAR", "date": d})
@@ -304,6 +344,8 @@ def run(signals: pd.DataFrame, bars: pd.DataFrame, cfg: RC.RiskConfig, cost_mode
                      "sector": sectors[s["symbol"]], "kind": s["order_type"], "qty": res.quantity,
                      "trigger": _dec(s["trigger"]) if s["order_type"] == "BUY_STOP" else None, "stop": _dec(s["stop"]),
                      "atr": _dec(s.get("atr")), "binding": res.binding, "first_index": i + 1,
+                     "target": _dec(s.get("target")), "stop_pct": _dec(s.get("stop_pct")),
+                     "target_pct": _dec(s.get("target_pct")),
                      "last_index": i + int(s.get("valid_sessions") or 1)}
                 oid += 1
                 ref = o["trigger"] if o["kind"] == "BUY_STOP" else _dec(s["reference_price"])

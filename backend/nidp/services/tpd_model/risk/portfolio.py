@@ -16,6 +16,7 @@ class Position:
     stop: Decimal
     entry_date: dt.date
     initial_stop: Optional[Decimal] = None
+    target: Optional[Decimal] = None       # optional profit target; None = the position leaves at its stop or time exit
     entry_index: int = 0
     entry_costs: Decimal = Decimal(0)
     signal_id: Optional[str] = None
