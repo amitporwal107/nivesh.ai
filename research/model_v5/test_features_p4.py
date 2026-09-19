@@ -197,3 +197,19 @@ def test_adx_uses_the_last_260_index_sessions(built):
     full = wilder_adx(h[:i + 1], lo[:i + 1], c[:i + 1])
     assert abs(want - full) > 1e-9                      # Wilder smoothing forgets its seed slowly but not completely
     assert f.loc[("S1", CAL[i])].mkt_adx14 == pytest.approx(want, rel=1e-12, abs=1e-12)
+
+
+def test_sector_rank_uses_20_session_returns_on_every_date(built):
+    bars, _, f = built
+    C = bars.pivot(index="date", columns="symbol", values="close").reindex(CAL)
+    r20 = C / C.shift(20) - 1
+    groups = {g: [s for s in IND if IND[s] == g] for g in ("X", "Y", "Z")}
+    checked = 0
+    for i in range(61, 300, 3):
+        d = CAL[i]
+        want = pd.Series({g: r20.loc[d, m].mean() for g, m in groups.items()}).rank(pct=True)
+        for s in ("S1", "T2", "U3"):
+            if (s, d) in f.index:
+                assert f.loc[(s, d)].sec_rank20 == pytest.approx(want[IND[s]])
+                checked += 1
+    assert checked > 200
