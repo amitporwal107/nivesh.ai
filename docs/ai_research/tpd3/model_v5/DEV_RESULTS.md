@@ -1,6 +1,6 @@
 # Roadmap v2, Phases 2–3 — development walk-forward results (owner checkpoint)
 
-**Status: development complete. The locked test (Jan 2023 – Jul 2024) has NOT been run, and no 2023–24 bar has been read.**
+**Status: H#32 CLOSED at the development stage.** Owner decision on 2026-09-19 (~21:55 IST): option B, "close at dev". The locked test (Jan 2023 – Jul 2024) was **not run**; no 2023–24 bar has been read, and the block stays sealed.
 
 The decision on H#32 is reserved for the locked test. Every number below comes from the development block (2021–22) and **decides nothing** on its own. It is here so the owner can decide at this checkpoint whether the one-use sealed period should be spent on H#32.
 
@@ -176,3 +176,8 @@ The locked period is the last untouched block and can be used **once**.
 | **B. Close H#32 at the development stage** (recommended) | H#32 is recorded as "failed in development; locked test not spent". The Jan 2023 – Jul 2024 block stays sealed for a future hypothesis that first shows a positive development result. The frozen models and hashes stay on file. |
 
 Either way, the next step on the roadmap is Phase 4: market regime, sector-relative strength, breakout quality and tradeability features, each with its own pre-registration. That work is informed by the weak directional tilt in §2 and by the finding that the +5 / −2 payoff needs a TARGET rate of about 32%.
+
+**Decision (owner, 2026-09-19): B.**
+- H#32 is CLOSED: it failed in development, and the locked test was not spent.
+- The frozen models and hashes remain on file.
+- The Jan 2023 – Jul 2024 block remains sealed and single-use.
