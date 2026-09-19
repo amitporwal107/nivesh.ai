@@ -174,3 +174,47 @@ def test_each_arm_is_ranked_by_its_own_score(run_small):
         day = p.date.iloc[0]
         top = s[ds.loc[s.index, "date"] == day].nlargest(5).index
         assert set(p[p.date == day].index) == set(top)
+
+
+# ---------- groups C and D (PREREGISTRATION_P4_CD.md): the same procedure with its own group set ----------
+
+import features_p4cd as FC  # noqa: E402
+
+
+def test_cd_arms_are_the_frozen_ones():
+    arms = P4.arms_for("cd")
+    assert list(arms) == ["B0", "C", "D"] and [len(v) for v in arms.values()] == [44, 55, 51]
+    assert arms["C"][44:] == list(FC.GROUP_C) and arms["D"][44:] == list(FC.GROUP_D)
+    assert P4.arms_for("ab") == P4.ARMS and tuple(P4.EXPERIMENTS["ab"]["groups"]) == P4.GROUPS
+
+
+def test_cd_keep_drop_uses_its_own_groups():
+    holm = {("C", "up_given_move"): {"reject_null": False}, ("C", "tbs_5_2"): {"reject_null": False},
+            ("D", "up_given_move"): {"reject_null": False}, ("D", "tbs_5_2"): {"reject_null": True}}
+    trade = {"B0": {"pooled": -0.006, "folds": [-0.01, -0.005, -0.006, -0.004]},
+             "C": {"pooled": -0.005, "folds": [-0.009, -0.004, -0.005, -0.003]},
+             "D": {"pooled": -0.005, "folds": [-0.009, -0.004, -0.005, -0.003]}}
+    pr = {"B0": [0.24] * 4, "C": [0.25] * 4, "D": [0.25] * 4}
+    d = P4.decide(holm, trade, pr, groups=("C", "D"))
+    assert set(d) == {"C", "D"} and d["C"]["verdict"] == "DROPPED" and d["D"]["verdict"] == "KEPT"
+
+
+def test_cd_end_to_end_small_run():
+    ds = synth(seed=8, informative_b=False)
+    rng = np.random.default_rng(80008)          # not synth's seed: that would copy the baseline columns exactly
+    hidden = rng.normal(size=len(ds))
+    for f in (*FC.GROUP_C, *FC.GROUP_D):
+        ds[f] = rng.normal(size=len(ds))
+    ds["td_hist_target"] = hidden
+    sig = 0.5 * ds.ret5 + 1.2 * hidden + rng.normal(size=len(ds))
+    ds["tbs_5_2"] = np.where(sig > 1.0, "TARGET", np.where(sig < -0.3, "STOP", "EXPIRED"))
+    ds["dir_5_5d"] = np.where(sig > 0.7, "UP", np.where(sig < -0.7, "DOWN", "NONE"))
+    arms = P4.arms_for("cd")
+    S = {}
+    for arm, cols in arms.items():
+        for label in ("tbs_5_2", "up_given_move", "dir_5_5d"):
+            S[(arm, label, "hgb")] = P4.fold_scores(ds, CAL, cols, label)
+    res = P4.evaluate(ds, CAL, S, synth_bars(), {}, auc_reps=100, trade_reps=200, arms=arms, groups=("C", "D"))
+    assert set(res["decision"]) == {"C", "D"} and set(res["_picks"]) == {"B0", "C", "D"}
+    assert set(res["k1_holm"]) == {"C|tbs_5_2", "C|up_given_move", "D|tbs_5_2", "D|up_given_move"}
+    assert res["k1_holm"]["D|tbs_5_2"]["reject_null"] and not res["k1_holm"]["C|tbs_5_2"]["reject_null"]
