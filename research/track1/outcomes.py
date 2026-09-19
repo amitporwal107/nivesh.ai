@@ -15,7 +15,7 @@ from exits import stop_target_exit, hb_confirmation
 from ledger import Ledger
 from watchlist import q, REPORTS, SCOPE
 
-SCOPE_V2 = "docs/ai_research/tpd3/track1/TRACK1_SCOPE_v2.md"
+SCOPE_V2 = "docs/ai_research/tpd3/track1/TRACK1_SCOPE_v3.md"   # the scope the job runs under (v3 since 2026-09-19)
 CAP, BANDS = 5, (0.05, 0.10, 0.20)
 OBS = ["09:15", "09:20", "09:25", "09:30", "09:35", "09:40"]
 ETF_LIST = "/app/research/sealed/etf_symbols_name_contains_ETF.csv"
@@ -26,9 +26,36 @@ def signals_for(w: pd.DataFrame, px: pd.DataFrame) -> pd.DataFrame:
     s["has_price"] = s.open_price.notna() & s.close_price.notna()
     s["gap"] = s.open_price / s.p0_adj - 1
     s["gap_raw"] = s.open_price / s.p0_raw - 1
-    s["at_band"] = np.any([np.abs(s.gap_raw + b) <= 0.0025 for b in BANDS], axis=0) & s.has_price
+    s["at_band_v2"] = np.any([np.abs(s.gap_raw + b) <= 0.0025 for b in BANDS], axis=0) & s.has_price
+    s["at_band"] = s.at_band_v2
     s["signal"] = s.has_price & (s.gap <= -0.03)
     return s
+
+def apply_v3(s: pd.DataFrame, bands: pd.DataFrame | None, etf_names: set[str]) -> pd.DataFrame:
+    """TRACK1_SCOPE_v3 exclusions known at the open. `bands` = the session's nidp.security_reference_daily rows
+    (symbol, band_raw, price_band_pct, is_etf); None/empty -> historical fallback (ETF by Kite name; band rule deferred to
+    the locked-first-bar check once 5-minute bars are loaded)."""
+    s = s.copy()
+    live = bands is not None and len(bands) > 0
+    if live:
+        b = bands.set_index("symbol")
+        # psql CSV export writes booleans as 't'/'f' strings — never use bool() on them ("f" is truthy)
+        s["is_etf"] = s.symbol.map(b.is_etf).map(lambda v: v in (True, 1, "t", "true", "True", "1"))
+        s["band_raw"] = s.symbol.map(b.band_raw)
+        s["band_pct"] = pd.to_numeric(s.symbol.map(b.price_band_pct), errors="coerce")
+        s["band_status"] = np.where(s.band_raw.isna(), "UNKNOWN", np.where(s.band_raw == "No Band", "NO_BAND", "BANDED"))
+        lower = s.p0_raw * (1 - s.band_pct / 100)
+        s["at_own_band"] = (s.band_status == "BANDED") & ((s.open_price - lower).abs() <= np.maximum(0.05, 0.0005 * s.open_price))
+    else:
+        s["is_etf"] = s.symbol.isin(etf_names)
+        s["band_raw"], s["band_pct"], s["band_status"] = None, np.nan, "HISTORICAL_FALLBACK"
+        s["at_own_band"] = False                                   # decided later from the locked 09:15 bar (H-B only)
+    s["v3_excluded"] = np.select([s.is_etf, s.band_status == "UNKNOWN", s.at_own_band], ["ETF", "BAND_UNKNOWN", "OPEN_AT_OWN_BAND"], "")
+    return s
+
+def first_bar_locked(bar_open: float, bar_low: float, gap_raw: float) -> bool:
+    """v3 historical fallback: the 09:15 bar never traded below its open AND the open sits within 0.25pp of a standard band."""
+    return abs(bar_low - bar_open) < 1e-9 and any(abs(gap_raw + b) <= 0.0025 for b in BANDS)
 
 def select_capped(df: pd.DataFrame, cap: int = CAP) -> pd.DataFrame:
     """Deepest gap first, ties -> higher 20-day value."""
@@ -77,12 +104,16 @@ def run(session: str, bars_source: str, label: str | None, repo: str) -> dict:
     if px.empty:
         raise SystemExit(f"official prices for {session} not ingested yet — rerun after the EOD feed")
     etfs = set(pd.read_csv(ETF_LIST, header=None)[0]) if os.path.exists(ETF_LIST) else set()
-    s = signals_for(w, px); s["etf"] = s.symbol.isin(etfs)
+    bands = q(f"SELECT symbol, band_raw, price_band_pct, is_etf FROM nidp.security_reference_daily WHERE series='EQ' AND as_of_date='{session}'")
+    s = apply_v3(signals_for(w, px), bands, etfs); s["etf"] = s.is_etf
     s["cost_rt"] = s.cost_round_trip_pct / 100
+    s["at_band"] = s.v3_excluded != ""                  # v3 exclusion at the open; v2's rule is kept only as at_band_v2
     sig = s[s.signal & ~s.at_band]
     bars, used = load_bars(session, sig.symbol.tolist(), bars_source)
     exc.update(bars_source=used, watchlist_symbols=int(len(w)), missing_official_price=int((~s.has_price).sum()),
-               signals=int(s.signal.sum()), excluded_at_band=int((s.signal & s.at_band).sum()), etf_signals=int((s.signal & s.etf).sum()))
+               signals=int(s.signal.sum()), excluded_at_band=int((s.signal & s.at_band).sum()), etf_signals=int((s.signal & s.etf).sum()),
+               v3_exclusions=s.loc[s.signal & s.at_band, "v3_excluded"].value_counts().to_dict(), band_mode="LIVE" if len(bands) else "HISTORICAL_FALLBACK",
+               v2_rule_would_exclude=int((s.signal & s.at_band_v2).sum()))
     L = Ledger(os.path.join(out, "ledger.jsonl"))
     rows, open_mismatch, unresolved = [], 0, 0
     ha_pick = set(select_capped(sig).symbol)
@@ -97,7 +128,7 @@ def run(session: str, bars_source: str, label: str | None, repo: str) -> dict:
             for arm in ("H-A", "H-B"): L.transition(r.symbol, arm, "EXPIRED", "NO_GAP")
             continue
         if r.at_band:
-            for arm in ("H-A", "H-B"): L.transition(r.symbol, arm, "INVALIDATED", "OPEN_AT_LOWER_BAND")
+            for arm in ("H-A", "H-B"): L.transition(r.symbol, arm, "INVALIDATED", r.v3_excluded)
             continue
         b = bars.get(r.symbol)
         rec = {"symbol": r.symbol, "gap": r.gap, "value20": r.value20, "etf": r.etf, "open": r.open_price, "close": r.close_price,
@@ -120,6 +151,8 @@ def run(session: str, bars_source: str, label: str | None, repo: str) -> dict:
             L.transition(r.symbol, "H-B", "INVALIDATED", "UNRESOLVED_MISSING_BARS"); unresolved += 1
             rec.update(hb="UNRESOLVED"); rows.append(rec); continue
         o915 = b[b.hm == "09:15"].o.iloc[0]
+        if r.band_status == "HISTORICAL_FALLBACK" and first_bar_locked(o915, b[b.hm == "09:15"].l.iloc[0], r.gap_raw):
+            L.transition(r.symbol, "H-B", "INVALIDATED", "LOCKED_FIRST_BAR_AT_BAND"); rec.update(hb="EXCLUDED_LOCKED_BAR"); rows.append(rec); continue
         if abs(o915 / r.open_price - 1) > 1e-6:
             open_mismatch += 1; L.transition(r.symbol, "H-B", "INVALIDATED", "DATA_ERROR_OPEN_MISMATCH", {"bar_open": o915, "official_open": r.open_price})
             rec.update(hb="DATA_ERROR"); rows.append(rec); continue
@@ -158,7 +191,7 @@ def run(session: str, bars_source: str, label: str | None, repo: str) -> dict:
     sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
     man = {"run_id": f"oc-{uuid.uuid4().hex[:10]}", "session": session, "label": label or "live",
            "git_sha": subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
-           "scope_v2_sha256": sha(os.path.join(repo, SCOPE_V2)), "cost_model": "v1", "bars_source": used}
+           "scope": SCOPE_V2, "scope_sha256": sha(os.path.join(repo, SCOPE_V2)), "cost_model": "v1", "bars_source": used}
     json.dump(man, open(os.path.join(out, "outcome_manifest.json"), "w"), indent=1)
     write_html(out, session, exc, R, recon, man)
     return exc
@@ -182,11 +215,11 @@ body{{background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif;ma
 table{{border-collapse:collapse;width:100%;font-size:13px;display:block;overflow-x:auto}} th,td{{border-bottom:1px solid var(--line);padding:4px 8px;text-align:left;white-space:nowrap}}
 .muted{{color:var(--muted)}} .warn{{font-weight:600}}</style></head><body>
 <h1>Gap-down signals — {e(session)}</h1>
-<p class="muted">Run {e(man['run_id'])} · {e(man['label'])} · git {e(man['git_sha'][:8])} · scope v2 {e(man['scope_v2_sha256'][:8])} · cost model v1 · bars: {e(man['bars_source'])}</p>
-<p class="warn">H-B is a candidate confirmation rule — operational test, not a validated edge. H-A failed its sealed validation (ETF artefacts); shown for the workflow only.</p>
+<p class="muted">Run {e(man['run_id'])} · {e(man['label'])} · git {e(man['git_sha'][:8])} · scope v3 {e(man['scope_sha256'][:8])} · cost model v1 · bars: {e(man['bars_source'])}</p>
+<p class="warn">H-B is a candidate confirmation rule — operational test, not a validated edge. H-A is CLOSED; its column is a reference for what confirmation skips, not a trade candidate.</p>
 <h2>Data freshness and completeness</h2><pre>{e(json.dumps(exc, indent=1))}</pre>
 <h2>Market-day summary</h2><p>{exc.get('signals',0)} gap-down signals · {exc.get('excluded_at_band',0)} excluded at a lower band · {exc.get('etf_signals',0)} ETF signals (flagged)</p>
-<h2>H-A (open → close, max {CAP})</h2><p>{summ(ha,'ha_net')}</p>{table(ha, ['symbol','gap','open','close','ha_gross','ha_net','ha_desc_stop_target','liquidity','etf'])}
+<h2>H-A reference only (closed hypothesis; open → close, max {CAP})</h2><p>{summ(ha,'ha_net')}</p>{table(ha, ['symbol','gap','open','close','ha_gross','ha_net','ha_desc_stop_target','liquidity','etf'])}
 <h2>H-B (09:45 confirmation, max {CAP})</h2><p>{summ(hb,'hb_net')}</p>{table(hb, ['symbol','gap','p945','vwap945','hb_entry','hb_exit','hb_reason','hb_gross','hb_net','mae_pre','recovery','vwap_dist','liquidity','etf'])}
 <h2>All signals, side by side</h2>{table(R, ['symbol','gap','ha','hb','ha_net','hb_net','mae_pre','etf'])}
 <h2>Unresolved intraday outcomes</h2><p>{exc.get('hb_unresolved',0)} H-B signals without usable 5-minute bars (never inferred).</p>

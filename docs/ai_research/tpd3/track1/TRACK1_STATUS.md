@@ -40,3 +40,13 @@ being filled (live runs fetch the day's bars from Kite after the close).
 Evening before: watchlist (done). Morning: owner logs in to Kite (token for the day's bars). After the close, once
 `nidp.prices_eod` has the session: `python research/track1/outcomes.py --session 2026-09-21 --bars kite`, then open
 `/app/research/reports/2026-09-21/daily_signal_report.html`. Manual fills: add `manual_fills.csv` before the run.
+
+## Spec v3 in the outcome job (2026-09-19 08:40 IST)
+`outcomes.py` now runs under `TRACK1_SCOPE_v3.md`: ETFs excluded via `nidp.security_reference_daily.is_etf`; band exclusion
+uses each stock's own band (No Band / F&O never excluded); missing band row -> BAND_UNKNOWN, not traded; historical
+sessions without band rows fall back to the locked-09:15-bar rule. 23 unit tests. Live-band check (separate dry-run
+folder): 2026-09-18 — 7 signals, 5 excluded as OPEN_AT_OWN_BAND (ATALREAL, RHETAN, INDOTHAI, ONIXSOLAR, ELITECON: 5%/10%
+band stocks opening at the band price to the paisa), TATACHEM and TATAINVEST (20% bands) correctly kept; CERTIFIED.
+**Bug caught by that check and fixed:** psql CSV writes booleans as 't'/'f', and bool("f") is True, which briefly marked
+every stock an ETF.
+

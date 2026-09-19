@@ -10,7 +10,7 @@ import argparse, datetime as dt, hashlib, io, json, os, subprocess, sys, uuid
 import pandas as pd
 
 SCOPE = "docs/ai_research/tpd3/track1/TRACK1_SCOPE_v1.md"
-REPORTS = "/app/research/reports"
+REPORTS = os.environ.get("TRACK1_REPORTS", "/app/research/reports")   # override for dry runs
 PSQL = ["docker", "exec", "-i", "nidp-postgres-staging", "psql", "-U", "nidp_staging", "-d", "nidp_staging", "-v", "ON_ERROR_STOP=1"]
 LIQ_MIN = 5e7              # Rs 5 crore, 20-session average traded value
 GAP_TRIGGER = 0.97         # signal if open <= previous close x 0.97
