@@ -1,6 +1,6 @@
-# Roadmap v2, Phase 4 — groups C (breakout quality) and D (tradeability): pre-registration (DRAFT)
+# Roadmap v2, Phase 4 — groups C (breakout quality) and D (tradeability): pre-registration (FROZEN)
 
-**Status: DRAFT — awaiting owner approval. No feature in this document has been computed on real data, and no model has been fitted with it.**
+**Status: FROZEN.** Approved by the owner on 2026-09-19 (~22:40 IST), "approve as drafted". At approval, no feature in this document had been computed on real data, and no model had been fitted with it.
 
 | Item | Value |
 |---|---|
