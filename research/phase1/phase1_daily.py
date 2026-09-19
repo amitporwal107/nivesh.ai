@@ -72,7 +72,7 @@ def main():
         sig[["date", "symbol", "close", "value20", "bucket", "rvol", "atr_pct", "tr_ratio", "range10_pct", "rs20"] + LABELS
             + [f"exp_{l}" for l in LABELS] + ["mfe1", "mae1", "net1", "net5"]].to_csv(f"{C.OUT}/signals_{name}.csv", index=False)
     C.write("phase1_daily_results.json", report)
-    print(pd.io.json.dumps(report, double_precision=4)[:200], "...")
+    print({k: v["signals"] for k, v in report["screens"].items()}, report["data"])
 
 
 if __name__ == "__main__":

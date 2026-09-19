@@ -255,3 +255,11 @@ Audit: all entries and exits inside the daily range, no extreme or duplicate row
 cap: −0.412%. **Mechanism:** confirmed signals made +2.32% open→close but −0.55% from 09:45 — the rebound is complete by the
 time it is confirmed. Both Track 2 arms (H-A, H-B) are closed; 2021–22 is used; 2023-01..2024-07 remains sealed.
 Detail: `sealed/HB_VALIDATION_RESULT.md`, `sealed/HB_AUDIT.md`.
+
+## 15. Phase 1 screeners (2026-09-19, discovery period, pre-registered, run once)
+Volatility expansion (A) adds nothing beyond volatility and loses (−0.28%/session). Breakouts (B 20-day, B55 55-day)
+do add movement information beyond volatility (+5% touch O/E 1.55 / 1.64; +10% touch 2.27 / 2.58) but buying the next
+open loses (−0.47% / −0.50% per session; every half, bucket and regime negative) → monitoring / feature screeners.
+Gap-down H-C (recovery after the low) and H-D (continuation short) have no edge (CIs straddle 0) → closed. Next: Phase
+1b, the breakout flag's value on top of the v4-early replay (165 sessions), pre-registered first.
+Detail: `phase1/PHASE1_RESULTS.md`.
