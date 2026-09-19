@@ -62,7 +62,7 @@ def parse_views(c: "T.TLCache", code: str, today: dt.date) -> dict:
     out = {}
     ov = c.overview(code, "overview")
     a = section(ov, "asmData")
-    m = re.search(r"text:\s*(.*)", a)
+    m = re.search(r"text:[ \t]*(.*)", a)
     out["asm"] = m.group(1).strip() if m and m.group(1).strip() else ""
     m = re.search(r"checklistP:\s*([\d.]+)", ov)
     out["checklist_pct"] = round(float(m.group(1)), 1) if m else None

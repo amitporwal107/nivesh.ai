@@ -195,7 +195,7 @@ class TLCache:
     def __init__(self, client, store, daily_cap: int | None = None, now=None, archive_dir: str | None = ARCHIVE_DIR):
         self.client, self.store = client, store
         self.archive_dir = archive_dir
-        self.daily_cap = daily_cap if daily_cap is not None else int(os.environ.get("TL_DAILY_CALL_CAP", "300"))
+        self.daily_cap = daily_cap if daily_cap is not None else int(os.environ.get("TL_DAILY_CALL_CAP", "800"))
         self.monthly_cap = int(os.environ.get("TL_MONTHLY_CALL_CAP", "9000"))
         self._now = now or (lambda: dt.datetime.now(IST))
         self.stats = {"calls": 0, "rejected": 0, "hits": 0, "misses": 0}

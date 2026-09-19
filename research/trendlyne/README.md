@@ -24,7 +24,7 @@ cache.stats   # {'calls': MCP calls made, 'hits': cached values, 'misses': fetch
   possible (server limit: 10 stocks × 50 parameters per call).
 - One unresolvable stock code makes Trendlyne reject the whole batch; the cache records the bad code and retries the
   batch without it. Use NSE symbols, or ISINs for BSE-only stocks (numeric BSE codes failed).
-- Calls are counted per day and month in Redis (`tl:v1:calls:YYYY-MM-DD`); `TL_DAILY_CALL_CAP` (default 300) stops
+- Calls are counted per day and month in Redis (`tl:v1:calls:YYYY-MM-DD`); `TL_DAILY_CALL_CAP` (default 800, Max plan 1,000/day) and `TL_MONTHLY_CALL_CAP` (default 9,000) stops
   calls before the plan limit.
 - Parameter codes come from `cache.search_parameters("roe")`. Responses label values with display names ("ROE Ann. %"),
   so a verified code→label map is kept in Redis; a parameter whose label cannot be matched confidently is not cached.
@@ -43,3 +43,10 @@ Tests: `python -m pytest research/trendlyne -q` (fake Redis and fake server; no 
   universe every run (~1 call per 10 stocks), per-stock views (overview incl. ASM status, events, bulk/block deals, news)
   daily (news, overview, deals; ~3 calls per stock); events and quarterly data only when the stock's news shows a new filing or event (7-day safety expiry). Writes `screens/<date>/screen.{csv,html}`. Logs: `/app/research/trendlyne/logs/`.
   Re-deploy after code changes: `install -m 644 research/trendlyne/{tl_client,tl_cache,screen_list,daily_archive}.py /app/research/trendlyne/bin/`.
+
+## Top gainers of the day (Trendlyne's screener is not available through MCP)
+`python top_gainers.py --index NIFTY500 --n 20` ranks every index member by day change from **one Kite `ohlc` call**
+(live in market hours; the last session's full move otherwise — 498/498 matched the 18-Sep bhavcopy), then enriches
+only the top N through the Trendlyne cache (bulk metrics, ASM status, latest headline; ~2 calls per new stock, 0 when
+cached). Indices: NIFTY50/100/200/500, MIDCAP150, SMALLCAP250 (members from niftyindices.com, refreshed weekly).
+Needs the day's Kite login. Output: `/app/research/trendlyne/gainers/<INDEX>_<date_time>_{all,top}.csv`.
