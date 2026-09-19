@@ -30,5 +30,5 @@ Every entry is judged against `SUCCESS_CRITERIA.md` (five gates, three stages).
 against this many looks: a single t ≈ 2 is expected by chance.
 | 18 | Delayed stop ("give it room, it recovers") | close return | **Contradicted descriptively** | median low 2 min after open; drawdown by 10:00 < −5% → close −4.95%, > −0.5% → +3.60% | gapdown/G1_RESULT.md |
 | 19 | Early-confirmation entry (G2–G5) | net return from the later entry | **Candidate only — new hypothesis** | suggested by the timing study; needs pre-registration and 2021–24 test | gapdown/G1_RESULT.md |
-| 20 | Early intraday strength continuation (enter after early strength, hold to close) | net return from the later entry | **Candidate only** | owner's 18-Sep Screener list: 92% of gainers' moves after the open; median gainer +2.95% by 09:45 — winners-only, must be tested with faders | pattern_engine/SCREENER_CHECK_2026-09-18.md |
+| 20 | Early intraday strength continuation (enter after early strength, hold to close) | net return from the later entry | **FAILED (discovery)** | 528 sessions: up ≥ +3% at 09:45 → −0.469%/session (t −10.05), every threshold/cap/liquidity variant negative in every year; the 18-Sep list was winners-only | pattern_engine/SCREENER_CHECK_2026-09-18.md |
 
