@@ -241,3 +241,9 @@ t 6.67), **not accepted**: ETFs (6.6% of trades) supplied 50.9% of P&L from stra
 Recommendation: close H-A, keep the final-test slice sealed, run H-B as registered at the next login.
 Detail: `sealed/HA_VALIDATION_RESULT.md`.
 
+## 13. Owner decisions, 2026-09-19 morning
+- **H-A closed.**
+- **Spec v3 approved and frozen** (`track1/TRACK1_SCOPE_v3.md`): ETFs excluded (`security_reference_daily.is_etf`, or the Kite name
+  for history); circuit-band exclusion uses each stock's own band (No Band / F&O never excluded); historical fallback = a
+  locked 09:15 bar at a standard band. Not retroactive: the sealed H-B run under v2 continues.
+
