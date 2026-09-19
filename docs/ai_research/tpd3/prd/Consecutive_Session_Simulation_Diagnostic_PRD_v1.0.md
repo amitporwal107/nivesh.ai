@@ -43,7 +43,7 @@ M8 = the H#32 gradient-boosting model's top 5 a day; random = the seeded random-
 | Plain 5-session hold (no stop or target), mean gross | **0.00%** | +0.05% | **no directional edge** |
 | Share of picks up after 5 sessions | 47.1% | 49.3% | direction ≈ coin flip |
 | Median best move / median worst move (MFE / MAE) | +3.9% / −3.9% | +3.2% / −3.0% | symmetric: volatility, not direction |
-| **Stop touched on the entry day (s1)** | **49.8%** | 38.5% | the −2% stop sits inside normal daily noise |
+| **Stop touched on the entry day (s1)** | **49.8%** — *corrected to 40.5% by the verified run (2026-09-20, `sim_diag/SIM_DIAG_D1_D4_RESULTS.md`)* | 38.5% | the −2% stop sits inside normal daily noise |
 | Stopped although +5% was touched within 5 sessions | 16.9% | 9.4% | "volatility trap" |
 
 **What the framework must confirm or reject:**
