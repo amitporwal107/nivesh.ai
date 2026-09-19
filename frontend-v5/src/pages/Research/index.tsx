@@ -32,12 +32,13 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Search, FileText, ExternalLink, Sparkles, Loader2, Bell, Bookmark,
   ChevronLeft, ChevronRight, MoreVertical, Megaphone, X, Download, Star,
-  ClipboardCheck, Activity, FlaskConical,
+  ClipboardCheck, Activity, FlaskConical, Beaker,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useMe } from "@/hooks/use-auth";
 import MoveOddsScreen from "./MoveOddsScreen";
 import PaperTradesScreen from "./PaperTradesScreen";
+import SimulationLabScreen from "./SimulationLabScreen";
 import { chatService } from "@/services";
 import { Markdown } from "@/components/chat/Markdown";
 import { filingsService } from "@/services/adapters/filings.adapter";
@@ -54,7 +55,7 @@ const PINNED_AGENT = "stocks_insights";
 const FEED_DAYS = 30;
 const PAGE_SIZE = 20;
 
-type Screen = "feed" | "alerts" | "odds" | "paper";
+type Screen = "feed" | "alerts" | "odds" | "paper" | "lab";
 
 /** sentiment → accent (matches the prototype's sig-* classes). */
 function sig(sentiment?: string | null): { cls: string; dot: string } {
@@ -96,6 +97,9 @@ export default function ResearchPage() {
   const { data: me } = useMe();
   const oddsEnabled = !!me?.features?.move_odds;
   useEffect(() => { if ((screen === "odds" || screen === "paper") && !oddsEnabled) setScreen("feed"); }, [screen, oddsEnabled]);
+  // Simulation Lab is allowlist-gated the same way (feature sim_lab); the API also answers 403 to anyone not on the list.
+  const labEnabled = !!me?.features?.sim_lab;
+  useEffect(() => { if (screen === "lab" && !labEnabled) setScreen("feed"); }, [screen, labEnabled]);
 
   // ── feed state ──────────────────────────────────────────────────────────
   const [rows, setRows] = useState<FilingRow[]>([]);
@@ -326,6 +330,7 @@ export default function ResearchPage() {
     { key: "alerts", label: "Alerts", icon: Bell, title: "Alerts" },
     ...(oddsEnabled ? [{ key: "odds" as Screen, label: "Odds", icon: Activity, title: "Move odds" }] : []),
     ...(oddsEnabled ? [{ key: "paper" as Screen, label: "Paper", icon: FlaskConical, title: "Paper trades" }] : []),
+    ...(labEnabled ? [{ key: "lab" as Screen, label: "Lab", icon: Beaker, title: "Simulation Lab" }] : []),
   ];
 
   return (
@@ -513,6 +518,8 @@ export default function ResearchPage() {
             <MoveOddsScreen />
           ) : screen === "paper" && oddsEnabled ? (
             <PaperTradesScreen />
+          ) : screen === "lab" && labEnabled ? (
+            <SimulationLabScreen />
           ) : (
             <AlertsScreen />
           )}
