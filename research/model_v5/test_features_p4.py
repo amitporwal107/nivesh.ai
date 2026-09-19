@@ -194,5 +194,6 @@ def test_adx_uses_the_last_260_index_sessions(built):
     n5 = idx["NIFTY 500"]
     h, lo, c = (n5[k].to_numpy() for k in ("high", "low", "close"))
     want = wilder_adx(h[i + 1 - 260:i + 1], lo[i + 1 - 260:i + 1], c[i + 1 - 260:i + 1])
-    assert f.loc[("S1", CAL[i])].mkt_adx14 == pytest.approx(want)
-    assert want != pytest.approx(wilder_adx(h[:i + 1], lo[:i + 1], c[:i + 1]), rel=1e-6)
+    full = wilder_adx(h[:i + 1], lo[:i + 1], c[:i + 1])
+    assert abs(want - full) > 1e-9                      # Wilder smoothing forgets its seed slowly but not completely
+    assert f.loc[("S1", CAL[i])].mkt_adx14 == pytest.approx(want, rel=1e-12, abs=1e-12)
