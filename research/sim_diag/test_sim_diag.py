@@ -63,11 +63,24 @@ def test_reconcile_net_differences_are_explained_only_by_the_exact_path():
     assert r["classes"] == "UNEXPLAINED"
 
 
-def test_reconcile_locked_lower_needs_the_simulator_flag():
-    r = RC.compare(trade(exit_date=dt.date(2022, 10, 6), flags="LOCKED_LOWER_S2"), lab())
-    assert r["classes"] == "LOCKED_LOWER"
-    s = RC.summarise(pd.DataFrame([RC.compare(trade(), lab()), r]))
-    assert s["agree_all_fields"] == 1 and s["mismatch_classes"] == {"LOCKED_LOWER": 1} and s["unexplained"] == 0
+def test_reconcile_locked_lower_full_day_vs_lock_test_false_positive():
+    r = RC.compare(trade(exit_date=dt.date(2022, 10, 6), flags="LOCKED_LOWER_FULLDAY_S2"), lab())
+    assert r["classes"] == "LOCKED_LOWER_FULL_DAY"
+    r2 = RC.compare(trade(exit_date=dt.date(2022, 10, 6), flags="LOCKED_LOWER_FULLDAY_S2;LOCKED_LOWER_PARTIAL_S3"), lab())
+    assert r2["classes"] == "LOCKED_LOWER_HEURISTIC"
+    assert RC.compare(trade(exit_date=dt.date(2022, 10, 6), flags="NO_BAR_S3"), lab())["classes"] == "UNEXPLAINED"
+    s = RC.summarise(pd.DataFrame([RC.compare(trade(), lab()), r, r2]))
+    assert s["agree_all_fields"] == 1 and s["mismatch_classes"] == {"LOCKED_LOWER_FULL_DAY": 1, "LOCKED_LOWER_HEURISTIC": 1}
+    assert s["simulator_defects"] == 1 and s["unexplained"] == 0
+    assert s["defect_side"] == {"LOCKED_LOWER_FULL_DAY": "labels.py", "LOCKED_LOWER_HEURISTIC": "simulator"}
+
+
+def test_reconcile_lists_entry_disagreements():
+    r = RC.compare({"status": "UNRESOLVED", "symbol": "X", "decision_date": dt.date(2022, 10, 3),
+                    "exit_reason": "MANUAL_REVIEW_REQUIRED", "flags": ""}, lab(entry_status="OK"))
+    assert not r["ok"] and r["classes"] == "UNEXPLAINED" and "UNRESOLVED" in r["detail"]
+    r = RC.compare(trade(), lab(entry_status="LOCKED_UPPER_OPEN"))
+    assert not r["ok"] and r["classes"] == "UNEXPLAINED"
 
 
 # ---------------- RC-1 ----------------
@@ -75,6 +88,7 @@ def test_rc1_order_and_rules():
     assert AU.rc1(trade(), False, False, False) == ["STOP_FAILURE", "DIRECTION_FAILURE"]
     assert AU.rc1(trade(), False, True, False)[0] == "DATA_FAILURE"
     assert AU.rc1(trade(), False, False, True)[0] == "SIMULATION_FAILURE"
+    assert AU.rc1(trade(), True, False, False)[0] == "DATA_FAILURE"
     assert AU.rc1(trade(net_inr=D("-1600")), False, False, False)[0] == "RISK_FAILURE"      # 1600 > 1.5 x 1048
     assert AU.rc1(trade(net_inr=D("-1572")), False, False, False)[0] == "STOP_FAILURE"      # 1572 = 1.5 x 1048: not over
     assert AU.rc1(trade(fill_status="PARTIAL"), False, False, False)[0] == "LIQUIDITY_FAILURE"
@@ -213,3 +227,35 @@ def test_exposure_and_losing_streak():
     assert e.open_trades.tolist() == [1, 3, 1] and e.capital_in_use_inr.tolist() == [100.0, 350.0, 200.0]
     assert e.same_symbol_overlaps.tolist() == [0, 1, 0] and e.max_same_industry.tolist() == [1, 3, 1]
     assert AU.longest_losing_streak(pd.Series([1, -1, 0, -2, 3, -1])) == 3
+
+
+class _Store:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def sessions_after(self, d, n):
+        return [pd.Timestamp("2022-10-04")]
+
+    def row(self, s, d):
+        return self.rows.get(s)
+
+
+def test_session_report_fail_flag_and_pass():
+    D = pd.Timestamp("2022-10-03")
+    b = bars_frame([("A", "2022-10-03", 100, 102, 99, 101, 1000, 100, 1000), ("B", "2022-10-03", 100, 102, 99, 101, 1000, 100, 1000)])
+    uni = pd.DataFrame({"symbol": ["A", "B"], "isin": ["INE1", "INE2"]})
+    ds_day = pd.DataFrame({"symbol": ["A", "B"], "eligible": [True, False], "hist_n": [100, 10], "value20": [1e9, 1e9], "close": [101, 101]})
+    picks = pd.DataFrame({"symbol": ["A"], "entry_status": ["OK"]})
+    empty = pd.DataFrame(columns=["symbol", "date", "kind"])
+    tb = pd.DataFrame({"symbol": ["A"], "date": [D]})
+    args = dict(missing=empty, raw_dups=pd.DataFrame(columns=["symbol", "date"]), uni=uni, ds_day=ds_day, trade_bars=tb,
+                picks_day=picks, cutoff={"violations": 0}, instrument_conflicts=[], store=_Store({"A": object()}))
+    r = DQ.session_report(D, DQ.bar_flags(b), **args)
+    assert r["status"] == "PASS" and r["exclusions"]["not_eligible"] == {"HISTORY_LT_60": 1} and r["trade_bars_checked"] == 1
+    bad = bars_frame([("A", "2022-10-03", 100, 99, 98, 101, 1000, 100, 1000), ("B", "2022-10-03", 100, 102, 99, 101, 1000, 100, 1000)])
+    assert DQ.session_report(D, DQ.bar_flags(bad), **args)["status"] == "FAIL"
+    spike = bars_frame([("A", "2022-10-03", 100, 102, 99, 101, 20000, 100, 1000), ("B", "2022-10-03", 100, 102, 99, 101, 1000, 100, 1000)])
+    r = DQ.session_report(D, DQ.bar_flags(spike), **args)
+    assert r["status"] == "PASS_WITH_FLAGS" and r["flags_trade_bars"] == {"ca_volume": ["A@2022-10-03"]}
+    assert DQ.session_report(D, DQ.bar_flags(b), **(args | {"uni": uni.assign(isin=[None, "INE2"])}))["status"] == "FAIL"
+    assert DQ.session_report(D, DQ.bar_flags(b), **(args | {"cutoff": {"violations": 3}}))["status"] == "FAIL"

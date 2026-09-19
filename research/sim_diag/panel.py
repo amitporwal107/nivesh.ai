@@ -45,7 +45,7 @@ class BarStore:
         i = self.pos[pd.Timestamp(date)]
         return list(self.cal[i + 1:i + 1 + n])
 
-    def window(self, symbol: str, date: pd.Timestamp, atr_pct: float, n_after: int = 10) -> TS.Window:
+    def window(self, symbol: str, date: pd.Timestamp, atr_pct: float, n_after: int = 30) -> TS.Window:
         d = self.row(symbol, date)
         if d is None:
             raise KeyError(f"{symbol} has no bar on the decision day {date.date()}")

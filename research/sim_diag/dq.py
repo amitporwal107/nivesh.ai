@@ -121,7 +121,7 @@ def session_report(D: pd.Timestamp, flags: pd.DataFrame, missing: pd.DataFrame, 
     inst = sorted(set(instrument_conflicts) & uni_syms)
     if inst:
         fails.append(f"SEVERAL_INSTRUMENTS:{','.join(inst)}")
-    no_isin = sorted(uni.symbol[uni.isin.isna()])
+    no_isin = sorted(uni.symbol[uni["isin"].isna()])
     if no_isin:
         fails.append(f"NO_ISIN:{','.join(no_isin)}")
     if cutoff is not None and cutoff["violations"]:

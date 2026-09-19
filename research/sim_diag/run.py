@@ -110,10 +110,21 @@ def main() -> str:
         lab_entry = ds.at[idx, "entry_status"]
         entry_agree.append(sim_entry == lab_entry or (sim_entry == "LOCKED_UPPER" and lab_entry == "LOCKED_UPPER_OPEN"))
     closed = [t for t in trades if t["status"] == "CLOSED"]
+    no_entry = []                                  # picks without an entry: was the s1 lock real (high == low) or the test?
+    for t in trades:
+        if t["status"] != "CLOSED":
+            s1 = store.sessions_after(pd.Timestamp(t["decision_date"]), 1)[0]
+            b = store.row(t["symbol"], s1)
+            no_entry.append({"symbol": t["symbol"], "decision_date": str(t["decision_date"]), "status": t["status"],
+                             "reason": t.get("entry_rejection_reason") or t.get("exit_reason"),
+                             "labels_entry_status": ds.at[t["row"], "entry_status"],
+                             "s1": str(s1.date()), "s1_full_day_lock": None if b is None else bool(b.high == b.low),
+                             "s1_ohlc": None if b is None else [float(b.open), float(b.high), float(b.low), float(b.close)]})
     log("config A simulated", len(trades), "closed", len(closed), "entry status agree", sum(entry_agree))
 
     # ---- D3 reconciliation ----
-    rec_rows = [dict(RC.compare(t, ds.loc[t["row"]]), row=t["row"]) for t in closed]
+    either = [t for t in trades if t["status"] == "CLOSED" or ds.at[t["row"], "entry_status"] == "OK"]
+    rec_rows = [dict(RC.compare(t, ds.loc[t["row"]]), row=t["row"]) for t in either]
     rec = pd.DataFrame(rec_rows)
     rec_summary = RC.summarise(rec) | {"entry_status_agree": int(sum(entry_agree)), "picks": int(len(trades))}
     log("reconciliation", rec_summary)
@@ -236,7 +247,8 @@ def main() -> str:
     results = {"run": stamp, "code_commit": commit, "inputs": fz["files"], "prediction_commit": fz["commit"],
                "cost_model": cm.cost_model_id, "costs_retroactive": True, "config": "A (H#32 convention, frozen)",
                "intrabar_policy": TS.CONFIG_A.policy, "rc1": AU.RC1_VERSION, "replay_dates": [str(d.date()) for d in replay_dates],
-               "bars_vs_dataset": match, "picks_reproduced": pick_check, "reconciliation_2022": rec_summary,
+               "bars_vs_dataset": match, "picks_reproduced": pick_check, "no_entry_picks": no_entry,
+               "reconciliation_2022": rec_summary,
                "reconciliation_replay": rec_replay,
                "rc1_primary_2022": aud.rc1_primary.value_counts().to_dict(),
                "rc1_primary_excl_flags_2022": aud.rc1_primary_excl_unreviewed_flags.value_counts().to_dict(),

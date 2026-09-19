@@ -86,7 +86,7 @@ def audit_rows(trades: list, ranks: dict, probs: dict, dq_fail: dict, dq_flag: d
         fail = any(dq_fail.get(k) for k in bars)
         flags = sorted({f for k in bars for f in dq_flag.get(k, [])})
         rec = recon.get(key, {})
-        unexplained = "UNEXPLAINED" in rec.get("classes", "")
+        unexplained = any(c in (rec.get("classes") or "") for c in ("UNEXPLAINED", "LOCKED_LOWER_HEURISTIC"))
         causes = rc1(t, fail, bool(flags), unexplained) if float(t["net_inr"]) <= 0 else []
         no_flag = [c for c in causes if c != "DATA_FAILURE" or fail]
         raw_status, raw_reason = raw_bar_check(t, raw_by_symbol[t["symbol"]])

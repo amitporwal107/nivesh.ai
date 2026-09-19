@@ -78,7 +78,8 @@ def test_no_entry_reasons():
 def test_locked_lower_stop_cannot_sell_and_exits_at_the_next_open():
     locked = b(80, 80, 80, 80, pc=100)
     t = TS.simulate(TS.CONFIG_A, win([QUIET, locked, b(78, 79, 77, 78, pc=80), QUIET, QUIET]), CM)
-    assert "LOCKED_LOWER_S2" in t["flags"] and t["exit_session"] == 3 and t["exit_level"] == D("78")
+    assert "LOCKED_LOWER_FULLDAY_S2" in t["flags"] and t["exit_session"] == 3 and t["exit_level"] == D("78")
+    assert "RECOVERED" not in t["flags"]                                                   # sold at the next open
     t = TS.simulate(TS.CONFIG_A, win([QUIET] * 4 + [locked, b(79, 80, 78, 79.5, pc=80)]), CM)
     assert t["exit_session"] == 6 and t["exit_reason"] == "LIQUIDITY_EXIT" and t["exit_level"] == D("79")  # the open
 
@@ -150,3 +151,21 @@ def test_path_statistics():
     assert t["mfe_pct"] == pytest.approx(0.01) and t["mae_pct"] == pytest.approx(-0.025)
     assert t["high_after_exit_pct"] == pytest.approx(0.06) and t["path_max_high_pct"] == pytest.approx(0.06)
     assert t["close_last_pct"] == pytest.approx(0.0)
+
+
+def test_a_position_locked_for_many_sessions_is_held_until_sellable():
+    px = [round(100 * 0.95 ** k, 2) for k in range(12)]                    # eleven sessions locked at -5%
+    locked = [b(px[k], px[k], px[k], px[k], pc=px[k - 1]) for k in range(1, 12)]
+    t = TS.simulate(TS.CONFIG_A, win([QUIET] + locked + [b(57, 60, 56, 59, pc=px[11])]), CM)
+    assert t["status"] == "CLOSED" and t["exit_session"] == 13 and t["exit_level"] == D("57")
+    assert t["exit_reason"] == "LIQUIDITY_EXIT" and t["flags"].count("LOCKED_LOWER_FULLDAY") == 11
+
+
+def test_lock_test_false_positive_and_a_recovered_stop_are_flagged():
+    partial = b(80, 90, 80, 88, pc=100)                          # opened at the -20% band, then traded up to 90
+    t = TS.simulate(TS.CONFIG_A, win([QUIET, partial, b(99, 100, 98.5, 99.5, pc=88), QUIET, QUIET]), CM)
+    assert "LOCKED_LOWER_PARTIAL_S2" in t["flags"] and "STOP_BLOCKED_THEN_RECOVERED_S3" in t["flags"]
+    assert t["exit_reason"] == "TIME_EXIT"                       # the engine kept the old stop and never sold
+    assert "RECOVERED_S4" not in t["flags"]                      # only the first bar after the block is flagged
+    t = TS.simulate(TS.CONFIG_A, win([QUIET, partial, b(99, 106, 98.5, 105, pc=88), QUIET, QUIET]), CM)
+    assert "STOP_BLOCKED_THEN_RECOVERED_S3" in t["flags"] and t["exit_reason"] == "TARGET_HIT"
