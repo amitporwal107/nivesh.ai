@@ -359,3 +359,22 @@ def test_positions_open_at_the_end_of_the_data_are_flagged_unrealised():
                  EXITS, allow_retroactive_costs=True)
     t = res.trades.iloc[0]
     assert t.exit_reason == "OPEN_AT_END" and not t.realised and t.exit_date == DAYS[2]
+
+
+def test_stop_ablation_keeps_entries_and_quantities_but_exits_only_on_time():
+    rows = flat("A", 100)
+    rows[2] = ("A", DAYS[2], 94, 95, 93, 94.5, 10_000_000, 5e9)          # would gap through the 95 stop
+    sig = pd.DataFrame([signal("s11", "A", 0, 95, 100)])
+    on = EN.run(sig, bars_frame(rows), POS, ZR, {"A": "X"}, EXITS, allow_retroactive_costs=True).trades.iloc[0]
+    off = EN.run(sig, bars_frame(rows), POS, ZR, {"A": "X"}, EXITS, allow_retroactive_costs=True,
+                 stops_active=False).trades.iloc[0]
+    assert on.exit_reason == "GAP_THROUGH" and off.exit_reason == "TIME" and off.exit_date == DAYS[5]
+    assert off.qty == on.qty == 471 and off.entry_price == on.entry_price
+
+
+def test_prepared_bars_give_the_same_ledger():
+    sig = pd.DataFrame([signal("s12", "A", 0, 95, 100)])
+    frame = bars_frame(flat("A", 100))
+    a = EN.run(sig, frame, POS, ZR, {"A": "X"}, EXITS, allow_retroactive_costs=True)
+    b = EN.run(sig, None, POS, ZR, {"A": "X"}, EXITS, allow_retroactive_costs=True, prepared=EN.prepare_bars(frame))
+    assert a.ledger_digest == b.ledger_digest

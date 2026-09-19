@@ -55,6 +55,11 @@ def _dec(x, places: int = 4) -> Optional[Decimal]:
     return Decimal(str(round(float(x), places)))
 
 
+def prepare_bars(bars: pd.DataFrame) -> tuple[dict, list, dict, dict]:
+    """Convert a bar frame once; pass the result to run(prepared=...) to reuse it across many runs."""
+    return _load_bars(bars)
+
+
 def _load_bars(bars: pd.DataFrame) -> tuple[dict, list, dict, dict]:
     b = bars.copy()
     b["date"] = pd.to_datetime(b["date"]).dt.date
@@ -73,11 +78,13 @@ def _load_bars(bars: pd.DataFrame) -> tuple[dict, list, dict, dict]:
 def run(signals: pd.DataFrame, bars: pd.DataFrame, cfg: RC.RiskConfig, cost_model: CC.CostModel, sectors: dict,
         exits: dict, *, eligibility: Optional[Callable] = None, allow_retroactive_costs: bool = False,
         exchange: str = "NSE", profile: str = "delivery", slippage_mult: Decimal = Decimal(1),
-        ledger_path: Optional[str] = None) -> Result:
+        ledger_path: Optional[str] = None, stops_active: bool = True, prepared: Optional[tuple] = None) -> Result:
+    """stops_active=False is the risk-management ablation: same entries and quantities (sizing still uses the stop),
+    no stop, breakeven or trailing exits — every position leaves at its time exit (or stays open at the end)."""
     errs = RC.validate(cfg)
     if errs:
         raise ValueError(f"invalid risk config {cfg.config_id}: {errs}")
-    bar_of, calendar, value20, bars_on = _load_bars(bars)
+    bar_of, calendar, value20, bars_on = prepared if prepared is not None else _load_bars(bars)
     idx = {d: i for i, d in enumerate(calendar)}
     sig = signals.copy()
     sig["date"] = pd.to_datetime(sig["date"]).dt.date
@@ -220,11 +227,11 @@ def run(signals: pd.DataFrame, bars: pd.DataFrame, cfg: RC.RiskConfig, cost_mode
                                          "reason": f.reason, "date": d})
                 continue
             p = enter(o, d, f)
-            if p is not None and b.low <= p.stop:                        # stop touched on the entry bar: stop-first
+            if stops_active and p is not None and b.low <= p.stop:                        # stop touched on the entry bar: stop-first
                 close_position(p, d, EX.px(p.stop * (1 - slip(p.symbol, d) / 100)), "STOP_SAME_DAY")
         pending = still
         # 3. stop exits for positions entered before d
-        for sym in sorted(pf.positions):
+        for sym in (sorted(pf.positions) if stops_active else []):
             p = pf.positions[sym]
             if p.entry_index >= i:
                 continue
@@ -272,7 +279,7 @@ def run(signals: pd.DataFrame, bars: pd.DataFrame, cfg: RC.RiskConfig, cost_mode
         # 6. closes: prices, breakeven / trailing (effective next session), equity, drawdown monitor
         for sym, b in bars_on[d]:
             last_px[sym] = b.close
-        for p in pf.positions.values():
+        for p in (pf.positions.values() if stops_active else []):
             b = bar_of.get((p.symbol, d))
             if b is None:
                 continue
