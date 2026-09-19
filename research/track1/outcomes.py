@@ -152,7 +152,7 @@ def run(session: str, bars_source: str, label: str | None, repo: str) -> dict:
             except Exception as e:  # noqa: BLE001
                 recon.append({"symbol": m.symbol, "arm": m.arm, "side": m.side, "error": str(e)})
     exc.update(open_mismatch=open_mismatch, hb_unresolved=unresolved, manual_fills=len(recon),
-               status="CERTIFIED" if used != "none" and open_mismatch == 0 and unresolved == 0 else "DEGRADED" if used != "none" else "UNRESOLVED")
+               status="NO_SIGNALS" if len(sig) == 0 else "CERTIFIED" if used != "none" and open_mismatch == 0 and unresolved == 0 else "DEGRADED" if used != "none" else "UNRESOLVED")
     s.to_csv(os.path.join(out, "signals.csv"), index=False); R.to_csv(os.path.join(out, "outcomes.csv"), index=False)
     json.dump(exc, open(os.path.join(out, "outcome_data_quality.json"), "w"), indent=1, default=str)
     sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
