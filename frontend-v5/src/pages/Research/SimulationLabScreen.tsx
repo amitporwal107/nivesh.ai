@@ -24,6 +24,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError } from "@/services/api/errors";
 import { http } from "@/services/api/http";
+import {
+  RUN_SPEC_BLOCK_RULES, RUN_SPEC_SCHEMA, RUN_SPEC_STEPS, RUN_SPEC_VARIANTS, type RunSpecVariantId,
+} from "./simRunSpec";
 
 /* ══════════════════════════════════════════════════════════════════════════
    Contract — backend/services/sim_lab.py, schema "sim-lab-1"
@@ -382,8 +385,12 @@ const TABS = [
   { id: "trades", label: "Trade audit" },
   { id: "recon", label: "Reconciliation" },
   { id: "comparison", label: "Comparison" },
+  { id: "runspec", label: "Run spec template" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
+
+/** The one tab that is static reference content: it reads no API and needs no snapshot. */
+const STATIC_TABS: ReadonlySet<string> = new Set<TabId>(["runspec"]);
 
 /** What each run isolates, from the pre-registration's §4 matrix. Used only when the snapshot's run entry does not
  *  carry its own `purpose`; an unlisted key shows "—" rather than a guess. */
@@ -500,6 +507,19 @@ export default function SimulationLabScreen() {
     );
   }
 
+  // A static tab carries no run numbers, so it renders whatever the snapshot did — but only for an account that is
+  // allowed on the page at all, which is why this sits below the 403 check.
+  if (STATIC_TABS.has(tab) && (runRes === null || runRes.kind !== "ok")) {
+    return (
+      <Shell>
+        <TabNav tab={tab} onTab={setTab} />
+        <div id="sl-panel" role="tabpanel" aria-labelledby={`sl-tab-${tab}`} style={{ display: "grid", gap: 16, minWidth: 0 }}>
+          {tab === "runspec" && <RunSpecTab />}
+        </div>
+      </Shell>
+    );
+  }
+
   if (runRes === null) {
     return (
       <Shell>
@@ -516,6 +536,8 @@ export default function SimulationLabScreen() {
   if (runRes.kind === "unavailable") {
     return (
       <Shell>
+        {/* the strip stays so the tabs that need no snapshot are still reachable */}
+        <TabNav tab={tab} onTab={setTab} />
         <div className="nv-card" role="alert" data-testid="sl-state-unavailable" style={{ padding: 22 }}>
           <h3 className="nv-serif" style={{ fontSize: 20, margin: 0 }}>The frozen run is not available</h3>
           <p style={{ fontSize: 13.5, color: "var(--c-ink-2)", margin: "8px 0 0" }}>
@@ -533,6 +555,7 @@ export default function SimulationLabScreen() {
   if (runRes.kind === "error") {
     return (
       <Shell>
+        <TabNav tab={tab} onTab={setTab} />
         <div className="nv-card" role="alert" data-testid="sl-state-error" style={{ padding: 22 }}>
           <h3 className="nv-serif" style={{ fontSize: 20, margin: 0 }}>The run could not be loaded</h3>
           <p style={{ fontSize: 13.5, color: "var(--c-ink-2)", margin: "8px 0 0" }}>
@@ -593,33 +616,7 @@ export default function SimulationLabScreen() {
         {d.notes.internal_only === true && <Pill tone="amber">internal · Kite prices</Pill>}
       </div>
 
-      <nav
-        role="tablist"
-        aria-label="Simulation Lab sections"
-        style={{ display: "flex", gap: 6, flexWrap: "wrap", borderBottom: "1px solid var(--c-line)", paddingBottom: 12 }}
-      >
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            id={`sl-tab-${t.id}`}
-            aria-selected={tab === t.id}
-            aria-controls="sl-panel"
-            data-testid={`sl-tab-${t.id}`}
-            onClick={() => setTab(t.id)}
-            className="nv-mono"
-            style={{
-              fontSize: 10, letterSpacing: ".13em", textTransform: "uppercase", padding: "9px 14px", borderRadius: 999,
-              cursor: "pointer", whiteSpace: "nowrap",
-              border: `1px solid ${tab === t.id ? "var(--mint-line)" : "var(--line-2)"}`,
-              background: tab === t.id ? "var(--mint-soft)" : "transparent",
-              color: tab === t.id ? "var(--mint)" : "var(--c-ink-2)",
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      <TabNav tab={tab} onTab={setTab} />
 
       <div id="sl-panel" role="tabpanel" aria-labelledby={`sl-tab-${tab}`} style={{ display: "grid", gap: 16, minWidth: 0 }}>
         {tab === "run" && <RunTab d={d} />}
@@ -654,8 +651,42 @@ export default function SimulationLabScreen() {
         )}
         {tab === "recon" && <ReconTab d={d} />}
         {tab === "comparison" && <ComparisonTab result={matrix} scope={scope} onScope={setScope} notes={d.notes} />}
+        {tab === "runspec" && <RunSpecTab />}
       </div>
     </Shell>
+  );
+}
+
+/** The tab strip, shared by the loaded screen and by the states that have no snapshot to show. */
+function TabNav({ tab, onTab }: { tab: TabId; onTab: (t: TabId) => void }) {
+  return (
+    <nav
+      role="tablist"
+      aria-label="Simulation Lab sections"
+      style={{ display: "flex", gap: 6, flexWrap: "wrap", borderBottom: "1px solid var(--c-line)", paddingBottom: 12 }}
+    >
+      {TABS.map((t) => (
+        <button
+          key={t.id}
+          role="tab"
+          id={`sl-tab-${t.id}`}
+          aria-selected={tab === t.id}
+          aria-controls="sl-panel"
+          data-testid={`sl-tab-${t.id}`}
+          onClick={() => onTab(t.id)}
+          className="nv-mono"
+          style={{
+            fontSize: 10, letterSpacing: ".13em", textTransform: "uppercase", padding: "9px 14px", borderRadius: 999,
+            cursor: "pointer", whiteSpace: "nowrap",
+            border: `1px solid ${tab === t.id ? "var(--mint-line)" : "var(--line-2)"}`,
+            background: tab === t.id ? "var(--mint-soft)" : "transparent",
+            color: tab === t.id ? "var(--mint)" : "var(--c-ink-2)",
+          }}
+        >
+          {t.label}
+        </button>
+      ))}
+    </nav>
   );
 }
 
@@ -1516,5 +1547,166 @@ function ComparisonTab({ result, scope, onScope, notes }: {
         }}
       </Pending>
     </>
+  );
+}
+
+/* ── Run spec template ───────────────────────────────────────────────────── */
+/** The toggle between the two spec variants — the ScopeSwitch pattern, one row up. */
+function SpecSwitch({ variant, onVariant }: { variant: RunSpecVariantId; onVariant: (v: RunSpecVariantId) => void }) {
+  return (
+    <span role="group" aria-label="Which spec to show" style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+      {RUN_SPEC_VARIANTS.map((v) => (
+        <button
+          key={v.id}
+          type="button"
+          aria-pressed={variant === v.id}
+          data-testid={`sl-runspec-variant-${v.id}`}
+          onClick={() => onVariant(v.id)}
+          className="nv-mono"
+          style={{
+            fontSize: 10, letterSpacing: ".13em", textTransform: "uppercase", padding: "8px 13px", borderRadius: 999,
+            cursor: "pointer", border: `1px solid ${variant === v.id ? "var(--mint-line)" : "var(--line-2)"}`,
+            background: variant === v.id ? "var(--mint-soft)" : "transparent",
+            color: variant === v.id ? "var(--mint)" : "var(--c-ink-2)",
+          }}
+        >
+          {v.label}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * Static reference content — the reusable run spec, blank and filled. It calls no API and needs no snapshot, which
+ * is why it is in STATIC_TABS and renders in the states where the frozen run could not be loaded.
+ */
+function RunSpecTab() {
+  const [variant, setVariant] = useState<RunSpecVariantId>("skeleton");
+  const [copied, setCopied] = useState<"idle" | "ok" | "unavailable">("idle");
+  const [copyTick, setCopyTick] = useState(0);   // a repeat click keeps the same state, so this restarts the timer
+  const spec = RUN_SPEC_VARIANTS.find((v) => v.id === variant) ?? RUN_SPEC_VARIANTS[0];
+
+  // the flag belongs to the block that was copied, so switching variants clears it
+  useEffect(() => { setCopied("idle"); }, [variant]);
+  useEffect(() => {
+    if (copied === "idle") return;
+    const t = window.setTimeout(() => setCopied("idle"), 2500);
+    return () => window.clearTimeout(t);
+  }, [copied, copyTick]);
+
+  const copy = useCallback(async () => {
+    // navigator.clipboard is absent on an insecure origin and can reject on a denied permission; both end in the
+    // "unavailable" state, with the text still selectable. It never reports a copy that did not happen.
+    const api = navigator.clipboard as Clipboard | undefined;
+    setCopyTick((n) => n + 1);
+    try {
+      if (!api?.writeText) throw new Error("clipboard unavailable");
+      await api.writeText(spec.yaml);
+      setCopied("ok");
+    } catch {
+      setCopied("unavailable");
+    }
+  }, [spec.yaml]);
+
+  return (
+    <Grid wide>
+      <Card testid="sl-runspec-spec">
+        <Eyebrow>Reusable run spec · schema {RUN_SPEC_SCHEMA}</Eyebrow>
+        <h3 className="nv-serif" style={{ fontSize: 20, margin: "0 0 6px" }}>One file per run, filled before execution</h3>
+        <p style={{ fontSize: 13, color: "var(--c-ink-2)", margin: "0 0 14px", maxWidth: "62ch" }}>
+          The spec is the written record of a run: what it is, which frozen inputs it reads, the one thing it
+          changes, and what was promised about it before it ran.
+        </p>
+
+        <Toolbar>
+          <SpecSwitch variant={variant} onVariant={setVariant} />
+          <button type="button" className="nv-btn" data-testid="sl-runspec-copy" onClick={copy}>
+            {copied === "ok" ? "Copied" : "Copy to clipboard"}
+          </button>
+          <span
+            role="status"
+            aria-live="polite"
+            data-testid="sl-runspec-copy-state"
+            style={{ fontSize: 12, color: copied === "ok" ? "var(--mint)" : "var(--c-ink-3)" }}
+          >
+            {copied === "ok" ? "Copied to the clipboard."
+              : copied === "unavailable" ? "The clipboard is not available here — select the text below and copy it."
+              : ""}
+          </span>
+        </Toolbar>
+
+        <div className="nv-mono" data-testid="sl-runspec-path" style={{ fontSize: 11, color: "var(--c-ink-3)", wordBreak: "break-all" }}>
+          {spec.path}
+        </div>
+        <p style={{ fontSize: 12.5, color: "var(--c-ink-2)", margin: "6px 0 10px" }}>{spec.blurb}</p>
+
+        <pre
+          data-testid="sl-runspec-yaml"
+          tabIndex={0}
+          role="region"
+          aria-label={`${spec.label} — ${spec.path}`}
+          className="nv-mono"
+          style={{
+            margin: 0, padding: 14, borderRadius: 12, border: "1px solid var(--c-line)", background: "var(--bg-2)",
+            color: "var(--c-ink-2)", fontSize: 11.5, lineHeight: 1.6, overflow: "auto", maxHeight: 560,
+            whiteSpace: "pre", maxWidth: "100%",
+          }}
+        >
+          {spec.yaml}
+        </pre>
+      </Card>
+
+      <div style={{ display: "grid", gap: 16, minWidth: 0 }}>
+        <Card testid="sl-runspec-howto">
+          <Eyebrow>How to use it</Eyebrow>
+          <ol style={{ listStyle: "none", margin: "10px 0 0", padding: 0, display: "grid", gap: 14 }}>
+            {RUN_SPEC_STEPS.map((s) => (
+              <li
+                key={s.n}
+                data-testid={`sl-runspec-step-${s.n}`}
+                style={{ display: "grid", gridTemplateColumns: "26px minmax(0, 1fr)", gap: 10, minWidth: 0 }}
+              >
+                <span className="nv-mono" style={{ fontSize: 11, color: "var(--mint)", paddingTop: 1 }}>{s.n}</span>
+                <span style={{ fontSize: 13, lineHeight: 1.55, color: "var(--c-ink-2)", minWidth: 0 }}>
+                  {s.text}
+                  {s.caveat && (
+                    <span
+                      data-testid={`sl-runspec-caveat-${s.n}`}
+                      style={{
+                        display: "block", marginTop: 7, paddingLeft: 9, fontSize: 12, lineHeight: 1.5,
+                        color: "var(--c-ink-3)", borderLeft: "2px solid var(--line-2)",
+                      }}
+                    >
+                      <b className="nv-mono" style={{ fontSize: 9.5, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--c-ink-2)", marginRight: 6 }}>
+                        Runner today
+                      </b>
+                      {s.caveat}
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </Card>
+
+        <Card testid="sl-runspec-rules">
+          <Eyebrow>Block rules</Eyebrow>
+          <div style={{ display: "grid", gap: 13, marginTop: 10 }}>
+            {RUN_SPEC_BLOCK_RULES.map((r) => (
+              <div key={r.block} data-testid={`sl-runspec-rule-${r.block}`} style={{ minWidth: 0 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                  <code className="nv-mono" style={{ fontSize: 12, color: "var(--c-ink)" }}>{r.block}</code>
+                  <Pill>{r.chip}</Pill>
+                </div>
+                <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "var(--c-ink-2)", wordBreak: "break-word" }}>
+                  {r.rule}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+    </Grid>
   );
 }

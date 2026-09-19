@@ -1,0 +1,75 @@
+# NIVESH · SIMULATION RUN SPEC    schema: sim/v1
+# One file per run. Register before the run; never edit after.
+#
+# Configuration A of the comparison matrix (deliverable D5), as pre-registered in
+# docs/ai_research/tpd3/sim_diag/PREREGISTRATION_SIM_MATRIX.md (frozen at ffa0a139) and already run.
+# Status: run_matrix.py does not read this file. A's parameters live in research/sim_diag/matrix.py
+# (MATRIX["A"] = tradesim.CONFIG_A); this spec is the written record and is kept in step by hand.
+
+run:
+  id: R-2022-A
+  label: The reconciled H#32 baseline — every other run in the matrix changes one thing against it.
+  matrix_ref: A
+  registered_at: 2026-09-20     # the pre-registration's date; that document is frozen at commit ffa0a139
+  registered_by: owner          # PREREGISTRATION_SIM_MATRIX.md, "Authority"
+
+# §4 FROZEN INPUTS — identical across every run. Hashes are checked at load; a mismatch aborts the run.
+frozen_inputs:
+  dataset: dataset_dev_20260919T212230.csv.gz
+  dataset_sha256: 7bb77e5ad50f4bf6a6db54527bc6a90437701e9d5bc5d36a87f4b187e0f9b327
+  oof_predictions: dev_oof_20260919T214001.csv.gz
+  oof_sha256: 8763f064b35b633332db6c60bfdd36dbc3b8cf65bd3c83bb7eafb0ef38650569
+  picks: dev_picks_M8_20260919T214001.csv
+  picks_sha256: d05cccc241be6a55217b2557dc82657befd1420894b8e5c339f387caa0d3281b
+  calibration: iso__M8__tbs_5_2.pkl
+  calibration_sha256: 1f1b22c567634f597dfaad4d006612e0af10d3637e24704fdae53f928e1c0597
+  prediction_commit: a499ce19b22000756da00fc813b3aa27c8e18f9a
+  model: M8
+  label: tbs_5_2
+  cost_model: zerodha-equity-v1   # applied retroactively to 2022, as in every earlier run
+  bars: Kite daily, re-read raw and checked against the dataset before use (the D1 check must stay green).
+  block: dev — development bars only, to 2022-12-30.
+  sealed: The 2023-01..2024-07 block is never read; the guarded loader asserts it.
+
+# RUN PARAMETERS — the field names are research/sim_diag/tradesim.py's Spec fields.
+parameters:
+  universe: Nifty 500 (dataset.N500); the sector map is that list's Industry column
+  selection: the frozen M8 top 5 per session — the 1,210 picks reproduced in D1
+  scope:
+    sessions: 242 — every 2022 decision session in the development block
+    window: 2022-10-03 to 2022-11-01, 20 sessions including the Muhurat session 2022-10-24; a strict subset,
+      reported separately for the hand-checked audit and never as a separate result
+  entry: NEXT_OPEN              # the s1 open
+  stop: FIXED
+  stop_pct: 2
+  target: FIXED
+  target_pct: 5
+  sizing: fixed notional
+  notional: 50000
+  costs_on: true
+  slippage_basis: DECISION      # the decision day's value20 bucket — the H#32 convention
+  policy: STOP_FIRST            # the stop wins on an ambiguous bar
+  sessions: 5                   # time exit at the last available close in s1..s5
+  carry_sessions: 25            # a position that cannot be sold is held until it is sellable
+  participation_pct: 100        # H#32 had no participation limit
+  max_chase_pct:                # not applied in the matrix; chased gaps are reported through RC-1 ENTRY_FAILURE
+
+# PRE-REGISTRATION — written before execution, never edited after.
+pre_registration:
+  hypothesis: none. This is a diagnostic attribution, not a hypothesis test (§1); A is the baseline the other
+    runs are measured against.
+  isolates: baseline (reconciled in D3)
+  metrics:
+    - trades, no_entry with reasons, win_rate
+    - gross_per_trade, net_per_trade, cost_drag split into slippage and statutory charges
+    - profit_factor, expectancy in rupees
+    - worst_cumulative_net and peak_capital_required — fixed-notional, so no drawdown % of ₹5,00,000 (§5)
+    - exit_mix, median stop_distance_atr, ambiguous_bars, gap_through
+    - RC-1 primary cause counts and net by cause
+    - paired difference against A on the common trades, date-clustered bootstrap, 95% interval, descriptive
+  decision_rule: descriptive only. No configuration in this matrix is a candidate strategy, and none may be
+    adopted because it scores best (§1, §6).
+  failure: the run is void if A does not reproduce the D3 run trade for trade, if any sealed-block bar is read,
+    if a trade is missing its prediction_id or a rejected candidate its reason, or if the extreme-trade audit is
+    not clean (§9).
+  no_tuning_after_run: true
