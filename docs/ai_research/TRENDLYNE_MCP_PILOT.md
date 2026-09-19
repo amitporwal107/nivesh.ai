@@ -49,3 +49,12 @@ All 87 Trendlyne names match the Screener names. Steady-state cost for this list
 | 1,000 stocks × 50 parameters | 100 |
 | full company deep-dive (overview, technical, news, events, shareholding, SAST, deals, 2–5 document searches) | ~10–15 per company (estimate) |
 Trendlyne data is for internal research only (the Trendlyne report PDF prohibits redistribution without consent).
+
+## Caching (added 2026-09-19, owner request: no repeated calls for data that does not change intraday)
+Code: `research/trendlyne/` (`tl_client.py`, `tl_cache.py`, 13 tests). Redis `nidp-redis` db 2, keys `tl:v1:*` (the
+instance had no keys before; every key has an expiry). Bulk values are cached per (stock, parameter) with freshness
+classes: `eod` until the next 07:00 IST; `filing` (shareholding, results, statements) daily during filing season, else
+7 days; lookups 30 days; unresolvable codes 1 day. Missing pairs are packed into as few calls as possible.
+Verified live: the full 87 × 50 request again → **0 calls** (4,350 hits); a new 3-stock request → 2 calls then 0 on
+repeat; after packing, Siemens (half cached) + Waaree → 1 call then 0. Redis footprint 2.3 MB. Calls are counted in
+Redis (55 on 2026-09-19) with a daily cap (`TL_DAILY_CALL_CAP`, default 300).
