@@ -112,7 +112,7 @@ def ref_symbol(o, h, lo, c, v, atr_pct):
         if i >= 120:
             out["td_gap_down2_120"][i] = np.mean([o[t] / c[t - 1] - 1 <= -0.02 for t in range(i - 119, i + 1)])
         ts = [t for t in range(max(0, i - 250), i - 4)]
-        if len(ts) >= FC.MIN_HIST:
+        if len(ts) >= 60:                                       # literal: the frozen minimum, not the module's constant
             res = [outcomes[t] for t in ts]
             out["td_hist_target"][i] = np.mean([r[0] == "TARGET" for r in res])
             out["td_hist_gapstop"][i] = np.mean([r[1] for r in res])
@@ -208,3 +208,24 @@ def test_build_matches_symbol_features_for_every_stock():
         for k in (*FC.GROUP_C, *FC.GROUP_D):
             if k != "bo_peer_share":
                 np.testing.assert_allclose(mine[k].to_numpy(), f[k], equal_nan=True, err_msg=f"{s} {k}")
+
+
+def test_peer_share_on_many_dates_uses_the_3pct_band():
+    bars, atr = make()
+    out = FC.build(bars, atr, CAL, IND, BLOCK).set_index(["symbol", "date"])
+    checked = 0
+    for i in range(60, len(CAL), 5):
+        d = CAL[i]
+        near = {}
+        for s in ("A2", "A3", "A4"):
+            x = bars[(bars.symbol == s) & (bars.date <= d)]
+            if x.date.iloc[-1] != d or len(x) < 56:
+                continue
+            near[s] = float(x.close.iloc[-1] >= 0.97 * x.high.to_numpy()[-56:-1].max())
+        got = out.loc[("A1", d)].bo_peer_share
+        if len(near) >= 3:
+            assert got == pytest.approx(np.mean(list(near.values()))), d
+            checked += 1
+        else:
+            assert np.isnan(got)
+    assert checked > 60
