@@ -1,15 +1,72 @@
 {
-  "_doc": "Per-category PIT policy metadata (plan §6-§7; POL-01..06). archive_start_at / policy_effective_at are configuration, never hardcoded. Classes are set by the audit report; 'UNVERIFIED' until evidence exists.",
-  "safety_margin_minutes": 5,
-  "categories": {
-    "trendlyne_financials":   {"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
-    "trendlyne_ownership":    {"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
-    "trendlyne_ratios_scores":{"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
-    "trendlyne_events":       {"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
-    "trendlyne_news":         {"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
-    "trendlyne_sast":         {"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
-    "trendlyne_deals":        {"pit_class": "UNVERIFIED", "archive_start_at": "2026-09-19T09:40:00+05:30", "policy_effective_at": null, "rule": null},
-    "nse_filed_results":      {"pit_class": "UNVERIFIED", "archive_start_at": null, "policy_effective_at": null, "rule": null},
-    "nse_filed_shareholding": {"pit_class": "UNVERIFIED", "archive_start_at": null, "policy_effective_at": null, "rule": null}
+ "_doc": "Per-category PIT policy metadata (plan \u00a76-\u00a77; POL-01..06). archive_start_at / policy_effective_at are configuration, never hardcoded. Classes are set by the audit report; 'UNVERIFIED' until evidence exists.",
+ "safety_margin_minutes": 5,
+ "categories": {
+  "trendlyne_financials": {
+   "pit_class": "UNVERIFIED",
+   "archive_start_at": "2026-09-19T09:40:00+05:30",
+   "policy_effective_at": null,
+   "rule": null
+  },
+  "trendlyne_ownership": {
+   "pit_class": "UNVERIFIED",
+   "archive_start_at": "2026-09-19T09:40:00+05:30",
+   "policy_effective_at": null,
+   "rule": null
+  },
+  "trendlyne_ratios_scores": {
+   "pit_class": "UNVERIFIED",
+   "archive_start_at": "2026-09-19T09:40:00+05:30",
+   "policy_effective_at": null,
+   "rule": null
+  },
+  "trendlyne_events": {
+   "pit_class": "UNVERIFIED",
+   "archive_start_at": "2026-09-19T09:40:00+05:30",
+   "policy_effective_at": null,
+   "rule": null
+  },
+  "trendlyne_news": {
+   "pit_class": "UNVERIFIED",
+   "archive_start_at": "2026-09-19T09:40:00+05:30",
+   "policy_effective_at": null,
+   "rule": null
+  },
+  "trendlyne_sast": {
+   "pit_class": "UNVERIFIED",
+   "archive_start_at": "2026-09-19T09:40:00+05:30",
+   "policy_effective_at": null,
+   "rule": null
+  },
+  "trendlyne_deals": {
+   "pit_class": "UNVERIFIED",
+   "archive_start_at": "2026-09-19T09:40:00+05:30",
+   "policy_effective_at": null,
+   "rule": null
+  },
+  "nse_filed_results": {
+   "pit_class": "PIT_VALIDATED_RULE",
+   "archive_start_at": null,
+   "policy_effective_at": "2026-09-19T20:21:00+05:30",
+   "rule": {
+    "rule_id": "R-NSE-RES-1",
+    "rule_version": 1,
+    "definition": "available_at = the NSE results-listing broadcast time (broadCastDate / broadcast_Date, second precision) of the earliest ORIGINAL filing for (symbol, period); filings whose submission time is > 15 min after the broadcast (AV-1 contradiction) or that have no broadcast time (flagged revisions) are excluded",
+    "validation_sample_size": 576,
+    "validation_coverage": "PIT audit sample: 40 stocks x 8 quarters (Sep-24..Jun-26), legacy + integrated formats; BSE cross-check on 502 filings (BSE earlier by >15 min in 472, within 15 min in 24, later in 6); 4 contradictions -> excluded",
+    "evidence": "docs/ai_research/tpd3/data/PIT_AUDIT.md (commit 0aebc4c6), analysis_20260919T130527.json",
+    "conservative_because": "the NSE broadcast is itself a public dissemination time and was never earlier than the BSE results announcement in the sample beyond 15 min except 6 cases where NSE was first; it can delay availability, not advance it",
+    "approval_status": "APPROVED",
+    "approved_by": "owner",
+    "approved_at": "2026-09-19T20:21:00+05:30",
+    "approval_scope": "results broadcast times in the NSE listing archive for all symbols, Oct 2024 - Sep 2026, used by the positional pre-registration arm D1 (research only; model training needs separate approval)"
+   }
+  },
+  "nse_filed_shareholding": {
+   "pit_class": "UNVERIFIED",
+   "archive_start_at": null,
+   "policy_effective_at": null,
+   "rule": null
   }
+ }
 }

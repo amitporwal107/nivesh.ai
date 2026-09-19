@@ -328,7 +328,7 @@ LICHSGFIN and HUL PDFs came from BSE AttachHis after AttachLive returned 404.
 | DEL-03 | PASS | §3, §8 |
 | DEL-04 | PASS | §2, §9 |
 | DEL-05 | PASS at commit | audit files only |
-| DEL-06 | **PENDING owner** | no class changed in `policy.json`; the gate blocks everything until approval |
+| DEL-06 | **PARTLY APPROVED** (2026-09-19 20:21 IST) | The owner approved R-NSE-RES-1: `nse_filed_results` → PIT_VALIDATED_RULE in `policy.json`, scoped to research use by the positional study, with model training needing separate approval. Every other category stays UNVERIFIED. |
 
 **Definition of done:**
 - **Met:**
