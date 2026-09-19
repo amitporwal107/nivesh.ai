@@ -1,0 +1,64 @@
+# NIVESH · SIMULATION RUN SPEC    schema: sim/v1
+# One file per run. Register before the run; never edit after.
+#
+# Copy this file to research/sim_diag/specs/<run-id>.sim-v1.yaml and fill every line.
+# Status: research/sim_diag/run_matrix.py does NOT read this file. It takes its configurations from
+# research/sim_diag/matrix.py, so the parameters below have to be kept in step with that code by hand.
+
+run:
+  id:                   # R-2022-A — unique, immutable, and the name the run is known by everywhere
+  label:                # one line: what this run is for
+  matrix_ref:           # A-H for a matrix run; blank for a secondary run
+  registered_at:        # ISO 8601, before execution
+  registered_by:        # who registered it
+
+# §4 FROZEN INPUTS — identical across every run. Hashes are checked at load; a mismatch aborts the run.
+frozen_inputs:
+  dataset:              # dataset_<block>_<stamp>.csv.gz
+  dataset_sha256:
+  oof_predictions:      # dev_oof_<stamp>.csv.gz
+  oof_sha256:
+  picks:                # dev_picks_<model>_<stamp>.csv
+  picks_sha256:
+  calibration:          # iso__<model>__<label>.pkl
+  calibration_sha256:
+  prediction_commit:    # the commit the scores were produced at
+  model:                # the model and label the picks come from
+  label:
+  cost_model:           # e.g. zerodha-equity-v1
+  bars:                 # the bar source, and the check that it reproduces the dataset
+  block:                # the data block this run may read
+  sealed:               # the block it must not read, and what asserts that
+
+# RUN PARAMETERS — the field names are research/sim_diag/tradesim.py's Spec fields.
+parameters:
+  universe:             # the symbol list, and where the sector map comes from
+  selection:            # which rows of a session are traded
+  scope:
+    sessions:           # how many decision sessions, and which
+    window:             # any sub-window reported separately
+  entry:                # NEXT_OPEN | OPEN_CONFIRMATION | LIMIT_ENTRY | VWAP_PROXY
+  stop:                 # FIXED | ATR | STRUCTURE | VOL_ADJ | NONE
+  stop_pct:             # a FIXED stop, % below the entry
+  target:               # FIXED | R_MULTIPLE | NONE
+  target_pct:           # a FIXED target, % above the entry
+  sizing:               # fixed notional, or the risk engine and which caps are on
+  notional:             # rupees per trade when the sizing is fixed-notional
+  costs_on:             # true | false
+  slippage_basis:       # DECISION (the decision day's value20 bucket) | FILL (the fill day's)
+  policy:               # STOP_FIRST | TARGET_FIRST — which level wins on an ambiguous bar
+  sessions:             # the session cap: time exit at the last available close in s1..sN
+  carry_sessions:       # extra sessions a position that cannot be sold is carried
+  participation_pct:    # cap on the session's traded value; 100 = no cap
+  max_chase_pct:        # NO_ENTRY above this gap; blank = not applied
+
+# PRE-REGISTRATION — written before execution, never edited after.
+pre_registration:
+  hypothesis:           # the claim under test, or the purpose when the run is descriptive
+  isolates:             # the one thing this run changes against the baseline
+  metrics:              # the numbers fixed in advance; nothing else is reported as a result
+    -
+  decision_rule:        # what would be concluded from what, or "descriptive only"
+  failure:              # what would count as a failure of this run, and what voids it
+  no_tuning_after_run: true   # nothing may be tuned after the run; a configuration that looks better is a
+                              # candidate for a fresh pre-registration, never a result
