@@ -36,7 +36,8 @@ from nidp.services.tpd_model.risk import execution as EX  # noqa: E402
 D = Decimal
 ENTRY_KIND = {"NEXT_OPEN": "MOO", "OPEN_CONFIRMATION": "BUY_STOP", "LIMIT_ENTRY": "LIMIT", "VWAP_PROXY": "TYPICAL"}
 EXIT_REASON = {"GAP_THROUGH": "GAP_THROUGH_STOP", "STOP": "STOP_HIT", "TARGET": "TARGET_HIT",
-               "GAP_OVER_TARGET": "TARGET_HIT", "TIME": "TIME_EXIT", "CARRIED": "LIQUIDITY_EXIT"}
+               "GAP_OVER_TARGET": "TARGET_HIT", "TIME": "TIME_EXIT", "CARRIED": "LIQUIDITY_EXIT",
+               "BLOCKED_STOP": "LIQUIDITY_EXIT"}     # a stop reached, then filled late because the session was locked
 
 
 @dataclass(frozen=True)
@@ -221,6 +222,15 @@ def simulate(spec: Spec, w: Window, cm) -> dict:
             continue
         used.append(i)
         slip_out = _slip(spec, cm, w, w.dates[i])
+        if blocked:
+            # D7 (owner approved 2026-09-20): a stop that could not be filled because the session was locked does not
+            # keep the old stop - the position leaves at the first price the market offers
+            if EX.locked_lower(b):
+                flags.append(f"LOCKED_LOWER_FULLDAY_S{i + 1}")
+                continue
+            exit_i, exit_level, exit_detail = i, b.open, "BLOCKED_STOP"
+            exit_fill = EX.px(b.open * (1 - slip_out / 100))
+            break
         if i >= spec.sessions:                  # carried past s5 only because a sale was impossible: sell at the open
             if EX.locked_lower(b):
                 flags.append(f"LOCKED_LOWER_{'FULLDAY' if b.high == b.low else 'PARTIAL'}_S{i + 1}")
@@ -234,16 +244,11 @@ def simulate(spec: Spec, w: Window, cm) -> dict:
             flags.append("ENTRY_BAR_ORDER_UNKNOWN")
         x = EX.exit_on_bar(eval_bar, stop, target, slip_out, spec.policy)
         if x.fill is not None and x.fill.status == "NO_FILL":
-            # FULLDAY: the bar never left the band (high == low): no sale was possible. PARTIAL: the lock test fired but
-            # the bar traded away from its open, so a sale at the open was possible (a false positive of the test)
-            flags.append(f"LOCKED_LOWER_{'FULLDAY' if b.high == b.low else 'PARTIAL'}_S{i + 1}")
+            # the bar never left the band (high == low), so no sale was possible at any price
+            flags.append(f"LOCKED_LOWER_FULLDAY_S{i + 1}")
             blocked = True
             last_i = i
             continue
-        if blocked and (x.fill is None or x.level != b.open):
-            # the engine keeps the old stop instead of selling at the first sellable open after a blocked stop
-            flags.append(f"STOP_BLOCKED_THEN_RECOVERED_S{i + 1}")
-        blocked = False
         if x.fill is not None:
             exit_i, exit_level, exit_fill, exit_detail, ambiguous = i, x.level, x.fill.price, x.fill.reason, x.ambiguous
             break

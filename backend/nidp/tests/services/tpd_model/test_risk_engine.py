@@ -175,8 +175,12 @@ def test_market_on_open_fills_at_the_open_plus_slippage():
 
 
 def test_locked_upper_circuit_open_is_not_filled():
-    f = EX.fill_entry("MOO", bar(120, 120, 118, 119, pc=100), qty=100, slippage_pct=D("0.10"), participation_pct=D("5"))
+    """A session locked at the upper circuit all day (high == low at the band) cannot be bought. A bar that OPENS at
+    the band and then trades away from it was tradable at the open, so it fills (D7, 2026-09-20)."""
+    f = EX.fill_entry("MOO", bar(120, 120, 120, 120, pc=100), qty=100, slippage_pct=D("0.10"), participation_pct=D("5"))
     assert f.status == "NO_FILL" and f.reason == "LOCKED_UPPER"
+    traded = EX.fill_entry("MOO", bar(120, 120, 118, 119, pc=100), qty=100, slippage_pct=D("0.10"), participation_pct=D("5"))
+    assert traded.status == "FILLED" and traded.base == D("120")
 
 
 def test_buy_stop_fills_at_trigger_or_the_gap_open_never_better():

@@ -68,8 +68,10 @@ def test_time_exit_at_s5_close_and_missing_bars_are_skipped():
 
 def test_no_entry_reasons():
     assert TS.simulate(TS.CONFIG_A, win([None, QUIET]), CM)["entry_rejection_reason"] == "NO_BAR_S1"
-    locked = b(110, 110, 108, 109, pc=100)                                                # opened locked at +10%
+    locked = b(110, 110, 110, 110, pc=100)                                   # locked at +10% all day: unbuyable
     assert TS.simulate(TS.CONFIG_A, win([locked, QUIET]), CM)["entry_rejection_reason"] == "LOCKED_UPPER"
+    opened_at_band = b(110, 110, 108, 109, pc=100)                            # opened at +10%, then traded: buyable
+    assert TS.simulate(TS.CONFIG_A, win([opened_at_band] + [QUIET] * 4), CM)["status"] == "CLOSED"
     chase = TS.Spec("chase", max_chase_pct=D("3"))
     assert TS.simulate(chase, win([b(103.5, 104, 103, 104), QUIET]), CM)["entry_rejection_reason"] == "MAX_CHASE"
     assert TS.simulate(chase, win([b(102.9, 104, 102, 104)] + [QUIET] * 4), CM)["status"] == "CLOSED"
@@ -161,11 +163,19 @@ def test_a_position_locked_for_many_sessions_is_held_until_sellable():
     assert t["exit_reason"] == "LIQUIDITY_EXIT" and t["flags"].count("LOCKED_LOWER_FULLDAY") == 11
 
 
-def test_lock_test_false_positive_and_a_recovered_stop_are_flagged():
-    partial = b(80, 90, 80, 88, pc=100)                          # opened at the -20% band, then traded up to 90
-    t = TS.simulate(TS.CONFIG_A, win([QUIET, partial, b(99, 100, 98.5, 99.5, pc=88), QUIET, QUIET]), CM)
-    assert "LOCKED_LOWER_PARTIAL_S2" in t["flags"] and "STOP_BLOCKED_THEN_RECOVERED_S3" in t["flags"]
-    assert t["exit_reason"] == "TIME_EXIT"                       # the engine kept the old stop and never sold
-    assert "RECOVERED_S4" not in t["flags"]                      # only the first bar after the block is flagged
-    t = TS.simulate(TS.CONFIG_A, win([QUIET, partial, b(99, 106, 98.5, 105, pc=88), QUIET, QUIET]), CM)
-    assert "STOP_BLOCKED_THEN_RECOVERED_S3" in t["flags"] and t["exit_reason"] == "TARGET_HIT"
+def test_a_bar_that_opens_at_a_band_and_trades_is_sold_into(d7=True):
+    """D7 (owner approved 2026-09-20). This bar opens at the -20% circuit and then trades up to 90: the old lock test
+    refused the sale and the position escaped its stop. It is now sold at the open, which is where the stop had
+    already been gapped through."""
+    opened_at_band = b(80, 90, 80, 88, pc=100)
+    t = TS.simulate(TS.CONFIG_A, win([QUIET, opened_at_band, b(99, 100, 98.5, 99.5, pc=88), QUIET, QUIET]), CM)
+    assert "LOCKED_LOWER" not in t["flags"] and "RECOVERED" not in t["flags"]
+    assert t["exit_reason"] == "GAP_THROUGH_STOP" and t["exit_session"] == 2 and t["exit_level"] == D("80")
+
+
+def test_a_stop_blocked_by_a_full_day_lock_sells_at_the_next_open_not_at_the_old_stop():
+    locked = b(80, 80, 80, 80, pc=100)                           # -20%, never left the band: no sale possible
+    t = TS.simulate(TS.CONFIG_A, win([QUIET, locked, b(99, 106, 98.5, 105, pc=80), QUIET, QUIET]), CM)
+    assert "LOCKED_LOWER_FULLDAY_S2" in t["flags"]
+    # the old rule kept the stop and let this trade reach the target at 105; it now leaves at the next open
+    assert t["exit_reason"] == "LIQUIDITY_EXIT" and t["exit_session"] == 3 and t["exit_level"] == D("99")

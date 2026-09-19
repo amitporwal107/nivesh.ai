@@ -53,7 +53,8 @@ def test_every_fill_reports_the_raw_price_it_keyed_on():
     assert EX.fill_entry("MOC", b, qty=1, slippage_pct=D("0.05"), participation_pct=D("100")).base == D("105")
     t = EX.fill_entry("TYPICAL", b, qty=1, slippage_pct=D("0"), participation_pct=D("100"))
     assert t.base == (D("110") + D("96") + D("105")) / 3
-    assert EX.fill_entry("MOO", bar(105, 105, 100, 103), qty=1, slippage_pct=D("0"), participation_pct=D("100")).base is None
+    locked = EX.fill_entry("MOO", bar(105, 105, 105, 105), qty=1, slippage_pct=D("0"), participation_pct=D("100"))
+    assert locked.status == "NO_FILL" and locked.base is None          # locked all day at +5%: nothing to fill against
 
 
 # ---------------- engine: target exits ----------------
@@ -177,3 +178,41 @@ def test_the_existing_behaviour_is_unchanged_when_no_signal_carries_a_target():
     b = EN.run(pd.DataFrame([sig("t1")]), bars_frame(rows), POS, ZR, SEC, EXITS, allow_retroactive_costs=True)
     assert a.ledger_digest == b.ledger_digest
     assert a.trades.iloc[0].exit_reason == "GAP_THROUGH" and a.trades.iloc[0].target is None
+
+
+# ---------------- D7 (owner approved 2026-09-20): the lock test and the blocked stop ----------------
+
+def test_a_bar_that_opens_at_a_band_and_then_trades_is_not_locked():
+    """The old test (open == high, or open == low, at a band) fired on bars that traded away from the band, refusing
+    fills the market really offered. Only a bar that never left the band (high == low) is locked."""
+    assert EX.locked_upper(bar(105, 105, 105, 105)) and EX.locked_lower(bar(95, 95, 95, 95))
+    assert not EX.locked_upper(bar(105, 105, 101, 102))                # opened at +5%, sold off: tradable
+    assert not EX.locked_lower(bar(95, 99, 95, 98))                    # opened at -5%, rallied: tradable
+    assert not EX.locked_upper(bar(103, 103, 103, 103))                # flat all day, but not at a band
+    f = EX.check_stop(bar(95, 99, 95, 98), D("96"), D("0"))            # a stop under a tradable open
+    assert f.status == "FILLED" and f.reason == "GAP_THROUGH" and f.price == D("95")
+
+
+def test_a_stop_blocked_by_a_lock_exits_at_the_next_open_not_at_the_old_stop():
+    """D3 found the engine kept the old stop after a blocked exit, so a position could escape a stop it had already
+    hit (TTML 28 Jan 2022 ended +9.4%). It now leaves at the first price the market offers."""
+    rows = flat("A", 100)
+    rows[2] = ("A", DAYS[2], 95, 95, 95, 95, 10_000_000, 5e9)          # locked all day at -5%: no sale possible
+    rows[3] = ("A", DAYS[3], 102, 104, 101, 103, 10_000_000, 5e9)      # trades again, well above the 96 stop
+    res = run([sig(stop=96)], rows)
+    t = res.trades.iloc[0]
+    blocked = [e for e in res.ledger.records("event") if e["event_type"] == "EXIT_BLOCKED"]
+    assert len(blocked) == 1 and blocked[0]["date"] == DAYS[2].isoformat()
+    assert t.exit_reason == "BLOCKED_STOP" and t.exit_date == DAYS[3]
+    assert t.exit_price == D("101.95")                                 # 102 x 0.9995, the open - NOT the 96 stop
+
+
+def test_a_position_stays_blocked_while_the_lock_continues():
+    rows = flat("A", 100)
+    rows[2] = ("A", DAYS[2], 95, 95, 95, 95, 10_000_000, 5e9)
+    rows[3] = ("A", DAYS[3], 90.25, 90.25, 90.25, 90.25, 10_000_000, 5e9)   # -5% again, locked again
+    rows[4] = ("A", DAYS[4], 88, 91, 87, 90, 10_000_000, 5e9)
+    res = run([sig(stop=96)], rows)
+    t = res.trades.iloc[0]
+    assert len([e for e in res.ledger.records("event") if e["event_type"] == "EXIT_BLOCKED"]) == 2
+    assert t.exit_reason == "BLOCKED_STOP" and t.exit_date == DAYS[4] and t.exit_price == D("87.96")   # 88 x 0.9995

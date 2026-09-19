@@ -6,7 +6,10 @@
 - LIMIT (buy): min(open, limit) when the low reaches the limit, never above the limit.
 - TYPICAL: (high + low + close) / 3, the VWAP proxy (an approximation: true VWAP needs intraday data).
 - Stops: an open at or below the stop fills at the open (GAP_THROUGH), else at the stop; a session locked at the lower
-  circuit cannot be sold. Volume participation caps the quantity (partial fills).
+  circuit cannot be sold, and the position leaves at the next session's open instead (BLOCKED_STOP). Volume
+  participation caps the quantity (partial fills).
+- Locked: only a bar that never left the band (high == low at a circuit price). A bar that opens at a band and then
+  trades away from it offered a fill at the open (D7, 2026-09-20).
 - Targets: an open at or above the target fills at the open (GAP_OVER_TARGET), else at the target.
 - exit_on_bar orders one bar's stop and target checks and flags a bar that reached both (INTRABAR ambiguity; daily bars
   cannot say which came first, so a versioned policy decides: STOP_FIRST by default).
@@ -50,12 +53,25 @@ def _at_band(gap: Decimal, sign: int) -> bool:
     return any(abs(gap - sign * b) <= BAND_TOL for b in BANDS)
 
 
+def _locked(b: Bar, sign: int) -> bool:
+    """A session is locked only when the bar never left the band: high == low at a circuit price.
+
+    D7, 2026-09-20 (owner approved): the older test - open == high (or == low) at a band - also fired on a bar that
+    OPENED at the band and then traded away from it, where a fill at the open was genuinely available. On the 2022
+    development block that refused 3 possible sales (the simulator was then too optimistic, holding on instead, by up
+    to 12 points on ADANIPOWER 2022-12-26) and skipped 3 buyable entries (TRIDENT 2022-04-04, TEGA 2022-04-13,
+    STARHEALTH 2022-08-04). A daily bar cannot say WHEN it unlocked, so the conservative reading of high > low is
+    that the open was tradable."""
+    return (b.prev_close is not None and b.prev_close > 0 and b.high == b.low
+            and _at_band(b.open / b.prev_close - 1, sign))
+
+
 def locked_upper(b: Bar) -> bool:
-    return b.prev_close is not None and b.prev_close > 0 and b.open == b.high and _at_band(b.open / b.prev_close - 1, +1)
+    return _locked(b, +1)
 
 
 def locked_lower(b: Bar) -> bool:
-    return b.prev_close is not None and b.prev_close > 0 and b.open == b.low and _at_band(b.open / b.prev_close - 1, -1)
+    return _locked(b, -1)
 
 
 def fill_entry(kind: str, bar: Bar, *, qty: int, slippage_pct: Decimal, participation_pct: Decimal,

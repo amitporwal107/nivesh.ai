@@ -173,7 +173,7 @@ def test_frame_keeps_only_closed_trades_and_takes_the_values_from_the_fills():
 
 def test_rejections_counts_the_entry_reason_then_falls_back():
     no_bar = TS.simulate(TS.CONFIG_A, window("AAA", [None, QUIET]), CM)
-    locked = TS.simulate(TS.CONFIG_A, window("BBB", [bar(110, 110, 108, 109, pc=100), QUIET]), CM)
+    locked = TS.simulate(TS.CONFIG_A, window("BBB", [bar(110, 110, 110, 110, pc=100), QUIET]), CM)
     unresolved = {"status": "UNRESOLVED", "exit_reason": "MANUAL_REVIEW_REQUIRED"}
     closed = TS.simulate(TS.CONFIG_A, window("CCC", [QUIET] * 5), CM)
     assert MX.rejections([no_bar, locked, unresolved, closed, no_bar]) == {
@@ -475,7 +475,20 @@ def rc1_trade(symbol, bars, **kw):
 
 WINNER_BARS = [bar(100, 104, 99, 103), bar(103, 106, 102, 105)] + [QUIET] * 3   # target on s2
 LOSER_BARS = [bar(100, 101, 97, 98), QUIET, QUIET, QUIET, bar(100, 101, 99, 99)]  # stop on s1, no recovery
-PARTIAL_LOCK_BARS = [QUIET, bar(80, 90, 80, 88, pc=100), bar(99, 100, 98.5, 99.5, pc=88), QUIET, QUIET]
+# After D7 the simulator no longer produces LOCKED_LOWER_PARTIAL (a bar that opens at a band and trades is not
+# locked), so the flag is injected directly: rc1_column must still treat it as unexplained if it ever reappears -
+# that is what would happen if the lock test were reverted.
+# a quiet loser that expires on time: it rises 2.2% (so it is not SIGNAL_FAILURE) but never reaches +2.5% (so it is
+# not TARGET_FAILURE) and never touches the -2% stop, which leaves SIMULATION_FAILURE as its only cause
+PARTIAL_LOCK_BARS = [bar(100, 102.2, 98.5, 99.5)] + [QUIET] * 4
+
+
+def partial_lock_trade():
+    """A losing trade carrying the lock heuristic's old false-positive flag. The simulator cannot produce it since
+    D7, so it is injected: the RC-1 rule must still raise SIMULATION_FAILURE if the flag ever reappears."""
+    t = dict(rc1_trade("CCC", PARTIAL_LOCK_BARS))
+    t["flags"] = "LOCKED_LOWER_PARTIAL_S2"
+    return t
 DEC_DAY, S1, S2 = (pd.Timestamp("2022-10-03"), pd.Timestamp("2022-10-04"), pd.Timestamp("2022-10-05"))
 
 
@@ -494,9 +507,9 @@ def test_the_rc1_fixtures_are_what_the_cause_expectations_assume():
     assert l["stop_distance_atr"] == pytest.approx(2 / 3)      # (100 - 98) / a 3.00 ATR -> under 1 R, STOP_FAILURE
     assert l["path_max_high_pct"] == pytest.approx(0.01) and l["close_last_pct"] == pytest.approx(-0.01)
     assert l["flags"] == "" and l["bars_used"] == [dt.date(2022, 10, 4)]
-    p = rc1_trade("CCC", PARTIAL_LOCK_BARS)
-    assert p["exit_reason"] == "TIME_EXIT" and float(p["net_inr"]) == pytest.approx(-226.16)
-    assert "LOCKED_LOWER_PARTIAL_S2" in p["flags"]             # the lock heuristic's known false positive
+    p = partial_lock_trade()
+    assert p["exit_reason"] == "TIME_EXIT" and float(p["net_inr"]) < 0
+    assert "LOCKED_LOWER_PARTIAL_S2" in p["flags"]             # injected: D7 stopped the simulator producing it
     assert rc1_trade("DDD", [None, QUIET])["status"] == "NO_ENTRY"
 
 
@@ -551,7 +564,7 @@ def test_rc1_column_drops_a_data_failure_that_only_an_unreviewed_flag_raised():
 
 @rc1_needed
 def test_rc1_column_treats_a_partial_lock_as_an_unexplained_simulation():
-    p = rc1_trade("CCC", PARTIAL_LOCK_BARS)
+    p = partial_lock_trade()
     c = by_symbol(MX.rc1_column([p], {}, {}))
     # nothing else in RC-1 matches this trade; without the LOCKED_LOWER_PARTIAL -> unexplained rule it would be
     # UNCLASSIFIED, and SIMULATION_FAILURE sits second in the frozen order, right after DATA_FAILURE

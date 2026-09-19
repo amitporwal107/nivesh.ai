@@ -26,6 +26,7 @@ class Position:
     binding_constraint: Optional[str] = None
     retroactive_costs: bool = False
     stop_kind: str = "INITIAL"             # INITIAL | BREAKEVEN | TRAILING (which rule set the live stop)
+    must_exit: bool = False                # a stop was reached but could not be filled (locked): leave at the next open
 
     def __post_init__(self):
         if self.initial_stop is None:

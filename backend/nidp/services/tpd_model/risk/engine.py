@@ -4,7 +4,9 @@ Order of events inside a session d (daily bars, so nothing inside a bar is order
   1. start_day: equity at the previous closes; drawdown pauses may auto-resume.
   2. entries for pending MOO / BUY_STOP orders at d's open or trigger (a fill at or below its stop is cancelled —
      BR-002 at fill time); a stop touched on the entry bar exits at the stop (stop-first, conservative).
-  3. stop exits for positions entered before d (gap-through at the open).
+  3. stop and target exits for positions entered before d (gap-through at the open). A stop that could not be filled
+     because the session was locked at the lower circuit leaves the position marked must_exit: it sells at the next
+     session's open rather than keeping the old stop (D7, 2026-09-20).
   4. time exits at the close of the position's `max_sessions`-th session (s1 = entry session).
   5. MOC signals dated d are sized and filled at d's close (their signal must use data up to 15:15 only — the
      runner's responsibility).
@@ -260,6 +262,7 @@ def run(signals: pd.DataFrame, bars: pd.DataFrame, cfg: RC.RiskConfig, cost_mode
                     led.append("event", {"date": d.isoformat(), "event_type": "INTRABAR_AMBIGUOUS", "symbol": p.symbol,
                                          "reason": f"both levels reached on the entry bar; {intrabar_policy}"})
                 if x.fill is not None and x.fill.status == "NO_FILL":
+                    p.must_exit = True
                     led.append("event", {"date": d.isoformat(), "event_type": "EXIT_BLOCKED", "symbol": p.symbol,
                                          "reason": x.fill.reason})
                 elif x.fill is not None:
@@ -268,10 +271,19 @@ def run(signals: pd.DataFrame, bars: pd.DataFrame, cfg: RC.RiskConfig, cost_mode
         # 3. stop and target exits for positions entered before d
         for sym in sorted(pf.positions):
             p = pf.positions[sym]
-            if p.entry_index >= i or not (stops_active or p.target is not None):
+            if p.entry_index >= i or not (stops_active or p.target is not None or p.must_exit):
                 continue
             b = bar_of.get((sym, d))
             if b is None:
+                continue
+            if p.must_exit:
+                # the stop was reached on an earlier session but the circuit lock made a sale impossible; the position
+                # leaves at the first price the market offers, not at the old stop (D7, 2026-09-20)
+                if EX.locked_lower(b):
+                    led.append("event", {"date": d.isoformat(), "event_type": "EXIT_BLOCKED", "symbol": sym,
+                                         "reason": "LOCKED_LOWER"})
+                    continue
+                close_position(p, d, EX.px(b.open * (1 - slip(sym, d) / 100)), "BLOCKED_STOP")
                 continue
             x = EX.exit_on_bar(b, p.stop if stops_active else None, p.target, slip(sym, d), intrabar_policy)
             if x.fill is None:
@@ -280,6 +292,7 @@ def run(signals: pd.DataFrame, bars: pd.DataFrame, cfg: RC.RiskConfig, cost_mode
                 led.append("event", {"date": d.isoformat(), "event_type": "INTRABAR_AMBIGUOUS", "symbol": sym,
                                      "reason": f"both levels reached on one bar; {intrabar_policy}"})
             if x.fill.status == "NO_FILL":
+                p.must_exit = True
                 led.append("event", {"date": d.isoformat(), "event_type": "EXIT_BLOCKED", "symbol": sym, "reason": x.fill.reason})
                 continue
             close_position(p, d, x.fill.price, x.fill.reason)
