@@ -50,3 +50,9 @@ band stocks opening at the band price to the paisa), TATACHEM and TATAINVEST (20
 **Bug caught by that check and fixed:** psql CSV writes booleans as 't'/'f', and bool("f") is True, which briefly marked
 every stock an ETF.
 
+
+## After the sealed H-B result (2026-09-19 09:30 IST)
+H-B failed its sealed test (`sealed/HB_VALIDATION_RESULT.md`) and H-A was closed earlier, so **Track 1's signals are no
+longer candidate trades.** The pipeline still works (watchlist for 2026-09-21 is ready). **Owner decision needed** before
+Monday's run: (a) run it as a plumbing rehearsal only, clearly labelled "closed hypotheses — not trade ideas"; (b) repoint it
+at a new hypothesis once one is registered; or (c) pause it. Until decided, nothing in the report is a trade suggestion.

@@ -1,0 +1,248 @@
+{
+ "test": "H-B sealed validation 2021-2022 (PRIMARY; TRACK1_SCOPE_v2)",
+ "run_at": "2026-09-19T08:57:07",
+ "git_sha": "5a03918cc4de73951456f9384a0e948dd198bc23",
+ "spec_sha256": "46b174caa6132274361e63ef63099682e5752b532ebe1b961d10228781a5ba3c",
+ "cost_model": "v1 (accepted as-is by the owner)",
+ "universe": "conditional on the available Kite historical universe; ETFs included as registered",
+ "candidates": 3609,
+ "status_counts": {
+  "CONFIRMED": 1680,
+  "NO_ENTRY_BELOW_VWAP": 942,
+  "NO_ENTRY_BOTH": 690,
+  "NO_ENTRY_DRAWDOWN": 146,
+  "UNRESOLVED_MISSING_BARS": 126,
+  "DATA_ERROR_OPEN": 25
+ },
+ "data_coverage_pct": 100.0,
+ "primary": {
+  "trades": 772,
+  "sessions": 314,
+  "mean_session_net_pct": -0.40170394030853596,
+  "ci95_nw_pct": [
+   -0.5670637839663407,
+   -0.23634409665073114
+  ],
+  "t_nw": -4.761371960619709,
+  "bootstrap95_pct": [
+   -0.5666015098329371,
+   -0.2369623639354506
+  ],
+  "median_session_pct": -0.5033165466256438,
+  "std_session_pct": 1.4997755817494656,
+  "median_trade_net_pct": -0.7175204064261139,
+  "win_sessions_pct": 36.624203821656046,
+  "worst10_sessions_pct": [
+   -2.544,
+   -2.4,
+   -2.4,
+   -2.4,
+   -2.4,
+   -2.4,
+   -2.4,
+   -2.4,
+   -2.4,
+   -2.4
+  ],
+  "top5_share_pct": null,
+  "top10_share_pct": null,
+  "max_positions_in_session": 5
+ },
+ "cost_2x": {
+  "trades": 772,
+  "sessions": 314,
+  "mean_session_net_pct": -0.7497241101599159,
+  "ci95_nw_pct": [
+   -0.9153952190214026,
+   -0.584053001298429
+  ],
+  "t_nw": -8.869737554192447,
+  "bootstrap95_pct": [
+   -0.9145236352368697,
+   -0.5843937762291868
+  ],
+  "median_session_pct": -0.8653985631723253,
+  "std_session_pct": 1.5027949930604676,
+  "median_trade_net_pct": -1.044422921191795,
+  "win_sessions_pct": 26.11464968152866,
+  "worst10_sessions_pct": [
+   -2.894,
+   -2.8,
+   -2.8,
+   -2.8,
+   -2.8,
+   -2.8,
+   -2.8,
+   -2.8,
+   -2.8,
+   -2.8
+  ],
+  "top5_share_pct": null,
+  "top10_share_pct": null,
+  "max_positions_in_session": 5
+ },
+ "by_year": {
+  "2021": {
+   "trades": 359,
+   "sessions": 146,
+   "mean_session_net_pct": -0.5009195886248966,
+   "ci95_nw_pct": [
+    -0.7282191318252642,
+    -0.27362004542452895
+   ],
+   "t_nw": -4.319420883478525,
+   "bootstrap95_pct": [
+    -0.7331236135537442,
+    -0.2641279961083092
+   ],
+   "median_session_pct": -0.5108501086719246,
+   "std_session_pct": 1.4821842374755856,
+   "median_trade_net_pct": -0.7474272930648727,
+   "win_sessions_pct": 36.986301369863014,
+   "worst10_sessions_pct": [
+    -2.544,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4
+   ],
+   "top5_share_pct": null,
+   "top10_share_pct": null,
+   "max_positions_in_session": 5
+  },
+  "2022": {
+   "trades": 413,
+   "sessions": 168,
+   "mean_session_net_pct": -0.3154808173669368,
+   "ci95_nw_pct": [
+    -0.5475605304456018,
+    -0.08340110428827173
+   ],
+   "t_nw": -2.664353526797082,
+   "bootstrap95_pct": [
+    -0.5384874794439921,
+    -0.0874475738514612
+   ],
+   "median_session_pct": -0.49757355932770875,
+   "std_session_pct": 1.514020206572878,
+   "median_trade_net_pct": -0.6750000000000032,
+   "win_sessions_pct": 36.30952380952381,
+   "worst10_sessions_pct": [
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4
+   ],
+   "top5_share_pct": null,
+   "top10_share_pct": null,
+   "max_positions_in_session": 5
+  }
+ },
+ "by_liquidity": {
+  ">Rs25cr": {
+   "trades": 272,
+   "sessions": 186,
+   "mean_session_net_pct": -0.4297729312269431,
+   "ci95_nw_pct": [
+    -0.6783539877062285,
+    -0.18119187474765772
+   ],
+   "t_nw": -3.388653009747761,
+   "bootstrap95_pct": [
+    -0.6840175567299821,
+    -0.17024812379501475
+   ],
+   "median_session_pct": -0.656797547459022,
+   "std_session_pct": 1.7843613552547735,
+   "median_trade_net_pct": -0.7910044681154412,
+   "win_sessions_pct": 36.02150537634409,
+   "worst10_sessions_pct": [
+    -2.3,
+    -2.3,
+    -2.3,
+    -2.3,
+    -2.3,
+    -2.3,
+    -2.3,
+    -2.3,
+    -2.3,
+    -2.3
+   ],
+   "top5_share_pct": null,
+   "top10_share_pct": null,
+   "max_positions_in_session": 5
+  },
+  "Rs5-25cr": {
+   "trades": 500,
+   "sessions": 252,
+   "mean_session_net_pct": -0.3487312768085203,
+   "ci95_nw_pct": [
+    -0.5550000510640573,
+    -0.14246250255298326
+   ],
+   "t_nw": -3.3137022557661884,
+   "bootstrap95_pct": [
+    -0.5533824298136282,
+    -0.1473011082942579
+   ],
+   "median_session_pct": -0.4989677400408229,
+   "std_session_pct": 1.6070233553559785,
+   "median_trade_net_pct": -0.6477061425126603,
+   "win_sessions_pct": 37.301587301587304,
+   "worst10_sessions_pct": [
+    -2.789,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4,
+    -2.4
+   ],
+   "top5_share_pct": null,
+   "top10_share_pct": null,
+   "max_positions_in_session": 5
+  }
+ },
+ "exit_reasons_pct": {
+  "TIME": 41.06,
+  "STOP": 35.88,
+  "TARGET": 22.93,
+  "STOP_GAP": 0.13
+ },
+ "entries_per_session": {
+  "median_all_sessions": 1.0,
+  "median_sessions_with_entries": 2.0,
+  "sessions_with_entries_pct": 63.306451612903224
+ },
+ "section8": {
+  "ha_signals_resolved": 3458,
+  "confirmed_pct_of_signals": 48.582995951417004,
+  "ha_close_only_on_rejected_signals_pct": -1.2667237770621897,
+  "ha_close_only_on_confirmed_signals_pct": 2.317842162029524,
+  "hb_close_only_on_entries_pct": -0.5497142808512051,
+  "mean_mae_before_confirmation_pct": -0.7393905198593154
+ },
+ "abandon_checks": {
+  "1_ci_includes_zero": 1.0,
+  "2_years_disagree_in_sign": 0.0,
+  "3_only_in_Rs5_25cr": 0.0,
+  "4_median_entries_below_1_all_sessions": false,
+  "5_mean_le_0_at_2x_costs": 1.0
+ },
+ "success_rule_met": 0.0,
+ "verdict": "FAIL"
+}

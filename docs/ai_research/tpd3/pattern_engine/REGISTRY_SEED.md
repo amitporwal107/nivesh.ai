@@ -2,7 +2,8 @@
 
 Purpose: the multiple-testing count must start honest. Every family below was examined on the **2024-08..2026-09
 bhavcopy panel**, which is therefore the DISCOVERY period — no result from it counts as validation.
-The untouched validation period is **2021-01..2024-07** (Kite daily, pulled 2026-09-19, not yet read).
+Sealed data: **2021-01..2022-12 has been used twice** (H-A, H-B; 2026-09-19) and must not validate a hypothesis designed
+after those results. **2023-01..2024-07 is still sealed and unread** (the final test, one use).
 When the `pattern_registry` / `pattern_validation` tables are built, these become the first rows (status as below).
 Every entry is judged against `SUCCESS_CRITERIA.md` (five gates, three stages).
 
@@ -29,6 +30,6 @@ Every entry is judged against `SUCCESS_CRITERIA.md` (five gates, three stages).
 **Count so far: 20 families, several with multiple variants.** Any new discovery-period result should be judged
 against this many looks: a single t ≈ 2 is expected by chance.
 | 18 | Delayed stop ("give it room, it recovers") | close return | **Contradicted descriptively** | median low 2 min after open; drawdown by 10:00 < −5% → close −4.95%, > −0.5% → +3.60% | gapdown/G1_RESULT.md |
-| 19 | Early-confirmation entry (G2–G5) | net return from the later entry | **Candidate only — new hypothesis** | suggested by the timing study; needs pre-registration and 2021–24 test | gapdown/G1_RESULT.md |
+| 19 | Early-confirmation entry (G2–G5); **H-B = 09:45 confirmation (price ≥ 99.5% of open and > VWAP)** | net return from the later entry | **H-B FAILED SEALED VALIDATION 2026-09-19 (accepted after audit)** | 2021–22: −0.402%/session, CI [−0.567, −0.236], t −4.76; both years and both liquidity buckets negative; ETFs dropped −0.435%; no cap −0.412%; hold-to-close −0.616%. Confirmed signals made +2.32% open→close but −0.55% 09:45→close: the rebound is over by the confirmation | sealed/HB_VALIDATION_RESULT.md |
 | 20 | Early intraday strength continuation (enter after early strength, hold to close) | net return from the later entry | **FAILED (discovery)** | 528 sessions: up ≥ +3% at 09:45 → −0.469%/session (t −10.05), every threshold/cap/liquidity variant negative in every year; the 18-Sep list was winners-only | pattern_engine/SCREENER_CHECK_2026-09-18.md |
 

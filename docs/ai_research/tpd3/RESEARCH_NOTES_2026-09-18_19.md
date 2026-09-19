@@ -247,3 +247,11 @@ Detail: `sealed/HA_VALIDATION_RESULT.md`.
   for history); circuit-band exclusion uses each stock's own band (No Band / F&O never excluded); historical fallback = a
   locked 09:15 bar at a standard band. Not retroactive: the sealed H-B run under v2 continues.
 
+
+## 14. Sealed H-B test (2026-09-19 08:57 IST) — FAILED, accepted after audit
+Run once under spec v2 on 2021–22 (3,609 signal-days, 5-minute data 100% complete). **−0.402%/session, CI [−0.567, −0.236],
+t −4.76**; 2× costs −0.750%; 2021 −0.501%, 2022 −0.315%; > Rs 25 cr −0.430%, Rs 5–25 cr −0.349%. Abandon conditions 1 and 5.
+Audit: all entries and exits inside the daily range, no extreme or duplicate rows, ETFs 8.5% of P&L (dropped: −0.435%), no
+cap: −0.412%. **Mechanism:** confirmed signals made +2.32% open→close but −0.55% from 09:45 — the rebound is complete by the
+time it is confirmed. Both Track 2 arms (H-A, H-B) are closed; 2021–22 is used; 2023-01..2024-07 remains sealed.
+Detail: `sealed/HB_VALIDATION_RESULT.md`, `sealed/HB_AUDIT.md`.
