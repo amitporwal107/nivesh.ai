@@ -1,0 +1,285 @@
+{
+  "_comment": "FIXTURE — NOT REAL RESULTS. Every value below is invented placeholder data written by hand to develop and test routes/sim_lab.py and the Simulation Lab page against the sim-lab-1 contract. It is NOT the output of any simulation run, no number here may be quoted or reported anywhere, and the hashes are strings of f's on purpose. The generated snapshot (built by the sim_diag run from the frozen consecutive-session study) replaces this whole file and does NOT carry the top-level \"fixture\" flag, which is what makes the page's red FIXTURE banner disappear.",
+  "schema": "sim-lab-1",
+  "fixture": true,
+  "generated_at": "2026-09-20T00:00:00+00:00",
+  "source_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "run": {
+    "id": "FIXTURE_run_00000000T000000",
+    "code_commit": "ffffffffffffffffffffffffffffffffffffffff",
+    "prereg": "docs/ai_research/tpd3/sim_diag/PREREGISTRATION_SIM_MATRIX.md (FIXTURE — no run behind this file)",
+    "cost_model": "zerodha-equity-v1 (FIXTURE)",
+    "capital_inr": 500000,
+    "prediction_commit": "ffffffffffffffffffffffffffffffffffffffff",
+    "dataset_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "oof_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "picks_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "block": "development (FIXTURE)",
+    "sealed_note": "FIXTURE FILE — no data was read and no block was touched. The real run states here that the sealed 2023-01..2024-07 block was not read.",
+    "intrabar_policy": "stop-first on an ambiguous bar (FIXTURE)"
+  },
+  "sessions": {
+    "year": {"count": 3, "first": "2022-01-03", "last": "2022-12-30"},
+    "replay": {"count": 3, "dates": ["2022-10-03", "2022-10-24", "2022-11-01"]}
+  },
+  "matrix": {
+    "year": {
+      "runs": {
+        "A": {
+          "config": "A", "purpose": "baseline (FIXTURE)", "trades": 100, "no_entry": 4,
+          "no_entry_reasons": {"NO_S1_BAR": 2, "LOCKED_UPPER_OPEN": 2},
+          "win_rate": 0.3, "gross_per_trade": -0.002, "net_per_trade": -0.007, "cost_drag": 0.005,
+          "slippage_per_trade": 0.003, "charges_per_trade": 0.002,
+          "gross_inr": -10000, "slippage_inr": 15000, "charges_inr": 10000, "net_inr": -35000,
+          "expectancy_inr": -350, "profit_factor": 0.5, "largest_win_inr": 4000, "largest_loss_inr": -5000,
+          "longest_losing_streak": 7,
+          "exit_mix": {"STOP_HIT": 60, "TARGET_HIT": 20, "TIME_EXIT": 18, "GAP_THROUGH_STOP": 2},
+          "stop_hit_rate": 0.6, "target_hit_rate": 0.2, "median_stop_distance_atr": 0.45,
+          "ambiguous_bars": 3, "gap_through_stops": 2, "lock_affected_trades": 1,
+          "median_mfe": 0.01, "median_mae": -0.02,
+          "worst_cumulative_net_inr": -40000, "worst_peak_to_trough_inr": -45000,
+          "peak_capital_required_inr": 900000, "max_concurrent_trades": 18
+        },
+        "B": {
+          "config": "B", "purpose": "stop/target (FIXTURE)", "trades": 100, "no_entry": 4,
+          "no_entry_reasons": {"NO_S1_BAR": 2, "LOCKED_UPPER_OPEN": 2},
+          "win_rate": 0.32, "gross_per_trade": -0.001, "net_per_trade": -0.006, "cost_drag": 0.005,
+          "slippage_per_trade": 0.003, "charges_per_trade": 0.002,
+          "gross_inr": -5000, "slippage_inr": 15000, "charges_inr": 10000, "net_inr": -30000,
+          "expectancy_inr": -300, "profit_factor": 0.55, "largest_win_inr": 5000, "largest_loss_inr": -6000,
+          "longest_losing_streak": 6,
+          "exit_mix": {"STOP_HIT": 50, "TARGET_HIT": 22, "TIME_EXIT": 26, "GAP_THROUGH_STOP": 2},
+          "stop_hit_rate": 0.5, "target_hit_rate": 0.22, "median_stop_distance_atr": 1.5,
+          "ambiguous_bars": 2, "gap_through_stops": 2, "lock_affected_trades": 1,
+          "median_mfe": 0.012, "median_mae": -0.025,
+          "worst_cumulative_net_inr": -33000, "worst_peak_to_trough_inr": -38000,
+          "peak_capital_required_inr": 900000, "max_concurrent_trades": 18,
+          "paired_vs_A": {"n_common": 100, "mean_diff": 0.001, "ci95": [-0.001, 0.003], "share_better": 0.52, "reps": 2000},
+          "tax": {"regime_15_pct_inr": 0, "regime_20_pct_inr": 0, "note": "FIXTURE — illustrative; a net loss owes no STCG either way"},
+          "extremes": {"largest_gains": [{"trade_id": "FIX-B-001", "symbol": "FIXTURE1", "net_inr": 5000}],
+                        "largest_losses": [{"trade_id": "FIX-B-002", "symbol": "FIXTURE2", "net_inr": -6000}],
+                        "etf_like_trades": 0, "share_of_absolute_pnl_in_extremes": 0.1}
+        },
+        "D": {
+          "config": "D", "purpose": "sizing, no allocation caps (FIXTURE)", "trades": 90, "no_entry": 14,
+          "no_entry_reasons": {"NO_S1_BAR": 2, "PORTFOLIO_FULL": 12},
+          "win_rate": 0.31, "gross_per_trade": -0.002, "net_per_trade": -0.007, "cost_drag": 0.005,
+          "slippage_per_trade": 0.003, "charges_per_trade": 0.002,
+          "gross_inr": -9000, "slippage_inr": 13000, "charges_inr": 9000, "net_inr": -31000,
+          "expectancy_inr": -344, "profit_factor": 0.52, "largest_win_inr": 4500, "largest_loss_inr": -5500,
+          "longest_losing_streak": 7,
+          "exit_mix": {"STOP_HIT": 55, "TARGET_HIT": 18, "TIME_EXIT": 16, "GAP_THROUGH_STOP": 1},
+          "stop_hit_rate": 0.61, "target_hit_rate": 0.2, "median_stop_distance_atr": 0.45,
+          "ambiguous_bars": 3, "gap_through_stops": 1, "lock_affected_trades": 1,
+          "median_mfe": 0.01, "median_mae": -0.02,
+          "max_drawdown_inr": -45000, "max_drawdown_pct": -0.09, "final_equity_inr": 469000,
+          "return_on_capital_pct": -0.062, "max_positions_open": 8,
+          "paired_vs_A": {"n_common": 88, "mean_diff": 0.0, "ci95": [-0.002, 0.002], "share_better": 0.5, "reps": 2000},
+          "tax": {"regime_15_pct_inr": 0, "regime_20_pct_inr": 0, "note": "FIXTURE — illustrative"},
+          "extremes": {"largest_gains": [{"trade_id": "FIX-D-001", "symbol": "FIXTURE1", "net_inr": 4500}],
+                        "largest_losses": [{"trade_id": "FIX-D-002", "symbol": "FIXTURE2", "net_inr": -5500}],
+                        "etf_like_trades": 0, "share_of_absolute_pnl_in_extremes": 0.12}
+        }
+      },
+      "secondary": {
+        "S1": {"config": "S1", "purpose": "structure stop (FIXTURE)", "trades": 100, "win_rate": 0.3,
+               "net_per_trade": -0.006, "gross_per_trade": -0.001, "cost_drag": 0.005, "net_inr": -30000,
+               "profit_factor": 0.55, "stop_hit_rate": 0.48,
+               "paired_vs_A": {"n_common": 100, "mean_diff": 0.001, "ci95": [-0.001, 0.003], "share_better": 0.51, "reps": 2000}},
+        "S4": {"config": "S4", "purpose": "VWAP proxy entry — an approximation (FIXTURE)", "trades": 100,
+               "win_rate": 0.29, "net_per_trade": -0.008, "gross_per_trade": -0.003, "cost_drag": 0.005,
+               "net_inr": -40000, "profit_factor": 0.45, "stop_hit_rate": 0.62,
+               "paired_vs_A": {"n_common": 100, "mean_diff": -0.001, "ci95": [-0.003, 0.001], "share_better": 0.47, "reps": 2000}}
+      },
+      "portfolio_variants": [
+        {"run": "F", "risk_per_trade_pct": 0.5, "max_positions": 8, "net_inr": -28000, "max_drawdown_pct": -0.08, "return_on_capital_pct": -0.056},
+        {"run": "F", "risk_per_trade_pct": 1.0, "max_positions": 8, "net_inr": -52000, "max_drawdown_pct": -0.15, "return_on_capital_pct": -0.104},
+        {"run": "D", "risk_per_trade_pct": 0.5, "max_positions": 50, "net_inr": -31000, "max_drawdown_pct": -0.09, "return_on_capital_pct": -0.062}
+      ],
+      "random_control": {"seeds": 200, "mean_net_per_trade": -0.004, "p05": -0.009, "p95": 0.001, "a_percentile": 63.0},
+      "rank_bands": {"1-5": {"n": 100, "net_per_trade": -0.007}, "6-10": {"n": 100, "net_per_trade": -0.003}, "11-20": {"n": 200, "net_per_trade": -0.005}}
+    },
+    "replay": {
+      "runs": {
+        "A": {
+          "config": "A", "purpose": "baseline (FIXTURE)", "trades": 3, "no_entry": 1,
+          "no_entry_reasons": {"NO_S1_BAR": 1},
+          "win_rate": 0.333, "gross_per_trade": -0.002, "net_per_trade": -0.007, "cost_drag": 0.005,
+          "slippage_per_trade": 0.003, "charges_per_trade": 0.002,
+          "gross_inr": -300, "slippage_inr": 450, "charges_inr": 300, "net_inr": -1050,
+          "expectancy_inr": -350, "profit_factor": 0.5, "largest_win_inr": 900, "largest_loss_inr": -1200,
+          "longest_losing_streak": 2,
+          "exit_mix": {"STOP_HIT": 2, "TARGET_HIT": 1},
+          "stop_hit_rate": 0.667, "target_hit_rate": 0.333, "median_stop_distance_atr": 0.45,
+          "ambiguous_bars": 1, "gap_through_stops": 0, "lock_affected_trades": 0,
+          "median_mfe": 0.01, "median_mae": -0.02,
+          "worst_cumulative_net_inr": -1200, "worst_peak_to_trough_inr": -1500,
+          "peak_capital_required_inr": 150000, "max_concurrent_trades": 3
+        },
+        "B": {
+          "config": "B", "purpose": "stop/target (FIXTURE)", "trades": 3, "no_entry": 1,
+          "no_entry_reasons": {"NO_S1_BAR": 1},
+          "win_rate": 0.333, "gross_per_trade": -0.001, "net_per_trade": -0.006, "cost_drag": 0.005,
+          "slippage_per_trade": 0.003, "charges_per_trade": 0.002,
+          "gross_inr": -150, "slippage_inr": 450, "charges_inr": 300, "net_inr": -900,
+          "expectancy_inr": -300, "profit_factor": 0.55, "largest_win_inr": 1000, "largest_loss_inr": -1300,
+          "longest_losing_streak": 2,
+          "exit_mix": {"STOP_HIT": 1, "TARGET_HIT": 1, "TIME_EXIT": 1},
+          "stop_hit_rate": 0.333, "target_hit_rate": 0.333, "median_stop_distance_atr": 1.5,
+          "ambiguous_bars": 0, "gap_through_stops": 0, "lock_affected_trades": 0,
+          "median_mfe": 0.012, "median_mae": -0.025,
+          "worst_cumulative_net_inr": -1000, "worst_peak_to_trough_inr": -1300,
+          "peak_capital_required_inr": 150000, "max_concurrent_trades": 3,
+          "paired_vs_A": {"n_common": 3, "mean_diff": 0.001, "ci95": [-0.004, 0.006], "share_better": 0.66, "reps": 2000},
+          "tax": {"regime_15_pct_inr": 0, "regime_20_pct_inr": 0, "note": "FIXTURE — illustrative"},
+          "extremes": {"largest_gains": [{"trade_id": "FIX-B-001", "symbol": "FIXTURE1", "net_inr": 1000}],
+                        "largest_losses": [{"trade_id": "FIX-B-002", "symbol": "FIXTURE2", "net_inr": -1300}],
+                        "etf_like_trades": 0, "share_of_absolute_pnl_in_extremes": 0.3}
+        },
+        "D": {
+          "config": "D", "purpose": "sizing, no allocation caps (FIXTURE)", "trades": 3, "no_entry": 1,
+          "no_entry_reasons": {"PORTFOLIO_FULL": 1},
+          "win_rate": 0.333, "gross_per_trade": -0.002, "net_per_trade": -0.007, "cost_drag": 0.005,
+          "slippage_per_trade": 0.003, "charges_per_trade": 0.002,
+          "gross_inr": -280, "slippage_inr": 420, "charges_inr": 280, "net_inr": -980,
+          "expectancy_inr": -327, "profit_factor": 0.52, "largest_win_inr": 850, "largest_loss_inr": -1150,
+          "longest_losing_streak": 2,
+          "exit_mix": {"STOP_HIT": 2, "TARGET_HIT": 1},
+          "stop_hit_rate": 0.667, "target_hit_rate": 0.333, "median_stop_distance_atr": 0.45,
+          "ambiguous_bars": 1, "gap_through_stops": 0, "lock_affected_trades": 0,
+          "median_mfe": 0.01, "median_mae": -0.02,
+          "max_drawdown_inr": -1500, "max_drawdown_pct": -0.003, "final_equity_inr": 499020,
+          "return_on_capital_pct": -0.002, "max_positions_open": 3,
+          "paired_vs_A": {"n_common": 3, "mean_diff": 0.0, "ci95": [-0.005, 0.005], "share_better": 0.5, "reps": 2000},
+          "tax": {"regime_15_pct_inr": 0, "regime_20_pct_inr": 0, "note": "FIXTURE — illustrative"},
+          "extremes": {"largest_gains": [{"trade_id": "FIX-D-001", "symbol": "FIXTURE1", "net_inr": 850}],
+                        "largest_losses": [{"trade_id": "FIX-D-002", "symbol": "FIXTURE2", "net_inr": -1150}],
+                        "etf_like_trades": 0, "share_of_absolute_pnl_in_extremes": 0.28}
+        }
+      },
+      "secondary": {
+        "S1": {"config": "S1", "purpose": "structure stop (FIXTURE)", "trades": 3, "win_rate": 0.333,
+               "net_per_trade": -0.006, "gross_per_trade": -0.001, "cost_drag": 0.005, "net_inr": -900,
+               "profit_factor": 0.55, "stop_hit_rate": 0.333,
+               "paired_vs_A": {"n_common": 3, "mean_diff": 0.001, "ci95": [-0.004, 0.006], "share_better": 0.66, "reps": 2000}}
+      },
+      "portfolio_variants": [
+        {"run": "F", "risk_per_trade_pct": 0.5, "max_positions": 8, "net_inr": -800, "max_drawdown_pct": -0.002, "return_on_capital_pct": -0.0016},
+        {"run": "D", "risk_per_trade_pct": 0.5, "max_positions": 50, "net_inr": -980, "max_drawdown_pct": -0.003, "return_on_capital_pct": -0.002}
+      ],
+      "random_control": {"seeds": 200, "mean_net_per_trade": -0.004, "p05": -0.012, "p95": 0.004, "a_percentile": 58.0},
+      "rank_bands": {"1-5": {"n": 3, "net_per_trade": -0.007}, "6-10": {"n": 3, "net_per_trade": -0.003}}
+    }
+  },
+  "reconciliation": {
+    "summary": {
+      "trades_compared": 100, "outcome_agree": 100, "exit_date_agree": 100, "exit_level_agree": 100,
+      "net_agree_1e_6": 10, "net_exact_path_agree_1e_6": 100, "entry_status_agree": 104, "picks": 104,
+      "unexplained": 0
+    },
+    "classes": [
+      {"class": "NET_PAISA_ROUNDING", "trades": 88, "side": "convention", "what": "FIXTURE — the simulator rounds fills to the paisa; labels.py does not"},
+      {"class": "NET_QTY_BOUNDARY", "trades": 2, "side": "convention", "what": "FIXTURE — the same, and the share count differs"},
+      {"class": "LOCKED_LOWER_FULL_DAY", "trades": 1, "side": "labels.py", "what": "FIXTURE — a blocked bar was locked all day; labels.py sold where nothing traded"},
+      {"class": "LOCKED_LOWER_HEURISTIC", "trades": 1, "side": "simulator", "what": "FIXTURE — the lock test fired on a bar that then traded away from its open"}
+    ]
+  },
+  "data_quality": {
+    "year": {"sessions": 3, "status": {"PASS_WITH_FLAGS": 3}, "fail_reasons": [], "valid_bar_pct_min": 99.9,
+             "missing_bar_symbol_days": 2, "cutoff_dates_checked": 3, "cutoff_violations": 0,
+             "raw_duplicate_keys": 0, "off_calendar_bars": 0, "special_sessions": ["2022-10-24"]},
+    "replay": {"sessions": 3, "status": {"PASS_WITH_FLAGS": 3}, "fail_reasons": [], "valid_bar_pct_min": 99.9,
+               "missing_bar_symbol_days": 0, "cutoff_dates_checked": 3, "cutoff_violations": 0,
+               "raw_duplicate_keys": 0, "off_calendar_bars": 0, "special_sessions": ["2022-10-24"]},
+    "sessions": [
+      {"date": "2022-10-03", "status": "PASS_WITH_FLAGS", "fail_reasons": [], "special_session": null,
+       "missing_count": 0, "flags": {"volume_spike": 2, "locked_open_down": 1}},
+      {"date": "2022-10-24", "status": "PASS_WITH_FLAGS", "fail_reasons": [], "special_session": "Diwali Muhurat (about one hour)",
+       "missing_count": 0, "flags": {"muhurat": 3}},
+      {"date": "2022-11-01", "status": "PASS_WITH_FLAGS", "fail_reasons": [], "special_session": null,
+       "missing_count": 0, "flags": {"locked_close_up": 1}}
+    ]
+  },
+  "scorecard": {
+    "year": {
+      "A_data_quality": {"score": "PASS", "failing_sessions": 0, "cutoff_violations": 0, "raw_duplicates": 0, "valid_bar_pct": 99.9},
+      "B_signal": {"score": "FAIL", "net_per_trade": -0.007, "random_percentile": 63.0},
+      "C_execution": {"score": "PASS", "unexplained": 0, "ambiguous_bar_share": 0.03},
+      "D_risk_allocation": {"score": "WATCH", "losers_beyond_1_5R_share": 0.02, "cap_breaches": 0}
+    },
+    "replay": {
+      "A_data_quality": {"score": "PASS", "failing_sessions": 0, "cutoff_violations": 0, "raw_duplicates": 0, "valid_bar_pct": 99.9},
+      "B_signal": {"score": "FAIL", "net_per_trade": -0.007, "random_percentile": 58.0},
+      "C_execution": {"score": "PASS", "unexplained": 0, "ambiguous_bar_share": 0.33},
+      "D_risk_allocation": {"score": "WATCH", "losers_beyond_1_5R_share": 0.0, "cap_breaches": 0}
+    }
+  },
+  "rc1": {
+    "year": {"STOP_FAILURE": 55, "WIN": 30, "DATA_FAILURE": 8, "VOLATILITY_TRAP": 5, "ENTRY_FAILURE": 2},
+    "replay": {"STOP_FAILURE": 2, "WIN": 1}
+  },
+  "trades": {
+    "A": [
+      {"trade_id": "FIX-A-001", "symbol": "FIXTURE1", "company": "Fixture Industries (placeholder)",
+       "decision_date": "2022-10-03", "entry_date": "2022-10-04", "exit_date": "2022-10-04",
+       "exit_reason": "STOP_HIT", "rank": 1, "score": 0.5, "qty": 100, "entry_price": 500.0, "stop": 490.0,
+       "target": 525.0, "exit_price": 490.0, "gross_inr": -1000.0, "slippage_inr": 150.0, "charges_inr": 100.0,
+       "net_inr": -1250.0, "net_ret": -0.025, "r_multiple": -1.25, "mfe_pct": 0.004, "mae_pct": -0.025,
+       "stop_distance_atr": 0.45, "rc1_primary": "STOP_FAILURE", "flags": "", "dq_status": "PASS"},
+      {"trade_id": "FIX-A-002", "symbol": "FIXTURE2", "company": "Second Fixture Ltd (placeholder)",
+       "decision_date": "2022-10-24", "entry_date": "2022-10-25", "exit_date": "2022-10-27",
+       "exit_reason": "TARGET_HIT", "rank": 2, "score": 0.45, "qty": 50, "entry_price": 1000.0, "stop": 980.0,
+       "target": 1050.0, "exit_price": 1050.0, "gross_inr": 2500.0, "slippage_inr": 150.0, "charges_inr": 100.0,
+       "net_inr": 2250.0, "net_ret": 0.045, "r_multiple": 2.25, "mfe_pct": 0.05, "mae_pct": -0.005,
+       "stop_distance_atr": 0.4, "rc1_primary": "WIN", "flags": "muhurat", "dq_status": "PASS_WITH_FLAGS"},
+      {"trade_id": "FIX-A-003", "symbol": "FIXTURE3", "company": "Third Fixture Ltd (placeholder)",
+       "decision_date": "2022-11-01", "entry_date": "2022-11-02", "exit_date": "2022-11-02",
+       "exit_reason": "STOP_HIT", "rank": 3, "score": 0.42, "qty": 200, "entry_price": 250.0, "stop": 245.0,
+       "target": 262.5, "exit_price": 245.0, "gross_inr": -1000.0, "slippage_inr": 150.0, "charges_inr": 100.0,
+       "net_inr": -1250.0, "net_ret": -0.025, "r_multiple": -1.25, "mfe_pct": 0.002, "mae_pct": -0.026,
+       "stop_distance_atr": 0.5, "rc1_primary": "STOP_FAILURE", "flags": "ambiguous_bar", "dq_status": "PASS"},
+      {"trade_id": "FIX-A-004", "symbol": "FIXTURE4", "company": "Out-of-window Fixture Ltd (placeholder)",
+       "decision_date": "2022-01-03", "entry_date": "2022-01-04", "exit_date": "2022-01-06",
+       "exit_reason": "TIME_EXIT", "rank": 1, "score": 0.51, "qty": 40, "entry_price": 1250.0, "stop": 1225.0,
+       "target": 1312.5, "exit_price": 1240.0, "gross_inr": -400.0, "slippage_inr": 150.0, "charges_inr": 100.0,
+       "net_inr": -650.0, "net_ret": -0.013, "r_multiple": -0.65, "mfe_pct": 0.008, "mae_pct": -0.018,
+       "stop_distance_atr": 0.44, "rc1_primary": "VOLATILITY_TRAP", "flags": "", "dq_status": "PASS"}
+    ],
+    "D": [
+      {"trade_id": "FIX-D-001", "symbol": "FIXTURE1", "company": "Fixture Industries (placeholder)",
+       "decision_date": "2022-10-03", "entry_date": "2022-10-04", "exit_date": "2022-10-04",
+       "exit_reason": "STOP_HIT", "rank": 1, "score": 0.5, "qty": 50, "entry_price": 500.0, "stop": 490.0,
+       "target": 525.0, "exit_price": 490.0, "gross_inr": -500.0, "slippage_inr": 75.0, "charges_inr": 50.0,
+       "net_inr": -625.0, "net_ret": -0.025, "r_multiple": -1.25, "mfe_pct": 0.004, "mae_pct": -0.025,
+       "stop_distance_atr": 0.45, "rc1_primary": "STOP_FAILURE", "flags": "", "dq_status": "PASS"},
+      {"trade_id": "FIX-D-002", "symbol": "FIXTURE2", "company": "Second Fixture Ltd (placeholder)",
+       "decision_date": "2022-10-24", "entry_date": "2022-10-25", "exit_date": "2022-10-27",
+       "exit_reason": "TARGET_HIT", "rank": 2, "score": 0.45, "qty": 25, "entry_price": 1000.0, "stop": 980.0,
+       "target": 1050.0, "exit_price": 1050.0, "gross_inr": 1250.0, "slippage_inr": 75.0, "charges_inr": 50.0,
+       "net_inr": 1125.0, "net_ret": 0.045, "r_multiple": 2.25, "mfe_pct": 0.05, "mae_pct": -0.005,
+       "stop_distance_atr": 0.4, "rc1_primary": "WIN", "flags": "muhurat", "dq_status": "PASS_WITH_FLAGS"}
+    ]
+  },
+  "candidates": [
+    {"date": "2022-10-03", "symbol": "FIXTURE1", "company": "Fixture Industries (placeholder)", "rank": 1,
+     "score": 0.5, "tradable": true, "status": "SELECTED", "reason": "", "value20": 120000000, "close": 498.0,
+     "atr_pct": 3.2, "sector": "Fixture Sector"},
+    {"date": "2022-10-03", "symbol": "FIXTURE5", "company": "Fifth Fixture Ltd (placeholder)", "rank": 2,
+     "score": 0.48, "tradable": false, "status": "REJECTED", "reason": "value20 below the floor", "value20": 20000000,
+     "close": 88.0, "atr_pct": 4.1, "sector": "Fixture Sector"},
+    {"date": "2022-10-03", "symbol": "FIXTURE6", "company": "Sixth Fixture Ltd (placeholder)", "rank": 31,
+     "score": 0.21, "tradable": true, "status": "NOT_SELECTED", "reason": "rank below the cut", "value20": 300000000,
+     "close": 640.0, "atr_pct": 2.4, "sector": "Another Fixture Sector"},
+    {"date": "2022-10-24", "symbol": "FIXTURE2", "company": "Second Fixture Ltd (placeholder)", "rank": 1,
+     "score": 0.45, "tradable": true, "status": "SELECTED", "reason": "", "value20": 250000000, "close": 995.0,
+     "atr_pct": 2.8, "sector": "Fixture Sector"},
+    {"date": "2022-11-01", "symbol": "FIXTURE3", "company": "Third Fixture Ltd (placeholder)", "rank": 1,
+     "score": 0.42, "tradable": true, "status": "SELECTED", "reason": "", "value20": 180000000, "close": 249.0,
+     "atr_pct": 3.6, "sector": "Another Fixture Sector"}
+  ],
+  "notes": {
+    "internal_only": true,
+    "percent_of_capital_rule": "A \"% of ₹5,00,000\" or \"max drawdown %\" figure is only valid for the portfolio runs D and F. The fixed-notional runs (A, B, C, E, G, H, S*) report per-trade and rupee totals plus the peak capital required, and their worst run of losses is labelled \"worst cumulative net\", never a drawdown.",
+    "tax": "illustrative"
+  }
+}
