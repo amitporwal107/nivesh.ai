@@ -1,6 +1,8 @@
-# Roadmap v2, Phases 2–3 — trade-outcome labels and baseline models: pre-registration (DRAFT, awaiting owner approval)
+# Roadmap v2, Phases 2–3 — trade-outcome labels and baseline models: pre-registration (FROZEN)
 
-**Status: DRAFT.** Not frozen. No dataset has been built and no model has been fitted.
+**Status: FROZEN.** Approved by the owner on 2026-09-19 (~21:05 IST), "approve as drafted".
+- At approval, no dataset had been built and no model fitted.
+- Index history: the owner said "the kite secret key is still valid". Only the **development range (2021–22)** is fetched now; test-period index bars are fetched at test time (§9).
 
 | Item | Value |
 |---|---|
