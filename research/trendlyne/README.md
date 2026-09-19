@@ -32,3 +32,14 @@ cache.stats   # {'calls': MCP calls made, 'hits': cached values, 'misses': fetch
 - Trendlyne data is for internal research only; do not redistribute it.
 
 Tests: `python -m pytest research/trendlyne -q` (fake Redis and fake server; no network).
+
+## Daily history (archive) and the daily job
+- Every response fetched from Trendlyne is appended to `TL_ARCHIVE_DIR/<YYYY-MM-DD>/param_values.jsonl.gz` (bulk
+  values, with the raw labelled response) or `tool_responses.jsonl.gz` (overview, news, events, deals, lookups).
+  Append-only, never rewritten; read with `tl_cache.read_archive(kind, start=..., end=...)`. The cache expires, the
+  archive does not. `TLCache.restore(record)` rebuilds cache entries from an archived record without a call.
+- Cron `/etc/cron.d/tl-daily` runs `/app/research/trendlyne/run_daily.sh` at 07:30 IST Mon–Sat (just after the 07:00
+  end-of-day expiry) with a deployed copy of this code in `/app/research/trendlyne/bin/`: bulk parameters for the
+  universe every run (~1 call per 10 stocks), per-stock views (overview incl. ASM status, events, bulk/block deals, news)
+  on Saturdays (~4 calls per stock). Writes `screens/<date>/screen.{csv,html}`. Logs: `/app/research/trendlyne/logs/`.
+  Re-deploy after code changes: `install -m 644 research/trendlyne/{tl_client,tl_cache,screen_list,daily_archive}.py /app/research/trendlyne/bin/`.
