@@ -11,9 +11,15 @@ Freshness classes (IST):
 
 Bulk values are cached per (stock code, parameter), so any mix of stocks and parameters is served from the cache and
 only the missing pairs are fetched, packed into calls of at most 10 stocks x 50 parameters.
+
+Archive: the cache expires, the history must not. Every response actually fetched from Trendlyne is also appended to
+TL_ARCHIVE_DIR/<fetch date IST>/{param_values,tool_responses}.jsonl.gz (append-only, never rewritten), so prices,
+technicals, overview, events, deals and insider data accumulate a daily history. `read_archive` loads it back.
 """
 import datetime as dt
 import difflib
+import glob
+import gzip
 import hashlib
 import json
 import os
@@ -131,9 +137,32 @@ class RedisStore:
             p.execute()
 
 
+ARCHIVE_DIR = os.environ.get("TL_ARCHIVE_DIR", "/app/research/trendlyne/archive")
+
+
+def archive_append(root: str, kind: str, record: dict, fetched_at: dt.datetime):
+    """Append one JSON line to <root>/<YYYY-MM-DD>/<kind>.jsonl.gz (multi-member gzip: safe to append)."""
+    d = os.path.join(root, fetched_at.astimezone(IST).strftime("%Y-%m-%d"))
+    os.makedirs(d, exist_ok=True)
+    with gzip.open(os.path.join(d, f"{kind}.jsonl.gz"), "at", encoding="utf-8") as f:
+        f.write(json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\n")
+
+
+def read_archive(kind: str, root: str = ARCHIVE_DIR, start: str = "0000", end: str = "9999"):
+    """Yield archived records of one kind for fetch dates start..end (YYYY-MM-DD, inclusive)."""
+    for d in sorted(glob.glob(os.path.join(root, "*", f"{kind}.jsonl.gz"))):
+        day = os.path.basename(os.path.dirname(d))
+        if start <= day <= end:
+            with gzip.open(d, "rt", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        yield json.loads(line)
+
+
 class TLCache:
-    def __init__(self, client, store, daily_cap: int | None = None, now=None):
+    def __init__(self, client, store, daily_cap: int | None = None, now=None, archive_dir: str | None = ARCHIVE_DIR):
         self.client, self.store = client, store
+        self.archive_dir = archive_dir
         self.daily_cap = daily_cap if daily_cap is not None else int(os.environ.get("TL_DAILY_CALL_CAP", "300"))
         self._now = now or (lambda: dt.datetime.now(IST))
         self.stats = {"calls": 0, "rejected": 0, "hits": 0, "misses": 0}
@@ -160,7 +189,12 @@ class TLCache:
             return hit
         self.stats["misses"] += 1
         text = self._call(tool, args)
-        self.store.set_many({key: (text, expiry(cls, self._now()))})
+        now = self._now()
+        self.store.set_many({key: (text, expiry(cls, now))})
+        if self.archive_dir:
+            archive_append(self.archive_dir, "tool_responses",
+                           {"fetched_at": now.isoformat(timespec="seconds"), "tool": tool, "args": args, "cls": cls,
+                            "text": text}, now)
         return text
 
     def search_entities(self, query: str, limit: int = 5) -> list[dict]:
@@ -201,6 +235,12 @@ class TLCache:
                 out[p] = known[p]
                 free.remove(known[p])
         new = {}
+        for p in [p for p in params if p not in out]:  # exact name match first (SMA20 vs SMA200 differ only slightly)
+            exact = [l for l in free if _norm(l) == _norm(text.get(p, p))]
+            if len(exact) == 1:
+                out[p] = exact[0]
+                free.remove(exact[0])
+                new[p] = exact[0]
         for p in [p for p in params if p not in out]:
             scores = sorted(((difflib.SequenceMatcher(None, _norm(text.get(p, p)), _norm(l)).ratio(), l) for l in free), reverse=True)
             if len(free) == 1 or (scores and scores[0][0] >= 0.8 and (len(scores) == 1 or scores[0][0] - scores[1][0] >= 0.15)):
@@ -251,6 +291,21 @@ class TLCache:
             return
         self._store(cs, ps, stocks, vals, self._now(), cached)
 
+    def restore(self, record: dict) -> int:
+        """Re-cache an archived param_values record from its raw labelled values (no call, not re-archived) — used
+        after new label mappings are confirmed. Values keep their original expiry."""
+        cs, raw = record["codes"], record.get("raw") or {}
+        keys = list(dict.fromkeys(k for v in raw.values() for k in v))
+        rk = record.get("row_key") or {}
+        left = [k for k in keys if k not in cs and k not in rk.values()]
+        for c in cs:
+            rk.setdefault(c, c if c in keys else (left.pop(0) if left else None))
+        stocks = [{"nse": rk[c], "bse": "", "name": record.get("names", {}).get(c, ""), "asof": record.get("asof", {}).get(c)}
+                  for c in cs if rk.get(c)]
+        cached = {}
+        self._store(cs, record["params"], stocks, raw, dt.datetime.fromisoformat(record["fetched_at"]), cached, archive=False)
+        return len(cached)
+
     def ingest(self, cs: list[str], ps: list[str], text: str, fetched_at: dt.datetime) -> int:
         """Cache a get_stock_parameter_values response obtained earlier (e.g. from a call log); values keep the expiry
         they would have had at fetch time. Returns the number of values stored."""
@@ -259,7 +314,7 @@ class TLCache:
         self._store([c.upper() for c in cs], ps, stocks, vals, fetched_at, cached)
         return len(cached)
 
-    def _store(self, cs, ps, stocks, vals, fetched_at: dt.datetime, cached: dict):
+    def _store(self, cs, ps, stocks, vals, fetched_at: dt.datetime, cached: dict, archive: bool = True):
         # response rows are keyed by the stock's NSE symbol (or its numeric id for BSE-only stocks); map back to codes
         row_key, left = {}, []
         for s in stocks:
@@ -272,6 +327,14 @@ class TLCache:
             row_key[c] = s["nse"]
         asof = {s["nse"]: s["asof"] for s in stocks}
         lab = self._map_labels(ps, list(vals))
+        if self.archive_dir and archive:
+            archive_append(self.archive_dir, "param_values", {
+                "fetched_at": fetched_at.isoformat(timespec="seconds"), "codes": cs, "params": ps,
+                "labels": {p: lab.get(p) for p in ps},
+                "asof": {c: asof.get(row_key[c]) for c in cs if c in row_key},
+                "values": {c: {p: vals.get(lab[p], {}).get(row_key[c]) for p in ps if lab.get(p)} for c in cs if c in row_key},
+                "names": {c: s["name"] for c in cs for s in stocks if row_key.get(c) == s["nse"]},
+                "row_key": row_key, "raw": vals}, fetched_at)  # every labelled value as served, including labels not yet mapped to a code
         age = (self._now() - fetched_at).total_seconds()
         items = {}
         for p in ps:

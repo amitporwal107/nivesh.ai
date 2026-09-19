@@ -83,10 +83,10 @@ class FakeServer:
 
 
 @pytest.fixture
-def env():
+def env(tmp_path):
     clock = Clock(dt.datetime(2026, 9, 19, 9, 40, tzinfo=IST))  # Saturday, outside filing season
     store, srv = FakeStore(clock), FakeServer()
-    c = T.TLCache(srv, store, daily_cap=100, now=clock)
+    c = T.TLCache(srv, store, daily_cap=100, now=clock, archive_dir=str(tmp_path / "archive"))
     c.seed_labels(LABELS)
     return clock, store, srv, c
 
@@ -207,3 +207,35 @@ def test_plan_batches_limits():
     assert all(len(cs) <= 10 and len(ps) <= 50 for cs, ps in b)
     assert sorted((c, p) for cs, ps in b for c in cs for p in ps if p in miss[c]) == sorted((c, p) for c in miss for p in miss[c])
     assert len(T.plan_batches({f"C{i:02d}": {"a"} for i in range(25)})) == 3
+
+
+def test_every_fetch_is_archived_once_and_readable(env):
+    clock, _, srv, c = env
+    c.get_params(["S01", "S02"], ["roea", "pettm"])
+    c.get_params(["S01", "S02"], ["roea", "pettm"])  # served from cache -> not archived again
+    recs = list(T.read_archive("param_values", c.archive_dir))
+    assert len(recs) == 1 and recs[0]["values"]["S02"]["pettm"] == "S02-pettm" and recs[0]["asof"]["S01"] == "2026-09-18"
+    clock.t = dt.datetime(2026, 9, 20, 7, 5, tzinfo=IST)  # next day: the eod value is refetched and archived again
+    c.get_params(["S01", "S02"], ["roea", "pettm"])
+    days = [r["fetched_at"][:10] for r in T.read_archive("param_values", c.archive_dir)]
+    assert days == ["2026-09-19", "2026-09-20"]
+    assert list(T.read_archive("param_values", c.archive_dir, start="2026-09-20"))[0]["params"] == ["pettm"]
+
+
+def test_exact_label_beats_lookalikes_and_restore_recaches(env):
+    clock, store, srv, c = env
+    LABELS.update(sma20="Day SMA20", sma200="Day SMA200", sma50="Day SMA50")
+    try:
+        c.seed_param_text({"sma20": "Day SMA20", "sma200": "Day SMA200", "sma50": "Day SMA50"})
+        out = c.get_params(["S01"], ["sma20", "sma200", "sma50"])
+        assert out["S01"] == {"sma20": "S01-sma20", "sma200": "S01-sma200", "sma50": "S01-sma50"}
+        rec = list(T.read_archive("param_values", c.archive_dir))[-1]
+        for k in list(store.d):
+            if ":pv:" in k:
+                store.d.pop(k)
+        n = len(srv.calls)
+        assert c.restore(rec) == 3 and c.get_params(["S01"], ["sma50"])["S01"]["sma50"] == "S01-sma50"
+        assert len(srv.calls) == n and len(list(T.read_archive("param_values", c.archive_dir))) == 1
+    finally:
+        for k in ("sma20", "sma200", "sma50"):
+            LABELS.pop(k)
