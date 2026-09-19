@@ -29,14 +29,22 @@ These figures come from the H#32 development trades (M8 top 5 per day, 2022, 1,2
 - They were computed with the same label code the loss came from, so an independent second simulator is still required (§6, D2).
 - They set the leading hypotheses; they do not settle them.
 
-| Question | Finding | Leading reading |
-|---|---|---|
-| Could the intrabar stop/target order cause the loss? | 15 trades (1.2%) had a bar touching both levels. Even counting all 15 as target hits, gross is still −0.07% per trade | **Unlikely.** Ordering is a minor factor |
-| Do the picks go up? | Held 5 sessions with no stop or target: mean **0.00%** gross, 47.1% finish up (random picks: +0.05%, 49.3%) | **No directional edge** |
-| Is the move symmetric? | Median best move during the trade +3.9%, median worst −3.9% (random: +3.2% / −3.0%) | **The model picks volatility, not direction** |
-| Is the −2% stop sensible for these stocks? | **49.8% of picks touch the stop on the entry day** (random: 38.5%). 16.9% are stopped although +5% was reached later within the 5 sessions | **The stop sits inside normal daily noise** for the volatile names the model picks |
-| How much do costs matter? | Gross −0.15% per trade; net −0.68%; costs plus slippage cost 0.53% per round trip | **Costs turn roughly zero into a clear loss.** They do not create the problem |
-| Gap-through stops | 46 of 1,206 trades (3.8%) exited below the stop at the open | A small but real tail |
+M8 = the H#32 gradient-boosting model's top 5 a day; random = the seeded random-selection control.
+
+| Diagnostic (2022, top 5 a day) | M8 model (1,206 trades) | Random (1,205) | Points to |
+|---|---|---|---|
+| Outcome: TARGET / STOP / EXPIRED | 24.5% / 69.0% / 6.6% | 20.9% / 63.7% / 15.4% | – |
+| Mean gross, no costs or slippage | **−0.15%** | −0.07% | no gross edge |
+| Mean net, base costs | −0.68% | −0.56% | – |
+| Cost + slippage drag per trade | 0.53% | 0.48% | costs turn ~0 into a loss |
+| Ambiguous same-bar exits (stop and target both touched) | 15 (1.2%) | 10 (0.8%) | intrabar ordering is **not** the cause |
+| Upper bound if every ambiguous bar went to target first | −0.07% gross | −0.02% | still ≤ 0 |
+| Gap-through stops | 46 (3.8%) | 43 | a small tail |
+| Plain 5-session hold (no stop or target), mean gross | **0.00%** | +0.05% | **no directional edge** |
+| Share of picks up after 5 sessions | 47.1% | 49.3% | direction ≈ coin flip |
+| Median best move / median worst move (MFE / MAE) | +3.9% / −3.9% | +3.2% / −3.0% | symmetric: volatility, not direction |
+| **Stop touched on the entry day (s1)** | **49.8%** | 38.5% | the −2% stop sits inside normal daily noise |
+| Stopped although +5% was touched within 5 sessions | 16.9% | 9.4% | "volatility trap" |
 
 **What the framework must confirm or reject:**
 - signal / direction failure (no edge in the selections);
@@ -168,7 +176,7 @@ The ledger must answer the owner's selection questions:
 |---|---|
 | NEXT_OPEN | the s1 official open (the H#32 baseline) |
 | OPEN_WITH_SLIPPAGE | the s1 open plus the cost-model slippage bucket (0.05 / 0.10 / 0.20% per side) |
-| OPEN_CONFIRMATION | enter at the s1 **close**, only if the s1 close is above the s1 open (a positive first session); otherwise NO_ENTRY. Levels are then set from that entry |
+| OPEN_CONFIRMATION | a buy-stop at the D high + 0.1%, valid on s1 only; it fills at max(open, trigger) when the s1 high reaches the trigger, otherwise NO_ENTRY. This reuses the tested BUY_STOP fill in `execution.py` |
 | LIMIT_ENTRY | a limit at the D close × 0.995, valid on s1 only. Fills at min(open, limit) when the s1 low ≤ limit |
 | VWAP_PROXY | the s1 typical price (high + low + close) / 3. **Labelled an approximation:** true VWAP needs intraday data |
 | NO_ENTRY conditions | no s1 bar; s1 open locked at the upper circuit; s1 open more than 3% above the D close (maximum chase); a stop at or above the entry after a gap |
