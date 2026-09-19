@@ -27,11 +27,15 @@ Every entry is judged against `SUCCESS_CRITERIA.md` (five gates, three stages).
 | 16 | Gap-up continuation over 5 days (Phase 1: −1.207% day 1, +0.457% over 5 days) | net5d | **Candidate only** | descriptive, discovery period | PHASE1_BASE_RATES.md |
 | 17 | Breadth regime (weak breadth → better 5-day net) | net5d | **Candidate only, non-monotonic** | descriptive | PHASE1_BASE_RATES.md |
 
-**Count so far: 22 families, several with multiple variants.** Any new discovery-period result should be judged
+**Count so far: 26 families, several with multiple variants.** Any new discovery-period result should be judged
 against this many looks: a single t ≈ 2 is expected by chance.
 | 18 | Delayed stop ("give it room, it recovers") | close return | **Contradicted descriptively** | median low 2 min after open; drawdown by 10:00 < −5% → close −4.95%, > −0.5% → +3.60% | gapdown/G1_RESULT.md |
 | 19 | Early-confirmation entry (G2–G5); **H-B = 09:45 confirmation (price ≥ 99.5% of open and > VWAP)** | net return from the later entry | **H-B FAILED SEALED VALIDATION 2026-09-19 (accepted after audit)** | 2021–22: −0.402%/session, CI [−0.567, −0.236], t −4.76; both years and both liquidity buckets negative; ETFs dropped −0.435%; no cap −0.412%; hold-to-close −0.616%. Confirmed signals made +2.32% open→close but −0.55% 09:45→close: the rebound is over by the confirmation | sealed/HB_VALIDATION_RESULT.md |
 | 20 | Early intraday strength continuation (enter after early strength, hold to close) | net return from the later entry | **FAILED (discovery)** | 528 sessions: up ≥ +3% at 09:45 → −0.469%/session (t −10.05), every threshold/cap/liquidity variant negative in every year; the 18-Sep list was winners-only | pattern_engine/SCREENER_CHECK_2026-09-18.md |
 | 21 | 52-week-high breakout with volume in an uptrend (evening signal, enter next open) | net return | **Candidate only — not tested** | suggested by the APARINDS case; one-day profile check 18 Sep: 6 of 16 (includes an ETF) vs 5.3% base — one session, hindsight | APARINDS_CASE_2026-09-18.md |
 | 22 | Post-results drift (results jump + positive reaction) | net return | **Candidate only — blocked by data** | results reach `nse_financials_quarterly` a median 36 days after filing (Jun-26 quarter: 3.7% within 1 day), so no point-in-time test is possible yet | APARINDS_CASE_2026-09-18.md |
+| 23 | A — Volatility expansion (ATR above own median, RVOL ≥ 1.5, compressed 10-day range, TR expansion) | L5_1/L10_1/L5_5/L10_5 + net | **Pre-registered 2026-09-19, discovery only** | — | phase1/PHASE1_PREREGISTRATION.md |
+| 24 | B — Breakout with confirmation (close > 20-day high [B55: 55-day], RVOL ≥ 1.5, close near high, above EMA20/50, RS20 > 0) | same | **Pre-registered 2026-09-19, discovery only** | — | phase1/PHASE1_PREREGISTRATION.md |
+| 25 | H-C — Gap-down recovery after the initial low (1% off the low + above VWAP, 09:20–10:25; stop at the low) | net trade | **Pre-registered 2026-09-19, discovery only** | new rule; H-B is closed | phase1/PHASE1_PREREGISTRATION.md |
+| 26 | H-D — Gap-down continuation (H-B's rejected set, short at 09:45, stop +2%) | net trade | **Pre-registered 2026-09-19, discovery only** | idea came from the sealed H-B section 8 table | phase1/PHASE1_PREREGISTRATION.md |
 
