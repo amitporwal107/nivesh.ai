@@ -34,9 +34,10 @@ def cost_rt(v: float) -> float:
 
 def build(prev: dt.date | None = None) -> tuple[pd.DataFrame, dict]:
     hol = set(pd.to_datetime(q("SELECT DISTINCT holiday_date FROM nidp.nse_holidays").holiday_date).dt.date)
-    dates = q("SELECT DISTINCT as_of_date FROM nidp.prices_eod WHERE series='EQ' ORDER BY as_of_date DESC LIMIT 40")
+    latest = pd.to_datetime(q("SELECT max(as_of_date) AS d FROM nidp.prices_eod WHERE series='EQ'").d).dt.date.iloc[0]
+    prev = prev or latest
+    dates = q(f"SELECT DISTINCT as_of_date FROM nidp.prices_eod WHERE series='EQ' AND as_of_date <= '{prev}' ORDER BY as_of_date DESC LIMIT 40")
     dates = sorted(pd.to_datetime(dates.as_of_date).dt.date, reverse=True)
-    prev = prev or dates[0]
     window = [d for d in dates if d <= prev][:20]
     px = q("SELECT as_of_date, symbol, close_price, turnover FROM nidp.prices_eod WHERE series='EQ' "
            f"AND as_of_date BETWEEN '{window[-1]}' AND '{prev}'")
@@ -64,7 +65,7 @@ def build(prev: dt.date | None = None) -> tuple[pd.DataFrame, dict]:
     dq = {"prev_session": str(prev), "next_session": str(nxt), "generated_at_ist": now_ist.isoformat(timespec="seconds"),
           "eq_symbols_on_prev_session": int(last.shape[0]), "watchlist_symbols": int(len(w)),
           "excluded_missing_20_sessions": int(len(missing_hist)), "ca_ex_next_session": int(w.ca_ex_next_session.sum()),
-          "stale": prev != max(dates), "status": "CERTIFIED" if len(w) and prev == max(dates) else "DEGRADED"}
+          "latest_available": str(latest), "stale": prev != latest, "status": "CERTIFIED" if len(w) and prev == latest else "HISTORICAL_DRY_RUN" if len(w) else "DEGRADED"}
     return w, dq
 
 def write(w: pd.DataFrame, dq: dict, version: int | None, repo: str) -> str:
