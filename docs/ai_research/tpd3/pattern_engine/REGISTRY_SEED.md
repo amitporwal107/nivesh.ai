@@ -26,7 +26,9 @@ Every entry is judged against `SUCCESS_CRITERIA.md` (five gates, three stages).
 | 16 | Gap-up continuation over 5 days (Phase 1: −1.207% day 1, +0.457% over 5 days) | net5d | **Candidate only** | descriptive, discovery period | PHASE1_BASE_RATES.md |
 | 17 | Breadth regime (weak breadth → better 5-day net) | net5d | **Candidate only, non-monotonic** | descriptive | PHASE1_BASE_RATES.md |
 
-**Count so far: 19 families, several with multiple variants.** Any new discovery-period result should be judged
+**Count so far: 20 families, several with multiple variants.** Any new discovery-period result should be judged
 against this many looks: a single t ≈ 2 is expected by chance.
 | 18 | Delayed stop ("give it room, it recovers") | close return | **Contradicted descriptively** | median low 2 min after open; drawdown by 10:00 < −5% → close −4.95%, > −0.5% → +3.60% | gapdown/G1_RESULT.md |
 | 19 | Early-confirmation entry (G2–G5) | net return from the later entry | **Candidate only — new hypothesis** | suggested by the timing study; needs pre-registration and 2021–24 test | gapdown/G1_RESULT.md |
+| 20 | Early intraday strength continuation (enter after early strength, hold to close) | net return from the later entry | **Candidate only** | owner's 18-Sep Screener list: 92% of gainers' moves after the open; median gainer +2.95% by 09:45 — winners-only, must be tested with faders | pattern_engine/SCREENER_CHECK_2026-09-18.md |
+
