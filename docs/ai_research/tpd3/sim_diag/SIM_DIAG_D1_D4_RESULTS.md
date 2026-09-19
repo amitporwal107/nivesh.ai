@@ -206,3 +206,15 @@ These are descriptive findings on development data. Any rule change they suggest
 - **Deliberate-break checks:**
   - All caught, except 2 equivalent mutants: DP on a buy is already ignored by `costs.py`; "first bar on the date" cannot be missing.
   - One bytecode-cache artefact in the mutation script was found and fixed. Every mutation was then rerun.
+- **Stale bytecode, found and cleared.** After the run, `research/model_v5/__pycache__` still held a mutant from the
+  Phase 4 C/D deliberate-break checks (19 Sep). Its cached `features_p4cd` had the 60-outcome minimum set to 30, with
+  a header matching the restored source, so the C/D test failed against mutant code.
+  - A code-object comparison of all 43 valid caches in the worktree found only that one stale file.
+  - The Phase 4 A/B run is not affected. It ran `phase4.py` as a script (compiled from source), and the caches of the
+    modules it imported are identical to their sources.
+  - This run did not import `features_p4cd`.
+  - Caches cleared; the model_v5 suite then passed 69 of 69.
+  - C/D was never run.
+  - The C/D and A/B deliberate-break results from 19 Sep used the older script and should be re-checked with the
+    fixed one before C/D is run.
+
