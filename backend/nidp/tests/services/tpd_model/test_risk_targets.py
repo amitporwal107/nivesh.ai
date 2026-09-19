@@ -105,6 +105,9 @@ def test_limit_buy_fills_at_the_limit_or_a_lower_open_and_never_above_the_limit(
     f = EX.fill_entry("LIMIT", bar(100, 101, 99.6, 100.5), qty=10, slippage_pct=D("0"), participation_pct=D("100"),
                       limit=D("99.5"))
     assert f.status == "NO_FILL" and f.reason == "NOT_REACHED"
+    f = EX.fill_entry("LIMIT", bar(100, 101, 99.5, 100.5), qty=10, slippage_pct=D("0"), participation_pct=D("100"),
+                      limit=D("99.5"))
+    assert f.status == "FILLED" and f.price == D("99.50")                 # a low exactly at the limit fills
     with pytest.raises(ValueError):
         EX.fill_entry("LIMIT", bar(100, 101, 98, 99), qty=10, slippage_pct=D("0"), participation_pct=D("100"))
 
