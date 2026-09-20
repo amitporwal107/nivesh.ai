@@ -21,6 +21,18 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "default_allowlist": [],
         "allowed_modes": ["off", "allowlist"],
     },
+    "sim_lab": {
+        "display_name": "Simulation Lab (Research page)",
+        "description": (
+            "The frozen consecutive-session simulation runs on /research: the pre-registered comparison matrix, the "
+            "data-quality report, the candidate ledger, the trade audit and the reconciliation against labels.py. "
+            "Internal research over Kite-derived prices - never signals, never redistributable - so 'everyone' is not "
+            "allowed for this flag and a persisted 'everyone' is read as 'off'."
+        ),
+        "default_mode": "allowlist",
+        "default_allowlist": ["aporwal107@gmail.com"],
+        "allowed_modes": ["off", "allowlist"],
+    },
     "ai_copilot": {
         "display_name": "AI Copilot (Scenario Engine)",
         "description": "Simulate scenarios, rebalance plans, custom builder, saved/pending plans",
