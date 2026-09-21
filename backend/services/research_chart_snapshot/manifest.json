@@ -1,10 +1,10 @@
 {
-  "config_hash": "0b169afaa2763a0e3a25bc469ecc001526826d94fa09c3e12a3b4e65ca97dd3e",
+  "config_hash": "de9cc36a69707489e8d98a50aaf605856ea9d201e12617ff054b0110753dd0ce",
   "engine_version": "0.1.0",
   "fixture": false,
-  "generated_at": "2026-09-21T17:29:37Z",
+  "generated_at": "2026-09-21T19:54:09Z",
   "profile": "PATTERN_CONFIRMATION_V1_RESEARCH",
-  "run_id": "chart_20260921T172937Z",
+  "run_id": "chart_20260921T195409Z",
   "schema_version": 1,
   "source": {
     "adjustment_note": "Evidence so far (not exhaustive): Kite daily bars look back-adjusted for ordinary splits and bonuses (IRCTC's 2021 1:5 split shows no discontinuity), but NOT for demergers (SIEMENS 2025 and ABFRL 2025 both show a raw price discontinuity around their demerger dates). Treat this series as adjusted for splits/bonuses only -- never assume full corporate-action adjustment.",
@@ -44,7 +44,7 @@
       "n_bars": 1417,
       "n_patterns": 6,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "92ab75398e805c89d2e1afdffac350eb6bd614eb50cdf71661f2cdc7e5fa0c5d",
+      "sha256": "2f48dec1d574a06aa01a28305e815b3c691a59e76f04daf68b48025b61f515b2",
       "symbol": "ADANIENT"
     },
     {
@@ -55,7 +55,7 @@
       "n_bars": 1417,
       "n_patterns": 9,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "d66024ec54100e9a1bf0f7754b8961e4e263659dc5c4eed161dbdc71cec1bf18",
+      "sha256": "d23ce9f5a0fdde6d0821f1ddc52e21add3a5ad6f26d5445e486fff17f631f24c",
       "symbol": "ADANIPORTS"
     },
     {
@@ -66,7 +66,7 @@
       "n_bars": 1417,
       "n_patterns": 17,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "e1ed44a21d0f644d3a0f7f3209c094309dc01c2a0b56de7ef4d352052aee5b29",
+      "sha256": "eb93088cda04516abdbb52a6a8e38855ca9513aa0cce9114259e24ab137974df",
       "symbol": "ADANIPOWER"
     },
     {
@@ -77,7 +77,7 @@
       "n_bars": 1417,
       "n_patterns": 10,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "84c9ab0a5816df5cbbe8c5398ce3ee9fdf9501118f90f4d324d689aae7e6450b",
+      "sha256": "208727b54226f232c81bb237ea3bb8b01ec43dfd0d132a9c7902ca9ce4b3e7c3",
       "symbol": "AXISBANK"
     },
     {
@@ -88,7 +88,7 @@
       "n_bars": 1417,
       "n_patterns": 10,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "2c4d7ac846a6725c489473c57ca27a2ba2ef8ede69bc6ef815ec8decd9ee3657",
+      "sha256": "d3b3937a731025462c74046b29246ee470a3ce91d06e26a6d9c3f8ba6871dc07",
       "symbol": "BAJAJ-AUTO"
     },
     {
@@ -99,7 +99,7 @@
       "n_bars": 1417,
       "n_patterns": 15,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "3ffad1c3973045b61f78fe5564f7bc8ec638c60af2e8d7fa56688cb82bcb21d4",
+      "sha256": "dc531dae29b4944728f0164fa365db5a906bdb3b1e61f0529995f222a99e5526",
       "symbol": "BAJFINANCE"
     },
     {
@@ -110,7 +110,7 @@
       "n_bars": 1417,
       "n_patterns": 10,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "3c2a5a78d60d6dc77e964d3d91fc21a9189ad4a73444a18ad890e01b089a26e0",
+      "sha256": "96f37e3b52c73bda4682413cb6eaf8a0263929ab2299c8e37e6ae17c19ecd351",
       "symbol": "BEL"
     },
     {
@@ -121,7 +121,7 @@
       "n_bars": 1417,
       "n_patterns": 11,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "40160e876d3ffa5574683ba68e7d732d62f1badcec9587a2ca1e4db4e67e68bd",
+      "sha256": "38c5da434712cc2b630d3e5830024427b376511988953e974aa1563c3fd3422d",
       "symbol": "BHARTIARTL"
     },
     {
@@ -132,7 +132,7 @@
       "n_bars": 1417,
       "n_patterns": 10,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "3a8c37e46ef0af5dfbf8386b899f8c57b1e9e09a664b0e47b9e94438d3767915",
+      "sha256": "dc4c886a7de505e6ad676426716b7e7f50a251b50815c85edbe623366b32e9d6",
       "symbol": "BHEL"
     },
     {
@@ -143,7 +143,7 @@
       "n_bars": 1417,
       "n_patterns": 7,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "902d9f97db9550511990c734a77948516673d865859fd22e70f8ea8511e03043",
+      "sha256": "cf15767ca22f50a068e53ced8ee32a6a8e9154a81029495644af3e821c9454b3",
       "symbol": "BSE"
     },
     {
@@ -154,7 +154,7 @@
       "n_bars": 1417,
       "n_patterns": 5,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "505fad2b8934298083c2618846f8f76ceb01fe0014ab63928470c1b045fee9a5",
+      "sha256": "172dfb2a817925914d9d635445b762e9db83aa0055df4d9775d1e27415c2575e",
       "symbol": "CANBK"
     },
     {
@@ -165,7 +165,7 @@
       "n_bars": 1417,
       "n_patterns": 9,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "b661803f7571d63ee6e8df1921951e69fab3fdfc739f196a270471d5aa23ca53",
+      "sha256": "eeb0881cd66cc6c356bfffe9e92a1bbceac4b079c691badd4cba1e43b9f42d4a",
       "symbol": "COFORGE"
     },
     {
@@ -176,7 +176,7 @@
       "n_bars": 1417,
       "n_patterns": 9,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "c39b4ede9f3f759d5a8e6abac8dbb378c2f6381f4ec64107894ea34549ebb6c1",
+      "sha256": "155c63133970d7ff78ce66401a5b68be9bc56d16e7b2b3f36487773cdb22f85d",
       "symbol": "DIXON"
     },
     {
@@ -187,7 +187,7 @@
       "n_bars": 1417,
       "n_patterns": 10,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "96dd3cdc7bf8afdcd19dde1bd08f7288da07e200bf9ff5fc9bc77838d2b0449d",
+      "sha256": "4b8e3c2cea1dbc336b8be0b4e5547ea3204a5dbf7e341960424157dcfad8810e",
       "symbol": "EICHERMOT"
     },
     {
@@ -198,7 +198,7 @@
       "n_bars": 1280,
       "n_patterns": 12,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "954f531954ed369afbba341dbc7a02efdf050df8f032cdcff03273308762eac5",
+      "sha256": "59a965641f8590c972935d34f6e0e76b4e42f2ac9773d5e2d43537b3609dd02a",
       "symbol": "ETERNAL"
     },
     {
@@ -209,7 +209,7 @@
       "n_bars": 1417,
       "n_patterns": 10,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "580a4b8dbc6828d214e7331b37ab5473ace7a01a6dda6e70a15fb8db4764e580",
+      "sha256": "68c604915b22c1b813e2364d1877a8827028abcfc32ad89f1b7e42efafbb356a",
       "symbol": "HAL"
     },
     {
@@ -220,7 +220,7 @@
       "n_bars": 1417,
       "n_patterns": 9,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "f06d92e2142fa25bbed219f0a0ef58d1427950292f9928ad48612366d8b3d03d",
+      "sha256": "804a0c62b635cb748345f63a9b62b651106c70c55feb765b5752f9a87371ad7e",
       "symbol": "HCLTECH"
     },
     {
@@ -231,7 +231,7 @@
       "n_bars": 1417,
       "n_patterns": 13,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "f44603753067443c8dfb8dfb9835637b3ff13517faea7aeb00d4d4bd6e5e1500",
+      "sha256": "ead3ff276e8daeec2b898751899c0bca8c80d7df5ebbb7e5f967ac257d945db2",
       "symbol": "HDFCBANK"
     },
     {
@@ -242,7 +242,7 @@
       "n_bars": 1417,
       "n_patterns": 5,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "54849733fb284b0bab7b5efacb8c742e9407334bb67208f592bfd2d9f7001ba5",
+      "sha256": "88ade916f19037d812ea9edb5f617f7b3d9137e836539b7aaea5847d077dcdae",
       "symbol": "HINDALCO"
     },
     {
@@ -253,7 +253,7 @@
       "n_bars": 1417,
       "n_patterns": 8,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "bec542a22d14ad63819ca2f5f30596ed0997469123e793900722839fe00a9087",
+      "sha256": "613f1dcd10f7c10db919ffa30108869c698389769d6c85ea9c00f96068e8c10a",
       "symbol": "HINDCOPPER"
     },
     {
@@ -264,7 +264,7 @@
       "n_bars": 1417,
       "n_patterns": 14,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "2fc8e3a4c81a9f543f1bcfbf62d9200438ae5cc1ea49772961efadaa3bf858e1",
+      "sha256": "74c12a103b282e052df78e3afe8f6914b9ef3e87caba160c582426d467d8036c",
       "symbol": "HINDUNILVR"
     },
     {
@@ -275,7 +275,7 @@
       "n_bars": 1417,
       "n_patterns": 11,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "cf730bc7dd8b47ec77d854d5d47bc6ca6d05f97f9badf615e8e174fcdd2b2ff4",
+      "sha256": "8678e85907a5f29b3f178ea5519523e0a034bb65b077b0cec4dee9b411d30f2b",
       "symbol": "HINDZINC"
     },
     {
@@ -286,7 +286,7 @@
       "n_bars": 1417,
       "n_patterns": 8,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "0170967438061b089298e10636f313452a9403bfae38aa2eb7288a309083cd80",
+      "sha256": "f801b39ac3f63d51ce4ddd3952a4af8cca245ca40aa315d85950d59e6baa429d",
       "symbol": "ICICIBANK"
     },
     {
@@ -297,7 +297,7 @@
       "n_bars": 1417,
       "n_patterns": 11,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "45c005872abb0a729e042be2230bf4f645694c79bdbb6764fb18bf6a21f9aa7c",
+      "sha256": "e82142ed9c63d8366f71c9fb1611e6a1c9ac89401fa993ba9d1ce3e2375e625a",
       "symbol": "IDEA"
     },
     {
@@ -308,7 +308,7 @@
       "n_bars": 1417,
       "n_patterns": 16,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "8aaf1deb9dbb94620b76eb69ca72800aeb6d2c1a62e5ab22e764dc37ff8b5803",
+      "sha256": "73981313f081fe48d678d9b7c8809ac7cdb0f0b047a32b76fcbb4606a2cb9ab0",
       "symbol": "INDIGO"
     },
     {
@@ -319,7 +319,7 @@
       "n_bars": 1417,
       "n_patterns": 20,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "a52662192d71832cfc1691fd23c7a9e719d3b4e5a4258667baac5729ff1764ad",
+      "sha256": "f4a9bca56965127613d8eb75ea4fd23d0e3da19cbf04adc3c04acfdd18ab40ea",
       "symbol": "INFY"
     },
     {
@@ -330,7 +330,7 @@
       "n_bars": 1417,
       "n_patterns": 12,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "bd6a263ba473c7f17b8147914ffd01b5aa338397dc2e31471b9b50de602374a4",
+      "sha256": "cc4d4ebe9dab8b28b2bdb21b67e11dad000038c30571b836c51265615f9283ed",
       "symbol": "ITC"
     },
     {
@@ -341,7 +341,7 @@
       "n_bars": 950,
       "n_patterns": 8,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "ddf9fae6ce6f05118af7ac52a728c1198a99ee57a9a09813bfa01f8202c7fca7",
+      "sha256": "9c5514332a997d7f315d5f749687912dd02bd5ec0ac3645f3ac7e4e0a6328328",
       "symbol": "KAYNES"
     },
     {
@@ -352,7 +352,7 @@
       "n_bars": 1417,
       "n_patterns": 12,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "58be0e0b29cf716ce22a728c5a8c200fe2d7e39390c6d56a183b6904564a6744",
+      "sha256": "fe1c838d33ab02d3af56fe8ea151d1d20b8a0f7daa4d8acb3b1b8aa050fb8130",
       "symbol": "KOTAKBANK"
     },
     {
@@ -363,7 +363,7 @@
       "n_bars": 1417,
       "n_patterns": 7,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "58a368352c906cfdf2b9d02cb8c7b1804bae26bd19a5730bb733e12365696914",
+      "sha256": "c4a7592e90eddc1161f5c0055ad7c4e94e3bd10f2ad4aad9bfd090eb31cac5c3",
       "symbol": "LT"
     },
     {
@@ -374,7 +374,7 @@
       "n_bars": 1417,
       "n_patterns": 13,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "89da176b815bb9dd8512ad606ac5dc7432aa6497695adfa4bdf497145377e2c5",
+      "sha256": "3ce7107391bd43f101eccb0694622dd8405861f8f235d470759b4b4c58becf6b",
       "symbol": "M&M"
     },
     {
@@ -385,7 +385,7 @@
       "n_bars": 1417,
       "n_patterns": 6,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "a6d52448e2a848c174496c3e675ac8d0351ecbe8f0e05ea4ba4624036f15b2a6",
+      "sha256": "319a727fe315f8fa1b571b6aff8ed83c4266062228ea637da83b51fae30ce0b6",
       "symbol": "MARUTI"
     },
     {
@@ -396,7 +396,7 @@
       "n_bars": 1417,
       "n_patterns": 15,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "6ec722916caa7d089aef28c10d2406eab3dbafb0ca7e36f44328e234cd239cbb",
+      "sha256": "5068f1c9e9fff6d7b27922de37e76dd178147f98abb7cc4110c6bf48c77dd1e4",
       "symbol": "MCX"
     },
     {
@@ -407,7 +407,7 @@
       "n_bars": 1417,
       "n_patterns": 5,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "87e3916792c59aca66fe9edb493fec1b87aba649974ee52664c8909289f9e7f5",
+      "sha256": "88f22c4c56ba1d11fb140f47f653af6ab19b5d143b59d4f288a854e8da912242",
       "symbol": "NATIONALUM"
     },
     {
@@ -418,7 +418,7 @@
       "n_bars": 781,
       "n_patterns": 8,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "85609d1c31413d64f7c28572f55bc3925046d9d0c346030c84207e0e3af8ddc8",
+      "sha256": "5387984fba0074457a25e5c22a3768a4c83ba3af0b8e59c18648aa7b60fadfdb",
       "symbol": "NETWEB"
     },
     {
@@ -429,7 +429,7 @@
       "n_bars": 1417,
       "n_patterns": 9,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "3b8f90685c04c95584c8f63737cdbc012e2c14d1fa29fa8ebfc8f5e44dc47031",
+      "sha256": "614bbeb673544d7e14402881ccf16f8889b9351d41ff15633dc5c4aeec9fc67f",
       "symbol": "NTPC"
     },
     {
@@ -440,7 +440,7 @@
       "n_bars": 1200,
       "n_patterns": 10,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "d3f82f46e2ffb7a3660e9ce9faf25f160ca73ecc4f0d2b696c219fa7bbe67c2c",
+      "sha256": "1d7ea728ad2cd5f5451e356995ba4a1cb48422d2d9023b7693bcbcc2b87f67f2",
       "symbol": "PAYTM"
     },
     {
@@ -451,7 +451,7 @@
       "n_bars": 1417,
       "n_patterns": 9,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "12eab50c2dd6c202a72c5a999347ee5f17364df0739c1fc0ba56f28074c134fe",
+      "sha256": "d17a8bd85cfd3091f3d0f62f987d39f415e5981677d188aa170a74d680490d22",
       "symbol": "POWERGRID"
     },
     {
@@ -462,7 +462,7 @@
       "n_bars": 1417,
       "n_patterns": 15,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "23bd2ff541232ac068e0644bfa51e191b0ad9703a54c3eed5d1144ded24e9f74",
+      "sha256": "56b4694c97e30f5fc04b0420555d88f7da555cc0248eb66bfb2c920e7f435f43",
       "symbol": "POWERINDIA"
     },
     {
@@ -473,7 +473,7 @@
       "n_bars": 1417,
       "n_patterns": 16,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "58d1db10a48857e471ae1be1add7ad37417bb4107b10d20b5e0e1ff3b02e44cc",
+      "sha256": "24d141f0fbebae592055196c9cff16e8c65797c11507fb594e464231006add3c",
       "symbol": "RELIANCE"
     },
     {
@@ -484,7 +484,7 @@
       "n_bars": 1417,
       "n_patterns": 7,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "05c9f231e13bcf189cd4dcedf8c8e826c4691b0b0dd6bc84a0a6478d6672542f",
+      "sha256": "831e1626d842fa40f5e81f8c30fa1cd6ec9fb117ccff798f1cf090b462d3ffc6",
       "symbol": "SBIN"
     },
     {
@@ -495,7 +495,7 @@
       "n_bars": 1417,
       "n_patterns": 9,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "57d26e9ac5b3924335533c06fd713d4b346d601d8a1ca8875fc13826a21a4e94",
+      "sha256": "bd79ea23d4ea0581068b54fae7b8462c550c23304a413c88bc95ac9a288eebe0",
       "symbol": "SHRIRAMFIN"
     },
     {
@@ -506,7 +506,7 @@
       "n_bars": 1417,
       "n_patterns": 8,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "8771aec1014c728c2ef2d355e9e021e6ebf8034fc28bbd31112e11224421d309",
+      "sha256": "f0a0647237d68e3efaded947e5e61c6e28ed300c097d925dd0f6da3d1f55af31",
       "symbol": "SUNPHARMA"
     },
     {
@@ -517,7 +517,7 @@
       "n_bars": 458,
       "n_patterns": 13,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "ca53927b90d436778e139f0d6485788d2ecd26079337a56d9c9a4992b18f010f",
+      "sha256": "b4dd29cfa9a8e687545eb50c4e73d47e924dcfd7c1c8a8576b3e0c3880284eab",
       "symbol": "SWIGGY"
     },
     {
@@ -528,7 +528,7 @@
       "n_bars": 1417,
       "n_patterns": 16,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "ae46847bd18e66d2e6d3c9b7412d543f4006cbfaa568d6b1f3dd49112f158fe3",
+      "sha256": "79a67a10d94f958993f8869ae3d1fe5486e3605204d39ce1de39f70a230c7de1",
       "symbol": "TATASTEEL"
     },
     {
@@ -539,7 +539,7 @@
       "n_bars": 1417,
       "n_patterns": 9,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "a86787cb653e9cb751185e72f953bb19388e286e4e1e175273d8eddc24902454",
+      "sha256": "a2dd94e108a7b464428c4e016c20353a338b1fd0981853fa1bf66b424095083b",
       "symbol": "TCS"
     },
     {
@@ -550,7 +550,7 @@
       "n_bars": 1417,
       "n_patterns": 9,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "0f9ae5ee5816db82152b4ffa1d87eeec7b6a6f41bcb6deab80a789f8964931c5",
+      "sha256": "7b056001adf37891088885815bdb2b5a9b115d060334b0526718b509290704f1",
       "symbol": "TITAN"
     },
     {
@@ -561,7 +561,7 @@
       "n_bars": 1417,
       "n_patterns": 8,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "30437dd83d0d08e6ea41c7859a6bd3dc8a3f82dde67f828868ee107e3fdfa0db",
+      "sha256": "4b16ac2ba0d74c9369bfb79e0273b7bda6769c2dffe8ba4d628ac38823a616d6",
       "symbol": "TMPV"
     },
     {
@@ -572,7 +572,7 @@
       "n_bars": 1417,
       "n_patterns": 6,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "0ebc4dc63e7f9695e0af0ab56b61963f64cfeb6e53dce4deeba702d3199d5381",
+      "sha256": "5b1a83ef403cea3045ff0925777f68ad8cbc55d19e371453f2ee6f7e2cf652c3",
       "symbol": "TRENT"
     },
     {
@@ -583,7 +583,7 @@
       "n_bars": 1417,
       "n_patterns": 8,
       "pit_status": "PIT_UNVERIFIED",
-      "sha256": "e44c544b772c3c175be3835fb59d76fe2dfeb192097055a91b713efd0fb66ab6",
+      "sha256": "78407bc696b9a79347ed74faf67f9166adad1e4f6375ebb1a5431efd6ac1d804",
       "symbol": "VEDL"
     }
   ],

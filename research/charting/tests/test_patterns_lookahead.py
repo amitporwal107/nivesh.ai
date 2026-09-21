@@ -139,3 +139,64 @@ def test_negative_control_peeking_resistance_level_is_detected_by_the_same_probe
     result_a = _serialize(base, t)
     result_b = _serialize(poisoned, t)
     assert result_a == result_b
+
+
+# ── SUPPORT_RESISTANCE and HH_HL ────────────────────────────────────────────────────────────
+# The probes above exercise RECTANGLE only. The retest/failure walk was later generalised to
+# SUPPORT_RESISTANCE and HH_HL (package 3), so those families get the same guard here: a
+# poisoned-future probe with a non-vacuity check, and a peeking negative control.
+
+import math  # noqa: E402  (kept beside the section that needs it)
+from collections import Counter  # noqa: E402
+
+import numpy as np  # noqa: E402
+
+
+def _range_then_breakout_bars() -> pd.DataFrame:
+    """A range with repeated touches (S/R levels) that breaks out upward and then pulls back
+    through the level, so confirmation and the retest/failure walk both run."""
+    rng = np.random.default_rng(7)
+    rangebound = [100 + 7 * math.sin(2 * math.pi * i / 20) + rng.normal(0, 0.4) for i in range(180)]
+    last = rangebound[-1]
+    rally = [last + 1.2 * k for k in range(1, 21)]
+    pullback = [last + 24 - 1.0 * k for k in range(1, 61)]
+    return synth.bars_from_closes(rangebound + rally + pullback)
+
+
+def _staircase_bars() -> pd.DataFrame:
+    """A rising staircase with oscillation — higher highs and higher lows (HH_HL)."""
+    rng = np.random.default_rng(7)
+    return synth.bars_from_closes([100 + 0.30 * i + 6 * math.sin(2 * math.pi * i / 16) + rng.normal(0, 0.3) for i in range(260)])
+
+
+_FAMILY_CASES = [
+    pytest.param(_range_then_breakout_bars, "SUPPORT_RESISTANCE", id="support_resistance"),
+    pytest.param(_staircase_bars, "HH_HL", id="hh_hl"),
+]
+
+
+@pytest.mark.parametrize("builder, family", _FAMILY_CASES)
+def test_poisoned_future_leaves_sr_and_hh_hl_output_at_t_unchanged(builder, family):
+    bars = builder()
+    seen: Counter = Counter()
+    for t in range(120, len(bars) - 3, 12):
+        clean = _serialize(bars.iloc[: t + 1].reset_index(drop=True), t)
+        poisoned = _serialize(_poison_alternating_extremes(bars, t), t)
+        assert clean == poisoned, f"{family}: look-ahead leak at t={t}"
+        seen.update(d["pattern_type"] for d in clean)
+    # Non-vacuity: the probe must actually have compared patterns of this family.
+    assert seen[family] > 0, f"no {family} patterns were compared — the probe proved nothing ({dict(seen)})"
+
+
+@pytest.mark.parametrize("builder, family", _FAMILY_CASES)
+def test_negative_control_a_three_bar_peek_is_caught_for_sr_and_hh_hl(builder, family):
+    """A detector evaluated three bars past t on the poisoned frame (i.e. one that peeks) must
+    differ from the clean output at t — otherwise the probe above could not detect a leak."""
+    bars = builder()
+    trials = caught = 0
+    for t in range(120, len(bars) - 3, 12):
+        clean = _serialize(bars.iloc[: t + 1].reset_index(drop=True), t)
+        peeking = _serialize(_poison_alternating_extremes(bars, t), t + 3)
+        trials += 1
+        caught += clean != peeking
+    assert trials > 0 and caught == trials, f"{family}: peek caught in only {caught}/{trials} trials"
