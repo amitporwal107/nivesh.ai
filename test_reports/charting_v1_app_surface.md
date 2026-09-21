@@ -53,8 +53,10 @@ Kite-derived data, so owner-only (NI-1). Test cases below were authored BEFORE i
   - TC-18, TC-19, TC-23 (run separately with `-g`, since serial mode skipped them): `4 passed` (incl. auth-setup) —
     weekly/monthly disabled with reason; bollinger draws exactly bb_mid/bb_upper/bb_lower from the real payload; a horizontal
     line persists through reload and is deleted via the API.
-- **Defect NOT fixed:** the owner paused new work ("do not pick new tasks now"). Fix is small (format arrays/objects in `txt`,
-  use it for warmup_period) but needs a commit → PR → deploy cycle.
+- **Defect FIXED locally, owner-approved ("fix the defect but do not pick new tasks") — PR #136, awaiting merge:** `txt()` formats
+  lists/objects; warmup row uses it; fixtures carry the real nested `source` shape; new regression test failed before the fix
+  (reproduced `files[object Object],[object Object]`) and passes after. Local: Playwright 90 passed / 5 skipped, backend 38 passed.
+  **Staging re-verification pending:** needs the #136 deploy and a fresh session token.
 
 ## API / Endpoint Tests (staging)
 **RUN ON STAGING 2026-09-21 after PR #134 merged (merge commit ec32d53d; ab81e3dc in origin/dev).**
