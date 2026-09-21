@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from research.charting import validate
 from research.charting.config import CONFIG
 from research.charting.lifecycle import LifecycleState
 from research.charting.patterns import PatternSnapshot, detect_as_of
@@ -310,6 +311,151 @@ def test_pattern_id_is_json_serializable_and_stable():
     assert isinstance(payload, str) and len(payload) > 0
 
 
+# ── E-5: wiring lifecycle.research_eligible() (sub-task c) ──────────────────────
+
+
+def test_research_eligibility_not_evaluated_by_default():
+    """Baseline control: without `evaluate_research_eligibility`, a cleanly-confirmed
+    pattern stays PRICE_CONFIRMED exactly as before E-5 — the default must not change any
+    pre-existing caller's output (see module docstring's E-5 note)."""
+    bars = synth.fixture_05b_gap_breakdown_control(synth.rect1())
+    rects = _rectangles(bars)
+    assert len(rects) == 1
+    assert rects[0].status == LifecycleState.PRICE_CONFIRMED.value
+
+
+def test_pattern_meeting_every_research_eligible_criterion_reaches_research_eligible():
+    """With the opt-in flag, a pattern whose components satisfy every
+    `lifecycle.research_eligible()` criterion (geometry+price CONFIRMED, data_quality VALID,
+    and every `require_*` flag the config sets is satisfied — all true here under default
+    CONFIG) is promoted PRICE_CONFIRMED -> RESEARCH_ELIGIBLE."""
+    bars = synth.fixture_05b_gap_breakdown_control(synth.rect1())
+    t = len(bars) - 1
+    pats = detect_as_of(bars, t, symbol="SYN1", evaluate_research_eligibility=True)
+    rects = [p for p in pats if p.pattern_type == "RECTANGLE"]
+    assert len(rects) == 1
+    assert rects[0].status == LifecycleState.RESEARCH_ELIGIBLE.value
+    assert rects[0].components["geometry"] == "PASS"
+    assert rects[0].components["price"] == "PASS"
+
+
+def test_pattern_missing_a_required_component_does_not_reach_research_eligible():
+    """Same opt-in flag, but with `require_volume_confirmation=True` in the effective cfg
+    and fixture #2's low-volume breakout (volume component FAILS) — research_eligible()
+    must return False, so the pattern stays PRICE_CONFIRMED, never RESEARCH_ELIGIBLE."""
+    cfg = {**CONFIG, "require_volume_confirmation": True}
+    bars = synth.fixture_02_low_volume_breakout(synth.rect1())
+    t = len(bars) - 1
+    pats = detect_as_of(bars, t, cfg=cfg, symbol="SYN1", evaluate_research_eligibility=True)
+    rects = [p for p in pats if p.pattern_type == "RECTANGLE"]
+    assert len(rects) == 1
+    assert rects[0].components["volume"] == "FAIL"
+    assert rects[0].status == LifecycleState.PRICE_CONFIRMED.value  # PASS condition: not promoted
+
+
+# ── confirmation_window_bars expiry (sub-task b) ────────────────────────────────
+
+
+def test_wick_only_attempt_expires_after_confirmation_window_elapses():
+    """A wick-only BREAKOUT_ATTEMPT (fixture #1's bar16 shape) followed by
+    `confirmation_window_bars` (=3) quiet bars with no close-confirmation must EXPIRE on
+    the next bar, rather than sitting BREAKOUT_ATTEMPT forever."""
+    assert CONFIG["confirmation_window_bars"] == 3  # guard: fixture below is tuned to this
+    bars = synth._append(
+        synth.rect1(),
+        [
+            (108.0, 112.0, 107.0, 109.8, 100_000.0),  # bar A: wick touch (attempt_index)
+            (109.8, 110.0, 108.0, 108.5, 100_000.0),  # A+1: quiet, still pending
+            (108.5, 109.0, 107.5, 108.0, 100_000.0),  # A+2: quiet, still pending
+            (108.0, 108.5, 107.0, 107.5, 100_000.0),  # A+3: quiet, still pending (== window)
+            (107.5, 108.0, 106.5, 107.0, 100_000.0),  # A+4: > window, unconfirmed -> EXPIRED
+        ],
+    )
+    rects = _rectangles(bars)
+    assert len(rects) == 1
+    rect = rects[0]
+    assert rect.status == LifecycleState.EXPIRED.value
+    expired = [e for e in rect.events if e["event_type"] == "EXPIRED"]
+    assert len(expired) == 1
+    assert expired[0]["rule_id"] == "BREAKOUT_ATTEMPT_WINDOW_EXPIRED"
+    assert "PRICE_CONFIRMED" not in _event_types(rect)  # never confirmed
+
+
+def test_wick_only_attempt_confirmed_within_window_is_not_expired():
+    """Same wick-only touch, but this time a close clears the breakout level exactly at
+    the edge of the confirmation window (3 bars after the touch) — must confirm normally,
+    not be incorrectly expired."""
+    assert CONFIG["confirmation_window_bars"] == 3
+    bars = synth._append(
+        synth.rect1(),
+        [
+            (108.0, 112.0, 107.0, 109.8, 100_000.0),  # bar A: wick touch (attempt_index)
+            (109.8, 110.0, 108.0, 108.5, 100_000.0),  # A+1: quiet, still pending
+            (108.5, 109.0, 107.5, 108.0, 100_000.0),  # A+2: quiet, still pending
+            (108.0, 113.5, 107.5, 113.0, 150_000.0),  # A+3 (== window): confirms
+        ],
+    )
+    rects = _rectangles(bars)
+    assert len(rects) == 1
+    rect = rects[0]
+    assert rect.status == LifecycleState.PRICE_CONFIRMED.value  # PASS condition: not EXPIRED
+    assert "EXPIRED" not in _event_types(rect)
+    confirmed = [e for e in rect.events if e["event_type"] == "PRICE_CONFIRMED"]
+    assert len(confirmed) == 1
+    assert confirmed[0]["rule_id"] == "CLOSE_ABOVE_BREAKOUT"
+
+
+# ── §13.3 "No unresolved data gaps" (sub-task a) ───────────────────────────────
+
+
+def test_rect1_unaffected_when_gap_dates_not_supplied():
+    """Baseline control: RECT-1 with an interior calendar gap, called WITHOUT
+    `unresolved_gap_dates` (the default), still forms the rectangle exactly as before —
+    the gap gate must be a no-op unless a caller explicitly opts in."""
+    bars = synth.rect1()
+    gapped = bars.drop(index=2).reset_index(drop=True)  # drop one interior warm-up bar
+    rects = _rectangles(gapped)
+    assert len(rects) == 1
+    assert rects[0].levels["resistance"] == pytest.approx(110.0)
+    assert rects[0].levels["support"] == pytest.approx(100.0)
+    assert not any(r["rule_id"] == "RECT_NO_UNRESOLVED_DATA_GAPS" for r in rects[0].rules)
+
+
+def test_rect1_with_unresolved_gap_in_formation_window_is_not_formed():
+    """The same gapped bars, but this time the caller supplies the real MISSING_CANDLE
+    finding for the missing date (computed via validate.py against the true, ungapped
+    calendar — exactly how a whole-universe caller would derive it). §13.3 lists "No
+    unresolved data gaps" as a Formation requirement alongside minimum touches, flat
+    boundaries, etc. — every one of those siblings is already a hard reject in
+    `_rectangle_candidates`, so a candidate whose formation window contains this gap is
+    rejected the same way, not merely flagged."""
+    bars = synth.rect1()
+    gapped = bars.drop(index=2).reset_index(drop=True)
+
+    calendar = validate.build_trading_calendar([bars])  # the true (ungapped) calendar
+    findings = validate.validate_symbol(gapped, calendar=calendar)
+    gap_dates = frozenset(f.date for f in findings if f.rule_id == "MISSING_CANDLE")
+    assert gap_dates, "fixture sanity: the drop must actually produce a MISSING_CANDLE finding"
+
+    t = len(gapped) - 1
+    pats = detect_as_of(gapped, t, symbol="SYN1", unresolved_gap_dates=gap_dates)
+    rects = [p for p in pats if p.pattern_type == "RECTANGLE"]
+    assert rects == []  # PASS condition: the gapped formation window produces no rectangle
+
+
+def test_rect1_gap_outside_formation_window_still_forms():
+    """Control: a gap date that does NOT fall inside [formation_start, formation_end]
+    must not reject the candidate — the gate is scoped to the formation window, not "any
+    gap anywhere in the symbol's history"."""
+    bars = synth.rect1()
+    far_future_gap = frozenset({bars["date"].iloc[-1] + pd.tseries.offsets.BDay(500)})
+    t = len(bars) - 1
+    pats = detect_as_of(bars, t, symbol="SYN1", unresolved_gap_dates=far_future_gap)
+    rects = [p for p in pats if p.pattern_type == "RECTANGLE"]
+    assert len(rects) == 1
+    assert any(r["rule_id"] == "RECT_NO_UNRESOLVED_DATA_GAPS" and r["result"] == "PASS" for r in rects[0].rules)
+
+
 # ── HH/HL structure (§13.1) ────────────────────────────────────────────────────
 
 
@@ -357,3 +503,145 @@ def test_hh_hl_no_structure_when_highs_and_lows_disagree():
     t = len(bars) - 1
     hh = [p for p in detect_as_of(bars, t, symbol="ZZ") if p.pattern_type == "HH_HL"]
     assert hh == []
+
+
+# ── Generalized retest/failure state machine for S/R and HH_HL (sub-task d) ─────
+
+
+def test_hh_hl_retest_after_confirmation_succeeds():
+    """Once HH_HL confirms (close beyond the prior high), a pullback into the broken level
+    followed by a close back above it must resolve as a successful retest — the SAME §13.9
+    state machine RECTANGLE already had, now generalized to HH_HL. Status stays
+    PRICE_CONFIRMED (mirrors RECTANGLE: a successful retest does not introduce a new
+    LifecycleState of its own — see RETEST_SUCCESSFUL's event-only nature)."""
+    bars = _zigzag_bars([15.0, 8.0, 20.0, 9.0, 25.0, 12.0, 30.0, 16.0, 35.0, 20.0, 36.0])
+    bars = synth._append(
+        bars,
+        [
+            (36.0, 36.2, 34.8, 35.0, 100_000.0),  # dip into the broken prior-high (retest zone)
+            (35.0, 38.0, 34.9, 37.5, 100_000.0),  # close back above -> RETEST_SUCCESSFUL
+        ],
+    )
+    t = len(bars) - 1
+    hh = [p for p in detect_as_of(bars, t, symbol="ZZ") if p.pattern_type == "HH_HL"]
+    assert len(hh) == 1
+    assert hh[0].status == LifecycleState.PRICE_CONFIRMED.value
+    types = [e["event_type"] for e in hh[0].events]
+    assert types == ["PRICE_CONFIRMED", "RETEST_PENDING", "RETEST_SUCCESSFUL"]
+
+
+def test_hh_hl_retest_after_confirmation_fails():
+    """Same confirmed HH_HL, but the pullback keeps falling hard instead of holding — must
+    resolve FAILED (FAILED_RETEST, since a retest was already pending), exactly like
+    RECTANGLE's fixture #4."""
+    bars = _zigzag_bars([15.0, 8.0, 20.0, 9.0, 25.0, 12.0, 30.0, 16.0, 35.0, 20.0, 36.0])
+    bars = synth._append(
+        bars,
+        [
+            (36.0, 36.2, 34.8, 35.0, 100_000.0),  # dip into the broken prior-high (retest zone)
+            (35.0, 35.2, 30.0, 31.0, 100_000.0),  # hard failure
+        ],
+    )
+    t = len(bars) - 1
+    hh = [p for p in detect_as_of(bars, t, symbol="ZZ") if p.pattern_type == "HH_HL"]
+    assert len(hh) == 1
+    assert hh[0].status == LifecycleState.FAILED.value
+    failed = [e for e in hh[0].events if e["event_type"] == "FAILED"]
+    assert len(failed) == 1
+    assert failed[0]["rule_id"] == "FAILED_RETEST"
+
+
+def _sr_resistance_base_bars() -> pd.DataFrame:
+    """A standalone RESISTANCE level at ~110.1-110.2 with 3 confirmed touches (>=
+    level_min_touches=3), well clear of forming a RECTANGLE (the pull-backs go all the way
+    down to ~95-100 each leg, so no matching flat support boundary exists)."""
+    rows = [
+        (100.0, 100.6, 99.4, 100.2, 100_000.0),
+        (100.2, 100.8, 99.6, 100.4, 100_000.0),
+        (100.4, 101.0, 99.8, 100.6, 100_000.0),
+        (100.6, 103.0, 100.5, 102.8, 100_000.0),
+        (102.8, 106.0, 102.7, 105.8, 100_000.0),
+        (105.8, 110.2, 105.7, 109.8, 100_000.0),  # touch 1 (high=110.2)
+        (109.8, 110.0, 104.0, 104.5, 100_000.0),
+        (104.5, 104.8, 99.0, 99.5, 100_000.0),
+        (99.5, 99.8, 95.0, 95.5, 100_000.0),
+        (95.5, 98.0, 95.3, 97.8, 100_000.0),
+        (97.8, 102.0, 97.7, 101.8, 100_000.0),
+        (101.8, 110.1, 101.7, 109.7, 100_000.0),  # touch 2 (high=110.1)
+        (109.7, 109.9, 104.0, 104.5, 100_000.0),
+        (104.5, 104.8, 99.0, 99.5, 100_000.0),
+        (99.5, 99.8, 95.0, 95.5, 100_000.0),
+        (95.5, 98.0, 95.3, 97.8, 100_000.0),
+        (97.8, 102.0, 97.7, 101.8, 100_000.0),
+        (101.8, 110.15, 101.7, 109.75, 100_000.0),  # touch 3 (high=110.15)
+        (109.75, 109.9, 104.0, 104.5, 100_000.0),
+        (104.5, 104.8, 99.0, 99.5, 100_000.0),
+        (99.5, 99.8, 95.0, 100.0, 100_000.0),
+    ]
+    dates = pd.bdate_range("2024-01-02", periods=len(rows))
+    return pd.DataFrame([(d, *r) for d, r in zip(dates, rows)], columns=list(synth.BARS_COLUMNS))
+
+
+def test_sr_level_geometry_valid_before_any_breakout():
+    bars = _sr_resistance_base_bars()
+    t = len(bars) - 1
+    sr = [p for p in detect_as_of(bars, t, symbol="SYN2") if p.pattern_type == "SUPPORT_RESISTANCE" and p.direction == "BULLISH"]
+    assert len(sr) == 1
+    assert sr[0].status == LifecycleState.GEOMETRY_VALID.value
+    assert sr[0].levels["level"] == pytest.approx(110.15)
+
+
+def test_sr_level_retest_after_confirmation_succeeds():
+    """Once a standalone S/R level confirms, a pullback into the level followed by a close
+    back above it must resolve as a successful retest — E-4's RECTANGLE-only retest state
+    machine, generalized here to SUPPORT_RESISTANCE (sub-task d)."""
+    bars = synth._append(
+        _sr_resistance_base_bars(),
+        [
+            (100.0, 114.0, 99.8, 113.5, 150_000.0),   # confirms (close well above trigger)
+            (113.5, 113.6, 109.8, 110.0, 100_000.0),  # dip into the level (retest zone)
+            (110.0, 113.0, 109.9, 112.5, 100_000.0),  # close back above -> RETEST_SUCCESSFUL
+        ],
+    )
+    t = len(bars) - 1
+    sr = [p for p in detect_as_of(bars, t, symbol="SYN2") if p.pattern_type == "SUPPORT_RESISTANCE" and p.direction == "BULLISH"]
+    assert len(sr) == 1
+    assert sr[0].status == LifecycleState.PRICE_CONFIRMED.value
+    types = [e["event_type"] for e in sr[0].events]
+    assert "RETEST_PENDING" in types
+    assert "RETEST_SUCCESSFUL" in types
+    assert "FAILED" not in types
+
+
+def test_sr_level_retest_after_confirmation_fails():
+    """Same confirmed level, but the pullback keeps falling hard — must resolve FAILED
+    (FAILED_RETEST)."""
+    bars = synth._append(
+        _sr_resistance_base_bars(),
+        [
+            (100.0, 114.0, 99.8, 113.5, 150_000.0),   # confirms
+            (113.5, 113.6, 109.8, 110.0, 100_000.0),  # dip into the level (retest zone)
+            (110.0, 110.2, 105.0, 106.0, 100_000.0),  # hard failure
+        ],
+    )
+    t = len(bars) - 1
+    sr = [p for p in detect_as_of(bars, t, symbol="SYN2") if p.pattern_type == "SUPPORT_RESISTANCE" and p.direction == "BULLISH"]
+    assert len(sr) == 1
+    assert sr[0].status == LifecycleState.FAILED.value
+    failed = [e for e in sr[0].events if e["event_type"] == "FAILED"]
+    assert len(failed) == 1
+    assert failed[0]["rule_id"] == "FAILED_RETEST"
+
+
+def test_rectangle_retest_state_machine_unchanged_by_the_generalization():
+    """Control: RECTANGLE's own retest/failure output (fixture #4, false retest -> FAILED)
+    must be byte-identical after the shared-helper refactor — same event sequence, same
+    reason code."""
+    bars = synth.fixture_04_false_retest(synth.rect1())
+    rects = _rectangles(bars)
+    assert len(rects) == 1
+    assert rects[0].status == LifecycleState.FAILED.value
+    types = _event_types(rects[0])
+    assert types == ["PRICE_CONFIRMED", "RETEST_PENDING", "FAILED"]
+    failed = [e for e in rects[0].events if e["event_type"] == "FAILED"]
+    assert failed[0]["rule_id"] == "FAILED_RETEST"

@@ -17,29 +17,54 @@ Kite-derived data, so owner-only (NI-1). Test cases below were authored BEFORE i
 | ID | Area | Scenario | Type | Expected | Result |
 |----|------|----------|------|----------|--------|
 | TC-1 | API gate | any chart endpoint, account NOT on `charting` allowlist | api/failure | 403 `feature_not_enabled` (admins included) | PASS (local) |
-| TC-2 | API run | `GET /api/research/chart/run`, allowlisted | api | 200; `config_hash` == `research.charting.config.config_hash()`; `fixture` present | PASS (local) |
-| TC-3 | API symbols | `GET /symbols` | api | equals `manifest.symbols` | PASS (local) |
-| TC-4 | API ohlcv | `GET /{symbol}/ohlcv` | api + data | bars ascending, unique dates; served file sha256 == manifest | PASS (local) |
-| TC-5 | API ohlcv | unknown symbol | failure | 404 `unknown_symbol` | PASS (local) |
-| TC-6 | API ohlcv | symbol with illegal chars (`../x`, lowercase, 40 chars) | edge | 422, no file read | PASS (local; `../x` → 404 route-level, lowercase/over-length → 422; zero file reads either way) |
+| TC-2 | API run | `GET /api/research/chart/run`, allowlisted | api | 200; `config_hash` == `research.charting.config.config_hash()`; `fixture` present | **PASS on staging** (API verifier) |
+| TC-3 | API symbols | `GET /symbols` | api | equals `manifest.symbols` | **PASS on staging** (API verifier) |
+| TC-4 | API ohlcv | `GET /{symbol}/ohlcv` | api + data | bars ascending, unique dates; served file sha256 == manifest | **PASS on staging** (API verifier) |
+| TC-5 | API ohlcv | unknown symbol | failure | 404 `unknown_symbol` | **PASS on staging** (API verifier) |
+| TC-6 | API ohlcv | symbol with illegal chars (`../x`, lowercase, 40 chars) | edge | 422, no file read | **PASS on staging** (API verifier) |
 | TC-7 | API | snapshot missing / malformed / wrong schema_version | failure (unit) | 503 `snapshot_unavailable`, never partial | PASS (local) |
-| TC-8 | API indicators | `?ids=sma_20,rsi_14`; unknown id | api/failure | only those ids; unknown → 400 `unknown_indicator` | PASS (local) |
-| TC-9 | Data | served indicator values vs independent recomputation from served bars | data | match to 1e-9 | PASS (local) |
-| TC-10 | API patterns | symbol with no patterns | edge | 200 `{patterns: []}` | PASS (local) |
-| TC-11 | Drawings | POST trendline | api | 201; `user_id` = caller; `drawing_id` uuid | PASS (local) |
-| TC-12 | Drawings | GET `?symbol=` | api | only caller's drawings for that symbol | PASS (local) |
+| TC-8 | API indicators | `?ids=sma_20,rsi_14`; unknown id | api/failure | only those ids; unknown → 400 `unknown_indicator` | **PASS on staging** (API verifier) |
+| TC-9 | Data | served indicator values vs independent recomputation from served bars | data | match to 1e-9 | **PASS on staging** (API verifier) |
+| TC-10 | API patterns | symbol with no patterns | edge | 200 `{patterns: []}` | **PASS on staging** (API verifier) |
+| TC-11 | Drawings | POST trendline | api | 201; `user_id` = caller; `drawing_id` uuid | **PASS on staging** (API verifier) |
+| TC-12 | Drawings | GET `?symbol=` | api | only caller's drawings for that symbol | **PASS on staging** (API verifier) |
 | TC-13 | Drawings | user B GET/PATCH/DELETE user A's drawing | failure | 404; A's `updated_at` unchanged | PASS (local) |
-| TC-14 | Drawings | invalid `drawing_type` / <2 anchors for TRENDLINE | edge | 422 | PASS (local) |
-| TC-15 | UI | open Research → Charts, pick a symbol | e2e | candles + volume render from API (non-empty canvas, `data-testid` present) | **FAIL on staging** (crash on real /symbols shape; fixed locally, not deployed) — PASS (local, mocked) |
-| TC-16 | UI | snapshot `fixture: true` | e2e | loud "synthetic data — not real" banner | PASS (local, mocked) |
-| TC-17 | UI | status chip | e2e | one chip, precedence BLOCKED>INVALID>PIT_UNVERIFIED>STALE>PARTIAL>VALID; drawer shows both fields | PASS (local, mocked) |
-| TC-18 | UI | weekly / monthly timeframe | e2e | visibly disabled with reason (spec G-6), daily works | PASS (local, mocked) |
-| TC-19 | UI | toggle an indicator | e2e | price-pane overlay or new pane appears/disappears | PASS (local, mocked; incl. multi-output regression test) |
+| TC-14 | Drawings | invalid `drawing_type` / <2 anchors for TRENDLINE | edge | 422 | **PASS on staging** (API verifier) |
+| TC-15 | UI | open Research → Charts, pick a symbol | e2e | candles + volume render from API (non-empty canvas, `data-testid` present) | **PASS on staging** (after PRs #135 + #136) |
+| TC-16 | UI | snapshot `fixture: true` | e2e | loud "synthetic data — not real" banner | **PASS on staging** |
+| TC-17 | UI | status chip | e2e | one chip, precedence BLOCKED>INVALID>PIT_UNVERIFIED>STALE>PARTIAL>VALID; drawer shows both fields | **PASS on staging** |
+| TC-18 | UI | weekly / monthly timeframe | e2e | visibly disabled with reason (spec G-6), daily works | **PASS on staging** |
+| TC-19 | UI | toggle an indicator | e2e | price-pane overlay or new pane appears/disappears | **PASS on staging** |
 | TC-20 | UI | 403 from API | e2e | explicit "not enabled for your account" state, no crash | PASS (local, mocked) |
-| TC-21 | UI | attribution | e2e | TradingView attribution visible (spec G-9) | PASS (local, mocked) |
+| TC-21 | UI | attribution | e2e | TradingView attribution visible (spec G-9) | **PASS on staging** |
 | TC-22 | Build | Charts tab code-split | build | separate chunk for the chart workspace in `vite build` output; main chunk not grown by lightweight-charts | PASS (build: ChartsScreen 219.69 kB separate chunk; main bundle unchanged) |
-| TC-23 | UI | draw trendline, reload page | e2e | drawing persists and renders distinct from system overlays | PASS (local, mocked) |
-| TC-24 | Data | bars served for 3 symbols vs raw Kite gz parts read independently | data | identical OHLCV for every date | PASS (local: RELIANCE/TCS/HDFCBANK 1417/1417 rows, 0 mismatches vs raw gz) |
+| TC-23 | UI | draw trendline, reload page | e2e | drawing persists and renders distinct from system overlays | **PASS on staging** |
+| TC-24 | Data | bars served for 3 symbols vs raw Kite gz parts read independently | data | identical OHLCV for every date | **PASS on staging** (API verifier) |
+
+## FINAL staging verification (2026-09-22, dev at 3412a763 = PR #136 merged; bundle index-BliwZeWX.js)
+
+Fresh owner session token (admin, `features.charting: true`), held only in 0600 scratchpad files, deleted after the run.
+
+- **API:** `STAGING_COOKIE_HEADER=<0600 file> python3 -m research.charting.tools.verify_staging_api` → **`17/17 checks passed`** (exit 0)
+  — TC-2, TC-3, TC-4 ×3, TC-5, TC-6, TC-8, TC-9, TC-10, TC-11, TC-12, TC-14, TC-11/cleanup, TC-24 ×3.
+- **UI:** `STAGING_SESSION_FILE=<0600 file> npx playwright test staging-research-charts --project=desktop-chrome`
+```
+  ✓  1 [auth-setup] › e2e/auth.setup.ts:23:1 › auth setup — inject dark-theme localStorage (3.4s)
+  ✓  2 [desktop-chrome] › staging-research-charts.spec.ts:38:1 › TC-15/16/17/21 real staging: symbols, candles, status chip and patterns equal the payloads (1.6s)
+  ✓  3 [desktop-chrome] › staging-research-charts.spec.ts:70:1 › TC-18 real staging: weekly and monthly are disabled with a reason; daily is active (1.5s)
+  ✓  4 [desktop-chrome] › staging-research-charts.spec.ts:78:1 › TC-19 real staging: bollinger draws exactly its three plotted fields from the real payload (1.6s)
+  ✓  5 [desktop-chrome] › staging-research-charts.spec.ts:86:1 › TC-23 real staging: a horizontal line persists through reload and is deleted again (2.5s)
+  5 passed (14.4s)
+```
+- **Scope of the PASS — stated, not implied:** TC-1 (non-allowlisted → 403) and TC-13 (cross-user drawings → 404) need a second
+  account; TC-7 (malformed snapshot → 503) would require corrupting the live snapshot; TC-20 (403 UI state) needs a non-allowlisted
+  session. These four are verified with real LOCAL evidence only (FastAPI TestClient; mocked Playwright), not on staging.
+  TC-22 is a build-output check (separate chart chunk), verified locally.
+- **Defects found and fixed during staging verification:** (1) `/symbols` wrapper vs UI bare-array assumption → crash (PR #135);
+  (2) RouteErrorBoundary dropped the `/v5` base → nginx 404 (PR #135); (3) provenance drawer `[object Object]` (PR #136).
+  Each fix shipped with a test that failed first.
+- **UNVERIFIED:** prod `nivesh-mongo` restart count and app-vm disk after the #136 deploy — GCP token expired (`/api/healthz` on
+  prod is 200). The #134 deploy coincided with prod Mongo restarting (177 → 180).
 
 ## Staging re-run after PR #135 (2026-09-22, dev at 1ffd7697, new bundle index-DBmw1M2i.js)
 
@@ -134,4 +159,4 @@ Snapshot `run_id=chart_20260921T172937Z`, 50 symbols, 513 patterns, 10.33 MB, `c
 - Owner account on the `charting` allowlist — satisfied by default (`default_allowlist: [aporwal107@gmail.com]`).
 - App-vm free disk ≥ 6 GB confirmed before the `dev` push that deploys this to staging.
 
-## Verdict: FAIL
+## Verdict: PASS
