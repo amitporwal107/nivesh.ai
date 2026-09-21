@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "fixture": true,
+  "run_id": "chart_20260921T120000Z_fixture",
+  "generated_at": "2026-09-21T12:00:00Z",
+  "engine_version": "0.1.0-fixture",
+  "profile": "PATTERN_CONFIRMATION_V1_RESEARCH",
+  "config_hash": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2",
+  "source": {
+    "provider": "kite",
+    "series": "daily",
+    "adjustment_status": "ADJUSTED",
+    "last_bar_date": "2026-09-14",
+    "files": [
+      {
+        "name": "part-20260919T031049.csv.gz",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "name": "part-20260919T083235.csv.gz",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    ],
+    "adjustment_note": "MOCK note \u2014 real manifests carry a free-text adjustment_note here."
+  },
+  "universe_rule": "MOCK fixture \u2014 2 symbols for local Playwright coverage of research-charts.spec.ts"
+}

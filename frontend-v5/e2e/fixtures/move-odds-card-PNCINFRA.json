@@ -1,0 +1,656 @@
+{
+ "_note": "MOCK — not real-time data. The real /api/move-odds/stocks/PNCINFRA/card body, generated 2026-09-18 12:22 IST by running get_stock_research + build_research_hub against the staging DaaS.",
+ "data": {
+  "widget_type": "instrument_detail",
+  "data": {
+   "kind": "stock",
+   "name": "PNCINFRA",
+   "badge": "STOCK",
+   "subtitle": "PNCINFRA · NSE",
+   "meta": "Construction · Small cap",
+   "source": "NIDP DaaS",
+   "disclaimer_note": "Not investment advice",
+   "price": {
+    "label": "Last price",
+    "value": "₹134.44",
+    "change": "-4.19%",
+    "change_positive": false,
+    "asof": "16 Sep 2026"
+   },
+   "quality": {
+    "score": 28,
+    "label": "Weak",
+    "tone": "neg"
+   },
+   "scores": {
+    "fundamental": {
+     "score": 44,
+     "label": "Below average",
+     "tone": "neg"
+    },
+    "technical": {
+     "score": 6,
+     "label": "Bearish",
+     "tone": "neg"
+    },
+    "explainer": "Quality score blends fundamentals with short-term technicals into one read."
+   },
+   "recommendation": {
+    "long_term": {
+     "stance": "Sell",
+     "tone": "neg",
+     "rationale": "Weak fundamentals (44/100) — poor long-term outlook."
+    },
+    "short_term": {
+     "stance": "Sell",
+     "tone": "neg",
+     "rationale": "Bearish technicals (6/100) — weak momentum near-term."
+    }
+   },
+   "summary": "A lower-quality business. Momentum is weak near-term.",
+   "fundamentals_grid": [
+    {
+     "label": "P / E",
+     "value": "4.7",
+     "note": "fair",
+     "tone": "warm"
+    },
+    {
+     "label": "ROE",
+     "value": "10.8%",
+     "note": "moderate",
+     "tone": "warm"
+    },
+    {
+     "label": "Debt / equity",
+     "value": "0.76",
+     "note": "moderate leverage",
+     "tone": "warm"
+    }
+   ],
+   "price_position": {
+    "current": 134.44,
+    "current_label": "₹134",
+    "support": 116.4,
+    "support_label": "₹116",
+    "sma50": 216.1372,
+    "sma50_label": "₹216",
+    "resistance": 215.88,
+    "resistance_label": "₹216",
+    "trend": {
+     "label": "Bearish trend",
+     "tone": "neg"
+    }
+   },
+   "technicals_cards": [
+    {
+     "label": "RSI (14)",
+     "value": "11.4",
+     "note": "oversold",
+     "tone": "pos"
+    },
+    {
+     "label": "MACD",
+     "value": "Bearish",
+     "tone": "neg"
+    },
+    {
+     "label": "Momentum (1M / 3M)",
+     "value": "-37.2% / -43.1%",
+     "tone": "neg"
+    }
+   ],
+   "risk": {
+    "title": "Risk profile",
+    "items": [
+     {
+      "label": "Beta (Nifty)",
+      "value": "1.31",
+      "tone": "neg"
+     },
+     {
+      "label": "ATR",
+      "value": "7.1%"
+     }
+    ]
+   },
+   "score_breakdown": {
+    "weights": {
+     "cycle": 0,
+     "technical": 40,
+     "fundamental": 60
+    },
+    "fundamental": {
+     "score": 44,
+     "pillars": [
+      {
+       "label": "Valuation",
+       "score": 100
+      },
+      {
+       "label": "Governance",
+       "score": 84
+      },
+      {
+       "label": "Balance sheet",
+       "score": 44
+      },
+      {
+       "label": "Profitability",
+       "score": 30
+      },
+      {
+       "label": "Working capital",
+       "score": 0
+      },
+      {
+       "label": "Order book strength",
+       "score": 48
+      },
+      {
+       "label": "Execution track record",
+       "score": 50
+      }
+     ]
+    },
+    "technical": {
+     "score": 6,
+     "pillars": [
+      {
+       "label": "Trend",
+       "score": 0
+      },
+      {
+       "label": "Volume",
+       "score": 57
+      },
+      {
+       "label": "Momentum",
+       "score": 0
+      },
+      {
+       "label": "Volatility adj",
+       "score": 0
+      },
+      {
+       "label": "Relative strength",
+       "score": 0
+      }
+     ]
+    }
+   },
+   "quarterly": {
+    "rows": [
+     {
+      "quarter": "Q1 FY27",
+      "revenue": "₹1,688 cr",
+      "revenue_yoy": "+18.6%",
+      "pat": "₹332 cr",
+      "pat_yoy": "-23.0%",
+      "pat_yoy_positive": false,
+      "margin": "31.0%"
+     },
+     {
+      "quarter": "Q4 FY26",
+      "revenue": "₹1,617 cr",
+      "revenue_yoy": "-5.1%",
+      "pat": "₹108 cr",
+      "pat_yoy": "+44.0%",
+      "pat_yoy_positive": true,
+      "margin": "17.1%"
+     },
+     {
+      "quarter": "Q3 FY26",
+      "revenue": "₹1,201 cr",
+      "revenue_yoy": "-18.3%",
+      "pat": "₹77 cr",
+      "pat_yoy": "-4.9%",
+      "pat_yoy_positive": false,
+      "margin": "19.9%"
+     },
+     {
+      "quarter": "Q2 FY26",
+      "revenue": "₹1,128 cr",
+      "revenue_yoy": "-21.0%",
+      "pat": "₹216 cr",
+      "pat_yoy": "+160.2%",
+      "pat_yoy_positive": true,
+      "margin": "22.4%"
+     }
+    ]
+   },
+   "peers": {
+    "rows": [
+     {
+      "symbol": "ENGINERSIN",
+      "quality": 73,
+      "industry": "Construction",
+      "market_cap": "Mid cap",
+      "is_current": false
+     },
+     {
+      "symbol": "KPIL",
+      "quality": 61,
+      "industry": "Construction",
+      "market_cap": "Mid cap",
+      "is_current": false
+     },
+     {
+      "symbol": "GARUDA",
+      "quality": 60,
+      "industry": "Construction",
+      "market_cap": "Small cap",
+      "is_current": false
+     },
+     {
+      "symbol": "CEIGALL",
+      "quality": 57,
+      "industry": "Construction",
+      "market_cap": "Small cap",
+      "is_current": false
+     },
+     {
+      "symbol": "WELENT",
+      "quality": 57,
+      "industry": "Construction",
+      "market_cap": "Mid cap",
+      "is_current": false
+     },
+     {
+      "symbol": "CEMPRO",
+      "quality": 53,
+      "industry": "Construction",
+      "market_cap": "Mid cap",
+      "is_current": false
+     },
+     {
+      "symbol": "VINDHYATEL",
+      "quality": 53,
+      "industry": "Construction",
+      "market_cap": "Small cap",
+      "is_current": false
+     },
+     {
+      "symbol": "PNCINFRA",
+      "quality": 28,
+      "industry": "Construction",
+      "market_cap": "Small cap",
+      "is_current": true
+     }
+    ],
+    "total": 50,
+    "sector": "Construction",
+    "current_rank": 43
+   },
+   "shareholding": {
+    "rows": [
+     {
+      "label": "Promoters",
+      "pct": 56.07,
+      "value": "56.07%"
+     },
+     {
+      "label": "FII",
+      "pct": 7.28,
+      "value": "7.28%",
+      "change": "+0.11%",
+      "change_positive": true
+     },
+     {
+      "label": "DII",
+      "pct": 23.83,
+      "value": "23.83%",
+      "change": "-0.72%",
+      "change_positive": false
+     },
+     {
+      "label": "Mutual funds",
+      "pct": 11.11,
+      "value": "11.11%"
+     }
+    ],
+    "pledge": {
+     "value": "0.00%",
+     "tone": "pos"
+    },
+    "as_of": "30 Jun 2026"
+   },
+   "actions": [
+    {
+     "label": "Explain the score",
+     "expands": "score_breakdown"
+    },
+    {
+     "label": "Quarterly results",
+     "expands": "quarterly"
+    },
+    {
+     "label": "Compare peers",
+     "expands": "peers"
+    },
+    {
+     "label": "Who holds it",
+     "expands": "shareholding"
+    }
+   ],
+   "research_rail": [
+    {
+     "id": "buy_verdict",
+     "primary": "Worth buying now?",
+     "alt": "Should I buy?"
+    },
+    {
+     "id": "performance",
+     "primary": "How's it performed?",
+     "alt": "Track record"
+    },
+    {
+     "id": "valuation",
+     "primary": "Cheap or pricey?",
+     "alt": "Fair value?"
+    },
+    {
+     "id": "risk",
+     "primary": "How risky is it?",
+     "alt": "Risk check"
+    },
+    {
+     "id": "peers",
+     "primary": "Compare to peers",
+     "alt": "Beats its peers?"
+    },
+    {
+     "id": "red_flags",
+     "primary": "Any red flags?",
+     "alt": "What's the catch?"
+    },
+    {
+     "id": "people",
+     "primary": "Who runs it?",
+     "alt": "The people behind it"
+    },
+    {
+     "id": "whats_new",
+     "primary": "What's new?",
+     "alt": "Latest updates"
+    }
+   ],
+   "lens_views": {
+    "buy_verdict": {
+     "view": "stock_verdict",
+     "quality": {
+      "score": 28,
+      "label": "Weak",
+      "tone": "neg"
+     },
+     "scores": {
+      "fundamental": {
+       "score": 44,
+       "label": "Below average",
+       "tone": "neg"
+      },
+      "technical": {
+       "score": 6,
+       "label": "Bearish",
+       "tone": "neg"
+      },
+      "explainer": "Quality score blends fundamentals with short-term technicals into one read."
+     },
+     "recommendation": {
+      "long_term": {
+       "stance": "Sell",
+       "tone": "neg",
+       "rationale": "Weak fundamentals (44/100) — poor long-term outlook."
+      },
+      "short_term": {
+       "stance": "Sell",
+       "tone": "neg",
+       "rationale": "Bearish technicals (6/100) — weak momentum near-term."
+      }
+     },
+     "summary": "A lower-quality business. Momentum is weak near-term."
+    },
+    "performance": {
+     "view": "stock_performance",
+     "price_position": {
+      "current": 134.44,
+      "current_label": "₹134",
+      "support": 116.4,
+      "support_label": "₹116",
+      "sma50": 216.1372,
+      "sma50_label": "₹216",
+      "resistance": 215.88,
+      "resistance_label": "₹216",
+      "trend": {
+       "label": "Bearish trend",
+       "tone": "neg"
+      }
+     },
+     "technicals_cards": [
+      {
+       "label": "RSI (14)",
+       "value": "11.4",
+       "note": "oversold",
+       "tone": "pos"
+      },
+      {
+       "label": "MACD",
+       "value": "Bearish",
+       "tone": "neg"
+      },
+      {
+       "label": "Momentum (1M / 3M)",
+       "value": "-37.2% / -43.1%",
+       "tone": "neg"
+      }
+     ]
+    },
+    "valuation": {
+     "view": "stock_valuation",
+     "fundamentals_grid": [
+      {
+       "label": "P / E",
+       "value": "4.7",
+       "note": "fair",
+       "tone": "warm"
+      },
+      {
+       "label": "ROE",
+       "value": "10.8%",
+       "note": "moderate",
+       "tone": "warm"
+      },
+      {
+       "label": "Debt / equity",
+       "value": "0.76",
+       "note": "moderate leverage",
+       "tone": "warm"
+      }
+     ]
+    },
+    "risk": {
+     "view": "stock_risk",
+     "title": "Risk profile",
+     "items": [
+      {
+       "label": "Beta (Nifty)",
+       "value": "1.31",
+       "tone": "neg"
+      },
+      {
+       "label": "ATR",
+       "value": "7.1%"
+      }
+     ]
+    },
+    "peers": {
+     "view": "stock_peers",
+     "peers": {
+      "rows": [
+       {
+        "symbol": "ENGINERSIN",
+        "quality": 73,
+        "industry": "Construction",
+        "market_cap": "Mid cap",
+        "is_current": false
+       },
+       {
+        "symbol": "KPIL",
+        "quality": 61,
+        "industry": "Construction",
+        "market_cap": "Mid cap",
+        "is_current": false
+       },
+       {
+        "symbol": "GARUDA",
+        "quality": 60,
+        "industry": "Construction",
+        "market_cap": "Small cap",
+        "is_current": false
+       },
+       {
+        "symbol": "CEIGALL",
+        "quality": 57,
+        "industry": "Construction",
+        "market_cap": "Small cap",
+        "is_current": false
+       },
+       {
+        "symbol": "WELENT",
+        "quality": 57,
+        "industry": "Construction",
+        "market_cap": "Mid cap",
+        "is_current": false
+       },
+       {
+        "symbol": "CEMPRO",
+        "quality": 53,
+        "industry": "Construction",
+        "market_cap": "Mid cap",
+        "is_current": false
+       },
+       {
+        "symbol": "VINDHYATEL",
+        "quality": 53,
+        "industry": "Construction",
+        "market_cap": "Small cap",
+        "is_current": false
+       },
+       {
+        "symbol": "PNCINFRA",
+        "quality": 28,
+        "industry": "Construction",
+        "market_cap": "Small cap",
+        "is_current": true
+       }
+      ],
+      "total": 50,
+      "sector": "Construction",
+      "current_rank": 43
+     }
+    },
+    "red_flags": {
+     "view": "stock_red_flags",
+     "items": [
+      {
+       "text": "Long-term: Weak fundamentals (44/100) — poor long-term outlook.",
+       "tone": "neg"
+      },
+      {
+       "text": "Short-term: Bearish technicals (6/100) — weak momentum near-term.",
+       "tone": "neg"
+      },
+      {
+       "text": "Fundamentals score is weak at 44/100 (Below average).",
+       "tone": "neg"
+      },
+      {
+       "text": "Technicals score is weak at 6/100 (Bearish).",
+       "tone": "neg"
+      }
+     ]
+    },
+    "people": {
+     "view": "stock_people",
+     "shareholding": {
+      "rows": [
+       {
+        "label": "Promoters",
+        "pct": 56.07,
+        "value": "56.07%"
+       },
+       {
+        "label": "FII",
+        "pct": 7.28,
+        "value": "7.28%",
+        "change": "+0.11%",
+        "change_positive": true
+       },
+       {
+        "label": "DII",
+        "pct": 23.83,
+        "value": "23.83%",
+        "change": "-0.72%",
+        "change_positive": false
+       },
+       {
+        "label": "Mutual funds",
+        "pct": 11.11,
+        "value": "11.11%"
+       }
+      ],
+      "pledge": {
+       "value": "0.00%",
+       "tone": "pos"
+      },
+      "as_of": "30 Jun 2026"
+     }
+    },
+    "whats_new": {
+     "view": "stock_whats_new",
+     "quarterly": {
+      "rows": [
+       {
+        "quarter": "Q1 FY27",
+        "revenue": "₹1,688 cr",
+        "revenue_yoy": "+18.6%",
+        "pat": "₹332 cr",
+        "pat_yoy": "-23.0%",
+        "pat_yoy_positive": false,
+        "margin": "31.0%"
+       },
+       {
+        "quarter": "Q4 FY26",
+        "revenue": "₹1,617 cr",
+        "revenue_yoy": "-5.1%",
+        "pat": "₹108 cr",
+        "pat_yoy": "+44.0%",
+        "pat_yoy_positive": true,
+        "margin": "17.1%"
+       },
+       {
+        "quarter": "Q3 FY26",
+        "revenue": "₹1,201 cr",
+        "revenue_yoy": "-18.3%",
+        "pat": "₹77 cr",
+        "pat_yoy": "-4.9%",
+        "pat_yoy_positive": false,
+        "margin": "19.9%"
+       },
+       {
+        "quarter": "Q2 FY26",
+        "revenue": "₹1,128 cr",
+        "revenue_yoy": "-21.0%",
+        "pat": "₹216 cr",
+        "pat_yoy": "+160.2%",
+        "pat_yoy_positive": true,
+        "margin": "22.4%"
+       }
+      ]
+     }
+    }
+   },
+   "active_lens": "buy_verdict"
+  }
+ }
+}

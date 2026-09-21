@@ -1,0 +1,591 @@
+{
+  "config_hash": "0b169afaa2763a0e3a25bc469ecc001526826d94fa09c3e12a3b4e65ca97dd3e",
+  "engine_version": "0.1.0",
+  "fixture": false,
+  "generated_at": "2026-09-21T17:29:37Z",
+  "profile": "PATTERN_CONFIRMATION_V1_RESEARCH",
+  "run_id": "chart_20260921T172937Z",
+  "schema_version": 1,
+  "source": {
+    "adjustment_note": "Evidence so far (not exhaustive): Kite daily bars look back-adjusted for ordinary splits and bonuses (IRCTC's 2021 1:5 split shows no discontinuity), but NOT for demergers (SIEMENS 2025 and ABFRL 2025 both show a raw price discontinuity around their demerger dates). Treat this series as adjusted for splits/bonuses only -- never assume full corporate-action adjustment.",
+    "adjustment_status": "ADJUSTED_SPLITS_BONUS_ONLY",
+    "files": [
+      {
+        "name": "part-20260919T031049.csv.gz",
+        "sha256": "fd19cfc530d41ae33e259b8d09acf6e3de176eca0f056ebd41d169d740ddb2ba"
+      },
+      {
+        "name": "part-20260919T043000.csv.gz",
+        "sha256": "62afb3cc234ca95d1689a2c634aabeb19e947998b0f8220be6ebb7b2712fecbc"
+      },
+      {
+        "name": "part-20260919T052415.csv.gz",
+        "sha256": "8f3ac4f8387ddc97ee2aab8546431c24debd05b1c962f16100f798a3162455b0"
+      },
+      {
+        "name": "part-20260919T060915.csv.gz",
+        "sha256": "a37ac4594ac7a1776a0fa77b320112151684caf4d7140fe919215c0d85b75b3a"
+      },
+      {
+        "name": "part-20260919T083235.csv.gz",
+        "sha256": "970895fe08f7111a75262903ff65a65a9e74ed5952fedf72997902b3356e4629"
+      }
+    ],
+    "last_bar_date": "2026-09-18",
+    "provider": "kite",
+    "series": "daily"
+  },
+  "symbols": [
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/ADANIENT.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 6,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "92ab75398e805c89d2e1afdffac350eb6bd614eb50cdf71661f2cdc7e5fa0c5d",
+      "symbol": "ADANIENT"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/ADANIPORTS.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 9,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "d66024ec54100e9a1bf0f7754b8961e4e263659dc5c4eed161dbdc71cec1bf18",
+      "symbol": "ADANIPORTS"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/ADANIPOWER.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 17,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "e1ed44a21d0f644d3a0f7f3209c094309dc01c2a0b56de7ef4d352052aee5b29",
+      "symbol": "ADANIPOWER"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/AXISBANK.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 10,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "84c9ab0a5816df5cbbe8c5398ce3ee9fdf9501118f90f4d324d689aae7e6450b",
+      "symbol": "AXISBANK"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/BAJAJ-AUTO.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 10,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "2c4d7ac846a6725c489473c57ca27a2ba2ef8ede69bc6ef815ec8decd9ee3657",
+      "symbol": "BAJAJ-AUTO"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/BAJFINANCE.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 15,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "3ffad1c3973045b61f78fe5564f7bc8ec638c60af2e8d7fa56688cb82bcb21d4",
+      "symbol": "BAJFINANCE"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/BEL.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 10,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "3c2a5a78d60d6dc77e964d3d91fc21a9189ad4a73444a18ad890e01b089a26e0",
+      "symbol": "BEL"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/BHARTIARTL.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 11,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "40160e876d3ffa5574683ba68e7d732d62f1badcec9587a2ca1e4db4e67e68bd",
+      "symbol": "BHARTIARTL"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/BHEL.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 10,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "3a8c37e46ef0af5dfbf8386b899f8c57b1e9e09a664b0e47b9e94438d3767915",
+      "symbol": "BHEL"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/BSE.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 7,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "902d9f97db9550511990c734a77948516673d865859fd22e70f8ea8511e03043",
+      "symbol": "BSE"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/CANBK.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 5,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "505fad2b8934298083c2618846f8f76ceb01fe0014ab63928470c1b045fee9a5",
+      "symbol": "CANBK"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/COFORGE.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 9,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "b661803f7571d63ee6e8df1921951e69fab3fdfc739f196a270471d5aa23ca53",
+      "symbol": "COFORGE"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/DIXON.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 9,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "c39b4ede9f3f759d5a8e6abac8dbb378c2f6381f4ec64107894ea34549ebb6c1",
+      "symbol": "DIXON"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/EICHERMOT.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 10,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "96dd3cdc7bf8afdcd19dde1bd08f7288da07e200bf9ff5fc9bc77838d2b0449d",
+      "symbol": "EICHERMOT"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/ETERNAL.json.gz",
+      "first_date": "2021-07-23",
+      "last_date": "2026-09-18",
+      "n_bars": 1280,
+      "n_patterns": 12,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "954f531954ed369afbba341dbc7a02efdf050df8f032cdcff03273308762eac5",
+      "symbol": "ETERNAL"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/HAL.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 10,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "580a4b8dbc6828d214e7331b37ab5473ace7a01a6dda6e70a15fb8db4764e580",
+      "symbol": "HAL"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/HCLTECH.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 9,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "f06d92e2142fa25bbed219f0a0ef58d1427950292f9928ad48612366d8b3d03d",
+      "symbol": "HCLTECH"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/HDFCBANK.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 13,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "f44603753067443c8dfb8dfb9835637b3ff13517faea7aeb00d4d4bd6e5e1500",
+      "symbol": "HDFCBANK"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/HINDALCO.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 5,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "54849733fb284b0bab7b5efacb8c742e9407334bb67208f592bfd2d9f7001ba5",
+      "symbol": "HINDALCO"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/HINDCOPPER.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 8,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "bec542a22d14ad63819ca2f5f30596ed0997469123e793900722839fe00a9087",
+      "symbol": "HINDCOPPER"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/HINDUNILVR.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 14,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "2fc8e3a4c81a9f543f1bcfbf62d9200438ae5cc1ea49772961efadaa3bf858e1",
+      "symbol": "HINDUNILVR"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/HINDZINC.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 11,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "cf730bc7dd8b47ec77d854d5d47bc6ca6d05f97f9badf615e8e174fcdd2b2ff4",
+      "symbol": "HINDZINC"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/ICICIBANK.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 8,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "0170967438061b089298e10636f313452a9403bfae38aa2eb7288a309083cd80",
+      "symbol": "ICICIBANK"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/IDEA.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 11,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "45c005872abb0a729e042be2230bf4f645694c79bdbb6764fb18bf6a21f9aa7c",
+      "symbol": "IDEA"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/INDIGO.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 16,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "8aaf1deb9dbb94620b76eb69ca72800aeb6d2c1a62e5ab22e764dc37ff8b5803",
+      "symbol": "INDIGO"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/INFY.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 20,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "a52662192d71832cfc1691fd23c7a9e719d3b4e5a4258667baac5729ff1764ad",
+      "symbol": "INFY"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/ITC.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 12,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "bd6a263ba473c7f17b8147914ffd01b5aa338397dc2e31471b9b50de602374a4",
+      "symbol": "ITC"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/KAYNES.json.gz",
+      "first_date": "2022-11-22",
+      "last_date": "2026-09-18",
+      "n_bars": 950,
+      "n_patterns": 8,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "ddf9fae6ce6f05118af7ac52a728c1198a99ee57a9a09813bfa01f8202c7fca7",
+      "symbol": "KAYNES"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/KOTAKBANK.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 12,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "58be0e0b29cf716ce22a728c5a8c200fe2d7e39390c6d56a183b6904564a6744",
+      "symbol": "KOTAKBANK"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/LT.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 7,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "58a368352c906cfdf2b9d02cb8c7b1804bae26bd19a5730bb733e12365696914",
+      "symbol": "LT"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/M&M.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 13,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "89da176b815bb9dd8512ad606ac5dc7432aa6497695adfa4bdf497145377e2c5",
+      "symbol": "M&M"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/MARUTI.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 6,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "a6d52448e2a848c174496c3e675ac8d0351ecbe8f0e05ea4ba4624036f15b2a6",
+      "symbol": "MARUTI"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/MCX.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 15,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "6ec722916caa7d089aef28c10d2406eab3dbafb0ca7e36f44328e234cd239cbb",
+      "symbol": "MCX"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/NATIONALUM.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 5,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "87e3916792c59aca66fe9edb493fec1b87aba649974ee52664c8909289f9e7f5",
+      "symbol": "NATIONALUM"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/NETWEB.json.gz",
+      "first_date": "2023-07-27",
+      "last_date": "2026-09-18",
+      "n_bars": 781,
+      "n_patterns": 8,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "85609d1c31413d64f7c28572f55bc3925046d9d0c346030c84207e0e3af8ddc8",
+      "symbol": "NETWEB"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/NTPC.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 9,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "3b8f90685c04c95584c8f63737cdbc012e2c14d1fa29fa8ebfc8f5e44dc47031",
+      "symbol": "NTPC"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/PAYTM.json.gz",
+      "first_date": "2021-11-18",
+      "last_date": "2026-09-18",
+      "n_bars": 1200,
+      "n_patterns": 10,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "d3f82f46e2ffb7a3660e9ce9faf25f160ca73ecc4f0d2b696c219fa7bbe67c2c",
+      "symbol": "PAYTM"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/POWERGRID.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 9,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "12eab50c2dd6c202a72c5a999347ee5f17364df0739c1fc0ba56f28074c134fe",
+      "symbol": "POWERGRID"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/POWERINDIA.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 15,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "23bd2ff541232ac068e0644bfa51e191b0ad9703a54c3eed5d1144ded24e9f74",
+      "symbol": "POWERINDIA"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/RELIANCE.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 16,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "58d1db10a48857e471ae1be1add7ad37417bb4107b10d20b5e0e1ff3b02e44cc",
+      "symbol": "RELIANCE"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/SBIN.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 7,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "05c9f231e13bcf189cd4dcedf8c8e826c4691b0b0dd6bc84a0a6478d6672542f",
+      "symbol": "SBIN"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/SHRIRAMFIN.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 9,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "57d26e9ac5b3924335533c06fd713d4b346d601d8a1ca8875fc13826a21a4e94",
+      "symbol": "SHRIRAMFIN"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/SUNPHARMA.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 8,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "8771aec1014c728c2ef2d355e9e021e6ebf8034fc28bbd31112e11224421d309",
+      "symbol": "SUNPHARMA"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/SWIGGY.json.gz",
+      "first_date": "2024-11-13",
+      "last_date": "2026-09-18",
+      "n_bars": 458,
+      "n_patterns": 13,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "ca53927b90d436778e139f0d6485788d2ecd26079337a56d9c9a4992b18f010f",
+      "symbol": "SWIGGY"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/TATASTEEL.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 16,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "ae46847bd18e66d2e6d3c9b7412d543f4006cbfaa568d6b1f3dd49112f158fe3",
+      "symbol": "TATASTEEL"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/TCS.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 9,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "a86787cb653e9cb751185e72f953bb19388e286e4e1e175273d8eddc24902454",
+      "symbol": "TCS"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/TITAN.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 9,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "0f9ae5ee5816db82152b4ffa1d87eeec7b6a6f41bcb6deab80a789f8964931c5",
+      "symbol": "TITAN"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/TMPV.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 8,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "30437dd83d0d08e6ea41c7859a6bd3dc8a3f82dde67f828868ee107e3fdfa0db",
+      "symbol": "TMPV"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/TRENT.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 6,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "0ebc4dc63e7f9695e0af0ab56b61963f64cfeb6e53dce4deeba702d3199d5381",
+      "symbol": "TRENT"
+    },
+    {
+      "data_quality_status": "VALID",
+      "file": "symbols/VEDL.json.gz",
+      "first_date": "2021-01-01",
+      "last_date": "2026-09-18",
+      "n_bars": 1417,
+      "n_patterns": 8,
+      "pit_status": "PIT_UNVERIFIED",
+      "sha256": "e44c544b772c3c175be3835fb59d76fe2dfeb192097055a91b713efd0fb66ab6",
+      "symbol": "VEDL"
+    }
+  ],
+  "universe_rule": "v1 research universe (research.charting.universe.build_universe: min_bars=250, sealed ETF list excluded) narrowed to the top 50 symbols by median daily traded value (close * volume) over each symbol's trailing 250 bars. 2132 symbols passed the base gates out of 2926 seen in the source directory; 794 were excluded (ETF and/or insufficient bars)."
+}

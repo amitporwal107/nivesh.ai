@@ -2170,7 +2170,8 @@ function ResearchHubCard({ data, onAction }: { data: any; onAction?: (a: WidgetA
   const v = views[active] || {};
   const isMf = data.kind === "mf";
   const head = isMf ? data.nav : data.price;
-  const sub = [data.subtitle, data.meta, data.risk].filter(Boolean).join(" · ");
+  // Strings only: a stock's `risk` is the risk-profile object (its own lens), which printed as "[object Object]" here.
+  const sub = [data.subtitle, data.meta, data.risk].filter((x) => typeof x === "string" && x).join(" · ");
   return (
     <div className="mt-1 w-full rounded-xl bg-surface-1 border border-hairline shadow-card p-5 sm:p-6 flex flex-col gap-5">
       {/* header */}

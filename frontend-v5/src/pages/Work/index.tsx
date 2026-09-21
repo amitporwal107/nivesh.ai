@@ -15,7 +15,7 @@ import {
   Camera, Layers, GitBranch, Circle, Calendar, ListTree, LayoutGrid, Palette, Paperclip,
   GitCommit, Target, Plus, ArrowLeft, Folder,
 } from "lucide-react";
-import { workAdapter, type IssuesFilter, type IssueUpdate } from "@/services/adapters/work.adapter";
+import { workAdapter, type IssueUpdate } from "@/services/adapters/work.adapter";
 import type { WorkIssue, WorkStats } from "@/services/contracts/work.contract";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -734,10 +734,9 @@ function WorkTracker({ projectKey, projectName, onBack }: {
   const [facets, setFacets] = useState<Facets>({});
   const [selected, setSelected] = useState<WorkIssue | null>(null);
 
-  const filter: IssuesFilter = { limit: 500 };
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["work-issues", filter],
-    queryFn:  () => workAdapter.list(filter),
+    queryKey: ["work-issues", "all"],
+    queryFn:  () => workAdapter.listAll(),
   });
   const { data: stats } = useQuery({ queryKey: ["work-stats"], queryFn: workAdapter.stats });
 
@@ -842,7 +841,7 @@ function rollup(projectItems: WorkIssue[], key: string, name: string, requiremen
 function ProjectCard({ p, onOpen }: { p: ProjectRollup; onOpen(): void }) {
   const statusColor = p.status === "resolved" ? "bg-pos" : p.status === "wont_fix" ? "bg-ink-4" : p.status === "in_progress" ? "bg-warm" : "bg-accent";
   return (
-    <button onClick={onOpen} className="text-left rounded-2xl border border-hairline p-4 hover:border-accent/40 hover:shadow-md transition-all bg-surface-1 flex flex-col gap-2 min-h-[160px]">
+    <button onClick={onOpen} data-testid={`work-project-${p.key}`} className="text-left rounded-2xl border border-hairline p-4 hover:border-accent/40 hover:shadow-md transition-all bg-surface-1 flex flex-col gap-2 min-h-[160px]">
       <div className="flex items-center gap-2">
         <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">{p.key}</span>
         <span className="ml-auto flex items-center gap-1 text-[10px] text-ink-3"><span className={`h-2 w-2 rounded-full ${statusColor}`} />{p.status}</span>
@@ -924,8 +923,7 @@ function NewProjectDrawer({ onClose, onCreated }: { onClose(): void; onCreated()
 function ProjectDashboard({ onOpen }: { onOpen(key: string | null, name: string): void }) {
   const qc = useQueryClient();
   const [creating, setCreating] = useState(false);
-  const filter: IssuesFilter = { limit: 500 };
-  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["work-issues", filter], queryFn: () => workAdapter.list(filter) });
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["work-issues", "all"], queryFn: () => workAdapter.listAll() });
   const items = data?.issues ?? [];
 
   const projects: ProjectRollup[] = useMemo(() => {

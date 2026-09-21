@@ -1,0 +1,26 @@
+{
+  "symbols": [
+    {
+      "symbol": "RELIANCE",
+      "n_bars": 26,
+      "first_date": "2026-08-10",
+      "last_date": "2026-09-14",
+      "data_quality_status": "VALID",
+      "pit_status": "PIT_VALIDATED",
+      "file": "symbols/RELIANCE.json.gz",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "n_patterns": 1
+    },
+    {
+      "symbol": "TCS",
+      "n_bars": 26,
+      "first_date": "2026-08-10",
+      "last_date": "2026-09-14",
+      "data_quality_status": "PARTIAL",
+      "pit_status": "PIT_UNVERIFIED",
+      "file": "symbols/TCS.json.gz",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "n_patterns": 0
+    }
+  ]
+}

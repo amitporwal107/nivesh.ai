@@ -4,6 +4,10 @@ import { recordCrash } from "@/lib/crash-fingerprint";
 import { reportComponentCrash } from "@/lib/observability";
 import { updateComponentHealth } from "@/lib/health-registry";
 
+// Full-page reload target. Must carry the build's base path ("/" locally, "/v5/" on staging) — a bare
+// "/dashboard" leaves the SPA and lands on an nginx 404 on staging (found 2026-09-21).
+const DASHBOARD_URL = `${import.meta.env.BASE_URL}dashboard`;
+
 const BUILD_VERSION =
   (import.meta as unknown as { env: Record<string, string> }).env?.VITE_APP_VERSION ?? "unknown";
 const GIT_SHA =
@@ -71,7 +75,7 @@ export class RouteErrorBoundary extends React.Component<
         if (prev.countdown <= 1) {
           clearInterval(this.timer!);
           this.timer = null;
-          window.location.replace("/dashboard");
+          window.location.replace(DASHBOARD_URL);
           return prev;
         }
         return { ...prev, countdown: prev.countdown - 1 };
@@ -112,7 +116,7 @@ export class RouteErrorBoundary extends React.Component<
 
         <div className="flex gap-3 mt-2">
           <button
-            onClick={() => window.location.replace("/dashboard")}
+            onClick={() => window.location.replace(DASHBOARD_URL)}
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-accent text-on-accent text-[13px] font-medium hover:opacity-90 transition-opacity"
           >
             <Home className="h-3.5 w-3.5" />

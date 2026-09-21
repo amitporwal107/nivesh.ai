@@ -1,0 +1,698 @@
+{
+ "_note": "MOCK \u2014 not live data: captured from the staging DaaS (/v1/paper-trades, nidp_staging) on 2026-09-18 after the engine's forward and replay runs; replayed by e2e/tests/research-paper-trades.spec.ts.",
+ "data": {
+  "status": "ok",
+  "sample": "replay",
+  "portfolio": "P5-NEXT",
+  "as_of_session": "2026-09-17",
+  "computed_at": "2026-09-18T08:39:47.764381+00:00",
+  "inputs_sha256": "a8cd497da7d685eeb9ac03ee1a78e02040aa3194d4219fc083511314fb446532",
+  "evaluation": {
+   "costs": {
+    "base": 0.25,
+    "sensitivity": [
+     0.5,
+     1.0
+    ]
+   },
+   "modes": [
+    {
+     "ci95": {
+      "n": 165,
+      "hi": 0.00044865889799201603,
+      "lo": -0.008639559907523634,
+      "mean": -0.004095450504765809
+     },
+     "mode": "EOD-1",
+     "label": "close of the entry day (s1)",
+     "headline": true,
+     "mean_mae": -0.03479255806493449,
+     "mean_mfe": 0.03889852403278498,
+     "net_mean": -0.0043383754171973975,
+     "sessions": 165,
+     "win_rate": 0.41277641277641275,
+     "portfolio": {
+      "sessions": 165,
+      "sharpe_like": -2.304854062358481,
+      "total_pnl_inr": -70628.7517919736,
+      "capital_base_inr": 100000,
+      "max_drawdown_inr": 80249.65719868559,
+      "volatility_daily": 0.029364604717169805,
+      "mean_daily_return": -0.004280530411634763
+     },
+     "gross_mean": -0.0018383754171973955,
+     "net_median": -0.008291407867494825,
+     "established": false,
+     "net_mean_050": -0.006838375417197397,
+     "net_mean_100": -0.011838375417197398,
+     "closed_trades": 814,
+     "edge_vs_a_all": {
+      "n": 165,
+      "hi": 0.003306017647717649,
+      "lo": -0.003993117106689377,
+      "mean": -0.0003435497294858637
+     },
+     "profit_factor": 0.7900021602374714,
+     "total_net_inr": -70628.75179197363,
+     "target_hit_rate": 0.26535626535626533
+    },
+    {
+     "ci95": {
+      "n": 165,
+      "hi": 0.0024609302693092156,
+      "lo": -0.016786314835170763,
+      "mean": -0.007162692282930774
+     },
+     "mode": "EOD-3",
+     "label": "close of the third session (s3)",
+     "headline": false,
+     "mean_mae": -0.05646108351838014,
+     "mean_mfe": 0.062298048075992936,
+     "net_mean": -0.00735037278046893,
+     "sessions": 165,
+     "win_rate": 0.40914709517923364,
+     "portfolio": {
+      "sessions": 167,
+      "sharpe_like": -1.7500018144347098,
+      "total_pnl_inr": -119973.22861386008,
+      "capital_base_inr": 300000,
+      "max_drawdown_inr": 138079.42986441444,
+      "volatility_daily": 0.021636057445486342,
+      "mean_daily_return": -0.002394675221833534
+     },
+     "gross_mean": -0.00485037278046893,
+     "net_median": -0.014665605095541432,
+     "established": false,
+     "net_mean_050": -0.009850372780468932,
+     "net_mean_100": -0.014850372780468935,
+     "closed_trades": 809,
+     "edge_vs_a_all": {
+      "n": 165,
+      "hi": 0.0028458071495299467,
+      "lo": -0.009031016565160943,
+      "mean": -0.003092604707815498
+     },
+     "profit_factor": 0.7778732919224325,
+     "total_net_inr": -118929.0315879873,
+     "target_hit_rate": 0.4400494437577256
+    },
+    {
+     "ci95": {
+      "n": 165,
+      "hi": 0.005763423174610947,
+      "lo": -0.023195500055798884,
+      "mean": -0.008716038440593968
+     },
+     "mode": "EOD-5",
+     "label": "close of the fifth session (s5)",
+     "headline": false,
+     "mean_mae": -0.07032717354417753,
+     "mean_mfe": 0.07564222404706133,
+     "net_mean": -0.008859801785216082,
+     "sessions": 165,
+     "win_rate": 0.4141791044776119,
+     "portfolio": {
+      "sessions": 169,
+      "sharpe_like": -1.4688354841212579,
+      "total_pnl_inr": -150976.42747616282,
+      "capital_base_inr": 500000,
+      "max_drawdown_inr": 191971.50346519667,
+      "volatility_daily": 0.019233099760337158,
+      "mean_daily_return": -0.0017867032837415712
+     },
+     "gross_mean": -0.00635980178521608,
+     "net_median": -0.01639714556816096,
+     "established": false,
+     "net_mean_050": -0.011359801785216084,
+     "net_mean_100": -0.016359801785216083,
+     "closed_trades": 804,
+     "edge_vs_a_all": {
+      "n": 165,
+      "hi": 0.0031358786734650528,
+      "lo": -0.012411325816409665,
+      "mean": -0.004637723571472306
+     },
+     "profit_factor": 0.7823073934311164,
+     "total_net_inr": -142465.6127062746,
+     "target_hit_rate": 0.5099502487562189
+    },
+    {
+     "ci95": {
+      "n": 165,
+      "hi": 0.008558960110641238,
+      "lo": -0.024870494083394416,
+      "mean": -0.008155766986376588
+     },
+     "mode": "FIXED",
+     "label": "no early exit, close of s6",
+     "headline": false,
+     "mean_mae": -0.0760650940672741,
+     "mean_mfe": 0.08165319739213765,
+     "net_mean": -0.008306187145856174,
+     "sessions": 165,
+     "win_rate": 0.415211970074813,
+     "portfolio": {
+      "sessions": 170,
+      "sharpe_like": -1.2065848544681073,
+      "total_pnl_inr": -144385.70984012744,
+      "capital_base_inr": 600000,
+      "max_drawdown_inr": 217729.646116793,
+      "volatility_daily": 0.01854966946276857,
+      "mean_daily_return": -0.00141554617490321
+     },
+     "gross_mean": -0.005806187145856177,
+     "net_median": -0.014173182107140579,
+     "established": false,
+     "net_mean_050": -0.01080618714585618,
+     "net_mean_100": -0.01580618714585618,
+     "closed_trades": 802,
+     "edge_vs_a_all": {
+      "n": 165,
+      "hi": 0.00463250266995303,
+      "lo": -0.01266679495766694,
+      "mean": -0.004017146143856956
+     },
+     "profit_factor": 0.8075730328831541,
+     "total_net_inr": -133231.24181953305,
+     "target_hit_rate": 0.5423940149625935
+    },
+    {
+     "ci95": {
+      "n": 165,
+      "hi": -0.0006450256033186707,
+      "lo": -0.015192994717346791,
+      "mean": -0.00791901016033273
+     },
+     "mode": "TARGET_STOP",
+     "label": "first barrier in s1\u2013s6, else close of s6",
+     "headline": false,
+     "mean_mae": -0.0551336129370606,
+     "mean_mfe": 0.0553317146900917,
+     "net_mean": -0.008109744858452759,
+     "sessions": 165,
+     "win_rate": 0.5346534653465347,
+     "portfolio": {
+      "sessions": 170,
+      "sharpe_like": -2.456014553321245,
+      "total_pnl_inr": -135007.7707301437,
+      "capital_base_inr": 600000,
+      "max_drawdown_inr": 153081.0780839934,
+      "volatility_daily": 0.008521139256945325,
+      "mean_daily_return": -0.0013236055953935657
+     },
+     "stop_rate": 0.349009900990099,
+     "gross_mean": -0.0056097448584527575,
+     "net_median": 0.04750000000000004,
+     "established": false,
+     "net_mean_050": -0.01060974485845276,
+     "net_mean_100": -0.01560974485845276,
+     "closed_trades": 808,
+     "edge_vs_a_all": {
+      "n": 165,
+      "hi": 0.003285081623915987,
+      "lo": -0.006402845971219467,
+      "mean": -0.0015588821736517398
+     },
+     "profit_factor": 0.7544500153842372,
+     "total_net_inr": -131053.4769125966,
+     "target_hit_rate": 0.5037128712871287,
+     "target_before_stop_rate": 0.5037128712871287
+    }
+   ],
+   "sample": "replay",
+   "buckets": {
+    "selected": [
+     {
+      "n": 0,
+      "hi": 0.1,
+      "lo": 0.0
+     },
+     {
+      "n": 31,
+      "hi": 0.2,
+      "lo": 0.1,
+      "mae_mean": -0.036451176565768885,
+      "net_mean": -0.0123437951583517,
+      "net_median": -0.0022881355932203285,
+      "positive_rate": 0.45161290322580644,
+      "predicted_mean": 0.1640710870618218,
+      "model_label_rate": 0.2903225806451613,
+      "calibration_error": 0.1262514935833395,
+      "trade_target_rate": 0.25806451612903225
+     },
+     {
+      "n": 162,
+      "hi": 0.3,
+      "lo": 0.2,
+      "mae_mean": -0.029901114823015763,
+      "net_mean": -0.0059864588374196614,
+      "net_median": -0.010638608998368158,
+      "positive_rate": 0.3950617283950617,
+      "predicted_mean": 0.2564351861967376,
+      "model_label_rate": 0.22839506172839505,
+      "calibration_error": -0.02804012446834256,
+      "trade_target_rate": 0.20987654320987653
+     },
+     {
+      "n": 277,
+      "hi": 0.4,
+      "lo": 0.3,
+      "mae_mean": -0.033215887985465604,
+      "net_mean": -0.0023390071722831658,
+      "net_median": -0.00878183361629886,
+      "positive_rate": 0.40794223826714804,
+      "predicted_mean": 0.34959328921807153,
+      "model_label_rate": 0.3176895306859206,
+      "calibration_error": -0.03190375853215094,
+      "trade_target_rate": 0.259927797833935
+     },
+     {
+      "n": 344,
+      "hi": 1.0,
+      "lo": 0.4,
+      "mae_mean": -0.03821620412213754,
+      "net_mean": -0.004450780875887664,
+      "net_median": -0.007524241208992919,
+      "positive_rate": 0.42151162790697677,
+      "predicted_mean": 0.5034755387762032,
+      "model_label_rate": 0.438953488372093,
+      "calibration_error": -0.06452205040411019,
+      "trade_target_rate": 0.29651162790697677
+     }
+    ],
+    "universe": [
+     {
+      "n": 121776,
+      "hi": 0.1,
+      "lo": 0.0,
+      "mae_mean": -0.01710827225418078,
+      "net_mean": -0.0038192214842205415,
+      "net_median": -0.004829673985119963,
+      "positive_rate": 0.38872191564840364,
+      "predicted_mean": 0.04510097643890444,
+      "model_label_rate": 0.055487123899618976,
+      "calibration_error": 0.010386147460714534,
+      "trade_target_rate": 0.04954999343056103
+     },
+     {
+      "n": 31190,
+      "hi": 0.2,
+      "lo": 0.1,
+      "mae_mean": -0.023972370416833276,
+      "net_mean": -0.003833122008396024,
+      "net_median": -0.005845404451039813,
+      "positive_rate": 0.4099390830394357,
+      "predicted_mean": 0.13638932753979274,
+      "model_label_rate": 0.13206155819172813,
+      "calibration_error": -0.004327769348064614,
+      "trade_target_rate": 0.1254248156460404
+     },
+     {
+      "n": 6819,
+      "hi": 0.3,
+      "lo": 0.2,
+      "mae_mean": -0.028569975610263303,
+      "net_mean": -0.0030271564332702396,
+      "net_median": -0.0054537366548042514,
+      "positive_rate": 0.4326147528963191,
+      "predicted_mean": 0.2393072785568076,
+      "model_label_rate": 0.2100014664906878,
+      "calibration_error": -0.02930581206611982,
+      "trade_target_rate": 0.17949846018477783
+     },
+     {
+      "n": 1931,
+      "hi": 0.4,
+      "lo": 0.3,
+      "mae_mean": -0.030393313849198487,
+      "net_mean": -0.0015951314741796726,
+      "net_median": -0.0050380710659898,
+      "positive_rate": 0.43656136716727084,
+      "predicted_mean": 0.34130074707011065,
+      "model_label_rate": 0.27550491973070945,
+      "calibration_error": -0.0657958273394012,
+      "trade_target_rate": 0.19264629725530813
+     },
+     {
+      "n": 796,
+      "hi": 1.0,
+      "lo": 0.4,
+      "mae_mean": -0.03373742139869642,
+      "net_mean": -0.0015998786521971985,
+      "net_median": -0.003763593447846878,
+      "positive_rate": 0.45603015075376885,
+      "predicted_mean": 0.47582945180825315,
+      "model_label_rate": 0.4057788944723618,
+      "calibration_error": -0.07005055733589133,
+      "trade_target_rate": 0.2537688442211055
+     }
+    ]
+   },
+   "rules_id": "paper-v1",
+   "sessions": {
+    "counted": 165,
+    "recorded": 165,
+    "not_counted": [],
+    "last_counted": "2025-08-29",
+    "first_counted": "2025-01-01",
+    "with_closed_headline": 165
+   },
+   "portfolio": "P5-NEXT",
+   "statement": {
+    "text": "Not established: the 95% interval for the edge against every eligible stock includes zero.",
+    "established": false,
+    "min_sessions": 60
+   },
+   "benchmarks": [
+    {
+     "mode": "EOD-1",
+     "label": "A \u00b7 every eligible stock",
+     "trades": 162512,
+     "hit_rate": 0.07226543270650783,
+     "net_mean": -0.003751900775279945,
+     "sessions": 165,
+     "benchmark": "A_ALL",
+     "positive_rate": 0.3955338682681894
+    },
+    {
+     "mode": "EOD-3",
+     "label": "A \u00b7 every eligible stock",
+     "trades": 162409,
+     "hit_rate": 0.23555344839263834,
+     "net_mean": -0.0040700875751152775,
+     "sessions": 165,
+     "benchmark": "A_ALL",
+     "positive_rate": 0.4303517662198523
+    },
+    {
+     "mode": "EOD-5",
+     "label": "A \u00b7 every eligible stock",
+     "trades": 162305,
+     "hit_rate": 0.3385970857336496,
+     "net_mean": -0.00407831486912166,
+     "sessions": 165,
+     "benchmark": "A_ALL",
+     "positive_rate": 0.43802717106681865
+    },
+    {
+     "mode": "FIXED",
+     "label": "A \u00b7 every eligible stock",
+     "trades": 162253,
+     "hit_rate": 0.37643679931958113,
+     "net_mean": -0.004138620842519632,
+     "sessions": 165,
+     "benchmark": "A_ALL",
+     "positive_rate": 0.4397021934879478
+    },
+    {
+     "mode": "TARGET_STOP",
+     "label": "A \u00b7 every eligible stock",
+     "trades": 162411,
+     "hit_rate": 0.3617981540659192,
+     "net_mean": -0.00636012798668099,
+     "sessions": 165,
+     "benchmark": "A_ALL",
+     "positive_rate": 0.47925940976904274
+    },
+    {
+     "mode": "EOD-1",
+     "label": "A \u00b7 seeded random five",
+     "trades": 825,
+     "hit_rate": 0.06787878787878789,
+     "net_mean": -0.0029765979130649944,
+     "sessions": 165,
+     "benchmark": "A_RANDOM5",
+     "positive_rate": 0.3975757575757576
+    },
+    {
+     "mode": "EOD-3",
+     "label": "A \u00b7 seeded random five",
+     "trades": 825,
+     "hit_rate": 0.23272727272727273,
+     "net_mean": -0.0027127715739192417,
+     "sessions": 165,
+     "benchmark": "A_RANDOM5",
+     "positive_rate": 0.44
+    },
+    {
+     "mode": "EOD-5",
+     "label": "A \u00b7 seeded random five",
+     "trades": 825,
+     "hit_rate": 0.33454545454545453,
+     "net_mean": -0.0018678352351333548,
+     "sessions": 165,
+     "benchmark": "A_RANDOM5",
+     "positive_rate": 0.44727272727272727
+    },
+    {
+     "mode": "FIXED",
+     "label": "A \u00b7 seeded random five",
+     "trades": 825,
+     "hit_rate": 0.3709090909090909,
+     "net_mean": -0.002956548269341375,
+     "sessions": 165,
+     "benchmark": "A_RANDOM5",
+     "positive_rate": 0.44606060606060605
+    },
+    {
+     "mode": "TARGET_STOP",
+     "label": "A \u00b7 seeded random five",
+     "trades": 825,
+     "hit_rate": 0.3466666666666667,
+     "net_mean": -0.0071643572506549045,
+     "sessions": 165,
+     "benchmark": "A_RANDOM5",
+     "positive_rate": 0.47878787878787876
+    },
+    {
+     "mode": "EOD-1",
+     "label": "B \u00b7 matched five",
+     "trades": 814,
+     "hit_rate": 0.09336609336609336,
+     "net_mean": -0.003655058349290894,
+     "sessions": 165,
+     "benchmark": "B_MATCHED",
+     "positive_rate": 0.41154791154791154
+    },
+    {
+     "mode": "EOD-3",
+     "label": "B \u00b7 matched five",
+     "trades": 812,
+     "hit_rate": 0.291871921182266,
+     "net_mean": -0.002397504689661325,
+     "sessions": 165,
+     "benchmark": "B_MATCHED",
+     "positive_rate": 0.43226600985221675
+    },
+    {
+     "mode": "EOD-5",
+     "label": "B \u00b7 matched five",
+     "trades": 811,
+     "hit_rate": 0.406905055487053,
+     "net_mean": -0.001209499324530914,
+     "sessions": 165,
+     "benchmark": "B_MATCHED",
+     "positive_rate": 0.4401972872996301
+    },
+    {
+     "mode": "FIXED",
+     "label": "B \u00b7 matched five",
+     "trades": 810,
+     "hit_rate": 0.44320987654320987,
+     "net_mean": -0.001326558647981474,
+     "sessions": 165,
+     "benchmark": "B_MATCHED",
+     "positive_rate": 0.4419753086419753
+    },
+    {
+     "mode": "TARGET_STOP",
+     "label": "B \u00b7 matched five",
+     "trades": 812,
+     "hit_rate": 0.42857142857142855,
+     "net_mean": -0.006215446432444713,
+     "sessions": 165,
+     "benchmark": "B_MATCHED",
+     "positive_rate": 0.5123152709359606
+    },
+    {
+     "mode": "EOD-1",
+     "label": "C \u00b7 movement only, no direction",
+     "trades": 810,
+     "hit_rate": 0.25555555555555554,
+     "net_mean": -0.006446756597431073,
+     "sessions": 165,
+     "benchmark": "C_MOVEMENT",
+     "positive_rate": 0.4
+    },
+    {
+     "mode": "EOD-3",
+     "label": "C \u00b7 movement only, no direction",
+     "trades": 804,
+     "hit_rate": 0.4253731343283582,
+     "net_mean": -0.012614954964951394,
+     "sessions": 165,
+     "benchmark": "C_MOVEMENT",
+     "positive_rate": 0.3880597014925373
+    },
+    {
+     "mode": "EOD-5",
+     "label": "C \u00b7 movement only, no direction",
+     "trades": 796,
+     "hit_rate": 0.4886934673366834,
+     "net_mean": -0.013087189992411668,
+     "sessions": 165,
+     "benchmark": "C_MOVEMENT",
+     "positive_rate": 0.40703517587939697
+    },
+    {
+     "mode": "FIXED",
+     "label": "C \u00b7 movement only, no direction",
+     "trades": 792,
+     "hit_rate": 0.5277777777777778,
+     "net_mean": -0.010922289501975992,
+     "sessions": 165,
+     "benchmark": "C_MOVEMENT",
+     "positive_rate": 0.40025252525252525
+    },
+    {
+     "mode": "TARGET_STOP",
+     "label": "C \u00b7 movement only, no direction",
+     "trades": 804,
+     "hit_rate": 0.47885572139303484,
+     "net_mean": -0.010781786355580853,
+     "sessions": 165,
+     "benchmark": "C_MOVEMENT",
+     "positive_rate": 0.5099502487562189
+    },
+    {
+     "mode": "EOD-1",
+     "label": "D \u00b7 Nifty 50",
+     "trades": 165,
+     "hit_rate": null,
+     "net_mean": -1.1750474344671894e-06,
+     "sessions": 165,
+     "benchmark": "D_NIFTY50",
+     "positive_rate": 0.4727272727272727
+    },
+    {
+     "mode": "EOD-3",
+     "label": "D \u00b7 Nifty 50",
+     "trades": 165,
+     "hit_rate": null,
+     "net_mean": 0.0003864542380544614,
+     "sessions": 165,
+     "benchmark": "D_NIFTY50",
+     "positive_rate": 0.44242424242424244
+    },
+    {
+     "mode": "EOD-5",
+     "label": "D \u00b7 Nifty 50",
+     "trades": 165,
+     "hit_rate": null,
+     "net_mean": 0.0009394643403211022,
+     "sessions": 165,
+     "benchmark": "D_NIFTY50",
+     "positive_rate": 0.46060606060606063
+    },
+    {
+     "mode": "FIXED",
+     "label": "D \u00b7 Nifty 50",
+     "trades": 165,
+     "hit_rate": null,
+     "net_mean": 0.0012367822836254854,
+     "sessions": 165,
+     "benchmark": "D_NIFTY50",
+     "positive_rate": 0.46060606060606063
+    },
+    {
+     "mode": "TARGET_STOP",
+     "label": "D \u00b7 Nifty 50",
+     "trades": 165,
+     "hit_rate": null,
+     "net_mean": 0.0012367822836254854,
+     "sessions": 165,
+     "benchmark": "D_NIFTY50",
+     "positive_rate": 0.46060606060606063
+    },
+    {
+     "mode": "EOD-1",
+     "label": "Model top 5",
+     "trades": 814,
+     "hit_rate": 0.26535626535626533,
+     "net_mean": -0.00409545050476581,
+     "sessions": 165,
+     "benchmark": "MODEL",
+     "positive_rate": 0.41277641277641275
+    },
+    {
+     "mode": "EOD-3",
+     "label": "Model top 5",
+     "trades": 809,
+     "hit_rate": 0.4400494437577256,
+     "net_mean": -0.007162692282930776,
+     "sessions": 165,
+     "benchmark": "MODEL",
+     "positive_rate": 0.40914709517923364
+    },
+    {
+     "mode": "EOD-5",
+     "label": "Model top 5",
+     "trades": 804,
+     "hit_rate": 0.5099502487562189,
+     "net_mean": -0.008716038440593968,
+     "sessions": 165,
+     "benchmark": "MODEL",
+     "positive_rate": 0.4141791044776119
+    },
+    {
+     "mode": "FIXED",
+     "label": "Model top 5",
+     "trades": 802,
+     "hit_rate": 0.5423940149625935,
+     "net_mean": -0.008155766986376588,
+     "sessions": 165,
+     "benchmark": "MODEL",
+     "positive_rate": 0.415211970074813
+    },
+    {
+     "mode": "TARGET_STOP",
+     "label": "Model top 5",
+     "trades": 808,
+     "hit_rate": 0.5037128712871287,
+     "net_mean": -0.007919010160332732,
+     "sessions": 165,
+     "benchmark": "MODEL",
+     "positive_rate": 0.5346534653465347
+    }
+   ],
+   "exceptions": {
+    "flags": {
+     "GAP_RECORDED": 53,
+     "LOWER_CIRCUIT_OPEN": 3
+    },
+    "entered": 814,
+    "selected": 825,
+    "by_reason": {
+     "NO_BAR": 4,
+     "UPPER_CIRCUIT_OPEN": 6,
+     "unexplained or unfactored corporate action inside the window": 1
+    },
+    "by_status": {
+     "ENTERED": 814,
+     "SUSPENDED": 4,
+     "ENTRY_UNAVAILABLE": 6,
+     "CORPORATE_ACTION_REVIEW": 1
+    }
+   },
+   "as_of_session": "2025-09-05",
+   "computed_from": {
+    "rules_sha256": "ea4bf3825c185d4045da36aff9ad682d68b63d687aaada6bbe9a5eca8319c72f",
+    "registered_at": "2026-09-18T13:37:49+05:30",
+    "prediction_sets": 165,
+    "panel_last_session": "2026-09-17"
+   },
+   "headline_mode": "EOD-1",
+   "refused_snapshots": []
+  }
+ }
+}

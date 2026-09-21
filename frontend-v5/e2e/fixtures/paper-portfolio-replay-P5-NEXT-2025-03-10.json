@@ -1,0 +1,4335 @@
+{
+ "_note": "MOCK \u2014 not live data: captured from the staging DaaS (/v1/paper-trades, nidp_staging) on 2026-09-18 after the engine's forward and replay runs; replayed by e2e/tests/research-paper-trades.spec.ts.",
+ "data": {
+  "status": "ok",
+  "sample": "replay",
+  "portfolio": "P5-NEXT",
+  "prediction_date": "2025-03-10",
+  "dates": [
+   {
+    "prediction_date": "2025-08-28",
+    "entry_session": "2025-08-29",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-26",
+    "entry_session": "2025-08-28",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-25",
+    "entry_session": "2025-08-26",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-22",
+    "entry_session": "2025-08-25",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-21",
+    "entry_session": "2025-08-22",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-20",
+    "entry_session": "2025-08-21",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-19",
+    "entry_session": "2025-08-20",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-18",
+    "entry_session": "2025-08-19",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-14",
+    "entry_session": "2025-08-18",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-13",
+    "entry_session": "2025-08-14",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-12",
+    "entry_session": "2025-08-13",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-11",
+    "entry_session": "2025-08-12",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-08",
+    "entry_session": "2025-08-11",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-07",
+    "entry_session": "2025-08-08",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-06",
+    "entry_session": "2025-08-07",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-05",
+    "entry_session": "2025-08-06",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-04",
+    "entry_session": "2025-08-05",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-08-01",
+    "entry_session": "2025-08-04",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-31",
+    "entry_session": "2025-08-01",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-30",
+    "entry_session": "2025-07-31",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-29",
+    "entry_session": "2025-07-30",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-28",
+    "entry_session": "2025-07-29",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-25",
+    "entry_session": "2025-07-28",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-24",
+    "entry_session": "2025-07-25",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-23",
+    "entry_session": "2025-07-24",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-22",
+    "entry_session": "2025-07-23",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-21",
+    "entry_session": "2025-07-22",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-18",
+    "entry_session": "2025-07-21",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-17",
+    "entry_session": "2025-07-18",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-16",
+    "entry_session": "2025-07-17",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-15",
+    "entry_session": "2025-07-16",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-14",
+    "entry_session": "2025-07-15",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-11",
+    "entry_session": "2025-07-14",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-10",
+    "entry_session": "2025-07-11",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-09",
+    "entry_session": "2025-07-10",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-08",
+    "entry_session": "2025-07-09",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-07",
+    "entry_session": "2025-07-08",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-04",
+    "entry_session": "2025-07-07",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-03",
+    "entry_session": "2025-07-04",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-02",
+    "entry_session": "2025-07-03",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-07-01",
+    "entry_session": "2025-07-02",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-30",
+    "entry_session": "2025-07-01",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-27",
+    "entry_session": "2025-06-30",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-26",
+    "entry_session": "2025-06-27",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-25",
+    "entry_session": "2025-06-26",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-24",
+    "entry_session": "2025-06-25",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-23",
+    "entry_session": "2025-06-24",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-20",
+    "entry_session": "2025-06-23",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-19",
+    "entry_session": "2025-06-20",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-18",
+    "entry_session": "2025-06-19",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-17",
+    "entry_session": "2025-06-18",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-16",
+    "entry_session": "2025-06-17",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-13",
+    "entry_session": "2025-06-16",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-12",
+    "entry_session": "2025-06-13",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-11",
+    "entry_session": "2025-06-12",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-10",
+    "entry_session": "2025-06-11",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-09",
+    "entry_session": "2025-06-10",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-06",
+    "entry_session": "2025-06-09",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-05",
+    "entry_session": "2025-06-06",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-04",
+    "entry_session": "2025-06-05",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-03",
+    "entry_session": "2025-06-04",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-06-02",
+    "entry_session": "2025-06-03",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-30",
+    "entry_session": "2025-06-02",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-29",
+    "entry_session": "2025-05-30",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-28",
+    "entry_session": "2025-05-29",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-27",
+    "entry_session": "2025-05-28",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-26",
+    "entry_session": "2025-05-27",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-23",
+    "entry_session": "2025-05-26",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-22",
+    "entry_session": "2025-05-23",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-21",
+    "entry_session": "2025-05-22",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-20",
+    "entry_session": "2025-05-21",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-19",
+    "entry_session": "2025-05-20",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-16",
+    "entry_session": "2025-05-19",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-15",
+    "entry_session": "2025-05-16",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-14",
+    "entry_session": "2025-05-15",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-13",
+    "entry_session": "2025-05-14",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-12",
+    "entry_session": "2025-05-13",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-09",
+    "entry_session": "2025-05-12",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-08",
+    "entry_session": "2025-05-09",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-07",
+    "entry_session": "2025-05-08",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-06",
+    "entry_session": "2025-05-07",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-05",
+    "entry_session": "2025-05-06",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-05-02",
+    "entry_session": "2025-05-05",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-30",
+    "entry_session": "2025-05-02",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-29",
+    "entry_session": "2025-04-30",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-28",
+    "entry_session": "2025-04-29",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-25",
+    "entry_session": "2025-04-28",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-24",
+    "entry_session": "2025-04-25",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-23",
+    "entry_session": "2025-04-24",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-22",
+    "entry_session": "2025-04-23",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-21",
+    "entry_session": "2025-04-22",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-17",
+    "entry_session": "2025-04-21",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-16",
+    "entry_session": "2025-04-17",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-15",
+    "entry_session": "2025-04-16",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-11",
+    "entry_session": "2025-04-15",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-09",
+    "entry_session": "2025-04-11",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-08",
+    "entry_session": "2025-04-09",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-07",
+    "entry_session": "2025-04-08",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-04",
+    "entry_session": "2025-04-07",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-03",
+    "entry_session": "2025-04-04",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-02",
+    "entry_session": "2025-04-03",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-04-01",
+    "entry_session": "2025-04-02",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-28",
+    "entry_session": "2025-04-01",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-27",
+    "entry_session": "2025-03-28",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-26",
+    "entry_session": "2025-03-27",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-25",
+    "entry_session": "2025-03-26",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-24",
+    "entry_session": "2025-03-25",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-21",
+    "entry_session": "2025-03-24",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-20",
+    "entry_session": "2025-03-21",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-19",
+    "entry_session": "2025-03-20",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-18",
+    "entry_session": "2025-03-19",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-17",
+    "entry_session": "2025-03-18",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-13",
+    "entry_session": "2025-03-17",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-12",
+    "entry_session": "2025-03-13",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-11",
+    "entry_session": "2025-03-12",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-10",
+    "entry_session": "2025-03-11",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-07",
+    "entry_session": "2025-03-10",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-06",
+    "entry_session": "2025-03-07",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-05",
+    "entry_session": "2025-03-06",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-04",
+    "entry_session": "2025-03-05",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-03-03",
+    "entry_session": "2025-03-04",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-28",
+    "entry_session": "2025-03-03",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-27",
+    "entry_session": "2025-02-28",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-25",
+    "entry_session": "2025-02-27",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-24",
+    "entry_session": "2025-02-25",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-21",
+    "entry_session": "2025-02-24",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-20",
+    "entry_session": "2025-02-21",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-19",
+    "entry_session": "2025-02-20",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-18",
+    "entry_session": "2025-02-19",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-17",
+    "entry_session": "2025-02-18",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-14",
+    "entry_session": "2025-02-17",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-13",
+    "entry_session": "2025-02-14",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-12",
+    "entry_session": "2025-02-13",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-11",
+    "entry_session": "2025-02-12",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-10",
+    "entry_session": "2025-02-11",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-07",
+    "entry_session": "2025-02-10",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-06",
+    "entry_session": "2025-02-07",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-05",
+    "entry_session": "2025-02-06",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-04",
+    "entry_session": "2025-02-05",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-03",
+    "entry_session": "2025-02-04",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-02-01",
+    "entry_session": "2025-02-03",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-31",
+    "entry_session": "2025-02-01",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-30",
+    "entry_session": "2025-01-31",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-29",
+    "entry_session": "2025-01-30",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-28",
+    "entry_session": "2025-01-29",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-27",
+    "entry_session": "2025-01-28",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-24",
+    "entry_session": "2025-01-27",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-23",
+    "entry_session": "2025-01-24",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-22",
+    "entry_session": "2025-01-23",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-21",
+    "entry_session": "2025-01-22",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-20",
+    "entry_session": "2025-01-21",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-17",
+    "entry_session": "2025-01-20",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-16",
+    "entry_session": "2025-01-17",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-15",
+    "entry_session": "2025-01-16",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-14",
+    "entry_session": "2025-01-15",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-13",
+    "entry_session": "2025-01-14",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-10",
+    "entry_session": "2025-01-13",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-09",
+    "entry_session": "2025-01-10",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-08",
+    "entry_session": "2025-01-09",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-07",
+    "entry_session": "2025-01-08",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-06",
+    "entry_session": "2025-01-07",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-03",
+    "entry_session": "2025-01-06",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-02",
+    "entry_session": "2025-01-03",
+    "counts": true
+   },
+   {
+    "prediction_date": "2025-01-01",
+    "entry_session": "2025-01-02",
+    "counts": true
+   },
+   {
+    "prediction_date": "2024-12-31",
+    "entry_session": "2025-01-01",
+    "counts": true
+   }
+  ],
+  "provenance": {
+   "model_version": "v4-early@ccccea3",
+   "feature_version": "v4-84in",
+   "snapshot_sha256": "c2f9e20f86e8e1a4dc95bbe4bfed98ba6fbf657b43896ec2569af127d9892b85",
+   "prediction_timestamp": "2026-09-15T15:47:56.971992+00:00",
+   "data_cutoff_timestamp": "2025-03-10T15:00:00+00:00",
+   "next_trading_session": "2025-03-11",
+   "rules_id": "paper-v1",
+   "counts_toward_evaluation": true,
+   "scored": 993,
+   "eligible": 991,
+   "excluded": {
+    "min_price": 1,
+    "min_traded_value": 1
+   },
+   "rules": {
+    "rules_id": "paper-v1",
+    "rules_sha256": "ea4bf3825c185d4045da36aff9ad682d68b63d687aaada6bbe9a5eca8319c72f",
+    "git_sha": "c3a9fc7",
+    "registered_at": "2026-09-18T08:07:49+00:00"
+   }
+  },
+  "config": {
+   "target_pct": 5.0,
+   "atr_multiplier": 1.5,
+   "head": "p_up5_1d",
+   "other_threshold": "p_up10_1d",
+   "capital_inr": 100000,
+   "positions": 5,
+   "cost_pct": 0.25,
+   "cost_sensitivity_pct": [
+    0.5,
+    1.0
+   ],
+   "stop_cap_pct": 8.0,
+   "headline_mode": "EOD-1"
+  },
+  "positions": [
+   {
+    "trade_id": 531,
+    "prediction_id": 109125,
+    "sample": "replay",
+    "portfolio_type": "P5-NEXT",
+    "symbol": "POCL",
+    "prediction_date": "2025-03-10",
+    "intended_entry_date": "2025-03-11",
+    "entry_date": "2025-03-11",
+    "entry_timestamp": "2025-03-11T10:00:00+00:00",
+    "entry_price": 501.1,
+    "entry_source": "NSE_BHAVCOPY",
+    "entry_method": "next_session_official_open",
+    "entry_price_adjustment_status": "UNADJUSTED_NO_ACTION",
+    "prev_close": 532.1,
+    "gap_from_previous_close": -0.05826,
+    "entry_slippage": 0.0,
+    "quantity": 39.912193,
+    "allocated_capital": 20000.0,
+    "target_pct": 5.0,
+    "stop_pct": 8.0,
+    "max_holding_sessions": 6,
+    "atr_14": 47.7504,
+    "support_level": 520.0,
+    "resistance_level": 774.95,
+    "stop_loss_price": 461.012,
+    "stop_method": "CAP_8PCT",
+    "target_1_price": 526.155,
+    "target_2_price": 551.21,
+    "risk_percent": 0.08,
+    "reward_percent": 0.05,
+    "risk_reward_ratio": 0.625,
+    "status": "EVALUATED",
+    "status_reason": null,
+    "flags": [
+     "GAP_RECORDED"
+    ],
+    "sessions_observed": 6,
+    "exit_mode": "EOD-1",
+    "exit_date": "2025-03-11",
+    "exit_price": 520.3,
+    "exit_reason": "close of s1 (EOD-1 headline)",
+    "gross_return": 0.038316,
+    "costs": 50.0,
+    "net_return": 0.035816,
+    "mfe": 0.133506,
+    "mae": -0.022151,
+    "max_drawdown": 0.04989,
+    "target_hit": true,
+    "target_before_stop": true,
+    "counts_toward_evaluation": true,
+    "rank": 1,
+    "model_rank": 1,
+    "movement_probability": 0.13524,
+    "p_opposite": 0.63754,
+    "p_other_threshold": 0.03704,
+    "prediction_close": 532.1,
+    "company_name": "Pondy Oxides & Chemicals Limited",
+    "sector": "Metals",
+    "size_group": "S",
+    "observations": [
+     {
+      "session_date": "2025-03-11",
+      "days_held": 0,
+      "open_price": 501.1,
+      "high_price": 568.0,
+      "low_price": 501.1,
+      "close_price": 520.3,
+      "volume": 203228,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.038316,
+      "open_return": 0.0,
+      "high_return": 0.133506,
+      "low_return": 0.0,
+      "high_watermark": 0.038316,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.133506,
+      "mae_to_date": 0.0,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": "EOD-1,TARGET_STOP",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-12",
+      "days_held": 1,
+      "open_price": 523.9,
+      "high_price": 532.05,
+      "low_price": 500.95,
+      "close_price": 516.75,
+      "volume": 135093,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.031231,
+      "open_return": 0.0455,
+      "high_return": 0.061764,
+      "low_return": -0.000299,
+      "high_watermark": 0.038316,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.133506,
+      "mae_to_date": -0.000299,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": null,
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-13",
+      "days_held": 2,
+      "open_price": 513.65,
+      "high_price": 522.0,
+      "low_price": 495.45,
+      "close_price": 499.2,
+      "volume": 90081,
+      "adjustment_factor": 1.0,
+      "return_from_entry": -0.003792,
+      "open_return": 0.025045,
+      "high_return": 0.041708,
+      "low_return": -0.011275,
+      "high_watermark": 0.038316,
+      "drawdown_from_entry": -0.003792,
+      "mfe_to_date": 0.133506,
+      "mae_to_date": -0.011275,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": "EOD-3",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-17",
+      "days_held": 3,
+      "open_price": 510.0,
+      "high_price": 522.0,
+      "low_price": 490.0,
+      "close_price": 495.3,
+      "volume": 153438,
+      "adjustment_factor": 1.0,
+      "return_from_entry": -0.011575,
+      "open_return": 0.017761,
+      "high_return": 0.041708,
+      "low_return": -0.022151,
+      "high_watermark": 0.038316,
+      "drawdown_from_entry": -0.011575,
+      "mfe_to_date": 0.133506,
+      "mae_to_date": -0.022151,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": null,
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-18",
+      "days_held": 4,
+      "open_price": 499.45,
+      "high_price": 524.6,
+      "low_price": 495.85,
+      "close_price": 508.7,
+      "volume": 434869,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.015167,
+      "open_return": -0.003293,
+      "high_return": 0.046897,
+      "low_return": -0.010477,
+      "high_watermark": 0.038316,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.133506,
+      "mae_to_date": -0.022151,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": "EOD-5",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-19",
+      "days_held": 5,
+      "open_price": 503.7,
+      "high_price": 559.55,
+      "low_price": 503.0,
+      "close_price": 559.55,
+      "volume": 151727,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.116643,
+      "open_return": 0.005189,
+      "high_return": 0.116643,
+      "low_return": 0.003792,
+      "high_watermark": 0.116643,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.133506,
+      "mae_to_date": -0.022151,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": "FIXED",
+      "data_quality_status": "OK"
+     }
+    ],
+    "exits": {
+     "EOD-1": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-11",
+      "exit_price": 520.3,
+      "exit_reason": "close of s1",
+      "sessions_held": 1,
+      "gross_return": 0.038316,
+      "cost_pct": 0.25,
+      "net_return": 0.035816,
+      "net_return_050": 0.033316,
+      "net_return_100": 0.028316,
+      "mfe": 0.133506,
+      "mae": 0.0,
+      "target_hit": true,
+      "stop_hit": false
+     },
+     "EOD-3": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-13",
+      "exit_price": 499.2,
+      "exit_reason": "close of s3",
+      "sessions_held": 3,
+      "gross_return": -0.003792,
+      "cost_pct": 0.25,
+      "net_return": -0.006292,
+      "net_return_050": -0.008792,
+      "net_return_100": -0.013792,
+      "mfe": 0.133506,
+      "mae": -0.011275,
+      "target_hit": true,
+      "stop_hit": false
+     },
+     "EOD-5": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-18",
+      "exit_price": 508.7,
+      "exit_reason": "close of s5",
+      "sessions_held": 5,
+      "gross_return": 0.015167,
+      "cost_pct": 0.25,
+      "net_return": 0.012667,
+      "net_return_050": 0.010167,
+      "net_return_100": 0.005167,
+      "mfe": 0.133506,
+      "mae": -0.022151,
+      "target_hit": true,
+      "stop_hit": false
+     },
+     "FIXED": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-19",
+      "exit_price": 559.55,
+      "exit_reason": "close of s6",
+      "sessions_held": 6,
+      "gross_return": 0.116643,
+      "cost_pct": 0.25,
+      "net_return": 0.114143,
+      "net_return_050": 0.111643,
+      "net_return_100": 0.106643,
+      "mfe": 0.133506,
+      "mae": -0.022151,
+      "target_hit": true,
+      "stop_hit": false
+     },
+     "TARGET_STOP": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-11",
+      "exit_price": 526.155,
+      "exit_reason": "target",
+      "sessions_held": 1,
+      "gross_return": 0.05,
+      "cost_pct": 0.25,
+      "net_return": 0.0475,
+      "net_return_050": 0.045,
+      "net_return_100": 0.04,
+      "mfe": 0.133506,
+      "mae": 0.0,
+      "target_hit": true,
+      "stop_hit": false
+     }
+    }
+   },
+   {
+    "trade_id": 532,
+    "prediction_id": 109126,
+    "sample": "replay",
+    "portfolio_type": "P5-NEXT",
+    "symbol": "MPSLTD",
+    "prediction_date": "2025-03-10",
+    "intended_entry_date": "2025-03-11",
+    "entry_date": "2025-03-11",
+    "entry_timestamp": "2025-03-11T10:00:00+00:00",
+    "entry_price": 2627.25,
+    "entry_source": "NSE_BHAVCOPY",
+    "entry_method": "next_session_official_open",
+    "entry_price_adjustment_status": "UNADJUSTED_NO_ACTION",
+    "prev_close": 2694.65,
+    "gap_from_previous_close": -0.025013,
+    "entry_slippage": 0.0,
+    "quantity": 7.612523,
+    "allocated_capital": 20000.0,
+    "target_pct": 5.0,
+    "stop_pct": 8.0,
+    "max_holding_sessions": 6,
+    "atr_14": 186.2542,
+    "support_level": 2226.0,
+    "resistance_level": 2922.95,
+    "stop_loss_price": 2417.07,
+    "stop_method": "CAP_8PCT",
+    "target_1_price": 2758.6125,
+    "target_2_price": 2889.975,
+    "risk_percent": 0.08,
+    "reward_percent": 0.05,
+    "risk_reward_ratio": 0.625,
+    "status": "EVALUATED",
+    "status_reason": null,
+    "flags": [],
+    "sessions_observed": 6,
+    "exit_mode": "EOD-1",
+    "exit_date": "2025-03-11",
+    "exit_price": 2524.05,
+    "exit_reason": "close of s1 (EOD-1 headline)",
+    "gross_return": -0.039281,
+    "costs": 50.0,
+    "net_return": -0.041781,
+    "mfe": 0.126273,
+    "mae": -0.060786,
+    "max_drawdown": 0.039928,
+    "target_hit": true,
+    "target_before_stop": true,
+    "counts_toward_evaluation": true,
+    "rank": 2,
+    "model_rank": 2,
+    "movement_probability": 0.12939,
+    "p_opposite": 0.584,
+    "p_other_threshold": 0.02528,
+    "prediction_close": 2694.65,
+    "company_name": "MPS Limited",
+    "sector": null,
+    "size_group": "S",
+    "observations": [
+     {
+      "session_date": "2025-03-11",
+      "days_held": 0,
+      "open_price": 2627.25,
+      "high_price": 2670.0,
+      "low_price": 2467.55,
+      "close_price": 2524.05,
+      "volume": 47246,
+      "adjustment_factor": 1.0,
+      "return_from_entry": -0.039281,
+      "open_return": 0.0,
+      "high_return": 0.016272,
+      "low_return": -0.060786,
+      "high_watermark": 0.0,
+      "drawdown_from_entry": -0.039281,
+      "mfe_to_date": 0.016272,
+      "mae_to_date": -0.060786,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": "EOD-1",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-12",
+      "days_held": 1,
+      "open_price": 2549.8,
+      "high_price": 2615.0,
+      "low_price": 2490.1,
+      "close_price": 2558.0,
+      "volume": 32159,
+      "adjustment_factor": 1.0,
+      "return_from_entry": -0.026358,
+      "open_return": -0.029479,
+      "high_return": -0.004663,
+      "low_return": -0.052203,
+      "high_watermark": 0.0,
+      "drawdown_from_entry": -0.026358,
+      "mfe_to_date": 0.016272,
+      "mae_to_date": -0.060786,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": null,
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-13",
+      "days_held": 2,
+      "open_price": 2532.05,
+      "high_price": 2595.0,
+      "low_price": 2509.95,
+      "close_price": 2522.35,
+      "volume": 15565,
+      "adjustment_factor": 1.0,
+      "return_from_entry": -0.039928,
+      "open_return": -0.036236,
+      "high_return": -0.012275,
+      "low_return": -0.044647,
+      "high_watermark": 0.0,
+      "drawdown_from_entry": -0.039928,
+      "mfe_to_date": 0.016272,
+      "mae_to_date": -0.060786,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": "EOD-3",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-17",
+      "days_held": 3,
+      "open_price": 2522.45,
+      "high_price": 2748.95,
+      "low_price": 2522.45,
+      "close_price": 2693.3,
+      "volume": 59339,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.02514,
+      "open_return": -0.03989,
+      "high_return": 0.046322,
+      "low_return": -0.03989,
+      "high_watermark": 0.02514,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.046322,
+      "mae_to_date": -0.060786,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": null,
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-18",
+      "days_held": 4,
+      "open_price": 2696.2,
+      "high_price": 2906.95,
+      "low_price": 2656.95,
+      "close_price": 2886.2,
+      "volume": 47400,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.098563,
+      "open_return": 0.026244,
+      "high_return": 0.106461,
+      "low_return": 0.011305,
+      "high_watermark": 0.098563,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.106461,
+      "mae_to_date": -0.060786,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": "EOD-5,TARGET_STOP",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-19",
+      "days_held": 5,
+      "open_price": 2944.95,
+      "high_price": 2959.0,
+      "low_price": 2874.0,
+      "close_price": 2905.85,
+      "volume": 36962,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.106042,
+      "open_return": 0.120925,
+      "high_return": 0.126273,
+      "low_return": 0.09392,
+      "high_watermark": 0.106042,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.126273,
+      "mae_to_date": -0.060786,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": "FIXED",
+      "data_quality_status": "OK"
+     }
+    ],
+    "exits": {
+     "EOD-1": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-11",
+      "exit_price": 2524.05,
+      "exit_reason": "close of s1",
+      "sessions_held": 1,
+      "gross_return": -0.039281,
+      "cost_pct": 0.25,
+      "net_return": -0.041781,
+      "net_return_050": -0.044281,
+      "net_return_100": -0.049281,
+      "mfe": 0.016272,
+      "mae": -0.060786,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-3": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-13",
+      "exit_price": 2522.35,
+      "exit_reason": "close of s3",
+      "sessions_held": 3,
+      "gross_return": -0.039928,
+      "cost_pct": 0.25,
+      "net_return": -0.042428,
+      "net_return_050": -0.044928,
+      "net_return_100": -0.049928,
+      "mfe": 0.016272,
+      "mae": -0.060786,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-5": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-18",
+      "exit_price": 2886.2,
+      "exit_reason": "close of s5",
+      "sessions_held": 5,
+      "gross_return": 0.098563,
+      "cost_pct": 0.25,
+      "net_return": 0.096063,
+      "net_return_050": 0.093563,
+      "net_return_100": 0.088563,
+      "mfe": 0.106461,
+      "mae": -0.060786,
+      "target_hit": true,
+      "stop_hit": false
+     },
+     "FIXED": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-19",
+      "exit_price": 2905.85,
+      "exit_reason": "close of s6",
+      "sessions_held": 6,
+      "gross_return": 0.106042,
+      "cost_pct": 0.25,
+      "net_return": 0.103542,
+      "net_return_050": 0.101042,
+      "net_return_100": 0.096042,
+      "mfe": 0.126273,
+      "mae": -0.060786,
+      "target_hit": true,
+      "stop_hit": false
+     },
+     "TARGET_STOP": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-18",
+      "exit_price": 2758.6125,
+      "exit_reason": "target",
+      "sessions_held": 5,
+      "gross_return": 0.05,
+      "cost_pct": 0.25,
+      "net_return": 0.0475,
+      "net_return_050": 0.045,
+      "net_return_100": 0.04,
+      "mfe": 0.106461,
+      "mae": -0.060786,
+      "target_hit": true,
+      "stop_hit": false
+     }
+    }
+   },
+   {
+    "trade_id": 533,
+    "prediction_id": 109127,
+    "sample": "replay",
+    "portfolio_type": "P5-NEXT",
+    "symbol": "BAJAJHCARE",
+    "prediction_date": "2025-03-10",
+    "intended_entry_date": "2025-03-11",
+    "entry_date": "2025-03-11",
+    "entry_timestamp": "2025-03-11T10:00:00+00:00",
+    "entry_price": 620.0,
+    "entry_source": "NSE_BHAVCOPY",
+    "entry_method": "next_session_official_open",
+    "entry_price_adjustment_status": "UNADJUSTED_NO_ACTION",
+    "prev_close": 631.5,
+    "gap_from_previous_close": -0.018211,
+    "entry_slippage": 0.0,
+    "quantity": 32.258065,
+    "allocated_capital": 20000.0,
+    "target_pct": 5.0,
+    "stop_pct": 8.0,
+    "max_holding_sessions": 6,
+    "atr_14": 49.3848,
+    "support_level": 565.55,
+    "resistance_level": 714.0,
+    "stop_loss_price": 570.4,
+    "stop_method": "CAP_8PCT",
+    "target_1_price": 651.0,
+    "target_2_price": 682.0,
+    "risk_percent": 0.08,
+    "reward_percent": 0.05,
+    "risk_reward_ratio": 0.625,
+    "status": "EVALUATED",
+    "status_reason": null,
+    "flags": [],
+    "sessions_observed": 6,
+    "exit_mode": "EOD-1",
+    "exit_date": "2025-03-11",
+    "exit_price": 631.55,
+    "exit_reason": "close of s1 (EOD-1 headline)",
+    "gross_return": 0.018629,
+    "costs": 50.0,
+    "net_return": 0.016129,
+    "mfe": 0.201613,
+    "mae": -0.0225,
+    "max_drawdown": 0.016935,
+    "target_hit": true,
+    "target_before_stop": true,
+    "counts_toward_evaluation": true,
+    "rank": 3,
+    "model_rank": 3,
+    "movement_probability": 0.11858,
+    "p_opposite": 0.62938,
+    "p_other_threshold": 0.01906,
+    "prediction_close": 631.5,
+    "company_name": "Bajaj Healthcare Limited",
+    "sector": "Healthcare",
+    "size_group": "S",
+    "observations": [
+     {
+      "session_date": "2025-03-11",
+      "days_held": 0,
+      "open_price": 620.0,
+      "high_price": 635.9,
+      "low_price": 606.05,
+      "close_price": 631.55,
+      "volume": 285087,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.018629,
+      "open_return": 0.0,
+      "high_return": 0.025645,
+      "low_return": -0.0225,
+      "high_watermark": 0.018629,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.025645,
+      "mae_to_date": -0.0225,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": "EOD-1",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-12",
+      "days_held": 1,
+      "open_price": 635.0,
+      "high_price": 664.4,
+      "low_price": 630.0,
+      "close_price": 642.65,
+      "volume": 364066,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.036532,
+      "open_return": 0.024194,
+      "high_return": 0.071613,
+      "low_return": 0.016129,
+      "high_watermark": 0.036532,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.071613,
+      "mae_to_date": -0.0225,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": "TARGET_STOP",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-13",
+      "days_held": 2,
+      "open_price": 648.9,
+      "high_price": 650.0,
+      "low_price": 630.0,
+      "close_price": 632.15,
+      "volume": 130495,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.019597,
+      "open_return": 0.046613,
+      "high_return": 0.048387,
+      "low_return": 0.016129,
+      "high_watermark": 0.036532,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.071613,
+      "mae_to_date": -0.0225,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": "EOD-3",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-17",
+      "days_held": 3,
+      "open_price": 639.6,
+      "high_price": 673.0,
+      "low_price": 633.1,
+      "close_price": 664.0,
+      "volume": 409815,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.070968,
+      "open_return": 0.031613,
+      "high_return": 0.085484,
+      "low_return": 0.021129,
+      "high_watermark": 0.070968,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.085484,
+      "mae_to_date": -0.0225,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": null,
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-18",
+      "days_held": 4,
+      "open_price": 670.0,
+      "high_price": 684.0,
+      "low_price": 660.75,
+      "close_price": 675.5,
+      "volume": 281809,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.089516,
+      "open_return": 0.080645,
+      "high_return": 0.103226,
+      "low_return": 0.065726,
+      "high_watermark": 0.089516,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.103226,
+      "mae_to_date": -0.0225,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": "EOD-5",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-19",
+      "days_held": 5,
+      "open_price": 683.5,
+      "high_price": 745.0,
+      "low_price": 646.0,
+      "close_price": 693.45,
+      "volume": 1709910,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.118468,
+      "open_return": 0.102419,
+      "high_return": 0.201613,
+      "low_return": 0.041935,
+      "high_watermark": 0.118468,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.201613,
+      "mae_to_date": -0.0225,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": "FIXED",
+      "data_quality_status": "OK"
+     }
+    ],
+    "exits": {
+     "EOD-1": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-11",
+      "exit_price": 631.55,
+      "exit_reason": "close of s1",
+      "sessions_held": 1,
+      "gross_return": 0.018629,
+      "cost_pct": 0.25,
+      "net_return": 0.016129,
+      "net_return_050": 0.013629,
+      "net_return_100": 0.008629,
+      "mfe": 0.025645,
+      "mae": -0.0225,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-3": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-13",
+      "exit_price": 632.15,
+      "exit_reason": "close of s3",
+      "sessions_held": 3,
+      "gross_return": 0.019597,
+      "cost_pct": 0.25,
+      "net_return": 0.017097,
+      "net_return_050": 0.014597,
+      "net_return_100": 0.009597,
+      "mfe": 0.071613,
+      "mae": -0.0225,
+      "target_hit": true,
+      "stop_hit": false
+     },
+     "EOD-5": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-18",
+      "exit_price": 675.5,
+      "exit_reason": "close of s5",
+      "sessions_held": 5,
+      "gross_return": 0.089516,
+      "cost_pct": 0.25,
+      "net_return": 0.087016,
+      "net_return_050": 0.084516,
+      "net_return_100": 0.079516,
+      "mfe": 0.103226,
+      "mae": -0.0225,
+      "target_hit": true,
+      "stop_hit": false
+     },
+     "FIXED": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-19",
+      "exit_price": 693.45,
+      "exit_reason": "close of s6",
+      "sessions_held": 6,
+      "gross_return": 0.118468,
+      "cost_pct": 0.25,
+      "net_return": 0.115968,
+      "net_return_050": 0.113468,
+      "net_return_100": 0.108468,
+      "mfe": 0.201613,
+      "mae": -0.0225,
+      "target_hit": true,
+      "stop_hit": false
+     },
+     "TARGET_STOP": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-12",
+      "exit_price": 651.0,
+      "exit_reason": "target",
+      "sessions_held": 2,
+      "gross_return": 0.05,
+      "cost_pct": 0.25,
+      "net_return": 0.0475,
+      "net_return_050": 0.045,
+      "net_return_100": 0.04,
+      "mfe": 0.071613,
+      "mae": -0.0225,
+      "target_hit": true,
+      "stop_hit": false
+     }
+    }
+   },
+   {
+    "trade_id": 534,
+    "prediction_id": 109128,
+    "sample": "replay",
+    "portfolio_type": "P5-NEXT",
+    "symbol": "PRECAM",
+    "prediction_date": "2025-03-10",
+    "intended_entry_date": "2025-03-11",
+    "entry_date": "2025-03-11",
+    "entry_timestamp": "2025-03-11T10:00:00+00:00",
+    "entry_price": 161.4,
+    "entry_source": "NSE_BHAVCOPY",
+    "entry_method": "next_session_official_open",
+    "entry_price_adjustment_status": "UNADJUSTED_NO_ACTION",
+    "prev_close": 158.99,
+    "gap_from_previous_close": 0.015158,
+    "entry_slippage": 0.0,
+    "quantity": 123.915737,
+    "allocated_capital": 20000.0,
+    "target_pct": 5.0,
+    "stop_pct": 8.0,
+    "max_holding_sessions": 6,
+    "atr_14": 17.1761,
+    "support_level": 153.51,
+    "resistance_level": 282.95,
+    "stop_loss_price": 148.488,
+    "stop_method": "CAP_8PCT",
+    "target_1_price": 169.47,
+    "target_2_price": 177.54,
+    "risk_percent": 0.08,
+    "reward_percent": 0.05,
+    "risk_reward_ratio": 0.625,
+    "status": "EVALUATED",
+    "status_reason": null,
+    "flags": [],
+    "sessions_observed": 6,
+    "exit_mode": "EOD-1",
+    "exit_date": "2025-03-11",
+    "exit_price": 152.92,
+    "exit_reason": "close of s1 (EOD-1 headline)",
+    "gross_return": -0.05254,
+    "costs": 50.0,
+    "net_return": -0.05504,
+    "mfe": 0.109913,
+    "mae": -0.069331,
+    "max_drawdown": 0.05254,
+    "target_hit": true,
+    "target_before_stop": true,
+    "counts_toward_evaluation": true,
+    "rank": 4,
+    "model_rank": 4,
+    "movement_probability": 0.10445,
+    "p_opposite": 0.52422,
+    "p_other_threshold": 0.01701,
+    "prediction_close": 158.99,
+    "company_name": "Precision Camshafts Limited",
+    "sector": null,
+    "size_group": "S",
+    "observations": [
+     {
+      "session_date": "2025-03-11",
+      "days_held": 0,
+      "open_price": 161.4,
+      "high_price": 162.21,
+      "low_price": 150.79,
+      "close_price": 152.92,
+      "volume": 420543,
+      "adjustment_factor": 1.0,
+      "return_from_entry": -0.05254,
+      "open_return": 0.0,
+      "high_return": 0.005019,
+      "low_return": -0.065737,
+      "high_watermark": 0.0,
+      "drawdown_from_entry": -0.05254,
+      "mfe_to_date": 0.005019,
+      "mae_to_date": -0.065737,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": "EOD-1",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-12",
+      "days_held": 1,
+      "open_price": 154.0,
+      "high_price": 165.0,
+      "low_price": 150.21,
+      "close_price": 157.01,
+      "volume": 340500,
+      "adjustment_factor": 1.0,
+      "return_from_entry": -0.0272,
+      "open_return": -0.045849,
+      "high_return": 0.022305,
+      "low_return": -0.069331,
+      "high_watermark": 0.0,
+      "drawdown_from_entry": -0.0272,
+      "mfe_to_date": 0.022305,
+      "mae_to_date": -0.069331,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": null,
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-13",
+      "days_held": 2,
+      "open_price": 156.0,
+      "high_price": 164.8,
+      "low_price": 154.53,
+      "close_price": 155.33,
+      "volume": 275045,
+      "adjustment_factor": 1.0,
+      "return_from_entry": -0.037608,
+      "open_return": -0.033457,
+      "high_return": 0.021066,
+      "low_return": -0.042565,
+      "high_watermark": 0.0,
+      "drawdown_from_entry": -0.037608,
+      "mfe_to_date": 0.022305,
+      "mae_to_date": -0.069331,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": "EOD-3",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-17",
+      "days_held": 3,
+      "open_price": 157.7,
+      "high_price": 160.0,
+      "low_price": 155.1,
+      "close_price": 156.56,
+      "volume": 170562,
+      "adjustment_factor": 1.0,
+      "return_from_entry": -0.029988,
+      "open_return": -0.022924,
+      "high_return": -0.008674,
+      "low_return": -0.039033,
+      "high_watermark": 0.0,
+      "drawdown_from_entry": -0.029988,
+      "mfe_to_date": 0.022305,
+      "mae_to_date": -0.069331,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": null,
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-18",
+      "days_held": 4,
+      "open_price": 158.1,
+      "high_price": 165.86,
+      "low_price": 156.97,
+      "close_price": 162.86,
+      "volume": 300379,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.009046,
+      "open_return": -0.020446,
+      "high_return": 0.027633,
+      "low_return": -0.027447,
+      "high_watermark": 0.009046,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.027633,
+      "mae_to_date": -0.069331,
+      "target_hit": false,
+      "stop_hit": false,
+      "exit_status": "EOD-5",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-19",
+      "days_held": 5,
+      "open_price": 162.86,
+      "high_price": 179.14,
+      "low_price": 162.86,
+      "close_price": 173.29,
+      "volume": 530338,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.073668,
+      "open_return": 0.009046,
+      "high_return": 0.109913,
+      "low_return": 0.009046,
+      "high_watermark": 0.073668,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.109913,
+      "mae_to_date": -0.069331,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": "FIXED,TARGET_STOP",
+      "data_quality_status": "OK"
+     }
+    ],
+    "exits": {
+     "EOD-1": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-11",
+      "exit_price": 152.92,
+      "exit_reason": "close of s1",
+      "sessions_held": 1,
+      "gross_return": -0.05254,
+      "cost_pct": 0.25,
+      "net_return": -0.05504,
+      "net_return_050": -0.05754,
+      "net_return_100": -0.06254,
+      "mfe": 0.005019,
+      "mae": -0.065737,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-3": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-13",
+      "exit_price": 155.33,
+      "exit_reason": "close of s3",
+      "sessions_held": 3,
+      "gross_return": -0.037608,
+      "cost_pct": 0.25,
+      "net_return": -0.040108,
+      "net_return_050": -0.042608,
+      "net_return_100": -0.047608,
+      "mfe": 0.022305,
+      "mae": -0.069331,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "EOD-5": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-18",
+      "exit_price": 162.86,
+      "exit_reason": "close of s5",
+      "sessions_held": 5,
+      "gross_return": 0.009046,
+      "cost_pct": 0.25,
+      "net_return": 0.006546,
+      "net_return_050": 0.004046,
+      "net_return_100": -0.000954,
+      "mfe": 0.027633,
+      "mae": -0.069331,
+      "target_hit": false,
+      "stop_hit": false
+     },
+     "FIXED": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-19",
+      "exit_price": 173.29,
+      "exit_reason": "close of s6",
+      "sessions_held": 6,
+      "gross_return": 0.073668,
+      "cost_pct": 0.25,
+      "net_return": 0.071168,
+      "net_return_050": 0.068668,
+      "net_return_100": 0.063668,
+      "mfe": 0.109913,
+      "mae": -0.069331,
+      "target_hit": true,
+      "stop_hit": false
+     },
+     "TARGET_STOP": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-19",
+      "exit_price": 169.47,
+      "exit_reason": "target",
+      "sessions_held": 6,
+      "gross_return": 0.05,
+      "cost_pct": 0.25,
+      "net_return": 0.0475,
+      "net_return_050": 0.045,
+      "net_return_100": 0.04,
+      "mfe": 0.109913,
+      "mae": -0.069331,
+      "target_hit": true,
+      "stop_hit": false
+     }
+    }
+   },
+   {
+    "trade_id": 535,
+    "prediction_id": 109129,
+    "sample": "replay",
+    "portfolio_type": "P5-NEXT",
+    "symbol": "KRN",
+    "prediction_date": "2025-03-10",
+    "intended_entry_date": "2025-03-11",
+    "entry_date": "2025-03-11",
+    "entry_timestamp": "2025-03-11T10:00:00+00:00",
+    "entry_price": 930.0,
+    "entry_source": "NSE_BHAVCOPY",
+    "entry_method": "next_session_official_open",
+    "entry_price_adjustment_status": "UNADJUSTED_NO_ACTION",
+    "prev_close": 942.2,
+    "gap_from_previous_close": -0.012948,
+    "entry_slippage": 0.0,
+    "quantity": 21.505376,
+    "allocated_capital": 20000.0,
+    "target_pct": 5.0,
+    "stop_pct": 8.0,
+    "max_holding_sessions": 6,
+    "atr_14": 71.8722,
+    "support_level": 806.6,
+    "resistance_level": 1010.0,
+    "stop_loss_price": 855.6,
+    "stop_method": "CAP_8PCT",
+    "target_1_price": 976.5,
+    "target_2_price": 1023.0,
+    "risk_percent": 0.08,
+    "reward_percent": 0.05,
+    "risk_reward_ratio": 0.625,
+    "status": "EVALUATED",
+    "status_reason": null,
+    "flags": [],
+    "sessions_observed": 6,
+    "exit_mode": "EOD-1",
+    "exit_date": "2025-03-11",
+    "exit_price": 955.7,
+    "exit_reason": "close of s1 (EOD-1 headline)",
+    "gross_return": 0.027634,
+    "costs": 50.0,
+    "net_return": 0.025134,
+    "mfe": 0.082473,
+    "mae": -0.080645,
+    "max_drawdown": 0.085645,
+    "target_hit": true,
+    "target_before_stop": true,
+    "counts_toward_evaluation": true,
+    "rank": 5,
+    "model_rank": 5,
+    "movement_probability": 0.10367,
+    "p_opposite": 0.639,
+    "p_other_threshold": 0.03649,
+    "prediction_close": 942.2,
+    "company_name": "KRN Heat Exchanger and Refrigeration Limited",
+    "sector": null,
+    "size_group": "L",
+    "observations": [
+     {
+      "session_date": "2025-03-11",
+      "days_held": 0,
+      "open_price": 930.0,
+      "high_price": 994.7,
+      "low_price": 925.0,
+      "close_price": 955.7,
+      "volume": 4974198,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.027634,
+      "open_return": 0.0,
+      "high_return": 0.06957,
+      "low_return": -0.005376,
+      "high_watermark": 0.027634,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.06957,
+      "mae_to_date": -0.005376,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": "EOD-1,TARGET_STOP",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-12",
+      "days_held": 1,
+      "open_price": 972.5,
+      "high_price": 982.2,
+      "low_price": 946.85,
+      "close_price": 952.8,
+      "volume": 2078956,
+      "adjustment_factor": 1.0,
+      "return_from_entry": 0.024516,
+      "open_return": 0.045699,
+      "high_return": 0.056129,
+      "low_return": 0.018118,
+      "high_watermark": 0.027634,
+      "drawdown_from_entry": 0.0,
+      "mfe_to_date": 0.06957,
+      "mae_to_date": -0.005376,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": null,
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-13",
+      "days_held": 2,
+      "open_price": 960.0,
+      "high_price": 1006.7,
+      "low_price": 921.6,
+      "close_price": 929.0,
+      "volume": 5709758,
+      "adjustment_factor": 1.0,
+      "return_from_entry": -0.001075,
+      "open_return": 0.032258,
+      "high_return": 0.082473,
+      "low_return": -0.009032,
+      "high_watermark": 0.027634,
+      "drawdown_from_entry": -0.001075,
+      "mfe_to_date": 0.082473,
+      "mae_to_date": -0.009032,
+      "target_hit": true,
+      "stop_hit": false,
+      "exit_status": "EOD-3",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-17",
+      "days_held": 3,
+      "open_price": 938.7,
+      "high_price": 951.2,
+      "low_price": 855.0,
+      "close_price": 881.45,
+      "volume": 2927775,
+      "adjustment_factor": 1.0,
+      "return_from_entry": -0.052204,
+      "open_return": 0.009355,
+      "high_return": 0.022796,
+      "low_return": -0.080645,
+      "high_watermark": 0.027634,
+      "drawdown_from_entry": -0.052204,
+      "mfe_to_date": 0.082473,
+      "mae_to_date": -0.080645,
+      "target_hit": true,
+      "stop_hit": true,
+      "exit_status": null,
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-18",
+      "days_held": 4,
+      "open_price": 880.8,
+      "high_price": 895.0,
+      "low_price": 857.55,
+      "close_price": 876.05,
+      "volume": 2984494,
+      "adjustment_factor": 1.0,
+      "return_from_entry": -0.058011,
+      "open_return": -0.052903,
+      "high_return": -0.037634,
+      "low_return": -0.077903,
+      "high_watermark": 0.027634,
+      "drawdown_from_entry": -0.058011,
+      "mfe_to_date": 0.082473,
+      "mae_to_date": -0.080645,
+      "target_hit": true,
+      "stop_hit": true,
+      "exit_status": "EOD-5",
+      "data_quality_status": "OK"
+     },
+     {
+      "session_date": "2025-03-19",
+      "days_held": 5,
+      "open_price": 880.3,
+      "high_price": 907.9,
+      "low_price": 880.3,
+      "close_price": 896.05,
+      "volume": 1926255,
+      "adjustment_factor": 1.0,
+      "return_from_entry": -0.036505,
+      "open_return": -0.053441,
+      "high_return": -0.023763,
+      "low_return": -0.053441,
+      "high_watermark": 0.027634,
+      "drawdown_from_entry": -0.036505,
+      "mfe_to_date": 0.082473,
+      "mae_to_date": -0.080645,
+      "target_hit": true,
+      "stop_hit": true,
+      "exit_status": "FIXED",
+      "data_quality_status": "OK"
+     }
+    ],
+    "exits": {
+     "EOD-1": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-11",
+      "exit_price": 955.7,
+      "exit_reason": "close of s1",
+      "sessions_held": 1,
+      "gross_return": 0.027634,
+      "cost_pct": 0.25,
+      "net_return": 0.025134,
+      "net_return_050": 0.022634,
+      "net_return_100": 0.017634,
+      "mfe": 0.06957,
+      "mae": -0.005376,
+      "target_hit": true,
+      "stop_hit": false
+     },
+     "EOD-3": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-13",
+      "exit_price": 929.0,
+      "exit_reason": "close of s3",
+      "sessions_held": 3,
+      "gross_return": -0.001075,
+      "cost_pct": 0.25,
+      "net_return": -0.003575,
+      "net_return_050": -0.006075,
+      "net_return_100": -0.011075,
+      "mfe": 0.082473,
+      "mae": -0.009032,
+      "target_hit": true,
+      "stop_hit": false
+     },
+     "EOD-5": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-18",
+      "exit_price": 876.05,
+      "exit_reason": "close of s5",
+      "sessions_held": 5,
+      "gross_return": -0.058011,
+      "cost_pct": 0.25,
+      "net_return": -0.060511,
+      "net_return_050": -0.063011,
+      "net_return_100": -0.068011,
+      "mfe": 0.082473,
+      "mae": -0.080645,
+      "target_hit": true,
+      "stop_hit": true
+     },
+     "FIXED": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-19",
+      "exit_price": 896.05,
+      "exit_reason": "close of s6",
+      "sessions_held": 6,
+      "gross_return": -0.036505,
+      "cost_pct": 0.25,
+      "net_return": -0.039005,
+      "net_return_050": -0.041505,
+      "net_return_100": -0.046505,
+      "mfe": 0.082473,
+      "mae": -0.080645,
+      "target_hit": true,
+      "stop_hit": true
+     },
+     "TARGET_STOP": {
+      "state": "CLOSED",
+      "exit_date": "2025-03-11",
+      "exit_price": 976.5,
+      "exit_reason": "target",
+      "sessions_held": 1,
+      "gross_return": 0.05,
+      "cost_pct": 0.25,
+      "net_return": 0.0475,
+      "net_return_050": 0.045,
+      "net_return_100": 0.04,
+      "mfe": 0.06957,
+      "mae": -0.005376,
+      "target_hit": true,
+      "stop_hit": false
+     }
+    }
+   }
+  ],
+  "universe": [
+   {
+    "rank": 1,
+    "symbol": "POCL",
+    "movement_probability": 0.13524,
+    "p_opposite": 0.63754,
+    "p_other_threshold": 0.03704,
+    "selection_status": "SELECTED",
+    "prediction_close": 532.1,
+    "company_name": "Pondy Oxides & Chemicals Limited",
+    "sector": "Metals",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [
+     "GAP_RECORDED"
+    ],
+    "entry_price": 501.1000061035156,
+    "gap": -0.05825972929596901,
+    "atr_14": 47.750404357910156,
+    "stop_loss_price": 461.0119934082031,
+    "stop_method": "CAP_8PCT",
+    "target_price": 526.155029296875,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.04549989849328995,
+     0.02504490129649639,
+     0.017760926857590675,
+     -0.0032927559223026037,
+     0.0051885852590203285
+    ],
+    "r_high": [
+     0.13350628316402435,
+     0.06176411733031273,
+     0.041708242148160934,
+     0.041708242148160934,
+     0.04689682647585869,
+     0.11664338409900665
+    ],
+    "r_low": [
+     0.0,
+     -0.0002993414527736604,
+     -0.011275194585323334,
+     -0.022151267156004906,
+     -0.01047695055603981,
+     0.003791658440604806
+    ],
+    "r_close": [
+     0.038315705955028534,
+     0.031231291592121124,
+     -0.003791658440604806,
+     -0.011574535630643368,
+     0.015166633762419224,
+     0.11664338409900665
+    ],
+    "model_label_hit": true
+   },
+   {
+    "rank": 2,
+    "symbol": "MPSLTD",
+    "movement_probability": 0.12939,
+    "p_opposite": 0.584,
+    "p_other_threshold": 0.02528,
+    "selection_status": "SELECTED",
+    "prediction_close": 2694.65,
+    "company_name": "MPS Limited",
+    "sector": null,
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 2627.25,
+    "gap": -0.02501251921057701,
+    "atr_14": 186.25416564941406,
+    "stop_loss_price": 2417.070068359375,
+    "stop_method": "CAP_8PCT",
+    "target_price": 2758.612548828125,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     -0.02947949431836605,
+     -0.03623560816049576,
+     -0.0398896187543869,
+     0.02624417096376419,
+     0.1209249198436737
+    ],
+    "r_high": [
+     0.016271766275167465,
+     -0.004662670195102692,
+     -0.012275192886590958,
+     0.04632220044732094,
+     0.10646113008260727,
+     0.12627272307872772
+    ],
+    "r_low": [
+     -0.06078599393367767,
+     -0.052202872931957245,
+     -0.044647444039583206,
+     -0.0398896187543869,
+     0.011304596439003944,
+     0.09391950070858002
+    ],
+    "r_close": [
+     -0.039280615746974945,
+     -0.026358360424637794,
+     -0.03992768004536629,
+     0.02514035627245903,
+     0.09856313467025757,
+     0.10604243725538254
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 3,
+    "symbol": "BAJAJHCARE",
+    "movement_probability": 0.11858,
+    "p_opposite": 0.62938,
+    "p_other_threshold": 0.01906,
+    "selection_status": "SELECTED",
+    "prediction_close": 631.5,
+    "company_name": "Bajaj Healthcare Limited",
+    "sector": "Healthcare",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 620.0,
+    "gap": -0.01821061037480831,
+    "atr_14": 49.3847770690918,
+    "stop_loss_price": 570.4000244140625,
+    "stop_method": "CAP_8PCT",
+    "target_price": 651.0,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.024193547666072845,
+     0.046612903475761414,
+     0.031612902879714966,
+     0.08064515888690948,
+     0.10241935402154922
+    ],
+    "r_high": [
+     0.025645161047577858,
+     0.0716129019856453,
+     0.04838709533214569,
+     0.08548387140035629,
+     0.10322580486536026,
+     0.2016129046678543
+    ],
+    "r_low": [
+     -0.02250000089406967,
+     0.016129031777381897,
+     0.016129031777381897,
+     0.021129032596945763,
+     0.06572580337524414,
+     0.04193548485636711
+    ],
+    "r_close": [
+     0.018629033118486404,
+     0.03653225675225258,
+     0.019596774131059647,
+     0.07096774131059647,
+     0.08951612561941147,
+     0.11846774071455002
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 4,
+    "symbol": "PRECAM",
+    "movement_probability": 0.10445,
+    "p_opposite": 0.52422,
+    "p_other_threshold": 0.01701,
+    "selection_status": "SELECTED",
+    "prediction_close": 158.99,
+    "company_name": "Precision Camshafts Limited",
+    "sector": null,
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 161.39999389648438,
+    "gap": 0.01515819039195776,
+    "atr_14": 17.176057815551758,
+    "stop_loss_price": 148.48800659179688,
+    "stop_method": "CAP_8PCT",
+    "target_price": 169.47000122070312,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     -0.045848824083805084,
+     -0.03345724940299988,
+     -0.022924412041902542,
+     -0.02044609747827053,
+     0.009045848622918129
+    ],
+    "r_high": [
+     0.005018587224185467,
+     0.022304832935333252,
+     0.02106567472219467,
+     -0.008674101904034615,
+     0.02763320878148079,
+     0.10991325974464417
+    ],
+    "r_low": [
+     -0.0657372996211052,
+     -0.0693308562040329,
+     -0.042565055191516876,
+     -0.03903345763683319,
+     -0.027447335422039032,
+     0.009045848622918129
+    ],
+    "r_close": [
+     -0.05254027247428894,
+     -0.027199504896998405,
+     -0.03760842606425285,
+     -0.029987609013915062,
+     0.009045848622918129,
+     0.07366790622472763
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 5,
+    "symbol": "KRN",
+    "movement_probability": 0.10367,
+    "p_opposite": 0.639,
+    "p_other_threshold": 0.03649,
+    "selection_status": "SELECTED",
+    "prediction_close": 942.2,
+    "company_name": "KRN Heat Exchanger and Refrigeration Limited",
+    "sector": null,
+    "size_group": "L",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 930.0,
+    "gap": -0.012948419898748398,
+    "atr_14": 71.87222290039062,
+    "stop_loss_price": 855.5999755859375,
+    "stop_method": "CAP_8PCT",
+    "target_price": 976.5,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.045698925852775574,
+     0.032258063554763794,
+     0.009354839101433754,
+     -0.052903227508068085,
+     -0.05344086140394211
+    ],
+    "r_high": [
+     0.069569893181324,
+     0.056129030883312225,
+     0.08247312158346176,
+     0.022795699536800385,
+     -0.037634409964084625,
+     -0.023763440549373627
+    ],
+    "r_low": [
+     -0.005376344081014395,
+     0.018118279054760933,
+     -0.009032257832586765,
+     -0.08064515888690948,
+     -0.07790322601795197,
+     -0.05344086140394211
+    ],
+    "r_close": [
+     0.027634408324956894,
+     0.02451612986624241,
+     -0.0010752688394859433,
+     -0.052204299718141556,
+     -0.058010753244161606,
+     -0.03650537505745888
+    ],
+    "model_label_hit": true
+   },
+   {
+    "rank": 6,
+    "symbol": "TRITURBINE",
+    "movement_probability": 0.09944,
+    "p_opposite": 0.49414,
+    "p_other_threshold": 0.02182,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 565.85,
+    "company_name": "Triveni Turbine Limited",
+    "sector": "Capital Goods",
+    "size_group": "M",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 555.0,
+    "gap": -0.019174689427018166,
+    "atr_14": 41.618717193603516,
+    "stop_loss_price": 510.6000061035156,
+    "stop_method": "CAP_8PCT",
+    "target_price": 582.75,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     -0.03450450301170349,
+     -0.0554954968392849,
+     -0.07342342287302017,
+     -0.07207207381725311,
+     0.02522522583603859
+    ],
+    "r_high": [
+     0.019099099561572075,
+     -0.027027027681469917,
+     -0.04693693667650223,
+     -0.05585585534572601,
+     0.08216216415166855,
+     0.041081082075834274
+    ],
+    "r_low": [
+     -0.05225225165486336,
+     -0.08450450748205185,
+     -0.07909909635782242,
+     -0.08648648858070374,
+     -0.07207207381725311,
+     0.001171171199530363
+    ],
+    "r_close": [
+     -0.04459459334611893,
+     -0.06369369477033615,
+     -0.07342342287302017,
+     -0.08288288116455078,
+     0.03792792931199074,
+     0.0219819825142622
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 7,
+    "symbol": "INDUSINDBK",
+    "movement_probability": 0.0972,
+    "p_opposite": 0.20592,
+    "p_other_threshold": 0.00203,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 900.5,
+    "company_name": "IndusInd Bank Limited",
+    "sector": "Finance",
+    "size_group": "L",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [
+     "GAP_RECORDED"
+    ],
+    "entry_price": 810.4500122070312,
+    "gap": -0.10000000149011612,
+    "atr_14": 33.79421615600586,
+    "stop_loss_price": 759.7586669921875,
+    "stop_method": "ATR",
+    "target_price": 850.9724731445312,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     -0.2226540744304657,
+     -0.14862114191055298,
+     -0.1301129013299942,
+     -0.15361836552619934,
+     -0.15479055047035217
+    ],
+    "r_high": [
+     0.0,
+     -0.1391819417476654,
+     -0.12776851654052734,
+     -0.12406687438488007,
+     -0.15256956219673157,
+     -0.13529521226882935
+    ],
+    "r_low": [
+     -0.19921031594276428,
+     -0.2522672712802887,
+     -0.17619840800762177,
+     -0.16712936758995056,
+     -0.17255845665931702,
+     -0.15781356394290924
+    ],
+    "r_close": [
+     -0.1906348317861557,
+     -0.15516071021556854,
+     -0.17039915919303894,
+     -0.16416805982589722,
+     -0.15917083621025085,
+     -0.14528965950012207
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 8,
+    "symbol": "GEOJITFSL",
+    "movement_probability": 0.0949,
+    "p_opposite": 0.49081,
+    "p_other_threshold": 0.03933,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 73.04,
+    "company_name": "Geojit Financial Services Limited",
+    "sector": null,
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 72.6500015258789,
+    "gap": -0.00533954007551074,
+    "atr_14": 5.076062202453613,
+    "stop_loss_price": 66.83799743652344,
+    "stop_method": "CAP_8PCT",
+    "target_price": 76.28250122070312,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     -0.0769442543387413,
+     -0.05285615846514702,
+     -0.07777012884616852,
+     -0.1468685418367386,
+     -0.09841706603765488
+    ],
+    "r_high": [
+     0.0034411561209708452,
+     -0.03922918066382408,
+     -0.04955264925956726,
+     -0.053131453692913055,
+     -0.08644184470176697,
+     -0.026978664100170135
+    ],
+    "r_low": [
+     -0.09194769710302353,
+     -0.0769442543387413,
+     -0.09153475612401962,
+     -0.16407433152198792,
+     -0.1468685418367386,
+     -0.09841706603765488
+    ],
+    "r_close": [
+     -0.0769442543387413,
+     -0.053269099444150925,
+     -0.08589126169681549,
+     -0.15677908062934875,
+     -0.1018582209944725,
+     -0.03771507367491722
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 9,
+    "symbol": "MANORAMA",
+    "movement_probability": 0.09206,
+    "p_opposite": 0.5308,
+    "p_other_threshold": 0.02,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 978.05,
+    "company_name": "Manorama Industries Limited",
+    "sector": "FMCG",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 950.0499877929688,
+    "gap": -0.028628390282392502,
+    "atr_14": 76.46841430664062,
+    "stop_loss_price": 874.0460205078125,
+    "stop_method": "CAP_8PCT",
+    "target_price": 997.552490234375,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.04236619174480438,
+     0.08420609682798386,
+     0.10199463367462158,
+     0.052523549646139145,
+     0.048523761332035065
+    ],
+    "r_high": [
+     0.05783906206488609,
+     0.08578495681285858,
+     0.09994211047887802,
+     0.10199463367462158,
+     0.060523129999637604,
+     0.09046892076730728
+    ],
+    "r_low": [
+     -0.017788536846637726,
+     0.0336824394762516,
+     0.052628807723522186,
+     0.04205041751265526,
+     0.01810431107878685,
+     0.035787589848041534
+    ],
+    "r_close": [
+     0.04236619174480438,
+     0.0792589858174324,
+     0.08278511464595795,
+     0.04483974352478981,
+     0.048523761332035065,
+     0.06957528740167618
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 10,
+    "symbol": "GRMOVER",
+    "movement_probability": 0.09029,
+    "p_opposite": 0.74457,
+    "p_other_threshold": 0.04837,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 263.97,
+    "company_name": "GRM Overseas Limited",
+    "sector": "FMCG",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 259.0,
+    "gap": -0.018827900290489197,
+    "atr_14": 16.009483337402344,
+    "stop_loss_price": 238.27999877929688,
+    "stop_method": "CAP_8PCT",
+    "target_price": 271.95001220703125,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.011583011597394943,
+     0.044324323534965515,
+     0.050193049013614655,
+     0.052432432770729065,
+     0.04247104376554489
+    ],
+    "r_high": [
+     0.023166023194789886,
+     0.055984556674957275,
+     0.06718146800994873,
+     0.0617760606110096,
+     0.06173745170235634,
+     0.11196911334991455
+    ],
+    "r_low": [
+     -0.029729729518294334,
+     0.004247104283422232,
+     0.029613899067044258,
+     0.03463320434093475,
+     0.02335907332599163,
+     0.03984555974602699
+    ],
+    "r_close": [
+     0.015482625924050808,
+     0.044324323534965515,
+     0.05486486479640007,
+     0.052432432770729065,
+     0.047220077365636826,
+     0.09494208544492722
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 11,
+    "symbol": "ASALCBR",
+    "movement_probability": 0.08709,
+    "p_opposite": 0.73991,
+    "p_other_threshold": 0.0158,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 1309.35,
+    "company_name": "Associated Alcohols & Breweries Ltd.",
+    "sector": null,
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 1260.0,
+    "gap": -0.03769046068191528,
+    "atr_14": 96.67343139648438,
+    "stop_loss_price": 1159.199951171875,
+    "stop_method": "CAP_8PCT",
+    "target_price": 1323.0,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.04579365253448486,
+     0.0476190485060215,
+     0.07063492387533188,
+     0.1111111119389534,
+     0.10313492268323898
+    ],
+    "r_high": [
+     0.05000000074505806,
+     0.06888888776302338,
+     0.10182539373636246,
+     0.1190476194024086,
+     0.14047619700431824,
+     0.12321428209543228
+    ],
+    "r_low": [
+     -0.007936508394777775,
+     0.012539682909846306,
+     0.02222222276031971,
+     0.05190476030111313,
+     0.08115079253911972,
+     0.07214285433292389
+    ],
+    "r_close": [
+     0.03313492238521576,
+     0.039642855525016785,
+     0.04992063343524933,
+     0.10380952060222626,
+     0.08940476179122925,
+     0.10345238447189331
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 12,
+    "symbol": "360ONE",
+    "movement_probability": 0.08633,
+    "p_opposite": 0.32713,
+    "p_other_threshold": 0.00487,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 895.4,
+    "company_name": "360 ONE WAM LIMITED",
+    "sector": "Finance",
+    "size_group": "M",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 889.2999877929688,
+    "gap": -0.006812599953263998,
+    "atr_14": 48.32604217529297,
+    "stop_loss_price": 818.156005859375,
+    "stop_method": "CAP_8PCT",
+    "target_price": 933.7650146484375,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     -0.023951422423124313,
+     -0.045597661286592484,
+     -0.027493534609675407,
+     -0.03800742328166962,
+     0.028674237430095673
+    ],
+    "r_high": [
+     0.007983807474374771,
+     -0.020802877843379974,
+     -0.004891487769782543,
+     -0.021421343088150024,
+     0.03446530923247337,
+     0.06134038046002388
+    ],
+    "r_low": [
+     -0.031316764652729034,
+     -0.06432025134563446,
+     -0.07230406254529953,
+     -0.043067581951618195,
+     -0.03800742328166962,
+     -0.0022489598486572504
+    ],
+    "r_close": [
+     -0.02715619094669819,
+     -0.04829641431570053,
+     -0.027493534609675407,
+     -0.03901945427060127,
+     0.028674237430095673,
+     0.03879455849528313
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 13,
+    "symbol": "SPARC",
+    "movement_probability": 0.08501,
+    "p_opposite": 0.51165,
+    "p_other_threshold": 0.0493,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 127.35,
+    "company_name": "Sun Pharma Advanced Research Company Limited",
+    "sector": "Healthcare",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 127.0,
+    "gap": -0.0027483298908919096,
+    "atr_14": 8.126581192016602,
+    "stop_loss_price": 116.83999633789062,
+    "stop_method": "CAP_8PCT",
+    "target_price": 133.35000610351562,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.0,
+     -0.018267717212438583,
+     -0.027165355160832405,
+     -0.07322834432125092,
+     -0.011023622006177902
+    ],
+    "r_high": [
+     0.0018110235687345266,
+     0.0,
+     -0.005905511789023876,
+     -0.010157479904592037,
+     0.006692913360893726,
+     0.05118110403418541
+    ],
+    "r_low": [
+     -0.04212598502635956,
+     -0.031496062874794006,
+     -0.04992125928401947,
+     -0.08307086676359177,
+     -0.07322834432125092,
+     -0.011023622006177902
+    ],
+    "r_close": [
+     -0.007086614146828651,
+     -0.019842520356178284,
+     -0.03614173084497452,
+     -0.07677165418863297,
+     -0.007795275654643774,
+     0.026299212127923965
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 14,
+    "symbol": "TAJGVK",
+    "movement_probability": 0.085,
+    "p_opposite": 0.64705,
+    "p_other_threshold": 0.01593,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 478.95,
+    "company_name": "Taj GVK Hotels & Resorts Limited",
+    "sector": null,
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 472.1000061035156,
+    "gap": -0.014302119612693787,
+    "atr_14": 31.137731552124023,
+    "stop_loss_price": 434.3320007324219,
+    "stop_method": "CAP_8PCT",
+    "target_price": 495.7049865722656,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.0707477256655693,
+     0.08779919147491455,
+     0.02658335119485855,
+     0.06757043302059174,
+     0.06968862563371658
+    ],
+    "r_high": [
+     0.08621054887771606,
+     0.09902562946081161,
+     0.09076467156410217,
+     0.06968862563371658,
+     0.0768904909491539,
+     0.1186189353466034
+    ],
+    "r_low": [
+     -0.007837322540581226,
+     0.049671679735183716,
+     0.014827366918325424,
+     0.010802796110510826,
+     0.04427028074860573,
+     0.06788815557956696
+    ],
+    "r_close": [
+     0.061109934002161026,
+     0.07752595096826553,
+     0.022135140374302864,
+     0.059733107686042786,
+     0.06259267032146454,
+     0.09012921154499054
+    ],
+    "model_label_hit": true
+   },
+   {
+    "rank": 15,
+    "symbol": "MANYAVAR",
+    "movement_probability": 0.08443,
+    "p_opposite": 0.44933,
+    "p_other_threshold": 0.00662,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 783.6,
+    "company_name": "Vedant Fashions Limited",
+    "sector": "Consumer Services",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 789.0,
+    "gap": 0.006891270168125629,
+    "atr_14": 42.47676467895508,
+    "stop_loss_price": 725.8800048828125,
+    "stop_method": "CAP_8PCT",
+    "target_price": 828.4500122070312,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.009885931387543678,
+     0.0012674271129071712,
+     -0.013434727676212788,
+     -0.031875792890787125,
+     -0.019518377259373665
+    ],
+    "r_high": [
+     0.02167300321161747,
+     0.02053231932222843,
+     0.005893535912036896,
+     -0.013371355831623077,
+     -0.00342205329798162,
+     0.0054499367251992226
+    ],
+    "r_low": [
+     -0.036755386739969254,
+     -0.024081114679574966,
+     -0.03041825070977211,
+     -0.06178707256913185,
+     -0.04581749066710472,
+     -0.03041825070977211
+    ],
+    "r_close": [
+     0.0046261087991297245,
+     -0.013814955949783325,
+     -0.013434727676212788,
+     -0.04790874570608139,
+     -0.03878327086567879,
+     -0.009378960356116295
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 16,
+    "symbol": "DIAMONDYD",
+    "movement_probability": 0.08355,
+    "p_opposite": 0.28564,
+    "p_other_threshold": 0.0046,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 1090.3,
+    "company_name": "Prataap Snacks Limited",
+    "sector": null,
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 1080.0,
+    "gap": -0.009446940384805202,
+    "atr_14": 49.4637565612793,
+    "stop_loss_price": 995.0,
+    "stop_method": "SUPPORT",
+    "target_price": 1134.0,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     -0.0008796296315267682,
+     0.0,
+     0.00226851855404675,
+     0.018518518656492233,
+     -0.03773147985339165
+    ],
+    "r_high": [
+     0.009444444440305233,
+     0.013888888992369175,
+     0.014814814552664757,
+     0.013333333656191826,
+     0.05000000074505806,
+     -0.014675925485789776
+    ],
+    "r_low": [
+     -0.018981480970978737,
+     -0.016712963581085205,
+     -0.008148147724568844,
+     -0.009212963283061981,
+     -0.0416666679084301,
+     -0.0555555559694767
+    ],
+    "r_close": [
+     -0.0007870370172895491,
+     0.009583333507180214,
+     0.00226851855404675,
+     0.008842592127621174,
+     -0.03777777776122093,
+     -0.04722222313284874
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 17,
+    "symbol": "APARINDS",
+    "movement_probability": 0.08291,
+    "p_opposite": 0.38656,
+    "p_other_threshold": 0.0143,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 5691.4,
+    "company_name": "Apar Industries Limited",
+    "sector": "Capital Goods",
+    "size_group": "M",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 5693.0,
+    "gap": 0.0002811299927998334,
+    "atr_14": 430.1927490234375,
+    "stop_loss_price": 5237.56005859375,
+    "stop_method": "CAP_8PCT",
+    "target_price": 5977.64990234375,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     -0.03232039511203766,
+     -0.028166169300675392,
+     -0.037414368242025375,
+     -0.06459687650203705,
+     0.009845424443483353
+    ],
+    "r_high": [
+     0.0013174073537811637,
+     -0.01142631284892559,
+     -0.005331108346581459,
+     -0.033620234578847885,
+     0.027270331978797913,
+     0.04163007065653801
+    ],
+    "r_low": [
+     -0.04057614505290985,
+     -0.058036185801029205,
+     -0.04057614505290985,
+     -0.07254523038864136,
+     -0.06822413206100464,
+     -0.00679782172665
+    ],
+    "r_close": [
+     -0.034516073763370514,
+     -0.028166169300675392,
+     -0.037142105400562286,
+     -0.06523801386356354,
+     0.010468997061252594,
+     0.019207799807190895
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 18,
+    "symbol": "SURAJEST",
+    "movement_probability": 0.08249,
+    "p_opposite": 0.48859,
+    "p_other_threshold": 0.07861,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 308.05,
+    "company_name": "Suraj Estate Developers Limited",
+    "sector": null,
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 300.0,
+    "gap": -0.026132119819521904,
+    "atr_14": 25.90911102294922,
+    "stop_loss_price": 276.0,
+    "stop_method": "CAP_8PCT",
+    "target_price": 315.0,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.007333333138376474,
+     -0.010833333246409893,
+     -0.013166666962206364,
+     -0.049666665494441986,
+     -0.049666665494441986
+    ],
+    "r_high": [
+     0.032499998807907104,
+     0.03233333304524422,
+     0.01666666753590107,
+     -0.013166666962206364,
+     -0.01600000075995922,
+     0.0038333332631736994
+    ],
+    "r_low": [
+     -0.012500000186264515,
+     -0.017500000074505806,
+     -0.03683333471417427,
+     -0.07233333587646484,
+     -0.06716666370630264,
+     -0.04983333498239517
+    ],
+    "r_close": [
+     0.002166666556149721,
+     -0.010833333246409893,
+     -0.017999999225139618,
+     -0.05649999901652336,
+     -0.054499998688697815,
+     -0.031833332031965256
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 19,
+    "symbol": "JINDRILL",
+    "movement_probability": 0.08115,
+    "p_opposite": 0.61891,
+    "p_other_threshold": 0.01705,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 863.15,
+    "company_name": "Jindal Drilling And Industries Limited",
+    "sector": "Oil Gas",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 836.3499755859375,
+    "gap": -0.031049059703946114,
+    "atr_14": 68.76272583007812,
+    "stop_loss_price": 769.4420166015625,
+    "stop_method": "CAP_8PCT",
+    "target_price": 878.16748046875,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.1299097239971161,
+     0.07646320015192032,
+     0.06414778530597687,
+     0.09762658923864365,
+     0.14545345306396484
+    ],
+    "r_high": [
+     0.1370837539434433,
+     0.13469241559505463,
+     0.10348538309335709,
+     0.10587672889232635,
+     0.17468762397766113,
+     0.16368745267391205
+    ],
+    "r_low": [
+     -0.029473306611180305,
+     0.0671369656920433,
+     0.042685478925704956,
+     0.05512046441435814,
+     0.062174927443265915,
+     0.07078376412391663
+    ],
+    "r_close": [
+     0.1296108067035675,
+     0.07688169181346893,
+     0.05512046441435814,
+     0.07275661826133728,
+     0.146051287651062,
+     0.09045255929231644
+    ],
+    "model_label_hit": true
+   },
+   {
+    "rank": 20,
+    "symbol": "SATINDLTD",
+    "movement_probability": 0.07919,
+    "p_opposite": 0.54657,
+    "p_other_threshold": 0.01502,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 89.02,
+    "company_name": null,
+    "sector": null,
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 88.0,
+    "gap": -0.011458099819719791,
+    "atr_14": 5.930507659912109,
+    "stop_loss_price": 80.95999908447266,
+    "stop_method": "CAP_8PCT",
+    "target_price": 92.4000015258789,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     -0.012613636441528797,
+     0.0,
+     -0.03590909019112587,
+     -0.0810227245092392,
+     -0.07965908944606781
+    ],
+    "r_high": [
+     0.005681818351149559,
+     0.017500000074505806,
+     0.01568181812763214,
+     -0.028750000521540642,
+     -0.05681818351149559,
+     -0.036704543977975845
+    ],
+    "r_low": [
+     -0.02250000089406967,
+     -0.02022727206349373,
+     -0.04488636180758476,
+     -0.09034091234207153,
+     -0.09659090638160706,
+     -0.07977272570133209
+    ],
+    "r_close": [
+     -0.02022727206349373,
+     -0.01193181797862053,
+     -0.03590909019112587,
+     -0.0810227245092392,
+     -0.08386363834142685,
+     -0.041477274149656296
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 21,
+    "symbol": "VIMTALABS",
+    "movement_probability": 0.07877,
+    "p_opposite": 0.74565,
+    "p_other_threshold": 0.03319,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 1003.05,
+    "company_name": "Vimta Labs Limited",
+    "sector": "Healthcare",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 980.0,
+    "gap": -0.02297990955412388,
+    "atr_14": 70.79535675048828,
+    "stop_loss_price": 901.5999755859375,
+    "stop_method": "CAP_8PCT",
+    "target_price": 1029.0,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.06158163398504257,
+     0.0714285746216774,
+     0.0357142873108387,
+     0.06020408123731613,
+     0.127193883061409
+    ],
+    "r_high": [
+     0.06933673471212387,
+     0.10086734592914581,
+     0.07653061300516129,
+     0.059183672070503235,
+     0.13617347180843353,
+     0.13270407915115356
+    ],
+    "r_low": [
+     -0.03265305981040001,
+     0.036836735904216766,
+     0.030612245202064514,
+     0.014285714365541935,
+     0.04096938669681549,
+     0.08500000089406967
+    ],
+    "r_close": [
+     0.0625,
+     0.06591836363077164,
+     0.037755101919174194,
+     0.044387754052877426,
+     0.12709183990955353,
+     0.0948469415307045
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 22,
+    "symbol": "GOKULAGRO",
+    "movement_probability": 0.07695,
+    "p_opposite": 0.4998,
+    "p_other_threshold": 0.02887,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 226.05,
+    "company_name": "Gokul Agro Resources Limited",
+    "sector": "FMCG",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 219.0,
+    "gap": -0.031187789514660835,
+    "atr_14": 15.165528297424316,
+    "stop_loss_price": 201.47999572753906,
+    "stop_method": "CAP_8PCT",
+    "target_price": 229.9499969482422,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.004109588917344809,
+     -0.011187214404344559,
+     -0.04840182512998581,
+     -0.07305935770273209,
+     0.013242009095847607
+    ],
+    "r_high": [
+     0.020776255056262016,
+     0.0141552509739995,
+     0.004337899386882782,
+     -0.03447488695383072,
+     -0.0022831049282103777,
+     0.11347031593322754
+    ],
+    "r_low": [
+     -0.015753423795104027,
+     -0.0125570772215724,
+     -0.058675799518823624,
+     -0.08835616707801819,
+     -0.07990867644548416,
+     -0.004794520325958729
+    ],
+    "r_close": [
+     0.003881278447806835,
+     -0.00707762548699975,
+     -0.04840182512998581,
+     -0.07534246891736984,
+     -0.01826483942568302,
+     0.0890410989522934
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 23,
+    "symbol": "SARDAEN",
+    "movement_probability": 0.07436,
+    "p_opposite": 0.66286,
+    "p_other_threshold": 0.02144,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 502.55,
+    "company_name": "Sarda Energy & Minerals Limited",
+    "sector": "Metals",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 490.3999938964844,
+    "gap": -0.02417670004069805,
+    "atr_14": 24.151508331298828,
+    "stop_loss_price": 451.1679992675781,
+    "stop_method": "CAP_8PCT",
+    "target_price": 514.9199829101562,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.08278956264257431,
+     0.10124388337135315,
+     0.11154159903526306,
+     0.09706362336874008,
+     0.14386215806007385
+    ],
+    "r_high": [
+     0.09094616770744324,
+     0.10103996843099594,
+     0.12051386386156082,
+     0.12132952362298965,
+     0.1377446949481964,
+     0.14896003901958466
+    ],
+    "r_low": [
+     -0.015089722350239754,
+     0.06719005107879639,
+     0.08809135109186172,
+     0.07310359179973602,
+     0.0949225127696991,
+     0.0874796062707901
+    ],
+    "r_close": [
+     0.07555057108402252,
+     0.09808319807052612,
+     0.10328303277492523,
+     0.09675774723291397,
+     0.13458400964736938,
+     0.1000203937292099
+    ],
+    "model_label_hit": true
+   },
+   {
+    "rank": 24,
+    "symbol": "AMIORG",
+    "movement_probability": 0.07404,
+    "p_opposite": 0.59772,
+    "p_other_threshold": 0.01125,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 2311.7,
+    "company_name": null,
+    "sector": null,
+    "size_group": "M",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 2292.10009765625,
+    "gap": -0.008478609845042229,
+    "atr_14": 144.35418701171875,
+    "stop_loss_price": 2108.73193359375,
+    "stop_method": "CAP_8PCT",
+    "target_price": 2406.705078125,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     -0.02172680012881756,
+     -0.045896776020526886,
+     -0.04716199263930321,
+     -0.039439816027879715,
+     -0.013982810080051422
+    ],
+    "r_high": [
+     0.008878321386873722,
+     -0.011735962703824043,
+     -0.025391561910510063,
+     -0.01622965931892395,
+     -0.006260634399950504,
+     0.03834911063313484
+    ],
+    "r_low": [
+     -0.03276471421122551,
+     -0.06059945002198219,
+     -0.05337899923324585,
+     -0.05758910998702049,
+     -0.059356048703193665,
+     -0.013982810080051422
+    ],
+    "r_close": [
+     -0.012521268799901009,
+     -0.04943065345287323,
+     -0.04779459908604622,
+     -0.04105405509471893,
+     -0.014724488370120525,
+     0.029405348002910614
+    ],
+    "model_label_hit": false
+   },
+   {
+    "rank": 25,
+    "symbol": "CAMLINFINE",
+    "movement_probability": 0.07324,
+    "p_opposite": 0.76685,
+    "p_other_threshold": 0.0068,
+    "selection_status": "NOT_SELECTED",
+    "prediction_close": 165.69,
+    "company_name": "Camlin Fine Sciences Limited",
+    "sector": "Chemicals",
+    "size_group": "S",
+    "entry_status": "ENTERED",
+    "entry_reason": null,
+    "flags": [],
+    "entry_price": 163.69000244140625,
+    "gap": -0.012070730328559875,
+    "atr_14": 9.765386581420898,
+    "stop_loss_price": 150.5948028564453,
+    "stop_method": "CAP_8PCT",
+    "target_price": 171.87449645996094,
+    "sessions_observed": 6,
+    "session_dates": [
+     "2025-03-11",
+     "2025-03-12",
+     "2025-03-13",
+     "2025-03-17",
+     "2025-03-18",
+     "2025-03-19"
+    ],
+    "r_open": [
+     0.0,
+     0.010752031579613686,
+     0.05351579189300537,
+     0.031523000448942184,
+     0.026941169053316116,
+     0.040992118418216705
+    ],
+    "r_high": [
+     0.01637241058051586,
+     0.07214857637882233,
+     0.05993035435676575,
+     0.0521106980741024,
+     0.056570347398519516,
+     0.09597409516572952
+    ],
+    "r_low": [
+     -0.012768036685883999,
+     0.0031156453769654036,
+     0.013501130044460297,
+     0.009652392007410526,
+     0.014661860652267933,
+     0.0391593873500824
+    ],
+    "r_close": [
+     0.00543710682541132,
+     0.04923941567540169,
+     0.02095424197614193,
+     0.021687336266040802,
+     0.040992118418216705,
+     0.08919298648834229
+    ],
+    "model_label_hit": false
+   }
+  ],
+  "exceptions": [
+   {
+    "symbol": "POCL",
+    "status": "EVALUATED",
+    "reason": null,
+    "flags": [
+     "GAP_RECORDED"
+    ]
+   }
+  ],
+  "benchmarks": [
+   {
+    "benchmark": "A_ALL",
+    "mode": "EOD-1",
+    "state": "CLOSED",
+    "n": 991,
+    "members": [],
+    "gross_mean": 0.00473465,
+    "net_mean": 0.00223465,
+    "target_hit_rate": 0.09283552,
+    "positive_rate": 0.53380424,
+    "source": null
+   },
+   {
+    "benchmark": "A_ALL",
+    "mode": "EOD-3",
+    "state": "CLOSED",
+    "n": 991,
+    "members": [],
+    "gross_mean": -0.00827808,
+    "net_mean": -0.01077808,
+    "target_hit_rate": 0.19273461,
+    "positive_rate": 0.3481332,
+    "source": null
+   },
+   {
+    "benchmark": "A_ALL",
+    "mode": "EOD-5",
+    "state": "CLOSED",
+    "n": 991,
+    "members": [],
+    "gross_mean": 0.01566554,
+    "net_mean": 0.01316554,
+    "target_hit_rate": 0.32189707,
+    "positive_rate": 0.60645812,
+    "source": null
+   },
+   {
+    "benchmark": "A_ALL",
+    "mode": "FIXED",
+    "state": "CLOSED",
+    "n": 990,
+    "members": [],
+    "gross_mean": 0.04020993,
+    "net_mean": 0.03770993,
+    "target_hit_rate": 0.53030303,
+    "positive_rate": 0.78787879,
+    "source": null
+   },
+   {
+    "benchmark": "A_ALL",
+    "mode": "TARGET_STOP",
+    "state": "CLOSED",
+    "n": 991,
+    "members": [],
+    "gross_mean": 0.02186825,
+    "net_mean": 0.01936825,
+    "target_hit_rate": 0.51564077,
+    "positive_rate": 0.76892028,
+    "source": null
+   },
+   {
+    "benchmark": "A_RANDOM5",
+    "mode": "EOD-1",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "APOLLOHOSP",
+     "BOROLTD",
+     "IXIGO",
+     "TAJGVK",
+     "VAIBHAVGBL"
+    ],
+    "gross_mean": 0.00301029,
+    "net_mean": 0.00051029,
+    "target_hit_rate": 0.4,
+    "positive_rate": 0.2,
+    "source": null
+   },
+   {
+    "benchmark": "A_RANDOM5",
+    "mode": "EOD-3",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "APOLLOHOSP",
+     "BOROLTD",
+     "IXIGO",
+     "TAJGVK",
+     "VAIBHAVGBL"
+    ],
+    "gross_mean": -0.01653905,
+    "net_mean": -0.01903905,
+    "target_hit_rate": 0.4,
+    "positive_rate": 0.2,
+    "source": null
+   },
+   {
+    "benchmark": "A_RANDOM5",
+    "mode": "EOD-5",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "APOLLOHOSP",
+     "BOROLTD",
+     "IXIGO",
+     "TAJGVK",
+     "VAIBHAVGBL"
+    ],
+    "gross_mean": 0.00597776,
+    "net_mean": 0.00347776,
+    "target_hit_rate": 0.4,
+    "positive_rate": 0.6,
+    "source": null
+   },
+   {
+    "benchmark": "A_RANDOM5",
+    "mode": "FIXED",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "APOLLOHOSP",
+     "BOROLTD",
+     "IXIGO",
+     "TAJGVK",
+     "VAIBHAVGBL"
+    ],
+    "gross_mean": 0.0361889,
+    "net_mean": 0.0336889,
+    "target_hit_rate": 0.6,
+    "positive_rate": 0.8,
+    "source": null
+   },
+   {
+    "benchmark": "A_RANDOM5",
+    "mode": "TARGET_STOP",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "APOLLOHOSP",
+     "BOROLTD",
+     "IXIGO",
+     "TAJGVK",
+     "VAIBHAVGBL"
+    ],
+    "gross_mean": 0.03835664,
+    "net_mean": 0.03585664,
+    "target_hit_rate": 0.6,
+    "positive_rate": 0.8,
+    "source": null
+   },
+   {
+    "benchmark": "B_MATCHED",
+    "mode": "EOD-1",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "KIOCL",
+     "THANGAMAYL",
+     "CONCORDBIO",
+     "GENSOL",
+     "RVNL"
+    ],
+    "gross_mean": 0.01981641,
+    "net_mean": 0.01731641,
+    "target_hit_rate": 0.2,
+    "positive_rate": 0.4,
+    "source": null
+   },
+   {
+    "benchmark": "B_MATCHED",
+    "mode": "EOD-3",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "KIOCL",
+     "THANGAMAYL",
+     "CONCORDBIO",
+     "GENSOL",
+     "RVNL"
+    ],
+    "gross_mean": -0.01907334,
+    "net_mean": -0.02157334,
+    "target_hit_rate": 0.2,
+    "positive_rate": 0.4,
+    "source": null
+   },
+   {
+    "benchmark": "B_MATCHED",
+    "mode": "EOD-5",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "KIOCL",
+     "THANGAMAYL",
+     "CONCORDBIO",
+     "GENSOL",
+     "RVNL"
+    ],
+    "gross_mean": -0.03394018,
+    "net_mean": -0.03644018,
+    "target_hit_rate": 0.2,
+    "positive_rate": 0.4,
+    "source": null
+   },
+   {
+    "benchmark": "B_MATCHED",
+    "mode": "FIXED",
+    "state": "CLOSED",
+    "n": 4,
+    "members": [
+     "KIOCL",
+     "THANGAMAYL",
+     "CONCORDBIO",
+     "GENSOL",
+     "RVNL"
+    ],
+    "gross_mean": 0.04617365,
+    "net_mean": 0.04367365,
+    "target_hit_rate": 0.5,
+    "positive_rate": 0.75,
+    "source": null
+   },
+   {
+    "benchmark": "B_MATCHED",
+    "mode": "TARGET_STOP",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "KIOCL",
+     "THANGAMAYL",
+     "CONCORDBIO",
+     "GENSOL",
+     "RVNL"
+    ],
+    "gross_mean": -0.00099353,
+    "net_mean": -0.00349353,
+    "target_hit_rate": 0.4,
+    "positive_rate": 0.6,
+    "source": null
+   },
+   {
+    "benchmark": "C_MOVEMENT",
+    "mode": "EOD-1",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "CAMLINFINE",
+     "GRMOVER",
+     "ASALCBR",
+     "VIMTALABS",
+     "PGEL"
+    ],
+    "gross_mean": 0.02594475,
+    "net_mean": 0.02344475,
+    "target_hit_rate": 0.4,
+    "positive_rate": 1.0,
+    "source": null
+   },
+   {
+    "benchmark": "C_MOVEMENT",
+    "mode": "EOD-3",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "CAMLINFINE",
+     "GRMOVER",
+     "ASALCBR",
+     "VIMTALABS",
+     "PGEL"
+    ],
+    "gross_mean": 0.02228857,
+    "net_mean": 0.01978857,
+    "target_hit_rate": 0.8,
+    "positive_rate": 0.8,
+    "source": null
+   },
+   {
+    "benchmark": "C_MOVEMENT",
+    "mode": "EOD-5",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "CAMLINFINE",
+     "GRMOVER",
+     "ASALCBR",
+     "VIMTALABS",
+     "PGEL"
+    ],
+    "gross_mean": 0.06264466,
+    "net_mean": 0.06014466,
+    "target_hit_rate": 0.8,
+    "positive_rate": 1.0,
+    "source": null
+   },
+   {
+    "benchmark": "C_MOVEMENT",
+    "mode": "FIXED",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "CAMLINFINE",
+     "GRMOVER",
+     "ASALCBR",
+     "VIMTALABS",
+     "PGEL"
+    ],
+    "gross_mean": 0.07927964,
+    "net_mean": 0.07677964,
+    "target_hit_rate": 0.8,
+    "positive_rate": 1.0,
+    "source": null
+   },
+   {
+    "benchmark": "C_MOVEMENT",
+    "mode": "TARGET_STOP",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "CAMLINFINE",
+     "GRMOVER",
+     "ASALCBR",
+     "VIMTALABS",
+     "PGEL"
+    ],
+    "gross_mean": 0.04279276,
+    "net_mean": 0.04029276,
+    "target_hit_rate": 0.8,
+    "positive_rate": 1.0,
+    "source": null
+   },
+   {
+    "benchmark": "D_NIFTY50",
+    "mode": "EOD-1",
+    "state": "CLOSED",
+    "n": 1,
+    "members": [
+     "NIFTY 50"
+    ],
+    "gross_mean": 0.00679989,
+    "net_mean": 0.00679989,
+    "target_hit_rate": null,
+    "positive_rate": 1.0,
+    "source": "YAHOO_NSEI"
+   },
+   {
+    "benchmark": "D_NIFTY50",
+    "mode": "EOD-3",
+    "state": "CLOSED",
+    "n": 1,
+    "members": [
+     "NIFTY 50"
+    ],
+    "gross_mean": 0.00229348,
+    "net_mean": 0.00229348,
+    "target_hit_rate": null,
+    "positive_rate": 1.0,
+    "source": "YAHOO_NSEI"
+   },
+   {
+    "benchmark": "D_NIFTY50",
+    "mode": "EOD-5",
+    "state": "CLOSED",
+    "n": 1,
+    "members": [
+     "NIFTY 50"
+    ],
+    "gross_mean": 0.02185407,
+    "net_mean": 0.02185407,
+    "target_hit_rate": null,
+    "positive_rate": 1.0,
+    "source": "YAHOO_NSEI"
+   },
+   {
+    "benchmark": "D_NIFTY50",
+    "mode": "FIXED",
+    "state": "CLOSED",
+    "n": 1,
+    "members": [
+     "NIFTY 50"
+    ],
+    "gross_mean": 0.02513431,
+    "net_mean": 0.02513431,
+    "target_hit_rate": null,
+    "positive_rate": 1.0,
+    "source": "YAHOO_NSEI"
+   },
+   {
+    "benchmark": "D_NIFTY50",
+    "mode": "TARGET_STOP",
+    "state": "CLOSED",
+    "n": 1,
+    "members": [
+     "NIFTY 50"
+    ],
+    "gross_mean": 0.02513431,
+    "net_mean": 0.02513431,
+    "target_hit_rate": null,
+    "positive_rate": 1.0,
+    "source": "YAHOO_NSEI"
+   },
+   {
+    "benchmark": "MODEL",
+    "mode": "EOD-1",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "POCL",
+     "MPSLTD",
+     "BAJAJHCARE",
+     "PRECAM",
+     "KRN"
+    ],
+    "gross_mean": -0.00144835,
+    "net_mean": -0.00394835,
+    "target_hit_rate": 0.4,
+    "positive_rate": 0.6,
+    "source": null
+   },
+   {
+    "benchmark": "MODEL",
+    "mode": "EOD-3",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "POCL",
+     "MPSLTD",
+     "BAJAJHCARE",
+     "PRECAM",
+     "KRN"
+    ],
+    "gross_mean": -0.01256125,
+    "net_mean": -0.01506125,
+    "target_hit_rate": 0.6,
+    "positive_rate": 0.2,
+    "source": null
+   },
+   {
+    "benchmark": "MODEL",
+    "mode": "EOD-5",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "POCL",
+     "MPSLTD",
+     "BAJAJHCARE",
+     "PRECAM",
+     "KRN"
+    ],
+    "gross_mean": 0.0308562,
+    "net_mean": 0.0283562,
+    "target_hit_rate": 0.8,
+    "positive_rate": 0.8,
+    "source": null
+   },
+   {
+    "benchmark": "MODEL",
+    "mode": "FIXED",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "POCL",
+     "MPSLTD",
+     "BAJAJHCARE",
+     "PRECAM",
+     "KRN"
+    ],
+    "gross_mean": 0.07566322,
+    "net_mean": 0.07316322,
+    "target_hit_rate": 1.0,
+    "positive_rate": 0.8,
+    "source": null
+   },
+   {
+    "benchmark": "MODEL",
+    "mode": "TARGET_STOP",
+    "state": "CLOSED",
+    "n": 5,
+    "members": [
+     "POCL",
+     "MPSLTD",
+     "BAJAJHCARE",
+     "PRECAM",
+     "KRN"
+    ],
+    "gross_mean": 0.05,
+    "net_mean": 0.0475,
+    "target_hit_rate": 1.0,
+    "positive_rate": 1.0,
+    "source": null
+   }
+  ]
+ }
+}
