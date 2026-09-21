@@ -372,3 +372,28 @@ def test_export_is_deterministic_across_runs(tmp_path):
         assert e1["symbol"] == e2["symbol"]
         assert e1["sha256"] == e2["sha256"]
         assert (out1 / e1["file"]).read_bytes() == (out2 / e2["file"]).read_bytes()
+
+
+# ---------------------------------------------------------------------------
+# Cross-stack contract: the UI's mocked Playwright fixtures must have the real API's top-level shape.
+# Staging, 2026-09-21: /symbols returned {"symbols": [...]} while the fixture was a bare list, so the
+# Charts screen crashed on real data while every mocked UI test passed. This test is the guard.
+# ---------------------------------------------------------------------------
+_UI_FIXTURES = Path(__file__).resolve().parents[2] / "frontend-v5" / "e2e" / "fixtures"
+
+
+@pytest.mark.parametrize("endpoint, fixture", [
+    ("/api/research/chart/run", "research-chart-run.json"),
+    ("/api/research/chart/symbols", "research-chart-symbols.json"),
+    ("/api/research/chart/SYN1/ohlcv", "research-chart-ohlcv-RELIANCE.json"),
+    ("/api/research/chart/SYN1/indicators", "research-chart-indicators-RELIANCE.json"),
+    ("/api/research/chart/SYN1/patterns", "research-chart-patterns-RELIANCE.json"),
+])
+def test_ui_fixtures_have_the_real_api_top_level_shape(monkeypatch, real_snapshot, endpoint, fixture):
+    import json as _json
+    real = _get(_client(monkeypatch, real_snapshot), endpoint).json()
+    mock = _json.loads((_UI_FIXTURES / fixture).read_text())
+    assert type(real) is type(mock), f"{fixture}: API returns {type(real).__name__}, fixture is {type(mock).__name__}"
+    if isinstance(real, dict):
+        invented = set(mock) - set(real)
+        assert not invented, f"{fixture} carries keys the API never sends: {sorted(invented)}"
