@@ -57,8 +57,18 @@ test("TC-15/16/17/21 real staging: symbols, candles, status chip and patterns eq
   await expect(drawer).toContainText(ohlcv.data_quality_status);
   await expect(drawer).toContainText(ohlcv.pit_status);
 
-  // Patterns listed = patterns served for this symbol
-  await expect(page.locator('[data-testid^="chart-pattern-row-"]')).toHaveCount(patterns.patterns.length);
+  // TC-29: the Patterns panel lists chart patterns only; support/resistance levels are a layer, ticked by default,
+  // drawing one line per served level (both kinds). With no chart patterns the panel shows its empty state.
+  type P = { pattern_type: string; levels?: { level?: number | null; kind?: string | null } };
+  const served = patterns.patterns as P[];
+  const chartPatterns = served.filter((p) => p.pattern_type !== "SUPPORT_RESISTANCE");
+  const drawableLevels = served.filter((p) => p.pattern_type === "SUPPORT_RESISTANCE"
+    && typeof p.levels?.level === "number" && ["SUPPORT", "RESISTANCE"].includes(String(p.levels?.kind).toUpperCase()));
+  await expect(page.locator('[data-testid^="chart-pattern-row-"]')).toHaveCount(chartPatterns.length);
+  if (chartPatterns.length === 0) await expect(page.getByTestId("chart-patterns-empty")).toBeVisible();
+  await expect(page.getByTestId("chart-patterns-panel")).not.toContainText("SUPPORT_RESISTANCE");
+  await expect(page.getByTestId("chart-sr-toggle")).toBeChecked();
+  await expect.poll(async () => Number(await page.getByTestId("chart-canvas").getAttribute("data-rendered-levels"))).toBe(drawableLevels.length);
 
   // TC-21: licence attribution
   await expect(page.getByTestId("chart-tv-attribution")).toBeVisible();

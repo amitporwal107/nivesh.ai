@@ -41,6 +41,15 @@ Kite-derived data, so owner-only (NI-1). Test cases below were authored BEFORE i
 | TC-23 | UI | draw trendline, reload page | e2e | drawing persists and renders distinct from system overlays | **PASS on staging** |
 | TC-24 | Data | bars served for 3 symbols vs raw Kite gz parts read independently | data | identical OHLCV for every date | **PASS on staging** (API verifier) |
 
+## Re-verification after PR #138 (2026-09-22, dev at 56b48719 — research packages + review fixes + re-exported snapshot)
+
+- Served snapshot: `config_hash de9cc36a6970`, run `chart_20260921T195409Z` (the re-export; bars/indicators unchanged, 115
+  S/R + HH_HL status changes, 0 rectangle changes vs the #136 snapshot).
+- **API:** `verify_staging_api` → **17/17 checks passed** (exit 0); TC-2 served hash de9cc36a6970 = local; TC-10 16 = 16.
+- **UI:** staging Playwright → **5 passed** (auth-setup + TC-15/16/17/21, TC-18, TC-19, TC-23).
+- Prod Mongo not restarted by this deploy (restarts still 182). Prod `nivesh-backend` was recreated at 19:56Z (cause not
+  determined from here); prod `/api/healthz` 200. App-vm 5.0 GB free, build cache 6.18 GB.
+
 ## FINAL staging verification (2026-09-22, dev at 3412a763 = PR #136 merged; bundle index-BliwZeWX.js)
 
 Fresh owner session token (admin, `features.charting: true`), held only in 0600 scratchpad files, deleted after the run.
