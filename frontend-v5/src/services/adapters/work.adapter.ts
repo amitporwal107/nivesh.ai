@@ -69,6 +69,21 @@ export const workAdapter = {
     return { issues: parsed.data.issues, total: parsed.data.total };
   },
 
+  /** Every matching item, paged at the API's cap (routes/work.py: limit le=500). A failed page rejects the whole list. */
+  async listAll(filter: Omit<IssuesFilter, "limit" | "offset"> = {}): Promise<{ issues: WorkIssue[]; total: number }> {
+    const PAGE = 500;
+    const seen = new Map<string, WorkIssue>();
+    let total = 0;
+    for (let offset = 0; ; offset += PAGE) {
+      const page = await workAdapter.list({ ...filter, limit: PAGE, offset });
+      total = page.total;
+      // Full identity, not issue_id alone: the backend's WORK-nnnn numbering is not atomic, so ids can collide.
+      for (const issue of page.issues) seen.set(`${issue.issue_id}|${issue.sig}|${issue.created_at}`, issue);
+      if (page.issues.length < PAGE || offset + PAGE >= total) break;
+    }
+    return { issues: [...seen.values()], total };
+  },
+
   /** Create a work item (used by the Project Dashboard "New requirement" form). */
   async create(body: Record<string, unknown>): Promise<WorkIssue> {
     const res = await http({ path: "/api/work/issues", method: "POST", body, noRetry: true });
