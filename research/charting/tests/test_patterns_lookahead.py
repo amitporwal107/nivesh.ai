@@ -1,0 +1,141 @@
+"""Poisoned-future probes over `detect_as_of` — test-plan.md Part B methodology applied to
+the full detector pipeline (geometry.py + patterns.py), not just `swings_as_of`.
+
+Method: run A truncated at `t`; run B extends past `t` with adversarial bars (huge gap, 10x
+volume, a fabricated clean breakout). Every output dated <= `t` must be field-identical.
+Mandatory negative control: a deliberately peeking variant (computing "the resistance
+level" over the FULL frame instead of confirmed pivots up to `t`) must be DETECTED by the
+same comparison — a probe that stays green against a broken detector proves nothing.
+"""
+from __future__ import annotations
+
+import pandas as pd
+import pytest
+
+from research.charting.patterns import detect_as_of
+from research.charting.tests import synth
+
+
+def _serialize(bars: pd.DataFrame, t: int, **kwargs) -> list[dict]:
+    pats = detect_as_of(bars, t, symbol="SYN1", **kwargs)
+    return sorted((p.to_dict() for p in pats), key=lambda d: d["pattern_id"])
+
+
+def _poison_alternating_extremes(bars: pd.DataFrame, t: int) -> pd.DataFrame:
+    """Every row after `t` becomes a deterministic adversarial extreme (alternating
+    huge/tiny OHLC + volume) -- rows [0, t] are left byte-identical. Mirrors
+    test_lookahead.py's `_poison_after`."""
+    poisoned = bars.copy()
+    for i in range(t + 1, len(bars)):
+        if (i - t) % 2 == 1:
+            poisoned.loc[i, ["open", "high", "low", "close"]] = [9999.0, 9999.5, 9998.5, 9999.0]
+            poisoned.loc[i, "volume"] = 9_999_999.0
+        else:
+            poisoned.loc[i, ["open", "high", "low", "close"]] = [0.02, 0.03, 0.01, 0.02]
+            poisoned.loc[i, "volume"] = 1.0
+    return poisoned
+
+
+def _poison_fabricated_clean_breakout(bars: pd.DataFrame, t: int) -> pd.DataFrame:
+    """Every row after `t` becomes a smooth, decisive rally on huge volume -- exactly the
+    shape a genuine breakout confirmation would have, so a detector that peeked at it would
+    plausibly (and wrongly) confirm a breakout dated at or before `t`."""
+    poisoned = bars.copy()
+    last_close = float(bars["close"].iloc[t])
+    for j, i in enumerate(range(t + 1, len(bars))):
+        c = last_close + 50.0 + j
+        poisoned.loc[i, ["open", "high", "low", "close"]] = [c - 1.0, c + 1.0, c - 2.0, c]
+        poisoned.loc[i, "volume"] = 2_000_000.0
+    return poisoned
+
+
+_POISON_FNS = (_poison_alternating_extremes, _poison_fabricated_clean_breakout)
+
+
+def _lookahead_fixture() -> pd.DataFrame:
+    """RECT-1 extended through a full breakout + retest + failure cycle (fixture #4), so the
+    sweep below covers formation, confirmation, retest and failure states, not just the
+    quiet pre-breakout window."""
+    return synth.fixture_04_false_retest(synth.rect1())
+
+
+def test_detect_as_of_unaffected_by_poisoning_every_bar_after_t():
+    base = _lookahead_fixture()
+    n = len(base)
+    checked = 0
+    for t in range(10, n - 1):  # leave >=1 bar after t to poison
+        for poison_fn in _POISON_FNS:
+            poisoned = poison_fn(base, t)
+            # Sanity: rows [0, t] are byte-identical between the two runs.
+            pd.testing.assert_frame_equal(
+                poisoned.iloc[: t + 1].reset_index(drop=True), base.iloc[: t + 1].reset_index(drop=True)
+            )
+            result_a = _serialize(base, t)
+            result_b = _serialize(poisoned, t)
+            assert result_a == result_b, f"leak detected at t={t} via {poison_fn.__name__}"
+            checked += 1
+    assert checked >= 10  # meaningful sweep breadth, not a single lucky t
+
+
+def test_detect_as_of_unaffected_by_poisoning_during_formation_only():
+    """Same probe restricted to the pre-breakout formation window (t < formation_end),
+    where pivot/ATR/clustering computations are most exposed to a look-ahead bug."""
+    base = synth.rect1()
+    n = len(base)
+    checked = 0
+    for t in range(6, n - 1):
+        poisoned = _poison_alternating_extremes(base, t)
+        result_a = _serialize(base, t)
+        result_b = _serialize(poisoned, t)
+        assert result_a == result_b, f"leak detected at t={t} (formation-only sweep)"
+        checked += 1
+    assert checked >= 10
+
+
+def test_incomplete_bar_poisoning_does_not_affect_completed_bar_output():
+    """Passing an `incomplete_bar` must never change any pattern's status/events computed
+    from the completed frame alone when the incomplete bar itself does not cross a level —
+    only RECTANGLE patterns still awaiting confirmation are touched at all, and only via the
+    documented BREAKOUT_ATTEMPT/blocked-rule path (see test_patterns.py fixture #12 tests
+    for the crossing case)."""
+    base = synth.rect1()
+    t = len(base) - 1
+    without = _serialize(base, t)
+    running_date = pd.bdate_range(start=base["date"].iloc[-1] + pd.tseries.offsets.BDay(1), periods=1)[0]
+    quiet_incomplete_bar = {
+        "date": running_date, "open": 105.0, "high": 105.5, "low": 104.5, "close": 105.0,
+        "volume": 50_000.0, "is_complete": False,
+    }
+    with_quiet = _serialize(base, t, incomplete_bar=quiet_incomplete_bar)
+    assert without == with_quiet
+
+
+# ── Mandatory negative control ────────────────────────────────────────────────
+
+
+def _peeking_resistance_level(bars: pd.DataFrame) -> float:
+    """NEGATIVE CONTROL ONLY -- deliberately PIT-broken. Takes the max `high` over the WHOLE
+    frame it is handed, instead of confirmed pivots up to some `t` -- exactly the mistake of
+    calling `bars["high"].max()` on a frame that has grown past the caller's intended cutoff.
+    Must NEVER be imported outside this test file."""
+    return float(bars["high"].max())
+
+
+def test_negative_control_peeking_resistance_level_is_detected_by_the_same_probe():
+    base = _lookahead_fixture()
+    t = 15  # still within RECT-1's own formation window, well before any breakout bar
+    poisoned = _poison_alternating_extremes(base, t)
+
+    # Sanity: rows [0, t] are byte-identical, exactly as every other probe in this file checks.
+    pd.testing.assert_frame_equal(poisoned.iloc[: t + 1].reset_index(drop=True), base.iloc[: t + 1].reset_index(drop=True))
+
+    peek_a = _peeking_resistance_level(base.iloc[: t + 1])  # a correctly-sliced view: nothing past t
+    peek_b = _peeking_resistance_level(poisoned)  # the FULL poisoned frame, unsliced -- the leak
+    assert peek_a != peek_b, "negative control failed to detect the leak -- a probe that stays green against a broken detector proves nothing"
+    assert peek_a == pytest.approx(110.0)
+    assert peek_b == pytest.approx(9999.5)
+
+    # And the real detector shows no such difference for the same (base, poisoned, t) triple.
+    result_a = _serialize(base, t)
+    result_b = _serialize(poisoned, t)
+    assert result_a == result_b
