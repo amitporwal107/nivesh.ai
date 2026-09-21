@@ -73,6 +73,34 @@ CONFIG: dict = {
     },
     # PRD §34.7.1 offline maturity checkpoints (fractions of a COMPLETED pattern; t_end picks the bar, never the value)
     "early_maturity_checkpoints": [0.2, 0.4, 0.6, 0.8],
+    # Early-formation (§34) internal parameters — v1 research defaults, NOT PRD-frozen values. They live here so that
+    # every number that shapes an early score is covered by config_hash (review 2026-09-22 found ~20 of them as module
+    # constants in early/scoring.py and early/indicators.py, where changing one would not have changed the hash).
+    "early_params": {
+        "short_range_period": 5,
+        "long_range_period": 15,
+        "volume_baseline_bars": 10,
+        "momentum_k": 2,
+        "momentum_rsi_period": 5,
+        "momentum_macd_fast": 4,
+        "momentum_macd_slow": 9,
+        "momentum_macd_signal": 3,
+        "readiness_trend_bars": 5,
+        "readiness_slope_scale": 5.0,
+        "market_context_lookback_bars": 14,
+        "market_context_return_scale": 0.05,
+        "structural_subweights": {"level_strength": 0.40, "structure_direction": 0.25,
+                                  "boundary_stability": 0.20, "failed_breakouts": 0.15},
+        "distance_scale_atr": 3.0,
+        "component_blend": [0.6, 0.4],
+        "failure_risk_blend": [0.6, 0.4],  # proximity-to-invalidation vs ATR-expansion risk
+        "bb_period": 10,
+        "bb_pctile_lookback": 15,
+        "volume_trend_bars": 5,
+        "volume_slope_scale": 5.0,
+        "failed_breakout_buffer_atr": 0.10,
+        "failed_breakout_saturation": 3,
+    },
 }
 
 

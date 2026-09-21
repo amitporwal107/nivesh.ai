@@ -358,8 +358,9 @@ def test_pattern_missing_a_required_component_does_not_reach_research_eligible()
 
 def test_wick_only_attempt_expires_after_confirmation_window_elapses():
     """A wick-only BREAKOUT_ATTEMPT (fixture #1's bar16 shape) followed by
-    `confirmation_window_bars` (=3) quiet bars with no close-confirmation must EXPIRE on
-    the next bar, rather than sitting BREAKOUT_ATTEMPT forever."""
+    `confirmation_window_bars` (=3) quiet bars with no close-confirmation: the ATTEMPT expires
+    on the next bar (it must not sit BREAKOUT_ATTEMPT forever) — but the rectangle itself stays
+    live at GEOMETRY_VALID; §13.3 does not invalidate a rectangle for an unconfirmed wick."""
     assert CONFIG["confirmation_window_bars"] == 3  # guard: fixture below is tuned to this
     bars = synth._append(
         synth.rect1(),
@@ -374,11 +375,42 @@ def test_wick_only_attempt_expires_after_confirmation_window_elapses():
     rects = _rectangles(bars)
     assert len(rects) == 1
     rect = rects[0]
-    assert rect.status == LifecycleState.EXPIRED.value
-    expired = [e for e in rect.events if e["event_type"] == "EXPIRED"]
+    assert rect.status == LifecycleState.GEOMETRY_VALID.value  # attempt retired, rectangle live
+    expired = [e for e in rect.events if e["event_type"] == "BREAKOUT_ATTEMPT_EXPIRED"]
     assert len(expired) == 1
     assert expired[0]["rule_id"] == "BREAKOUT_ATTEMPT_WINDOW_EXPIRED"
+    assert expired[0]["observed_values"]["bars_since_attempt"] == 4
     assert "PRICE_CONFIRMED" not in _event_types(rect)  # never confirmed
+    assert "EXPIRED" not in _event_types(rect)  # the rectangle itself did not expire
+
+
+def test_genuine_breakout_after_an_expired_attempt_still_confirms():
+    """Regression (review of package 3, 2026-09-22): ADANIPOWER's rectangle wicked above its
+    breakout level on 2026-03-25 and closed above it on 2026-04-02 — the first bar after the
+    attempt's window. The expiry used to end the whole pattern and was checked before the
+    confirmation, so the real breakout was recorded as EXPIRED. The attempt must expire and the
+    same-bar genuine close must still confirm."""
+    assert CONFIG["confirmation_window_bars"] == 3
+    bars = synth._append(
+        synth.rect1(),
+        [
+            (108.0, 112.0, 107.0, 109.8, 100_000.0),  # bar A: wick touch (attempt_index)
+            (109.8, 110.0, 108.0, 108.5, 100_000.0),  # A+1
+            (108.5, 109.0, 107.5, 108.0, 100_000.0),  # A+2
+            (108.0, 108.5, 107.0, 107.5, 100_000.0),  # A+3 (== window), still unconfirmed
+            (107.5, 113.5, 107.5, 113.0, 150_000.0),  # A+4: attempt expires AND a real close breaks out
+        ],
+    )
+    rects = _rectangles(bars)
+    assert len(rects) == 1
+    rect = rects[0]
+    types = _event_types(rect)
+    assert "BREAKOUT_ATTEMPT_EXPIRED" in types
+    assert rect.status == LifecycleState.PRICE_CONFIRMED.value
+    assert "EXPIRED" not in types
+    confirmed = [e for e in rect.events if e["event_type"] == "PRICE_CONFIRMED"]
+    assert len(confirmed) == 1 and confirmed[0]["rule_id"] == "CLOSE_ABOVE_BREAKOUT"
+    assert confirmed[0]["observed_values"]["close"] > confirmed[0]["observed_values"]["breakout_level"]  # guard: non-vacuous
 
 
 def test_wick_only_attempt_confirmed_within_window_is_not_expired():
@@ -400,6 +432,7 @@ def test_wick_only_attempt_confirmed_within_window_is_not_expired():
     rect = rects[0]
     assert rect.status == LifecycleState.PRICE_CONFIRMED.value  # PASS condition: not EXPIRED
     assert "EXPIRED" not in _event_types(rect)
+    assert "BREAKOUT_ATTEMPT_EXPIRED" not in _event_types(rect)  # confirmed inside the window
     confirmed = [e for e in rect.events if e["event_type"] == "PRICE_CONFIRMED"]
     assert len(confirmed) == 1
     assert confirmed[0]["rule_id"] == "CLOSE_ABOVE_BREAKOUT"

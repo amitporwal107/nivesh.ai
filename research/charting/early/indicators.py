@@ -73,19 +73,20 @@ StructureDirectionLabel = Literal["FLAT", "RISING", "FALLING", "INDETERMINATE"]
 # v1 local periods/scales — documented choices, not PRD-frozen (mirrors early/scoring.py's
 # own "_SHORT_RANGE_PERIOD etc." note: this package's windows must be small enough to say
 # something inside a pattern as young as CONFIG["minimum_pattern_length"] (15) bars).
-BB_PERIOD = 10
-BB_PCTILE_LOOKBACK = 15  # warmup = BB_PERIOD + BB_PCTILE_LOOKBACK - 1 = 24 bars, vs.
+_EP = CONFIG["early_params"]  # every value below is frozen in config.py and covered by config_hash
+BB_PERIOD = _EP["bb_period"]
+BB_PCTILE_LOOKBACK = _EP["bb_pctile_lookback"]  # warmup = BB_PERIOD + BB_PCTILE_LOOKBACK - 1 = 24 bars, vs.
 # series.py's own defaults (period=20, lookback=126 -> 145-bar warmup), which would never
 # finish warming up inside a typical early-formation window.
 
-VOLUME_TREND_BARS = 5
-_VOLUME_SLOPE_SCALE = 5.0  # mirrors scoring._readiness_score's own "-slope * 5.0" v1 scale
+VOLUME_TREND_BARS = _EP["volume_trend_bars"]
+_VOLUME_SLOPE_SCALE = _EP["volume_slope_scale"]  # mirrors scoring._readiness_score's own "-slope * 5.0" v1 scale
 
-FAILED_BREAKOUT_BUFFER_ATR = 0.10  # how far beyond the level (in ATR) counts as a genuine
+FAILED_BREAKOUT_BUFFER_ATR = _EP["failed_breakout_buffer_atr"]  # how far beyond the level (in ATR) counts as a genuine
 # intrabar piercing rather than noise — deliberately smaller than breakout_buffer_atr (0.25,
 # CONFIG's own confirmed-breakout buffer): a "failed attempt" during formation is a shallower,
 # more easily rejected poke than a full confirmed breakout would need to clear.
-FAILED_BREAKOUT_SATURATION = 3  # attempt count at which the score saturates at 1.0
+FAILED_BREAKOUT_SATURATION = _EP["failed_breakout_saturation"]  # attempt count at which the score saturates at 1.0
 
 
 def _clip01(x: float) -> float:

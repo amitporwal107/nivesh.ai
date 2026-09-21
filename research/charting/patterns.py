@@ -431,20 +431,22 @@ def _walk_rectangle_lifecycle(
         # confirmation_window_bars expiry: a pending wick-only BREAKOUT_ATTEMPT (§12.3 "a
         # wick-only breach is BREAKOUT_ATTEMPT, not confirmation") that never closes beyond
         # the level within `confirmation_window_bars` bars of its FIRST touch must not sit
-        # pending forever — it expires. Bars attempt_index+1 .. attempt_index+
-        # confirmation_window_bars are still inside the window (a close-confirmation on any
-        # of those bars below is evaluated normally, not blocked); only strictly more than
-        # that many bars later, still unconfirmed, does it expire. Checked BEFORE the
-        # confirm/wick checks below so an expired attempt never also gets a same-bar event.
+        # pending forever. Bars attempt_index+1 .. attempt_index+confirmation_window_bars are
+        # still inside the window; strictly more than that many bars later, still unconfirmed,
+        # the ATTEMPT expires — not the rectangle. The rectangle stays live (§13.3 invalidates
+        # only on an opposite-boundary close, maximum age, or a reclaimed break), so the attempt
+        # clock resets and scanning continues: a genuine close beyond the level on this same bar
+        # or any later bar still confirms normally, and a later wick starts a fresh attempt.
+        # (Ending the pattern here turned real breakouts into EXPIRED — ADANIPOWER 2026-04-02.)
         if attempt_index is not None and (i - attempt_index) > cfg["confirmation_window_bars"]:
-            state = LifecycleState.EXPIRED
-            add_event(i, "EXPIRED", "BREAKOUT_ATTEMPT_WINDOW_EXPIRED", {
+            add_event(i, "BREAKOUT_ATTEMPT_EXPIRED", "BREAKOUT_ATTEMPT_WINDOW_EXPIRED", {
                 "attempt_date": _iso(dates.iloc[attempt_index]),
                 "bars_since_attempt": i - attempt_index,
                 "confirmation_window_bars": cfg["confirmation_window_bars"],
             })
             rules.append(RuleRow("BREAKOUT_ATTEMPT_CONFIRMATION_WINDOW", "FAIL", i - attempt_index, cfg["confirmation_window_bars"]))
-            break
+            attempt_index = None
+            state = LifecycleState.GEOMETRY_VALID
         if closes[i] > bo_level:
             breakout_direction = "BULLISH"
             confirm_index = i

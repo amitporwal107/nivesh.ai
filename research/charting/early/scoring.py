@@ -76,24 +76,26 @@ EARLY_SCORE_CALC_VERSION = "0.1.0"
 # defaults (atr_period=14, MACD 12/26/9, volume_baseline_bars=20): those are tuned for
 # confirmed-pattern-scale windows, not for scoring a structure that may be as young as
 # `minimum_pattern_length` (15) bars.
-_SHORT_RANGE_PERIOD = 5
-_LONG_RANGE_PERIOD = 15
-_VOLUME_BASELINE_BARS = 10
-_MOMENTUM_K = 2
-_MOMENTUM_RSI_PERIOD = 5
-_MOMENTUM_MACD_FAST = 4
-_MOMENTUM_MACD_SLOW = 9
-_MOMENTUM_MACD_SIGNAL = 3
-_READINESS_TREND_BARS = 5
+_EP = CONFIG["early_params"]  # every value below is frozen in config.py and covered by config_hash
+_SHORT_RANGE_PERIOD = _EP["short_range_period"]
+_LONG_RANGE_PERIOD = _EP["long_range_period"]
+_VOLUME_BASELINE_BARS = _EP["volume_baseline_bars"]
+_MOMENTUM_K = _EP["momentum_k"]
+_MOMENTUM_RSI_PERIOD = _EP["momentum_rsi_period"]
+_MOMENTUM_MACD_FAST = _EP["momentum_macd_fast"]
+_MOMENTUM_MACD_SLOW = _EP["momentum_macd_slow"]
+_MOMENTUM_MACD_SIGNAL = _EP["momentum_macd_signal"]
+_READINESS_TREND_BARS = _EP["readiness_trend_bars"]
+_READINESS_SLOPE_SCALE = _EP["readiness_slope_scale"]
 
 # v1 local window/scale for `_market_sector_context` (mirrors `_LONG_RANGE_PERIOD`'s 15-bar
 # scale and `_DISTANCE_SCALE_ATR`'s "documented v1 constant, not PRD-frozen" convention): the
 # market index's own return is read over this many bars, ending at the pattern's as-of bar.
-_MARKET_CONTEXT_LOOKBACK_BARS = 14
+_MARKET_CONTEXT_LOOKBACK_BARS = _EP["market_context_lookback_bars"]
 # A market move of this magnitude (5%) over that window maps to the full +-1.0 alignment
 # swing before the 0..1 rescale -- ordinary index volatility over ~15 sessions is a
 # fraction of this, an outsized move saturates the score rather than exploding past [0, 1].
-_MARKET_CONTEXT_RETURN_SCALE = 0.05
+_MARKET_CONTEXT_RETURN_SCALE = _EP["market_context_return_scale"]
 
 # v1 sub-weights blending `_structural_quality`'s four §34.4 inputs (level_strength,
 # structure_direction/higher-lows-lower-highs, boundary_stability, failed_breakout_attempts)
@@ -102,17 +104,15 @@ _MARKET_CONTEXT_RETURN_SCALE = 0.05
 # `level_strength`'s own five sub-components; renormalised over whichever of the four are
 # actually available (see `_structural_quality`), exactly like `_aggregate_formation_score`
 # renormalises across the six §34.5 components themselves.
-_STRUCTURAL_SUBWEIGHTS = {
-    "level_strength": 0.40,
-    "structure_direction": 0.25,
-    "boundary_stability": 0.20,
-    "failed_breakouts": 0.15,
-}
+_STRUCTURAL_SUBWEIGHTS = dict(_EP["structural_subweights"])
 
 # Distance-to-trigger / invalidation are mapped to [0, 1] over this many ATRs. A
 # documented v1 scale constant, not a PRD-frozen value: at 0 ATR away the score is 1.0,
 # at >= this many ATRs away (or beyond) it is 0.0.
-_DISTANCE_SCALE_ATR = 3.0
+_DISTANCE_SCALE_ATR = _EP["distance_scale_atr"]
+# The 60/40 blend used by three components (range vs BB width, contraction vs accumulation, distance vs tightening).
+_BLEND_PRIMARY, _BLEND_SECONDARY = _EP["component_blend"]
+_FAILURE_PROXIMITY_WEIGHT, _FAILURE_EXPANSION_WEIGHT = _EP["failure_risk_blend"]
 
 @dataclass(frozen=True)
 class ScoreValue:
@@ -224,7 +224,7 @@ def _volatility_compression(view: pd.DataFrame, cfg: dict) -> ScoreValue:
 
     bb = bb_width_compression_as_of(view, len(view) - 1)
     if bb.score is not None:
-        return ScoreValue(_clip01(0.6 * range_atr_score + 0.4 * bb.score), "OK")
+        return ScoreValue(_clip01(_BLEND_PRIMARY * range_atr_score + _BLEND_SECONDARY * bb.score), "OK")
     return ScoreValue(range_atr_score, "OK")
 
 
@@ -254,7 +254,7 @@ def _volume_behaviour(view: pd.DataFrame) -> ScoreValue:
 
     accumulation = volume_accumulation_as_of(view, len(view) - 1, n=_VOLUME_BASELINE_BARS)
     if accumulation.score is not None:
-        return ScoreValue(_clip01(0.6 * contraction_score + 0.4 * accumulation.score), "OK")
+        return ScoreValue(_clip01(_BLEND_PRIMARY * contraction_score + _BLEND_SECONDARY * accumulation.score), "OK")
     return ScoreValue(contraction_score, "OK")
 
 
@@ -382,9 +382,9 @@ def _readiness_score(view: pd.DataFrame, distance_component: ScoreValue, cfg: di
         return ScoreValue(distance_component.value, "OK")
 
     slope = ols_slope(list(range(len(trail))), trail.tolist())
-    tightening = float(np.clip(-slope * 5.0, -1.0, 1.0))  # shrinking ratio (slope<0) -> tightening>0
+    tightening = float(np.clip(-slope * _READINESS_SLOPE_SCALE, -1.0, 1.0))  # shrinking ratio (slope<0) -> tightening>0
     tightening_score = (tightening + 1.0) / 2.0
-    return ScoreValue(_clip01(0.6 * distance_component.value + 0.4 * tightening_score), "OK")
+    return ScoreValue(_clip01(_BLEND_PRIMARY * distance_component.value + _BLEND_SECONDARY * tightening_score), "OK")
 
 
 def _confirmation_score(view: pd.DataFrame, trigger_level: float | None, direction: Direction, cfg: dict) -> ScoreValue:
@@ -427,7 +427,7 @@ def _failure_risk(view: pd.DataFrame, atr_now: float | None, invalidation_level:
     rc = float(range_compression(view, short_period=_SHORT_RANGE_PERIOD, long_period=_LONG_RANGE_PERIOD)["atr_ratio"].iloc[-1])
     expansion_risk = _clip01(rc - 1.0) if np.isfinite(rc) else 0.0
 
-    return ScoreValue(_clip01(0.6 * proximity_risk + 0.4 * expansion_risk), "OK")
+    return ScoreValue(_clip01(_FAILURE_PROXIMITY_WEIGHT * proximity_risk + _FAILURE_EXPANSION_WEIGHT * expansion_risk), "OK")
 
 
 @dataclass(frozen=True)
