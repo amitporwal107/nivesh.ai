@@ -226,6 +226,17 @@
     "last_bar_date": "2026-09-14",
     "run_id": "chart_20260921T120000Z_fixture",
     "config_hash": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2",
-    "generated_at": "2026-09-21T12:00:00Z"
+    "generated_at": "2026-09-21T12:00:00Z",
+    "files": [
+      {
+        "name": "part-20260919T031049.csv.gz",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "name": "part-20260919T083235.csv.gz",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    ],
+    "adjustment_note": "MOCK note \u2014 real manifests carry a free-text adjustment_note here."
   }
 }

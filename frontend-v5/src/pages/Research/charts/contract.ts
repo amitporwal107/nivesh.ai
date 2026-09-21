@@ -313,8 +313,19 @@ export function statusTone(s: CombinedStatus): "danger" | "amber" | "mint" | "in
    ══════════════════════════════════════════════════════════════════════════ */
 export const DASH = "—";
 export function isNum(v: unknown): v is number { return typeof v === "number" && Number.isFinite(v); }
+/** Display text for any provenance value. Lists and objects are formatted, never stringified — manifest
+ *  `source.files` is a list of {name, sha256} and multi-output `warmup_period` is a per-output dict, and plain
+ *  String() rendered both as "[object Object]" on staging (2026-09-22). */
 export function txt(v: unknown): string {
   if (v == null) return DASH;
+  if (Array.isArray(v)) {
+    const parts = v.map(txt).filter((x) => x !== DASH);
+    return parts.length ? parts.join("; ") : DASH;
+  }
+  if (typeof v === "object") {
+    const parts = Object.entries(v as Record<string, unknown>).map(([k, x]) => `${humanKey(k)} ${txt(x)}`);
+    return parts.length ? parts.join(", ") : DASH;
+  }
   const s = String(v);
   return s.trim() === "" ? DASH : s;
 }

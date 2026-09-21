@@ -41,6 +41,21 @@ Kite-derived data, so owner-only (NI-1). Test cases below were authored BEFORE i
 | TC-23 | UI | draw trendline, reload page | e2e | drawing persists and renders distinct from system overlays | PASS (local, mocked) |
 | TC-24 | Data | bars served for 3 symbols vs raw Kite gz parts read independently | data | identical OHLCV for every date | PASS (local: RELIANCE/TCS/HDFCBANK 1417/1417 rows, 0 mismatches vs raw gz) |
 
+## Staging re-run after PR #135 (2026-09-22, dev at 1ffd7697, new bundle index-DBmw1M2i.js)
+
+- **API:** `verify_staging_api` → `17/17 checks passed` (exit 0).
+- **UI:** `npx playwright test staging-research-charts --project=desktop-chrome`
+  - TC-15/16/17/21 test: the #134 crash is FIXED — symbols, candles, no fixture banner, one status chip whose drawer shows the
+    served data_quality/pit fields, pattern rows = served patterns, and attribution all passed. It **FAILED only on the final
+    visible-text check**: the provenance drawer renders manifest `source.files` (a list of `{name, sha256}` objects) as
+    `"[object Object],[object Object],…"` (`ChartsScreen.tsx:555`, generic `txt(v)` = `String(v)`). The same formatter bug hits
+    `String(contract.warmup_period)` for multi-output indicators (`ChartsScreen.tsx:569`, e.g. macd's per-output dict).
+  - TC-18, TC-19, TC-23 (run separately with `-g`, since serial mode skipped them): `4 passed` (incl. auth-setup) —
+    weekly/monthly disabled with reason; bollinger draws exactly bb_mid/bb_upper/bb_lower from the real payload; a horizontal
+    line persists through reload and is deleted via the API.
+- **Defect NOT fixed:** the owner paused new work ("do not pick new tasks now"). Fix is small (format arrays/objects in `txt`,
+  use it for warmup_period) but needs a commit → PR → deploy cycle.
+
 ## API / Endpoint Tests (staging)
 **RUN ON STAGING 2026-09-21 after PR #134 merged (merge commit ec32d53d; ab81e3dc in origin/dev).**
 Pre-checks: `/api/healthz` 200 · `/api/research/chart/run` 200 (404 before the deploy) · `auth/me` → `features.charting: true`.
@@ -117,4 +132,4 @@ Snapshot `run_id=chart_20260921T172937Z`, 50 symbols, 513 patterns, 10.33 MB, `c
 - Owner account on the `charting` allowlist — satisfied by default (`default_allowlist: [aporwal107@gmail.com]`).
 - App-vm free disk ≥ 6 GB confirmed before the `dev` push that deploys this to staging.
 
-## Verdict: BLOCKED
+## Verdict: FAIL

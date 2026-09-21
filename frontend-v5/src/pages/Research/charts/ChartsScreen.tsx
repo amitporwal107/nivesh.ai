@@ -566,7 +566,7 @@ function ProvenanceDrawer({ ctx, onClose, runId, configHash, generatedAt, source
           {ctx.kind === "indicator" && indicators[ctx.id] && (
             <>
               <div className="nv-hr" />
-              <Row label="Warmup period" value={String(indicators[ctx.id].contract.warmup_period)} />
+              <Row label="Warmup period" value={txt(indicators[ctx.id].contract.warmup_period)} />
               <Row label="Calculation version" value={txt(indicators[ctx.id].contract.calculation_version)} />
               <Row label="Missing-data policy" value={txt(indicators[ctx.id].contract.missing_data_policy)} />
               <Row label="Pane" value={txt(indicators[ctx.id].pane)} />
