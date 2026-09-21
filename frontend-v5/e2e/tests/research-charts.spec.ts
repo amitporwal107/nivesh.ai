@@ -279,6 +279,24 @@ test.describe("Charts — indicators (TC-19)", () => {
     await expect.poll(drawn).toEqual(["macd:macd", "macd:signal", "macd:hist"]);
   });
 
+  test("provenance drawers format nested values — no [object Object] (files list, multi-output warmup)", async ({ page }) => {
+    // Regression for staging 2026-09-22: manifest source.files is a list of {name, sha256} objects and macd's warmup_period
+    // is a per-output dict; both rendered as "[object Object]" because the drawer stringified them.
+    await mockAuthAs(page, "user-profile-charting.json");
+    await mockCharts(page);
+    await openCharts(page);
+    await page.getByTestId("chart-status-chip").click();
+    const drawer = page.getByTestId("chart-provenance-drawer");
+    await expect(drawer).toContainText("part-20260919T031049.csv.gz");
+    await expect(drawer).not.toContainText("[object Object]");
+    await drawer.getByRole("button", { name: "Close" }).click();
+    await expect(drawer).toHaveCount(0);
+
+    await page.getByTestId("chart-indicator-info-macd").click();
+    await expect(drawer).toContainText("signal");
+    await expect(drawer).not.toContainText("[object Object]");
+  });
+
   test("an indicator's info button opens its provenance (warmup, calculation version)", async ({ page }) => {
     await mockAuthAs(page, "user-profile-charting.json");
     await mockCharts(page);

@@ -10,7 +10,18 @@
     "provider": "kite",
     "series": "daily",
     "adjustment_status": "ADJUSTED",
-    "last_bar_date": "2026-09-14"
+    "last_bar_date": "2026-09-14",
+    "files": [
+      {
+        "name": "part-20260919T031049.csv.gz",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "name": "part-20260919T083235.csv.gz",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    ],
+    "adjustment_note": "MOCK note \u2014 real manifests carry a free-text adjustment_note here."
   },
   "universe_rule": "MOCK fixture \u2014 2 symbols for local Playwright coverage of research-charts.spec.ts"
 }
