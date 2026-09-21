@@ -62,7 +62,8 @@ export interface RunPayload {
   symbols?: ManifestSymbolEntry[];
 }
 
-export type SymbolsPayload = ManifestSymbolEntry[];
+/** GET /symbols returns the manifest's symbol entries wrapped in an object (verified against staging 2026-09-21). */
+export interface SymbolsPayload { symbols: ManifestSymbolEntry[]; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    OHLCV
@@ -226,7 +227,13 @@ const DRAWINGS = "/api/research/drawings";
 
 export const chartApi = {
   run: () => getJson<RunPayload>(`${BASE}/run`),
-  symbols: () => getJson<SymbolsPayload>(`${BASE}/symbols`),
+  /** Unwrapped here so screens get the entry list; any other shape is an error, never a crash. */
+  symbols: async (): Promise<Result<ManifestSymbolEntry[]>> => {
+    const r = await getJson<SymbolsPayload>(`${BASE}/symbols`);
+    if (r.kind !== "ok") return r;
+    if (!Array.isArray(r.data?.symbols)) return { kind: "error", message: "unexpected /symbols response shape" };
+    return { kind: "ok", data: r.data.symbols };
+  },
   ohlcv: (symbol: string) => getJson<OhlcvPayload>(`${BASE}/${encodeURIComponent(symbol)}/ohlcv`),
   indicators: (symbol: string, ids?: string[]) =>
     getJson<IndicatorsPayload>(`${BASE}/${encodeURIComponent(symbol)}/indicators`, ids?.length ? { ids: ids.join(",") } : undefined),

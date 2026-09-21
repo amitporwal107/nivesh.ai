@@ -1,0 +1,109 @@
+/**
+ * Research → Charts on REAL staging (TC-15..TC-19, TC-21, TC-23 in test_reports/charting_v1_app_surface.md). No mocks:
+ * the page runs against the staging API, and every checked value is compared with the payload the page itself received.
+ *
+ * Needs an allowlisted owner session: STAGING_SESSION_FILE=<file holding the session_token>. Skipped without it.
+ * The drawing test creates one horizontal line on the owner's account and deletes it again.
+ */
+import { test, expect, type Page, type Response } from "@playwright/test";
+import fs from "fs";
+
+const UI = "https://staging.niveshcopilot.com:8443";
+const FILE = process.env.STAGING_SESSION_FILE;
+
+test.skip(!FILE, "STAGING_SESSION_FILE not set");
+test.describe.configure({ mode: "serial" });
+
+async function login(page: Page) {
+  const token = fs.readFileSync(FILE as string, "utf-8").trim();
+  await page.context().addCookies([{ name: "session_token", value: token, domain: "staging.niveshcopilot.com", path: "/", secure: true, httpOnly: true }]);
+}
+const is = (r: Response, path: string) => r.url().includes(path) && r.status() === 200;
+
+/** Open Research → Charts and return the symbols, ohlcv and patterns payloads the page received. */
+async function openCharts(page: Page) {
+  await login(page);
+  await page.goto(`${UI}/v5/research`);
+  const symbolsP = page.waitForResponse((r) => is(r, "/api/research/chart/symbols"));
+  const ohlcvP = page.waitForResponse((r) => r.url().includes("/api/research/chart/") && r.url().includes("/ohlcv") && r.status() === 200);
+  const patternsP = page.waitForResponse((r) => r.url().includes("/api/research/chart/") && r.url().includes("/patterns") && r.status() === 200);
+  await page.getByTestId("rail-charts").click();
+  const symbols = await (await symbolsP).json();
+  const ohlcv = await (await ohlcvP).json();
+  const patterns = await (await patternsP).json();
+  await expect(page.getByTestId("charts-screen")).toBeVisible();
+  return { symbols, ohlcv, patterns };
+}
+
+test("TC-15/16/17/21 real staging: symbols, candles, status chip and patterns equal the payloads", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const { symbols, ohlcv, patterns } = await openCharts(page);
+
+  // TC-15: every served symbol is listed, and the candles render on a real canvas
+  // chart-symbol-<SYM> rows only — the prefix also matches the list container and the search box
+  const symbolRows = page.locator('[data-testid^="chart-symbol-"]:not([data-testid="chart-symbol-list"]):not([data-testid="chart-symbol-search"])');
+  await expect(symbolRows).toHaveCount(symbols.symbols.length);
+  await expect(page.getByTestId("chart-canvas").locator("canvas").first()).toBeVisible();
+  expect(ohlcv.bars.length).toBeGreaterThan(250);
+
+  // TC-16: real snapshot → no synthetic-data banner
+  await expect(page.getByTestId("chart-banner-fixture")).toHaveCount(0);
+
+  // TC-17: one status chip, and the drawer shows both raw fields the API sent
+  await expect(page.getByTestId("chart-status-chip")).toHaveCount(1);
+  await page.getByTestId("chart-status-chip").click();
+  const drawer = page.getByTestId("chart-provenance-drawer");
+  await expect(drawer).toContainText(ohlcv.data_quality_status);
+  await expect(drawer).toContainText(ohlcv.pit_status);
+
+  // Patterns listed = patterns served for this symbol
+  await expect(page.locator('[data-testid^="chart-pattern-row-"]')).toHaveCount(patterns.patterns.length);
+
+  // TC-21: licence attribution
+  await expect(page.getByTestId("chart-tv-attribution")).toBeVisible();
+
+  const text = await page.getByTestId("charts-screen").innerText();
+  expect(text).not.toMatch(/NaN|undefined|\[object Object\]|Infinity/);
+});
+
+test("TC-18 real staging: weekly and monthly are disabled with a reason; daily is active", async ({ page }) => {
+  await openCharts(page);
+  await expect(page.getByTestId("chart-timeframe-weekly")).toBeDisabled();
+  await expect(page.getByTestId("chart-timeframe-monthly")).toBeDisabled();
+  await expect(page.getByTestId("chart-timeframe-reason")).toBeVisible();
+  await expect(page.getByTestId("chart-timeframe-daily")).toBeEnabled();
+});
+
+test("TC-19 real staging: bollinger draws exactly its three plotted fields from the real payload", async ({ page }) => {
+  await openCharts(page);
+  const canvas = page.getByTestId("chart-canvas");
+  const drawn = async () => ((await canvas.getAttribute("data-rendered-series")) ?? "").split(",").filter(Boolean);
+  await page.getByTestId("chart-indicator-toggle-bollinger").check();
+  await expect.poll(drawn).toEqual(["bollinger:bb_mid", "bollinger:bb_upper", "bollinger:bb_lower"]);
+});
+
+test("TC-23 real staging: a horizontal line persists through reload and is deleted again", async ({ page }) => {
+  test.setTimeout(120_000);
+  await openCharts(page);
+  const postP = page.waitForResponse((r) => r.url().endsWith("/api/research/drawings") && r.request().method() === "POST");
+  await page.getByTestId("chart-tool-horizontal").click();
+  const box = await page.getByTestId("chart-canvas").boundingBox();
+  if (!box) throw new Error("chart canvas has no bounding box");
+  await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.4);
+  const post = await postP;
+  expect(post.status()).toBe(201);
+  const created = await post.json();
+  await expect(page.getByTestId(`chart-drawing-row-${created.drawing_id}`)).toBeVisible();
+
+  // Persists: a fresh page load lists it from the real API
+  await page.reload();
+  await page.getByTestId("rail-charts").click();
+  await expect(page.getByTestId(`chart-drawing-row-${created.drawing_id}`)).toBeVisible({ timeout: 20_000 });
+
+  // Clean up through the UI; the API must confirm the delete
+  const delP = page.waitForResponse((r) => r.url().includes(`/api/research/drawings/${created.drawing_id}`) && r.request().method() === "DELETE");
+  await page.getByTestId(`chart-drawing-delete-${created.drawing_id}`).click();
+  expect((await delP).status()).toBe(200);
+  await expect(page.getByTestId(`chart-drawing-row-${created.drawing_id}`)).toHaveCount(0);
+});

@@ -96,10 +96,10 @@ Pattern objects (filled once detectors land; UI must render an empty list gracef
 | `GET /run` | manifest minus per-file hashes, plus `fixture` | 503 `snapshot_unavailable` |
 | `GET /symbols` | `manifest.symbols` | 503 |
 | `GET /{symbol}/ohlcv` | `{symbol, bars, data_quality_status, pit_status, findings, provenance}` — provenance from manifest.source + run_id + config_hash | 404 `unknown_symbol`, 503 |
-| `GET /{symbol}/indicators?ids=a,b` | `{symbol, indicators:{id: {...}}}` (all if `ids` omitted) | 400 `unknown_indicator`, 404, 503 |
+| `GET /{symbol}/indicators?ids=a,b` | `{symbol, indicators:{id: {...}}}` (all if `ids` omitted) | 400 `unknown_indicator: <comma-separated unknown ids>`, 404, 503 |
 | `GET /{symbol}/patterns` | `{symbol, patterns}` | 404, 503 |
 
-All gated by `require_feature("charting")` → 403 `feature_not_enabled` for anyone not on the allowlist (admins
+Error codes are the token before any `: <detail>` suffix. All gated by `require_feature("charting")` → 403 `feature_not_enabled` for anyone not on the allowlist (admins
 included, as the Lab does). Symbol path param validated `^[A-Z0-9&\-]{1,32}$`. A malformed or wrong-schema
 snapshot → 503, never a partial response.
 
