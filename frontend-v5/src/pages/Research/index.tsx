@@ -28,11 +28,11 @@
  * Responsive: one component. Desktop (≥lg) gets the 64px icon rail + top header;
  * below that the mobile design's app header + bottom tab bar.
  */
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, Suspense, lazy } from "react";
 import {
   Search, FileText, ExternalLink, Sparkles, Loader2, Bell, Bookmark,
   ChevronLeft, ChevronRight, MoreVertical, Megaphone, X, Download, Star,
-  ClipboardCheck, Activity, FlaskConical, Beaker,
+  ClipboardCheck, Activity, FlaskConical, Beaker, LineChart,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useMe } from "@/hooks/use-auth";
@@ -49,13 +49,17 @@ import "./research.css";
 import { THEMATIC_STARTERS, STARTERS_PAGE } from "@/data/thematicStarters";
 import { useThematicQueries } from "@/hooks/useThematicQueries";
 
+// Lazy-loaded: lightweight-charts is a sizeable dependency and the main bundle is already large (TC-22) — this
+// keeps it out of every Research visit that never opens the Charts tab.
+const ChartsScreen = lazy(() => import("./charts/ChartsScreen"));
+
 /** The one agent this surface is allowed to reach (backend _PINNABLE_AGENTS). */
 const PINNED_AGENT = "stocks_insights";
 /** The classifier's queue floor (spec §4.1) — the feed window is honest at 30d. */
 const FEED_DAYS = 30;
 const PAGE_SIZE = 20;
 
-type Screen = "feed" | "alerts" | "odds" | "paper" | "lab";
+type Screen = "feed" | "alerts" | "odds" | "paper" | "lab" | "charts";
 
 /** sentiment → accent (matches the prototype's sig-* classes). */
 function sig(sentiment?: string | null): { cls: string; dot: string } {
@@ -100,6 +104,10 @@ export default function ResearchPage() {
   // Simulation Lab is allowlist-gated the same way (feature sim_lab); the API also answers 403 to anyone not on the list.
   const labEnabled = !!me?.features?.sim_lab;
   useEffect(() => { if (screen === "lab" && !labEnabled) setScreen("feed"); }, [screen, labEnabled]);
+  // Charts is allowlist-gated the same way (feature charting, Kite-derived prices — NI-1); the API also answers
+  // 403 to anyone not on the list, independent of this client-side check.
+  const chartsEnabled = !!me?.features?.charting;
+  useEffect(() => { if (screen === "charts" && !chartsEnabled) setScreen("feed"); }, [screen, chartsEnabled]);
 
   // ── feed state ──────────────────────────────────────────────────────────
   const [rows, setRows] = useState<FilingRow[]>([]);
@@ -331,6 +339,7 @@ export default function ResearchPage() {
     ...(oddsEnabled ? [{ key: "odds" as Screen, label: "Odds", icon: Activity, title: "Move odds" }] : []),
     ...(oddsEnabled ? [{ key: "paper" as Screen, label: "Paper", icon: FlaskConical, title: "Paper trades" }] : []),
     ...(labEnabled ? [{ key: "lab" as Screen, label: "Lab", icon: Beaker, title: "Simulation Lab" }] : []),
+    ...(chartsEnabled ? [{ key: "charts" as Screen, label: "Charts", icon: LineChart, title: "Charts" }] : []),
   ];
 
   return (
@@ -520,6 +529,10 @@ export default function ResearchPage() {
             <PaperTradesScreen />
           ) : screen === "lab" && labEnabled ? (
             <SimulationLabScreen />
+          ) : screen === "charts" && chartsEnabled ? (
+            <Suspense fallback={<div data-testid="charts-suspense-loading" style={{ padding: 24, fontSize: 13.5, color: "var(--c-ink-3)" }}>Loading charts…</div>}>
+              <ChartsScreen />
+            </Suspense>
           ) : (
             <AlertsScreen />
           )}

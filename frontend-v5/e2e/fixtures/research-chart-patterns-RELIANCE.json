@@ -1,0 +1,77 @@
+{
+  "symbol": "RELIANCE",
+  "patterns": [
+    {
+      "pattern_id": "RELIANCE:RECTANGLE:2026-08-24",
+      "pattern_type": "RECTANGLE",
+      "direction": "BULLISH",
+      "population": "CONFIRMED",
+      "status": "CONFIRMED",
+      "stage": null,
+      "formation_start": "2026-08-18",
+      "formation_end": "2026-09-01",
+      "levels": {
+        "support": 2890.0,
+        "resistance": 2940.0,
+        "breakout_level": 2942.0,
+        "invalidation_level": 2882.0
+      },
+      "pivots": [
+        {
+          "date": "2026-08-19",
+          "price": 2940.5,
+          "kind": "HIGH",
+          "confirmed_date": "2026-08-20"
+        },
+        {
+          "date": "2026-08-25",
+          "price": 2889.2,
+          "kind": "LOW",
+          "confirmed_date": "2026-08-26"
+        },
+        {
+          "date": "2026-08-31",
+          "price": 2941.1,
+          "kind": "HIGH",
+          "confirmed_date": "2026-09-01"
+        }
+      ],
+      "components": {
+        "geometry": "PASS",
+        "price": "PASS",
+        "volume": "PASS",
+        "volatility": "PASS",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [
+        {
+          "rule_id": "RECT_MIN_TOUCHES",
+          "result": "PASS",
+          "observed": 3,
+          "threshold": 2
+        },
+        {
+          "rule_id": "RECT_BREAKOUT_CLOSE",
+          "result": "PASS",
+          "observed": 2946.0,
+          "threshold": 2942.0
+        }
+      ],
+      "events": [
+        {
+          "date": "2026-09-02",
+          "event_type": "PRICE_CONFIRMED",
+          "rule_id": "CLOSE_ABOVE_BREAKOUT"
+        }
+      ],
+      "scores": {
+        "formation": 100.0,
+        "readiness": 92.0,
+        "confirmation": 88.0,
+        "failure_risk": 14.0
+      }
+    }
+  ]
+}

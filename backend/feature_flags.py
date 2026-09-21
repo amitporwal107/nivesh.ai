@@ -33,6 +33,18 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "default_allowlist": ["aporwal107@gmail.com"],
         "allowed_modes": ["off", "allowlist"],
     },
+    "charting": {
+        "display_name": "Charts (Research page)",
+        "description": (
+            "Research charting and pattern detection on /research: daily candles, indicator panes, detected patterns "
+            "and manual drawings, served from a frozen snapshot. Internal research over Kite-derived prices - never "
+            "signals, never redistributable - so 'everyone' is not allowed for this flag and a persisted 'everyone' is "
+            "read as 'off'."
+        ),
+        "default_mode": "allowlist",
+        "default_allowlist": ["aporwal107@gmail.com"],
+        "allowed_modes": ["off", "allowlist"],
+    },
     "ai_copilot": {
         "display_name": "AI Copilot (Scenario Engine)",
         "description": "Simulate scenarios, rebalance plans, custom builder, saved/pending plans",
