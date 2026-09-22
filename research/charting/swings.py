@@ -25,6 +25,7 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 
 from research.charting.config import CONFIG
 
@@ -101,18 +102,49 @@ def find_swings(
     lows = bars["low"].to_numpy(dtype=float)
     dates = bars["date"].to_numpy()
 
-    pivots: list[Pivot] = []
-    for i in range(left, n - right):
-        # CONFIG["swing_tie_rule"] == "latest_bar_wins": left neighbours may tie (non-strict
-        # >=/<=), right neighbours must be strictly worse (>/<) -- see module docstring.
-        left_hi = highs[i - left : i]
-        right_hi = highs[i + 1 : i + right + 1]
-        if highs[i] >= left_hi.max() and highs[i] > right_hi.max():
-            pivots.append(_pivot("HIGH", i, right, dates, highs[i]))
+    lo, hi = left, n - right  # candidate positions i in [lo, hi) -- same range as `range(left, n - right)`
+    if lo >= hi:
+        return []
 
-        left_lo = lows[i - left : i]
-        right_lo = lows[i + 1 : i + right + 1]
-        if lows[i] <= left_lo.min() and lows[i] < right_lo.min():
+    # PERF-DETECT (2026-09-22): vectorised equivalent of the per-i `highs[i-left:i].max()` /
+    # `highs[i+1:i+right+1].max()` slice-and-reduce (and the LOW mirror) the loop below used to
+    # do fresh on every single `i` -- called once per bar on the ever-growing view from
+    # `detect_as_of`, this was O(n) numpy reduce calls per call, O(n^2) reduce calls across a
+    # full replay. `sliding_window_view(highs, left)` is every length-`left` window of `highs`
+    # at once (`[j].max()` == `highs[j:j+left].max()`, for every valid `j`); reducing each
+    # window with `.max(axis=1)`/`.min(axis=1)` computes every `i`'s left/right window
+    # max/min in a handful of vectorised calls instead of one Python-level call per `i`. `max`/
+    # `min` are comparison-only (no floating-point accumulation order to preserve, unlike
+    # sum/mean), so this is byte-for-byte the same value `highs[i-left:i].max()` would have
+    # produced -- verified by direct differential comparison against the original per-`i` loop
+    # across real symbols (various lengths, left/right windows) and edge cases (n=0, n<left,
+    # n<right, ties, NaN-containing, monotonic, flat, alternating) before this change landed.
+    # `lo >= hi` (checked above) is exactly the condition under which `left`/`right` could
+    # otherwise exceed the array length that `sliding_window_view` requires.
+    left_high_max = sliding_window_view(highs, left).max(axis=1)
+    left_low_min = sliding_window_view(lows, left).min(axis=1)
+    right_high_max = sliding_window_view(highs, right).max(axis=1)
+    right_low_min = sliding_window_view(lows, right).min(axis=1)
+
+    idx = np.arange(lo, hi)
+    lhm = left_high_max[idx - left]  # == highs[i-left:i].max(), for i = idx
+    llm = left_low_min[idx - left]
+    rhm = right_high_max[idx + 1]  # == highs[i+1:i+right+1].max(), for i = idx
+    rlm = right_low_min[idx + 1]
+
+    # CONFIG["swing_tie_rule"] == "latest_bar_wins": left neighbours may tie (non-strict
+    # >=/<=), right neighbours must be strictly worse (>/<) -- see module docstring.
+    high_hits = (highs[idx] >= lhm) & (highs[idx] > rhm)
+    low_hits = (lows[idx] <= llm) & (lows[idx] < rlm)
+
+    pivots: list[Pivot] = []
+    for k in range(len(idx)):
+        i = int(idx[k])
+        # Per-i order preserved exactly: HIGH checked (and appended) before LOW, ascending i --
+        # identical to the original loop's own append order.
+        if high_hits[k]:
+            pivots.append(_pivot("HIGH", i, right, dates, highs[i]))
+        if low_hits[k]:
             pivots.append(_pivot("LOW", i, right, dates, lows[i]))
 
     return pivots

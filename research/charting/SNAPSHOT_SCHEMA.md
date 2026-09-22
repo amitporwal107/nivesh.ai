@@ -66,9 +66,32 @@ backend/services/research_chart_snapshot/
   // "bollinger": {"contract": {..., "output_fields": ["bb_mid","bb_upper","bb_lower","bb_width","bb_pos"]},
   //               "pane": "price", "plot_fields": ["bb_mid","bb_upper","bb_lower"],
   //               "values": [["2021-01-29", 933.0, 993.9, 872.2, 0.130, 0.047]]}
-  "patterns": []                                                          // v1 batch 2: empty; filled by detectors
+  "patterns": [],                                                         // v1 batch 2: empty; filled by detectors
+  "timeframes": {                              // §38.7/§38.12 W2 -- display-only weekly/monthly
+    "1W": {
+      "bars": [["2021-01-08", 1990.0, 2050.0, 1980.0, 2020.0, 15000000, false]],
+      // [date, open, high, low, close, volume, incomplete] -- ONE element longer than the daily
+      // `bars` row (never confusable with it). `date` is the period's LAST session's date.
+      // `incomplete: true` on exactly the newest bar of the whole series (never treat it as a
+      // confirmed close) -- research/charting/resample.py's module docstring has the full rule.
+      "indicators": { "sma_20": { "...": "same shape as the daily indicators map, computed by" } }
+      // the SAME series.py functions run against the resampled 1W frame -- never re-derived in
+      // the browser (§38.2, §8.7 contract).
+    },
+    "1M": { "bars": [ /* same 7-wide shape, one row per calendar month */ ], "indicators": { } }
+  }
 }
 ```
+
+`timeframes` is written by `research/charting/resample.py` (weekly = NSE sessions grouped by ISO
+week Monday-Friday; monthly = calendar months; holidays are simply absent -- no placeholder row is
+ever synthesized for a non-trading day) and `research/charting/export.py` (§38.7). It is always
+present with exactly the keys `1W` and `1M`; pattern detection stays daily-only, so `timeframes.*`
+never carries a `patterns` key. `findings`/`data_quality_status`/`pit_status` are not duplicated
+per timeframe -- they describe the underlying daily series regardless of which timeframe is
+requested (`GET .../ohlcv?timeframe=1W` still reports the daily `data_quality_status`/`pit_status`,
+but serves `findings: []`, since §9.1 findings are daily-session-indexed and have no 1:1 meaning on
+a resampled bar).
 
 Pattern objects (filled once detectors land; UI must render an empty list gracefully):
 
@@ -85,14 +108,20 @@ Pattern objects (filled once detectors land; UI must render an empty list gracef
                  "market": "UNAVAILABLE", "sector": "UNAVAILABLE", "data_quality": "VALID"},
   "rules": [{"rule_id": "RECT_MIN_TOUCHES", "result": "PASS", "observed": 2, "threshold": 2}],
   "events": [{"date": "2024-03-01", "event_type": "PRICE_CONFIRMED", "rule_id": "CLOSE_ABOVE_BREAKOUT",
-              "observed_values": {"close": 111.0, "breakout_level": 110.5, "body_pct": 0.87, "close_location": 0.92}}],
-  "scores": null,                                    // §34.5: {formation, readiness, confirmation, failure_risk}, never summed
-  "retest_quality": null                              // §35.2 amendment (N§13), descriptive only, null until PRICE_CONFIRMED:
-                                                        // {"attempts": 1, "penetration_atr": 0.3, "penetration_pct": 1.1,
-                                                        //  "retest_relative_volume": 0.85, "bars_confirmation_to_retest": 1,
-                                                        //  "bars_retest_to_continuation": 2, "note": null}
+              "observed_values": {"close": 111.0, "breakout_level": 110.5}}],
+  "scores": null                                     // §34.5: {formation, readiness, confirmation, failure_risk}, never summed
 }
 ```
+
+CANDLE-MOVE (2026-09-22, decisions-log #93/#110): breakout candle quality (`body_pct`,
+`close_location`) and the pattern-level `retest_quality` block (§35.2 amendment, N§13) are
+**not** part of this production pattern object -- they never appear in this snapshot. They
+live only in the separate research enrichment record produced by
+`research/charting/enrich.py`'s `enrich_pattern(pattern_dict, bars, t, benchmark_df=...)`,
+keyed by `pattern_id`, computed point-in-time from this pattern object + bars (never
+mutating it -- §37.6). That enrichment record is not currently written into this committed
+snapshot (see `research/charting/export.py`, which calls `detect_as_of` directly and has no
+`enrich_pattern` call site yet); it is a separate, forward-looking research artifact.
 
 ## API (read-only) — `backend/routes/research_chart.py`, prefix `/api/research/chart`
 
@@ -100,11 +129,13 @@ Pattern objects (filled once detectors land; UI must render an empty list gracef
 |---|---|---|
 | `GET /run` | manifest minus per-file hashes, plus `fixture` | 503 `snapshot_unavailable` |
 | `GET /symbols` | `manifest.symbols` | 503 |
-| `GET /{symbol}/ohlcv` | `{symbol, bars, data_quality_status, pit_status, findings, provenance}` — provenance from manifest.source + run_id + config_hash | 404 `unknown_symbol`, 503 |
-| `GET /{symbol}/indicators?ids=a,b` | `{symbol, indicators:{id: {...}}}` (all if `ids` omitted) | 400 `unknown_indicator: <comma-separated unknown ids>`, 404, 503 |
-| `GET /{symbol}/patterns` | `{symbol, patterns}` | 404, 503 |
+| `GET /{symbol}/ohlcv?timeframe=1D\|1W\|1M` | `{symbol, timeframe, bars, data_quality_status, pit_status, findings, provenance}` — provenance from manifest.source + run_id + config_hash; `findings` is `[]` unless `timeframe=1D` (§9.1 findings are daily-indexed) | 400 `unknown_timeframe: <value>`, 404 `unknown_symbol`, 503 |
+| `GET /{symbol}/indicators?timeframe=1D\|1W\|1M&ids=a,b` | `{symbol, timeframe, indicators:{id: {...}}}` (all if `ids` omitted) | 400 `unknown_indicator: <comma-separated unknown ids>`, 400 `unknown_timeframe: <value>`, 404, 503 |
+| `GET /{symbol}/patterns` | `{symbol, patterns}` — daily only, no `timeframe` param (§38.7) | 404, 503 |
 
-Error codes are the token before any `: <detail>` suffix. All gated by `require_feature("charting")` → 403 `feature_not_enabled` for anyone not on the allowlist (admins
+`timeframe` defaults to `1D` on both endpoints it appears on, so a caller that never passes it is
+unaffected. Error codes are the token before any `: <detail>` suffix. All gated by
+`require_feature("charting")` → 403 `feature_not_enabled` for anyone not on the allowlist (admins
 included, as the Lab does). Symbol path param validated `^[A-Z0-9&\-]{1,32}$`. A malformed or wrong-schema
 snapshot → 503, never a partial response.
 

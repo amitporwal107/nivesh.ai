@@ -343,6 +343,121 @@ def test_tc10_patterns_is_empty_list_for_v1(monkeypatch, real_snapshot):
 
 
 # ---------------------------------------------------------------------------
+# TC-132..TC-137 (W2, §38.7/§38.11) -- weekly/monthly `timeframe=1D|1W|1M`. TC-120..TC-131
+# (resample.py's own OHLCV math + export.py wiring) live in research/charting/tests/
+# test_resample.py and test_export_timeframes.py -- this file only re-verifies the API layer
+# (route -> service -> served JSON) on top of that already-proven resampling.
+# ---------------------------------------------------------------------------
+
+def test_tc132_ohlcv_timeframe_1w_1m_match_resample_module_applied_to_the_served_daily_bars(monkeypatch, real_snapshot):
+    import pandas as pd
+
+    from research.charting import resample as resample_mod
+
+    c = _client(monkeypatch, real_snapshot)
+    daily = _get(c, "/api/research/chart/SYN2/ohlcv").json()["bars"]
+    ddf = pd.DataFrame(daily, columns=["date", "open", "high", "low", "close", "volume"])
+    ddf["date"] = pd.to_datetime(ddf["date"])
+
+    for tf, resampler in resample_mod.RESAMPLERS.items():
+        expected = resampler(ddf)
+        body = _get(c, f"/api/research/chart/SYN2/ohlcv?timeframe={tf}").json()
+        assert body["timeframe"] == tf
+        got = body["bars"]
+        assert len(got) == len(expected)
+        for row, (_, erow) in zip(got, expected.iterrows()):
+            assert row[0] == erow["date"].strftime("%Y-%m-%d")
+            assert row[1:6] == [float(erow["open"]), float(erow["high"]), float(erow["low"]),
+                                float(erow["close"]), float(erow["volume"])]
+            assert row[6] == bool(erow["incomplete"])
+        assert body["findings"] == []                     # §9.1 findings are daily-indexed only
+        assert body["data_quality_status"] == "VALID"      # unchanged by timeframe
+
+
+def test_tc133_default_timeframe_is_1d_and_unaffected_by_this_change(monkeypatch, real_snapshot):
+    c = _client(monkeypatch, real_snapshot)
+    explicit = _get(c, "/api/research/chart/SYN2/ohlcv?timeframe=1D").json()
+    implicit = _get(c, "/api/research/chart/SYN2/ohlcv").json()
+    assert implicit["timeframe"] == "1D"
+    assert implicit == explicit
+
+    explicit_ind = _get(c, "/api/research/chart/SYN2/indicators?timeframe=1D").json()
+    implicit_ind = _get(c, "/api/research/chart/SYN2/indicators").json()
+    assert implicit_ind["timeframe"] == "1D"
+    assert implicit_ind == explicit_ind
+
+
+def test_tc134_unknown_timeframe_is_400_with_a_reason_code_on_both_endpoints(monkeypatch, real_snapshot):
+    c = _client(monkeypatch, real_snapshot)
+    for path in ("/api/research/chart/SYN2/ohlcv?timeframe=5Y",
+                "/api/research/chart/SYN2/indicators?timeframe=5Y"):
+        r = _get(c, path)
+        assert r.status_code == 400 and r.json()["detail"] == "unknown_timeframe: 5Y", path
+
+
+def test_tc135_weekly_indicators_match_independent_recomputation_from_served_weekly_bars(monkeypatch, real_snapshot):
+    import pandas as pd
+
+    from research.charting import series as series_mod
+
+    c = _client(monkeypatch, real_snapshot)
+    weekly_bars = _get(c, "/api/research/chart/SYN2/ohlcv?timeframe=1W").json()["bars"]
+    wdf = pd.DataFrame(weekly_bars, columns=["date", "open", "high", "low", "close", "volume", "incomplete"])
+    wdf["date"] = pd.to_datetime(wdf["date"])
+
+    body = _get(c, "/api/research/chart/SYN2/indicators?timeframe=1W").json()
+    assert body["timeframe"] == "1W"
+    served = {row[0]: row[1] for row in body["indicators"]["sma_20"]["values"]}
+    expected = series_mod.sma(wdf, 20)
+    recomputed = {d.strftime("%Y-%m-%d"): v for d, v in zip(wdf["date"], expected) if not math.isnan(v)}
+    assert served.keys() == recomputed.keys()
+    for d in served:
+        assert abs(served[d] - recomputed[d]) < 1e-9
+
+    # ids filter still works per-timeframe, and an unknown id is still rejected per-timeframe.
+    r = _get(c, "/api/research/chart/SYN2/indicators?timeframe=1W&ids=sma_20,rsi_14")
+    assert r.status_code == 200 and set(r.json()["indicators"]) == {"sma_20", "rsi_14"}
+    r = _get(c, "/api/research/chart/SYN2/indicators?timeframe=1W&ids=not_a_real_one")
+    assert r.status_code == 400 and "not_a_real_one" in r.json()["detail"]
+
+
+def test_tc136_snapshot_hash_covers_the_new_series_tampered_weekly_bar_is_503(monkeypatch, real_snapshot, tmp_path):
+    """Changing a weekly bar changes the per-symbol file's bytes, hence its sha256, hence a
+    tampered copy (manifest sha256 left untouched) is rejected exactly like a tampered daily bar
+    (TC-7) -- the manifest's per-file hash already covers `timeframes`, since it hashes the whole
+    gzip file, not just the `bars` key."""
+    import shutil
+    broken = tmp_path / "tampered_weekly_snapshot"
+    shutil.copytree(real_snapshot, broken)
+    p = broken / "symbols" / "SYN2.json.gz"
+    tampered = json.loads(gzip.decompress(p.read_bytes()))
+    tampered["timeframes"]["1W"]["bars"][0][1] = 999999.0     # mutate a weekly bar's open
+    p.write_bytes(gzip.compress(json.dumps(tampered).encode(), mtime=0))
+
+    c = _client(monkeypatch, broken)
+    r = _get(c, "/api/research/chart/SYN2/ohlcv?timeframe=1W")
+    assert r.status_code == 503 and r.json()["detail"] == "snapshot_unavailable"
+
+
+def test_tc137_symbol_payload_missing_timeframes_key_fails_validation(monkeypatch, real_snapshot, tmp_path):
+    """Unit-level, mirrors TC-7's style: `timeframes` is a required key (every symbol this module
+    ever serves goes through export.py, which always writes both `1W` and `1M`) -- a payload
+    missing it (or missing one of the two required sub-keys) is a snapshot-integrity problem, the
+    same 503 class as a missing/corrupt daily field, never a partial response."""
+    import shutil
+    broken = tmp_path / "no_timeframes_snapshot"
+    shutil.copytree(real_snapshot, broken)
+    p = broken / "symbols" / "SYN2.json.gz"
+    tampered = json.loads(gzip.decompress(p.read_bytes()))
+    del tampered["timeframes"]["1M"]                            # only 1W left -- not {"1W", "1M"}
+    p.write_bytes(gzip.compress(json.dumps(tampered).encode(), mtime=0))
+
+    c = _client(monkeypatch, broken)
+    r = _get(c, "/api/research/chart/SYN2/ohlcv")
+    assert r.status_code == 503 and r.json()["detail"] == "snapshot_unavailable"
+
+
+# ---------------------------------------------------------------------------
 # TC-24 (data) -- covered against real Kite data separately (see the export report); this is the
 # offline analogue: the fixture's bars must match synth.py's own generator bit for bit.
 # ---------------------------------------------------------------------------

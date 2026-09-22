@@ -48,7 +48,8 @@ own return shape (and its ~30 passing tests) completely untouched.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+import multiprocessing
+from typing import Any, Mapping, Optional
 
 import pandas as pd
 
@@ -165,6 +166,88 @@ def attach_to_event_rows_for_symbol(
     `attach_to_rows` is called once for the whole batch."""
     triples = [(row, bars, pattern_dict_for_event(bars, row, cfg=cfg)) for row in rows]
     return attach_to_rows(triples, benchmark_df=benchmark_df, vix_df=vix_df, breadth_df=breadth_df)
+
+
+# ── PERF-PARALLEL: batching entry for many symbols at once ───────────────────────────────
+#
+# `study.run.build_segment`'s own `attach_context` step calls `attach_to_event_rows_for_symbol`
+# once per symbol that has any pattern-event rows -- for a real, multi-thousand-symbol universe
+# that is thousands of independent calls, each one (with no `benchmark_df`/`vix_df`/`breadth_df`
+# supplied, `build_segment`'s own call site never passes them) re-reading the same three real
+# CSVs off disk via `attach_to_rows`' own "load when not supplied" branch. Two symbols' own joins
+# never read or write each other's rows/bars, so joining many symbols is embarrassingly parallel
+# -- `attach_to_event_rows_by_symbol` below is the batched/parallel entry point: it loads
+# `benchmark_df`/`vix_df`/`breadth_df` ONCE (deterministic, pure reads of static committed
+# files -- reusing them across symbols changes no value) and then either loops in this process
+# (`max_workers <= 1`, the default, IDENTICAL to calling `attach_to_event_rows_for_symbol` once
+# per symbol with those three frames pinned) or dispatches one task per symbol across a forked
+# process pool (`max_workers > 1`) -- same `fork` + module-global-context pattern as
+# `events.pipeline`'s `_EXTRACT_CTX` / `events.controls`' `_PRICE_CTX`, so `bars_by_symbol` is
+# inherited via copy-on-write rather than pickled through the task queue.
+
+
+_JOIN_CTX: dict = {}
+
+
+def _join_worker(symbol: str) -> tuple:
+    """Runs inside a forked worker process (see the block above): `attach_to_event_rows_for_symbol`
+    for one symbol, using the SAME already-loaded `benchmark_df`/`vix_df`/`breadth_df` (inherited
+    via fork, never re-read from disk in the worker) -- returns `(symbol, enriched_rows)`."""
+    ctx = _JOIN_CTX
+    rows = ctx["rows_by_symbol"][symbol]
+    bars = ctx["bars_by_symbol"][symbol]
+    enriched = attach_to_event_rows_for_symbol(
+        rows, bars, cfg=ctx["cfg"], benchmark_df=ctx["benchmark_df"], vix_df=ctx["vix_df"], breadth_df=ctx["breadth_df"],
+    )
+    return symbol, enriched
+
+
+def attach_to_event_rows_by_symbol(
+    rows_by_symbol: Mapping[str, list], bars_by_symbol: Mapping[str, pd.DataFrame], *, cfg: dict = CONFIG,
+    benchmark_df: Optional[pd.DataFrame] = None, vix_df: Optional[pd.DataFrame] = None,
+    breadth_df: Optional[pd.DataFrame] = None, max_workers: int = 1,
+) -> dict:
+    """`{symbol: enriched_rows}` for every symbol in `rows_by_symbol` (only symbols that HAVE
+    rows -- a symbol absent from `rows_by_symbol` is never looked up in `bars_by_symbol` and
+    never contributes an entry, matching the "if symbol_rows" skip `study.run.build_segment`'s
+    own per-symbol loop used before this function existed). Each symbol's own rows are enriched
+    via `attach_to_event_rows_for_symbol`, byte-identical to calling that function once per
+    symbol directly -- see the "batching" block above for why sharing one already-loaded
+    `benchmark_df`/`vix_df`/`breadth_df` across every symbol never changes a value.
+
+    `max_workers` (PERFORMANCE ONLY, default 1 = serial): with `max_workers > 1`, symbols are
+    dispatched one-per-task across a forked process pool instead of looped over in this process
+    -- see the block above.
+    """
+    if benchmark_df is None:
+        benchmark_df = regime.load_index_history(regime.FEATURE_CONFIG["market_benchmark"])
+    if vix_df is None:
+        vix_df = regime.load_index_history("INDIA VIX")
+    if breadth_df is None:
+        breadth_df = regime.load_breadth_universe()
+
+    symbols = sorted(rows_by_symbol)
+    if max_workers <= 1 or len(symbols) <= 1:
+        return {
+            symbol: attach_to_event_rows_for_symbol(
+                rows_by_symbol[symbol], bars_by_symbol[symbol], cfg=cfg,
+                benchmark_df=benchmark_df, vix_df=vix_df, breadth_df=breadth_df,
+            )
+            for symbol in symbols
+        }
+
+    global _JOIN_CTX
+    _JOIN_CTX = dict(
+        rows_by_symbol=rows_by_symbol, bars_by_symbol=bars_by_symbol, cfg=cfg,
+        benchmark_df=benchmark_df, vix_df=vix_df, breadth_df=breadth_df,
+    )
+    try:
+        ctx = multiprocessing.get_context("fork")
+        with ctx.Pool(processes=min(max_workers, len(symbols))) as pool:
+            results = dict(pool.map(_join_worker, symbols))
+    finally:
+        _JOIN_CTX = {}
+    return results
 
 
 def attach_to_control_rows(

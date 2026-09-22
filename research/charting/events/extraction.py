@@ -8,14 +8,18 @@ replay()'s already-proven point-in-time walk rather than re-implementing it, and
 replay.py/patterns.py/context.py/config.py (other agents own those).
 
 `TransitionEvent` (replay.py) does not itself carry `direction`/`levels` (only pattern_id /
-pattern_type / status / event metadata -- see its dataclass). This module recovers them by
-calling `patterns.detect_as_of` ONE MORE TIME, at the exact same bar `t` and the exact same
-point-in-time view (`bars.iloc[:t+1]`) replay()'s own loop already used internally to produce
-that transition -- a second, PURE, deterministic call given the same (bars, t, cfg, symbol), not
-a new source of look-ahead: patterns.py's own contract is "`view = bars.iloc[:t+1]` FIRST...
-every function in this module only ever reads `view`". This mirrors replay.py's own "second,
-independent PIT boundary" design note, and avoids editing replay.py just to have it also return
-direction/levels.
+pattern_type / status / event metadata -- see its dataclass). This module recovers them from
+the full `PatternSnapshot` `replay.replay()`'s own loop already computed internally, at the
+exact same bar `t` and the exact same point-in-time view (`bars.iloc[:t+1]`), for the exact
+transition this module is turning into a row -- `replay()` accepts an optional `snapshot_sink`
+dict (PERF-DETECT, 2026-09-22) that it fills with its own per-step `patterns.detect_as_of`
+output as a pure side channel, with no change to `ReplayResult` itself; `extract_events` below
+passes one and looks the snapshot up in it, rather than calling `patterns.detect_as_of` a
+second time at the same `(bars, t, cfg, symbol)` for a result that would necessarily have come
+out byte-identical anyway (both calls used the literal same inputs). Before this change, this
+module called `patterns.detect_as_of` again itself for the same purpose; the "second, PURE,
+deterministic call" reasoning that justified that call's correctness still holds, but is now
+carried out once, inside `replay()`'s own walk, instead of twice.
 """
 from __future__ import annotations
 
@@ -23,7 +27,7 @@ from typing import Optional
 
 import pandas as pd
 
-from research.charting import patterns, replay
+from research.charting import replay
 from research.charting.config import CONFIG, ENGINE_VERSION, PROFILE_NAME, config_hash
 from research.charting.events import costs_bridge, outcomes, schema, stops
 from research.charting.research_window import assert_no_sealed_rows
@@ -72,6 +76,11 @@ def build_outcome_cost_block(
         "action": action,
         "unavailable_reason": None,
     }
+
+    if direction != "BULLISH":
+        # §37.4: every BEARISH row says its short side is not priced, entry or not (a signal on the
+        # segment's last bar has no entry bar, and used to leave `costs` empty and unflagged).
+        block["costs"] = {"trade_side": "LONG", "short_side_costs": "NOT_MODELLED", "by_horizon": None}
 
     if primary is None:
         block["unavailable_reason"] = "no_bar_after_confirmation"
@@ -207,8 +216,19 @@ def extract_events(
     `bars[0..end_index]` span before anything else happens -- S35.4 fix #1), then independently
     re-asserts no sealed date reached this module's own OUTPUT rows (defense in depth, mirroring
     `replay.write_run`'s identical second check).
+
+    PERF-DETECT (2026-09-22): passes `snapshot_sink` to `replay.replay()` so the full
+    `PatternSnapshot` for each PRICE_CONFIRMED transition can be looked up from replay()'s own
+    internal walk instead of re-running `patterns.detect_as_of` a second time at the same
+    `(bars.iloc[:t_idx+1], t_idx, cfg, symbol)` -- see this module's own docstring and
+    `replay.replay`'s `snapshot_sink` docstring for why the two calls were always guaranteed to
+    return byte-identical output.
     """
-    result = replay.replay(bars, cfg=cfg, symbol=symbol, start_index=start_index, end_index=end_index)
+    snapshot_sink: dict = {}
+    result = replay.replay(
+        bars, cfg=cfg, symbol=symbol, start_index=start_index, end_index=end_index,
+        snapshot_sink=snapshot_sink,
+    )
     confirmed = [t for t in result.transitions if t.new_status == _CONFIRMED_STATUS]
     assert_no_sealed_rows(t.event_date for t in confirmed)
 
@@ -223,14 +243,13 @@ def extract_events(
             continue
         seen_pattern_ids.add(tr.pattern_id)
         t_idx = tr.event_index
-        view = bars.iloc[: t_idx + 1].reset_index(drop=True)
-        snaps = patterns.detect_as_of(view, t_idx, cfg=cfg, symbol=symbol)
+        snaps = snapshot_sink.get(t_idx, ())
         snap = next((s for s in snaps if s.pattern_id == tr.pattern_id), None)
         if snap is None:
-            # Should not happen: replay() and detect_as_of() are both pure functions of the
-            # same (bars, t, cfg, symbol) and replay() itself calls detect_as_of internally to
-            # produce this exact transition. Skip rather than crash the whole extraction run if
-            # it ever does -- the row is simply absent, never fabricated.
+            # Should not happen: `snapshot_sink[t_idx]` is exactly replay()'s own internal
+            # `patterns.detect_as_of(bars.iloc[:t_idx+1], t_idx, cfg=cfg, symbol=symbol)` output
+            # for the very step that produced `tr`. Skip rather than crash the whole extraction
+            # run if it ever does -- the row is simply absent, never fabricated.
             continue
         rows.append(_build_event_row(bars, symbol, t_idx, snap, cfg, cost_cfg))
     return rows

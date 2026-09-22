@@ -17,6 +17,20 @@ confirm on price/volume/volatility evidence alone: ``CANDIDATE -> FORMING -> GEO
 BREAKOUT_ATTEMPT -> PRICE_CONFIRMED -> VOLUME_CONFIRMED`` (or a terminal state). It never sets
 `status` to `CONTEXT_VALIDATED`: that needs market/sector context (Phase 3, not built here).
 
+CANDLE-MOVE update (2026-09-22, docs/charting.md §38.18 decisions-log #93/#110, "Candle/retest
+metrics — ACCEPT. They move from the production pattern record into the research record."):
+breakout candle quality (`body_pct`/`close_location`) and the pattern-level `retest_quality`
+block were both REMOVED from this module's output (they used to live on the PRICE_CONFIRMED
+event's `observed_values` and on `PatternSnapshot.retest_quality` respectively — see git
+history for the pre-move shape). That computation was not deleted, only relocated: it now
+lives in `research/charting/enrich.py` (`_candle_quality` / `_compute_retest_quality`), which
+recomputes the identical formulas point-in-time from a pattern dict + bars, per §37.6's
+"research enrichment never mutates the production pattern result; research fields live in a
+separate enrichment record keyed by pattern_id." `_walk_retest_and_failure` below is back to
+its pre-N§13 shape (state machine only, no quality bookkeeping) — see enrich.py's own
+`_compute_retest_quality` docstring for why that duplication (rather than a shared import) is
+deliberate: enrich.py never imports this module.
+
 E-5 update (2026-09-22, "wire lifecycle.research_eligible()"): this module CAN now advance a
 qualifying `PRICE_CONFIRMED` snapshot straight to `RESEARCH_ELIGIBLE` (the exact G-2 chain-skip
 edge `lifecycle.ALLOWED_TRANSITIONS` already allows), via `lifecycle.research_eligible()` —
@@ -98,15 +112,10 @@ class PatternSnapshot:
     rules: list[dict]
     events: list[dict]
     scores: None = None
-    # §35.2 amendment additions (N§13, "Retest quality: penetration depth, number of
-    # attempts, retest volume, time to retest, time to continuation" -- descriptive only,
-    # never a confirmation gate). One consolidated block rather than per-event fields: these
-    # are properties of the retest EPISODE as a whole (deepest penetration reached, total
-    # attempts, bar counts to/from it), not of any single RETEST_* bar. `None` when the
-    # pattern never reached PRICE_CONFIRMED (retest is not yet applicable); once confirmed,
-    # always a dict -- see `_walk_retest_and_failure`'s `_quality` closure for the
-    # "confirmed but no pullback ever observed" case (attempts=0, fields None, `note` set).
-    retest_quality: dict | None = None
+    # CANDLE-MOVE (2026-09-22): `retest_quality` (§35.2 amendment, N§13) used to live here as
+    # a consolidated per-pattern block. Per docs/charting.md §38.18 decisions-log #93/#110 it
+    # now lives ONLY in the research enrichment record (`research/charting/enrich.py`'s
+    # `_compute_retest_quality`), never in this production snapshot -- see module docstring.
 
     def to_dict(self) -> dict:
         return {
@@ -124,7 +133,6 @@ class PatternSnapshot:
             "rules": self.rules,
             "events": self.events,
             "scores": self.scores,
-            "retest_quality": self.retest_quality,
         }
 
 
@@ -149,29 +157,6 @@ def _pivot_dict(t: geometry.Touch) -> dict:
     return {"date": _iso(t.pivot_date), "price": t.price, "kind": t.kind, "confirmed_date": _iso(t.confirmed_date)}
 
 
-def _candle_quality(view: pd.DataFrame, idx: int) -> dict:
-    """N§8 breakout candle quality (docs/charting.md §35.2 -- "body % and close location
-    stored as descriptive fields, not confirmation gates until validated"), computed from the
-    CONFIRMING bar's own OHLC only (bar `idx`, always the same bar that records the
-    PRICE_CONFIRMED event it is attached to -- point-in-time by construction, nothing later
-    is ever read):
-
-        body_pct        = |close - open| / (high - low)
-        close_location  = (close - low) / (high - low)   # 0 = at the bar's low, 1 = at its high
-
-    A zero-range bar (`high == low` -- e.g. a circuit-frozen session) makes both
-    geometrically undefined: returns `None` for each, never NaN or a ZeroDivisionError (the
-    backend serves strict JSON -- §35 JSON-safety)."""
-    o = float(view["open"].iloc[idx])
-    h = float(view["high"].iloc[idx])
-    l = float(view["low"].iloc[idx])
-    c = float(view["close"].iloc[idx])
-    rng = h - l
-    if not (np.isfinite(o) and np.isfinite(h) and np.isfinite(l) and np.isfinite(c)) or rng <= 0:
-        return {"body_pct": None, "close_location": None}
-    return {"body_pct": abs(c - o) / rng, "close_location": (c - l) / rng}
-
-
 def _lookback_start(t: int, cfg: dict) -> int:
     """v1 performance/relevance bound: only cluster pivots within
     `maximum_pattern_length * _LOOKBACK_MULTIPLIER` bars of `t`. A rectangle or structure
@@ -185,7 +170,8 @@ def _lookback_start(t: int, cfg: dict) -> int:
 
 
 def _rectangle_candidates(
-    view: pd.DataFrame, t: int, pivots: Sequence[Pivot], atr_ser: pd.Series, cfg: dict,
+    view: pd.DataFrame, t: int, atr_arr: np.ndarray, cfg: dict,
+    high_levels: Sequence["geometry.Level"], low_levels: Sequence["geometry.Level"],
     unresolved_gap_dates: Collection[Any] | None = None,
 ) -> list[dict]:
     """Every (resistance_level, support_level) pair with a valid rectangle formation inside
@@ -209,34 +195,44 @@ def _rectangle_candidates(
     one; see validate.build_trading_calendar's own docstring), so with no calendar supplied
     the gap gate is simply skipped, not silently assumed clean. Every pre-existing call site
     and fixture (which never pass this parameter) is therefore byte-for-byte unaffected.
+
+    PERF-DETECT (2026-09-22): `high_levels`/`low_levels` are the RAW (not yet touch-count
+    filtered) `geometry.cluster_pivots_into_levels(recent, view, atr_t, cfg, kind=...)` output
+    for this exact `t`, computed ONCE by the caller (`detect_as_of`) and shared with
+    `_sr_level_patterns` — both functions used to independently re-run the identical clustering
+    (same `recent` pivots, same `view`, same `atr_t`, same `cfg`) for both HIGH and LOW, a pure
+    4x duplicate of the same deterministic computation every single call. Filtering by
+    `pattern_boundary_min_touches` here (this function's own threshold, distinct from
+    `_sr_level_patterns`' `level_min_touches`) reproduces exactly what this function used to
+    compute inline — same input list, same predicate, same output.
     """
     lookback_start = _lookback_start(t, cfg)
-    recent = [p for p in pivots if p.pivot_index >= lookback_start]
-    if not recent:
-        return []
-
-    atr_t = atr_ser.iloc[t] if t < len(atr_ser) else float("nan")
-    resistance_levels = [
-        lvl for lvl in geometry.cluster_pivots_into_levels(recent, view, atr_t, cfg, kind="HIGH")
-        if len(lvl.touches) >= cfg["pattern_boundary_min_touches"]
-    ]
-    support_levels = [
-        lvl for lvl in geometry.cluster_pivots_into_levels(recent, view, atr_t, cfg, kind="LOW")
-        if len(lvl.touches) >= cfg["pattern_boundary_min_touches"]
-    ]
+    min_touch = cfg["pattern_boundary_min_touches"]
+    resistance_levels = [lvl for lvl in high_levels if len(lvl.touches) >= min_touch]
+    support_levels = [lvl for lvl in low_levels if len(lvl.touches) >= min_touch]
     if not resistance_levels or not support_levels:
         return []
 
     closes = view["close"].to_numpy(dtype=float)
-    min_touch = cfg["pattern_boundary_min_touches"]
     candidates: list[dict] = []
     seen: set[tuple] = set()
 
-    for res in resistance_levels:
-        for sup in support_levels:
+    # PERF-DETECT: pivot_index/price lists per level, built once per level (not once per
+    # formation_end iteration as the old inline list comprehensions did). `lvl.touches` is
+    # already chronologically sorted (cluster_pivots_into_levels always appends in ascending
+    # pivot_index order), so these lists are already in the same order the old
+    # `[tt for tt in lvl.touches if tt.pivot_index <= formation_end]` filter would have
+    # preserved -- an index-list PREFIX is exactly that filtered set.
+    res_meta = [([tt.pivot_index for tt in lvl.touches], [tt.price for tt in lvl.touches]) for lvl in resistance_levels]
+    sup_meta = [([tt.pivot_index for tt in lvl.touches], [tt.price for tt in lvl.touches]) for lvl in support_levels]
+
+    for ri, res in enumerate(resistance_levels):
+        res_idx_sorted, res_price_all = res_meta[ri]
+        for si, sup in enumerate(support_levels):
             if res.price <= sup.price:
                 continue
-            first_touch = min(tt.pivot_index for tt in (*res.touches, *sup.touches))
+            sup_idx_sorted, sup_price_all = sup_meta[si]
+            first_touch = min(res_idx_sorted[0], sup_idx_sorted[0])
             # Allow up to `minimum_pattern_length - 1` bars of "approach" before the first
             # confirmed touch (a rectangle's own two touches, by definition, cannot appear
             # until partway into its formation — RECT-1's earliest touch is fixture bar 3,
@@ -245,8 +241,6 @@ def _rectangle_candidates(
             # window structurally unreachable whenever the touches themselves are clustered
             # late in the window, as RECT-1 is by construction.
             formation_start = max(lookback_start, first_touch - cfg["minimum_pattern_length"] + 1)
-            res_idx_sorted = sorted(tt.pivot_index for tt in res.touches)
-            sup_idx_sorted = sorted(tt.pivot_index for tt in sup.touches)
             earliest_qualifying = max(res_idx_sorted[min_touch - 1], sup_idx_sorted[min_touch - 1])
             end_lo = max(formation_start + cfg["minimum_pattern_length"] - 1, earliest_qualifying)
             end_hi = min(t, formation_start + cfg["maximum_pattern_length"] - 1)
@@ -254,21 +248,38 @@ def _rectangle_candidates(
                 continue
 
             found = None
+            # PERF-DETECT: `res_ptr`/`sup_ptr` are the count of touches with pivot_index <=
+            # formation_end -- monotonically non-decreasing as formation_end increases, so each
+            # advances with a cheap `while` instead of re-filtering the full touch list every
+            # iteration (was O(touches) per formation_end; now amortised O(1)). `ols_slope` is
+            # only recomputed when the touch set it would be called on actually changed since
+            # the last iteration (`res_ptr`/`sup_ptr` advanced) -- the exact same xs/ys list
+            # (same content, same order) is never re-fed to `ols_slope` twice, so its result for
+            # a given (res, formation_end) is unchanged from the original always-recompute code;
+            # `length`/`a` (which DO change every iteration) are still applied to
+            # `boundary_drift` fresh every time.
+            res_ptr = sup_ptr = 0
+            last_res_ptr = last_sup_ptr = 0
+            res_slope = sup_slope = 0.0
             for formation_end in range(end_lo, end_hi + 1):
-                res_in = [tt for tt in res.touches if tt.pivot_index <= formation_end]
-                sup_in = [tt for tt in sup.touches if tt.pivot_index <= formation_end]
-                if len(res_in) < min_touch or len(sup_in) < min_touch:
+                while res_ptr < len(res_idx_sorted) and res_idx_sorted[res_ptr] <= formation_end:
+                    res_ptr += 1
+                while sup_ptr < len(sup_idx_sorted) and sup_idx_sorted[sup_ptr] <= formation_end:
+                    sup_ptr += 1
+                if res_ptr < min_touch or sup_ptr < min_touch:
                     continue
-                a = atr_ser.iloc[formation_end]
+                a = atr_arr[formation_end]
                 if not geometry._atr_valid(a):
                     continue
                 length = formation_end - formation_start + 1
-                res_drift = geometry.boundary_drift(
-                    geometry.ols_slope([x.pivot_index for x in res_in], [x.price for x in res_in]), length, a, cfg
-                )
-                sup_drift = geometry.boundary_drift(
-                    geometry.ols_slope([x.pivot_index for x in sup_in], [x.price for x in sup_in]), length, a, cfg
-                )
+                if res_ptr != last_res_ptr:
+                    res_slope = geometry.ols_slope(res_idx_sorted[:res_ptr], res_price_all[:res_ptr])
+                    last_res_ptr = res_ptr
+                if sup_ptr != last_sup_ptr:
+                    sup_slope = geometry.ols_slope(sup_idx_sorted[:sup_ptr], sup_price_all[:sup_ptr])
+                    last_sup_ptr = sup_ptr
+                res_drift = geometry.boundary_drift(res_slope, length, a, cfg)
+                sup_drift = geometry.boundary_drift(sup_slope, length, a, cfg)
                 if res_drift.direction != "FLAT" or sup_drift.direction != "FLAT":
                     continue
                 window = closes[formation_start : formation_end + 1]
@@ -286,7 +297,7 @@ def _rectangle_candidates(
                 found = {
                     "resistance": res, "support": sup,
                     "formation_start": formation_start, "formation_end": formation_end,
-                    "res_touches": tuple(res_in), "sup_touches": tuple(sup_in),
+                    "res_touches": tuple(res.touches[:res_ptr]), "sup_touches": tuple(sup.touches[:sup_ptr]),
                     "inside_frac": inside_frac, "range_atr": range_ok.range_atr,
                     "res_drift": res_drift, "sup_drift": sup_drift, "length": length,
                 }
@@ -349,8 +360,8 @@ def _maybe_research_eligible(
 
 def _walk_retest_and_failure(
     view: pd.DataFrame, confirm_index: int, direction: str, broken_level: float, opposite_level: float | None,
-    atr_ser: pd.Series, relvol_ser: pd.Series, t: int, cfg: dict, add_event, rules: list[RuleRow],
-) -> tuple[LifecycleState, dict]:
+    atr_arr: np.ndarray, relvol_arr: np.ndarray, t: int, cfg: dict, add_event, rules: list[RuleRow],
+) -> LifecycleState:
     """§13.9 retest / §17 failure, bar-by-bar from `confirm_index + 1` through `t`.
 
     Factored out of `_walk_rectangle_lifecycle` (sub-task d) so SUPPORT_RESISTANCE and HH_HL
@@ -389,16 +400,13 @@ def _walk_retest_and_failure(
     exactly as it did before, on its own independent window anchored at the same
     `confirm_index`.
 
-    Retest quality (N§13, docs/charting.md §35.2, added 2026-09-22): now also returns a
-    second value, the `retest_quality` dict described on `PatternSnapshot.retest_quality`.
-    This is PURE bookkeeping laid on top of the state machine above without altering a single
-    existing branch: `attempts`/`deepest_pen*` update only where the ALREADY-EXISTING
-    `retest_pending` flag says a retest is genuinely open (piggybacked on its own transitions,
-    never re-derived independently), plus one new `elif retest_pending:` branch for bars the
-    original code silently did nothing on (retest pending, neither the success trigger nor a
-    §17 failure fires that bar) -- a strict no-op in the original code, so adding bookkeeping
-    there cannot change `state`/`events`/`rules`. Every `return` site is extended to also
-    return this dict; no return VALUE (LifecycleState) or event/rule emission changes.
+    CANDLE-MOVE (2026-09-22): this function used to also return a second value, a
+    `retest_quality` bookkeeping dict (N§13, docs/charting.md §35.2) laid on top of the state
+    machine below without altering a single branch of it. That bookkeeping (and the dict it
+    produced) has moved to `research/charting/enrich.py`'s `_compute_retest_quality` — a
+    read-only, standalone re-walk over the same bar range, kept separate per §37.6 ("research
+    enrichment never mutates the production pattern result"). This function is back to
+    returning only the `LifecycleState` it always decided; no branch below changed.
     """
     closes = view["close"].to_numpy(dtype=float)
     highs = view["high"].to_numpy(dtype=float)
@@ -410,38 +418,8 @@ def _walk_retest_and_failure(
     cluster_width = cfg["level_cluster_width_atr"]
     retest_pending = False
 
-    # N§13 retest-quality bookkeeping state -- read by `_quality()` below, never by the
-    # state machine above.
-    attempts = 0
-    first_entry_idx: int | None = None
-    deepest_pen: float | None = None       # price units; worst intrabar penetration beyond broken_level
-    deepest_pen_idx: int | None = None
-    deepest_pen_atr: float | None = None   # ATR at deepest_pen_idx (already validated by the loop's own skip)
-    last_bar_in_zone = False
-
-    def _quality(resolution_idx: int | None, resolved_success: bool) -> dict:
-        if first_entry_idx is None:
-            return {
-                "attempts": 0, "penetration_atr": None, "penetration_pct": None,
-                "retest_relative_volume": None, "bars_confirmation_to_retest": None,
-                "bars_retest_to_continuation": None,
-                "note": "no pullback into the broken level observed within retest_window_bars",
-            }
-        pen_atr = (deepest_pen / deepest_pen_atr) if deepest_pen_atr else None
-        pen_pct = (deepest_pen / broken_level * 100.0) if broken_level else None
-        rvol = float(relvol_ser.iloc[deepest_pen_idx]) if deepest_pen_idx is not None else float("nan")
-        return {
-            "attempts": attempts,
-            "penetration_atr": pen_atr if (pen_atr is not None and np.isfinite(pen_atr)) else None,
-            "penetration_pct": pen_pct if (pen_pct is not None and np.isfinite(pen_pct)) else None,
-            "retest_relative_volume": rvol if np.isfinite(rvol) else None,
-            "bars_confirmation_to_retest": first_entry_idx - confirm_index,
-            "bars_retest_to_continuation": (resolution_idx - first_entry_idx) if (resolved_success and resolution_idx is not None) else None,
-            "note": None,
-        }
-
     for i in range(confirm_index + 1, t + 1):
-        a = atr_ser.iloc[i]
+        a = atr_arr[i]
         if not geometry._atr_valid(a):
             continue
         within_window = (i - confirm_index) <= fail_window
@@ -455,73 +433,40 @@ def _walk_retest_and_failure(
             # original comment (preserved in git history) for the full NI-2 §5 rationale.
             hard_failure = closes[i] < failure_level
             if within_window and (gapped_through or hard_failure):
-                if retest_pending:  # a failure while a retest is already open still deepens it
-                    pen = max(0.0, broken_level - lows[i])
-                    if deepest_pen is None or pen > deepest_pen:
-                        deepest_pen, deepest_pen_idx, deepest_pen_atr = pen, i, float(a)
                 reason = FailureReason.GAP_FAILURE if gapped_through else (FailureReason.FAILED_RETEST if retest_pending else FailureReason.FALSE_BREAKOUT)
                 add_event(i, "FAILED", reason.value, {"close": float(closes[i]), "failure_level": failure_level})
                 rules.append(RuleRow("FAILURE_BUFFER_BREACH", "FAIL", float(closes[i]), failure_level))
-                return LifecycleState.FAILED, _quality(i, False)
+                return LifecycleState.FAILED
             if not retest_pending and within_retest_window and closes[i] <= broken_level:
                 retest_pending = True
-                attempts, first_entry_idx, last_bar_in_zone = 1, i, True
-                deepest_pen, deepest_pen_idx, deepest_pen_atr = max(0.0, broken_level - lows[i]), i, float(a)
                 add_event(i, "RETEST_PENDING", "RETEST_ZONE_ENTERED", {"close": float(closes[i]), "level": broken_level})
             elif retest_pending and closes[i] > broken_level + cluster_width * a:
                 add_event(i, "RETEST_SUCCESSFUL", "CLOSE_ABOVE_RETEST_LEVEL", {"close": float(closes[i])})
                 rules.append(RuleRow("RETEST_CONFIRMATION", "PASS", float(closes[i]), broken_level + cluster_width * a))
-                return LifecycleState.PRICE_CONFIRMED, _quality(i, True)
-            elif retest_pending:
-                # Original code: a strict no-op (falls through to the next bar). New: track
-                # re-entries into the zone (a fresh "attempt") and the deepest wick penetration
-                # seen so far -- read-only bookkeeping, no event/rule/state ever emitted here.
-                bar_in_zone = closes[i] <= broken_level
-                if bar_in_zone:
-                    pen = max(0.0, broken_level - lows[i])
-                    if deepest_pen is None or pen > deepest_pen:
-                        deepest_pen, deepest_pen_idx, deepest_pen_atr = pen, i, float(a)
-                    if not last_bar_in_zone:
-                        attempts += 1
-                last_bar_in_zone = bar_in_zone
+                return LifecycleState.PRICE_CONFIRMED
         else:  # BEARISH — mirror of the bullish branch above.
             failure_level = broken_level + fail_buf * a
             gapped_through = (lows[i] > opposite_level) if opposite_level is not None else False
             hard_failure = closes[i] > failure_level
             if within_window and (gapped_through or hard_failure):
-                if retest_pending:
-                    pen = max(0.0, highs[i] - broken_level)
-                    if deepest_pen is None or pen > deepest_pen:
-                        deepest_pen, deepest_pen_idx, deepest_pen_atr = pen, i, float(a)
                 reason = FailureReason.GAP_FAILURE if gapped_through else (FailureReason.FAILED_RETEST if retest_pending else FailureReason.FALSE_BREAKOUT)
                 add_event(i, "FAILED", reason.value, {"close": float(closes[i]), "failure_level": failure_level})
                 rules.append(RuleRow("FAILURE_BUFFER_BREACH", "FAIL", float(closes[i]), failure_level))
-                return LifecycleState.FAILED, _quality(i, False)
+                return LifecycleState.FAILED
             if not retest_pending and within_retest_window and closes[i] >= broken_level:
                 retest_pending = True
-                attempts, first_entry_idx, last_bar_in_zone = 1, i, True
-                deepest_pen, deepest_pen_idx, deepest_pen_atr = max(0.0, highs[i] - broken_level), i, float(a)
                 add_event(i, "RETEST_PENDING", "RETEST_ZONE_ENTERED", {"close": float(closes[i]), "level": broken_level})
             elif retest_pending and closes[i] < broken_level - cluster_width * a:
                 add_event(i, "RETEST_SUCCESSFUL", "CLOSE_BELOW_RETEST_LEVEL", {"close": float(closes[i])})
                 rules.append(RuleRow("RETEST_CONFIRMATION", "PASS", float(closes[i]), broken_level - cluster_width * a))
-                return LifecycleState.PRICE_CONFIRMED, _quality(i, True)
-            elif retest_pending:
-                bar_in_zone = closes[i] >= broken_level
-                if bar_in_zone:
-                    pen = max(0.0, highs[i] - broken_level)
-                    if deepest_pen is None or pen > deepest_pen:
-                        deepest_pen, deepest_pen_idx, deepest_pen_atr = pen, i, float(a)
-                    if not last_bar_in_zone:
-                        attempts += 1
-                last_bar_in_zone = bar_in_zone
+                return LifecycleState.PRICE_CONFIRMED
 
-    return LifecycleState.PRICE_CONFIRMED, _quality(None, False)  # walk exhausted, no failure/retest resolution
+    return LifecycleState.PRICE_CONFIRMED  # walk exhausted, no failure/retest resolution
 
 
 def _walk_rectangle_lifecycle(
     view: pd.DataFrame, formation_start: int, formation_end: int, resistance: float, support: float,
-    atr_ser: pd.Series, relvol_ser: pd.Series, t: int, cfg: dict,
+    atr_arr: np.ndarray, relvol_arr: np.ndarray, t: int, cfg: dict,
 ) -> dict:
     """Bar-by-bar replay from `formation_end + 1` through `t`, evaluating §12.3 confirmation,
     §13.9 retest and §17 failure. Returns a dict of everything `_build_rectangle_snapshot`
@@ -530,11 +475,11 @@ def _walk_rectangle_lifecycle(
     closes = view["close"].to_numpy(dtype=float)
     highs = view["high"].to_numpy(dtype=float)
     lows = view["low"].to_numpy(dtype=float)
-    dates = view["date"]
+    dates_arr = view["date"].to_numpy()
 
     buf = cfg["breakout_buffer_atr"]
 
-    atr_baseline = atr_ser.iloc[formation_end]
+    atr_baseline = atr_arr[formation_end]
     state = LifecycleState.GEOMETRY_VALID
     breakout_direction: str | None = None
     confirm_index: int | None = None
@@ -548,7 +493,7 @@ def _walk_rectangle_lifecycle(
     confirm_breakdown_level: float | None = None
 
     def add_event(idx: int, event_type: str, rule_id: str, observed: dict) -> None:
-        events.append({"date": _iso(dates.iloc[idx]), "event_type": event_type, "rule_id": rule_id, "observed_values": observed})
+        events.append({"date": _iso(dates_arr[idx]), "event_type": event_type, "rule_id": rule_id, "observed_values": observed})
 
     # Phase 1: scan for the initial breakout/breakdown (§12.3), tracking BREAKOUT_ATTEMPT
     # (wick-only touches) and their confirmation_window_bars expiry along the way. Stops the
@@ -556,7 +501,7 @@ def _walk_rectangle_lifecycle(
     # there via the shared `_walk_retest_and_failure` helper, exactly replicating what this
     # loop used to do inline for RECTANGLE (see git history for the pre-refactor version).
     for i in range(formation_end + 1, t + 1):
-        a = atr_ser.iloc[i]
+        a = atr_arr[i]
         if not geometry._atr_valid(a):
             continue
         bo_level = resistance + buf * a
@@ -574,7 +519,7 @@ def _walk_rectangle_lifecycle(
         # (Ending the pattern here turned real breakouts into EXPIRED — ADANIPOWER 2026-04-02.)
         if attempt_index is not None and (i - attempt_index) > cfg["confirmation_window_bars"]:
             add_event(i, "BREAKOUT_ATTEMPT_EXPIRED", "BREAKOUT_ATTEMPT_WINDOW_EXPIRED", {
-                "attempt_date": _iso(dates.iloc[attempt_index]),
+                "attempt_date": _iso(dates_arr[attempt_index]),
                 "bars_since_attempt": i - attempt_index,
                 "confirmation_window_bars": cfg["confirmation_window_bars"],
             })
@@ -588,9 +533,9 @@ def _walk_rectangle_lifecycle(
             confirm_breakdown_level = bd_level
             state = LifecycleState.PRICE_CONFIRMED
             price_c = ComponentStatus.CONFIRMED
-            add_event(i, "PRICE_CONFIRMED", "CLOSE_ABOVE_BREAKOUT", {"close": float(closes[i]), "breakout_level": bo_level, **_candle_quality(view, i)})
+            add_event(i, "PRICE_CONFIRMED", "CLOSE_ABOVE_BREAKOUT", {"close": float(closes[i]), "breakout_level": bo_level})
             rules.append(RuleRow("CLOSE_ABOVE_BREAKOUT", "PASS", float(closes[i]), bo_level))
-            rv = relvol_ser.iloc[i]
+            rv = relvol_arr[i]
             vr = (a / atr_baseline) if geometry._atr_valid(atr_baseline) else float("nan")
             vol_rule = _followthrough_volume_rule(rv, cfg)
             rules.append(vol_rule)
@@ -606,9 +551,9 @@ def _walk_rectangle_lifecycle(
             confirm_breakdown_level = bo_level  # opposite-side threshold (for invalidation display)
             state = LifecycleState.PRICE_CONFIRMED
             price_c = ComponentStatus.CONFIRMED
-            add_event(i, "PRICE_CONFIRMED", "CLOSE_BELOW_BREAKDOWN", {"close": float(closes[i]), "breakdown_level": bd_level, **_candle_quality(view, i)})
+            add_event(i, "PRICE_CONFIRMED", "CLOSE_BELOW_BREAKDOWN", {"close": float(closes[i]), "breakdown_level": bd_level})
             rules.append(RuleRow("CLOSE_BELOW_BREAKDOWN", "PASS", float(closes[i]), bd_level))
-            rv = relvol_ser.iloc[i]
+            rv = relvol_arr[i]
             vr = (a / atr_baseline) if geometry._atr_valid(atr_baseline) else float("nan")
             vol_rule = _followthrough_volume_rule(rv, cfg)
             rules.append(vol_rule)
@@ -627,12 +572,11 @@ def _walk_rectangle_lifecycle(
 
     # Phase 2: a breakout confirmed in phase 1 — evaluate retest / failure via the shared
     # helper (also used by SUPPORT_RESISTANCE / HH_HL — sub-task d).
-    retest_quality: dict | None = None
     if breakout_direction is not None:
         opposite_level = support if breakout_direction == "BULLISH" else resistance
         broken_level = resistance if breakout_direction == "BULLISH" else support
-        state, retest_quality = _walk_retest_and_failure(
-            view, confirm_index, breakout_direction, broken_level, opposite_level, atr_ser, relvol_ser, t, cfg, add_event, rules,
+        state = _walk_retest_and_failure(
+            view, confirm_index, breakout_direction, broken_level, opposite_level, atr_arr, relvol_arr, t, cfg, add_event, rules,
         )
 
     if breakout_direction is None and (t - formation_end) > cfg["maximum_pattern_length"]:
@@ -644,18 +588,17 @@ def _walk_rectangle_lifecycle(
         "events": events, "rules": rules,
         "breakout_level": confirm_breakout_level, "invalidation_level": confirm_breakdown_level,
         "atr_baseline": atr_baseline,
-        "retest_quality": retest_quality,
     }
 
 
 def _build_rectangle_snapshot(
-    view: pd.DataFrame, t: int, cand: dict, atr_ser: pd.Series, relvol_ser: pd.Series, cfg: dict, symbol: str,
+    view: pd.DataFrame, t: int, cand: dict, atr_arr: np.ndarray, relvol_arr: np.ndarray, cfg: dict, symbol: str,
     unresolved_gap_dates: Collection[Any] | None = None, evaluate_research_eligibility: bool = False,
 ) -> PatternSnapshot:
     resistance = cand["resistance"].price
     support = cand["support"].price
     formation_start, formation_end = cand["formation_start"], cand["formation_end"]
-    a_end = atr_ser.iloc[formation_end]
+    a_end = atr_arr[formation_end]
 
     geometry_rules = [
         RuleRow("RECT_MIN_TOUCHES_RESISTANCE", "PASS", len(cand["res_touches"]), cfg["pattern_boundary_min_touches"]),
@@ -674,7 +617,7 @@ def _build_rectangle_snapshot(
     if unresolved_gap_dates is not None:
         geometry_rules.append(RuleRow("RECT_NO_UNRESOLVED_DATA_GAPS", "PASS", 0, 0))
 
-    walk = _walk_rectangle_lifecycle(view, formation_start, formation_end, resistance, support, atr_ser, relvol_ser, t, cfg)
+    walk = _walk_rectangle_lifecycle(view, formation_start, formation_end, resistance, support, atr_arr, relvol_arr, t, cfg)
 
     default_breakout = resistance + cfg["breakout_buffer_atr"] * a_end if geometry._atr_valid(a_end) else None
     default_breakdown = support - cfg["breakout_buffer_atr"] * a_end if geometry._atr_valid(a_end) else None
@@ -714,7 +657,6 @@ def _build_rectangle_snapshot(
         components=_components_dict(components),
         rules=rules,
         events=walk["events"],
-        retest_quality=walk["retest_quality"],
     )
 
 
@@ -774,7 +716,8 @@ def _apply_incomplete_bar(snap: PatternSnapshot, incomplete_bar: dict, atr_at_t:
 
 
 def _sr_level_patterns(
-    view: pd.DataFrame, t: int, pivots: Sequence[Pivot], atr_ser: pd.Series, relvol_ser: pd.Series, cfg: dict, symbol: str,
+    view: pd.DataFrame, t: int, atr_arr: np.ndarray, relvol_arr: np.ndarray, cfg: dict, symbol: str,
+    high_levels: Sequence["geometry.Level"], low_levels: Sequence["geometry.Level"],
     evaluate_research_eligibility: bool = False,
 ) -> list[PatternSnapshot]:
     """Standalone S/R levels: geometry (clustering + >=level_min_touches), then a bar-by-bar
@@ -787,25 +730,29 @@ def _sr_level_patterns(
     A level with NO close-confirmation anywhere in its own window still reports only its
     CURRENT (bar `t`) wick-touch state — there is nothing "pending" to retest yet, so this
     part of the original E-1 "as observed at t" scope is unchanged.
+
+    PERF-DETECT (2026-09-22): `high_levels`/`low_levels` are the same raw, unfiltered
+    `geometry.cluster_pivots_into_levels(recent, view, atr_t, cfg, kind=...)` output
+    `_rectangle_candidates` uses, computed once by `detect_as_of` — see that function's own
+    PERF-DETECT note. Filtering by `level_min_touches` here (this function's own threshold)
+    reproduces exactly what this function used to compute inline.
     """
     lookback_start = _lookback_start(t, cfg)
-    recent = [p for p in pivots if p.pivot_index >= lookback_start]
-    atr_t = atr_ser.iloc[t] if t < len(atr_ser) else float("nan")
-    if not recent or not geometry._atr_valid(atr_t):
+    atr_t = atr_arr[t] if t < len(atr_arr) else float("nan")
+    if not (high_levels or low_levels) or not geometry._atr_valid(atr_t):
         return []
 
     out: list[PatternSnapshot] = []
-    dates = view["date"]
+    dates_arr = view["date"].to_numpy()
     closes = view["close"].to_numpy(dtype=float)
     highs = view["high"].to_numpy(dtype=float)
     lows = view["low"].to_numpy(dtype=float)
-    date_t = _iso(view["date"].iloc[t])
+    date_t = _iso(dates_arr[t])
 
-    for kind, level_kind, direction, buf_sign in (("HIGH", "RESISTANCE", "BULLISH", +1), ("LOW", "SUPPORT", "BEARISH", -1)):
-        levels = [
-            lvl for lvl in geometry.cluster_pivots_into_levels(recent, view, atr_t, cfg, kind=kind)
-            if len(lvl.touches) >= cfg["level_min_touches"]
-        ]
+    for kind, level_kind, direction, buf_sign, raw_levels in (
+        ("HIGH", "RESISTANCE", "BULLISH", +1, high_levels), ("LOW", "SUPPORT", "BEARISH", -1, low_levels)
+    ):
+        levels = [lvl for lvl in raw_levels if len(lvl.touches) >= cfg["level_min_touches"]]
         for lvl in levels:
             level_price = lvl.price
             # PIT: the level is only "known" once every touch is confirmed — walk from
@@ -816,7 +763,7 @@ def _sr_level_patterns(
             events: list[dict] = []
 
             def add_event(idx: int, event_type: str, rule_id: str, observed: dict) -> None:
-                events.append({"date": _iso(dates.iloc[idx]), "event_type": event_type, "rule_id": rule_id, "observed_values": observed})
+                events.append({"date": _iso(dates_arr[idx]), "event_type": event_type, "rule_id": rule_id, "observed_values": observed})
 
             status = LifecycleState.GEOMETRY_VALID
             price_c = ComponentStatus.PENDING
@@ -825,7 +772,7 @@ def _sr_level_patterns(
             confirm_rule_id = "CLOSE_ABOVE_RESISTANCE" if buf_sign > 0 else "CLOSE_BELOW_SUPPORT"
 
             for i in range(level_ready_index, t + 1):
-                a = atr_ser.iloc[i]
+                a = atr_arr[i]
                 if not geometry._atr_valid(a):
                     continue
                 trigger_i = level_price + buf_sign * cfg["breakout_buffer_atr"] * a
@@ -833,14 +780,13 @@ def _sr_level_patterns(
                 if confirmed_i:
                     confirm_idx, confirm_trigger = i, trigger_i
                     status, price_c = LifecycleState.PRICE_CONFIRMED, ComponentStatus.CONFIRMED
-                    add_event(i, "PRICE_CONFIRMED", confirm_rule_id, {"close": float(closes[i]), "level": trigger_i, **_candle_quality(view, i)})
+                    add_event(i, "PRICE_CONFIRMED", confirm_rule_id, {"close": float(closes[i]), "level": trigger_i})
                     rules.append(RuleRow(confirm_rule_id, "PASS", float(closes[i]), trigger_i))
                     break
 
-            retest_quality: dict | None = None
             if confirm_idx is not None:
-                status, retest_quality = _walk_retest_and_failure(
-                    view, confirm_idx, direction, level_price, None, atr_ser, relvol_ser, t, cfg, add_event, rules,
+                status = _walk_retest_and_failure(
+                    view, confirm_idx, direction, level_price, None, atr_arr, relvol_arr, t, cfg, add_event, rules,
                 )
             else:
                 trigger_t = level_price + buf_sign * cfg["breakout_buffer_atr"] * atr_t
@@ -852,7 +798,7 @@ def _sr_level_patterns(
 
             strength = geometry.level_strength(
                 lvl, as_of_index=t, window_start=lookback_start, window_end=t,
-                bars=view, relative_volume=relvol_ser, atr=atr_t, cfg=cfg,
+                bars=view, relative_volume=relvol_arr, atr=atr_t, cfg=cfg,
             )
             rules.append(RuleRow("SR_LEVEL_STRENGTH", "PASS", round(strength.level_strength, 6), None))
 
@@ -861,18 +807,17 @@ def _sr_level_patterns(
             )
             status = _maybe_research_eligible(status, components, cfg, evaluate=evaluate_research_eligibility)
             earliest = min(x.pivot_index for x in lvl.touches)
-            pattern_id = f"{symbol}:SUPPORT_RESISTANCE:{_iso(view['date'].iloc[earliest])}:{round(level_price, 2)}"
+            pattern_id = f"{symbol}:SUPPORT_RESISTANCE:{_iso(dates_arr[earliest])}:{round(level_price, 2)}"
             reported_trigger = confirm_trigger if confirm_trigger is not None else level_price + buf_sign * cfg["breakout_buffer_atr"] * atr_t
             out.append(PatternSnapshot(
                 pattern_id=pattern_id, pattern_type="SUPPORT_RESISTANCE", direction=direction,
                 population="CONFIRMED", status=status.value, stage=None,
-                formation_start=_iso(view["date"].iloc[earliest]), formation_end=date_t,
+                formation_start=_iso(dates_arr[earliest]), formation_end=date_t,
                 levels={"level": level_price, "kind": level_kind, "breakout_level" if buf_sign > 0 else "breakdown_level": reported_trigger},
                 pivots=[_pivot_dict(x) for x in lvl.touches],
                 components=_components_dict(components),
                 rules=[r.to_dict() for r in rules],
                 events=events,
-                retest_quality=retest_quality,
             ))
     return out
 
@@ -881,7 +826,7 @@ def _sr_level_patterns(
 
 
 def _hh_hl_patterns(
-    view: pd.DataFrame, t: int, pivots: Sequence[Pivot], atr_ser: pd.Series, relvol_ser: pd.Series, cfg: dict, symbol: str,
+    view: pd.DataFrame, t: int, pivots: Sequence[Pivot], atr_arr: np.ndarray, relvol_arr: np.ndarray, cfg: dict, symbol: str,
     evaluate_research_eligibility: bool = False,
 ) -> list[PatternSnapshot]:
     """§13.1. Interpretation (PRD gives the rule, not the exact bar-count): "at least two
@@ -936,8 +881,8 @@ def _hh_hl_patterns(
         return []
 
     last_high, last_low = used_highs[-1], used_lows[-1]
-    date_t = _iso(view["date"].iloc[t])
-    dates = view["date"]
+    dates_arr = view["date"].to_numpy()
+    date_t = _iso(dates_arr[t])
     closes = view["close"].to_numpy(dtype=float)
 
     rules: list[RuleRow] = [
@@ -947,7 +892,7 @@ def _hh_hl_patterns(
     events: list[dict] = []
 
     def add_event(idx: int, event_type: str, rule_id: str, observed: dict) -> None:
-        events.append({"date": _iso(dates.iloc[idx]), "event_type": event_type, "rule_id": rule_id, "observed_values": observed})
+        events.append({"date": _iso(dates_arr[idx]), "event_type": event_type, "rule_id": rule_id, "observed_values": observed})
 
     price_c = ComponentStatus.PENDING
     status = LifecycleState.GEOMETRY_VALID
@@ -963,7 +908,7 @@ def _hh_hl_patterns(
     geometry_ready_index = max(last_high.confirmed_index, last_low.confirmed_index)
 
     for i in range(geometry_ready_index, t + 1):
-        a = atr_ser.iloc[i]
+        a = atr_arr[i]
         if not geometry._atr_valid(a):
             continue
         buf = cfg["breakout_buffer_atr"] * a
@@ -973,7 +918,7 @@ def _hh_hl_patterns(
             if c > confirm_level:
                 confirm_idx = i
                 status, price_c = LifecycleState.PRICE_CONFIRMED, ComponentStatus.CONFIRMED
-                add_event(i, "PRICE_CONFIRMED", "CLOSE_ABOVE_PRIOR_HIGH", {"close": float(c), "prior_high": last_high.price, "confirm_level": confirm_level, **_candle_quality(view, i)})
+                add_event(i, "PRICE_CONFIRMED", "CLOSE_ABOVE_PRIOR_HIGH", {"close": float(c), "prior_high": last_high.price, "confirm_level": confirm_level})
                 rules.append(RuleRow("CLOSE_ABOVE_PRIOR_HIGH", "PASS", float(c), confirm_level))
                 break
             if c < last_low.price:
@@ -986,7 +931,7 @@ def _hh_hl_patterns(
             if c < confirm_level:
                 confirm_idx = i
                 status, price_c = LifecycleState.PRICE_CONFIRMED, ComponentStatus.CONFIRMED
-                add_event(i, "PRICE_CONFIRMED", "CLOSE_BELOW_PRIOR_LOW", {"close": float(c), "prior_low": last_low.price, "confirm_level": confirm_level, **_candle_quality(view, i)})
+                add_event(i, "PRICE_CONFIRMED", "CLOSE_BELOW_PRIOR_LOW", {"close": float(c), "prior_low": last_low.price, "confirm_level": confirm_level})
                 rules.append(RuleRow("CLOSE_BELOW_PRIOR_LOW", "PASS", float(c), confirm_level))
                 break
             if c > last_high.price:
@@ -995,17 +940,16 @@ def _hh_hl_patterns(
                 rules.append(RuleRow("CLOSE_ABOVE_INVALIDATION_SWING", "FAIL", float(c), last_high.price))
                 break
 
-    retest_quality: dict | None = None
     if confirm_idx is not None:
         broken_level = last_high.price if direction == "BULLISH" else last_low.price
         opposite_level = last_low.price if direction == "BULLISH" else last_high.price
-        status, retest_quality = _walk_retest_and_failure(
-            view, confirm_idx, direction, broken_level, opposite_level, atr_ser, relvol_ser, t, cfg, add_event, rules,
+        status = _walk_retest_and_failure(
+            view, confirm_idx, direction, broken_level, opposite_level, atr_arr, relvol_arr, t, cfg, add_event, rules,
         )
 
     components = PatternComponents(geometry=ComponentStatus.CONFIRMED, price=price_c, data_quality=DataQualityStatus.VALID)
     status = _maybe_research_eligible(status, components, cfg, evaluate=evaluate_research_eligibility)
-    pattern_id = f"{symbol}:HH_HL:{_iso(view['date'].iloc[formation_start])}:{direction}"
+    pattern_id = f"{symbol}:HH_HL:{_iso(dates_arr[formation_start])}:{direction}"
     pivot_dicts = [
         {"date": _iso(p.pivot_date), "price": p.price, "kind": p.kind, "confirmed_date": _iso(p.confirmed_date)}
         for p in sorted((*used_highs, *used_lows), key=lambda p: p.pivot_index)
@@ -1013,13 +957,12 @@ def _hh_hl_patterns(
     return [PatternSnapshot(
         pattern_id=pattern_id, pattern_type="HH_HL", direction=direction, population="CONFIRMED",
         status=status.value, stage=None,
-        formation_start=_iso(view["date"].iloc[formation_start]), formation_end=date_t,
+        formation_start=_iso(dates_arr[formation_start]), formation_end=date_t,
         levels={"prior_high": last_high.price, "prior_low": last_low.price},
         pivots=pivot_dicts,
         components=_components_dict(components),
         rules=[r.to_dict() for r in rules],
         events=events,
-        retest_quality=retest_quality,
     )]
 
 
@@ -1055,22 +998,46 @@ def detect_as_of(
         return []
 
     pivots = find_swings(view, left_bars=cfg["swing_left_bars"], right_bars=cfg["swing_right_bars"])
-    atr_ser = atr_series_fn(view, period=cfg["atr_period"])
-    relvol_ser = relvol_series_fn(view, n=cfg["volume_baseline_bars"])
+    # PERF-DETECT (2026-09-22): read off numpy arrays once here and thread them through every
+    # helper below instead of a pandas Series — `Series.iloc[i]` carries real per-call overhead
+    # (bounds/type checking, `_ixs`/`_getitem_axis` machinery) that a profile of this exact call
+    # showed dominating runtime (~870k such calls, ~17s of a 46s run) when repeated once per bar
+    # across every candidate pattern's own bar-by-bar walk. `.to_numpy()` reads the identical
+    # float64 values the Series held; nothing about which values are read changes.
+    atr_arr = atr_series_fn(view, period=cfg["atr_period"]).to_numpy()
+    relvol_arr = relvol_series_fn(view, n=cfg["volume_baseline_bars"]).to_numpy()
+
+    # PERF-DETECT: cluster HIGH/LOW pivots into levels exactly ONCE per (view, t) — this used
+    # to be computed independently, and identically, by BOTH `_rectangle_candidates` (its own
+    # inline HIGH/LOW calls) and `_sr_level_patterns` (same two calls again), a 4x duplicate of
+    # the same deterministic `geometry.cluster_pivots_into_levels(recent, view, atr_t, cfg,
+    # kind=...)` computation every single `detect_as_of` call (recent/view/atr_t/cfg are
+    # provably identical between the two call sites — see both functions' own PERF-DETECT
+    # notes). Each caller applies its own touch-count filter (`pattern_boundary_min_touches` /
+    # `level_min_touches`) to this same raw, unfiltered list — byte-identical to what each used
+    # to compute for itself.
+    lookback_start = _lookback_start(t, cfg)
+    recent = [p for p in pivots if p.pivot_index >= lookback_start]
+    atr_t = atr_arr[t] if t < len(atr_arr) else float("nan")
+    high_levels = geometry.cluster_pivots_into_levels(recent, view, atr_t, cfg, kind="HIGH")
+    low_levels = geometry.cluster_pivots_into_levels(recent, view, atr_t, cfg, kind="LOW")
 
     patterns: list[PatternSnapshot] = []
 
-    for cand in _rectangle_candidates(view, t, pivots, atr_ser, cfg, unresolved_gap_dates=unresolved_gap_dates):
+    for cand in _rectangle_candidates(view, t, atr_arr, cfg, high_levels, low_levels, unresolved_gap_dates=unresolved_gap_dates):
         snap = _build_rectangle_snapshot(
-            view, t, cand, atr_ser, relvol_ser, cfg, symbol,
+            view, t, cand, atr_arr, relvol_arr, cfg, symbol,
             unresolved_gap_dates=unresolved_gap_dates, evaluate_research_eligibility=evaluate_research_eligibility,
         )
         if incomplete_bar is not None:
-            atr_t = atr_ser.iloc[t] if t < len(atr_ser) else float("nan")
-            snap = _apply_incomplete_bar(snap, incomplete_bar, atr_t, cfg)
+            atr_t2 = atr_arr[t] if t < len(atr_arr) else float("nan")
+            snap = _apply_incomplete_bar(snap, incomplete_bar, atr_t2, cfg)
         patterns.append(snap)
 
-    patterns.extend(_sr_level_patterns(view, t, pivots, atr_ser, relvol_ser, cfg, symbol, evaluate_research_eligibility=evaluate_research_eligibility))
-    patterns.extend(_hh_hl_patterns(view, t, pivots, atr_ser, relvol_ser, cfg, symbol, evaluate_research_eligibility=evaluate_research_eligibility))
+    patterns.extend(_sr_level_patterns(
+        view, t, atr_arr, relvol_arr, cfg, symbol, high_levels, low_levels,
+        evaluate_research_eligibility=evaluate_research_eligibility,
+    ))
+    patterns.extend(_hh_hl_patterns(view, t, pivots, atr_arr, relvol_arr, cfg, symbol, evaluate_research_eligibility=evaluate_research_eligibility))
 
     return patterns

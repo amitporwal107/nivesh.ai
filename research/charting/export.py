@@ -50,6 +50,13 @@ None (the default — and the only mode this module actually exercises today), e
 `patterns: []`. `research.charting.patterns` (the detector engine) is being built in parallel by
 another agent and is deliberately never imported here; once it lands, re-export by passing its
 entry point as `pattern_provider` — no other change needed.
+
+Weekly/monthly display timeframes (docs/charting.md §38.7, §38.12 row W2): each symbol payload
+also carries `timeframes.1W` / `timeframes.1M`, built by `research.charting.resample` from the
+SAME daily `df` this function already loaded, then run through the SAME `_INDICATOR_SPECS` /
+`_compute_indicator_payload` used for the daily series -- no separate calculation path. Pattern
+detection stays daily-only (§38.7: "a 120-bar maximum pattern cannot fit in 69 monthly bars") --
+`timeframes.*` never gets a `patterns` key.
 """
 from __future__ import annotations
 
@@ -76,7 +83,7 @@ if str(_REPO_ROOT) not in sys.path:
 import numpy as np
 import pandas as pd
 
-from research.charting import bars, config, series, universe, validate
+from research.charting import bars, config, resample, series, universe, validate
 from research.charting.tests import synth
 
 logger = logging.getLogger(__name__)
@@ -197,6 +204,35 @@ def _compute_indicator_payload(spec: dict, df: pd.DataFrame, dates: pd.Series) -
 
 
 # ---------------------------------------------------------------------------
+# Weekly / monthly display timeframes -- docs/charting.md §38.7, §38.12 row W2
+# ---------------------------------------------------------------------------
+
+def _build_timeframe_payload(rdf: pd.DataFrame) -> dict:
+    """One `timeframes.{1W,1M}` entry from an already-resampled frame (research.charting.resample
+    output: BARS_COLUMNS + `incomplete`). `bars` rows are 7-wide -- `[date, o, h, l, c, v,
+    incomplete]` -- deliberately one element longer than the daily `bars` rows (6-wide), so the
+    two shapes are never confused with each other; `indicators` reuses the exact same
+    `_INDICATOR_SPECS` / `_compute_indicator_payload` the daily series uses, run against this
+    resampled frame (§38.7: "same series code", never a separate calculation path).
+    """
+    dates = rdf["date"].dt.strftime("%Y-%m-%d")
+    bars_rows = [
+        [dates.iloc[i], float(rdf["open"].iloc[i]), float(rdf["high"].iloc[i]),
+         float(rdf["low"].iloc[i]), float(rdf["close"].iloc[i]), float(rdf["volume"].iloc[i]),
+         bool(rdf["incomplete"].iloc[i])]
+        for i in range(len(rdf))
+    ]
+    indicators = {spec["id"]: _compute_indicator_payload(spec, rdf, dates) for spec in _INDICATOR_SPECS}
+    return {"bars": bars_rows, "indicators": indicators}
+
+
+def _build_timeframes(df: pd.DataFrame) -> dict:
+    """`{"1W": {...}, "1M": {...}}` for one symbol's daily `df` -- resample.RESAMPLERS is the
+    single place that knows how each timeframe is derived from daily bars."""
+    return {tf: _build_timeframe_payload(resampler(df)) for tf, resampler in resample.RESAMPLERS.items()}
+
+
+# ---------------------------------------------------------------------------
 # Per-symbol payload
 # ---------------------------------------------------------------------------
 
@@ -222,6 +258,7 @@ def _build_symbol_payload(
     ]
     indicators = {spec["id"]: _compute_indicator_payload(spec, df, dates) for spec in _INDICATOR_SPECS}
     patterns = list(pattern_provider(symbol, df)) if pattern_provider is not None else []
+    timeframes = _build_timeframes(df)
 
     return {
         "symbol": symbol,
@@ -231,6 +268,7 @@ def _build_symbol_payload(
         "findings": [_finding_dict(f) for f in findings],
         "indicators": indicators,
         "patterns": patterns,
+        "timeframes": timeframes,
     }
 
 

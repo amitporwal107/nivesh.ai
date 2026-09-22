@@ -182,3 +182,19 @@ def test_bearish_rows_build_no_stop_target_trade_or_cost_block_docs_37_4():
     # directional forward returns are still computed for BEARISH (never dropped -- §37.4's own
     # "so the avoid signal can still be validated").
     assert bear_block["outcomes"]["forward_returns_directional"][1]["available"] is True
+
+
+def test_a_bearish_signal_on_the_last_bar_is_still_flagged_informational():
+    """No bar after the confirmation bar -> no entry; the BEARISH row must still say its short side
+    is not priced (integrity found the unflagged case on RELIANCE's 2022-12-30 signal)."""
+    from research.charting.events.extraction import build_outcome_cost_block
+    from research.charting.tests import synth
+
+    bars = synth.bars_from_closes([100.0 + (i % 5) * 0.5 + i * 0.1 for i in range(60)], start_date="2021-03-01")
+    last = len(bars) - 1
+    bear = build_outcome_cost_block(bars, last, "BEARISH")
+    assert bear["unavailable_reason"] == "no_bar_after_confirmation"
+    assert bear["costs"]["short_side_costs"] == "NOT_MODELLED" and bear["targets"] is None
+    assert bear["tradability"] == "INFORMATIONAL"
+    bull = build_outcome_cost_block(bars, last, "BULLISH")
+    assert bull["costs"] is None and bull["unavailable_reason"] == "no_bar_after_confirmation"

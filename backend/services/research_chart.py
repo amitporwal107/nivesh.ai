@@ -15,6 +15,11 @@ Two-tier cache, both keyed on (path, mtime_ns, size) like services/sim_lab.py:
 Every symbol payload is checked against the manifest's OWN recorded sha256 of that file (not just
 "does it parse") before being trusted — export.py's determinism promise (same input -> same bytes)
 only has teeth if something on the read side actually verifies it.
+
+§38.7/§38.11 weekly and monthly display timeframes: `timeframe=1D|1W|1M` (`TIMEFRAMES` below).
+`1D` is unchanged/backward-compatible; `1W`/`1M` read off `payload["timeframes"][tf]`, which
+export.py resamples and hashes into the SAME symbol file this module already validates -- no
+separate file, no separate cache tier, no request-time computation.
 """
 from __future__ import annotations
 
@@ -157,6 +162,14 @@ def _valid_bar_row(row) -> bool:
             and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in row[1:]))
 
 
+# §38.7 weekly/monthly display bars: one element longer than a daily row -- the trailing
+# `incomplete` flag (bool) -- so the two row shapes can never be confused with each other.
+def _valid_timeframe_bar_row(row) -> bool:
+    return (isinstance(row, list) and len(row) == 7 and isinstance(row[0], str) and DATE.fullmatch(row[0])
+            and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in row[1:5])
+            and isinstance(row[6], bool))
+
+
 def _valid_finding(f) -> bool:
     return isinstance(f, dict) and isinstance(f.get("rule_id"), str) and "date" in f and "observed" in f
 
@@ -170,6 +183,18 @@ def _valid_indicator(v) -> bool:
     if "pane" not in v or not isinstance(v.get("values"), list):
         return False
     return all(isinstance(row, list) and len(row) >= 2 and isinstance(row[0], str) for row in v["values"])
+
+
+def _valid_timeframe_entry(v) -> bool:
+    """One of `timeframes.1W` / `timeframes.1M`: `{"bars": [...7-wide rows...], "indicators":
+    {...same shape as the daily indicators dict...}}`."""
+    if not isinstance(v, dict):
+        return False
+    bars = v.get("bars")
+    if not isinstance(bars, list) or not all(_valid_timeframe_bar_row(r) for r in bars):
+        return False
+    indicators = v.get("indicators")
+    return isinstance(indicators, dict) and all(_valid_indicator(i) for i in indicators.values())
 
 
 def _valid_symbol_payload(symbol: str, d: dict) -> bool:
@@ -189,6 +214,11 @@ def _valid_symbol_payload(symbol: str, d: dict) -> bool:
     if not isinstance(indicators, dict) or not all(_valid_indicator(v) for v in indicators.values()):
         return False
     if not isinstance(d.get("patterns"), list):
+        return False
+    timeframes = d.get("timeframes")
+    if not isinstance(timeframes, dict) or set(timeframes) != {"1W", "1M"}:
+        return False
+    if not all(_valid_timeframe_entry(v) for v in timeframes.values()):
         return False
     return True
 
@@ -252,29 +282,53 @@ def manifest_view(manifest: dict) -> dict:
     }
 
 
-def ohlcv_view(manifest: dict, payload: dict) -> dict:
-    """GET /{symbol}/ohlcv: provenance = manifest.source (verbatim, including file hashes -- this
-    route is explicitly NOT redacted the way /run is) + run_id + config_hash."""
+# §38.11 `timeframe=1D|1W|1M`, default 1D so existing callers (which never pass the param) are
+# unaffected. 1D reads straight off the payload's top-level fields (unchanged); 1W/1M read off
+# `payload["timeframes"][tf]`, which `research/charting/export.py` writes (§38.7).
+TIMEFRAMES = ("1D", "1W", "1M")
+
+
+def _bars_for(payload: dict, timeframe: str) -> list:
+    if timeframe == "1D":
+        return payload["bars"]
+    return payload["timeframes"][timeframe]["bars"]
+
+
+def _indicators_for(payload: dict, timeframe: str) -> dict:
+    if timeframe == "1D":
+        return payload["indicators"]
+    return payload["timeframes"][timeframe]["indicators"]
+
+
+def ohlcv_view(manifest: dict, payload: dict, timeframe: str = "1D") -> dict:
+    """GET /{symbol}/ohlcv?timeframe=1D|1W|1M: provenance = manifest.source (verbatim, including
+    file hashes -- this route is explicitly NOT redacted the way /run is) + run_id + config_hash.
+    `findings` (§9.1 OHLCV integrity findings) are daily-session-indexed and have no 1:1 meaning
+    on a resampled weekly/monthly bar, so 1W/1M always serve `findings: []`; `data_quality_status`
+    / `pit_status` describe the underlying daily series either way and are unchanged by timeframe.
+    """
     provenance = dict(manifest["source"])
     provenance["run_id"] = manifest["run_id"]
     provenance["config_hash"] = manifest["config_hash"]
     return {
         "symbol": payload["symbol"],
-        "bars": payload["bars"],
+        "timeframe": timeframe,
+        "bars": _bars_for(payload, timeframe),
         "data_quality_status": payload["data_quality_status"],
         "pit_status": payload["pit_status"],
-        "findings": payload["findings"],
+        "findings": payload["findings"] if timeframe == "1D" else [],
         "provenance": provenance,
     }
 
 
-def indicators_view(payload: dict, ids: Optional[list] = None) -> dict:
-    """GET /{symbol}/indicators: all indicators, or only `ids` when given. Caller validates
-    unknown ids (400) before calling this -- this just filters."""
-    indicators = payload["indicators"]
+def indicators_view(payload: dict, ids: Optional[list] = None, timeframe: str = "1D") -> dict:
+    """GET /{symbol}/indicators?timeframe=1D|1W|1M: all indicators for that timeframe, or only
+    `ids` when given. Caller validates unknown ids (400) before calling this -- this just
+    filters."""
+    indicators = _indicators_for(payload, timeframe)
     if ids:
         indicators = {i: indicators[i] for i in ids}
-    return {"symbol": payload["symbol"], "indicators": indicators}
+    return {"symbol": payload["symbol"], "timeframe": timeframe, "indicators": indicators}
 
 
 def patterns_view(payload: dict) -> dict:

@@ -1,0 +1,492 @@
+{
+  "symbol": "PATTERNQA",
+  "patterns": [
+    {
+      "pattern_id": "PATTERNQA:RECTANGLE:2026-08-24",
+      "pattern_type": "RECTANGLE",
+      "direction": "BULLISH",
+      "population": "CONFIRMED",
+      "status": "PRICE_CONFIRMED",
+      "stage": null,
+      "formation_start": "2026-08-18",
+      "formation_end": "2026-09-01",
+      "levels": {
+        "support": 490.0,
+        "resistance": 510.0,
+        "breakout_level": 511.0,
+        "invalidation_level": 488.0
+      },
+      "pivots": [
+        {
+          "date": "2026-08-19",
+          "price": 510.3,
+          "kind": "HIGH",
+          "confirmed_date": "2026-08-20"
+        },
+        {
+          "date": "2026-08-25",
+          "price": 489.9,
+          "kind": "LOW",
+          "confirmed_date": "2026-08-26"
+        },
+        {
+          "date": "2026-08-31",
+          "price": 511.0,
+          "kind": "HIGH",
+          "confirmed_date": "2026-09-01"
+        }
+      ],
+      "components": {
+        "geometry": "PASS",
+        "price": "PASS",
+        "volume": "PASS",
+        "volatility": "PASS",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [
+        {
+          "rule_id": "RECT_MIN_TOUCHES",
+          "result": "PASS",
+          "observed": 3,
+          "threshold": 2
+        },
+        {
+          "rule_id": "RECT_BREAKOUT_CLOSE",
+          "result": "PASS",
+          "observed": 512.0,
+          "threshold": 511.0
+        }
+      ],
+      "events": [
+        {
+          "date": "2026-09-02",
+          "event_type": "PRICE_CONFIRMED",
+          "rule_id": "CLOSE_ABOVE_BREAKOUT"
+        }
+      ],
+      "scores": {
+        "formation": 100.0,
+        "readiness": 92.0,
+        "confirmation": 88.0,
+        "failure_risk": 14.0
+      }
+    },
+    {
+      "pattern_id": "PATTERNQA:RECTANGLE:2026-08-20",
+      "pattern_type": "RECTANGLE",
+      "direction": "BULLISH",
+      "population": "CONFIRMED",
+      "status": "PRICE_CONFIRMED",
+      "stage": null,
+      "formation_start": "2026-08-20",
+      "formation_end": "2026-09-04",
+      "levels": {
+        "support": 495.0,
+        "resistance": 505.0,
+        "breakout_level": 506.0,
+        "invalidation_level": 493.0
+      },
+      "pivots": [
+        {
+          "date": "2026-08-21",
+          "price": 505.4,
+          "kind": "HIGH",
+          "confirmed_date": "2026-08-24"
+        },
+        {
+          "date": "2026-08-26",
+          "price": 494.8,
+          "kind": "LOW",
+          "confirmed_date": "2026-08-27"
+        },
+        {
+          "date": "2026-09-01",
+          "price": 506.2,
+          "kind": "HIGH",
+          "confirmed_date": "2026-09-02"
+        }
+      ],
+      "components": {
+        "geometry": "PASS",
+        "price": "PASS",
+        "volume": "PASS",
+        "volatility": "PASS",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [
+        {
+          "rule_id": "RECT_MIN_TOUCHES",
+          "result": "PASS",
+          "observed": 3,
+          "threshold": 2
+        }
+      ],
+      "events": [
+        {
+          "date": "2026-09-03",
+          "event_type": "PRICE_CONFIRMED",
+          "rule_id": "CLOSE_ABOVE_BREAKOUT"
+        }
+      ],
+      "scores": {
+        "formation": 96.0,
+        "readiness": 90.0,
+        "confirmation": 85.0,
+        "failure_risk": 18.0
+      }
+    },
+    {
+      "pattern_id": "PATTERNQA:HH_HL:2026-08-11",
+      "pattern_type": "HH_HL",
+      "direction": "BULLISH",
+      "population": "CONFIRMED",
+      "status": "VOLUME_CONFIRMED",
+      "stage": null,
+      "formation_start": "2026-08-11",
+      "formation_end": "2026-08-21",
+      "levels": {
+        "support": 496.0,
+        "resistance": null,
+        "breakout_level": null,
+        "invalidation_level": 486.0
+      },
+      "pivots": [
+        {
+          "date": "2026-08-12",
+          "price": 497.0,
+          "kind": "LOW",
+          "confirmed_date": "2026-08-13"
+        },
+        {
+          "date": "2026-08-13",
+          "price": 503.0,
+          "kind": "HIGH",
+          "confirmed_date": "2026-08-14"
+        },
+        {
+          "date": "2026-08-19",
+          "price": 501.5,
+          "kind": "LOW",
+          "confirmed_date": "2026-08-20"
+        },
+        {
+          "date": "2026-08-21",
+          "price": 502.2,
+          "kind": "HIGH",
+          "confirmed_date": "2026-08-24"
+        }
+      ],
+      "components": {
+        "geometry": "PASS",
+        "price": "PASS",
+        "volume": "PASS",
+        "volatility": "PASS",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [
+        {
+          "rule_id": "HHHL_MIN_PIVOTS",
+          "result": "PASS",
+          "observed": 4,
+          "threshold": 3
+        }
+      ],
+      "events": [],
+      "scores": null
+    },
+    {
+      "pattern_id": "PATTERNQA:RECTANGLE:2026-08-10",
+      "pattern_type": "RECTANGLE",
+      "direction": "BEARISH",
+      "population": "CONFIRMED",
+      "status": "FAILED",
+      "stage": null,
+      "formation_start": "2026-08-10",
+      "formation_end": "2026-08-14",
+      "levels": {
+        "support": 480.0,
+        "resistance": 495.0,
+        "breakout_level": 496.0,
+        "invalidation_level": 478.0
+      },
+      "pivots": [
+        {
+          "date": "2026-08-11",
+          "price": 494.0,
+          "kind": "HIGH",
+          "confirmed_date": "2026-08-12"
+        },
+        {
+          "date": "2026-08-12",
+          "price": 481.0,
+          "kind": "LOW",
+          "confirmed_date": "2026-08-13"
+        }
+      ],
+      "components": {
+        "geometry": "PASS",
+        "price": "FAIL",
+        "volume": "PENDING",
+        "volatility": "PASS",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [
+        {
+          "rule_id": "RECT_MIN_TOUCHES",
+          "result": "FAIL",
+          "observed": 1,
+          "threshold": 2
+        }
+      ],
+      "events": [
+        {
+          "date": "2026-08-17",
+          "event_type": "FAILED",
+          "rule_id": "RECT_FAILED_BREAKOUT"
+        }
+      ],
+      "scores": null
+    },
+    {
+      "pattern_id": "PATTERNQA:HH_HL:2026-08-24",
+      "pattern_type": "HH_HL",
+      "direction": "BEARISH",
+      "population": "CONFIRMED",
+      "status": "INVALIDATED",
+      "stage": null,
+      "formation_start": "2026-08-24",
+      "formation_end": "2026-08-28",
+      "levels": {
+        "support": null,
+        "resistance": null,
+        "breakout_level": null,
+        "invalidation_level": 486.0
+      },
+      "pivots": [
+        {
+          "date": "2026-08-25",
+          "price": 498.0,
+          "kind": "HIGH",
+          "confirmed_date": "2026-08-26"
+        },
+        {
+          "date": "2026-08-26",
+          "price": 493.0,
+          "kind": "LOW",
+          "confirmed_date": "2026-08-27"
+        },
+        {
+          "date": "2026-08-27",
+          "price": 497.0,
+          "kind": "HIGH",
+          "confirmed_date": "2026-08-28"
+        }
+      ],
+      "components": {
+        "geometry": "FAIL",
+        "price": "PENDING",
+        "volume": "PENDING",
+        "volatility": "PASS",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [
+        {
+          "rule_id": "HHHL_MIN_PIVOTS",
+          "result": "FAIL",
+          "observed": 2,
+          "threshold": 3
+        }
+      ],
+      "events": [
+        {
+          "date": "2026-08-31",
+          "event_type": "INVALIDATED",
+          "rule_id": "STRUCTURE_BROKEN"
+        }
+      ],
+      "scores": null
+    },
+    {
+      "pattern_id": "PATTERNQA:RECTANGLE:2026-08-27",
+      "pattern_type": "RECTANGLE",
+      "direction": "BULLISH",
+      "population": "EARLY",
+      "status": "BREAKOUT_ATTEMPT",
+      "stage": "S2",
+      "formation_start": "2026-08-27",
+      "formation_end": "2026-09-08",
+      "levels": {
+        "support": 500.0,
+        "resistance": 508.0,
+        "breakout_level": 509.0,
+        "invalidation_level": 498.0
+      },
+      "pivots": [
+        {
+          "date": "2026-08-28",
+          "price": 500.5,
+          "kind": "LOW",
+          "confirmed_date": "2026-08-31"
+        },
+        {
+          "date": "2026-09-01",
+          "price": 507.8,
+          "kind": "HIGH",
+          "confirmed_date": "2026-09-02"
+        }
+      ],
+      "components": {
+        "geometry": "PASS",
+        "price": "PENDING",
+        "volume": "PENDING",
+        "volatility": "PASS",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [
+        {
+          "rule_id": "RECT_MIN_TOUCHES",
+          "result": "PASS",
+          "observed": 2,
+          "threshold": 2
+        }
+      ],
+      "events": [
+        {
+          "date": "2026-09-03",
+          "event_type": "BREAKOUT_ATTEMPT",
+          "rule_id": "WICK_THROUGH_BREAKOUT"
+        }
+      ],
+      "scores": {
+        "formation": 70.0,
+        "readiness": 55.0,
+        "confirmation": 30.0,
+        "failure_risk": 40.0
+      }
+    },
+    {
+      "pattern_id": "PATTERNQA:SUPPORT_RESISTANCE:SUPPORT:490.00",
+      "pattern_type": "SUPPORT_RESISTANCE",
+      "direction": "NEUTRAL",
+      "population": "CONFIRMED",
+      "status": "GEOMETRY_VALID",
+      "stage": null,
+      "formation_start": "2026-08-12",
+      "formation_end": "2026-09-14",
+      "levels": {
+        "level": 490.0,
+        "kind": "SUPPORT",
+        "breakdown_level": 487.0
+      },
+      "pivots": [],
+      "components": {
+        "geometry": "PASS",
+        "price": "PENDING",
+        "volume": "PENDING",
+        "volatility": "PENDING",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [],
+      "events": [],
+      "scores": null
+    },
+    {
+      "pattern_id": "PATTERNQA:SUPPORT_RESISTANCE:SUPPORT:491.50",
+      "pattern_type": "SUPPORT_RESISTANCE",
+      "direction": "NEUTRAL",
+      "population": "CONFIRMED",
+      "status": "GEOMETRY_VALID",
+      "stage": null,
+      "formation_start": "2026-08-13",
+      "formation_end": "2026-09-14",
+      "levels": {
+        "level": 491.5,
+        "kind": "SUPPORT",
+        "breakdown_level": 488.5
+      },
+      "pivots": [],
+      "components": {
+        "geometry": "PASS",
+        "price": "PENDING",
+        "volume": "PENDING",
+        "volatility": "PENDING",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [],
+      "events": [],
+      "scores": null
+    },
+    {
+      "pattern_id": "PATTERNQA:SUPPORT_RESISTANCE:RESISTANCE:512.00",
+      "pattern_type": "SUPPORT_RESISTANCE",
+      "direction": "NEUTRAL",
+      "population": "CONFIRMED",
+      "status": "GEOMETRY_VALID",
+      "stage": null,
+      "formation_start": "2026-08-14",
+      "formation_end": "2026-09-14",
+      "levels": {
+        "level": 512.0,
+        "kind": "RESISTANCE",
+        "breakout_level": 515.0
+      },
+      "pivots": [],
+      "components": {
+        "geometry": "PASS",
+        "price": "PENDING",
+        "volume": "PENDING",
+        "volatility": "PENDING",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [],
+      "events": [],
+      "scores": null
+    },
+    {
+      "pattern_id": "PATTERNQA:SUPPORT_RESISTANCE:RESISTANCE:513.00",
+      "pattern_type": "SUPPORT_RESISTANCE",
+      "direction": "NEUTRAL",
+      "population": "CONFIRMED",
+      "status": "GEOMETRY_VALID",
+      "stage": null,
+      "formation_start": "2026-08-17",
+      "formation_end": "2026-09-14",
+      "levels": {
+        "level": 513.0,
+        "kind": "RESISTANCE",
+        "breakout_level": 516.0
+      },
+      "pivots": [],
+      "components": {
+        "geometry": "PASS",
+        "price": "PENDING",
+        "volume": "PENDING",
+        "volatility": "PENDING",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [],
+      "events": [],
+      "scores": null
+    }
+  ]
+}
