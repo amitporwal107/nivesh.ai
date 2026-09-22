@@ -96,20 +96,39 @@ def test_ncrps_bonus_scheme_category_never_causes_a_break():
     assert not mask.any()
 
 
-def test_ex_date_missing_from_bars_anchors_to_nearest_available_session():
-    # Symbol was suspended: no bar exactly on ex_date, nearest session is 3 days later.
-    dates = [BASE + timedelta(days=i) for i in range(20) if i != 10]  # index "10" missing
+def test_ex_date_missing_from_bars_anchors_to_the_first_session_on_or_after_it():
+    # Symbol was suspended: no bar on ex_date. T0 is the first bar after it (the price reflects the
+    # demerger when trading resumes); T-5..T-1 are the five bars before the ex-date.
+    dates = [BASE + timedelta(days=i) for i in range(20) if i != 10]  # day 10 missing
     ex_date = BASE + timedelta(days=10)
-    ev = _event("SUSPENDED", ex_date)
-    mask = regime_break_mask("SUSPENDED", dates, events=[ev])
-    # nearest available session to the missing ex_date is BASE+9 (before) vs BASE+11 (after);
-    # both are 1 day away -- tie goes to "before" per _anchor_index -- so anchor is the bar
-    # at BASE+9, which is position 9 in the (deduped, sorted) 19-date series.
-    unique_sorted = sorted(dates)
-    anchor_pos = unique_sorted.index(BASE + timedelta(days=9))
-    expected_true_dates = {pd.Timestamp(d) for d in unique_sorted[max(0, anchor_pos - 5):anchor_pos + 5 + 1]}
-    true_dates = {pd.Timestamp(d) for d, v in zip(dates, mask) if v}
-    assert true_dates == expected_true_dates
+    mask = regime_break_mask("SUSPENDED", dates, events=[_event("SUSPENDED", ex_date)])
+    expected = {pd.Timestamp(BASE + timedelta(days=i)) for i in (5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16)}
+    assert {pd.Timestamp(d) for d, v in zip(dates, mask) if v} == expected
+
+
+def test_an_ex_date_before_the_window_marks_nothing():
+    # RELIANCE-like: demerger a year before the window's first bar -- nothing in the window is T..T+5.
+    dates = [BASE + timedelta(days=400 + i) for i in range(30)]
+    mask = regime_break_mask("OLD", dates, events=[_event("OLD", BASE)])
+    assert not mask.any()
+
+
+def test_a_pre_demerger_regime_marks_exactly_the_five_sessions_before():
+    dates = [BASE + timedelta(days=i) for i in range(10)]  # all before the ex-date
+    mask = regime_break_mask("PRE", dates, events=[_event("PRE", BASE + timedelta(days=10))])
+    assert [d for d, v in zip(dates, mask) if v] == dates[5:]  # T-5..T-1, not six
+
+
+def test_sessions_are_counted_on_the_full_calendar_when_given():
+    full = [BASE + timedelta(days=i) for i in range(40)]
+    ex = BASE + timedelta(days=20)
+    window = full[23:]  # a window that starts at T+3 of the full history
+    mask = regime_break_mask("CAL", window, events=[_event("CAL", ex)], calendar=full)
+    # T..T+5 = days 20..25 -> only days 23, 24, 25 are inside the window
+    assert [d for d, v in zip(window, mask) if v] == full[23:26]
+    # without the calendar the window's own first bar would wrongly be treated as T0
+    naive = regime_break_mask("CAL", window, events=[_event("CAL", ex)])
+    assert [d for d, v in zip(window, naive) if v] == full[23:29]
 
 
 def test_duplicate_and_out_of_order_dates_are_each_independently_masked():

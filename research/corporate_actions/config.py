@@ -17,6 +17,10 @@ CONFIG: dict = {
     # window, measured in the symbol's own trading sessions (not calendar days).
     "regime_break_sessions_before": 5,
     "regime_break_sessions_after": 5,
+    # A side of the window is applied only when the nearest counted session is within this many
+    # calendar days of the ex-date (weekends, holidays, a short suspension -- UEL 2024-05-22 resumed
+    # 2024-05-27), so an ex-date outside the counted span marks nothing.
+    "anchor_max_gap_calendar_days": 10,
     # Safety-net large-gap detector (task §1.c): flag |open / prev_close - 1| beyond this
     # threshold as a REVIEW candidate. 20% comfortably catches both known demergers
     # (SIEMENS -34.74%, ABFRL -51.85%) while staying above ordinary circuit-band moves

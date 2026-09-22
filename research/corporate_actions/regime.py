@@ -67,29 +67,44 @@ def regime_break_mask(
     *,
     events: Iterable[DemergerEvent] | None = None,
     config: dict | None = None,
+    calendar: Sequence | None = None,
 ) -> np.ndarray:
     """Boolean array, same length and order as `dates` (duplicates and out-of-order input
     preserved -- research.charting.bars does not sort or dedup), True where that date falls
     within the configured T-5..T+5 session window of any confirmed demerger for `symbol`.
     A symbol with no confirmed demerger returns an all-False array of the same length.
+
+    T0 is the first session on or after the ex-date (the ex-date itself, or the first bar after a
+    suspension); T-5..T-1 are the five sessions before it and T..T+5 the six from it. Sessions are
+    counted on `calendar` -- the symbol's FULL trading dates -- when given, else on `dates`.
+    Pass `calendar` whenever `dates` is a window of a longer history: counted on a window, an
+    ex-date before the window's first bar would otherwise mark the window's first sessions.
+    A side of the window is applied only when the counted sessions reach the ex-date
+    (`anchor_max_gap_calendar_days`), so an ex-date outside the covered span marks nothing.
+
+    Review 2026-09-22 replaced a first version that anchored on the NEAREST session and clamped to
+    the first/last row: on a post-sealed window it marked RELIANCE's first six sessions for its
+    2023-07-20 demerger, and on a pre-demerger regime it shifted the window by one session.
     """
     cfg = CONFIG if config is None else config
     before = cfg["regime_break_sessions_before"]
     after = cfg["regime_break_sessions_after"]
+    tolerance = pd.Timedelta(days=cfg["anchor_max_gap_calendar_days"])
 
     relevant = events_for_symbol(symbol, events)
     input_ts = pd.to_datetime(pd.Series(list(dates))).dt.normalize()
     if not relevant:
         return np.zeros(len(input_ts), dtype=bool)
 
-    unique_dates = _unique_sorted_timestamps(dates)
+    sessions = _unique_sorted_timestamps(calendar if calendar is not None else dates)
     break_dates: set = set()
     for event in relevant:
         ex_ts = pd.Timestamp(event.ex_date)
-        anchor = _anchor_index(unique_dates, ex_ts)
-        lo = max(0, anchor - before)
-        hi = min(len(unique_dates) - 1, anchor + after)
-        break_dates.update(unique_dates[lo:hi + 1].tolist())
+        t0 = int(np.searchsorted(sessions, ex_ts))  # first session >= ex_date
+        if t0 < len(sessions) and pd.Timestamp(sessions[t0]) - ex_ts <= tolerance:
+            break_dates.update(sessions[t0:t0 + after + 1].tolist())
+        if t0 > 0 and ex_ts - pd.Timestamp(sessions[t0 - 1]) <= tolerance:
+            break_dates.update(sessions[max(0, t0 - before):t0].tolist())
 
     return input_ts.isin(break_dates).to_numpy()
 
