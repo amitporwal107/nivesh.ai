@@ -24,8 +24,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from research.charting.events import extraction, outcomes
-from research.charting.tests._events_helpers import confirmed_rectangle_with_runway
+from research.charting.events import extraction, outcomes, stops
+from research.charting.tests._events_helpers import confirmed_rectangle_with_runway, raw_bars
 
 _SIGNAL_FIELDS = (
     "pattern_id", "pattern_type", "direction", "signal_date", "confirmation_bar_index",
@@ -153,6 +153,44 @@ def test_bars_to_target_resolved_before_the_poison_point_is_unaffected():
     assert row_poisoned["outcomes"]["bars_to_target"][resolved_pct_key] == resolved
 
 
+# ── Probe 3: the §37.3 target/stop walk (stops.py) depends only on bars up to its own
+# resolution bar -- the same "later bars must not change an earlier answer" property as
+# Probe 2, applied to the new `stops.target_outcome_by_horizon` machinery (task hard rule:
+# "a poisoned-future probe... plus a peeking negative control"). Hand-built bars (not the
+# pattern-confirmation fixture) so the exact resolution offset is known upfront rather than
+# discovered, matching `test_events_stops.py`'s own style for this module.
+
+
+def test_target_stop_walk_unaffected_by_poisoning_after_its_own_resolution_bar():
+    bars = raw_bars(
+        [
+            (100.0, 104.0, 98.0, 102.0, 1e5),   # offset0 entry -- no touch
+            (102.0, 106.0, 100.0, 104.0, 1e5),  # offset1 -- no touch
+            (104.0, 111.0, 103.0, 108.0, 1e5),  # offset2 -- high>=110 target touched, resolves here
+        ]
+        + [(108.0, 109.0, 107.0, 108.0, 1e5)] * 18  # flat filler out to 21 bars (horizon 20 needs it)
+    )
+    out_base = stops.target_outcome_by_horizon(bars, 0, 100.0, target_price=110.0, stop_price=95.0, qty=10, adv_inr=None)
+    resolved_offset = out_base[5]["target_hit_session"]
+    assert resolved_offset == 2
+
+    poisoned = _poison_after(bars, resolved_offset)
+    pd.testing.assert_frame_equal(
+        poisoned.iloc[: resolved_offset + 1].reset_index(drop=True), bars.iloc[: resolved_offset + 1].reset_index(drop=True)
+    )
+    out_poisoned = stops.target_outcome_by_horizon(poisoned, 0, 100.0, target_price=110.0, stop_price=95.0, qty=10, adv_inr=None)
+    for h in (3, 5, 10, 20):
+        assert out_base[h] == out_poisoned[h], f"horizon {h} leaked bars beyond the walk's own resolution offset"
+
+    # Non-vacuity: a target that is only ever reached via the poisoned filler bars (never in the
+    # base frame) MUST differ once poisoned -- otherwise this probe would pass even if
+    # `target_outcome_by_horizon` secretly ignored the `bars` object entirely.
+    never_reached_base = stops.target_outcome_by_horizon(bars, 0, 100.0, target_price=9000.0, stop_price=1.0, qty=10, adv_inr=None)
+    never_reached_poisoned = stops.target_outcome_by_horizon(poisoned, 0, 100.0, target_price=9000.0, stop_price=1.0, qty=10, adv_inr=None)
+    assert never_reached_base[20]["neither_hit"] is True
+    assert never_reached_poisoned[20]["neither_hit"] is False  # the poisoned 9999-high bars DO reach it
+
+
 # ── Mandatory negative control ───────────────────────────────────────────────────────────
 
 
@@ -183,4 +221,34 @@ def test_negative_control_a_full_frame_peek_is_caught_while_the_real_adv_is_not(
     # And the REAL implementation shows no such difference for the identical (base, poisoned, t) triple.
     real_a = outcomes.adv_inr_at(base, t_idx, n=20)
     real_b = outcomes.adv_inr_at(poisoned, t_idx, n=20)
+    assert real_a == real_b
+
+
+def _peeking_target_reached_within_horizon(bars: pd.DataFrame, entry_index: int, target_price: float) -> bool:
+    """NEGATIVE CONTROL ONLY -- deliberately horizon-unbounded. Scans every bar from
+    `entry_index` to the END of whatever frame it is handed, ignoring the horizon cap entirely
+    -- exactly the mistake of forgetting to bound the walk to `max_offset` (§37.3's "over each
+    horizon" is not optional). Must never be imported outside this test file."""
+    return bool((bars["high"].iloc[entry_index:] >= target_price).any())
+
+
+def test_negative_control_an_unbounded_horizon_scan_is_caught_while_the_real_walk_is_not():
+    bars = raw_bars(
+        [(100.0, 104.0, 98.0, 102.0, 1e5), (102.0, 106.0, 100.0, 104.0, 1e5)]
+        + [(103.0, 104.0, 102.0, 103.0, 1e5)] * 6  # flat -- target 9000 never reached in this base frame
+    )
+    poisoned = _poison_after(bars, 1)  # poison strictly after offset 1 -- outside horizon h=1's own window
+    pd.testing.assert_frame_equal(poisoned.iloc[:2].reset_index(drop=True), bars.iloc[:2].reset_index(drop=True))
+
+    peek_a = _peeking_target_reached_within_horizon(bars, 0, target_price=9000.0)
+    peek_b = _peeking_target_reached_within_horizon(poisoned, 0, target_price=9000.0)
+    assert peek_a != peek_b, (
+        "negative control failed to detect the leak -- a probe that stays green against a "
+        "broken implementation proves nothing"
+    )
+
+    # The REAL, horizon-bounded walk shows no such difference for horizon 1 (offsets 0-1 only --
+    # the poisoned bars at offset >= 2 are outside that horizon's own window by construction).
+    real_a = stops.target_outcome_by_horizon(bars, 0, 100.0, target_price=9000.0, stop_price=1.0, qty=10, adv_inr=None, horizons=(1,))
+    real_b = stops.target_outcome_by_horizon(poisoned, 0, 100.0, target_price=9000.0, stop_price=1.0, qty=10, adv_inr=None, horizons=(1,))
     assert real_a == real_b

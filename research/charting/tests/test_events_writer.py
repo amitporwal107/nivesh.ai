@@ -26,7 +26,7 @@ def test_write_run_creates_events_jsonl_and_manifest(tmp_path):
     assert manifest["row_count"] == len(rows) == 1
     assert manifest["segment"] == "pre_sealed"
     assert manifest["symbols"] == ["SYN1"]
-    assert manifest["schema_version"] == 1
+    assert manifest["schema_version"] == 2
     assert len(manifest["artifacts"]) == 1
     assert manifest["artifacts"][0]["path"] == "events.jsonl"
 

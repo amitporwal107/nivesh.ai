@@ -149,8 +149,36 @@ def test_cost_blocks_state_they_are_long_round_trips_and_flag_bearish_short_cost
     from research.charting.tests import synth
 
     bars = synth.bars_from_closes([100.0 + (i % 5) * 0.5 + i * 0.1 for i in range(60)], start_date="2021-03-01")
-    bull = build_outcome_cost_block(bars, 30, "BULLISH")["costs"]
-    bear = build_outcome_cost_block(bars, 30, "BEARISH")["costs"]
+    bull_block = build_outcome_cost_block(bars, 30, "BULLISH")
+    bear_block = build_outcome_cost_block(bars, 30, "BEARISH")
+    bull, bear = bull_block["costs"], bear_block["costs"]
     assert bull["trade_side"] == bear["trade_side"] == "LONG"
     assert bull["short_side_costs"] is None
     assert bear["short_side_costs"] == "NOT_MODELLED"
+
+
+def test_bearish_rows_build_no_stop_target_trade_or_cost_block_docs_37_4():
+    """§37.4: "do not build stop/target trades or cost blocks" for BEARISH -- but the directional
+    forward returns (already computed unconditionally, flipped for BEARISH) and the
+    tradability/action flags must still be present so the "avoid new long" signal can be
+    validated."""
+    from research.charting.events.extraction import build_outcome_cost_block
+    from research.charting.tests import synth
+
+    bars = synth.bars_from_closes([100.0 + (i % 5) * 0.5 + i * 0.1 for i in range(60)], start_date="2021-03-01")
+    bull_block = build_outcome_cost_block(bars, 30, "BULLISH", atr_at_t=2.0)
+    bear_block = build_outcome_cost_block(bars, 30, "BEARISH", atr_at_t=2.0)
+
+    assert bull_block["stop"] is not None and bull_block["targets"] is not None
+    assert bull_block["costs"]["by_horizon"] is not None
+
+    assert bear_block["stop"] is None
+    assert bear_block["targets"] is None
+    assert bear_block["costs"]["by_horizon"] is None
+    assert bear_block["tradability"] == "INFORMATIONAL"
+    assert bear_block["action"] == "AVOID_NEW_LONG"
+    assert bull_block["tradability"] == "LONG_ACTIONABLE"
+    assert bull_block["action"] == "CONSIDER_LONG"
+    # directional forward returns are still computed for BEARISH (never dropped -- §37.4's own
+    # "so the avoid signal can still be validated").
+    assert bear_block["outcomes"]["forward_returns_directional"][1]["available"] is True

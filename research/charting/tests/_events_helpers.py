@@ -11,6 +11,18 @@ from research.charting.config import BARS_COLUMNS
 from research.charting.tests import synth
 
 
+def raw_bars(rows, start_date: str = "2021-01-04") -> pd.DataFrame:
+    """Explicit-OHLC synthetic bars, one business day apart -- unlike `synth.bars_from_closes`
+    (which derives high/low from a close path plus a fixed wick), every field is given here, so
+    a gap/wick/ambiguity scenario for the §37.3 target/stop walk (`stops.py`) can be hand-crafted
+    exactly. `rows`: (open, high, low, close, volume) tuples."""
+    dates = pd.bdate_range(start=start_date, periods=len(rows))
+    df = pd.DataFrame([(d, *r) for d, r in zip(dates, rows)], columns=list(BARS_COLUMNS))
+    for c in ("open", "high", "low", "close", "volume"):
+        df[c] = df[c].astype(float)
+    return df
+
+
 def shift_outside_sealed_window(bars: pd.DataFrame, years: int = 3) -> pd.DataFrame:
     """Shift every date back `years` years -- the same technique `test_replay.py`'s own
     `_shift_outside_sealed_window` uses: `synth.py`'s fixtures are anchored at 2024-01-02,
@@ -42,6 +54,21 @@ def extend_with_closes(bars: pd.DataFrame, closes, *, volume: float = 100_000.0,
         prev_close = c
     extra = pd.DataFrame(rows, columns=list(BARS_COLUMNS))
     return pd.concat([bars, extra], ignore_index=True)
+
+
+def confirmed_rectangle_bearish_with_runway(*, tail_closes=None, tail_len: int = 30) -> pd.DataFrame:
+    """RECT-1 + `synth.fixture_05b_gap_breakdown_control` (a first-ever gap below the
+    breakdown level, no prior breakout attempt -- a clean, unambiguous BEARISH
+    PRICE_CONFIRMED, per that fixture's own docstring/control purpose) + `tail_len` more bars
+    drifting gently downward, shifted outside the sealed window -- the BEARISH counterpart of
+    `confirmed_rectangle_with_runway`, used to test §37.4 (no stop/target trade or cost block
+    for a bearish row)."""
+    base = synth.fixture_05b_gap_breakdown_control(synth.rect1())
+    if tail_closes is None:
+        last_close = float(base["close"].iloc[-1])
+        tail_closes = [last_close - 0.3 * i for i in range(1, tail_len + 1)]
+    extended = extend_with_closes(base, tail_closes)
+    return shift_outside_sealed_window(extended)
 
 
 def confirmed_rectangle_with_runway(*, tail_closes=None, tail_len: int = 30) -> pd.DataFrame:

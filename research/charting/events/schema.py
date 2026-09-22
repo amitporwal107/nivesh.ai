@@ -19,14 +19,46 @@ from research.charting.research_window import SEALED_GAP_END, SEALED_GAP_START
 from research.costs.rule_loader import load_rule_file
 
 # -- This package's own dataset schema version (PRD S30 dataset_version) --
-EVENTS_SCHEMA_VERSION = 1
+# Bumped 1 -> 2 (docs/charting.md S37, Amendment C, 2026-09-22): the old bare hit_high_N /
+# hit_close_N labels are REMOVED from the row (replaced by the S37.2/S37.3 target/stop/R
+# framework in `stops.py`); every row also gains `stop`, `targets`, `tradability` and `action`.
+EVENTS_SCHEMA_VERSION = 2
 
 # -- S35.2 forward horizons (sessions) and S18.2/S35.2 bars-to-target percentages --
 HORIZONS: tuple[int, ...] = (1, 3, 5, 10, 20)
 BARS_TO_TARGET_PCTS: tuple[float, ...] = (0.02, 0.05, 0.10, 0.15)
-# hit_high_N / hit_close_N pairing (see outcomes.py docstring for the documented interpretation
-# of these two S18.2 labels, which the PRD lists without a formula).
-HIT_HORIZON_PCT_PAIRS: tuple[tuple[int, float], ...] = ((5, 0.05), (10, 0.10))
+
+# -- S37.2 owner decision baseline: research targets ("+2%, +3%, +5%, +10% from entry, plus
+# R-multiple targets 1R, 1.5R, 2R, 3R") -- see `stops.py` for how these are turned into prices
+# and walked against the S37.3 stop. Kept here alongside this package's other frozen constants
+# (HORIZONS/BARS_TO_TARGET_PCTS above), for the same reason: one place, imported everywhere.
+TARGET_PCTS: tuple[float, ...] = (0.02, 0.03, 0.05, 0.10)
+R_MULTIPLES: tuple[float, ...] = (1.0, 1.5, 2.0, 3.0)
+
+# -- S37.3 Layer 2 minimum stop distance ("at least 0.75 x ATR(14) below entry"). NOT a CONFIG
+# key: this package never edits `config.py` (owned by other agents right now), and the owner's
+# 2026-09-22 chat decision was never folded into the frozen S30 CONFIG dict in the first place --
+# so it lives here, the same way HORIZONS/BARS_TO_TARGET_PCTS above are this package's OWN
+# frozen constants rather than CONFIG entries.
+LAYER2_MIN_STOP_DISTANCE_ATR = 0.75
+
+# -- S37.4 bearish-pattern tradability/action labels (cash-only long portfolio) --
+TRADABILITY_LONG_ACTIONABLE = "LONG_ACTIONABLE"
+TRADABILITY_INFORMATIONAL = "INFORMATIONAL"
+ACTION_CONSIDER_LONG = "CONSIDER_LONG"
+ACTION_AVOID_NEW_LONG = "AVOID_NEW_LONG"
+
+
+def tradability_and_action(direction: str) -> tuple[str, str]:
+    """(tradability, action) for a row's own `direction` -- S37.4: "Detected, displayed and
+    validated, but tradability = INFORMATIONAL and action = AVOID_NEW_LONG for the cash-only
+    long portfolio" for anything that is not BULLISH. BULLISH is the only long-actionable
+    case; a pattern family never actually confirms NEUTRAL (see `stops.py` module docstring),
+    but this stays a safe, explicit fallback rather than assuming BULLISH-shaped behaviour for
+    an unrecognised direction."""
+    if direction == "BULLISH":
+        return TRADABILITY_LONG_ACTIONABLE, ACTION_CONSIDER_LONG
+    return TRADABILITY_INFORMATIONAL, ACTION_AVOID_NEW_LONG
 
 # -- S36 / cost PRD S21-S22 defaults ("statutory path", "default Zerodha delivery = 0") --
 DEFAULT_NOTIONAL_INR = Decimal("100000")

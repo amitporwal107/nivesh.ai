@@ -7,6 +7,14 @@ Intelligence & Validation") adopting the owner's source PRD
   - N12 Market Regime Engine  -> `market_regime()`
   - India VIX + universe breadth as context fields (35.2/35.3) -> `india_vix_at()`,
     `breadth_at()`
+  - Section 37.1 ("Amendment C -- Owner decision baseline for validation") Trend
+    classification -> `trend_classification()`. This is a SEPARATE feature from N10's
+    `trend_state` (0/1/2, SMA-ordering based) and N12's `regime` (SMA200 vs slope) above:
+    37.1 is its own OLS-slope-of-close + ADX(14) classification into
+    STRONG_BULL/BULL/BEAR/STRONG_BEAR/SIDEWAYS, applied to a stock's own bars AND,
+    separately, to NIFTY 500 (37.1: "Applied to each stock and to NIFTY 500. The section
+    35.2 NIFTY 500 vs SMA200 regime is kept alongside" -- i.e. `market_regime()` is
+    UNCHANGED and `trend_classification()` is an addition next to it, not a replacement).
 
 35.1 conflict resolutions that bind this module:
   - The market benchmark is NIFTY 500 (`CONFIG["market_benchmark"]`, unchanged from
@@ -42,6 +50,25 @@ to whichever module eventually maps these raw features onto that richer 5-way ju
 
 Definitions actually used (see each function's docstring for the full derivation, and
 the module's final report for the NEEDS-OWNER-CONFIRMATION list):
+
+  - Trend classification (37.1, owner decision 2026-09-22 -- `trend_classification()`):
+    `slope_pct_per_day = OLS_slope(session_index, close) over the trailing 20 sessions
+    ending at t, divided by the mean of those 20 closes, times 100` (37.1's own formula,
+    "ordinary least squares on the last 20 closes against session index"; the OLS slope
+    itself is `research.charting.geometry.ols_slope`, already used by this codebase for
+    NI-2's boundary-drift predicate -- reused here rather than re-derived). Classes, STRONG
+    checked before plain (a STRONG_BULL slope/ADX pair also satisfies BULL's looser
+    thresholds, so order matters): STRONG_BULL (slope >= +0.30 and ADX(14) >= 25), BULL
+    (slope >= +0.15 and ADX(14) >= 20), BEAR (slope <= -0.15 and ADX(14) >= 20),
+    STRONG_BEAR (slope <= -0.30 and ADX(14) >= 25), SIDEWAYS otherwise -- 37.1's own
+    resolution of its table-vs-prose conflict ("the final baseline (OR) is used"), i.e. a
+    class requires BOTH its slope and ADX gate (an AND within one class), but SIDEWAYS is
+    simply "none of the four gated classes fired" (an OR/fallthrough across classes, not a
+    numeric band of its own). 37.1's 20-session window is the SAME lookback this module's
+    N10/N12 SMA-slope features already used as a NEEDS-OWNER-CONFIRMATION guess
+    (`trend_slope_lookback_bars` / `regime_slope_lookback_bars`) -- 37.1 confirms that
+    guess was correct, so that marker is removed from both keys below (still 20, now
+    grounded in an explicit owner decision instead of an inferred precedent).
 
   - Relative strength RS5/20/50/100 (N11): `StockReturn_nD - BenchmarkReturn_nD`, both
     SIMPLE (not log) returns over the trailing n TRADING sessions ending at t --
@@ -96,7 +123,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from research.charting import series
+from research.charting import geometry, series
 from research.charting.config import CONFIG
 from research.charting.context import (
     STATUS_OK as CTX_STATUS_OK,  # noqa: F401  (re-exported for convenience/parity)
@@ -163,7 +190,8 @@ def _unavailable(reason: str, detail: str | None = None) -> FeatureValue:
 # not add keys to CONFIG -- that would change the detector config_hash and the served
 # snapshot). Changing a value here changes feature_config_hash() and nothing else.
 
-FEATURE_VERSION = "1.0.0"
+FEATURE_VERSION = "1.1.0"  # 1.1.0: 37.1 trend_classification() added; NEEDS-OWNER-CONFIRMATION
+# removed from trend_slope_lookback_bars/regime_slope_lookback_bars (owner confirmed 20, see below)
 
 FEATURE_CONFIG: dict = {
     # N11 relative strength
@@ -179,24 +207,33 @@ FEATURE_CONFIG: dict = {
     "trend_ema_periods": [20, 50],
     "trend_adx_period": 14,
     "trend_atr_period": CONFIG["atr_period"],  # 14, frozen 30.1 -- mirrored, not re-imported
-    # NEEDS-OWNER-CONFIRMATION: N10's own example says "SMA50 slope > 0" but never states
-    # the slope measurement window. Grounded in (not silently invented from) the only
-    # existing "SMA slope" convention in this codebase:
-    # backend/nidp/services/technical_indicator_engine/calculator.py.sma_slope(period,
-    # lookback=20) -- its default is reused verbatim.
-    "trend_slope_lookback_bars": 20,  # NEEDS-OWNER-CONFIRMATION
+    # Owner-confirmed 2026-09-22 (docs/charting.md 37.1: "Applied to each stock and to
+    # NIFTY 500. The 35.2 NIFTY 500 vs SMA200 regime is kept alongside, with a 20-session
+    # slope window.") -- was a NEEDS-OWNER-CONFIRMATION guess grounded in
+    # backend/nidp/services/technical_indicator_engine/calculator.py.sma_slope's
+    # lookback=20 default; 37.1 confirms 20 is correct, so the marker is removed.
+    "trend_slope_lookback_bars": 20,
 
     # N12 market regime
     "regime_sma_period": 200,  # N12 states "SMA200" explicitly -- not a free parameter.
-    # NEEDS-OWNER-CONFIRMATION: same gap as trend_slope_lookback_bars, same grounding.
-    "regime_slope_lookback_bars": 20,  # NEEDS-OWNER-CONFIRMATION
+    # Owner-confirmed 2026-09-22 -- same 37.1 sentence as trend_slope_lookback_bars above.
+    "regime_slope_lookback_bars": 20,
     # NEEDS-OWNER-CONFIRMATION: N12 defines SIDEWAYS purely as the logical complement of
     # BULL/BEAR ("neither") -- no explicit numeric dead-band around SMA200 or around
     # slope==0 is stated anywhere in N12. This key is kept here, unused (None), so that
     # if an owner later approves a real band it is a config change covered by
     # feature_config_hash(), never a silent behavioural switch. See market_regime()'s
-    # docstring.
+    # docstring. (Unrelated to and NOT resolved by 37.1, which is a different feature --
+    # see trend_classification()'s own SIDEWAYS, which IS pinned, below.)
     "regime_sideways_band": None,  # NEEDS-OWNER-CONFIRMATION (not implemented; see docstring)
+
+    # 37.1 trend classification (owner decision 2026-09-22) -- trend_classification()
+    "trend_class_slope_lookback_bars": 20,
+    "trend_class_adx_period": 14,
+    "trend_class_slope_threshold_pct": 0.15,  # BULL/BEAR slope_pct_per_day gate
+    "trend_class_strong_slope_threshold_pct": 0.30,  # STRONG_BULL/STRONG_BEAR slope gate
+    "trend_class_adx_threshold": 20,  # BULL/BEAR ADX(14) gate
+    "trend_class_strong_adx_threshold": 25,  # STRONG_BULL/STRONG_BEAR ADX(14) gate
 }
 
 
@@ -652,6 +689,123 @@ def market_regime(
     return out
 
 
+# -- 37.1 Trend classification (owner decision baseline, 2026-09-22) ----------
+
+
+def _classify_trend_label(
+    slope_pct_per_day: float,
+    adx: float,
+    *,
+    slope_threshold_pct: float,
+    strong_slope_threshold_pct: float,
+    adx_threshold: float,
+    strong_adx_threshold: float,
+) -> str:
+    """37.1's pure classification rule, factored out of `trend_classification()` so the
+    class-boundary logic is testable against exact numbers without needing a bars fixture
+    that hand-computes an exact ADX (ADX's double Wilder-smoothing recursion is not
+    practically hand-computable -- see `test_regime_trend.py`'s own note on this).
+
+    STRONG checked before plain -- a STRONG_BULL-qualifying (slope, adx) pair also
+    satisfies BULL's looser thresholds, so evaluating BULL first would misclassify it.
+    Every class is an AND of its own slope gate and its own ADX gate; SIDEWAYS is simply
+    "none of the four gated classes fired", not a numeric band of its own (37.1: "the
+    final baseline (OR) is used" -- resolving 37.1's own table-vs-prose conflict, see
+    module docstring).
+    """
+    if slope_pct_per_day >= strong_slope_threshold_pct and adx >= strong_adx_threshold:
+        return "STRONG_BULL"
+    if slope_pct_per_day <= -strong_slope_threshold_pct and adx >= strong_adx_threshold:
+        return "STRONG_BEAR"
+    if slope_pct_per_day >= slope_threshold_pct and adx >= adx_threshold:
+        return "BULL"
+    if slope_pct_per_day <= -slope_threshold_pct and adx >= adx_threshold:
+        return "BEAR"
+    return "SIDEWAYS"
+
+
+def trend_classification(
+    bars: pd.DataFrame,
+    t: Any,
+    *,
+    slope_lookback: int = FEATURE_CONFIG["trend_class_slope_lookback_bars"],
+    adx_period: int = FEATURE_CONFIG["trend_class_adx_period"],
+    slope_threshold_pct: float = FEATURE_CONFIG["trend_class_slope_threshold_pct"],
+    strong_slope_threshold_pct: float = FEATURE_CONFIG["trend_class_strong_slope_threshold_pct"],
+    adx_threshold: float = FEATURE_CONFIG["trend_class_adx_threshold"],
+    strong_adx_threshold: float = FEATURE_CONFIG["trend_class_strong_adx_threshold"],
+) -> dict[str, FeatureValue]:
+    """37.1 trend classification for ONE bars-like frame (a stock's own bars, or NIFTY 500's
+    -- generic on purpose: 37.1 "Applied to each stock and to NIFTY 500", so `features_at()`
+    below calls this same function twice, once per leg, rather than duplicating it).
+
+    `slope_pct_per_day = OLS_slope(session_index, close) over the trailing `slope_lookback`
+    (20) sessions ending at `t`, / mean(those closes) * 100` (37.1's own formula: "ordinary
+    least squares on the last 20 closes against session index"). `session_index` is plain
+    `0..slope_lookback-1` (an OLS slope is invariant to a constant shift of x, so this is
+    equivalent to using the bars' true integer positions). ADX(14) reuses `_adx_series`
+    (the same Wilder ADX this module already computes for `trend_context`).
+
+    Returns `{"slope_pct_per_day": FeatureValue, "adx_14": FeatureValue, "class": FeatureValue}`
+    (key name `adx_14` mirrors `trend_context`'s own `f"adx_{adx_period}"` naming). `class`
+    is UNAVAILABLE (never guessed) if EITHER input is UNAVAILABLE -- reason taken from the
+    failing input, SEALED_GAP preferred if either reports it (same precedence
+    `relative_strength()` already uses for its two-legged UNAVAILABLE reason).
+
+    Sealed-window / point-in-time: both windows are checked via `_window_check` against the
+    full frame's CALENDAR dates, then computed on `_segment_of(frame, ts)` (t's own side of
+    the sealed gap only) -- the same two-step machinery every other windowed feature in this
+    module uses, so a sealed-window bar (or, for the index files, a pre-gap row) can never
+    reach a post-sealed value here either (see `test_regime_trend_classification.py`'s sealed
+    probe, adapted from `test_regime_sealed_inputs.py`).
+    """
+    frame = _prepare_frame(bars)
+    ts = pd.Timestamp(t).normalize()
+    dates = frame["date"]
+    seg, seg_pos = _segment_of(frame, ts)  # series are computed on t's side of the sealed window only
+
+    out: dict[str, FeatureValue] = {}
+
+    slope_chk = _window_check(dates, ts, slope_lookback)
+    if slope_chk.status == STATUS_OK:
+        window_start = seg_pos - slope_lookback + 1
+        closes_window = seg["close"].iloc[window_start : seg_pos + 1].to_numpy(dtype=float)
+        xs = list(range(slope_lookback))
+        raw_slope = geometry.ols_slope(xs, closes_window.tolist())
+        mean_close = float(closes_window.mean())
+        if mean_close == 0.0:
+            out["slope_pct_per_day"] = _unavailable(REASON_ZERO_BASE)
+        else:
+            out["slope_pct_per_day"] = _ok(raw_slope / mean_close * 100.0)
+    else:
+        out["slope_pct_per_day"] = _unavailable(slope_chk.reason)
+
+    adx_key = f"adx_{adx_period}"
+    adx_chk = _window_check(dates, ts, 2 * adx_period)
+    if adx_chk.status == STATUS_OK:
+        adx_s = _adx_series(seg, period=adx_period)
+        out[adx_key] = _ok(float(adx_s.iloc[seg_pos]))
+    else:
+        out[adx_key] = _unavailable(adx_chk.reason)
+
+    slope_fv = out["slope_pct_per_day"]
+    adx_fv = out[adx_key]
+    if slope_fv.status != STATUS_OK or adx_fv.status != STATUS_OK:
+        failed = [fv for fv in (slope_fv, adx_fv) if fv.status != STATUS_OK]
+        reason = next((fv.reason for fv in failed if fv.reason == REASON_SEALED_GAP), failed[0].reason)
+        out["class"] = _unavailable(reason)
+    else:
+        out["class"] = _ok(_classify_trend_label(
+            slope_fv.value, adx_fv.value,
+            slope_threshold_pct=slope_threshold_pct,
+            strong_slope_threshold_pct=strong_slope_threshold_pct,
+            adx_threshold=adx_threshold,
+            strong_adx_threshold=strong_adx_threshold,
+        ))
+
+    return out
+
+
 # -- India VIX (35.2/35.3 context field) --------------------------------------
 
 
@@ -761,6 +915,14 @@ def features_at(
 
     for key, fv in market_regime(benchmark_df, ts).items():
         out.update(fv.flatten(f"regime_{key}"))
+
+    # 37.1 trend classification -- stock leg and NIFTY 500 leg, kept SEPARATE from
+    # trend_context's trend_state and market_regime's regime above (37.1: "kept alongside").
+    for key, fv in trend_classification(symbol_bars, ts).items():
+        out.update(fv.flatten(f"trend_class_{key}"))
+
+    for key, fv in trend_classification(benchmark_df, ts).items():
+        out.update(fv.flatten(f"market_trend_class_{key}"))
 
     out.update(india_vix_at(ts, vix_df).flatten("india_vix_close"))
 

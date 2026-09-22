@@ -58,13 +58,15 @@ threshold already used elsewhere in the same PRD section family (S18.5's own "mo
   hit_high_10  = bars_to_+10% is not None and <= 10  (a >=10% HIGH within the first 10 sessions)
   hit_close_5  = horizon-5 raw close_return >= 0.05   (the CLOSE at session 5 is itself >=5% up)
   hit_close_10 = horizon-10 raw close_return >= 0.10
-`None` (never False) when the underlying horizon itself is unavailable.
 
-target/stop-based labels (`hit_target_before_stop`, `stop_before_target`, S18.2) are NOT built
-here: docs/charting.md S35.1's own conflict-resolution table defers "expected move... target
-price language" ("owner-only wording decision pending") -- no target/stop LEVEL policy exists
-yet for this engine to evaluate against, so inventing one would be exactly the kind of silent
-assumption the project rules forbid. See this package's final report for this NEEDS-INPUT.
+REMOVED 2026-09-22 (docs/charting.md §37, Amendment C): the owner's outcome-definition baseline
+(§37.2) replaces this single bare "hit" label with a full target/stop/R framework -- see
+`stops.py` (`target_outcome_by_horizon`, `structural_stop`, `resolve_stop`) for
+`target_hit`/`stop_hit`/`both_hit`/`neither_hit`/`first_exit_event`, which supersede
+`hit_high_N`/`hit_close_N` on the row. The `hit_flags` function that used to live here (and the
+`HIT_HORIZON_PCT_PAIRS` constant it read) is deleted, not merely unused -- §37.2 also closes the
+NEEDS-INPUT this docstring used to flag ("target/stop-based labels... no target/stop LEVEL
+policy exists yet"): `stops.py` is that policy now.
 """
 from __future__ import annotations
 
@@ -73,7 +75,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from research.charting.events.schema import BARS_TO_TARGET_PCTS, HIT_HORIZON_PCT_PAIRS, HORIZONS, iso_date
+from research.charting.events.schema import BARS_TO_TARGET_PCTS, HORIZONS, iso_date
 
 
 def _finite_positive(x) -> bool:
@@ -178,28 +180,6 @@ def bars_to_targets(
             out[pct] = {"bars": None, "reason": "insufficient_forward_bars"}
         else:
             out[pct] = {"bars": None, "reason": "not_reached_within_horizon"}
-    return out
-
-
-def hit_flags(raw: dict, bars_to: dict) -> dict:
-    """hit_high_N / hit_close_N -- see module docstring for the documented pairing. `None`
-    (never a guessed True/False) whenever the underlying horizon/target is unavailable due to
-    insufficient forward data; a genuine "target not reached in time" is reported `False`, not
-    `None` -- it is real information, not a data gap."""
-    out: dict = {}
-    for h, pct in HIT_HORIZON_PCT_PAIRS:
-        bt = bars_to.get(pct)
-        if bt is None or bt["reason"] == "insufficient_forward_bars":
-            out[f"hit_high_{h}"] = None
-        elif bt["bars"] is not None:
-            out[f"hit_high_{h}"] = bt["bars"] <= h
-        else:  # not_reached_within_horizon (definitely never printed within the full 20-bar scan)
-            out[f"hit_high_{h}"] = False
-        r = raw.get(h)
-        if r is not None and r.get("available"):
-            out[f"hit_close_{h}"] = bool(r["close_return"] >= pct)
-        else:
-            out[f"hit_close_{h}"] = None
     return out
 
 

@@ -18,7 +18,7 @@ _EXPECTED_TOP_KEYS = {
     "confirmation_bar_index", "level_broken", "level_broken_field", "atr_at_t",
     "relative_volume_at_t", "config_hash", "engine_version", "profile", "dataset_version",
     "versioning", "entry", "outcomes", "outcomes_alt_close_entry", "liquidity", "costs",
-    "unavailable_reason",
+    "stop", "targets", "tradability", "action", "unavailable_reason",
 }
 
 
@@ -38,8 +38,10 @@ def test_rectangle_event_row_shape_and_signal_fields():
     assert row["signal_date"] == bars["date"].iloc[t].date().isoformat()
     assert row["config_hash"] == config_hash(CONFIG)
     assert row["engine_version"] == ENGINE_VERSION
-    assert row["dataset_version"] == 1
+    assert row["dataset_version"] == 2
     assert row["unavailable_reason"] is None
+    assert row["tradability"] == "LONG_ACTIONABLE"
+    assert row["action"] == "CONSIDER_LONG"
 
 
 def test_support_resistance_event_uses_breakout_level_key():
@@ -89,8 +91,9 @@ def test_outcomes_present_for_every_horizon_with_enough_runway():
     for h in fwd:
         assert directional[h]["close_return_directional"] == pytest.approx(fwd[h]["close_return"])  # BULLISH: unchanged
     assert set(row["outcomes"]["bars_to_target"].keys()) == {"plus_2pct", "plus_5pct", "plus_10pct", "plus_15pct"}
-    for k in ("hit_high_5", "hit_close_5", "hit_high_10", "hit_close_10"):
-        assert k in row["outcomes"]
+    # hit_high_N/hit_close_N were removed from `outcomes` 2026-09-22 (§37 Amendment C) --
+    # superseded by `row["stop"]`/`row["targets"]`, see test_events_stops.py.
+    assert "hit_high_5" not in row["outcomes"] and "hit_close_5" not in row["outcomes"]
 
 
 def test_alt_close_entry_outcomes_use_a_different_entry_price_than_primary():

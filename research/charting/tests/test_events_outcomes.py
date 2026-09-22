@@ -106,35 +106,10 @@ def test_bars_to_targets_insufficient_forward_bars_is_a_distinct_reason():
     assert bt[0.02] == {"bars": None, "reason": "insufficient_forward_bars"}
 
 
-# ── hit_high_N / hit_close_N (documented interpretation) ────────────────────────────────────
-
-
-def test_hit_high_5_true_when_plus5pct_reached_within_5_bars():
-    bars = synth.bars_from_closes([100.0] + [100.0] * 4 + [106.0] + [100.0] * 20, wick=0.2)
-    bt = outcomes.bars_to_targets(bars, entry_index=0, entry_price=100.0)
-    fwd = outcomes.forward_outcome_block(bars, entry_index=0, entry_price=100.0, direction="BULLISH")
-    flags = outcomes.hit_flags(fwd["raw"], bt)
-    assert flags["hit_high_5"] is True  # +5% high reached at bar index 5 (<=5)
-
-
-def test_hit_flags_none_when_data_insufficient_never_a_guessed_bool():
-    bars = synth.bars_from_closes([100.0, 101.0, 102.0])  # far too short for horizon 5/10
-    bt = outcomes.bars_to_targets(bars, entry_index=0, entry_price=100.0)
-    fwd = outcomes.forward_outcome_block(bars, entry_index=0, entry_price=100.0, direction="BULLISH")
-    flags = outcomes.hit_flags(fwd["raw"], bt)
-    assert flags["hit_high_5"] is None
-    assert flags["hit_close_5"] is None
-    assert flags["hit_high_10"] is None
-    assert flags["hit_close_10"] is None
-
-
-def test_hit_close_5_matches_the_horizon_5_raw_close_return_threshold():
-    bars = synth.bars_from_closes([100.0, 100, 100, 100, 100, 106] + [106.0] * 20, wick=0.1)
-    bt = outcomes.bars_to_targets(bars, entry_index=0, entry_price=100.0)
-    fwd = outcomes.forward_outcome_block(bars, entry_index=0, entry_price=100.0, direction="BULLISH")
-    flags = outcomes.hit_flags(fwd["raw"], bt)
-    assert fwd["raw"][5]["close_return"] == pytest.approx(0.06)
-    assert flags["hit_close_5"] is True
+# hit_high_N / hit_close_N (and `outcomes.hit_flags`, which computed them) were REMOVED
+# 2026-09-22 (docs/charting.md §37, Amendment C) -- superseded by the target/stop/R framework in
+# `stops.py`; see `test_events_stops.py` for its own coverage, and `outcomes.py`'s module
+# docstring for the removal note.
 
 
 # ── ADV ───────────────────────────────────────────────────────────────────────────────────
