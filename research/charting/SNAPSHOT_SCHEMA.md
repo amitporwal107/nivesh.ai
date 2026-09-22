@@ -84,8 +84,13 @@ Pattern objects (filled once detectors land; UI must render an empty list gracef
   "components": {"geometry": "PASS", "price": "PASS", "volume": "FAIL", "volatility": "PASS",
                  "market": "UNAVAILABLE", "sector": "UNAVAILABLE", "data_quality": "VALID"},
   "rules": [{"rule_id": "RECT_MIN_TOUCHES", "result": "PASS", "observed": 2, "threshold": 2}],
-  "events": [{"date": "2024-03-01", "event_type": "PRICE_CONFIRMED", "rule_id": "CLOSE_ABOVE_BREAKOUT"}],
-  "scores": null                                     // §34.5: {formation, readiness, confirmation, failure_risk}, never summed
+  "events": [{"date": "2024-03-01", "event_type": "PRICE_CONFIRMED", "rule_id": "CLOSE_ABOVE_BREAKOUT",
+              "observed_values": {"close": 111.0, "breakout_level": 110.5, "body_pct": 0.87, "close_location": 0.92}}],
+  "scores": null,                                    // §34.5: {formation, readiness, confirmation, failure_risk}, never summed
+  "retest_quality": null                              // §35.2 amendment (N§13), descriptive only, null until PRICE_CONFIRMED:
+                                                        // {"attempts": 1, "penetration_atr": 0.3, "penetration_pct": 1.1,
+                                                        //  "retest_relative_volume": 0.85, "bars_confirmation_to_retest": 1,
+                                                        //  "bars_retest_to_continuation": 2, "note": null}
 }
 ```
 
