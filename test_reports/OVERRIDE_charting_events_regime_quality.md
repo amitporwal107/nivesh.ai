@@ -1,3 +1,5 @@
+# SUPERSEDED 2026-09-22 — staging verified after #141 merged (API 17/17, UI 5/5 on the third TC-23 run, deployed data 513/513/353); see charting_events_regime_quality.md
+
 # OVERRIDE — charting event dataset / regime features / candle + retest quality (2026-09-22)
 
 REASON: staging verification (TC-49: API 17/17, UI 4/4, served patterns carry retest_quality and body_pct/close_location)

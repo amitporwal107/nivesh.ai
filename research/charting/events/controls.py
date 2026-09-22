@@ -21,6 +21,7 @@ import pandas as pd
 from research.charting.config import CONFIG, ENGINE_VERSION, PROFILE_NAME, config_hash
 from research.charting.events import costs_bridge, schema
 from research.charting.events.extraction import build_outcome_cost_block
+from research.charting.series import atr as atr_series_fn
 
 RANDOM_CONTROL_PATTERN_TYPE = "RANDOM_CONTROL"
 BUY_NEXT_OPEN_BASELINE_PATTERN_TYPE = "BUY_NEXT_OPEN_BASELINE"
@@ -38,6 +39,16 @@ def _build_baseline_row(
     bars: pd.DataFrame, symbol: str, t_idx: int, *, pattern_type: str, pattern_id: str, cfg: dict,
     cost_cfg: Optional[costs_bridge.CostConfig], source_event_id: Optional[str] = None,
 ) -> dict:
+    # A control has no pattern -- no "broken level" and no Layer 1 structural stop -- but §37
+    # task item 7 ("the random-selection and buy-at-next-open controls need a stop: use the
+    # Layer 2 ATR stop for them") still needs a real ATR(cfg["atr_period"]) reading at t_idx, so
+    # it is computed here exactly like extraction.py's own per-row ATR (view = bars up to and
+    # including t_idx only -- no look-ahead), and surfaced at the row's own top-level
+    # `atr_at_t` field too (previously always `None` here, since nothing used it yet).
+    view = bars.iloc[: t_idx + 1].reset_index(drop=True)
+    atr_val = atr_series_fn(view, period=cfg["atr_period"]).iloc[t_idx]
+    atr_at_t = float(atr_val) if pd.notna(atr_val) else None
+
     row: dict = {
         # `pattern_id` (built by the two public functions below) already carries the
         # "{symbol}:{pattern_type}:..." prefix -- do not prepend `symbol` again.
@@ -50,7 +61,7 @@ def _build_baseline_row(
         "confirmation_bar_index": t_idx,
         "level_broken": None,
         "level_broken_field": None,
-        "atr_at_t": None,
+        "atr_at_t": atr_at_t,
         "relative_volume_at_t": None,
         "config_hash": config_hash(cfg),
         "engine_version": ENGINE_VERSION,
@@ -68,7 +79,9 @@ def _build_baseline_row(
             "dataset_version": schema.EVENTS_SCHEMA_VERSION,
         },
     }
-    row.update(build_outcome_cost_block(bars, t_idx, _BASELINE_DIRECTION, cfg=cfg, cost_cfg=cost_cfg))
+    row.update(build_outcome_cost_block(
+        bars, t_idx, _BASELINE_DIRECTION, cfg=cfg, cost_cfg=cost_cfg, atr_at_t=atr_at_t,
+    ))  # pattern_type/levels/level_broken_value default to None -- Layer 2 ATR stop only (item 7)
     costs_by_horizon = (row.get("costs") or {}).get("by_horizon") or {}
     resolved = next((b for b in costs_by_horizon.values() if b.get("available")), None)
     if resolved is not None:

@@ -2476,3 +2476,77 @@ rate after costs, median gross and net return, average cost, average slippage, n
 - Surcharge on Section 111A/112A gains is the income-slab rate capped at 15% (cap in force since FY2019-20).
 - A rate with no value raises an error rather than pricing zero; a rate taken from a secondary source is used but listed in the
   trade's `unverified_rates_used`.
+
+---
+
+## 37. Amendment C — Owner decision baseline for validation (2026-09-22)
+
+Owner decisions given in chat on 2026-09-22 ("final baseline I would freeze"). They settle the open items in §35.6 and are the
+baseline for the pre-registered study. Where the owner's message was internally inconsistent, the resolution is stated.
+
+### 37.1 Trend classification
+- Window: 20 sessions. `slope_pct_per_day = regression_slope(close, 20) / mean(close, 20) × 100` (ordinary least squares on
+  the last 20 closes against session index).
+- STRONG_BULL: slope ≥ +0.30 %/day and ADX(14) ≥ 25 · BULL: slope ≥ +0.15 %/day and ADX(14) ≥ 20 ·
+  BEAR: slope ≤ −0.15 %/day and ADX(14) ≥ 20 · STRONG_BEAR: slope ≤ −0.30 %/day and ADX(14) ≥ 25 · SIDEWAYS: otherwise.
+- **Resolution (owner-confirmed, baseline v1.1):** SIDEWAYS when ADX(14) < 20 OR the slope is within ±0.15 %/day; BULL/BEAR need
+  both the slope direction and enough ADX, so sideways takes precedence over weak directional signals.
+- Applied to each stock and to NIFTY 500. The §35.2 NIFTY 500 vs SMA200 regime is kept alongside, with a 20-session slope window.
+
+### 37.2 Outcome definitions (replaces the single "hit" labels)
+- Per target: `target_hit`, `stop_hit`, `both_hit`, `neither_hit`, `target_hit_session`, `stop_hit_session`, `first_exit_event`.
+  If the target and the stop are both touched inside the same daily bar (no intraday data), the outcome is `AMBIGUOUS` — never
+  assumed either way.
+- MFE, MAE, net return and holding period are separate fields, never merged into a hit label.
+- Research targets: +2%, +3%, +5%, +10% from entry, plus R-multiple targets 1R, 1.5R, 2R, 3R (R = entry − initial stop).
+- Returns are reported gross and net (§36).
+
+### 37.3 Stop policy
+- Layer 1 — pattern invalidation (structural stop): breakout families use `broken level − failure_buffer_atr × ATR`
+  (§30.1's frozen failure buffer); double bottom below the second trough; cup & handle below the handle low; triangle at the
+  opposite boundary; HH/HL at the invalidation swing.
+- Layer 2 — minimum distance: the stop is at least 0.75 × ATR(14) below entry (widened, never tightened).
+- A bar that opens beyond the stop fills at the open (gap), not at the stop price.
+
+### 37.4 Bearish patterns
+Detected, displayed and validated, but `tradability = INFORMATIONAL` and `action = AVOID_NEW_LONG` for the cash-only long
+portfolio. No fictitious overnight short trade is priced (§36 cost blocks are long round trips).
+
+### 37.5 Corporate actions and universe
+- Demergers are a corporate-action regime break: `corporate_action_event = DEMERGER`, `pattern_regime_break = TRUE`. Sessions
+  T−5..T+5 are excluded from ordinary validation; pre- and post-demerger histories are separate regimes, never spliced.
+- The ETF exclusion comes from an ETF master (isin, symbol, name, issuer, underlying index, asset class, inception, listing,
+  status, delisting) and a point-in-time universe snapshot per date. Today's list is never used to decide a 2021 universe.
+- **Deferred by the owner (2026-09-22) — on the to-do list.** Until then the existing sealed ETF list stays the exclusion
+  (known false positives such as BHARATFORG and DALBHARAT are disclosed in every report).
+
+### 37.6 Pattern states
+Research states FORMING → EARLY_SIGNAL → BREAKOUT_CANDIDATE → CONFIRMED_BREAKOUT → FAILED_BREAKOUT / COMPLETED.
+**Resolution (owner-confirmed, baseline v1.1):** the §11 lifecycle names are live on staging, so these are a derived
+`research_state` mapped from the §11 state and the §34 early stage, not a rename. An unconfirmed pattern is never called a
+breakout.
+
+**Research enrichment never mutates the production pattern result** (owner rule, 2026-09-22). The detector's pattern record,
+lifecycle, API and Charts UI stay as they are; research fields (research_state, trend regime, confirmation measures, MFE/MAE,
+target/stop labels, validation metrics) live in a separate enrichment record keyed by `pattern_id`.
+
+### 37.7 New pattern families (definitions from the owner; parameters still to be pinned before code)
+Ascending / descending / symmetrical triangle, double bottom / top, head & shoulders, bull / bear flag, cup & handle — with the
+owner's rules (e.g. triangle: ≥2 resistance touches, ≥2 rising swing lows, resistance deviation ≤ 1.5%, breakout close >
+resistance × 1.005, volume ≥ 1.5 × 20-day average; double bottom: troughs ≥ 10 sessions apart and within 3%, neckline = highest
+reaction between troughs; flag: duration < impulse duration, retracement < 50% of impulse; cup & handle early setup: cup ≥ 80%
+complete, handle forming, price within X% of resistance). **Resolution:** these percentage rules apply to the new families; the
+§30.1 ATR rules stay for the P0 families (owner-confirmed, baseline v1.1). Where applicable the research record stores
+`breakout_level`, `breakout_threshold_pct`, `breakout_threshold_atr` and `breakout_volume_ratio`, so validation can compare
+how stable the percentage and ATR thresholds are across volatility regimes. Unstated
+parameters (e.g. "contracting range", "shoulders approximately similar", "strong preceding impulse", the cup's X%) are pinned in
+a predicate table for owner approval before any detector is coded, as NI-2 was.
+
+### 37.8 Common pattern schema and licensing
+- Every family converges on one record: pattern (name, family, direction, state), geometry (dates, breakout and invalidation
+  levels, confidence), trend (regime, slope_20d, adx_14, relative strength), volume, confirmation components, historical
+  validation (sample size, target/stop hit rates, MFE, MAE, median return and holding period, net return), tradability
+  (long_actionable, short_actionable, informational_only).
+- Licensing: display and redistribution follow each provider's terms. Raw market data, derived indicators, pattern detections and
+  research analytics are kept separate, and every feed carries source and licence metadata. Redistribution rights are verified
+  before any public or commercial display.

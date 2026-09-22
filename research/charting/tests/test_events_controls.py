@@ -13,7 +13,7 @@ _EXPECTED_KEYS = {
     "confirmation_bar_index", "level_broken", "level_broken_field", "atr_at_t",
     "relative_volume_at_t", "config_hash", "engine_version", "profile", "dataset_version",
     "source_event_id", "versioning", "entry", "outcomes", "outcomes_alt_close_entry",
-    "liquidity", "costs", "unavailable_reason",
+    "liquidity", "costs", "stop", "targets", "tradability", "action", "unavailable_reason",
 }
 
 
@@ -27,6 +27,28 @@ def test_random_control_rows_same_schema_as_pattern_events():
         assert r["pattern_type"] == controls.RANDOM_CONTROL_PATTERN_TYPE
         assert r["direction"] == "BULLISH"
         assert r["level_broken"] is None  # no pattern -- no level was "broken"
+        assert r["tradability"] == "LONG_ACTIONABLE"
+        assert r["action"] == "CONSIDER_LONG"
+
+
+def test_random_control_rows_stop_is_layer_2_only_no_structural_stop():
+    """§37 task item 7: a control has no pattern, so no Layer 1 structural stop is possible --
+    only the Layer 2 ATR floor, documented as `stop_layer == "layer2_only"`. `eligible` starts
+    at index 20 (well past ATR(14)'s own `period + 1` = 15-bar warmup -- `series.atr`'s own
+    documented contract) so every pick here has a real ATR(t) reading, not a warmup NaN."""
+    bars = confirmed_rectangle_with_runway()
+    eligible = [("SYN1", i) for i in range(20, 35)]
+    rows = controls.random_control_rows({"SYN1": bars}, eligible, n=3, seed=1)
+    assert len(rows) == 3
+    for r in rows:
+        assert r["atr_at_t"] is not None
+        assert r["entry"]["primary"] is not None  # runway tail guarantees a t+1 bar here
+        assert r["stop"]["structural_stop"] is None
+        assert r["stop"]["stop_layer"] == "layer2_only"
+        assert r["stop"]["final_stop"] is not None
+        assert r["stop"]["final_stop"] < r["entry"]["primary"]["price"]
+        assert r["targets"] is not None
+        assert set(r["targets"].keys()) == {"pct_2", "pct_3", "pct_5", "pct_10", "r_1_0", "r_1_5", "r_2_0", "r_3_0"}
 
 
 def test_random_control_rows_deterministic_for_the_same_seed():

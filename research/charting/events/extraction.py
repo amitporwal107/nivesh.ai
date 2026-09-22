@@ -25,7 +25,7 @@ import pandas as pd
 
 from research.charting import patterns, replay
 from research.charting.config import CONFIG, ENGINE_VERSION, PROFILE_NAME, config_hash
-from research.charting.events import costs_bridge, outcomes, schema
+from research.charting.events import costs_bridge, outcomes, schema, stops
 from research.charting.research_window import assert_no_sealed_rows
 from research.charting.series import atr as atr_series_fn
 from research.charting.series import relative_volume as relvol_series_fn
@@ -35,19 +35,30 @@ _CONFIRMED_STATUS = "PRICE_CONFIRMED"
 
 def build_outcome_cost_block(
     bars: pd.DataFrame, t_idx: int, direction: str, *, cfg: dict = CONFIG,
-    cost_cfg: Optional[costs_bridge.CostConfig] = None,
+    cost_cfg: Optional[costs_bridge.CostConfig] = None, atr_at_t: Optional[float] = None,
+    pattern_type: Optional[str] = None, levels: Optional[dict] = None,
+    level_broken_value: Optional[float] = None,
 ) -> dict:
     """Everything downstream of "a signal exists at bar t, in direction `direction`": the
     primary/alternative entry, both entries' forward-outcome blocks, the ADV/liquidity figures,
-    and the primary entry's cost blocks for every horizon. Shared by `extract_events` (real
-    pattern events) and `controls.py` (the S18.3 comparison groups), so a pattern row and a
-    control row are never built from two different code paths.
+    the §37.4 tradability/action labels and -- BULLISH only -- the §37.2/§37.3 stop/targets
+    block and the primary entry's cost blocks for every horizon. Shared by `extract_events`
+    (real pattern events, which pass `pattern_type`/`levels`/`level_broken_value` for the §37.3
+    structural stop) and `controls.py` (the S18.3 comparison groups, which pass `pattern_type=
+    None` so `stops.structural_stop` falls through to Layer 2 only -- §37 task item 7), so a
+    pattern row and a control row are never built from two different code paths.
+
+    `atr_at_t` is the caller's own already-computed `ATR(cfg["atr_period"])` reading at `t_idx`
+    (extraction.py's `_build_event_row` / controls.py's `_build_baseline_row` both compute it
+    once for the row's own top-level `atr_at_t` field already) -- passed in rather than
+    recomputed here, so there is exactly one ATR(t) reading per row, not two that could diverge.
     """
     cost_cfg = cost_cfg or costs_bridge.CostConfig()
 
     primary = outcomes.primary_entry(bars, t_idx)
     alt = outcomes.alternative_entry(bars, t_idx)
     adv = outcomes.adv_inr_at(bars, t_idx, n=cfg["volume_baseline_bars"])
+    tradability, action = schema.tradability_and_action(direction)
 
     block: dict = {
         "entry": {"primary": primary, "alternative_close_t": alt},
@@ -55,6 +66,10 @@ def build_outcome_cost_block(
         "outcomes_alt_close_entry": None,
         "liquidity": {"adv_inr_at_t": adv, "notional_inr": float(cost_cfg.notional_inr)},
         "costs": None,
+        "stop": None,
+        "targets": None,
+        "tradability": tradability,
+        "action": action,
         "unavailable_reason": None,
     }
 
@@ -65,13 +80,11 @@ def build_outcome_cost_block(
     ei, ep = primary["index"], primary["price"]
     fwd = outcomes.forward_outcome_block(bars, ei, ep, direction)
     bt = outcomes.bars_to_targets(bars, ei, ep)
-    hit = outcomes.hit_flags(fwd["raw"], bt)
     block["outcomes"] = {
         "entry_method": primary["method"],
         "forward_returns": fwd["raw"],
         "forward_returns_directional": fwd["directional"],
         "bars_to_target": {f"plus_{round(pct * 100)}pct": v for pct, v in bt.items()},
-        **hit,
     }
 
     alt_ei, alt_ep = alt["index"], alt["price"]
@@ -87,6 +100,24 @@ def build_outcome_cost_block(
     participation = costs_bridge.participation_ratio_for(position_value, adv)
     block["liquidity"].update(qty=qty, position_value_inr=position_value, participation_ratio=participation)
 
+    if direction != "BULLISH":
+        # §37.4: bearish patterns are informational only -- "No fictitious overnight short
+        # trade is priced" -- so neither a stop/target trade nor a cost block is built here.
+        # The `short_side_costs` flag stays on the row (so a reader never mistakes its absence
+        # for "costs were computed and happened to be zero"), and the directional forward
+        # returns computed above (which already flip sign for BEARISH) are what lets the
+        # "avoid new long" signal still be validated without pricing a fictitious trade.
+        block["costs"] = {"trade_side": "LONG", "short_side_costs": "NOT_MODELLED", "by_horizon": None}
+        return block
+
+    stop_and_targets = stops.build_stop_and_targets_block(
+        bars, ei, ep, direction=direction, pattern_type=pattern_type, levels=levels,
+        level_broken_value=level_broken_value, atr_at_t=atr_at_t, qty=qty, adv_inr=adv,
+        cfg=cfg, cost_cfg=cost_cfg,
+    )
+    block["stop"] = stop_and_targets["stop"]
+    block["targets"] = stop_and_targets["targets"]
+
     costs_by_horizon: dict = {}
     for h, raw_h in fwd["raw"].items():
         if not raw_h.get("available"):
@@ -98,13 +129,11 @@ def build_outcome_cost_block(
             entry_date=entry_date, entry_price=ep, exit_date=exit_date, exit_price=raw_h["exit_close"],
             qty=qty, adv_inr=adv, cfg=cost_cfg,
         )
-    # Every cost block is a LONG round trip (buy at entry, sell at exit). A BEARISH signal's
-    # directional return is short-side, but an overnight short is not possible in the cash
-    # delivery segment, so its short-side costs are not modelled -- say so on the row rather
-    # than let the long net figure be read as the short outcome.
+    # Every cost block is a LONG round trip (buy at entry, sell at exit) -- BULLISH only here
+    # (see the BEARISH early-return above), so `short_side_costs` is always None on this path.
     block["costs"] = {
         "trade_side": "LONG",
-        "short_side_costs": "NOT_MODELLED" if direction == "BEARISH" else None,
+        "short_side_costs": None,
         "by_horizon": costs_by_horizon,
     }
     return block
@@ -153,7 +182,10 @@ def _build_event_row(
             "dataset_version": schema.EVENTS_SCHEMA_VERSION,
         },
     }
-    row.update(build_outcome_cost_block(bars, t_idx, snap.direction, cfg=cfg, cost_cfg=cost_cfg))
+    row.update(build_outcome_cost_block(
+        bars, t_idx, snap.direction, cfg=cfg, cost_cfg=cost_cfg, atr_at_t=row["atr_at_t"],
+        pattern_type=snap.pattern_type, levels=snap.levels, level_broken_value=level_value,
+    ))
 
     # Surface the resolved cost/tax rule versions at the top-level versioning block too, once
     # known (from the first horizon that actually resolved a cost block) -- PRD S30.
