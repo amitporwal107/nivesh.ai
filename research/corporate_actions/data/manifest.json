@@ -1,0 +1,35 @@
+{
+  "files": {
+    "demergers.csv": {
+      "rows": 59,
+      "sha256": "2d13d3544f8d357ed849238b8e6fbcb1de0da45b88701de4504973f8a5b941e2"
+    },
+    "gap_review_candidates.csv": {
+      "rows": 170,
+      "sha256": "0a581f00623ebf982be240ee615074f83fdf629a6b90c9cb7b667085fa179a93"
+    },
+    "raw/nse_ca_demerger_rows.json": {
+      "rows": 70,
+      "sha256": "50962113250386a5df678102a8c0ed890f741d939f716d74128fc5686575be3b"
+    },
+    "raw/tpd_ca_history_demerger_rows.csv": {
+      "rows": 36,
+      "sha256": "ab252aae66ca2cd06ee5d315230c12dcbc931c3955e277f199080407b22f9db6"
+    }
+  },
+  "generated_at": "2026-09-22T07:33:13+00:00",
+  "sources": {
+    "in_repo_tpd_ca_history": {
+      "name": "in-repo NSE_CA_ARCHIVE (research/tpd3_forward/inputs/tpd_ca_history.csv)",
+      "raw_file": "raw/tpd_ca_history_demerger_rows.csv",
+      "reference": "research/tpd3_forward/inputs/tpd_ca_history.csv (repo-local, not this package's own fetch)",
+      "used_for": "secondary corroboration only -- demergers.csv is built from the NSE API snapshot"
+    },
+    "nse_corporate_actions_api": {
+      "name": "NSE corporate-actions API (nseindia.com/api/corporates-corporateActions)",
+      "raw_file": "raw/nse_ca_demerger_rows.json",
+      "reference": "https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date=01-01-2021&to_date=22-09-2026",
+      "retrieved_at": "2026-09-22T07:23:19Z"
+    }
+  }
+}
