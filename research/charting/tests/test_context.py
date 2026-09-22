@@ -83,6 +83,25 @@ def test_is_sealed_gap_false_just_outside_window(date):
     assert context.is_sealed_gap(date) is False
 
 
+def test_sealed_gap_constants_and_is_sealed_gap_come_from_research_window():
+    """Fix 1 (review 2026-09-22): SEALED_GAP_START/END now live in
+    research.charting.research_window (the single source of truth every research-evaluation
+    path reads); context.py's own names are kept as aliases so nothing here breaks."""
+    from research.charting import research_window
+
+    assert context.SEALED_GAP_START is research_window.SEALED_GAP_START
+    assert context.SEALED_GAP_END is research_window.SEALED_GAP_END
+    assert context.is_sealed_gap("2023-06-15") == research_window.is_sealed_gap("2023-06-15")
+
+
+def test_market_index_name_is_an_alias_for_config_market_benchmark():
+    """Fix 4 (review 2026-09-22): MARKET_INDEX_NAME used to be a bare code constant --
+    changing it would not have changed config_hash(). It now reads CONFIG["market_benchmark"]."""
+    from research.charting.config import CONFIG
+
+    assert context.MARKET_INDEX_NAME == CONFIG["market_benchmark"] == "NIFTY 500"
+
+
 # ---------------------------------------------------------------------------
 # Real CSV inspection — pinning down the actual shapes this module depends on
 # ---------------------------------------------------------------------------
@@ -543,7 +562,7 @@ def test_real_end_to_end_get_context_first_day_of_ohlc_source():
     r = context.get_context("2019-07-01")
     assert r.market.status == context.STATUS_OK
     assert r.market.close == pytest.approx(9713.0)
-    assert r.market.source == context.SOURCE_OHLC_FULL
+    assert r.market.source == context.SOURCE_KITE_OHLC  # default source; same close as index_p4.csv
 
 
 @requires_real_data
@@ -551,7 +570,7 @@ def test_real_end_to_end_get_context_last_day_of_close_source():
     r = context.get_context("2026-09-18")
     assert r.market.status == context.STATUS_OK
     assert r.market.close == pytest.approx(22840.55)
-    assert r.market.source == context.SOURCE_CLOSE_ONLY
+    assert r.market.source == context.SOURCE_KITE_OHLC  # same close as nifty500_index_daily.csv
 
 
 @requires_real_data
@@ -580,3 +599,49 @@ def test_real_end_to_end_get_context_symbol_resolves_real_sector(monkeypatch):
     assert r.sector.status == context.STATUS_OK
     assert r.sector.sector == "Finance"
     assert r.sector.pit_status == DataQualityStatus.PIT_UNVERIFIED.value
+
+
+# ── Kite index history (research/index_history, committed in-repo) ─────────────────────
+
+_KITE_DIR = Path(context.DEFAULT_INDEX_HISTORY_DIR)
+requires_kite_history = pytest.mark.skipif(not (_KITE_DIR / "NIFTY_500.csv").is_file(),
+                                           reason="research/index_history/data not present")
+
+
+@requires_kite_history
+@pytest.mark.parametrize("name", ["NIFTY 500", "NIFTY 50", "INDIA VIX"])
+def test_kite_index_history_loads_with_ohlc_on_both_sides_and_no_sealed_row(name):
+    df = context.load_index_history(name)
+    assert not df["date"].map(context.is_sealed_gap).any()
+    assert df["date"].min() == pd.Timestamp("2019-07-01")
+    post = df[df["date"] > context.SEALED_GAP_END]
+    assert len(post) > 500 and post[["open", "high", "low", "close"]].notna().all().all()
+
+
+@requires_kite_history
+@pytest.mark.parametrize("legacy_path,index_filter", [(_REAL_MARKET_OHLC, "NIFTY 500"), (_REAL_MARKET_CLOSE, None)])
+def test_kite_benchmark_closes_equal_the_legacy_files_row_for_row(legacy_path, index_filter):
+    if not legacy_path.is_file():
+        pytest.skip(f"{legacy_path} not present")
+    legacy = pd.read_csv(legacy_path)
+    if index_filter:
+        legacy = legacy[legacy["index"] == index_filter]
+    legacy = legacy.assign(date=context._normalize_dates(legacy["date"]))
+    merged = legacy.merge(context.load_index_history("NIFTY 500"), on="date", suffixes=("_legacy", "_kite"))
+    assert len(merged) == len(legacy)  # every legacy date exists in the Kite file
+    assert (merged["close_legacy"] == merged["close_kite"]).all()
+
+
+def test_load_index_history_refuses_a_file_with_a_sealed_row(tmp_path):
+    f = tmp_path / "X.csv"
+    f.write_text("date,open,high,low,close,volume\n2022-12-30,1,1,1,1,0\n2023-06-01,2,2,2,2,0\n")
+    with pytest.raises(ValueError, match="sealed window"):
+        context.load_index_history("X", path=f)
+
+
+def test_market_value_at_works_for_any_index_frame(tmp_path):
+    f = tmp_path / "INDIA_VIX.csv"
+    f.write_text("date,open,high,low,close,volume\n2025-01-02,14,15,13,14.5,0\n")
+    vix = context.load_index_history("INDIA VIX", path=f)
+    r = context.market_value_at("2025-01-02", vix)
+    assert r.status == context.STATUS_OK and r.close == 14.5 and r.source == context.SOURCE_KITE_OHLC

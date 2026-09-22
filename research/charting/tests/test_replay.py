@@ -13,20 +13,36 @@ one layer down, rather than inventing a weaker one.
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import pandas as pd
+import pytest
 
-from research.charting import replay
+from research.charting import replay, research_window
 from research.charting.tests import synth
+
+
+def _shift_outside_sealed_window(bars: pd.DataFrame) -> pd.DataFrame:
+    """Shift every date back by 3 years. `synth.py`'s fixtures are anchored at
+    `_START_DATE` (2024-01-02), which — like every other package's synthetic fixtures —
+    falls inside the project-wide sealed 2023-01-01..2024-07-31 out-of-sample block
+    (see test_early_scoring.py's own note on this). `replay.replay()`/`write_run()` now
+    refuse (fix 1, research_window.SealedWindowError) to evaluate any window overlapping
+    that block, so every fixture actually fed to them in this file is shifted to land
+    safely in 2021 first. Only the calendar dates move; every OHLCV value and the walk's
+    bar-by-bar mechanics this file tests are untouched."""
+    shifted = bars.copy()
+    shifted["date"] = shifted["date"] - pd.DateOffset(years=3)
+    return shifted
 
 
 def _lookahead_fixture() -> pd.DataFrame:
     """RECT-1 extended through a full breakout + retest + failure cycle (fixture #4) — the
     same fixture test_patterns_lookahead.py's sweep uses, so the replay's walk exercises
     formation, confirmation, retest and failure states, not just the quiet pre-breakout
-    window."""
-    return synth.fixture_04_false_retest(synth.rect1())
+    window. Dates shifted outside the sealed window — see _shift_outside_sealed_window."""
+    return _shift_outside_sealed_window(synth.fixture_04_false_retest(synth.rect1()))
 
 
 def _poison_alternating_extremes(bars: pd.DataFrame, t: int) -> pd.DataFrame:
@@ -135,7 +151,7 @@ def test_transition_events_carry_the_driving_detector_rule_when_one_exists():
 def test_incomplete_bar_only_applies_at_final_step_quiet_bar_does_not_change_state():
     """Mirrors test_patterns_lookahead.py's quiet-incomplete-bar probe, one layer up: passing
     a non-crossing running candle must never change any recorded transition."""
-    base = synth.rect1()
+    base = _shift_outside_sealed_window(synth.rect1())
     without = replay.replay(base, symbol="SYN1").to_dict()
 
     running_date = pd.bdate_range(start=base["date"].iloc[-1] + pd.tseries.offsets.BDay(1), periods=1)[0]
@@ -226,7 +242,7 @@ def test_probe_b4_state_at_t_unaffected_by_poisoning_every_bar_after_t():
 def test_probe_b4_state_at_t_unaffected_by_poisoning_during_formation_only():
     """Same probe restricted to the pre-breakout formation window (t < formation_end), where
     pivot/ATR/clustering computations are most exposed to a look-ahead bug."""
-    base = synth.rect1()
+    base = _shift_outside_sealed_window(synth.rect1())
     n = len(base)
     checked = 0
     for t in range(6, n - 1):
@@ -309,3 +325,48 @@ def test_negative_control_leaky_replay_variant_is_caught_by_the_same_probe():
     state_a = replay.replay(base, symbol="SYN1", end_index=t).to_dict()
     state_b = replay.replay(poisoned, symbol="SYN1", end_index=t).to_dict()
     assert state_a == state_b
+
+
+# ── Fix 1: sealed-window guard on the research path (review 2026-09-22, defect #1) ──────
+
+
+def test_replay_over_a_window_touching_2023_03_raises():
+    # Starts well before the sealed block and runs into 2023-03 -- a partial overlap, which
+    # must be refused exactly like a window fully inside the block.
+    bars = synth.bars_from_closes([100.0 + i * 0.1 for i in range(80)], start_date="2022-11-01")
+    assert bars["date"].max() > research_window.SEALED_GAP_START  # sanity: fixture really overlaps
+    with pytest.raises(research_window.SealedWindowError):
+        replay.replay(bars, symbol="SYN1")
+
+
+def test_replay_over_2021_2022_passes():
+    bars = synth.bars_from_closes([100.0 + i * 0.1 for i in range(80)], start_date="2021-06-01")
+    assert bars["date"].max() < research_window.SEALED_GAP_START  # sanity: fixture is entirely safe
+    result = replay.replay(bars, symbol="SYN1")
+    assert result.end_index == len(bars) - 1  # ran normally, nothing refused
+
+
+def test_write_run_over_a_sealed_window_raises_before_writing_anything(tmp_path):
+    bars = synth.bars_from_closes([100.0 + i * 0.1 for i in range(80)], start_date="2023-02-01")
+    with pytest.raises(research_window.SealedWindowError):
+        replay.write_run(bars, tmp_path, symbol="SYN1")
+    assert list(tmp_path.iterdir()) == []  # refused before any artifact touched disk
+
+
+def test_write_run_artifact_assertion_catches_a_poisoned_sealed_transition(tmp_path, monkeypatch):
+    """Defense in depth: even if replay()'s own window guard were somehow bypassed,
+    write_run() independently asserts no sealed date reaches the artifacts it writes (fix 1's
+    'assertion helper for artifacts', assert_no_sealed_rows). Proven here by monkeypatching
+    replay() to return a result carrying one poisoned (sealed-window) transition date;
+    write_run must raise before writing anything to tmp_path."""
+    bars = _shift_outside_sealed_window(synth.rect1())
+    real_result = replay.replay(bars, symbol="SYN1")
+    assert real_result.transitions, "fixture sanity: need at least one transition to poison"
+
+    poisoned_transition = replace(real_result.transitions[0], event_date="2023-06-15")
+    poisoned_result = replace(real_result, transitions=(poisoned_transition, *real_result.transitions[1:]))
+    monkeypatch.setattr(replay, "replay", lambda *a, **k: poisoned_result)
+
+    with pytest.raises(research_window.SealedWindowError):
+        replay.write_run(bars, tmp_path, symbol="SYN1")
+    assert list(tmp_path.iterdir()) == []  # nothing written -- refused before any artifact touched disk

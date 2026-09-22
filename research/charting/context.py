@@ -63,7 +63,9 @@ from typing import Mapping
 
 import pandas as pd
 
+from research.charting.config import CONFIG
 from research.charting.lifecycle import DataQualityStatus
+from research.charting.research_window import SEALED_GAP_END, SEALED_GAP_START
 
 # ── Source paths (env-overridable; matches bars.py / universe.py convention) ────
 
@@ -73,21 +75,38 @@ DEFAULT_MARKET_OHLC_PATH = "/app/research/model_v5/index_p4.csv"
 ENV_MARKET_CLOSE_PATH = "CHARTING_MARKET_CLOSE_PATH"
 DEFAULT_MARKET_CLOSE_PATH = "/app/research/phase1/nifty500_index_daily.csv"
 
+# Kite daily index history committed in-repo (research/index_history, manifest.json holds each
+# file's sha256): NIFTY 500 / NIFTY 50 / INDIA VIX and sector indices, full OHLC, 2019-07-01 ->
+# 2026-09, with the sealed window never downloaded. NIFTY 500 matches index_p4.csv (870/870
+# rows) and nifty500_index_daily.csv (530/530) exactly; it adds OHLC after the sealed window.
+ENV_INDEX_HISTORY_DIR = "CHARTING_INDEX_HISTORY_DIR"
+DEFAULT_INDEX_HISTORY_DIR = str(Path(__file__).resolve().parents[1] / "index_history" / "data")
+
 ENV_SECTOR_MASTER_PATH = "CHARTING_SECTOR_MASTER_PATH"
 DEFAULT_SECTOR_MASTER_PATH = "/app/research/screener_nr6/sector_master.csv"
 
 # index_p4.csv stacks three indices under one `index` column (NIFTY 500, NIFTY 50,
 # INDIA VIX — verified, ~870 rows each, all sharing the 2019-07-01..2022-12-30 span).
 # This is the one filter value the charting engine's market context cares about.
-MARKET_INDEX_NAME = "NIFTY 500"
+#
+# Review 2026-09-22 (defect #4, "unhashed behaviour switches"): this used to be a bare module
+# constant, so changing it would not have changed `config_hash()`. It now lives in
+# `CONFIG["market_benchmark"]` (owner decision: NIFTY 500); this name is kept as an alias so
+# every existing reference in this module (and any other caller) is unaffected.
+MARKET_INDEX_NAME = CONFIG["market_benchmark"]
 
 SOURCE_OHLC_FULL = "OHLC_FULL"
 SOURCE_CLOSE_ONLY = "CLOSE_ONLY"
+SOURCE_KITE_OHLC = "KITE_OHLC"
 
 # Project-wide sealed out-of-sample test block — see module docstring rule 2. Fixed
 # calendar constants, deliberately NOT derived from loaded file coverage.
-SEALED_GAP_START = pd.Timestamp("2023-01-01")
-SEALED_GAP_END = pd.Timestamp("2024-07-31")
+#
+# Review 2026-09-22 (defect #1, "no sealed-window guard on the research path"): these two
+# constants now live in `research.charting.research_window` — the single source of truth
+# every research-evaluation path (this module, `replay.py`, `movement.py`) reads — and are
+# kept here as aliases (imported above) purely so nothing that already references
+# `context.SEALED_GAP_START`/`context.SEALED_GAP_END` breaks.
 
 STATUS_OK = "OK"
 STATUS_UNAVAILABLE = "UNAVAILABLE"
@@ -116,6 +135,13 @@ def market_close_path(path: str | Path | None = None) -> Path:
     """Resolve the close-only market-index source path: explicit arg, else env
     override, else the default (nifty500_index_daily.csv)."""
     return _resolve_path(ENV_MARKET_CLOSE_PATH, DEFAULT_MARKET_CLOSE_PATH, path)
+
+
+def index_history_path(index_name: str, directory: str | Path | None = None) -> Path:
+    """research/index_history/data/<NAME>.csv for an index name such as "NIFTY 500" or
+    "INDIA VIX" (spaces become underscores); `CHARTING_INDEX_HISTORY_DIR` overrides the folder."""
+    folder = _resolve_path(ENV_INDEX_HISTORY_DIR, DEFAULT_INDEX_HISTORY_DIR, directory)
+    return folder / f"{index_name.replace(' ', '_')}.csv"
 
 
 def sector_master_path(path: str | Path | None = None) -> Path:
@@ -178,10 +204,35 @@ def load_market_index_close(path: str | Path | None = None) -> pd.DataFrame:
     return df[["date", "open", "high", "low", "close", "source"]]
 
 
+def load_index_history(index_name: str, path: str | Path | None = None) -> pd.DataFrame:
+    """One index's Kite daily history (see `DEFAULT_INDEX_HISTORY_DIR`): columns `date, open,
+    high, low, close, source`, ascending, unique dates, never reindexed or filled. Use with
+    `market_value_at(date, load_index_history("INDIA VIX"))` for any index, not only the
+    benchmark. Raises ValueError on a duplicate date or on any row inside the sealed window
+    (the files are built without one; a row there means the file was changed)."""
+    p = Path(path) if path is not None else index_history_path(index_name)
+    df = pd.read_csv(p)
+    df["date"] = _normalize_dates(df["date"])
+    df = df.sort_values("date").reset_index(drop=True)
+    if df["date"].duplicated().any():
+        raise ValueError(f"{p}: duplicate dates")
+    sealed = df["date"].map(is_sealed_gap)
+    if sealed.any():
+        raise ValueError(f"{p}: {int(sealed.sum())} row(s) inside the sealed window, e.g. {df['date'][sealed].iloc[0].date()}")
+    df["source"] = SOURCE_KITE_OHLC
+    return df[["date", "open", "high", "low", "close", "source"]]
+
+
 def load_market_index(
     ohlc_path: str | Path | None = None, close_path: str | Path | None = None
 ) -> pd.DataFrame:
-    """The merged NIFTY 500 market-index series this module exposes: source A's
+    """The benchmark (`MARKET_INDEX_NAME`) series this module exposes.
+
+    With no paths given: the Kite history from `load_index_history(MARKET_INDEX_NAME)` (full
+    OHLC on both sides of the sealed window). With either path given, or its env override
+    set: the older two-file merge below, kept for callers and tests that name those files.
+
+    Two-file merge: source A's
     full-OHLC range concatenated with source B's close-only range, columns `date,
     open, high, low, close, source`, ascending, unique dates.
 
@@ -194,6 +245,10 @@ def load_market_index(
     verified real files — 2022-12-30 vs 2024-08-01 — but overlap would mean silently
     picking one source over the other, which this function refuses to do).
     """
+    legacy_requested = (ohlc_path is not None or close_path is not None
+                        or ENV_MARKET_OHLC_PATH in os.environ or ENV_MARKET_CLOSE_PATH in os.environ)
+    if not legacy_requested:
+        return load_index_history(MARKET_INDEX_NAME)
     a = load_market_index_ohlc(ohlc_path)
     b = load_market_index_close(close_path)
     overlap = set(a["date"]) & set(b["date"])

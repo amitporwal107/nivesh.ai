@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 
 from research.charting import validate
-from research.charting.config import CONFIG
+from research.charting.config import CONFIG, config_hash, relative_volume_band
 from research.charting.lifecycle import LifecycleState
 from research.charting.patterns import PatternSnapshot, detect_as_of
 from research.charting.series import atr as atr_series_fn
@@ -85,12 +85,30 @@ def test_fixture_02_low_volume_breakout_confirms_but_followthrough_volume_fails(
     vol_rules = [r for r in rect.rules if r["rule_id"] == "FOLLOWTHROUGH_VOLUME_BELOW_MIN"]
     assert len(vol_rules) == 1
     assert vol_rules[0]["result"] == "FAIL"
-    assert vol_rules[0]["observed"] == pytest.approx(0.90)
+    # Fix 5 (review 2026-09-22): `observed` is now a dict carrying both the raw relative-volume
+    # reading and its descriptive WEAK/NORMAL/SUPPORTING/STRONG band (config.relative_volume_band)
+    # — previously a bare float. The band is purely descriptive: it does not change this FAIL.
+    assert vol_rules[0]["observed"]["relative_volume"] == pytest.approx(0.90)
+    assert vol_rules[0]["observed"]["band"] == relative_volume_band(0.90)
     assert vol_rules[0]["threshold"] == pytest.approx(1.00)
 
     # PASS condition: never RESEARCH_ELIGIBLE via this bar (this package never emits that
     # status at all — see patterns.py module docstring's scope boundary).
     assert rect.status != LifecycleState.RESEARCH_ELIGIBLE.value
+
+
+def test_followthrough_volume_rule_pass_also_records_the_band_descriptively():
+    """Fix 5 (review 2026-09-22): config.relative_volume_band had no production caller.
+    Wired into the follow-through volume rule's `observed` for BOTH the PASS and FAIL
+    branches — bar16's rel-vol here is 1.20 (120k/100k), which clears the min-rel-volume
+    gate (PASS) and bands as SUPPORTING."""
+    bars = synth.fixture_03_close_back_inside(synth.rect1())
+    rects = _rectangles(bars)
+    vol_rules = [r for r in rects[0].rules if r["rule_id"] == "FOLLOWTHROUGH_VOLUME_BAND"]
+    assert len(vol_rules) == 1
+    assert vol_rules[0]["result"] == "PASS"
+    assert vol_rules[0]["observed"]["relative_volume"] == pytest.approx(1.20)
+    assert vol_rules[0]["observed"]["band"] == relative_volume_band(1.20)
 
 
 # ── #3 — close back inside ────────────────────────────────────────────────────
@@ -129,6 +147,78 @@ def test_fixture_04_false_retest_is_failed_retest():
     failed = [e for e in rect.events if e["event_type"] == "FAILED"]
     assert len(failed) == 1
     assert failed[0]["rule_id"] == "FAILED_RETEST"  # not FALSE_BREAKOUT, since a retest was pending
+
+
+# ── Fix 2 (review 2026-09-22): retest_window_bars wiring ─────────────────────────────────
+# `retest_window_bars` was hashed in CONFIG but read by no code. Wired into
+# `_walk_retest_and_failure`: a pullback only counts as a retest if it FIRST re-enters the
+# broken level within `retest_window_bars` bars of confirmation; the separate failure rule
+# (failure_buffer_atr/failure_window_bars, NI-2 frozen) is untouched.
+
+
+def test_retest_recognised_within_the_configured_window():
+    cfg = dict(CONFIG, retest_window_bars=2)
+    bars = synth._append(
+        synth.rect1(),
+        [
+            (109.0, 111.3, 108.8, 111.0, 120_000.0),  # bar16 breakout -> PRICE_CONFIRMED (confirm_index)
+            (111.0, 111.2, 110.9, 111.2, 100_000.0),  # bar17 holds above (i-confirm=1, inside the window)
+            (111.2, 111.3, 109.6, 109.8, 100_000.0),  # bar18 dip into the zone (i-confirm=2, still inside)
+        ],
+    )
+    rects = _rectangles(bars, cfg=cfg)
+    assert len(rects) == 1
+    assert rects[0].status == LifecycleState.PRICE_CONFIRMED.value
+    assert "RETEST_PENDING" in _event_types(rects[0])
+
+
+def test_retest_after_the_configured_window_is_not_a_retest():
+    """Same pullback shape as above, delayed one bar past retest_window_bars=2: no
+    RETEST_PENDING is ever opened -- the breakout is treated as holding, quietly, with no
+    retest tracked at all (PASS condition: the pullback itself does not breach the failure
+    buffer either, so nothing else fires)."""
+    cfg = dict(CONFIG, retest_window_bars=2)
+    bars = synth._append(
+        synth.rect1(),
+        [
+            (109.0, 111.3, 108.8, 111.0, 120_000.0),  # bar16 breakout -> PRICE_CONFIRMED
+            (111.0, 111.2, 110.9, 111.2, 100_000.0),  # bar17 holds (i-confirm=1, inside the window)
+            (111.2, 111.3, 110.9, 111.1, 100_000.0),  # bar18 still holds (i-confirm=2, inside the window)
+            (111.1, 111.2, 109.6, 109.8, 100_000.0),  # bar19 dip into the zone (i-confirm=3, PAST the window)
+        ],
+    )
+    rects = _rectangles(bars, cfg=cfg)
+    assert len(rects) == 1
+    assert "RETEST_PENDING" not in _event_types(rects[0])  # PASS condition
+    assert rects[0].status == LifecycleState.PRICE_CONFIRMED.value  # holding, not failed
+
+
+def test_retest_window_does_not_change_the_separate_failure_rule():
+    """A hard failure that lands AFTER the (small, custom) retest window but still inside the
+    default failure_window_bars=5 must still fire, unaffected -- and, since RETEST_PENDING was
+    never opened (the window already closed), the reason is FALSE_BREAKOUT, not FAILED_RETEST."""
+    cfg = dict(CONFIG, retest_window_bars=2)
+    bars = synth._append(
+        synth.rect1(),
+        [
+            (109.0, 111.3, 108.8, 111.0, 120_000.0),  # bar16 breakout -> PRICE_CONFIRMED (confirm_index)
+            (111.0, 111.2, 110.9, 111.2, 100_000.0),  # bar17 holds (i-confirm=1, inside retest window)
+            (111.2, 111.3, 110.9, 111.1, 100_000.0),  # bar18 holds (i-confirm=2, inside retest window)
+            (111.1, 111.2, 108.0, 108.2, 100_000.0),  # bar19 hard failure (i-confirm=3, past retest window, inside failure_window_bars=5)
+        ],
+    )
+    rects = _rectangles(bars, cfg=cfg)
+    assert len(rects) == 1
+    assert rects[0].status == LifecycleState.FAILED.value
+    assert "RETEST_PENDING" not in _event_types(rects[0])
+    failed = [e for e in rects[0].events if e["event_type"] == "FAILED"]
+    assert len(failed) == 1
+    assert failed[0]["rule_id"] == "FALSE_BREAKOUT"
+
+
+def test_retest_window_bars_change_is_hashed():
+    changed = dict(CONFIG, retest_window_bars=99)
+    assert config_hash(changed) != config_hash(CONFIG)
 
 
 # ── #5 — gap-through invalidation (corrected, C1) ────────────────────────────
@@ -511,7 +601,12 @@ def test_hh_hl_bullish_structure_geometry_valid_before_confirmation():
 
 
 def test_hh_hl_bullish_continuation_confirms_on_close_above_prior_high():
-    bars = _zigzag_bars([15.0, 8.0, 20.0, 9.0, 25.0, 12.0, 30.0, 16.0, 35.0, 20.0, 36.0])
+    # Final turn bumped from the pre-fix-3 36.0 to 40.0: HH_HL confirmation now requires
+    # clearing the prior high by breakout_buffer_atr * ATR (fix 3, review 2026-09-22), and
+    # this fixture's measured ATR (~3.9-4.2) makes 36.0 fall just short of the buffered
+    # level (~36.03) -- 40.0 clears it with comfortable margin (see test_hh_hl_close_
+    # beyond_breakout_buffer_confirms for the buffer boundary itself).
+    bars = _zigzag_bars([15.0, 8.0, 20.0, 9.0, 25.0, 12.0, 30.0, 16.0, 35.0, 20.0, 40.0])
     t = len(bars) - 1
     hh = [p for p in detect_as_of(bars, t, symbol="ZZ") if p.pattern_type == "HH_HL"]
     assert len(hh) == 1
@@ -538,6 +633,55 @@ def test_hh_hl_no_structure_when_highs_and_lows_disagree():
     assert hh == []
 
 
+# ── Fix 3 (review 2026-09-22): HH_HL confirmation now requires the same breakout buffer ──
+# ── every other P0 family already applies (close beyond the level ± breakout_buffer_atr*ATR)
+
+
+def _hh_hl_pre_confirmation_fixture() -> pd.DataFrame:
+    return _zigzag_bars([15.0, 8.0, 20.0, 9.0, 25.0, 12.0, 30.0, 16.0, 35.0, 20.0])
+
+
+def test_hh_hl_close_inside_breakout_buffer_does_not_confirm():
+    base = _hh_hl_pre_confirmation_fixture()
+    t0 = len(base) - 1
+    hh0 = [p for p in detect_as_of(base, t0, symbol="ZZ") if p.pattern_type == "HH_HL"]
+    assert len(hh0) == 1 and hh0[0].status == LifecycleState.GEOMETRY_VALID.value
+    prior_high = hh0[0].levels["prior_high"]
+
+    # Close just 0.05 above the raw prior high -- inside the buffer for any plausible ATR
+    # here (checked below against the frame's own, causally-measured ATR).
+    bars = synth._append(base, [(prior_high, prior_high + 0.20, prior_high - 1.0, prior_high + 0.05, 100_000.0)])
+    t = len(bars) - 1
+    a = float(atr_series_fn(bars, period=CONFIG["atr_period"]).iloc[t])
+    buf = CONFIG["breakout_buffer_atr"] * a
+    assert 0 < 0.05 < buf, "fixture is vacuous: the chosen close offset is not inside the measured buffer"
+
+    hh = [p for p in detect_as_of(bars, t, symbol="ZZ") if p.pattern_type == "HH_HL"]
+    assert len(hh) == 1
+    assert hh[0].status == LifecycleState.GEOMETRY_VALID.value  # PASS condition: does NOT confirm
+    assert "PRICE_CONFIRMED" not in _event_types(hh[0])
+
+
+def test_hh_hl_close_beyond_breakout_buffer_confirms():
+    base = _hh_hl_pre_confirmation_fixture()
+    t0 = len(base) - 1
+    hh0 = [p for p in detect_as_of(base, t0, symbol="ZZ") if p.pattern_type == "HH_HL"]
+    prior_high = hh0[0].levels["prior_high"]
+
+    bars = synth._append(base, [(prior_high, prior_high + 3.5, prior_high - 1.0, prior_high + 3.0, 100_000.0)])
+    t = len(bars) - 1
+    a = float(atr_series_fn(bars, period=CONFIG["atr_period"]).iloc[t])
+    buf = CONFIG["breakout_buffer_atr"] * a
+    assert 3.0 > buf, "fixture is vacuous: the chosen close offset does not clear the measured buffer"
+
+    hh = [p for p in detect_as_of(bars, t, symbol="ZZ") if p.pattern_type == "HH_HL"]
+    assert len(hh) == 1
+    assert hh[0].status == LifecycleState.PRICE_CONFIRMED.value
+    confirmed = [e for e in hh[0].events if e["event_type"] == "PRICE_CONFIRMED"]
+    assert len(confirmed) == 1
+    assert confirmed[0]["rule_id"] == "CLOSE_ABOVE_PRIOR_HIGH"
+
+
 # ── Generalized retest/failure state machine for S/R and HH_HL (sub-task d) ─────
 
 
@@ -547,11 +691,15 @@ def test_hh_hl_retest_after_confirmation_succeeds():
     state machine RECTANGLE already had, now generalized to HH_HL. Status stays
     PRICE_CONFIRMED (mirrors RECTANGLE: a successful retest does not introduce a new
     LifecycleState of its own — see RETEST_SUCCESSFUL's event-only nature)."""
-    bars = _zigzag_bars([15.0, 8.0, 20.0, 9.0, 25.0, 12.0, 30.0, 16.0, 35.0, 20.0, 36.0])
+    # Final turn bumped from 36.0 to 40.0 (fix 3's breakout buffer -- see the comment in
+    # test_hh_hl_bullish_continuation_confirms_on_close_above_prior_high); the broken level
+    # retested below is still the prior high (~35.05), unaffected by how high the confirming
+    # close itself needed to be.
+    bars = _zigzag_bars([15.0, 8.0, 20.0, 9.0, 25.0, 12.0, 30.0, 16.0, 35.0, 20.0, 40.0])
     bars = synth._append(
         bars,
         [
-            (36.0, 36.2, 34.8, 35.0, 100_000.0),  # dip into the broken prior-high (retest zone)
+            (40.0, 40.2, 34.8, 35.0, 100_000.0),  # dip into the broken prior-high (retest zone)
             (35.0, 38.0, 34.9, 37.5, 100_000.0),  # close back above -> RETEST_SUCCESSFUL
         ],
     )
@@ -567,11 +715,12 @@ def test_hh_hl_retest_after_confirmation_fails():
     """Same confirmed HH_HL, but the pullback keeps falling hard instead of holding — must
     resolve FAILED (FAILED_RETEST, since a retest was already pending), exactly like
     RECTANGLE's fixture #4."""
-    bars = _zigzag_bars([15.0, 8.0, 20.0, 9.0, 25.0, 12.0, 30.0, 16.0, 35.0, 20.0, 36.0])
+    # Final turn bumped from 36.0 to 40.0 -- see the sibling "succeeds" test's comment.
+    bars = _zigzag_bars([15.0, 8.0, 20.0, 9.0, 25.0, 12.0, 30.0, 16.0, 35.0, 20.0, 40.0])
     bars = synth._append(
         bars,
         [
-            (36.0, 36.2, 34.8, 35.0, 100_000.0),  # dip into the broken prior-high (retest zone)
+            (40.0, 40.2, 34.8, 35.0, 100_000.0),  # dip into the broken prior-high (retest zone)
             (35.0, 35.2, 30.0, 31.0, 100_000.0),  # hard failure
         ],
     )

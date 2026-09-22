@@ -58,3 +58,20 @@ def test_early_module_tunables_come_from_config_and_change_the_hash():
     assert abs(sum(ep["structural_subweights"].values()) - 1.0) < 1e-12
     changed = dict(CONFIG, early_params=dict(ep, distance_scale_atr=4.0))
     assert config_hash(changed) != config_hash(CONFIG)
+
+
+# ── Fix 4 (review 2026-09-22): "unhashed behaviour switches" ─────────────────────────────
+# `context.MARKET_INDEX_NAME` and the swing tie rule used to be bare code constants with no
+# CONFIG knob at all -- changing either would not have changed config_hash().
+
+
+def test_market_benchmark_is_nifty_500_and_changing_it_changes_the_hash():
+    assert CONFIG["market_benchmark"] == "NIFTY 500"
+    changed = dict(CONFIG, market_benchmark="NIFTY 50")
+    assert config_hash(changed) != config_hash(CONFIG)
+
+
+def test_swing_tie_rule_is_latest_bar_wins_and_changing_it_changes_the_hash():
+    assert CONFIG["swing_tie_rule"] == "latest_bar_wins"
+    changed = dict(CONFIG, swing_tie_rule="earliest_bar_wins")
+    assert config_hash(changed) != config_hash(CONFIG)

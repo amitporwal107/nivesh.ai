@@ -200,3 +200,75 @@ def test_negative_control_a_three_bar_peek_is_caught_for_sr_and_hh_hl(builder, f
         trials += 1
         caught += clean != peeking
     assert trials > 0 and caught == trials, f"{family}: peek caught in only {caught}/{trials} trials"
+
+
+# ── Fix 3 (review 2026-09-22): HH_HL breakout-buffer ATR must be read causally ───────────
+# HH_HL confirmation now requires clearing the prior high/low by breakout_buffer_atr * ATR
+# (see patterns.py's _hh_hl_patterns). ATR is read off `atr_ser.iloc[i]`, already computed
+# over the `t`-truncated view exactly like every other family's own buffer -- this probe
+# pins that down specifically for the new buffer arithmetic, at a bar deliberately chosen
+# to sit right at the buffer boundary (the case most exposed to a look-ahead bug: a
+# borderline classification is exactly where a leaked future ATR value would flip the
+# outcome).
+
+
+def _zigzag_bars(turns: list[float], bars_per_leg: int = 5, wick: float = 0.05) -> pd.DataFrame:
+    """Same shape as test_patterns.py's helper of the same name (duplicated locally, matching
+    this file's existing convention of self-contained fixtures)."""
+    closes: list[float] = []
+    for i in range(len(turns) - 1):
+        seg = list(np.linspace(turns[i], turns[i + 1], bars_per_leg))[:-1]
+        closes.extend(seg)
+    closes.append(turns[-1])
+    return synth.bars_from_closes(closes, wick=wick)
+
+
+def _hh_hl_buffer_boundary_fixture_with_room() -> tuple[pd.DataFrame, int]:
+    """A bullish HH_HL structure one bar away from confirming, extended with a close just
+    0.05 above the raw prior high (INSIDE the breakout buffer -- must stay GEOMETRY_VALID),
+    plus 3 quiet filler bars afterwards so there is room to poison/peek past `t`. Returns
+    (bars, t) where `t` is the index of the buffer-boundary bar itself."""
+    base_pre = _zigzag_bars([15.0, 8.0, 20.0, 9.0, 25.0, 12.0, 30.0, 16.0, 35.0, 20.0])
+    t0 = len(base_pre) - 1
+    hh0 = [p for p in detect_as_of(base_pre, t0, symbol="ZZ") if p.pattern_type == "HH_HL"]
+    assert len(hh0) == 1
+    prior_high = hh0[0].levels["prior_high"]
+
+    inside_at_t = synth._append(base_pre, [(prior_high, prior_high + 0.20, prior_high - 1.0, prior_high + 0.05, 100_000.0)])
+    t = len(inside_at_t) - 1
+    filler = [(prior_high + 0.05, prior_high + 0.1, prior_high - 0.5, prior_high + 0.05, 100_000.0)] * 3
+    with_room = synth._append(inside_at_t, filler)
+    return with_room, t
+
+
+def test_hh_hl_breakout_buffer_boundary_unaffected_by_poisoning_the_future():
+    bars, t = _hh_hl_buffer_boundary_fixture_with_room()
+    hh_clean = [p for p in detect_as_of(bars, t, symbol="ZZ") if p.pattern_type == "HH_HL"]
+    assert len(hh_clean) == 1
+    assert hh_clean[0].status == "GEOMETRY_VALID", "fixture is vacuous: expected to sit inside the buffer, unconfirmed"
+
+    for poison_fn in _POISON_FNS:
+        poisoned = poison_fn(bars, t)
+        pd.testing.assert_frame_equal(
+            poisoned.iloc[: t + 1].reset_index(drop=True), bars.iloc[: t + 1].reset_index(drop=True)
+        )
+        result_clean = _serialize(bars, t)
+        result_poisoned = _serialize(poisoned, t)
+        assert result_clean == result_poisoned, f"leak detected via {poison_fn.__name__}"
+
+
+def test_negative_control_peeking_past_t_is_caught_for_the_hh_hl_buffer_boundary():
+    """Mandatory negative control: evaluating the poisoned frame PAST `t` (a peek) must show
+    a different HH_HL status than the clean frame at `t` — proving the probe above really
+    can detect a leak, not just always agree."""
+    bars, t = _hh_hl_buffer_boundary_fixture_with_room()
+    poisoned = _poison_fabricated_clean_breakout(bars, t)
+
+    clean_at_t = _serialize(bars, t)
+    peeking_past_t = _serialize(poisoned, t + 3)
+    assert clean_at_t != peeking_past_t, (
+        "negative control failed to detect the leak -- a probe that stays green against a "
+        "broken detector proves nothing"
+    )
+    hh_peek = [p for p in peeking_past_t if p["pattern_type"] == "HH_HL"]
+    assert hh_peek and hh_peek[0]["status"] == "PRICE_CONFIRMED"  # the fabricated rally confirms it

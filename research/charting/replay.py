@@ -52,6 +52,7 @@ import pandas as pd
 
 from research.charting import patterns
 from research.charting.config import CONFIG, ENGINE_VERSION, PROFILE_NAME, config_hash
+from research.charting.research_window import assert_no_sealed_rows, research_bars
 
 SCHEMA_VERSION = 1
 
@@ -189,6 +190,16 @@ def replay(
     aged out of `patterns.py`'s own lookback window -- a documented scope choice there, not a
     PIT concern) is left at its last-known status in `final_state`; no "removed" event is
     invented, since disappearance-by-windowing is not a §11 lifecycle transition.
+
+    Sealed-window guard (review 2026-09-22, defect #1): `replay()` is a RESEARCH evaluation
+    path (as opposed to `patterns.detect_as_of` called standalone for live display/detection,
+    which this guard deliberately never touches -- see `research.charting.export`), so the
+    date span of every bar the walk can read -- bars[0..end_index], i.e. the lookback that
+    `detect_as_of` sees as well as the requested window -- is checked against the project-wide
+    sealed 2023-01-01..2024-07-31 out-of-sample block BEFORE the walk runs at all;
+    `research_window.SealedWindowError` is raised if it overlaps at all. A post-sealed replay
+    must therefore be handed bars that start after 2024-07-31 (its own fresh history): a sealed
+    bar used only as lookback would still shape every level and swing the replay reports.
     """
     n = len(bars)
     if n == 0:
@@ -196,6 +207,8 @@ def replay(
     end = n - 1 if end_index is None else end_index
     if not (0 <= start_index <= end < n):
         raise ValueError(f"invalid replay range start_index={start_index} end_index={end} for {n} bars")
+
+    research_bars(bars.iloc[: end + 1])  # lookback + window: every bar detect_as_of can read
 
     cfg_hash = config_hash(cfg)
     last_status: dict = {}
@@ -297,10 +310,18 @@ def write_run(
     `now` (defaults to the real wall clock) affects ONLY `manifest.json`'s `run_id` /
     `generated_at` fields -- pure run metadata, never part of the hashed artifact content, per
     requirement 4's "run manifest can note actual wall-clock run time as metadata."
+
+    Sealed-window guard (review 2026-09-22, defect #1): `replay()` above already refuses a
+    requested window that overlaps the sealed block, but this function additionally asserts
+    (`research_window.assert_no_sealed_rows`) that no transition it is about to write ever
+    landed on a sealed date -- a second, independent, defense-in-depth check on the actual
+    OUTPUT artifacts, so a poisoned sealed row can never reach disk even if the first guard
+    were ever bypassed.
     """
     result = replay(
         bars, cfg=cfg, symbol=symbol, start_index=start_index, end_index=end_index, incomplete_bar=incomplete_bar
     )
+    assert_no_sealed_rows(t.event_date for t in result.transitions)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 

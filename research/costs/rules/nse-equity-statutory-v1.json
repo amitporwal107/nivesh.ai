@@ -1,0 +1,289 @@
+{
+ "rule_set_id": "nse-equity-statutory-v1",
+ "version": 1,
+ "rule_schema": "statutory_time_series_v1",
+ "exchange": "NSE",
+ "instrument": "equity_cash",
+ "segments": [
+  "delivery",
+  "intraday"
+ ],
+ "compiled_at": "2026-09-22",
+ "compiled_by": "research/costs review, web search this session (see each record's source_url + note); orchestrator review 2026-09-22 filled the SEBI/NSE/DP spans from the sources cited per record and closed the 2024-09-30 NSE gap",
+ "coverage_window": {
+  "from": "2021-01-01",
+  "to": null
+ },
+ "usage_note": "Every component is a list of time-boxed records: effective_from is inclusive, effective_to is exclusive (null = open-ended / still current as of compiled_at). resolve a rate for a leg by picking the record whose window contains the leg's trade date, matching segment/exchange/side where those keys exist. A record with verified=false is a best-effort placeholder from partial or conflicting secondary sources: it must not be trusted for production tax/cost filings and should be re-confirmed against the primary circular before use. This file intentionally leaves gaps rather than inventing a rate or a change date.",
+ "components": {
+  "stt": {
+   "description": "Securities Transaction Tax, Chapter VII Finance (No. 2) Act 2004, as amended. Equity delivery: both sides. Equity intraday (non-delivery): sell side only. The 25% STT hike of 1-Apr-2023 and the Budget-2024 hike effective 1-Oct-2024 applied ONLY to futures & options; equity delivery/intraday cash-segment STT was not touched by either change.",
+   "records": [
+    {
+     "segment": "delivery",
+     "side": "BUY",
+     "pct": "0.100",
+     "effective_from": "2021-01-01",
+     "effective_to": null,
+     "verified": true,
+     "source_url": "https://support.zerodha.com/category/account-opening/resident-individual/ri-charges/articles/how-is-the-securities-transaction-tax-stt-calculated",
+     "note": "0.1% delivery buy-side STT is the long-standing cash-equity rate (in force since 2013) and is corroborated by every current explainer found this session (Zerodha, Bajaj Broking, LegalClarity, StockGro, 2025 STT guides). No change to the cash-equity delivery rate was found for 2021-2026; the 1-Apr-2023 and 1-Oct-2024 STT hikes were confirmed (multiple sources, e.g. business-standard 123032400585) to apply only to F&O. Treated as a single unbroken record for the whole window; if an undiscovered interim change exists it is not reflected here."
+    },
+    {
+     "segment": "delivery",
+     "side": "SELL",
+     "pct": "0.100",
+     "effective_from": "2021-01-01",
+     "effective_to": null,
+     "verified": true,
+     "source_url": "https://zerodha.com/charges/",
+     "note": "Same basis as the BUY-side delivery record above."
+    },
+    {
+     "segment": "intraday",
+     "side": "BUY",
+     "pct": "0.000",
+     "effective_from": "2021-01-01",
+     "effective_to": null,
+     "verified": true,
+     "source_url": "https://zerodha.com/charges/",
+     "note": "No STT on the buy leg of an intraday (non-delivery) equity trade."
+    },
+    {
+     "segment": "intraday",
+     "side": "SELL",
+     "pct": "0.025",
+     "effective_from": "2021-01-01",
+     "effective_to": null,
+     "verified": true,
+     "source_url": "https://zerodha.com/charges/",
+     "note": "0.025% intraday sell-side STT; confirmed current for 2025/2026 and reported as unchanged by the 1-Oct-2024 F&O-only hike (taxclue.in 2025 STT guide)."
+    }
+   ]
+  },
+  "exchange_txn_charge": {
+   "description": "NSE cash-market transaction charge, levied on both buy and sell value. This is the component with the most churn: an IPFT-linked 6% hike (eff. 1-Jan-2021), a partial rollback (~Mar-2023), a further ~1% cut (from 1-Apr-2024), and a SEBI 'true-to-label' uniform-charge reform (eff. 1-Oct-2024) all happened inside the coverage window, and the intermediate numeric values could not all be pinned down from the sources found this session.",
+   "records": [
+    {
+     "exchange": "BSE",
+     "segment": "delivery",
+     "side": "BOTH",
+     "pct": "0.00375",
+     "effective_from": "2021-01-01",
+     "effective_to": null,
+     "verified": false,
+     "source_url": "https://zerodha.com/charges/",
+     "note": "0.00375% is confirmed CURRENT (live fetch this session, matches frozen zerodha-equity-v1). Treated as a single unbroken record back to 2021-01-01 because no BSE-specific change was found this session -- but that absence-of-evidence is weak; BSE cash-segment charges were not independently researched with the same depth as NSE's, so the pre-2026 portion of this record is unverified."
+    },
+    {
+     "exchange": "BSE",
+     "segment": "intraday",
+     "side": "BOTH",
+     "pct": "0.00375",
+     "effective_from": "2021-01-01",
+     "effective_to": null,
+     "verified": false,
+     "source_url": "https://zerodha.com/charges/",
+     "note": "Same caveat as the BSE delivery record above."
+    },
+    {
+     "exchange": "NSE",
+     "segment": "delivery",
+     "side": "BOTH",
+     "pct": "0.00345",
+     "effective_from": "2021-01-01",
+     "effective_to": "2023-04-01",
+     "verified": true,
+     "source_url": "https://archives.nseindia.com/content/circulars/FA56129.pdf",
+     "note": "Rs 3.45/lakh each side: the 'existing' first-slab (<= Rs 1,250 cr/month) rate in NSE circular NSE/FA/56129 (2023-03-24), set by the increase in circular NSE/FA/46730 (2020-12-18). Before true-to-label (Oct 2024) retail brokers passed the first-slab rate to clients."
+    },
+    {
+     "exchange": "NSE",
+     "segment": "delivery",
+     "side": "BOTH",
+     "pct": "0.00325",
+     "effective_from": "2023-04-01",
+     "effective_to": "2024-04-01",
+     "verified": true,
+     "source_url": "https://archives.nseindia.com/content/circulars/FA56129.pdf",
+     "note": "Rs 3.25/lakh each side from 2023-04-01 (rollback in NSE/FA/56129). The same circular raised the NSE IPFT contribution to Rs 10/crore (0.0001%), not modelled as a separate line."
+    },
+    {
+     "exchange": "NSE",
+     "segment": "delivery",
+     "side": "BOTH",
+     "pct": "0.00322",
+     "effective_from": "2024-04-01",
+     "effective_to": "2024-10-01",
+     "verified": false,
+     "source_url": "https://zerodha.com/z-connect/business-updates/revision-in-exchange-transaction-charges-and-securities-transaction-tax-from-october-1-2024",
+     "note": "Rate VERIFIED as the rate in force just before 2024-10-01 (Zerodha notice: 'Before October 1, 2024: 0.00322%'). START DATE UNVERIFIED: taken from NSE's reduction circular dated 2024-03-14, effective 2024-04-01 (summary only; its table was not read)."
+    },
+    {
+     "exchange": "NSE",
+     "segment": "delivery",
+     "side": "BOTH",
+     "pct": "0.00297",
+     "effective_from": "2024-10-01",
+     "effective_to": "2026-03-01",
+     "verified": true,
+     "source_url": "https://zerodha.com/z-connect/business-updates/revision-in-exchange-transaction-charges-and-securities-transaction-tax-from-october-1-2024",
+     "note": "Rs 2.97/lakh each side, flat, true-to-label under SEBI's 2024-07-01 circular; NSE + Zerodha notices."
+    },
+    {
+     "exchange": "NSE",
+     "segment": "delivery",
+     "side": "BOTH",
+     "pct": "0.00307",
+     "effective_from": "2026-03-01",
+     "effective_to": null,
+     "verified": false,
+     "source_url": "https://zerodha.com/charges/",
+     "note": "Rate VERIFIED live on zerodha.com/charges (retrieved 2026-09-19). START DATE UNVERIFIED: NSE circular dated 2026-02-27, effective 2026-03-01, cut the IPFT contribution to Rs 0.01/crore 'while ensuring no change in the overall outflow'; 0.00297% + the old Rs 10/crore IPFT = 0.00307%. Source for the date: https://www.teamleaseregtech.com/updates/article/53156/nse-issued-a-circular-regarding-the-revision-in-transaction-charges/"
+    },
+    {
+     "exchange": "NSE",
+     "segment": "intraday",
+     "side": "BOTH",
+     "pct": "0.00345",
+     "effective_from": "2021-01-01",
+     "effective_to": "2023-04-01",
+     "verified": true,
+     "source_url": "https://archives.nseindia.com/content/circulars/FA56129.pdf",
+     "note": "Rs 3.45/lakh each side: the 'existing' first-slab (<= Rs 1,250 cr/month) rate in NSE circular NSE/FA/56129 (2023-03-24), set by the increase in circular NSE/FA/46730 (2020-12-18). Before true-to-label (Oct 2024) retail brokers passed the first-slab rate to clients."
+    },
+    {
+     "exchange": "NSE",
+     "segment": "intraday",
+     "side": "BOTH",
+     "pct": "0.00325",
+     "effective_from": "2023-04-01",
+     "effective_to": "2024-04-01",
+     "verified": true,
+     "source_url": "https://archives.nseindia.com/content/circulars/FA56129.pdf",
+     "note": "Rs 3.25/lakh each side from 2023-04-01 (rollback in NSE/FA/56129). The same circular raised the NSE IPFT contribution to Rs 10/crore (0.0001%), not modelled as a separate line."
+    },
+    {
+     "exchange": "NSE",
+     "segment": "intraday",
+     "side": "BOTH",
+     "pct": "0.00322",
+     "effective_from": "2024-04-01",
+     "effective_to": "2024-10-01",
+     "verified": false,
+     "source_url": "https://zerodha.com/z-connect/business-updates/revision-in-exchange-transaction-charges-and-securities-transaction-tax-from-october-1-2024",
+     "note": "Rate VERIFIED as the rate in force just before 2024-10-01 (Zerodha notice: 'Before October 1, 2024: 0.00322%'). START DATE UNVERIFIED: taken from NSE's reduction circular dated 2024-03-14, effective 2024-04-01 (summary only; its table was not read)."
+    },
+    {
+     "exchange": "NSE",
+     "segment": "intraday",
+     "side": "BOTH",
+     "pct": "0.00297",
+     "effective_from": "2024-10-01",
+     "effective_to": "2026-03-01",
+     "verified": true,
+     "source_url": "https://zerodha.com/z-connect/business-updates/revision-in-exchange-transaction-charges-and-securities-transaction-tax-from-october-1-2024",
+     "note": "Rs 2.97/lakh each side, flat, true-to-label under SEBI's 2024-07-01 circular; NSE + Zerodha notices."
+    },
+    {
+     "exchange": "NSE",
+     "segment": "intraday",
+     "side": "BOTH",
+     "pct": "0.00307",
+     "effective_from": "2026-03-01",
+     "effective_to": null,
+     "verified": false,
+     "source_url": "https://zerodha.com/charges/",
+     "note": "Rate VERIFIED live on zerodha.com/charges (retrieved 2026-09-19). START DATE UNVERIFIED: NSE circular dated 2026-02-27, effective 2026-03-01, cut the IPFT contribution to Rs 0.01/crore 'while ensuring no change in the overall outflow'; 0.00297% + the old Rs 10/crore IPFT = 0.00307%. Source for the date: https://www.teamleaseregtech.com/updates/article/53156/nse-issued-a-circular-regarding-the-revision-in-transaction-charges/"
+    }
+   ]
+  },
+  "sebi_fee": {
+   "description": "SEBI turnover / regulatory fee under the SEBI (Regulation of Fee for Registered Stock Brokers) Regulations, levied on both buy and sell value.",
+   "records": [
+    {
+     "per_crore_inr": "5",
+     "effective_from": "2021-01-01",
+     "effective_to": "2021-04-01",
+     "verified": true,
+     "source_url": "https://www.sebi.gov.in/media/press-releases/apr-2020/sebi-reduces-broker-turnover-fees-and-filing-fees-for-issuers_46571.html",
+     "note": "SEBI press release (Apr 2020): broker turnover fee 'reduced to 50% of the existing fee structure for the period June 2020 to March 2021'; existing fee Rs 10/crore -> Rs 5/crore through 2021-03-31."
+    },
+    {
+     "per_crore_inr": "10",
+     "effective_from": "2021-04-01",
+     "effective_to": null,
+     "verified": true,
+     "source_url": "https://zerodha.com/charges/",
+     "note": "Rs 10/crore after the COVID relief lapsed (2021-04-01); confirmed current on zerodha.com/charges 2026-09-19; no change found in between."
+    }
+   ]
+  },
+  "gst": {
+   "description": "GST on brokerage + SEBI turnover fee + exchange transaction charge (services supplied by the stock broker/exchange are taxable supplies under the CGST/SGST Acts).",
+   "records": [
+    {
+     "pct": "18",
+     "applies_to": [
+      "brokerage",
+      "sebi_fee",
+      "exchange_txn_charge"
+     ],
+     "effective_from": "2021-01-01",
+     "effective_to": null,
+     "verified": true,
+     "source_url": "https://zerodha.com/charges/",
+     "note": "18% GST on broking services has been the rate since the GST regime's 1-Jul-2017 start; no rate change was found or expected inside the 2021-2026 window. 'applies_to' documents Zerodha's own GST base (brokerage+SEBI+exchange charge, per the fill_costs() formula being reproduced) -- this is a broker/engine convention, not itself a distinct statutory choice, and other rule sets (e.g. prd-illustrative-v1) may legitimately use a narrower base."
+    }
+   ]
+  },
+  "stamp_duty": {
+   "description": "Stamp duty on transfer of securities, Indian Stamp Act 1899 as amended by the Finance Act 2019, collected by the exchange/clearing corporation on the buy side only, uniform pan-India since 1-Jul-2020.",
+   "records": [
+    {
+     "segment": "delivery",
+     "side": "BUY",
+     "pct": "0.015",
+     "effective_from": "2021-01-01",
+     "effective_to": null,
+     "verified": true,
+     "source_url": "https://www.pib.gov.in/PressReleasePage.aspx?PRID=1635399",
+     "note": "0.015% on delivery buy value, effective 1-Jul-2020 (predates this window) per the PIB press release on the Finance Act 2019 stamp-duty amendments and corroborated by PwC's contemporaneous client alert and Zerodha's Z-Connect explainer. No change found within 2021-2026."
+    },
+    {
+     "segment": "intraday",
+     "side": "BUY",
+     "pct": "0.003",
+     "effective_from": "2021-01-01",
+     "effective_to": null,
+     "verified": true,
+     "source_url": "https://zerodha.com/z-connect/general/uniform-stamp-duty",
+     "note": "0.003% on intraday (non-delivery) buy value, same 1-Jul-2020 origin and no change found within 2021-2026."
+    }
+   ]
+  },
+  "dp_charge": {
+   "description": "Depository Participant (DP) sell-side charge, i.e. CDSL's per-debit fee plus the broker's own markup and GST. NOT a government statutory rate (SEBI/CDSL regulate CDSL's own leg only) and varies by broker; included here at the task's request, sourced for Zerodha specifically and labelled as such.",
+   "records": [
+    {
+     "broker": "zerodha",
+     "inr_per_scrip_per_sell_day": "15.34",
+     "effective_from": "2024-10-01",
+     "effective_to": null,
+     "verified": true,
+     "source_url": "https://www.cdslindia.com/Downloads/About/Media/Final_26%20Sep%202024%20Media%20Release_Tariffrevised.pdf",
+     "note": "CDSL moved to a flat Rs 3.50/debit transaction charge effective 1-Oct-2024 (CDSL media release, 26-Sep-2024). Zerodha's all-in Rs 15.34/scrip/sell-day (Rs 3.50 CDSL + Rs 9.50 Zerodha markup + Rs 2.34 GST) is confirmed by a live zerodha.com/charges fetch this session and matches the frozen zerodha-equity-v1 model."
+    },
+    {
+     "broker": "zerodha",
+     "inr_per_scrip_per_sell_day": "15.93",
+     "effective_from": "2021-01-01",
+     "effective_to": "2024-10-01",
+     "verified": false,
+     "source_url": "https://www.chittorgarh.com/broker/zerodha/demat-account/18/",
+     "note": "SECONDARY SOURCE ONLY: Rs 13.5 + 18% GST = Rs 15.93 (CDSL Rs 5.5 + Zerodha Rs 8), before CDSL's cut to Rs 3.5 on 2024-10-01. Used as a best estimate and reported in unverified_rates_used; not confirmed against a Zerodha/CDSL primary notice."
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,217 @@
+{
+ "generated_by": "old tpd_model/risk/costs.py:fill_costs, loaded via git show",
+ "source_ref": "feat/paper-trade-engine@8418037bf6c3c86aa782b52c1e3a1665143e087e",
+ "source_blob": "backend/nidp/services/tpd_model/risk/costs.py@89ee31d504b3af4ac5bd24c4cbd80a453c8a75aa",
+ "generated_at": "2026-09-22",
+ "cases": [
+  {
+   "profile": "delivery",
+   "exchange": "NSE",
+   "side": "BUY",
+   "value": "100000",
+   "dp_applies": false,
+   "on_date": "2026-09-19",
+   "allow_retroactive": false,
+   "expected": {
+    "brokerage": "0.00",
+    "stt": "100.00",
+    "exchange_txn": "3.07",
+    "sebi": "0.10",
+    "stamp": "15.00",
+    "gst": "0.57",
+    "dp": "0.00",
+    "total": "118.74"
+   }
+  },
+  {
+   "profile": "delivery",
+   "exchange": "NSE",
+   "side": "SELL",
+   "value": "100000",
+   "dp_applies": true,
+   "on_date": "2026-09-19",
+   "allow_retroactive": false,
+   "expected": {
+    "brokerage": "0.00",
+    "stt": "100.00",
+    "exchange_txn": "3.07",
+    "sebi": "0.10",
+    "stamp": "0.00",
+    "gst": "0.57",
+    "dp": "15.34",
+    "total": "119.08"
+   }
+  },
+  {
+   "profile": "delivery",
+   "exchange": "BSE",
+   "side": "BUY",
+   "value": "57834.19",
+   "dp_applies": false,
+   "on_date": "2026-09-19",
+   "allow_retroactive": false,
+   "expected": {
+    "brokerage": "0.00",
+    "stt": "57.83",
+    "exchange_txn": "2.17",
+    "sebi": "0.06",
+    "stamp": "8.68",
+    "gst": "0.40",
+    "dp": "0.00",
+    "total": "69.14"
+   }
+  },
+  {
+   "profile": "delivery",
+   "exchange": "BSE",
+   "side": "SELL",
+   "value": "57834.19",
+   "dp_applies": true,
+   "on_date": "2026-09-19",
+   "allow_retroactive": false,
+   "expected": {
+    "brokerage": "0.00",
+    "stt": "57.83",
+    "exchange_txn": "2.17",
+    "sebi": "0.06",
+    "stamp": "0.00",
+    "gst": "0.40",
+    "dp": "15.34",
+    "total": "75.80"
+   }
+  },
+  {
+   "profile": "intraday",
+   "exchange": "NSE",
+   "side": "BUY",
+   "value": "50000",
+   "dp_applies": false,
+   "on_date": "2026-09-19",
+   "allow_retroactive": false,
+   "expected": {
+    "brokerage": "15.00",
+    "stt": "0.00",
+    "exchange_txn": "1.54",
+    "sebi": "0.05",
+    "stamp": "1.50",
+    "gst": "2.99",
+    "dp": "0.00",
+    "total": "21.08"
+   }
+  },
+  {
+   "profile": "intraday",
+   "exchange": "NSE",
+   "side": "SELL",
+   "value": "50000",
+   "dp_applies": true,
+   "on_date": "2026-09-19",
+   "allow_retroactive": false,
+   "expected": {
+    "brokerage": "15.00",
+    "stt": "12.50",
+    "exchange_txn": "1.54",
+    "sebi": "0.05",
+    "stamp": "0.00",
+    "gst": "2.99",
+    "dp": "0.00",
+    "total": "32.08"
+   }
+  },
+  {
+   "profile": "intraday",
+   "exchange": "NSE",
+   "side": "BUY",
+   "value": "500000",
+   "dp_applies": false,
+   "on_date": "2026-09-19",
+   "allow_retroactive": false,
+   "expected": {
+    "brokerage": "20.00",
+    "stt": "0.00",
+    "exchange_txn": "15.35",
+    "sebi": "0.50",
+    "stamp": "15.00",
+    "gst": "6.45",
+    "dp": "0.00",
+    "total": "57.30"
+   }
+  },
+  {
+   "profile": "intraday",
+   "exchange": "NSE",
+   "side": "SELL",
+   "value": "500000",
+   "dp_applies": true,
+   "on_date": "2026-09-19",
+   "allow_retroactive": false,
+   "expected": {
+    "brokerage": "20.00",
+    "stt": "125.00",
+    "exchange_txn": "15.35",
+    "sebi": "0.50",
+    "stamp": "0.00",
+    "gst": "6.45",
+    "dp": "0.00",
+    "total": "167.30"
+   }
+  },
+  {
+   "profile": "intraday",
+   "exchange": "BSE",
+   "side": "SELL",
+   "value": "1",
+   "dp_applies": true,
+   "on_date": "2026-09-19",
+   "allow_retroactive": false,
+   "expected": {
+    "brokerage": "0.00",
+    "stt": "0.00",
+    "exchange_txn": "0.00",
+    "sebi": "0.00",
+    "stamp": "0.00",
+    "gst": "0.00",
+    "dp": "0.00",
+    "total": "0.00"
+   }
+  },
+  {
+   "profile": "delivery",
+   "exchange": "NSE",
+   "side": "SELL",
+   "value": "0",
+   "dp_applies": true,
+   "on_date": "2026-09-19",
+   "allow_retroactive": false,
+   "expected": {
+    "brokerage": "0.00",
+    "stt": "0.00",
+    "exchange_txn": "0.00",
+    "sebi": "0.00",
+    "stamp": "0.00",
+    "gst": "0.00",
+    "dp": "15.34",
+    "total": "15.34"
+   }
+  },
+  {
+   "profile": "delivery",
+   "exchange": "NSE",
+   "side": "BUY",
+   "value": "100000",
+   "dp_applies": false,
+   "on_date": "2026-08-20",
+   "allow_retroactive": true,
+   "expected": {
+    "brokerage": "0.00",
+    "stt": "100.00",
+    "exchange_txn": "3.07",
+    "sebi": "0.10",
+    "stamp": "15.00",
+    "gst": "0.57",
+    "dp": "0.00",
+    "total": "118.74"
+   }
+  }
+ ]
+}

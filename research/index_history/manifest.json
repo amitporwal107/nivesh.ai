@@ -1,0 +1,265 @@
+{
+  "excluded_window": [
+    "2023-01-01",
+    "2024-07-31"
+  ],
+  "files": {
+    "BREADTH_UNIVERSE.csv": {
+      "excluded_etf_symbols": 456,
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2021-01-01",
+      "index_name": "BREADTH_UNIVERSE",
+      "instrument_token": null,
+      "interval": "day",
+      "last_date": "2026-09-18",
+      "rows": 1026,
+      "sha256": "d060265e4f8cef6fd6281ca86f60e3f46a4d42eeda49077b2ad727138b5a8a12",
+      "source": "derived:kite_history/day_2021",
+      "universe_symbols": 2588
+    },
+    "INDIA_VIX.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "INDIA VIX",
+      "instrument_token": 264969,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1402,
+      "sha256": "e96a8b50bbde8156a024c76ad7da7e37adbfad102afadb75446f33de81b3dbed",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_50.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY 50",
+      "instrument_token": 256265,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "4f391683b38aa8d0f0def61fbaa856c0bb9af69a3ac75fb05bf17fcca764efa7",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_500.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY 500",
+      "instrument_token": 268041,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1402,
+      "sha256": "212e1e86ae46ae84c733a0418b7d0c90c6ae6a2be3525d9dc0d8f579cf834a58",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_AUTO.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY AUTO",
+      "instrument_token": 263433,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "0edb3b61c19bcfb0f07feef9a65793bcad4113e83c59834a17be657d6d11696f",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_BANK.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY BANK",
+      "instrument_token": 260105,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "eb3b1e1fab6c46abd8ac8afe0a7cc941820c8f139d3456d164addf7dab34b9e6",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_ENERGY.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY ENERGY",
+      "instrument_token": 261641,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "a8f70ad7e38fe2a2259fe5a00b7515c7f262f6060a2a4593f7e411519155e9dc",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_FIN_SERVICE.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY FIN SERVICE",
+      "instrument_token": 257801,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "aad2a5b2e060871a19db2c42b4460e9a181008f5b9203d1ed8aebb91f45e7a3b",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_FMCG.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY FMCG",
+      "instrument_token": 261897,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "256c9edb67f346ef75c5d5ea2315f1276703acf2af4d2a9f09eadc769ad436fd",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_INFRA.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY INFRA",
+      "instrument_token": 261385,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "574fc7ae54bd12fc8957e6822196ad2f2551a45a2087d35410aee5710fae77f2",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_IT.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY IT",
+      "instrument_token": 259849,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "9a7d3881b536a1408af7bf38bda314918637a58ddc835451c96b6a1c0a94fc71",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_MEDIA.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY MEDIA",
+      "instrument_token": 263945,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "3a34a829a7834b33c0b79d10748a4ee2518bc451d53c477db7291aded10e060e",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_METAL.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY METAL",
+      "instrument_token": 263689,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "4d4605e6cd2207337a11dff71b08df7ec094e1dc5bffd2cd5403b899f3ce7128",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_MIDCAP_150.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY MIDCAP 150",
+      "instrument_token": 266249,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "fde24763ba94d0f9c59c0a267cde7054e9db2e4512d3fbecf797b2e57c74fb1d",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_PHARMA.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY PHARMA",
+      "instrument_token": 262409,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "afcb3e7507caa9b658ce35b523a96094b955531684a1dff2fa18f1e49bab81e9",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_PSU_BANK.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY PSU BANK",
+      "instrument_token": 262921,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "ca04c63ec0d603c6f330cc5d76df14d09a249d6dbf40e1ae85cfa57cf8b1ac81",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_REALTY.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY REALTY",
+      "instrument_token": 261129,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "be4f88e37de0f516edcf34e156c95fe15fbadb1a797800d02f1887a859c2f7d0",
+      "source": "kite-connect-v3"
+    },
+    "NIFTY_SMLCAP_250.csv": {
+      "excluded_window": [
+        "2023-01-01",
+        "2024-07-31"
+      ],
+      "first_date": "2019-07-01",
+      "index_name": "NIFTY SMLCAP 250",
+      "instrument_token": 267273,
+      "interval": "day",
+      "last_date": "2026-09-22",
+      "rows": 1403,
+      "sha256": "d175dc4ea0228bcd5ecc3bd4275b09935279c08354bec740f6a1fa95bd126c69",
+      "source": "kite-connect-v3"
+    }
+  },
+  "generated_at": "2026-09-22T04:28:40.288196+00:00",
+  "interval": "day",
+  "source": "kite-connect-v3"
+}
