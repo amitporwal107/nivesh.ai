@@ -98,6 +98,15 @@ class PatternSnapshot:
     rules: list[dict]
     events: list[dict]
     scores: None = None
+    # §35.2 amendment additions (N§13, "Retest quality: penetration depth, number of
+    # attempts, retest volume, time to retest, time to continuation" -- descriptive only,
+    # never a confirmation gate). One consolidated block rather than per-event fields: these
+    # are properties of the retest EPISODE as a whole (deepest penetration reached, total
+    # attempts, bar counts to/from it), not of any single RETEST_* bar. `None` when the
+    # pattern never reached PRICE_CONFIRMED (retest is not yet applicable); once confirmed,
+    # always a dict -- see `_walk_retest_and_failure`'s `_quality` closure for the
+    # "confirmed but no pullback ever observed" case (attempts=0, fields None, `note` set).
+    retest_quality: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -115,6 +124,7 @@ class PatternSnapshot:
             "rules": self.rules,
             "events": self.events,
             "scores": self.scores,
+            "retest_quality": self.retest_quality,
         }
 
 
@@ -137,6 +147,29 @@ def _iso(d: Any) -> str:
 
 def _pivot_dict(t: geometry.Touch) -> dict:
     return {"date": _iso(t.pivot_date), "price": t.price, "kind": t.kind, "confirmed_date": _iso(t.confirmed_date)}
+
+
+def _candle_quality(view: pd.DataFrame, idx: int) -> dict:
+    """N§8 breakout candle quality (docs/charting.md §35.2 -- "body % and close location
+    stored as descriptive fields, not confirmation gates until validated"), computed from the
+    CONFIRMING bar's own OHLC only (bar `idx`, always the same bar that records the
+    PRICE_CONFIRMED event it is attached to -- point-in-time by construction, nothing later
+    is ever read):
+
+        body_pct        = |close - open| / (high - low)
+        close_location  = (close - low) / (high - low)   # 0 = at the bar's low, 1 = at its high
+
+    A zero-range bar (`high == low` -- e.g. a circuit-frozen session) makes both
+    geometrically undefined: returns `None` for each, never NaN or a ZeroDivisionError (the
+    backend serves strict JSON -- §35 JSON-safety)."""
+    o = float(view["open"].iloc[idx])
+    h = float(view["high"].iloc[idx])
+    l = float(view["low"].iloc[idx])
+    c = float(view["close"].iloc[idx])
+    rng = h - l
+    if not (np.isfinite(o) and np.isfinite(h) and np.isfinite(l) and np.isfinite(c)) or rng <= 0:
+        return {"body_pct": None, "close_location": None}
+    return {"body_pct": abs(c - o) / rng, "close_location": (c - l) / rng}
 
 
 def _lookback_start(t: int, cfg: dict) -> int:
@@ -316,8 +349,8 @@ def _maybe_research_eligible(
 
 def _walk_retest_and_failure(
     view: pd.DataFrame, confirm_index: int, direction: str, broken_level: float, opposite_level: float | None,
-    atr_ser: pd.Series, t: int, cfg: dict, add_event, rules: list[RuleRow],
-) -> LifecycleState:
+    atr_ser: pd.Series, relvol_ser: pd.Series, t: int, cfg: dict, add_event, rules: list[RuleRow],
+) -> tuple[LifecycleState, dict]:
     """§13.9 retest / §17 failure, bar-by-bar from `confirm_index + 1` through `t`.
 
     Factored out of `_walk_rectangle_lifecycle` (sub-task d) so SUPPORT_RESISTANCE and HH_HL
@@ -355,6 +388,17 @@ def _walk_retest_and_failure(
     `failure_window_bars` — NI-2 frozen, unchanged by this fix) keeps evaluating every bar
     exactly as it did before, on its own independent window anchored at the same
     `confirm_index`.
+
+    Retest quality (N§13, docs/charting.md §35.2, added 2026-09-22): now also returns a
+    second value, the `retest_quality` dict described on `PatternSnapshot.retest_quality`.
+    This is PURE bookkeeping laid on top of the state machine above without altering a single
+    existing branch: `attempts`/`deepest_pen*` update only where the ALREADY-EXISTING
+    `retest_pending` flag says a retest is genuinely open (piggybacked on its own transitions,
+    never re-derived independently), plus one new `elif retest_pending:` branch for bars the
+    original code silently did nothing on (retest pending, neither the success trigger nor a
+    §17 failure fires that bar) -- a strict no-op in the original code, so adding bookkeeping
+    there cannot change `state`/`events`/`rules`. Every `return` site is extended to also
+    return this dict; no return VALUE (LifecycleState) or event/rule emission changes.
     """
     closes = view["close"].to_numpy(dtype=float)
     highs = view["high"].to_numpy(dtype=float)
@@ -365,6 +409,36 @@ def _walk_retest_and_failure(
     retest_window = cfg["retest_window_bars"]
     cluster_width = cfg["level_cluster_width_atr"]
     retest_pending = False
+
+    # N§13 retest-quality bookkeeping state -- read by `_quality()` below, never by the
+    # state machine above.
+    attempts = 0
+    first_entry_idx: int | None = None
+    deepest_pen: float | None = None       # price units; worst intrabar penetration beyond broken_level
+    deepest_pen_idx: int | None = None
+    deepest_pen_atr: float | None = None   # ATR at deepest_pen_idx (already validated by the loop's own skip)
+    last_bar_in_zone = False
+
+    def _quality(resolution_idx: int | None, resolved_success: bool) -> dict:
+        if first_entry_idx is None:
+            return {
+                "attempts": 0, "penetration_atr": None, "penetration_pct": None,
+                "retest_relative_volume": None, "bars_confirmation_to_retest": None,
+                "bars_retest_to_continuation": None,
+                "note": "no pullback into the broken level observed within retest_window_bars",
+            }
+        pen_atr = (deepest_pen / deepest_pen_atr) if deepest_pen_atr else None
+        pen_pct = (deepest_pen / broken_level * 100.0) if broken_level else None
+        rvol = float(relvol_ser.iloc[deepest_pen_idx]) if deepest_pen_idx is not None else float("nan")
+        return {
+            "attempts": attempts,
+            "penetration_atr": pen_atr if (pen_atr is not None and np.isfinite(pen_atr)) else None,
+            "penetration_pct": pen_pct if (pen_pct is not None and np.isfinite(pen_pct)) else None,
+            "retest_relative_volume": rvol if np.isfinite(rvol) else None,
+            "bars_confirmation_to_retest": first_entry_idx - confirm_index,
+            "bars_retest_to_continuation": (resolution_idx - first_entry_idx) if (resolved_success and resolution_idx is not None) else None,
+            "note": None,
+        }
 
     for i in range(confirm_index + 1, t + 1):
         a = atr_ser.iloc[i]
@@ -381,35 +455,68 @@ def _walk_retest_and_failure(
             # original comment (preserved in git history) for the full NI-2 §5 rationale.
             hard_failure = closes[i] < failure_level
             if within_window and (gapped_through or hard_failure):
+                if retest_pending:  # a failure while a retest is already open still deepens it
+                    pen = max(0.0, broken_level - lows[i])
+                    if deepest_pen is None or pen > deepest_pen:
+                        deepest_pen, deepest_pen_idx, deepest_pen_atr = pen, i, float(a)
                 reason = FailureReason.GAP_FAILURE if gapped_through else (FailureReason.FAILED_RETEST if retest_pending else FailureReason.FALSE_BREAKOUT)
                 add_event(i, "FAILED", reason.value, {"close": float(closes[i]), "failure_level": failure_level})
                 rules.append(RuleRow("FAILURE_BUFFER_BREACH", "FAIL", float(closes[i]), failure_level))
-                return LifecycleState.FAILED
+                return LifecycleState.FAILED, _quality(i, False)
             if not retest_pending and within_retest_window and closes[i] <= broken_level:
                 retest_pending = True
+                attempts, first_entry_idx, last_bar_in_zone = 1, i, True
+                deepest_pen, deepest_pen_idx, deepest_pen_atr = max(0.0, broken_level - lows[i]), i, float(a)
                 add_event(i, "RETEST_PENDING", "RETEST_ZONE_ENTERED", {"close": float(closes[i]), "level": broken_level})
             elif retest_pending and closes[i] > broken_level + cluster_width * a:
                 add_event(i, "RETEST_SUCCESSFUL", "CLOSE_ABOVE_RETEST_LEVEL", {"close": float(closes[i])})
                 rules.append(RuleRow("RETEST_CONFIRMATION", "PASS", float(closes[i]), broken_level + cluster_width * a))
-                return LifecycleState.PRICE_CONFIRMED
+                return LifecycleState.PRICE_CONFIRMED, _quality(i, True)
+            elif retest_pending:
+                # Original code: a strict no-op (falls through to the next bar). New: track
+                # re-entries into the zone (a fresh "attempt") and the deepest wick penetration
+                # seen so far -- read-only bookkeeping, no event/rule/state ever emitted here.
+                bar_in_zone = closes[i] <= broken_level
+                if bar_in_zone:
+                    pen = max(0.0, broken_level - lows[i])
+                    if deepest_pen is None or pen > deepest_pen:
+                        deepest_pen, deepest_pen_idx, deepest_pen_atr = pen, i, float(a)
+                    if not last_bar_in_zone:
+                        attempts += 1
+                last_bar_in_zone = bar_in_zone
         else:  # BEARISH — mirror of the bullish branch above.
             failure_level = broken_level + fail_buf * a
             gapped_through = (lows[i] > opposite_level) if opposite_level is not None else False
             hard_failure = closes[i] > failure_level
             if within_window and (gapped_through or hard_failure):
+                if retest_pending:
+                    pen = max(0.0, highs[i] - broken_level)
+                    if deepest_pen is None or pen > deepest_pen:
+                        deepest_pen, deepest_pen_idx, deepest_pen_atr = pen, i, float(a)
                 reason = FailureReason.GAP_FAILURE if gapped_through else (FailureReason.FAILED_RETEST if retest_pending else FailureReason.FALSE_BREAKOUT)
                 add_event(i, "FAILED", reason.value, {"close": float(closes[i]), "failure_level": failure_level})
                 rules.append(RuleRow("FAILURE_BUFFER_BREACH", "FAIL", float(closes[i]), failure_level))
-                return LifecycleState.FAILED
+                return LifecycleState.FAILED, _quality(i, False)
             if not retest_pending and within_retest_window and closes[i] >= broken_level:
                 retest_pending = True
+                attempts, first_entry_idx, last_bar_in_zone = 1, i, True
+                deepest_pen, deepest_pen_idx, deepest_pen_atr = max(0.0, highs[i] - broken_level), i, float(a)
                 add_event(i, "RETEST_PENDING", "RETEST_ZONE_ENTERED", {"close": float(closes[i]), "level": broken_level})
             elif retest_pending and closes[i] < broken_level - cluster_width * a:
                 add_event(i, "RETEST_SUCCESSFUL", "CLOSE_BELOW_RETEST_LEVEL", {"close": float(closes[i])})
                 rules.append(RuleRow("RETEST_CONFIRMATION", "PASS", float(closes[i]), broken_level - cluster_width * a))
-                return LifecycleState.PRICE_CONFIRMED
+                return LifecycleState.PRICE_CONFIRMED, _quality(i, True)
+            elif retest_pending:
+                bar_in_zone = closes[i] >= broken_level
+                if bar_in_zone:
+                    pen = max(0.0, highs[i] - broken_level)
+                    if deepest_pen is None or pen > deepest_pen:
+                        deepest_pen, deepest_pen_idx, deepest_pen_atr = pen, i, float(a)
+                    if not last_bar_in_zone:
+                        attempts += 1
+                last_bar_in_zone = bar_in_zone
 
-    return LifecycleState.PRICE_CONFIRMED  # walk exhausted with no failure/retest resolution
+    return LifecycleState.PRICE_CONFIRMED, _quality(None, False)  # walk exhausted, no failure/retest resolution
 
 
 def _walk_rectangle_lifecycle(
@@ -481,7 +588,7 @@ def _walk_rectangle_lifecycle(
             confirm_breakdown_level = bd_level
             state = LifecycleState.PRICE_CONFIRMED
             price_c = ComponentStatus.CONFIRMED
-            add_event(i, "PRICE_CONFIRMED", "CLOSE_ABOVE_BREAKOUT", {"close": float(closes[i]), "breakout_level": bo_level})
+            add_event(i, "PRICE_CONFIRMED", "CLOSE_ABOVE_BREAKOUT", {"close": float(closes[i]), "breakout_level": bo_level, **_candle_quality(view, i)})
             rules.append(RuleRow("CLOSE_ABOVE_BREAKOUT", "PASS", float(closes[i]), bo_level))
             rv = relvol_ser.iloc[i]
             vr = (a / atr_baseline) if geometry._atr_valid(atr_baseline) else float("nan")
@@ -499,7 +606,7 @@ def _walk_rectangle_lifecycle(
             confirm_breakdown_level = bo_level  # opposite-side threshold (for invalidation display)
             state = LifecycleState.PRICE_CONFIRMED
             price_c = ComponentStatus.CONFIRMED
-            add_event(i, "PRICE_CONFIRMED", "CLOSE_BELOW_BREAKDOWN", {"close": float(closes[i]), "breakdown_level": bd_level})
+            add_event(i, "PRICE_CONFIRMED", "CLOSE_BELOW_BREAKDOWN", {"close": float(closes[i]), "breakdown_level": bd_level, **_candle_quality(view, i)})
             rules.append(RuleRow("CLOSE_BELOW_BREAKDOWN", "PASS", float(closes[i]), bd_level))
             rv = relvol_ser.iloc[i]
             vr = (a / atr_baseline) if geometry._atr_valid(atr_baseline) else float("nan")
@@ -520,10 +627,13 @@ def _walk_rectangle_lifecycle(
 
     # Phase 2: a breakout confirmed in phase 1 — evaluate retest / failure via the shared
     # helper (also used by SUPPORT_RESISTANCE / HH_HL — sub-task d).
+    retest_quality: dict | None = None
     if breakout_direction is not None:
         opposite_level = support if breakout_direction == "BULLISH" else resistance
         broken_level = resistance if breakout_direction == "BULLISH" else support
-        state = _walk_retest_and_failure(view, confirm_index, breakout_direction, broken_level, opposite_level, atr_ser, t, cfg, add_event, rules)
+        state, retest_quality = _walk_retest_and_failure(
+            view, confirm_index, breakout_direction, broken_level, opposite_level, atr_ser, relvol_ser, t, cfg, add_event, rules,
+        )
 
     if breakout_direction is None and (t - formation_end) > cfg["maximum_pattern_length"]:
         state = LifecycleState.EXPIRED
@@ -534,6 +644,7 @@ def _walk_rectangle_lifecycle(
         "events": events, "rules": rules,
         "breakout_level": confirm_breakout_level, "invalidation_level": confirm_breakdown_level,
         "atr_baseline": atr_baseline,
+        "retest_quality": retest_quality,
     }
 
 
@@ -603,6 +714,7 @@ def _build_rectangle_snapshot(
         components=_components_dict(components),
         rules=rules,
         events=walk["events"],
+        retest_quality=walk["retest_quality"],
     )
 
 
@@ -721,12 +833,15 @@ def _sr_level_patterns(
                 if confirmed_i:
                     confirm_idx, confirm_trigger = i, trigger_i
                     status, price_c = LifecycleState.PRICE_CONFIRMED, ComponentStatus.CONFIRMED
-                    add_event(i, "PRICE_CONFIRMED", confirm_rule_id, {"close": float(closes[i]), "level": trigger_i})
+                    add_event(i, "PRICE_CONFIRMED", confirm_rule_id, {"close": float(closes[i]), "level": trigger_i, **_candle_quality(view, i)})
                     rules.append(RuleRow(confirm_rule_id, "PASS", float(closes[i]), trigger_i))
                     break
 
+            retest_quality: dict | None = None
             if confirm_idx is not None:
-                status = _walk_retest_and_failure(view, confirm_idx, direction, level_price, None, atr_ser, t, cfg, add_event, rules)
+                status, retest_quality = _walk_retest_and_failure(
+                    view, confirm_idx, direction, level_price, None, atr_ser, relvol_ser, t, cfg, add_event, rules,
+                )
             else:
                 trigger_t = level_price + buf_sign * cfg["breakout_buffer_atr"] * atr_t
                 wick_touch = (highs[t] >= trigger_t) if buf_sign > 0 else (lows[t] <= trigger_t)
@@ -757,6 +872,7 @@ def _sr_level_patterns(
                 components=_components_dict(components),
                 rules=[r.to_dict() for r in rules],
                 events=events,
+                retest_quality=retest_quality,
             ))
     return out
 
@@ -765,7 +881,7 @@ def _sr_level_patterns(
 
 
 def _hh_hl_patterns(
-    view: pd.DataFrame, t: int, pivots: Sequence[Pivot], atr_ser: pd.Series, cfg: dict, symbol: str,
+    view: pd.DataFrame, t: int, pivots: Sequence[Pivot], atr_ser: pd.Series, relvol_ser: pd.Series, cfg: dict, symbol: str,
     evaluate_research_eligibility: bool = False,
 ) -> list[PatternSnapshot]:
     """§13.1. Interpretation (PRD gives the rule, not the exact bar-count): "at least two
@@ -857,7 +973,7 @@ def _hh_hl_patterns(
             if c > confirm_level:
                 confirm_idx = i
                 status, price_c = LifecycleState.PRICE_CONFIRMED, ComponentStatus.CONFIRMED
-                add_event(i, "PRICE_CONFIRMED", "CLOSE_ABOVE_PRIOR_HIGH", {"close": float(c), "prior_high": last_high.price, "confirm_level": confirm_level})
+                add_event(i, "PRICE_CONFIRMED", "CLOSE_ABOVE_PRIOR_HIGH", {"close": float(c), "prior_high": last_high.price, "confirm_level": confirm_level, **_candle_quality(view, i)})
                 rules.append(RuleRow("CLOSE_ABOVE_PRIOR_HIGH", "PASS", float(c), confirm_level))
                 break
             if c < last_low.price:
@@ -870,7 +986,7 @@ def _hh_hl_patterns(
             if c < confirm_level:
                 confirm_idx = i
                 status, price_c = LifecycleState.PRICE_CONFIRMED, ComponentStatus.CONFIRMED
-                add_event(i, "PRICE_CONFIRMED", "CLOSE_BELOW_PRIOR_LOW", {"close": float(c), "prior_low": last_low.price, "confirm_level": confirm_level})
+                add_event(i, "PRICE_CONFIRMED", "CLOSE_BELOW_PRIOR_LOW", {"close": float(c), "prior_low": last_low.price, "confirm_level": confirm_level, **_candle_quality(view, i)})
                 rules.append(RuleRow("CLOSE_BELOW_PRIOR_LOW", "PASS", float(c), confirm_level))
                 break
             if c > last_high.price:
@@ -879,10 +995,13 @@ def _hh_hl_patterns(
                 rules.append(RuleRow("CLOSE_ABOVE_INVALIDATION_SWING", "FAIL", float(c), last_high.price))
                 break
 
+    retest_quality: dict | None = None
     if confirm_idx is not None:
         broken_level = last_high.price if direction == "BULLISH" else last_low.price
         opposite_level = last_low.price if direction == "BULLISH" else last_high.price
-        status = _walk_retest_and_failure(view, confirm_idx, direction, broken_level, opposite_level, atr_ser, t, cfg, add_event, rules)
+        status, retest_quality = _walk_retest_and_failure(
+            view, confirm_idx, direction, broken_level, opposite_level, atr_ser, relvol_ser, t, cfg, add_event, rules,
+        )
 
     components = PatternComponents(geometry=ComponentStatus.CONFIRMED, price=price_c, data_quality=DataQualityStatus.VALID)
     status = _maybe_research_eligible(status, components, cfg, evaluate=evaluate_research_eligibility)
@@ -900,6 +1019,7 @@ def _hh_hl_patterns(
         components=_components_dict(components),
         rules=[r.to_dict() for r in rules],
         events=events,
+        retest_quality=retest_quality,
     )]
 
 
@@ -951,6 +1071,6 @@ def detect_as_of(
         patterns.append(snap)
 
     patterns.extend(_sr_level_patterns(view, t, pivots, atr_ser, relvol_ser, cfg, symbol, evaluate_research_eligibility=evaluate_research_eligibility))
-    patterns.extend(_hh_hl_patterns(view, t, pivots, atr_ser, cfg, symbol, evaluate_research_eligibility=evaluate_research_eligibility))
+    patterns.extend(_hh_hl_patterns(view, t, pivots, atr_ser, relvol_ser, cfg, symbol, evaluate_research_eligibility=evaluate_research_eligibility))
 
     return patterns

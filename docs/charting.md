@@ -2424,6 +2424,19 @@ New pattern families beyond §13's P0 set (triangles, double/triple tops and bot
 rounding, VCP) each need owner-approved definitional forms and a pre-registration amendment before code. Walk-forward windows,
 intraday timeframes, a SQL store and a composite score are out of this amendment.
 
+### 35.6 Build status (2026-09-22)
+- **Built (research code, `research/charting/`):** the event dataset (`events/`: one row per confirmed pattern, entry at the next
+  session's open with close-of-signal-bar as a labelled alternative, outcomes at 1/3/5/10/20 sessions, MFE/MAE, bars to
+  +2/+5/+10/+15%, cost blocks through §36 under all four slippage scenarios and the liquidity-bucket model, versioning fields,
+  random-selection and buy-at-next-open control hooks); relative strength, market regime, trend context, India VIX and breadth
+  (`regime.py`, with its own `FEATURE_CONFIG` hash); breakout candle quality and retest quality as descriptive pattern fields.
+- **Not yet run for results:** no outcome statistics are computed until the pre-registration is frozen by the owner.
+- **Open owner decisions:** (1) the SMA slope lookback (20 bars, the only existing convention) and SIDEWAYS as "neither BULL
+  nor BEAR" with no numeric band; (2) the `hit_high_N` / `hit_close_N` reading (+N% high within N sessions / close return ≥ N%
+  at N sessions); (3) target/stop outcome labels wait on the stop/target policy (§35.1, expected move deferred); (4) BEARISH
+  signals: cost blocks are long round trips, and short-side costs are not modelled because an overnight cash-market short is not
+  possible — decide whether bearish patterns are studied gross only, as "avoid" signals, or through another instrument.
+
 ---
 
 ## 36. Amendment B — Transaction cost, slippage & tax layer (2026-09-22)

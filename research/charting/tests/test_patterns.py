@@ -378,6 +378,7 @@ def test_pattern_snapshot_matches_documented_shape():
     expected_keys = {
         "pattern_id", "pattern_type", "direction", "population", "status", "stage",
         "formation_start", "formation_end", "levels", "pivots", "components", "rules", "events", "scores",
+        "retest_quality",  # §35.2 amendment addition (N§13) -- see test_patterns_retest_quality.py
     }
     assert set(d.keys()) == expected_keys
     assert d["population"] == "CONFIRMED"

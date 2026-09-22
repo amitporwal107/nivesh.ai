@@ -23,7 +23,7 @@ Date: 2026-09-22 · Branch base: origin/dev 886020d9 · Owner decisions #68-#74 
 | TC-36 | Index data: 0 sealed rows, sha256 match, Kite NIFTY 500 = legacy files row for row | `research/index_history/tests`, `test_context.py` | PASS |
 | TC-37 | Breadth: poisoned sealed bars change nothing; control shows the probe sees a leak | `test_breadth_sealed_inputs.py` | PASS |
 | TC-38 | Real snapshot served by the backend service for all 50 symbols, strict JSON | service script below | PASS |
-| TC-39 | Staging: API 17/17 and UI 4/4 against the re-exported snapshot | `tools/verify_staging_api.py`, `staging-research-charts.spec.ts` | **PENDING** — needs the owner's merge + deploy and a fresh session token |
+| TC-39 | Staging: API 17/17 and UI 4/4 against the re-exported snapshot | `tools/verify_staging_api.py`, `staging-research-charts.spec.ts` | PASS (after #140 merge b33ceff, deploy 06:08Z) |
 
 ## Real output (this session)
 ```
@@ -46,9 +46,30 @@ served through the real service: 513 patterns, 68434 bars, follow-through dict r
   already renders objects as labelled text.
 - 4 HH_HL patterns: confirmation threshold now includes the ATR buffer (fix 3); none changed status.
 
-## Verdict
-Local and data checks pass. TC-39 (staging) cannot run until the PR is merged and deployed; see
-`OVERRIDE_charting_fixes_costs_context.md`. This report is updated to PASS after staging verification.
+## Staging verification (after #140 merged → b33ceff, backend deploy succeeded 06:08Z)
+```
+$ STAGING_COOKIE_HEADER=<0600 file> python -m research.charting.tools.verify_staging_api
+PASS  TC-2   HTTP 200; served config_hash 05167d3ae57f vs local 05167d3ae57f; fixture=False
+PASS  TC-3   HTTP 200; 50 symbols served vs 50 in the committed manifest
+PASS  TC-4   RELIANCE / TCS / HDFCBANK: HTTP 200; 1417 bars, ascending+unique=True, identical to committed snapshot=True
+PASS  TC-5   HTTP 404 'unknown_symbol | RES-001 | NOT_FOUND'
+PASS  TC-6   lowercase → 422; 40 chars → 422
+PASS  TC-8   ids filter → ['rsi_14', 'sma_20']; unknown id → HTTP 400
+PASS  TC-9   sma_20 @ 2026-09-18: served 1284.705000 vs independent 1284.705000
+PASS  TC-10  HTTP 200; 16 patterns served vs 16 in the committed manifest
+PASS  TC-11/12/14 + cleanup: drawing created (201), listed, invalid → 422, deleted (200) then 404
+PASS  TC-24  RELIANCE / TCS / HDFCBANK: 1417 raw rows vs 1417 served, mismatches 0
+NOT TESTED  TC-1, TC-13 (need a non-allowlisted / second account; covered by the local TestClient suite)
+17/17 checks passed
 
-Clean-export check: the commit's `research/` + `backend/nidp` extracted outside git ran 748 passed, 12 skipped before the golden
-file was added (the 12 were the git-show reproduction tests); the pinned golden outputs now cover that case in any clone.
+$ STAGING_SESSION_FILE=<0600 file> npx playwright test e2e/tests/staging-research-charts.spec.ts
+  5 passed (16.9s)     # auth setup + TC-15/16/17/21, TC-18, TC-19, TC-23 in a real browser
+
+$ (data check: every symbol's /patterns from the staging API)
+staging API: 50 symbols, 513 patterns, follow-through rules with band 110, patterns with RETEST_SUCCESSFUL 37
+expected from local snapshot: 50 symbols, 513 patterns, 110, 37
+```
+Also read on the VM: the staging backend container's snapshot manifest has config_hash 05167d3ae57f; prod mongo/backend were not
+restarted by the deploy. Session token files deleted after the run.
+
+## Verdict: PASS
