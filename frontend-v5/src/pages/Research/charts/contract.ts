@@ -139,6 +139,8 @@ export interface PatternPivot { date: string; price: number; kind: string; confi
 export interface PatternLevels {
   support?: number | null; resistance?: number | null;
   breakout_level?: number | null; invalidation_level?: number | null;
+  /** SUPPORT_RESISTANCE records: the level itself, which side it is, and its buffered break threshold. */
+  level?: number | null; kind?: "SUPPORT" | "RESISTANCE" | string | null; breakdown_level?: number | null;
 }
 export interface PatternRule { rule_id: string; result: "PASS" | "FAIL" | "UNAVAILABLE" | string; observed?: unknown; threshold?: unknown }
 export interface PatternEvent { date: string; event_type: string; rule_id?: string }
@@ -164,12 +166,49 @@ export interface PatternsPayload { symbol: string; patterns: Pattern[] }
 
 /** §11-ish: whether a pattern's own `status` reads as failed / invalidated, for the B4 visual scheme. Falls back to
  *  population/stage when `status` is one of the values the schema doesn't literally enumerate ("<§11 state>"). */
+/** Support/resistance records are horizontal levels, not chart patterns: they are drawn by the "Support & resistance"
+ *  layer (on by default) and never listed in the Patterns panel. */
+export function isLevelPattern(p: Pattern): boolean {
+  return p.pattern_type === "SUPPORT_RESISTANCE";
+}
+
+const CONFIRMED_STATES = new Set(["PRICE_CONFIRMED", "VOLUME_CONFIRMED", "CONTEXT_VALIDATED", "RESEARCH_ELIGIBLE"]);
+
+/** Overlay style bucket, from the pattern's own status. Only a status past price confirmation is "confirmed" — a pattern that
+ *  is merely formed (GEOMETRY_VALID) or only wicked through (BREAKOUT_ATTEMPT) draws as forming. */
 export function patternVisualCategory(p: Pattern): "forming" | "confirmed" | "failed" | "invalidated" {
   const s = (p.status || "").toUpperCase();
-  if (s.includes("INVALID")) return "invalidated";
+  if (s.includes("INVALID") || s === "EXPIRED") return "invalidated";
   if (s.includes("FAIL")) return "failed";
-  if (p.population === "EARLY") return "forming";
-  return "confirmed";
+  if (CONFIRMED_STATES.has(s)) return "confirmed";
+  return "forming";
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  GEOMETRY_VALID: "formed", BREAKOUT_ATTEMPT: "breakout attempt", PRICE_CONFIRMED: "confirmed",
+  VOLUME_CONFIRMED: "confirmed · volume", CONTEXT_VALIDATED: "confirmed · context", RESEARCH_ELIGIBLE: "research eligible",
+  FAILED: "failed", INVALIDATED: "invalidated", EXPIRED: "expired", DATA_BLOCKED: "data blocked", UNRESOLVED: "unresolved",
+};
+
+/** What a pattern row says about its state — read from `status`, never implied by the population. */
+export function statusLabel(p: Pattern): string {
+  if (p.population === "EARLY") return p.stage ? `forming · ${p.stage}` : "forming";
+  const s = (p.status || "").toUpperCase();
+  return STATUS_LABELS[s] ?? (s ? s.toLowerCase().replace(/_/g, " ") : DASH);
+}
+
+const TYPE_LABELS: Record<string, string> = { RECTANGLE: "Rectangle", HH_HL: "Higher highs / higher lows" };
+export function patternTypeLabel(t: string): string {
+  return TYPE_LABELS[t] ?? t.toLowerCase().replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
+
+/** A support/resistance level's price and side, or null when the record carries no usable level. */
+export function levelOf(p: Pattern): { price: number; kind: "SUPPORT" | "RESISTANCE"; broken: boolean; failed: boolean } | null {
+  const price = p.levels?.level;
+  const kind = (p.levels?.kind || "").toUpperCase();
+  if (!isNum(price) || (kind !== "SUPPORT" && kind !== "RESISTANCE")) return null;
+  const s = (p.status || "").toUpperCase();
+  return { price, kind, broken: CONFIRMED_STATES.has(s), failed: s.includes("FAIL") };
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

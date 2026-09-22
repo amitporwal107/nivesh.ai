@@ -200,3 +200,173 @@ def test_negative_control_a_three_bar_peek_is_caught_for_sr_and_hh_hl(builder, f
         trials += 1
         caught += clean != peeking
     assert trials > 0 and caught == trials, f"{family}: peek caught in only {caught}/{trials} trials"
+
+
+# ── Fix 3 (review 2026-09-22): HH_HL breakout-buffer ATR must be read causally ───────────
+# HH_HL confirmation now requires clearing the prior high/low by breakout_buffer_atr * ATR
+# (see patterns.py's _hh_hl_patterns). ATR is read off `atr_ser.iloc[i]`, already computed
+# over the `t`-truncated view exactly like every other family's own buffer -- this probe
+# pins that down specifically for the new buffer arithmetic, at a bar deliberately chosen
+# to sit right at the buffer boundary (the case most exposed to a look-ahead bug: a
+# borderline classification is exactly where a leaked future ATR value would flip the
+# outcome).
+
+
+def _zigzag_bars(turns: list[float], bars_per_leg: int = 5, wick: float = 0.05) -> pd.DataFrame:
+    """Same shape as test_patterns.py's helper of the same name (duplicated locally, matching
+    this file's existing convention of self-contained fixtures)."""
+    closes: list[float] = []
+    for i in range(len(turns) - 1):
+        seg = list(np.linspace(turns[i], turns[i + 1], bars_per_leg))[:-1]
+        closes.extend(seg)
+    closes.append(turns[-1])
+    return synth.bars_from_closes(closes, wick=wick)
+
+
+def _hh_hl_buffer_boundary_fixture_with_room() -> tuple[pd.DataFrame, int]:
+    """A bullish HH_HL structure one bar away from confirming, extended with a close just
+    0.05 above the raw prior high (INSIDE the breakout buffer -- must stay GEOMETRY_VALID),
+    plus 3 quiet filler bars afterwards so there is room to poison/peek past `t`. Returns
+    (bars, t) where `t` is the index of the buffer-boundary bar itself."""
+    base_pre = _zigzag_bars([15.0, 8.0, 20.0, 9.0, 25.0, 12.0, 30.0, 16.0, 35.0, 20.0])
+    t0 = len(base_pre) - 1
+    hh0 = [p for p in detect_as_of(base_pre, t0, symbol="ZZ") if p.pattern_type == "HH_HL"]
+    assert len(hh0) == 1
+    prior_high = hh0[0].levels["prior_high"]
+
+    inside_at_t = synth._append(base_pre, [(prior_high, prior_high + 0.20, prior_high - 1.0, prior_high + 0.05, 100_000.0)])
+    t = len(inside_at_t) - 1
+    filler = [(prior_high + 0.05, prior_high + 0.1, prior_high - 0.5, prior_high + 0.05, 100_000.0)] * 3
+    with_room = synth._append(inside_at_t, filler)
+    return with_room, t
+
+
+def test_hh_hl_breakout_buffer_boundary_unaffected_by_poisoning_the_future():
+    bars, t = _hh_hl_buffer_boundary_fixture_with_room()
+    hh_clean = [p for p in detect_as_of(bars, t, symbol="ZZ") if p.pattern_type == "HH_HL"]
+    assert len(hh_clean) == 1
+    assert hh_clean[0].status == "GEOMETRY_VALID", "fixture is vacuous: expected to sit inside the buffer, unconfirmed"
+
+    for poison_fn in _POISON_FNS:
+        poisoned = poison_fn(bars, t)
+        pd.testing.assert_frame_equal(
+            poisoned.iloc[: t + 1].reset_index(drop=True), bars.iloc[: t + 1].reset_index(drop=True)
+        )
+        result_clean = _serialize(bars, t)
+        result_poisoned = _serialize(poisoned, t)
+        assert result_clean == result_poisoned, f"leak detected via {poison_fn.__name__}"
+
+
+# ── §35.2 amendment additions: breakout candle quality (N§8) / retest quality (N§13) ──────
+# The whole-object probes above (`_serialize` -> `p.to_dict()`) already cover the new
+# `retest_quality` block and the candle-quality keys inside PRICE_CONFIRMED's
+# `observed_values` incidentally (they are just more keys in the same dict being compared
+# byte-for-byte) -- these two tests make that coverage EXPLICIT and add a negative control
+# aimed specifically at the new fields, per task requirement, rather than relying on the
+# generic sweep alone.
+
+
+def _retest_multi_attempt_bars() -> pd.DataFrame:
+    """RECT-1 + a two-dip retest that eventually succeeds (bar20/idx24), plus two quiet
+    filler bars afterwards so there is room to poison/peek past the resolution bar itself
+    (fixture_04_false_retest has none -- its failure bar is the last bar in the frame)."""
+    return synth._append(
+        synth.rect1(),
+        [
+            (109.0, 111.3, 108.8, 111.0, 120_000.0),  # bar16 idx20 breakout confirm
+            (111.0, 111.2, 109.0, 109.5, 100_000.0),  # bar17 idx21 dip in -- attempt 1 (pen 1.0)
+            (109.5, 110.3, 109.4, 110.2, 100_000.0),  # bar18 idx22 pops back out, not a success close
+            (110.2, 110.4, 108.5, 109.7, 150_000.0),  # bar19 idx23 dips again -- attempt 2 (pen 1.5, deeper)
+            (109.7, 113.5, 109.6, 113.0, 100_000.0),  # bar20 idx24 RETEST_SUCCESSFUL
+            (113.0, 113.2, 112.8, 113.1, 100_000.0),  # idx25 quiet filler (poison/peek room)
+            (113.1, 113.3, 112.9, 113.2, 100_000.0),  # idx26 quiet filler (poison/peek room)
+        ],
+    )
+
+
+def test_new_descriptive_fields_unaffected_by_poisoning_the_future():
+    """Breakout candle quality (body_pct/close_location, inside PRICE_CONFIRMED's
+    observed_values) and retest quality (the pattern-level retest_quality block) must be
+    unaffected by anything dated after `t` -- checked across t values before, during and
+    after the retest actually resolves (t=21 mid-retest, t=22 same attempt count, t=23 the
+    second attempt just occurred, t=24 the resolution bar itself), each swept against both
+    poison shapes."""
+    base = _retest_multi_attempt_bars()
+    checked = 0
+    for t in (21, 22, 23, 24, 25):
+        for poison_fn in _POISON_FNS:
+            poisoned = poison_fn(base, t)
+            pd.testing.assert_frame_equal(
+                poisoned.iloc[: t + 1].reset_index(drop=True), base.iloc[: t + 1].reset_index(drop=True)
+            )
+            clean = [p.to_dict() for p in detect_as_of(base, t, symbol="SYN1") if p.pattern_type == "RECTANGLE"]
+            dirty = [p.to_dict() for p in detect_as_of(poisoned, t, symbol="SYN1") if p.pattern_type == "RECTANGLE"]
+            assert len(clean) == 1 and len(dirty) == 1
+            assert clean[0]["retest_quality"] == dirty[0]["retest_quality"], f"retest_quality leaked future data at t={t} via {poison_fn.__name__}"
+            clean_confirmed = [e for e in clean[0]["events"] if e["event_type"] == "PRICE_CONFIRMED"][0]
+            dirty_confirmed = [e for e in dirty[0]["events"] if e["event_type"] == "PRICE_CONFIRMED"][0]
+            for key in ("body_pct", "close_location"):
+                assert clean_confirmed["observed_values"][key] == dirty_confirmed["observed_values"][key], (
+                    f"candle quality '{key}' leaked future data at t={t} via {poison_fn.__name__}"
+                )
+            checked += 1
+    assert checked >= 8  # 5 t-values x 2 poison shapes, minus nothing skipped
+
+
+def _peeking_retest_attempts(bars: pd.DataFrame, confirm_index: int, broken_level: float) -> int:
+    """NEGATIVE CONTROL ONLY -- deliberately PIT-broken: counts zone re-entries over the WHOLE
+    frame it is handed (`len(bars)`), instead of stopping at some caller-intended `t` -- exactly
+    the mistake this task's rule 1 forbids ("bars <= the event bar only"). Mirrors this file's
+    `_peeking_resistance_level` convention. Must never be imported outside this test file."""
+    closes = bars["close"].to_numpy(dtype=float)
+    attempts = 0
+    in_zone = False
+    for i in range(confirm_index + 1, len(bars)):
+        bar_in_zone = closes[i] <= broken_level
+        if bar_in_zone and not in_zone:
+            attempts += 1
+        in_zone = bar_in_zone
+    return attempts
+
+
+def test_negative_control_peeking_attempts_count_is_detected_by_the_same_probe():
+    """The real detector's `attempts` at t=22 (only the first dip, idx21, has happened) must
+    be 1 -- proven directly below -- while a deliberately-peeking count taken over the FULL,
+    untruncated frame sees BOTH dips (idx21 and idx23) and reports 2. The two disagree, which
+    is exactly what the probe above would have caught had `patterns.py`'s real bookkeeping
+    made this mistake -- a probe that stays green against a broken counter proves nothing."""
+    base = _retest_multi_attempt_bars()
+    t = 22  # bar18: the second dip (idx23) has not happened yet
+    confirm_index = 20  # bar16, the PRICE_CONFIRMED bar
+    broken_level = 110.0  # RECT-1 resistance
+
+    correctly_sliced = _peeking_retest_attempts(base.iloc[: t + 1].reset_index(drop=True), confirm_index, broken_level)
+    peeking_full_frame = _peeking_retest_attempts(base, confirm_index, broken_level)
+    assert correctly_sliced == 1
+    assert peeking_full_frame == 2
+    assert correctly_sliced != peeking_full_frame, (
+        "negative control failed to detect the leak -- a probe that stays green against a "
+        "broken attempts-counter proves nothing"
+    )
+
+    # And the real detector, run at t=22, agrees with the correctly-sliced count -- it does
+    # NOT peek, even though the naive counter above shows peeking would have changed the answer.
+    real = [p.to_dict() for p in detect_as_of(base, t, symbol="SYN1") if p.pattern_type == "RECTANGLE"][0]
+    assert real["retest_quality"]["attempts"] == correctly_sliced == 1
+
+
+def test_negative_control_peeking_past_t_is_caught_for_the_hh_hl_buffer_boundary():
+    """Mandatory negative control: evaluating the poisoned frame PAST `t` (a peek) must show
+    a different HH_HL status than the clean frame at `t` — proving the probe above really
+    can detect a leak, not just always agree."""
+    bars, t = _hh_hl_buffer_boundary_fixture_with_room()
+    poisoned = _poison_fabricated_clean_breakout(bars, t)
+
+    clean_at_t = _serialize(bars, t)
+    peeking_past_t = _serialize(poisoned, t + 3)
+    assert clean_at_t != peeking_past_t, (
+        "negative control failed to detect the leak -- a probe that stays green against a "
+        "broken detector proves nothing"
+    )
+    hh_peek = [p for p in peeking_past_t if p["pattern_type"] == "HH_HL"]
+    assert hh_peek and hh_peek[0]["status"] == "PRICE_CONFIRMED"  # the fabricated rally confirms it

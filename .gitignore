@@ -50,6 +50,10 @@ __pycache__/
 venv/
 .venv/
 
+# research/charting/events -- hashed run artifacts (research/charting/events/writer.py),
+# never committed; regenerate from the dataset builder instead.
+research/charting/runs/
+
 # Development tools
 chainlit.md
 .chainlit

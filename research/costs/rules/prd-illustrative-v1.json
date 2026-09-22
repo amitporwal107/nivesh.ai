@@ -1,0 +1,18 @@
+{
+ "cost_model_id": "prd-illustrative-v1",
+ "version": 1,
+ "rule_schema": "bundled_broker_plan_v1",
+ "effective_from": "2021-01-01",
+ "effective_to": null,
+ "source_url": null,
+ "retrieved_at": null,
+ "source_sha256": null,
+ "label": "NOT PRODUCTION. Illustrative assumptions taken verbatim from the transaction-cost PRD worked example (brokerage 0.10%/side, STT 0.10%/side, exchange 0.00325%, SEBI Rs 10/crore, GST 18% on brokerage+exchange only, stamp 0.015% buy). For tests only — do not use for real cost estimation. These numbers deliberately do NOT match any real broker's current schedule (e.g. real Zerodha delivery brokerage is Rs 0, not 0.10%/side) and the GST base excludes SEBI charges, unlike zerodha-equity-v1.",
+ "rounding": "each component rounded to the paisa, ROUND_HALF_UP; GST computed on unrounded components",
+ "profiles": {
+  "delivery": {"brokerage_pct": "0.10", "brokerage_cap_inr": null, "stt_buy_pct": "0.10", "stt_sell_pct": "0.10",
+               "txn_pct": {"NSE": "0.00325", "BSE": "0.00325"}, "sebi_per_crore_inr": "10", "stamp_buy_pct": "0.015",
+               "gst_pct": "18", "gst_base": ["brokerage", "exchange_txn"],
+               "dp_per_scrip_sell_inr": "0"}
+ }
+}

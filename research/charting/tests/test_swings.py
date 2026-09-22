@@ -87,6 +87,22 @@ def test_find_swings_rejects_non_positive_windows():
         find_swings(bars, left_bars=3, right_bars=0)
 
 
+# ── Fix 4 (review 2026-09-22): swing_tie_rule is now a CONFIG knob ───────────────────────
+
+
+def test_find_swings_raises_on_an_unsupported_swing_tie_rule(monkeypatch):
+    monkeypatch.setitem(CONFIG, "swing_tie_rule", "earliest_bar_wins")
+    bars = _bars([10, 20, 10], [5, 5, 5])
+    with pytest.raises(ValueError):
+        find_swings(bars, left_bars=1, right_bars=1)
+
+
+def test_find_swings_accepts_the_one_implemented_tie_rule(monkeypatch):
+    monkeypatch.setitem(CONFIG, "swing_tie_rule", "latest_bar_wins")
+    bars = _bars([10, 20, 10], [5, 5, 5])
+    assert find_swings(bars, left_bars=1, right_bars=1) != []  # does not raise
+
+
 # ── Confirmation lag ──────────────────────────────────────────────────────────
 
 

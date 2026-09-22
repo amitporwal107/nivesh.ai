@@ -1,4 +1,61 @@
 {
   "symbol": "TCS",
-  "patterns": []
+  "patterns": [
+    {
+      "pattern_id": "TCS:SUPPORT_RESISTANCE:SUPPORT:4108.00",
+      "pattern_type": "SUPPORT_RESISTANCE",
+      "direction": "NEUTRAL",
+      "population": "CONFIRMED",
+      "status": "GEOMETRY_VALID",
+      "stage": null,
+      "formation_start": "2026-08-11",
+      "formation_end": "2026-09-14",
+      "levels": {
+        "level": 4108.0,
+        "kind": "SUPPORT",
+        "breakdown_level": 4103.89
+      },
+      "pivots": [],
+      "components": {
+        "geometry": "PASS",
+        "price": "PENDING",
+        "volume": "PENDING",
+        "volatility": "PENDING",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [],
+      "events": [],
+      "scores": null
+    },
+    {
+      "pattern_id": "TCS:SUPPORT_RESISTANCE:RESISTANCE:4113.00",
+      "pattern_type": "SUPPORT_RESISTANCE",
+      "direction": "NEUTRAL",
+      "population": "CONFIRMED",
+      "status": "GEOMETRY_VALID",
+      "stage": null,
+      "formation_start": "2026-08-13",
+      "formation_end": "2026-09-14",
+      "levels": {
+        "level": 4113.0,
+        "kind": "RESISTANCE",
+        "breakout_level": 4117.11
+      },
+      "pivots": [],
+      "components": {
+        "geometry": "PASS",
+        "price": "PENDING",
+        "volume": "PENDING",
+        "volatility": "PENDING",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [],
+      "events": [],
+      "scores": null
+    }
+  ]
 }

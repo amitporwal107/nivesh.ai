@@ -17,6 +17,14 @@ BARS_COLUMNS = ("date", "open", "high", "low", "close", "volume")
 CONFIG: dict = {
     # PRD §10.2 / §30
     "timeframe": "1D",
+    # Review 2026-09-22 (defect #4, "unhashed behaviour switches"): the market benchmark
+    # (research.charting.context.MARKET_INDEX_NAME, kept as an alias reading this) and the
+    # swing tie-breaking rule (research.charting.swings.find_swings) used to be bare code
+    # constants -- changing either would not have changed config_hash(). Owner decision
+    # 2026-09-22: benchmark = NIFTY 500; tie rule = the one already implemented ("latest_bar_
+    # wins": a bar's LEFT neighbours may tie it, its RIGHT neighbours must be strictly worse).
+    "market_benchmark": "NIFTY 500",
+    "swing_tie_rule": "latest_bar_wins",  # the only value swings.find_swings implements
     "swing_left_bars": 3,
     "swing_right_bars": 3,
     "atr_period": 14,
@@ -37,6 +45,10 @@ CONFIG: dict = {
     # PRD §30.1 — NI-2 geometry predicates
     "flat_boundary_max_drift_atr": 0.50,
     "sloped_boundary_min_drift_atr": 0.75,
+    # Reserved for triangle/wedge detectors (not yet built) -- geometry.convergence_ratio is
+    # an owner-approved NI-2 predicate with no caller yet (review 2026-09-22, defect #5). Kept
+    # here, frozen, so the threshold is already pre-registered and hashed once those
+    # detectors land, rather than being added (and silently changing config_hash) later.
     "convergence_max_ratio": 0.70,
     "level_cluster_width_atr": 0.35,
     "level_min_touches": 3,

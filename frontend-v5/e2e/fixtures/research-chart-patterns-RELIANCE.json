@@ -6,7 +6,7 @@
       "pattern_type": "RECTANGLE",
       "direction": "BULLISH",
       "population": "CONFIRMED",
-      "status": "CONFIRMED",
+      "status": "PRICE_CONFIRMED",
       "stage": null,
       "formation_start": "2026-08-18",
       "formation_end": "2026-09-01",
@@ -72,6 +72,110 @@
         "confirmation": 88.0,
         "failure_risk": 14.0
       }
+    },
+    {
+      "pattern_id": "RELIANCE:HH_HL:2026-08-20",
+      "pattern_type": "HH_HL",
+      "direction": "BULLISH",
+      "population": "CONFIRMED",
+      "status": "GEOMETRY_VALID",
+      "stage": null,
+      "formation_start": "2026-08-18",
+      "formation_end": "2026-09-01",
+      "levels": {
+        "support": 2895.0,
+        "resistance": null,
+        "breakout_level": null,
+        "invalidation_level": 2880.0
+      },
+      "pivots": [
+        {
+          "date": "2026-08-19",
+          "price": 2940.5,
+          "kind": "HIGH",
+          "confirmed_date": "2026-08-20"
+        },
+        {
+          "date": "2026-08-25",
+          "price": 2889.2,
+          "kind": "LOW",
+          "confirmed_date": "2026-08-26"
+        },
+        {
+          "date": "2026-08-31",
+          "price": 2941.1,
+          "kind": "HIGH",
+          "confirmed_date": "2026-09-01"
+        }
+      ],
+      "components": {
+        "geometry": "PASS",
+        "price": "PASS",
+        "volume": "PASS",
+        "volatility": "PASS",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [],
+      "events": [],
+      "scores": null
+    },
+    {
+      "pattern_id": "RELIANCE:SUPPORT_RESISTANCE:SUPPORT:2890.00",
+      "pattern_type": "SUPPORT_RESISTANCE",
+      "direction": "NEUTRAL",
+      "population": "CONFIRMED",
+      "status": "GEOMETRY_VALID",
+      "stage": null,
+      "formation_start": "2026-08-12",
+      "formation_end": "2026-09-14",
+      "levels": {
+        "level": 2890.0,
+        "kind": "SUPPORT",
+        "breakdown_level": 2887.11
+      },
+      "pivots": [],
+      "components": {
+        "geometry": "PASS",
+        "price": "PENDING",
+        "volume": "PENDING",
+        "volatility": "PENDING",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [],
+      "events": [],
+      "scores": null
+    },
+    {
+      "pattern_id": "RELIANCE:SUPPORT_RESISTANCE:RESISTANCE:2940.00",
+      "pattern_type": "SUPPORT_RESISTANCE",
+      "direction": "NEUTRAL",
+      "population": "CONFIRMED",
+      "status": "PRICE_CONFIRMED",
+      "stage": null,
+      "formation_start": "2026-08-14",
+      "formation_end": "2026-09-14",
+      "levels": {
+        "level": 2940.0,
+        "kind": "RESISTANCE",
+        "breakout_level": 2942.94
+      },
+      "pivots": [],
+      "components": {
+        "geometry": "PASS",
+        "price": "PASS",
+        "volume": "PENDING",
+        "volatility": "PENDING",
+        "market": "UNAVAILABLE",
+        "sector": "UNAVAILABLE",
+        "data_quality": "VALID"
+      },
+      "rules": [],
+      "events": [],
+      "scores": null
     }
   ]
 }
