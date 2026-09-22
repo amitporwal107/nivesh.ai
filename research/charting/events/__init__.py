@@ -5,8 +5,14 @@ prd-transaction-cost-tax-v1.md` S18, S21, S22, S26-S30).
 Public surface:
   - `extraction.extract_events` / `extraction.extract_events_multi` -- one row per confirmed
     pattern instance (task item 1-5).
-  - `controls.random_control_rows` / `controls.buy_next_open_baseline_rows` -- S18.3 comparison
-    groups, same row schema (task item 8; infrastructure only, never run for results here).
+  - `controls.random_control_rows` / `controls.buy_next_open_baseline_rows` /
+    `controls.atr_decile_control_rows` / `controls.random_control_batch` -- CHARTING_
+    PREREGISTRATION_V1 §7.6 comparison groups, same row schema (infrastructure only, never
+    run for results here).
+  - `context_join.attach_to_event_row` / `attach_to_control_rows` -- §6 "Context at t": joins
+    a `context` block (`regime.features_at`) and, for real pattern events, a `research` block
+    (`enrich.enrich_pattern`) onto an already-built row. Opt-in (see its own module docstring
+    for why it is not wired into `extraction.py`/`controls.py` automatically).
   - `writer.write_run` -- hashed, immutable run-folder artifact writer (task item 7).
   - `pipeline.build_event_dataset` -- the top-level entry point: per-symbol extraction, the S35
     pre-sealed/post-sealed segment guard, and an optional `writer.write_run` call, in one place.
@@ -18,6 +24,9 @@ Public surface:
 Nothing in this package edits `patterns.py`, `context.py`, `config.py`, `replay.py`,
 `research/costs/*` or `research/index_history/*` -- it only imports their public functions.
 """
-from research.charting.events import controls, costs_bridge, extraction, outcomes, pipeline, schema, stops, writer
+from research.charting.events import context_join, controls, costs_bridge, extraction, outcomes, pipeline, schema, stops, writer
 
-__all__ = ["controls", "costs_bridge", "extraction", "outcomes", "pipeline", "schema", "stops", "writer"]
+__all__ = [
+    "context_join", "controls", "costs_bridge", "extraction", "outcomes", "pipeline", "schema",
+    "stops", "writer",
+]
