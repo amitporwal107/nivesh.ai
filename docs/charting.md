@@ -3234,7 +3234,9 @@ positions taken. It applies to the three documents whenever they are filed or bu
   `docs/ai_research/CHARTING_NI3_PREDICATES_V1.md` (fingerprint `de86626c…`); study plan v1 (frozen) and v2 (draft);
   the code on `origin/dev` (`backend/routes/research_chart.py`, `research/charting/`, `research/costs/`,
   `backend/routes/paper_trades.py`); the TPD paper engine on its local branch; and the recorded study results.
-- The three documents are referenced by title here. They are not yet filed in the repository.
+- The three documents are referenced by title here. The two PRDs were filed verbatim on 2026-09-23 at
+  `docs/prd/live_trading_alerts_signals_prd.md` and `docs/prd/nivesh_paper_trading_prd.md`, each with a filing header
+  that carries the positions in 38.19.4–38.19.5 (owner request, 2026-09-23). The design remains referenced by title.
 
 **38.19.2 What is adopted from the design.**
 - The 1A chart screen is the target rendering of §38.3–§38.8: the single 56 px top bar with the symbol, live price,
