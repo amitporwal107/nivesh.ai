@@ -30,6 +30,23 @@ from research.charting.config import CONFIG
 
 PivotKind = Literal["HIGH", "LOW"]
 
+# Review 2026-09-22 (defect #4, "unhashed behaviour switches"): the tie-breaking rule below
+# used to be bare code with no CONFIG knob at all, so changing it would not have changed
+# config_hash(). It now lives in CONFIG["swing_tie_rule"]; this module still only ever
+# IMPLEMENTS the one rule described below, so any other value is a hard error rather than a
+# silently-ignored setting.
+_SUPPORTED_SWING_TIE_RULES = ("latest_bar_wins",)
+
+
+def _validate_tie_rule() -> str:
+    rule = CONFIG["swing_tie_rule"]
+    if rule not in _SUPPORTED_SWING_TIE_RULES:
+        raise ValueError(
+            f"unsupported CONFIG['swing_tie_rule']: {rule!r} -- only {_SUPPORTED_SWING_TIE_RULES} "
+            "is implemented by research.charting.swings.find_swings"
+        )
+    return rule
+
 
 @dataclass(frozen=True)
 class Pivot:
@@ -74,6 +91,7 @@ def find_swings(
     `CONFIG["swing_right_bars"]`; pass overrides only for tests exercising other
     windows.
     """
+    _validate_tie_rule()  # only "latest_bar_wins" (below) is implemented -- raises otherwise
     left, right = _resolve(left_bars, right_bars)
     n = len(bars)
     if n == 0:
@@ -85,6 +103,8 @@ def find_swings(
 
     pivots: list[Pivot] = []
     for i in range(left, n - right):
+        # CONFIG["swing_tie_rule"] == "latest_bar_wins": left neighbours may tie (non-strict
+        # >=/<=), right neighbours must be strictly worse (>/<) -- see module docstring.
         left_hi = highs[i - left : i]
         right_hi = highs[i + 1 : i + right + 1]
         if highs[i] >= left_hi.max() and highs[i] > right_hi.max():

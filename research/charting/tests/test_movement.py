@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from research.charting import movement, patterns, replay
+from research.charting import movement, patterns, replay, research_window
 from research.charting.movement import (
     AucResult,
     auc_from_scores_and_labels,
@@ -28,6 +28,22 @@ from research.charting.movement import (
     report_to_rows,
 )
 from research.charting.tests import synth
+
+# `synth.py`'s fixtures are anchored at `_START_DATE` (2024-01-02), which falls inside the
+# project-wide sealed 2023-01-01..2024-07-31 out-of-sample block (see test_early_scoring.py's
+# own note on this). `movement_vs_direction_report`/`replay.replay` now refuse (fix 1,
+# research_window.SealedWindowError) to evaluate a confirmed event dated inside that block, so
+# every fixture actually fed to them in this file uses a safe, pre-2023 start date instead.
+_SAFE_START_DATE = "2021-01-04"
+
+
+def _shift_outside_sealed_window(bars: pd.DataFrame) -> pd.DataFrame:
+    """Shift every date back by 3 years, landing safely in 2021 -- same helper as
+    test_replay.py's, for fixtures built via `synth.rect1()`/`fixture_04_false_retest`
+    (which have no `start_date` override, unlike `synth.bars_from_closes`)."""
+    shifted = bars.copy()
+    shifted["date"] = shifted["date"] - pd.DateOffset(years=3)
+    return shifted
 
 
 # ── Layer 1: AUC math ─────────────────────────────────────────────────────────────────────
@@ -135,11 +151,11 @@ def test_auc_rejects_mismatched_lengths():
 
 def test_confirmed_event_extraction_against_real_rectangle_pattern():
     """RECT-1 + fixture #4 (breakout, retest, hard failure) confirms a RECTANGLE at bar16
-    (2024-01-30) with 3 more bars afterwards. Running the real detector must produce a
-    PatternSnapshot whose `.events` carries a PRICE_CONFIRMED entry — `movement_vs_
-    direction_report` must find it and compute horizon=1 (the fixture has one bar past
-    bar16)."""
-    bars = synth.fixture_04_false_retest(synth.rect1())
+    with 3 more bars afterwards (dates shifted outside the sealed window — see
+    _shift_outside_sealed_window). Running the real detector must produce a PatternSnapshot
+    whose `.events` carries a PRICE_CONFIRMED entry — `movement_vs_direction_report` must
+    find it and compute horizon=1 (the fixture has one bar past bar16)."""
+    bars = _shift_outside_sealed_window(synth.fixture_04_false_retest(synth.rect1()))
     snaps = patterns.detect_as_of(bars, len(bars) - 1, symbol="SYN1")
     rectangles = [s for s in snaps if s.pattern_type == "RECTANGLE"]
     assert rectangles, "expected the RECTANGLE to still be detected"
@@ -173,7 +189,7 @@ def test_confirmed_events_via_replay_transitions_and_direct_detect_agree_on_conf
     replay.py's own independent notion of the same moment: the PRICE_CONFIRMED transition
     replay.py records must fall on the same date as the PRICE_CONFIRMED event inside the
     final snapshot's `.events` that this module reads."""
-    bars = synth.fixture_04_false_retest(synth.rect1())
+    bars = _shift_outside_sealed_window(synth.fixture_04_false_retest(synth.rect1()))
     result = replay.replay(bars, symbol="SYN1")
     rect_confirms = [t for t in result.transitions if t.pattern_type == "RECTANGLE" and t.new_status == "PRICE_CONFIRMED"]
     assert rect_confirms
@@ -206,7 +222,7 @@ def _build_symbol(*, entry_idx: int, n_bars: int, jump_pct: float, drift_pct: fl
     baseline_volume = 100_000.0
     volumes = [baseline_volume] * n_bars
     volumes[entry_idx] = baseline_volume * volume_multiplier_at_entry
-    bars = synth.bars_from_closes(closes, volume=volumes, wick=0.30)
+    bars = synth.bars_from_closes(closes, volume=volumes, wick=0.30, start_date=_SAFE_START_DATE)
     entry_date = bars["date"].iloc[entry_idx].date().isoformat()
     return bars, entry_date
 
@@ -359,3 +375,28 @@ def test_report_to_rows_is_sorted_and_matches_report():
     rows = report_to_rows(report)
     assert [ (r["family"], r["horizon"]) for r in rows ] == sorted(report.keys())
     assert len(rows) == len(report)
+
+
+# ── Fix 1: sealed-window guard on the research path (review 2026-09-22, defect #1) ──────
+
+
+def test_movement_report_refuses_a_confirmed_event_dated_inside_the_sealed_window():
+    """`movement_vs_direction_report` is a RESEARCH evaluation path, so a confirmed event
+    whose own entry (confirmation) date falls inside the sealed 2023-01-01..2024-07-31
+    out-of-sample block must be refused outright, not silently included."""
+    bars, _ = _build_symbol(entry_idx=_ENTRY_IDX, n_bars=_N_BARS, jump_pct=0.3, drift_pct=0.0, volume_multiplier_at_entry=2.0)
+    poisoned_event = _fake_snapshot("ZZZ", "F", "BULLISH", "2023-06-15")
+    assert research_window.is_sealed_gap("2023-06-15")  # sanity: the poisoned date really is sealed
+    with pytest.raises(research_window.SealedWindowError):
+        movement_vs_direction_report([poisoned_event], {"ZZZ": bars}, horizons=(1,))
+
+
+def test_movement_report_over_events_outside_the_sealed_window_is_unaffected():
+    """Control: the same call shape, but every confirmed event's entry date sits safely
+    outside the sealed window (as every other test in this file now does) — must run
+    normally, proving the guard above is checking dates, not raising unconditionally."""
+    bars, entry_date = _build_symbol(entry_idx=_ENTRY_IDX, n_bars=_N_BARS, jump_pct=0.3, drift_pct=0.0, volume_multiplier_at_entry=2.0)
+    assert not research_window.is_sealed_gap(entry_date)
+    events = [_fake_snapshot("ZZZ", "F", "BULLISH", entry_date)]
+    report = movement_vs_direction_report(events, {"ZZZ": bars}, horizons=(1,))
+    assert ("F", 1) in report

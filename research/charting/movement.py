@@ -136,6 +136,7 @@ import numpy as np
 import pandas as pd
 
 from research.charting.config import CONFIG
+from research.charting.research_window import assert_no_sealed_rows, research_bars
 from research.charting.series import atr as atr_series_fn
 from research.charting.series import relative_volume as relative_volume_series_fn
 
@@ -328,14 +329,26 @@ def movement_vs_direction_report(
     — even a horizon where zero of its events happen to resolve still gets an explicit
     `AucResult(None, n=0, reason="single_class")` rather than silently vanishing from the
     report. A `patterns_or_events` with no confirmed events at all yields `{}`.
+
+    Sealed-window guard (review 2026-09-22, defect #1): this is a RESEARCH evaluation path,
+    so before any AUC computation happens, every confirmed event's own entry (confirmation)
+    date is checked against the project-wide sealed 2023-01-01..2024-07-31 out-of-sample
+    block, and so is every symbol's bars frame as a whole: the ATR / relative-volume lookback
+    and the forward exit bar both read from it, so a frame whose dates span the sealed block
+    (an entry in Dec 2022 whose 5-bar exit lands in Jan 2023, or a 2024-08 entry whose ATR
+    warms up on sealed bars) raises `research_window.SealedWindowError`. Pass pre- and
+    post-sealed bars as separate runs -- no research evaluation may touch this window.
     """
     events = [e for e in (_normalize_item(item) for item in patterns_or_events) if e is not None]
+    assert_no_sealed_rows(e.entry_date for e in events)
 
     series_cache: dict[str, Optional[_SymbolSeries]] = {}
 
     def _series_for(symbol: str) -> Optional[_SymbolSeries]:
         if symbol not in series_cache:
             bars = bars_by_symbol.get(symbol)
+            if bars is not None:
+                research_bars(bars)  # lookback and forward bars both come from this frame
             series_cache[symbol] = None if bars is None else _build_symbol_series(bars, atr_period, volume_baseline_bars)
         return series_cache[symbol]
 

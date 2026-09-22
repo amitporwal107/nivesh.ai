@@ -101,7 +101,13 @@ class Convergence:
 
 
 def convergence_ratio(gap_at_first_bar: float, gap_at_last_bar: float, cfg: dict = CONFIG) -> Convergence:
-    """`convergence_ratio = gap_at_last_bar / gap_at_first_bar`; converging iff <= convergence_max_ratio."""
+    """`convergence_ratio = gap_at_last_bar / gap_at_first_bar`; converging iff <= convergence_max_ratio.
+
+    Reserved for triangle/wedge detectors (not yet built) -- this is an owner-approved NI-2
+    predicate (review 2026-09-22, defect #5) with no production caller yet. Do not delete: a
+    future triangle/wedge family measures its two boundaries' gap at the first and last bar
+    of the formation and calls this directly.
+    """
     if gap_at_first_bar is None or not np.isfinite(gap_at_first_bar) or gap_at_first_bar <= 0:
         return Convergence(ratio=float("nan"), converging=False)
     ratio = float(gap_at_last_bar) / float(gap_at_first_bar)

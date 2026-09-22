@@ -2366,3 +2366,100 @@ displayed signal post-dates the detection timestamp.
 7. Movement and direction outcomes are reported separately.
 8. Incomplete, invalidated and never-confirmed patterns are reported, not dropped.
 9. The weights in §34.5 are frozen in a pre-registration before any locked test.
+
+---
+
+## 35. Amendment A — Pattern Intelligence & Validation (2026-09-22)
+
+Source: the owner's "Technical Chart Pattern Intelligence & Validation Engine" PRD, kept verbatim at
+`.claude/workspace/charting-pattern-engine/prd-pattern-intelligence-v1.md` (cited below as N§). A gap review
+(`review-prd-pattern-intelligence.md`) found about 70% of it already specified in §1-§34. This section adopts the remainder
+and resolves every conflict. **Owner decisions (2026-09-22):** fold it in as an amendment, not a separate PRD; the frozen
+ATR-based rules of §30.1 stand wherever N§ differs; the market benchmark is NIFTY 500; outcomes are computed through the
+§36 cost engine (net), not gross-only.
+
+### 35.1 Conflict resolutions
+
+| Topic | N§ proposal | Resolution |
+|---|---|---|
+| Touch tolerance | 1.0% of price | **§30.1 stands:** 0.35 × ATR. |
+| Breakout confirmation | Close > level, distance ≥ 0.25% | **§30.1 stands:** close beyond level ± 0.25 × ATR (equal to the failure buffer, so states cannot overlap). The percentage distance is stored as a descriptive field only. |
+| Relative-volume bands | five bands with double-counted edges | **§30.1 stands:** four half-open bands. |
+| Swing separation | 5 bars | The §30.1 touch separation (3 bars) stands; a 5-bar separation applies only where a pattern rule states it (e.g. §13.6 troughs). |
+| Minimum formation bars | 20 | 15 stands (unchanged §10.2 / §30 default). |
+| Swing tie rule | earliest bar of a plateau | Latest bar wins (built, tested); now recorded in CONFIG so it is covered by the configuration hash. |
+| State names | FORMING … TARGET_REACHED | §11 names stand (live on staging). TARGET_REACHED is an outcome and lives in the outcome record, not the lifecycle. |
+| Benchmark | NIFTY 50 | **NIFTY 500**, now a CONFIG key. NIFTY 50 is fetched as a secondary series. |
+| Historical store | SQL tables | Immutable hashed run artifacts (§21) until a queryable store is separately approved. |
+| Composite score | allowed for sorting | Deferred until the event dataset exists (§16; N§35's own closing rule). |
+| Expected move | three estimates per signal | Deferred; owner-only wording decision pending (no "target price" language). |
+
+### 35.2 Adopted additions
+- **Relative strength** (N§11): RS5/RS20/RS50/RS100 = stock return minus NIFTY 500 return over the window; stored per pattern event.
+- **Market regime** (N§12): BULL / BEAR / SIDEWAYS from NIFTY 500 vs its SMA200 and the SMA200 slope; India VIX and universe breadth
+  recorded as context fields. Values that would need data from the sealed window are UNAVAILABLE.
+- **Trend context** (N§10): SMA20/50/200, EMA20/50, ADX, slopes, a 0/1/2 trend state; raw metrics always retained.
+- **Breakout candle quality** (N§8): body % and close location stored as descriptive fields (not confirmation gates until validated).
+- **Retest quality** (N§13): penetration depth, attempts, retest relative volume, bars to retest and to continuation — descriptive.
+- **Historical event dataset** (N§14-§16, §23): one row per pattern instance at its confirmation bar; forward returns at 1/3/5/10/20
+  sessions, MFE/MAE, bars to +2/+5/+10/+15%; success reported per target, horizon and condition with sample size, and
+  "insufficient_n" below a pre-registered minimum.
+- **Versioning** (N§24): each signal carries signal_timestamp, data_cutoff_timestamp, strategy/feature versions, config hash.
+
+### 35.3 Data sources for the additions
+Daily NIFTY 50, NIFTY 500, INDIA VIX (and sector indices where available) from Kite Connect, stored with a SHA-256 manifest.
+Market breadth (advance/decline, % above SMA50/SMA200, new highs/lows) is derived from the project's own universe of Kite daily
+bars, because no breadth feed exists. **No bar dated 2023-01-01..2024-07-31 is fetched or stored for research use.**
+
+### 35.4 Research-integrity fixes adopted with this amendment
+1. A sealed-window guard on every research entry point (replay, movement, event generation) — display may use that history;
+   research evaluation may not.
+2. `retest_window_bars` is wired into the retest rule (it was hashed but unused).
+3. HH_HL confirmation uses the same ATR breakout buffer as the other families.
+4. The benchmark name and the swing tie rule are CONFIG keys, covered by the configuration hash.
+5. `relative_volume_band` labels the follow-through volume rule; `convergence_ratio` is reserved for triangle/wedge detectors.
+
+### 35.5 Deferred (explicit)
+New pattern families beyond §13's P0 set (triangles, double/triple tops and bottoms, flags/pennants, wedges, H&S, cup & handle,
+rounding, VCP) each need owner-approved definitional forms and a pre-registration amendment before code. Walk-forward windows,
+intraday timeframes, a SQL store and a composite score are out of this amendment.
+
+---
+
+## 36. Amendment B — Transaction cost, slippage & tax layer (2026-09-22)
+
+Source: the owner's "Transaction Cost, Slippage & Tax-Aware Net Return Engine" PRD, kept verbatim at
+`.claude/workspace/charting-pattern-engine/prd-transaction-cost-tax-v1.md`. It replaces the §18.1 cost placeholder and is the cost
+model for pattern validation (owner decision 2026-09-22), so outcomes no longer wait on the paper-trade branch.
+
+### 36.1 Two return series, never mixed
+- **Net trading return (primary strategy measure):** gross − entry/exit slippage − brokerage − STT − exchange transaction charges
+  − SEBI charges − GST − stamp duty (and DP charge where the rule set includes it).
+- **Investor after-tax return (separate layer):** net trading P&L − capital-gains tax from a configurable tax profile. Capital-gains
+  tax is never a transaction cost.
+
+### 36.2 Rules are data, date-effective and versioned
+Every charge resolves from a versioned rule set by each leg's own trade date, exchange, segment and instrument type; every rate
+carries a source and effective dates, and any rate that cannot be verified is marked unverified rather than assumed. The existing
+`zerodha-equity-v1` model is reproduced exactly as one rule set, so earlier simulations stay comparable. Tax rules (STCG/LTCG by
+holding period and date, cess, surcharge, loss set-off assumptions) are separate, immutable rule versions.
+
+### 36.3 Slippage and liquidity
+Fixed %, fixed bps, volume-dependent, ATR-based and liquidity-bucket models; inputs are only values known at the signal time.
+Sensitivity scenarios: optimistic 0.05%, base 0.15%, conservative 0.30%, stress 0.50%. Position value / ADV is recorded per event.
+
+### 36.4 Reporting rule
+Every pattern statistic is reported gross **and** net of costs with the cost breakdown and sample size (e.g. gross hit rate, net hit
+rate after costs, median gross and net return, average cost, average slippage, net expectancy). Consistent with §2.4 and decision
+#4, a negative net result is a valid research outcome.
+
+### 36.5 Conventions settled in review (implementation: `research/costs/`)
+- Charges are computed on the theoretical fill values, with slippage a separate P&L line (the PRD's own worked example:
+  ₹481.07 costs, ₹600 slippage, ₹8,918.93 net). Capital gain uses the slipped fills, i.e. the consideration actually paid and received.
+- STT is not a deductible transfer expense (Section 48 proviso); brokerage is the default deductible expense, configurable.
+- Long-term means held for more than 12 months, counted calendar-exactly from the buy date.
+- The Section 112A exemption is an annual allowance shared across trades: the caller passes the unused amount for the year
+  (default 0), never the full threshold per trade.
+- Surcharge on Section 111A/112A gains is the income-slab rate capped at 15% (cap in force since FY2019-20).
+- A rate with no value raises an error rather than pricing zero; a rate taken from a secondary source is used but listed in the
+  trade's `unverified_rates_used`.

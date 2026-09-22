@@ -44,7 +44,7 @@ import numpy as np
 import pandas as pd
 
 from research.charting import geometry
-from research.charting.config import CONFIG
+from research.charting.config import CONFIG, relative_volume_band
 from research.charting.lifecycle import (
     ComponentStatus,
     DataQualityStatus,
@@ -269,14 +269,25 @@ def _rectangle_candidates(
 
 
 def _followthrough_volume_rule(rel_vol: float, cfg: dict) -> RuleRow:
+    """§12.3 follow-through volume confirmation band.
+
+    Review 2026-09-22 (defect #5, "config.relative_volume_band has no production caller"):
+    `observed` now records BOTH the raw relative-volume reading and its descriptive
+    WEAK/NORMAL/SUPPORTING/STRONG band label (`config.relative_volume_band`) as a dict, purely
+    for descriptive/reporting output -- the band label never drives PASS/FAIL/UNAVAILABLE
+    here, which is (and was already) decided by the followthrough_min/max_rel_volume
+    thresholds alone.
+    """
     lo, hi = cfg["followthrough_min_rel_volume"], cfg["followthrough_max_rel_volume"]
     if not np.isfinite(rel_vol):
-        return RuleRow("FOLLOWTHROUGH_VOLUME_UNAVAILABLE", "FAIL", rel_vol, (lo, hi))
+        observed = {"relative_volume": rel_vol, "band": None}  # never fabricate a band for a NaN reading
+        return RuleRow("FOLLOWTHROUGH_VOLUME_UNAVAILABLE", "FAIL", observed, (lo, hi))
+    observed = {"relative_volume": rel_vol, "band": relative_volume_band(rel_vol)}
     if rel_vol < lo:
-        return RuleRow("FOLLOWTHROUGH_VOLUME_BELOW_MIN", "FAIL", rel_vol, lo)
+        return RuleRow("FOLLOWTHROUGH_VOLUME_BELOW_MIN", "FAIL", observed, lo)
     if rel_vol > hi:
-        return RuleRow("FOLLOWTHROUGH_VOLUME_ABOVE_MAX", "FAIL", rel_vol, hi)
-    return RuleRow("FOLLOWTHROUGH_VOLUME_BAND", "PASS", rel_vol, (lo, hi))
+        return RuleRow("FOLLOWTHROUGH_VOLUME_ABOVE_MAX", "FAIL", observed, hi)
+    return RuleRow("FOLLOWTHROUGH_VOLUME_BAND", "PASS", observed, (lo, hi))
 
 
 def _maybe_research_eligible(
@@ -330,6 +341,20 @@ def _walk_retest_and_failure(
     not a retest ever resolved) — mirroring `_walk_rectangle_lifecycle`'s "freeze after
     RETEST_SUCCESSFUL, freeze after the failure window closes with no failure" behaviour: once
     this returns, the caller stops evaluating further bars for this pattern instance.
+
+    `retest_window_bars` semantics (review 2026-09-22, defect #2 — this CONFIG value was
+    hashed but read by no code): a retest only counts as a retest if the pullback FIRST
+    re-enters the broken level (`closes[i] <= broken_level` bullish / `>= broken_level`
+    bearish — the same condition as before) within `retest_window_bars` bars of confirmation,
+    i.e. at some `i` with `(i - confirm_index) <= retest_window_bars`. Once that window has
+    closed with no pullback ever having entered the zone, this function stops opening a new
+    `RETEST_PENDING` — the breakout is treated as holding, quietly, with no retest at all — but
+    a pullback that already opened `RETEST_PENDING` while inside the window keeps resolving
+    normally (RETEST_SUCCESSFUL or a failure) however many bars later that takes. This gate
+    applies ONLY to opening a retest; the separate §17 failure rule (`failure_buffer_atr`,
+    `failure_window_bars` — NI-2 frozen, unchanged by this fix) keeps evaluating every bar
+    exactly as it did before, on its own independent window anchored at the same
+    `confirm_index`.
     """
     closes = view["close"].to_numpy(dtype=float)
     highs = view["high"].to_numpy(dtype=float)
@@ -337,6 +362,7 @@ def _walk_retest_and_failure(
 
     fail_buf = cfg["failure_buffer_atr"]
     fail_window = cfg["failure_window_bars"]
+    retest_window = cfg["retest_window_bars"]
     cluster_width = cfg["level_cluster_width_atr"]
     retest_pending = False
 
@@ -345,6 +371,7 @@ def _walk_retest_and_failure(
         if not geometry._atr_valid(a):
             continue
         within_window = (i - confirm_index) <= fail_window
+        within_retest_window = (i - confirm_index) <= retest_window
         if direction == "BULLISH":
             failure_level = broken_level - fail_buf * a
             gapped_through = (highs[i] < opposite_level) if opposite_level is not None else False
@@ -358,7 +385,7 @@ def _walk_retest_and_failure(
                 add_event(i, "FAILED", reason.value, {"close": float(closes[i]), "failure_level": failure_level})
                 rules.append(RuleRow("FAILURE_BUFFER_BREACH", "FAIL", float(closes[i]), failure_level))
                 return LifecycleState.FAILED
-            if not retest_pending and closes[i] <= broken_level:
+            if not retest_pending and within_retest_window and closes[i] <= broken_level:
                 retest_pending = True
                 add_event(i, "RETEST_PENDING", "RETEST_ZONE_ENTERED", {"close": float(closes[i]), "level": broken_level})
             elif retest_pending and closes[i] > broken_level + cluster_width * a:
@@ -374,7 +401,7 @@ def _walk_retest_and_failure(
                 add_event(i, "FAILED", reason.value, {"close": float(closes[i]), "failure_level": failure_level})
                 rules.append(RuleRow("FAILURE_BUFFER_BREACH", "FAIL", float(closes[i]), failure_level))
                 return LifecycleState.FAILED
-            if not retest_pending and closes[i] >= broken_level:
+            if not retest_pending and within_retest_window and closes[i] >= broken_level:
                 retest_pending = True
                 add_event(i, "RETEST_PENDING", "RETEST_ZONE_ENTERED", {"close": float(closes[i]), "level": broken_level})
             elif retest_pending and closes[i] < broken_level - cluster_width * a:
@@ -745,7 +772,11 @@ def _hh_hl_patterns(
     confirmed higher highs" / "higher lows" is read as the last two consecutive transitions
     between confirmed same-kind pivots both being higher (needs >=3 pivots of that kind).
     Continuation confirmation ("latest meaningful high breaks the previous meaningful high")
-    is read as `close[i] > most_recent_confirmed_HIGH.price` — checked bar-by-bar from the
+    is read as `close[i] > most_recent_confirmed_HIGH.price + breakout_buffer_atr * ATR[i]`
+    (review 2026-09-22, defect #3: this used to confirm on a bare `close[i] >
+    most_recent_confirmed_HIGH.price`, with no breakout buffer at all — unlike every other
+    P0 family's own confirmation trigger; ATR is read causally at the confirming bar `i`,
+    exactly like RECTANGLE/SUPPORT_RESISTANCE's own buffer) — checked bar-by-bar from the
     moment the structure's own pivots are all confirmed through `t` (sub-task d: this used
     to check bar `t` only; now it is a proper walk so that, once confirmed, the broken swing
     gets the same §13.9 retest / §17 failure tracking as RECTANGLE and SUPPORT_RESISTANCE, via
@@ -753,10 +784,12 @@ def _hh_hl_patterns(
     the fixed, as-of-`t` structure (unchanged) — only WHEN the crossing is deemed to have
     first happened is now historical instead of "at t only".
 
-    INVALIDATED is unchanged: it is evaluated in the same walk (first crossing wins, mirroring
-    the original mutual exclusivity) and remains its own terminal outcome — a geometry
-    invalidation is not "a failed retest of a confirmed breakout" and is never handed to the
-    shared retest/failure helper.
+    INVALIDATED is unchanged (no buffer — only defect #3's CONFIRMATION trigger gets one): it
+    is evaluated in the same walk (first crossing wins, mirroring the original mutual
+    exclusivity) and remains its own terminal outcome — a geometry invalidation is not "a
+    failed retest of a confirmed breakout" and is never handed to the shared retest/failure
+    helper. A bar whose ATR is not yet valid (warmup) is skipped entirely for BOTH checks,
+    matching how every other family's own bar-by-bar walk treats an unusable ATR reading.
     """
     lookback_start = _lookback_start(t, cfg)
     highs = sorted((p for p in pivots if p.kind == "HIGH" and p.pivot_index >= lookback_start), key=lambda p: p.pivot_index)
@@ -814,13 +847,18 @@ def _hh_hl_patterns(
     geometry_ready_index = max(last_high.confirmed_index, last_low.confirmed_index)
 
     for i in range(geometry_ready_index, t + 1):
+        a = atr_ser.iloc[i]
+        if not geometry._atr_valid(a):
+            continue
+        buf = cfg["breakout_buffer_atr"] * a
         c = closes[i]
         if direction == "BULLISH":
-            if c > last_high.price:
+            confirm_level = last_high.price + buf
+            if c > confirm_level:
                 confirm_idx = i
                 status, price_c = LifecycleState.PRICE_CONFIRMED, ComponentStatus.CONFIRMED
-                add_event(i, "PRICE_CONFIRMED", "CLOSE_ABOVE_PRIOR_HIGH", {"close": float(c), "prior_high": last_high.price})
-                rules.append(RuleRow("CLOSE_ABOVE_PRIOR_HIGH", "PASS", float(c), last_high.price))
+                add_event(i, "PRICE_CONFIRMED", "CLOSE_ABOVE_PRIOR_HIGH", {"close": float(c), "prior_high": last_high.price, "confirm_level": confirm_level})
+                rules.append(RuleRow("CLOSE_ABOVE_PRIOR_HIGH", "PASS", float(c), confirm_level))
                 break
             if c < last_low.price:
                 status = LifecycleState.INVALIDATED
@@ -828,11 +866,12 @@ def _hh_hl_patterns(
                 rules.append(RuleRow("CLOSE_BELOW_INVALIDATION_SWING", "FAIL", float(c), last_low.price))
                 break
         else:
-            if c < last_low.price:
+            confirm_level = last_low.price - buf
+            if c < confirm_level:
                 confirm_idx = i
                 status, price_c = LifecycleState.PRICE_CONFIRMED, ComponentStatus.CONFIRMED
-                add_event(i, "PRICE_CONFIRMED", "CLOSE_BELOW_PRIOR_LOW", {"close": float(c), "prior_low": last_low.price})
-                rules.append(RuleRow("CLOSE_BELOW_PRIOR_LOW", "PASS", float(c), last_low.price))
+                add_event(i, "PRICE_CONFIRMED", "CLOSE_BELOW_PRIOR_LOW", {"close": float(c), "prior_low": last_low.price, "confirm_level": confirm_level})
+                rules.append(RuleRow("CLOSE_BELOW_PRIOR_LOW", "PASS", float(c), confirm_level))
                 break
             if c > last_high.price:
                 status = LifecycleState.INVALIDATED
