@@ -2550,3 +2550,784 @@ a predicate table for owner approval before any detector is coded, as NI-2 was.
 - Licensing: display and redistribution follow each provider's terms. Raw market data, derived indicators, pattern detections and
   research analytics are kept separate, and every feed carries source and licence metadata. Redistribution rights are verified
   before any public or commercial display.
+
+---
+
+## 38. Amendment D — Professional chart workspace (2026-09-22)
+
+Source: the owner's request on 2026-09-22, with two screenshots. The reference is a TradingView chart (POONAWALLA, 1-minute,
+NSE) with a top toolbar, a left drawing rail, an in-chart legend, stacked indicator panes and a bottom range bar. The second
+screenshot is the live Charts tab (ADANIENT, daily). The owner wants the Charts tab to work like the reference.
+
+A gap review compared §1–§37 and the live build (PRs #134–#141, VERIFIED on staging) against the reference. Most of the
+capabilities are already specified: chart types §7.1, timeframes §7.2, drawing tools §7.3, replay §19, workspace controls
+§20.1 and the indicator panel §20.4. What is not specified is the workspace: how those controls are laid out and operated.
+Some interaction features are also missing: the legend, pane controls, drawing modifiers, undo/redo, saved layouts, range
+presets and indicator parameters. This section adds them and nothing else. Decision #3 (Lightweight Charts) stands. The
+reference layout is built as Nivesh UI on Lightweight Charts (see D-1 in §38.14).
+
+### 38.1 Reference vs current build
+
+| Area | Reference (TradingView) | Current Charts tab | Specified before this amendment |
+|---|---|---|---|
+| Layout | top toolbar, left drawing rail, chart fills the window, bottom range bar | rows of buttons above a fixed 480 px chart; indicator and pattern cards on the right; drawing list below | no |
+| Symbol | search, favourite, compare (+) | filter list of the 50 snapshot symbols | §20.1 search + watchlist; compare = §7.1 P1 |
+| Timeframe | 1m … 1M menu | daily only; weekly/monthly disabled (spec G-6) | §7.2 |
+| Chart type | candles, bars, line, area, Heikin Ashi … | candles only | §7.1 |
+| Indicators | searchable dialog, any parameters, repeat instances, per-indicator style, RSI bands + its MA | 8 fixed series from the snapshot (atr_14, bollinger, ema_20, macd, relative_volume, rsi_14, sma_20, sma_50) as checkboxes | §20.4 in outline only; dialog, instances and bands not specified |
+| Legend | OHLC + change at the crosshair, volume, each indicator's value, hide/settings/remove | none | no |
+| Panes | move up/down, maximise, collapse, resize | panes appear, with no controls | §20.4 "reorder panes" only |
+| Drawing | ~20 tools in a rail; magnet, lock, hide, remove all, ruler, zoom; undo/redo | trendline, horizontal line, select, delete | §7.3 lists the tools; modifiers, editing and undo/redo not specified |
+| Navigation | 1D 5D 1M 3M 6M YTD 1Y 5Y All, go-to-date, log/%/auto scale, ADJ, clock | Fit, Full screen | §7.1 "date-range selection" only |
+| Saved layouts | named layout ("Unnamed" + save) | none | no (§21 profiles are pattern configurations) |
+| Replay | bar replay | none in the UI (the engine exists, §19) | §19 engine; no UI |
+| Alerts | alert button | none | §5.3 "generate alerts", no spec |
+| Theme | light | app theme (dark) | no |
+| Data | 1-minute, live | Kite daily 2021-01-01..2026-09-18, frozen snapshot, 50 symbols, owner-only (decision #10) | §7.2, §32 |
+| Trading | Buy/Sell with bid/ask | — | §3.2 non-goal |
+| Scripted overlays | peer table with BUY ZONE / TREND / ACTION; user-script scanner pane | — | no |
+
+### 38.2 Rules carried over unchanged
+
+- Nivesh computes indicator values under the §8.7 contract and serves them from the API. The browser draws them but never
+  calculates an indicator it displays (§2.3), so a parameter change always goes through the API.
+- Manual drawings stay visually distinct from system pattern overlays (§7.3, §20.2).
+- The status badge, provenance drawer and Data view that already exist stay one click away in the new layout (§32.12).
+- No chart surface uses buy, sell, target-price or "action" wording (§3.2, §29 item 14). §37.4's `AVOID_NEW_LONG` is a
+  research field, not a chart label.
+- The "Charts by TradingView" attribution stays visible in the chart area (licence, TC-21).
+- The Charts tab stays owner-only while it shows Kite-derived prices (decision #10).
+
+### 38.3 Workspace layout (P0)
+
+Desktop (≥ 1024 px wide):
+
+1. **Top toolbar:** symbol button (opens search), timeframe menu, chart-type menu, Indicators, Compare (P1), Replay (P1),
+   Alerts (P2), undo, redo, layout name with a save menu, full screen and chart settings. There is no chart theme
+   control; the chart follows the app theme (D-6).
+2. **Left drawing rail** (§38.6).
+3. **Chart area:** fills the remaining height, with a minimum of 480 px. It holds the price pane and then the indicator
+   panes, each with its own right price scale.
+4. **In-chart legend** at the top left of each pane (§38.4).
+5. **Bottom bar:** range presets, go-to-date, IST clock, ADJ toggle and log / % / auto scale (§38.7).
+6. **Right sidebar:** collapsible, with tabs for Watchlist, Patterns (today's patterns panel), Levels, Drawings and
+   Provenance. It opens on Patterns, and collapsing it gives the chart the full width.
+7. **Data-status badge** (e.g. `PIT_UNVERIFIED`): sits in the legend next to the symbol and opens the provenance panel, as
+   the reference's "D" (delayed data) marker does.
+
+Below 1024 px, the drawing rail folds into a "Draw" menu and the sidebar becomes a bottom sheet. Toolbar items that do not
+fit move into a "More" menu. The page never scrolls sideways.
+
+### 38.4 Legend and crosshair (P0)
+
+- The price-pane header shows symbol · timeframe · exchange · status badge. Then it shows O H L C and the change from the
+  previous close (absolute and %) for the bar under the crosshair. When the pointer is off the chart, it shows the last
+  bar. Values are coloured up/down.
+- Volume is shown for the same bar.
+- Each indicator has one row: its name and parameters (e.g. "RSI 14 close"), then its value(s) at the crosshair. Hovering a
+  row shows hide, settings, remove and provenance controls.
+- A toggle collapses the legend.
+- All panes share one crosshair. The time-axis label shows the date on daily and longer bars, and date + time (IST) on
+  intraday bars.
+- The price pane has a last-price line with an axis label. Indicator panes show last-value labels.
+- A bar that is not complete yet (the current week or month, or an intraday bar) is visibly marked and never feeds
+  confirmation (§7.2).
+
+### 38.5 Indicators dialog and panes
+
+P0:
+
+- **Dialog:** a searchable list grouped as trend / momentum / volatility / volume (§8.1–§8.4). A catalogue endpoint serves
+  it. For each indicator the catalogue gives its id, name, category, its presets (fixed parameter sets), default pane,
+  output fields and calculation version.
+- **Instances:** the same indicator can be added more than once with different presets (e.g. SMA 20 and SMA 200). Each
+  instance gets its own id.
+- **Settings per instance:** preset choice, colour, line width and style, and visibility. Colour and style affect only the
+  display, never the calculation. Reference bands appear where the indicator defines them (e.g. RSI 30/70 with shaded
+  fill). A smoothing line of an indicator's output (the reference's yellow RSI moving average) is one more output field of
+  the preset, not a browser calculation.
+- **Panes:** a non-overlay indicator opens in its own pane. Each pane can be moved up or down, maximised and restored,
+  collapsed or removed, and resized with a draggable divider. The saved layout keeps pane order and heights (§38.8).
+- **Errors:** the API rejects a preset id that is not in the catalogue with a reason code (§27), and the dialog shows the
+  reason.
+
+P1: indicator templates, i.e. a named set of instances that can be applied to any symbol (§20.4).
+
+**Presets only (D-3, decided 2026-09-22).** Users choose from a controlled preset catalogue and cannot enter arbitrary
+parameters.
+
+- **Versioning:** the catalogue is versioned and hashed with the snapshot, and every preset is precomputed at export. This
+  fits the chart API, which only reads the snapshot and computes nothing (`backend/services/research_chart.py`, the Sim
+  Lab rule).
+- **Adding a preset:** means a new catalogue version and a re-export.
+- **Reproducibility:** a chart view or research run cites preset ids and the catalogue version, so it can be reproduced
+  exactly.
+- **Initial catalogue:** the 8 series in today's snapshot, plus SMA and EMA 10/20/50/100/200, RSI 7/14/21, Bollinger
+  20×2, MACD 12/26/9 and ATR 14.
+- **Not planned:** free parameters and an on-demand compute endpoint.
+
+### 38.6 Drawing rail
+
+P0 covers the §7.3 P0 tools laid out in the rail, plus the interaction layer the reference has:
+
+- **Tool groups:**
+  - cursor: cross, dot, arrow
+  - lines: trendline, ray, extended line, horizontal line, horizontal ray, vertical date marker
+  - zones and shapes: rectangle, support/resistance zone
+  - Fibonacci retracement
+  - annotation: text
+  - measure: price and date range
+  - manual target and invalidation lines
+
+  The rail shows the last-used tool in each group.
+- **Editing:** select a drawing, drag an anchor, drag the whole drawing, set a per-drawing style (colour, width, dash),
+  clone, delete. Styles are stored in the existing `style` field.
+- **Modifiers:** magnet (snaps anchors to the nearest O/H/L/C), stay in drawing mode, lock all, hide all and remove all
+  (asks for confirmation).
+- **Undo/redo** (Ctrl+Z / Ctrl+Shift+Z) covers create, move, restyle and delete within the session. Each step is an API
+  call. If a call fails, the change is rolled back and an error is shown. The server copy stays the source of truth.
+- **Scope:** drawings are saved per symbol and timeframe (the schema already carries `timeframe`). Because anchors are
+  dated, a drawing made on daily also shows on weekly and monthly. It shows on intraday bars only if the user turns that on.
+
+P1: parallel channel, pitchfork, risk/reward box and Fibonacci extension (§7.3 P1).
+
+Not planned: brush/free-hand drawing, emoji and icon stickers.
+
+### 38.7 Timeframes, chart types and navigation
+
+- **Weekly and monthly (P0, display only).** G-6 is split into two parts:
+  - Pattern detection on weekly and monthly stays deferred, because a 120-bar maximum pattern cannot fit in 69 monthly
+    bars.
+  - Display does not have that limit. ADANIENT's 1,417 daily bars resample to 299 weekly and 69 monthly bars.
+
+  Resampling happens at export and is hashed with the snapshot. Weeks are NSE sessions grouped by ISO week (Monday–Friday)
+  and months are calendar months. Holidays are skipped, and the trailing bar is flagged incomplete. On weekly and monthly,
+  the Patterns tab says "patterns run on daily bars only".
+- **Chart types (P0):** candles, hollow candles, OHLC bars, line and area. P1 adds Heikin Ashi, labelled synthetic.
+  Patterns and indicators never run on Heikin Ashi bars.
+- **Range presets (P0):** 1M, 3M, 6M, YTD, 1Y, 5Y and All. 1D and 5D are added once intraday exists; until then they are
+  disabled, with a tooltip giving the reason. Go-to-date and reset view (double-click the time axis) are also P0.
+- **Price scale (P0):** auto, log and percent modes, set per pane.
+- **ADJ toggle (P1):** switches between adjusted and raw prices. Kite daily bars are back-adjusted (the snapshot records
+  `ADJUSTED_SPLITS_BONUS_ONLY`), so a raw series has to come from NSE bhavcopy (`nidp.prices_eod`). Until a raw series is
+  exported, the toggle is disabled with that reason. The legend always shows the adjustment status (§32.12).
+- **Clock:** IST, fixed and shown. There is no timezone picker.
+- **Intraday (§7.2 P1, decided by the owner 2026-09-22, D-2):** 15-minute and 1-hour bars, owner-only, from an offline
+  export (§38.14). Other intraday intervals, including 1-minute, stay P1/P2 as §7.2 lists them.
+
+### 38.8 Saved layouts, watchlist, compare
+
+- **Layouts (P0).** A named layout holds:
+  - symbol, timeframe and chart type
+  - indicator instances with their parameters and styles
+  - pane order and heights
+  - visible range and drawing visibility
+  - sidebar state (the theme is not stored; it follows the app, D-6)
+
+  Users can save, save as, rename, delete and reopen recent layouts. Layouts autosave after changes. A new chart is
+  "Unnamed" until it is saved. Layouts are stored per user in the Mongo collection `research_chart_layouts`, scoped by
+  user in the same way as `research_drawings`.
+- **Watchlist (P1, §20.1).** Named lists of symbols in the sidebar. Each row shows the last close and day change from the
+  same series as the chart, and a favourite toggle sits on the symbol button. The app has no user-editable watchlist
+  today; the positional `/watchlist` route returns a system-generated list.
+- **Compare (P1, §7.1 multi-chart comparison).** Overlays another symbol, or NIFTY 500, as a percent-change line from the
+  first visible bar. The benchmark series already exists (`research/index_history`).
+- **Multi-chart grid (P2).** 2 or 4 charts with a linked symbol, timeframe and crosshair.
+- **Peer table (D-5, decided 2026-09-22).** A factual comparison of the symbol with its industry peers, shown in a
+  sidebar tab. The contents and rules are in §38.14.
+
+### 38.9 Replay, alerts, theme, keyboard
+
+- **Bar replay (P1, the UI for §19).**
+  - Controls: choose a start bar, then play, pause, step one bar, change speed, or exit.
+  - Bars after the replay cursor are never sent to the chart.
+  - Pattern overlays show only the state the §19 engine recorded at the cursor bar. They never show a pattern's final
+    geometry before that geometry existed (§34.8 signal timeline).
+  - Replay inherits the sealed-window guard (§35.4). A start whose frames touch 2023-01-01..2024-07-31 is refused, and the
+    UI shows why.
+- **Alerts (P2).**
+  - Triggers: price crosses a level or a drawing, an indicator crosses a value, or a pattern changes state (§5.3).
+  - Alerts are delivered in-app only.
+  - They depend on Monitoring Mode (fresh data after every session), which does not exist yet.
+  - Alert text states facts ("closed above 3,040.00") and never gives advice.
+- **Theme (P0, D-6).** The chart follows the app's light/dark theme (`data-theme`, set in Settings) and has no theme
+  setting of its own.
+  - **Live switching:** when the app theme changes, an open chart re-themes without a reload. Today the chart reads its
+    colours only once, when it loads (a documented v1 limitation in `charts/theme.ts`), so W1 has to change this.
+  - **Colours:** chart colours come from the existing tokens, which keeps the two themes consistent.
+- **Keyboard (P0).**
+  - Shortcuts: Alt+T trendline, Alt+H horizontal line, Alt+F Fibonacci, Esc cancel, Delete removes the selection,
+    Ctrl+Z / Ctrl+Shift+Z undo/redo, arrow keys pan.
+  - The mouse wheel zooms and dragging pans.
+  - Every toolbar and rail button has a tooltip and an aria label.
+  - Data view stays available as the accessible table alternative.
+
+### 38.10 Excluded, and why
+
+- **Buy/Sell buttons, bid/ask, order tickets, broker connection:** §3.2 non-goals.
+- **User-written scripts (Pine-style) and community indicators:** they bypass the §8.7 contract, provenance and
+  explainability (§2.1). The reference's "Positional Trade Scanner" pane maps to Nivesh's own §34.8 score-history pane,
+  not to a scripting feature.
+- **Recommendation tables:** the reference's "NBFC Smart Dashboard" (BUY ZONE / TREND / ACTION: WAIT) is an investment
+  recommendation and is blocked on the SEBI RA/IA question. The factual peer table (D-5) replaces it. It has no action
+  column, no ranking and no score.
+- **Live streaming to anyone except the owner:** Kite data may not be displayed to other users (decision #10). Streaming
+  needs a display-licensed vendor first.
+- **TradingView branding:** the layout follows common charting conventions. It uses no TradingView name, logo or look-alike
+  marks beyond the required attribution.
+
+### 38.11 API additions
+
+```http
+GET    /api/research/chart/indicators/catalog                            # presets + catalogue version
+GET    /api/research/chart/{symbol}/ohlcv?timeframe=1D|1W|1M
+GET    /api/research/chart/{symbol}/indicators?timeframe=…&presets=…       # presets only (D-3)
+GET    /api/research/chart-layouts
+POST   /api/research/chart-layouts
+PATCH  /api/research/chart-layouts/{layout_id}
+DELETE /api/research/chart-layouts/{layout_id}
+GET|POST|PATCH|DELETE /api/research/watchlists[/{watchlist_id}]           # P1
+GET    /api/research/chart/{symbol}/replay?start=…                        # P1, backed by §22.5
+GET    /api/research/chart/{symbol}/peers                                 # D-5 peer table
+```
+
+Like the existing chart routes, all of these sit behind `require_feature("charting")`. The drawings API already supports
+PATCH (§22.2), which is enough for editing and undo.
+
+### 38.12 Delivery phases
+
+| Phase | Scope | Backend | Depends on |
+|---|---|---|---|
+| W0 | patterns drawn on the chart automatically, click to select (§38.15) | none (uses fields the snapshot already has) | — |
+| W1 | layout shell (§38.3), legend (§38.4), pane controls, chart-type menu, range presets, scale modes, live app-theme following, keyboard; drawing rail with the two existing tools plus editing, undo/redo, magnet, lock and hide | none | — |
+| W2 | weekly/monthly display, indicator dialog with preset instances and bands, saved layouts | export resampling; preset catalogue; layouts API | W1 |
+| W3 | remaining §7.3 P0 tools, watchlist, compare, bar-replay UI | watchlists API; replay export | W1–W2 |
+| W4 | intraday 15-minute and 1-hour (D-2), factual peer table (D-5), raw ADJ series, alerts, multi-chart grid | intraday export; peer data (§33.3 sources); raw series | W2 timeframe path; alerts also need Monitoring Mode and track F |
+| F (alongside W1–W3) | automated daily data (D-4): Kite when a session exists, NIDP as the fallback | provider abstraction on the §32.4 / §33 adapters (tracker CHART-T03, CHART-T04); scheduled ingestion and export; reconciliation; data served from outside the backend image | owner-approved build spec for the data location; a daily Kite session (§38.16, manual login until that is built) |
+
+Each phase ships under `.claude/VERIFICATION_PROTOCOL.md`. Test cases are written first. Every changed screen is tested
+with Playwright against staging, and every new endpoint gets API tests.
+
+### 38.13 Acceptance criteria
+
+W1–W3:
+
+1. The chart area fills the window below the toolbar. The page does not scroll sideways at 1280×720 or at 390 px wide.
+2. Moving the crosshair updates the legend's O H L C, change, volume and every indicator value to that bar, and the
+   values match the Data view for the same date.
+3. An indicator added twice with different presets draws two series. Each legend row names its preset, and the values
+   match the API. A preset id that is not in the catalogue is rejected with a reason code.
+4. Moving, maximising, collapsing and removing panes all work, and the pane order survives a reload through the saved
+   layout.
+5. Every drawing action can be undone and redone. A failed save rolls back and shows the error.
+6. Magnet snaps an anchor to that bar's O/H/L/C. Lock blocks edits and hide hides drawings, and neither deletes anything.
+7. Weekly bar values equal an independent resample of the daily bars. The trailing bar is marked incomplete, and the
+   Patterns tab says patterns run on daily bars only.
+8. Range presets set the visible range to the stated window. 1D and 5D are disabled and show the reason.
+9. A saved layout restores symbol, timeframe, chart type, indicators, panes and range in a new session.
+10. Replay never sends a bar after the cursor to the chart, which is checked by counting bars in the response. A start in
+    the sealed window is refused.
+11. The status badge, provenance drawer, Data view and attribution are present in both themes.
+12. Changing the app theme in Settings re-themes an open chart without a reload.
+
+Track F (D-4):
+
+13. On a session with no Kite login, the chart gains that session's bar from NIDP, and the legend and provenance panel
+    name NIDP as the provider of that bar.
+14. If Kite and NIDP disagree on an overlapping session beyond the build-spec tolerance, nothing is spliced. The chart
+    stays at its last good session with a STALE badge, and the disagreement is recorded as a reconciliation finding
+    (§32.8).
+15. A refresh changes none of the hashed inputs of the pre-registered study.
+
+W4 peer table (D-5):
+
+16. Every value shows its period, source and as-of date, and a missing value shows "—", never 0.
+17. The table has no rank, score or action column, and its default order is market cap.
+
+W0 pattern display (§38.15):
+
+18. Opening a symbol draws every detected chart pattern with no click. The number drawn equals the API's count for the
+    active filter, checked through a test hook, as `data-rendered-levels` is today.
+19. Each pattern is drawn only across its own dates (formation start to its last event), never across the whole chart.
+20. Clicking a pattern selects it, whether the click is on its shape on the chart or on its row in the list:
+    - the other patterns dim
+    - the view zooms to the pattern's window
+    - the details card shows its §20.3 fields, rules and event timeline
+
+    Esc, or a click on an empty part of the chart, clears the selection.
+21. Forming, confirmed, failed and invalidated patterns look different from each other, and all of them look different
+    from manual drawings.
+22. A symbol with no chart patterns says so on the chart itself, and lists the families that were checked.
+23. Each pattern shows a "Known" marker at a date on or after all of its pivots' confirmation dates.
+24. Grouped S/R bands list every underlying record when clicked, and the number of records equals the API count.
+
+### 38.14 Owner decisions (all decided 2026-09-22)
+
+| Decision | Decision taken | Owner's rationale |
+|---|---|---|
+| D-1 Chart library | Keep Lightweight Charts | Avoids rebuilding existing pattern overlays and keeps indicator calculations server-side. Advanced Charts adds licensing uncertainty and browser-side indicator logic that conflicts with the architecture. |
+| D-2 Intraday | Start with 15-min + 1-hour, 50 symbols | Good MVP boundary. It gives useful intraday context without creating a large data-ingestion/compute problem. Keep this user-only initially. |
+| D-3 Indicator settings | Preset settings only | Best first implementation. Define a controlled preset catalogue rather than allowing arbitrary parameters. This also makes historical validation reproducible. |
+| D-4 Data freshness | Move toward automated daily ingestion; use NIDP prices as the fallback | The current 2026-09-18 cutoff is a major weakness. Don't make daily Kite login a permanent dependency. Design the data provider behind an abstraction so Kite can be used when available and NIDP data can be the fallback. |
+| D-5 Factual peer table | Yes | Useful as contextual evidence alongside technical signals. Keep it strictly factual (e.g. market cap, sector, revenue growth, margins, ROE/ROCE, valuation) without turning it into a subjective ranking. |
+| D-6 Chart theme | Follow app theme | Better UX and avoids a separate chart-theme setting. Light/dark should switch automatically with the application theme. |
+
+How each decision is applied:
+
+**D-1 Library.** The workspace is built on Lightweight Charts (decision #3 stands). TradingView's Advanced Charts library
+is not adopted.
+
+**D-2 Intraday.** 15-minute and 1-hour bars for the snapshot universe (the 50 symbols), owner-only.
+
+- **Source and path:** Kite intraday candles covering the last 60 completed sessions, exported offline with the chart
+  snapshot and hashed with it. The chart API stays snapshot-only and never calls Kite.
+- **Size:** 25 bars per session at 15 minutes (09:15 to 15:30 IST), and 7 at 1 hour if the hourly bars start at 09:15
+  so the last one covers 15:15–15:30. The first export confirms that alignment. That is about 75,000 and 21,000 bars
+  across the 50 symbols.
+- **Access:** behind `require_feature("charting")`, because decision #10 still applies to Kite-derived prices.
+- **Completed sessions only:** the export leaves out any session still in progress, so an intraday bar is never
+  incomplete.
+- **Kite session:** each export needs a fresh Kite session, i.e. the owner's login. Intraday data is as of the export
+  date, and keeping it current is D-4.
+- **Not affected:** patterns still run on daily bars only. Indicators on intraday bars are computed at export by the
+  same series code, using the D-3 preset catalogue.
+- **Close check:** the close of the last intraday bar is the last traded price, which can differ slightly from the
+  official closing-auction close. The export records the difference for each session, and a test confirms each
+  session's 09:15 open matches the daily open.
+- **Presets:** 1D and 5D are enabled on intraday timeframes.
+- **Still deferred:** 1-minute and the other §7.2 intervals. Showing intraday to users other than the owner still needs
+  a display-licensed vendor.
+
+**D-3 Indicator settings.** Presets only; see §38.5 for the catalogue, versioning and initial list.
+
+**D-4 Data freshness (track F in §38.12).**
+- **Goal:** refresh the chart's daily bars automatically after each session, without the daily Kite login ever becoming a
+  hard dependency.
+- **Daily routine (owner, 2026-09-22):** the owner logs in to Kite each trading day. Until the §38.16 admin page is
+  built, this is the current manual flow. NIDP covers any day without a login.
+- **Provider abstraction:** built on the §32.4 adapter contract and the §33 NIDP adapter (tracker CHART-T03, CHART-T04). A
+  display-price policy picks Kite when a valid Kite session exists. Otherwise it takes the missing sessions from NIDP
+  (`nidp.prices_eod_adjusted`).
+- **Per-bar provenance:** every bar records its provider, and the legend and provenance panel show it (§32.12).
+- **Splice rule:** before an NIDP bar is appended to a Kite history, the overlapping sessions are reconciled (§32.8). The
+  tolerance is set in the build spec.
+  - If the sources disagree beyond it (for example, a different adjustment basis after a corporate action), nothing is
+    spliced. The chart stays at its last good session with a STALE badge.
+  - When Kite is available again, its back-adjusted history replaces the fallback bars, and each replacement is logged.
+- **Data location (needs design):** today the snapshot is committed into the backend image, so each refresh would be a
+  commit plus a backend deploy. Daily deploys are not viable: each one uses about 7 GB of nivesh-app-vm disk, and
+  backend deploys have restarted prod Mongo. The refreshed data must therefore be served from outside the image, with the
+  same manifest and sha256 checks. Where it lives is decided in the track F build spec.
+- **Limits:**
+  - NIDP history starts on 2023-05-16, so NIDP fills recent sessions but does not replace the 2021+ Kite history.
+  - NIDP price feeds run Monday–Friday and have had outages. A missing NIDP session also shows STALE.
+  - Intraday (D-2) has no NIDP source. It stays Kite-only as of its last export and shows STALE once it is older than
+    the last session.
+- **Unchanged:**
+  - The Charts tab stays owner-only while any bar comes from Kite (decision #10).
+  - The refresh never touches the hashed inputs of the pre-registered study.
+
+**D-5 Factual peer table (W4).**
+- **Where:** a "Peers" tab in the chart sidebar, comparing the symbol with its industry peers.
+- **Columns:**
+  - company, sector/industry, market cap
+  - revenue growth (YoY), operating and net margin, ROE, ROCE
+  - valuation (P/E, P/B, EV/EBITDA)
+- **Every value shows:**
+  - its period (e.g. FY26, or TTM to Q1 FY27), source and as-of date
+  - "Nivesh-derived" where Nivesh calculated it (§32.12)
+  - for valuation multiples, the price date
+  - "—" when missing, never 0
+- **Sources** follow §33.3: NIDP first where the field exists with an availability timestamp; otherwise Trendlyne, marked
+  `PIT_UNVERIFIED`. Trendlyne data is internal-only, so the table stays owner-only while any value comes from Trendlyne.
+- **Peer set:** companies in the same industry group from one named classification source. The source is pinned in the
+  build spec and shown in the table.
+- **Strictly factual:** no rank, composite score, good/bad colouring, "cheap/expensive" labels or action column. The
+  default order is market cap, and the user can sort by any column.
+- **Current values only:** the values are current, not point-in-time, and the table says so. Research validation does not
+  use it.
+
+**D-6 Chart theme.** The chart follows the app theme and switches live; there is no chart theme setting and the layout does
+not store one (§38.3, §38.8, §38.9).
+
+### 38.15 Patterns on the chart (owner request, 2026-09-22)
+
+The owner asked for detected patterns to appear on the chart automatically, and for a click on a pattern to select it.
+The reference was a TradingView video ("Automated Technical Analysis: Tutorial", TradingView). The video itself could not
+be viewed from this environment: only its title and channel were retrieved, and there was no transcript. So this section
+is based on the request, not on the video's details.
+
+**Today (live build).**
+- **Hidden by default:** patterns are listed as text in a card at the bottom right, and each one starts hidden. The user
+  has to tick it to see it on the chart.
+- **Clicking does little:** clicking a row turns the overlay on, but does not zoom to the pattern or highlight it.
+  Clicking the chart never selects a pattern.
+- **Overlays are loose:** they are price lines that run across the whole chart, plus pivot arrows. They are not the
+  pattern's shape over its own dates, which §20.2 asks for ("formation boundary").
+- **Three families only:** the engine detects support/resistance, rectangle and higher-high/higher-low. In the live
+  snapshot that is 388 S/R levels, 114 rectangles and 11 HH/HL structures across 50 symbols. 9 of the 50 symbols
+  (including ADANIENT, BSE, ICICIBANK, LT and SBIN) have no chart pattern other than S/R levels, so their Patterns card
+  reads "No chart patterns found."
+
+**Recognition (unchanged by this section).**
+- **Deterministic rules:** patterns are recognised by the §12–§13 rules with the frozen §30.1 ATR-based predicates.
+  Swing pivots use 3 bars left and right, and each pivot has a `confirmed_date` after its right-hand bars, so no pivot is
+  used before it could have been known.
+- **Explainable:** every pattern carries its rules, events, levels and status, so the chart can explain why a pattern is
+  drawn.
+- **More families pending:** triangles, double tops and bottoms, head and shoulders, flags and cup & handle (§37.7) have a
+  drafted predicate table (`ni3-new-family-predicates.md`, decisions-log #98). They need owner approval before any
+  detector is coded. Until then, "all patterns" means the three live families.
+
+**Display requirements (P0, phase W0).**
+- **Automatic:** when a symbol opens, every detected chart pattern is drawn with no click needed. S/R levels stay a
+  separate layer with their own toggle.
+- **Shape, not lines:** each pattern is drawn over its own dates:
+  - Rectangle: a box from formation start to formation end, between support and resistance.
+  - HH/HL: a line joining its pivots.
+  - Breakout and invalidation levels: short segments starting at formation end and ending at the confirmation or failure
+    event.
+  - Markers: at the pivot, confirmation, failure and invalidation dates.
+- **Label:** each shape carries a small label with the pattern's name and status (e.g. "Rectangle · confirmed").
+- **Status styling (§20.2):** confirmed patterns are solid, forming ones dashed and faded by stage, and failed and
+  invalidated ones dotted and grey. Manual drawings keep their own distinct style.
+- **Filters:** chips for All / Active (forming or confirmed) / Confirmed / Failed / Invalidated, and for each family.
+  The default is All, and the chosen filter is saved with the layout.
+- **Click to select,** from either a shape on the chart or a row in the sidebar list:
+  - the pattern is highlighted and the others dim
+  - the view zooms to its window (formation start to last event, with a margin)
+  - the details card opens with its §20.3 fields, rules (each opening provenance) and an event timeline
+  - where shapes overlap, the most recent pattern is selected first, and Previous/Next buttons step through the rest
+
+  Esc, or a click on an empty part of the chart, clears the selection. Hovering a shape shows its name, status and dates.
+- **Empty state on the chart:** a symbol without chart patterns says so on the chart, e.g. "No chart patterns detected —
+  checked: support/resistance, rectangle, higher-high/higher-low".
+- **"Known" marker** (from the open-source review, §38.17): a dotted vertical line at the bar where the pattern first
+  became detectable, so the detection lag is visible and honest.
+  - The export adds this date from the §19 replay engine's first detection (§34.8 "first detected" timestamp).
+  - Until then, the marker uses the latest pivot `confirmed_date` and is labelled "pivots confirmed".
+- **Near-duplicate grouping:** S/R levels within the §30.1 touch tolerance (0.35 × ATR) of each other are drawn as one
+  band labelled with the count, which clears the clutter of about 8 levels per symbol. Clicking the band lists each
+  record. The records themselves are unchanged (§29 item 5).
+- **Nearest-level readout:** the legend names the S/R level or pattern boundary nearest to the last close, with its
+  distance in ₹ and in ATR and its role (support or resistance). It is a fact, not a signal.
+- **Accuracy:** the drawn shapes must match the backend records exactly (§29 item 5). The browser never recognises
+  patterns itself.
+- **Delivery:** frontend only. Everything above uses fields the snapshot already carries (`formation_start`,
+  `formation_end`, `levels`, `pivots`, `events`, `status`, `stage`). The shapes are drawn by a chart primitive with hit
+  testing, in the same way as the existing drawings primitive.
+
+### 38.16 Daily Kite session — admin login (planned; manual until built)
+
+Owner request, 2026-09-22: an admin endpoint and page for the daily Kite login, automated as far as possible, with the
+owner entering the 2FA code. **Status: planned only.** The manual process continues until this is scheduled: print the
+login URL, the owner logs in, then the request token is exchanged from a 0600 file through stdin.
+
+**What may and may not be automated.**
+- **Login must be manual:** Zerodha's documentation says an access token expires at 06:00 IST the next day. It ends earlier
+  if it is invalidated through the API or by a master logout on Kite Web. On the Kite Connect developer forum, Zerodha
+  staff state:
+  - "It is mandatory by the exchange that a trader has to login manually at least once in a day. We don't recommend
+    automating login."
+  - On automated login: "this was never allowed to begin with. If you were doing it, you were in violation of the terms
+    of use of the APIs."
+- **So the Zerodha password and 2FA code are never typed into, stored by or relayed through Nivesh.** They are entered on
+  Zerodha's own login page. A headless login (our server submitting user id, password and OTP to Zerodha) and storing
+  the TOTP seed are both excluded. Besides breaking the API terms, they would make Nivesh the holder of credentials to a
+  trading account.
+- **Everything around that login is automated:** starting the login, catching the redirect, exchanging the token, storing
+  it, health checks, reminders and fallback.
+- **The API secret is not refreshed daily.** It is a fixed credential kept in GSM (`BROKER_ZERODHA_API_SECRET`).
+  Regenerating it ends live sessions (observed 2026-09-19). It is rotated on the Kite developer console only if it leaks.
+  Only the access token changes each day.
+
+**Daily flow once built (about 20 seconds of the owner's time).**
+1. On a trading day with no valid token, admins see a banner, and the owner gets a reminder (channel chosen in the build
+   spec) with a link to the admin page.
+2. The owner clicks "Log in to Kite". The backend creates a one-time state value, valid for 5 minutes and tied to the
+   admin's session. The browser goes to `https://kite.zerodha.com/connect/login?v=3&api_key=…` with that state in the
+   documented `redirect_params` parameter.
+3. The owner enters their password and 2FA code on Zerodha's page.
+4. Zerodha redirects to the registered URL, which already exists: `/v5/kite-callback` on staging. The page no longer
+   displays the request token. It posts the token and the state to the backend.
+5. The backend checks the state and exchanges the token with the checksum SHA-256(api_key + request_token + api_secret),
+   reusing `generate_session` from `backend/services/brokers/zerodha.py`. It then calls `profile()` and requires the
+   Zerodha user id to equal the configured owner id. It stores the access token encrypted, with `expires_at` = the next
+   06:00 IST.
+6. The page shows "Connected until 06:00 IST tomorrow". Consumers use the token from then on:
+   - the track F daily export
+   - the D-2 intraday export
+   - research pulls
+
+**Endpoints** (admin only, through `require_admin`; mutations also pass the existing CSRF origin check):
+
+```http
+GET    /api/admin/kite/status         # connected | expired | never; masked Zerodha id; obtained_at; expires_at; last check
+POST   /api/admin/kite/login-start    # returns the Zerodha login URL with a one-time state
+POST   /api/admin/kite/session        # {request_token, state} -> exchange, verify, store; never echoes a token
+POST   /api/admin/kite/check          # calls profile() now; updates status
+DELETE /api/admin/kite/session        # invalidates the session at Kite, deletes the stored token
+```
+
+**Admin page:** Settings → Admin → Data providers → Kite. It shows a status pill, expiry time, last health check, the
+"Log in to Kite" and "Disconnect" buttons, and a login history built from the audit log.
+
+**Storage ("application context").**
+- **Recommended:** a GSM secret (e.g. `kite-access-token-staging`), written by the backend as a new version at each login.
+  - The jobs on nidp-stack-vm already read GSM, so the token reaches them without a new network endpoint.
+  - The backend's service account needs permission to add versions to that one secret only. That IAM grant is an owner
+    action, and which service account staging runs as is UNVERIFIED.
+- **Alternative:** a Mongo document encrypted with `services/pii_security.encrypt` (AES-256-GCM). But the jobs on
+  nidp-stack-vm would then need an internal endpoint to fetch the token.
+- **Not allowed:** the admin secrets registry (`helpers/secrets.py`), because it stores values in plain text.
+
+**Safeguards.**
+- The token never appears in an API response, log line, URL, error message or page.
+- Every login and disconnect is written to the audit log with the admin user, the time and the masked Zerodha id, never
+  the token.
+- A state value that is missing, reused or expired is rejected, and nothing is stored.
+- An hourly `profile()` check marks the session expired early if it was invalidated (master logout, secret change).
+- With no valid token, the daily export falls back to NIDP (D-4). The intraday export skips that day and the chart shows
+  STALE.
+- The flow runs only on staging, where the redirect URL is registered.
+- It uses the data Kite app (`BROKER_ZERODHA_*`), not the per-user broker-connect path (OpenAlgo).
+
+**Acceptance criteria (when built).**
+1. A non-admin gets 403 on every `/api/admin/kite/*` route.
+2. A callback with a missing, reused or expired state is rejected, and nothing is stored.
+3. After a real login, the status shows "connected", the Zerodha id matches the owner, and `expires_at` is the next 06:00
+   IST.
+4. A search of the API responses, backend logs and page HTML from the test run finds no token.
+5. A consumer job on nidp-stack-vm reads the stored token and gets a successful `profile()` call.
+6. Disconnect makes the next `profile()` call fail and removes the stored token.
+7. With an expired token, the status changes to "expired" within one check interval, and the daily export uses the NIDP
+   fallback.
+
+**Prerequisites (owner):**
+- choose the storage option and grant its IAM permission
+- choose the reminder channel
+- confirm the owner's Zerodha user id to check against
+- confirm the Kite app's registered redirect URL is still `/v5/kite-callback` on staging
+
+**Phase:** track K. It is a prerequisite for running track F and D-2 without an agent in the loop, and is not yet
+scheduled.
+
+### 38.17 Open-source pattern scripts — review (2026-09-22)
+
+The owner asked for TradingView's open-source chart-pattern scripts to be read. The full review, with the method,
+licence and relevance of each script, is `.claude/workspace/charting-pattern-engine/review-tradingview-open-source-patterns.md`.
+
+**Scope of the reading.**
+- **Covered:** the 5 pattern/structure scripts on the category page, plus Trendoscope's Auto Chart Patterns and Flags &
+  Pennants.
+- **Descriptions only:** the published descriptions were read, not the Pine source.
+
+**What they confirm.** The good scripts use confirmed pivots only, decide every state on a closed bar, and appear "late
+by design". They show forming patterns differently and grey out finished ones, and several use ATR-normalised
+tolerances. Our §2.2, §11 and §30.1 already do all of this.
+
+**Adopted for display (W0, in §38.15).** Three features: a "Known" marker at the bar where a pattern became detectable,
+grouping of near-duplicate S/R levels into one band, and a readout of the nearest level.
+
+**Detection proposals — each needs owner approval, and a pre-registration amendment before any research use.** The frozen
+v1 study is not changed.
+- **P-1 One trendline-pair classifier** for channels, wedges and triangles (Trendoscope's approach):
+  - Take the last 5–6 alternating pivots.
+  - Fit an upper line through the highs and a lower line through the lows.
+  - Require every bar in the span to stay inside, within the §30.1 ATR tolerance, and the two lines not to cross.
+  - Classify each line's slope as rising, falling or flat, and the pair as converging, diverging or parallel.
+
+  One rule set gives about 13 named types, including channels and wedges that NI-3 does not cover. It would sit
+  alongside or replace NI-3's separate triangle predicates. It conflicts with §37.7's percentage rules for triangles, so
+  the owner has to choose.
+- **P-2 Flags and pennants as an impulse followed by a P-1 consolidation:** a bull flag is an up impulse followed by a
+  descending channel or falling wedge, and a bull pennant is an up impulse followed by a converging or ascending triangle.
+  This would unify NI-3 §7–§8.
+- **P-3 A second, longer pivot scale** (e.g. 8/8 next to 3/3), run as a separate layer. Each pattern records its scale.
+  This finds the larger patterns the current single scale misses. It adds tests, so the pre-registration must count
+  them.
+- **P-4 Double top/bottom tolerance as a percentage of pattern height,** stored as a descriptive field next to §37.7's
+  owner-set 3%-of-price rule. It does not replace that rule.
+- **P-5 Automatic diagonal trendlines as a family** (MarketMaulers):
+  - a rising support line needs two strictly higher lows and at least 3 touches within 0.25 × ATR
+  - touches within 3 bars count once
+  - no close through the line between its anchors
+  - near-duplicate lines are dropped, and a line is retired after 20 bars far from price
+  - outcomes are RETEST or FAILED BREAK
+
+  Our S/R is horizontal only today.
+- **P-6 Break by persistence** (3 consecutive closes beyond a level), as a research variant only. The frozen §30.1
+  confirmation rules stay as they are.
+
+**Not adopted.**
+- Entry/stop/target zones.
+- ✓/✗ "target hit" labels.
+- Running hit-rate panels. A hit rate over the patterns on screen is not a validated result (§2.4, §36.4).
+- Automatic pitchforks with trade levels. TradingView itself classes such scripts as "potentially misleading".
+- Any lookahead.
+
+**Licensing.** Only the Auction Foundry scripts state a licence (MPL-2.0). The others are "open-source" under TradingView's
+House Rules, with the licence in the source header. Nivesh implements from its own written predicates and ports no Pine
+code. If code were ever reused, the script's licence header is read first, and non-commercial licences are excluded.
+
+### 38.18 Owner decisions on detection (2026-09-22)
+
+The owner decided the open detection items, and they are recorded as given.
+
+| Item | Decision |
+|---|---|
+| P-1 | **ACCEPT, hybrid.** P-1 geometry detects and names triangles, wedges and channels. The owner's percentage rules decide flatness, breakout and volume. |
+| P-2 | **ACCEPT.** A flag or pennant is a strong pole followed by a P-1 shape. |
+| P-3 | **ACCEPT.** A large-swing layer is added. It is shown on the charts first and used in research only in study v2. |
+| P-4 | **ACCEPT.** The 3% double top/bottom tolerance stays. Tolerance relative to pattern height is stored as research metadata. |
+| P-5 | **DEFER.** Sloping S/R comes later and reuses P-1 geometry. |
+| P-6 | **ACCEPT.** The breakout definition is unchanged. Three consecutive closes beyond the level is recorded as research metadata. |
+| Research states (#95) | **ACCEPT** `NOT_TRIGGERED`, for a pattern that was invalidated or expired before any breakout, and `INCONCLUSIVE`, for one that was data-blocked or unresolved. |
+| Volume (#95, #109) | **ACCEPT: the definitions stay separate.** Today's 3 families keep the follow-through bar at 1.0–4.0× the 20-day average, and frozen v1 is not changed. The new families use the breakout bar at ≥ 1.5× the 20-day average. |
+| Candle/retest metrics (#93) | **ACCEPT.** They move from the production pattern record into the research record. |
+| Study plan | **ACCEPT.** A new v2 is written; frozen v1 is not modified. |
+| Double top/bottom separation | **10 sessions** (the Amendment C position). |
+| Head & shoulders stop | **Primary: above the right shoulder plus an ATR buffer. Secondary research variant: neckline plus buffer.** Both are always reported. |
+| Cup & handle length | **Up to 260 sessions.** |
+
+**Research principle (owner).** The order is freeze → detect → evaluate → report everything → interpret, and never
+detect → optimise → retest → pick the best-looking result. No parameter is tuned after results are seen.
+
+**Execution order (owner).**
+1. Freeze these decisions.
+2. Revise NI-3, tagging every parameter OWNER / PROPOSED / FROZEN.
+3. Approve NI-3 and record its configuration fingerprint.
+4. Write study plan v2, covering:
+   - pattern types and swing sizes
+   - entry, stops, targets and costs
+   - control groups and holding periods
+   - every combination tested
+   - the detector fingerprint and the sealed period
+5. Implement detection (P-1, P-2 and the remaining NI-3 families).
+6. Build the drawings, generated from the detected geometry.
+
+W0, the chart display of today's patterns, proceeds independently.
+
+**Progress (2026-09-22).**
+- **Steps 1–3 done.** The owner approved NI-3 r2, including the recommended answers to its five questions (inverse
+  H&S added, so 16 types; expanding shapes out of v2; pennants = symmetrical triangles only; the large-swing layer also
+  covers the live families; overlaps linked, never pooled).
+- **Frozen files:**
+  - `docs/ai_research/CHARTING_NI3_PREDICATES_V1.md`
+  - `docs/ai_research/charting_ni3_config_v1.json`, fingerprint `de86626c6f15e5f2d41708e92f8b66367394eb1c8e52ed2534ecfd8e0ded44a8`
+  - the live families at the large scale: config_hash `9b81eae7…`
+- **Step 4 drafted:** `docs/ai_research/CHARTING_PREREGISTRATION_V2.md`, awaiting owner approval of its choices V-1 to
+  V-5.
+
+### 38.19 Amendment E — Live signals, paper trading and the redesign (review 2026-09-22)
+
+The owner sent three documents and asked for a review against the plan and the code, then asked for this PRD to be
+amended with the outcome. Nothing in §38.1–§38.18 is edited; this section records what the review found and the
+positions taken. It applies to the three documents whenever they are filed or built from.
+
+**38.19.1 What was reviewed.**
+- The design "Charting View Redesign standalone" with four screens: 1A Chart, 2A Signals & Alerts, 4A Paper Trading,
+  3A Field Dictionary.
+- "PRD — Nivesh Paper Trading & Signal Validation Engine v1.0" (2026-09-22).
+- "PRD — Live Trading Alerts & Signals Engine v1.0" (2026-09-22).
+- Checked against: §2, §3.2, §11, §16, §20.3, §37 and §38 of this document; the frozen rulebook
+  `docs/ai_research/CHARTING_NI3_PREDICATES_V1.md` (fingerprint `de86626c…`); study plan v1 (frozen) and v2 (draft);
+  the code on `origin/dev` (`backend/routes/research_chart.py`, `research/charting/`, `research/costs/`,
+  `backend/routes/paper_trades.py`); the TPD paper engine on its local branch; and the recorded study results.
+- The three documents are referenced by title here. They are not yet filed in the repository.
+
+**38.19.2 What is adopted from the design.**
+- The 1A chart screen is the target rendering of §38.3–§38.8: the single 56 px top bar with the symbol, live price,
+  interval, chart type, indicators and compare; the 44 px vertical drawing rail; legend rows with per-indicator hide,
+  settings and remove; the crosshair tooltip with O/H/L/C, volume and RSI; the S/R panel with price, type, strength,
+  distance in ₹ and %, and HOLDING/BROKEN; stacked panes with drag handles and collapsed strips; the range selector on
+  the time axis; the watchlist.
+- It is a design-canvas mock, not Lightweight Charts. Rendering it is the W1–W3 work in §38.12.
+- Corrections carried into W1:
+  - Weekly and monthly are enabled for display (§38.7 resamples daily bars; ADANIENT gives 299 weekly and 69 monthly
+    bars). The mock shows them disabled with "needs longer history"; only detection on those intervals stays deferred.
+  - S/R levels are grouped into bands (§38.15). Live data averages about 8 levels per symbol; the mock shows 4 loose
+    ones.
+  - The §38.15 W0 items the mock omits are still required: the "Known" marker, click-on-chart selection, and the
+    on-chart empty state that lists the families checked.
+  - The source and as-of badge stays on every screen (§2.1). 1A keeps PIT_UNVERIFIED; 2A and 4A dropped it. The 2A
+    fingerprint line "P-1 FITTED GEOMETRY · v2.1" is right and stays.
+  - The mock's "Bull flag · UNCONFIRMED" and "3 detected" are illustrative: no flag detector exists.
+
+**38.19.3 Sequence.** Live signals and paper trading are steps 7 and 8 after the six steps in §38.18.
+- Both need detectors that do not exist. Study plan v2 §9 lists every capability as "not built", and the v1 study
+  (three families, daily) has not run.
+- The Signals PRD's Phase 1 (the signal contract and the lifecycle mapping in 38.19.4) may be written now. Its Phases
+  2–6 and the paper engine start only after study v2 reports.
+- The first live version is end-of-day daily signals from the existing batch replay, which is what v2 validates.
+  Intraday and streaming are gated on track F (daily data), track K (§38.16) and the D-2 export, and stay owner-only
+  (decision #10). Today the chart API is snapshot-only, daily data ends 2026-09-18, and there is no push channel for
+  charting on `dev`; the Signals PRD's latency (§31), WebSocket events (§30) and three timeframes (§17) need an
+  intraday ingestion loop, per-bar detector runs and a push channel that do not exist.
+
+**38.19.4 Rules the documents must follow.**
+- **Score: components only, no headline number.** The Signals PRD §12 and the 2A screen show a single 0–100 score
+  with fixed weights. §11 says a single opaque confidence score is insufficient, and §16 allows a composite only after
+  component behaviour is understood; the live Patterns panel already states that each score is never summed into one
+  number. The evidence points the same way: the TPD composite score ordered trades the wrong way round (its top 5 sat
+  at the 0.5th percentile of random). The seven component bars stay; the headline number goes. Any composite is a
+  research object: pre-registered in a later study version, tested, then shown. Two components are removed from any
+  live weighting: retest quality (moved to the research record by #93/#110) and risk/reward (circular against the
+  fixed §37.2 targets).
+- **Setup and ticket: owner-only until NI-1a.** Entry, stop, targets, quantity and capital at risk (2A "Trade setup",
+  4A ticket, Signals PRD §13, Paper PRD §16) are visible only behind the owner allowlist until the SEBI RA/IA question
+  (NI-1a) is answered (§3.2, §38.10, §37.4, and the TPD decision of 2026-09-17). The Signals PRD §4 "future
+  advisor/MFD users" are out of scope until then, and are in any case not possible on Kite data (#10).
+- **Setup values come from the frozen definitions,** computed by the same code as the study: stop = the NI-3 Layer-1
+  structural stop widened to at least 0.75 × ATR(14); targets = the v2 set (+2 / +3 / +5 / +10% and 1 / 1.5 / 2 / 3 R).
+  The design's example is not derived from them: a trigger of ₹1,256 on resistance ₹1,250 is +0.48%, under the 0.5%
+  BREAKOUT_CANDIDATE threshold (it needs more than ₹1,256.25); the stop ₹1,218 (−3.0%) is not the Layer-1 stop; and
+  the targets ₹1,300 and ₹1,320 (+3.5% and +5.1%) are not in the v2 set. The Signals PRD §13 claim that every value is
+  reproducible from the stored record holds only when the frozen definitions are used.
+- **Illustrative numbers are labelled.** Every research or performance figure in the design is illustrative, because
+  no study has run: "41 comparable ascending-triangle breakouts, 58% reached Target 1", "96 trades, win 56.3%, net
+  +₹72,600", "expectancy +₹756", the per-pattern roll-up. Each carries "ILLUSTRATIVE · NO STUDY HAS RUN". The design
+  footer's "scores shown as the engine would emit them" is withdrawn: the engine emits no score and no comparables.
+  The negative and empty state is a required design: what the research-context block and the pattern roll-up show
+  when v2 reports no information beyond volatility. Every real study to date found no edge (TPD replay, the positional
+  study, the simulation matrix), and technicals predicted movement but not direction.
+- **One lifecycle vocabulary.** The Signals PRD introduces a third set of state names. The mapping is:
+
+  | Signals PRD | Research (NI-3 §1.2) | Note |
+  |---|---|---|
+  | WATCH | FORMING | |
+  | READY | EARLY_SIGNAL | 1% readiness band, NI-3 S9 |
+  | TRIGGERED | BREAKOUT_CANDIDATE | close beyond the live level by 0.5% |
+  | CONFIRMED | CONFIRMED_BREAKOUT | plus breakout-bar volume ≥ 1.5× |
+  | INVALIDATED | INVALIDATED or FAILED_BREAKOUT | two distinct research states; they must not be merged |
+  | NOT_TRIGGERED, INCONCLUSIVE | as #110 | research states |
+  | RETEST, CONTINUATION | events on the row | not states |
+
+  The Signals PRD adopts the research names, or carries this table as frozen. The validated thing must be the shown
+  thing.
+- **Pattern coverage** is the 16 NI-3 v1.0 types. The Signals PRD §7 list of 14 is superseded (it lacks inverse head
+  & shoulders and the two pennants, and folds wedges and channels together).
+- **Volume:** the Signals PRD §11 split (live families 1.0–4.0× follow-through; new families ≥ 1.5× breakout bar; raw
+  ratio always stored) is confirmed as already decided (#109, #110).
+- **One execution kernel.** The paper engine reuses `research/costs/` (statutory and broker rules, four slippage
+  scenarios, the liquidity bucket, sensitivity tables) and `research/charting/events/outcomes.py` (entry at the next
+  open, gap fills at the open, AMBIGUOUS when the stop and the target are inside one bar), and extends the existing TPD
+  paper engine (`tpd_model/paper/`, `/api/paper-trades`) rather than building a second one. The Paper PRD §13 cost
+  engine and §17–§21 fills, stops, ledger and replay describe these; the Paper PRD lacks the AMBIGUOUS rule, and without
+  it paper results would not reconcile with v2 on the same events. Paper results must reconcile row for row with v2.
+- **Paper Phase 1** is daily, long-only, owner-only and fixed quantity. Signal-only mode (what would have happened) is
+  the research question and ships first.
+
+**38.19.5 Positions recorded.** These were recommended in the review; the owner asked for the amendment, so they are
+recorded as taken unless the owner changes them.
+1. Sequence: after study v2, with only the Signals PRD Phase 1 written now.
+2. Score: components only.
+3. Setup and ticket: owner-only until NI-1a.
+4. Lifecycle: the research state names, with the table above as the mapping.
+5. Paper engine: extend the TPD paper engine on the shared outcomes and costs kernel.
+
+**38.19.6 What lines up already** (so it is not re-litigated): the Signals PRD §8 P-1 table equals NI-3 §2; §6.2
+READY at 1% equals NI-3 S9; §22–§24 versioning, fingerprint and no look-ahead match NI-3 §1.1 and v2 §8; §23's study
+plan v2 is drafted. The Paper PRD's principle 12, §41 and §65 (paper results never tune frozen rules; pattern, signal
+and trade are three separate truths) match #110; §7.3 signal-only mode is the research question; §34 gap handling
+matches v1 §5. The 2A and 4A disclaimers ("simulated, no broker order", "not a guarantee") match §2.1.
