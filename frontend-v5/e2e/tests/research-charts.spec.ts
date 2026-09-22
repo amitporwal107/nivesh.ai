@@ -207,6 +207,56 @@ test.describe("Charts — chart surface", () => {
   });
 });
 
+test.describe("Charts — support & resistance layer; patterns panel = chart patterns only (TC-25..TC-28)", () => {
+  // Owner feedback 2026-09-22 (ADANIENT on staging): six identical "SUPPORT_RESISTANCE confirmed" rows. Levels are not chart
+  // patterns — they are a layer, ticked by default; the Patterns panel lists only chart patterns and is blank when there are none.
+  test.use({ viewport: { width: 1280, height: 800 } });
+  test.beforeEach(async ({ page }) => {
+    await mockAuthAs(page, "user-profile-charting.json");
+    await mockCharts(page);
+    await openCharts(page);
+    await expect(page.getByTestId("chart-canvas").locator("canvas").first()).toBeVisible();
+  });
+  const drawnLevels = async (page: Page) => Number((await page.getByTestId("chart-canvas").getAttribute("data-rendered-levels")) ?? "-1");
+
+  test("TC-25 the Patterns panel lists chart patterns only — no support/resistance rows", async ({ page }) => {
+    const rows = page.locator('[data-testid^="chart-pattern-row-"]');
+    await expect(rows).toHaveCount(2); // RELIANCE fixture: rectangle + HH_HL (+ 2 levels that must NOT be rows)
+    await expect(page.locator('[data-testid^="chart-pattern-row-RELIANCE:SUPPORT_RESISTANCE"]')).toHaveCount(0);
+    await expect(page.getByTestId("chart-patterns-panel")).not.toContainText("SUPPORT_RESISTANCE");
+  });
+
+  test("TC-26 a symbol with only levels shows an empty Patterns panel", async ({ page }) => {
+    await page.getByTestId("chart-symbol-TCS").click();
+    await expect(page.getByTestId("chart-patterns-empty")).toBeVisible();
+    await expect(page.locator('[data-testid^="chart-pattern-row-"]')).toHaveCount(0);
+    await expect(page.getByTestId("chart-sr-count")).toHaveText("2 levels");
+  });
+
+  test("TC-27 Support & resistance is ticked by default, draws every level (both kinds), and untick removes them", async ({ page }) => {
+    await expect(page.getByTestId("chart-sr-toggle")).toBeChecked();
+    await expect.poll(() => drawnLevels(page)).toBe(2); // one SUPPORT + one RESISTANCE
+    await page.getByTestId("chart-sr-toggle").uncheck();
+    await expect.poll(() => drawnLevels(page)).toBe(0);
+    await page.getByTestId("chart-sr-toggle").check();
+    await expect.poll(() => drawnLevels(page)).toBe(2);
+    // switching symbol keeps the default: ticked, and TCS draws its own two levels
+    await page.getByTestId("chart-sr-toggle").uncheck();
+    await page.getByTestId("chart-symbol-TCS").click();
+    await expect(page.getByTestId("chart-sr-toggle")).toBeChecked();
+    await expect.poll(() => drawnLevels(page)).toBe(2);
+  });
+
+  test("TC-28 labels come from status: formed is not confirmed", async ({ page }) => {
+    const hh = page.getByTestId("chart-pattern-status-RELIANCE:HH_HL:2026-08-20");
+    await expect(hh).toHaveText("formed");
+    await expect(hh).toHaveAttribute("data-category", "forming");
+    const rect = page.getByTestId("chart-pattern-status-RELIANCE:RECTANGLE:2026-08-24");
+    await expect(rect).toHaveText("confirmed");
+    await expect(rect).toHaveAttribute("data-category", "confirmed");
+  });
+});
+
 test.describe("Charts — status chip precedence (TC-17)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
@@ -420,7 +470,11 @@ test.describe("Charts — data view (a11y, B7)", () => {
     const view = page.getByTestId("chart-data-view");
     await expect(view).toBeVisible();
     expect(await page.locator('[data-testid="chart-dataview-bar"]').count()).toBeGreaterThan(0);
-    await expect(page.locator('[data-testid="chart-dataview-pattern"]').first()).toContainText("RECTANGLE");
+    // Pattern types are shown as readable labels ("Rectangle", not the raw RECTANGLE enum) since the 2026-09-22 relabel.
+    await expect(page.locator('[data-testid="chart-dataview-pattern"]').first()).toContainText("Rectangle");
+    // Chart patterns only — support/resistance levels have their own table (the layer is on by default).
+    await expect(page.locator('[data-testid="chart-dataview-pattern"]')).toHaveCount(2);
+    await expect(page.locator('[data-testid="chart-dataview-level"]')).toHaveCount(2);
   });
 });
 

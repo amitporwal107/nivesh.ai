@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ChartCanvas, { type ChartCanvasHandle } from "./ChartCanvas";
 import DataView from "./DataView";
 import {
-  chartApi, drawingsApi, combinedStatus, statusTone, patternVisualCategory,
+  chartApi, drawingsApi, combinedStatus, statusTone, patternVisualCategory, isLevelPattern, statusLabel, patternTypeLabel,
   DASH, txt, price as fmtPrice, num as fmtNum,
   type Result, type RunPayload, type ManifestSymbolEntry, type OhlcvPayload, type IndicatorsPayload,
   type PatternsPayload, type Pattern, type Drawing, type NewDrawing, type DrawingType, type Bar,
@@ -45,6 +45,8 @@ export default function ChartsScreen() {
 
   const [selectedIndicatorIds, setSelectedIndicatorIds] = useState<string[]>([]);
   const [visiblePatternIds, setVisiblePatternIds] = useState<Set<string>>(new Set());
+  // Support & resistance levels are a chart layer, not patterns — shown by default (owner, 2026-09-22).
+  const [showLevels, setShowLevels] = useState(true);
   const [selectedPatternId, setSelectedPatternId] = useState<string | null>(null);
 
   const [tool, setTool] = useState<Tool>("select");
@@ -85,7 +87,7 @@ export default function ChartsScreen() {
     if (!symbol) return;
     let cancelled = false;
     setOhlcvRes(null); setIndicatorsRes(null); setPatternsRes(null); setDrawingsRes(null);
-    setSelectedIndicatorIds([]); setVisiblePatternIds(new Set()); setSelectedPatternId(null);
+    setSelectedIndicatorIds([]); setVisiblePatternIds(new Set()); setSelectedPatternId(null); setShowLevels(true);
     setSelectedDrawingId(null); setTool("select"); setDrawer(null);
 
     chartApi.ohlcv(symbol).then((r) => { if (!cancelled) { if (r.kind === "no_access") denyAll(); else setOhlcvRes(r); } });
@@ -98,6 +100,8 @@ export default function ChartsScreen() {
   const bars = ohlcvRes?.kind === "ok" ? ohlcvRes.data.bars : [];
   const indicators = indicatorsRes?.kind === "ok" ? indicatorsRes.data.indicators : {};
   const patterns = patternsRes?.kind === "ok" ? patternsRes.data.patterns : [];
+  const chartPatterns = patterns.filter((p) => !isLevelPattern(p));
+  const levelPatterns = patterns.filter(isLevelPattern);
   const drawings = drawingsRes?.kind === "ok" ? drawingsRes.data : [];
   const fixture = runRes?.kind === "ok" ? runRes.data.fixture : false;
 
@@ -332,8 +336,10 @@ export default function ChartsScreen() {
                 bars={bars}
                 indicators={indicators}
                 selectedIndicatorIds={selectedIndicatorIds}
-                patterns={patterns}
+                patterns={chartPatterns}
                 visiblePatternIds={visiblePatternIds}
+                levels={levelPatterns}
+                showLevels={showLevels}
                 drawings={drawings}
                 activeTool={tool}
                 selectedDrawingId={selectedDrawingId}
@@ -349,7 +355,7 @@ export default function ChartsScreen() {
             </div>
           )}
 
-          {showDataView && <DataView symbol={symbol ?? ""} bars={bars} patterns={patterns} />}
+          {showDataView && <DataView symbol={symbol ?? ""} bars={bars} patterns={chartPatterns} levels={showLevels ? levelPatterns : []} />}
 
           {/* drawings list — distinct testid/class from pattern overlays (task item 7) */}
           <div className="nv-card" data-testid="chart-drawings-list" style={{ padding: 14 }}>
@@ -389,6 +395,13 @@ export default function ChartsScreen() {
         <div style={{ display: "grid", gap: 14 }}>
           <div className="nv-card" data-testid="chart-indicators-panel" style={{ padding: 14 }}>
             <p className="nv-eyebrow" style={{ margin: "0 0 8px" }}>Indicators</p>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--c-ink-2)", cursor: "pointer", marginBottom: 8 }}>
+              <input type="checkbox" data-testid="chart-sr-toggle" checked={showLevels} onChange={() => setShowLevels((v) => !v)} />
+              <span>Support &amp; resistance</span>
+              <span data-testid="chart-sr-count" style={{ color: "var(--c-ink-4)", fontSize: 10.5 }}>
+                {patternsRes?.kind === "ok" ? `${levelPatterns.length} level${levelPatterns.length === 1 ? "" : "s"}` : ""}
+              </span>
+            </label>
             <Pending result={indicatorsRes} label="indicators">
               {(d) => {
                 const ids = Object.keys(d.indicators);
@@ -422,14 +435,15 @@ export default function ChartsScreen() {
           <div className="nv-card" data-testid="chart-patterns-panel" style={{ padding: 14 }}>
             <p className="nv-eyebrow" style={{ margin: "0 0 8px" }}>Patterns</p>
             <Pending result={patternsRes} label="patterns">
-              {(d) =>
-                d.patterns.length === 0 ? (
+              {(d) => {
+                const rows = d.patterns.filter((p) => !isLevelPattern(p));
+                return rows.length === 0 ? (
                   <p data-testid="chart-patterns-empty" style={{ margin: 0, fontSize: 12.5, color: "var(--c-ink-3)" }}>
-                    No patterns for {symbol} in this snapshot.
+                    No chart patterns found.
                   </p>
                 ) : (
                   <div style={{ display: "grid", gap: 6 }}>
-                    {d.patterns.map((p) => {
+                    {rows.map((p) => {
                       const cat = patternVisualCategory(p);
                       return (
                         <div key={p.pattern_id} data-testid={`chart-pattern-row-${p.pattern_id}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 8, background: selectedPatternId === p.pattern_id ? "var(--bg-2)" : "transparent" }}>
@@ -438,15 +452,15 @@ export default function ChartsScreen() {
                             checked={visiblePatternIds.has(p.pattern_id)} onChange={() => togglePatternVisible(p.pattern_id)}
                           />
                           <button type="button" onClick={() => selectPattern(p)} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "none", border: 0, cursor: "pointer", padding: 0 }}>
-                            <span style={{ fontSize: 12.5, color: "var(--c-ink)" }}>{p.pattern_type}</span>{" "}
-                            <span className="nv-mono" style={{ fontSize: 10, color: "var(--c-ink-4)" }}>{cat}{p.stage ? ` · ${p.stage}` : ""}</span>
+                            <span style={{ fontSize: 12.5, color: "var(--c-ink)" }}>{patternTypeLabel(p.pattern_type)}</span>{" "}
+                            <span className="nv-mono" data-testid={`chart-pattern-status-${p.pattern_id}`} data-category={cat} style={{ fontSize: 10, color: "var(--c-ink-4)" }}>{statusLabel(p)}</span>
                           </button>
                         </div>
                       );
                     })}
                   </div>
-                )
-              }
+                );
+              }}
             </Pending>
 
             {selectedPattern && (

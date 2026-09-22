@@ -11,7 +11,7 @@ import {
 } from "lightweight-charts";
 import { DrawingsPrimitive, type DrawingPoint } from "./primitives";
 import { resolveTheme, withAlpha, type ChartTheme } from "./theme";
-import { type Bar, type IndicatorSeries, type Pattern, type Drawing, type DrawingType, type NewDrawing, patternVisualCategory, plotColumns } from "./contract";
+import { type Bar, type IndicatorSeries, type Pattern, type Drawing, type DrawingType, type NewDrawing, patternVisualCategory, plotColumns, levelOf } from "./contract";
 
 export interface ChartCanvasHandle {
   fit: () => void;
@@ -26,6 +26,9 @@ interface Props {
   selectedIndicatorIds: string[];
   patterns: Pattern[];
   visiblePatternIds: Set<string>;
+  /** SUPPORT_RESISTANCE records, drawn by the Support & resistance layer (separate from chart patterns). */
+  levels: Pattern[];
+  showLevels: boolean;
   drawings: Drawing[];
   activeTool: DrawingType | "select";
   selectedDrawingId: string | null;
@@ -35,7 +38,7 @@ interface Props {
 }
 
 const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(props, ref) {
-  const { bars, indicators, selectedIndicatorIds, patterns, visiblePatternIds, drawings, activeTool, selectedDrawingId } = props;
+  const { bars, indicators, selectedIndicatorIds, patterns, visiblePatternIds, levels, showLevels, drawings, activeTool, selectedDrawingId } = props;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -248,6 +251,32 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
       try { markersApi.setMarkers([]); } catch { /* series may already be gone */ }
     };
   }, [patterns, visiblePatternIds]);
+
+  // ── support & resistance layer: one horizontal line per level at its real price (on by default) ─────────
+  useEffect(() => {
+    const candle = candleRef.current, theme = themeRef.current, container = containerRef.current;
+    if (!candle || !theme) return;
+    const lines: IPriceLine[] = [];
+    if (showLevels) {
+      for (const p of levels) {
+        const lv = levelOf(p);
+        if (!lv) continue;
+        const colour = lv.kind === "SUPPORT" ? theme.mint : theme.danger;
+        const state = lv.failed ? " · failed" : lv.broken ? " · broken" : "";
+        lines.push(candle.createPriceLine({
+          price: lv.price, color: withAlpha(colour, lv.broken || lv.failed ? 0.55 : 0.9), lineWidth: 1,
+          lineStyle: lv.broken || lv.failed ? LineStyle.Dashed : LineStyle.Solid, axisLabelVisible: true,
+          title: `${lv.kind === "SUPPORT" ? "S" : "R"} ${lv.price.toFixed(2)}${state}`,
+        }));
+      }
+    }
+    // Test/debug hook: how many level lines are drawn (a canvas cannot be inspected).
+    if (container) container.dataset.renderedLevels = String(lines.length);
+    return () => {
+      if (container) container.dataset.renderedLevels = "0";
+      for (const l of lines) { try { candle.removePriceLine(l); } catch { /* series may already be gone */ } }
+    };
+  }, [levels, showLevels]);
 
   // ── drawings → primitive ────────────────────────────────────────────────
   useEffect(() => {
