@@ -1,0 +1,709 @@
+{
+  "source": "NSE corporate-actions API (nseindia.com/api/corporates-corporateActions)",
+  "source_reference": "https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date=01-01-2021&to_date=22-09-2026",
+  "retrieved_at": "2026-09-22T07:23:19Z",
+  "note": "Full bulk response was 13,794 rows across all NSE corporate-action types for 2021-01-01..2026-09-22 (today); this file keeps only rows whose subject contains 'demerger' or 'scheme of arrangement' (70 rows), which is what this package uses. Fetched directly with curl (browser User-Agent header; no API key/auth needed, no credentials involved) from this session's sandbox -- worked here even though NSE is documented elsewhere (MEMORY: nse-403-blocks-all-apis.md) as 403-blocking the nidp-stack-vm's IP specifically; this is a different network egress.",
+  "row_count": 70,
+  "rows": [
+    {
+      "symbol": "AARTIIND",
+      "comp": "Aarti Industries Limited",
+      "isin": "INE769A01020",
+      "series": "EQ",
+      "exDate": "19-Oct-2022",
+      "recDate": "20-Oct-2022",
+      "subject": "Demerger",
+      "faceVal": "5"
+    },
+    {
+      "symbol": "ABFRL",
+      "comp": "Aditya Birla Fashion and Retail Limited",
+      "isin": "INE647O01011",
+      "series": "EQ",
+      "exDate": "22-May-2025",
+      "recDate": "22-May-2025",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "AHLEAST",
+      "comp": "Asian Hotels (East) Limited",
+      "isin": "INE926K01017",
+      "series": "EQ",
+      "exDate": "06-Oct-2022",
+      "recDate": "07-Oct-2022",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "AJMERA",
+      "comp": "Ajmera Realty & Infra India Limited",
+      "isin": "INE298G01027",
+      "series": "EQ",
+      "exDate": "02-Aug-2024",
+      "recDate": "02-Aug-2024",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "ALLCARGO",
+      "comp": "Allcargo Logistics Limited",
+      "isin": "INE418H01029",
+      "series": "EQ",
+      "exDate": "12-Nov-2025",
+      "recDate": "12-Nov-2025",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "ALLCARGO",
+      "comp": "Allcargo Logistics Limited",
+      "isin": "INE418H01029",
+      "series": "EQ",
+      "exDate": "18-Apr-2023",
+      "recDate": "18-Apr-2023",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "ARSHIYA",
+      "comp": "Arshiya Limited",
+      "isin": "INE968D01022",
+      "series": "EQ",
+      "exDate": "03-Mar-2022",
+      "recDate": "04-Mar-2022",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "BAJAJELEC",
+      "comp": "Bajaj Electricals Limited",
+      "isin": "INE193E01025",
+      "series": "EQ",
+      "exDate": "14-Sep-2023",
+      "recDate": "14-Sep-2023",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "BEML",
+      "comp": "BEML Limited",
+      "isin": "INE258A01016",
+      "series": "EQ",
+      "exDate": "08-Sep-2022",
+      "recDate": "09-Sep-2022",
+      "subject": "Demerger",
+      "faceVal": "5"
+    },
+    {
+      "symbol": "BOROLTD",
+      "comp": "Borosil Limited",
+      "isin": "INE02PY01013",
+      "series": "EQ",
+      "exDate": "05-Dec-2023",
+      "recDate": "05-Dec-2023",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "CCAVENUE",
+      "comp": "AvenuesAI Limited",
+      "isin": "INE483S01020",
+      "series": "EQ",
+      "exDate": "11-Sep-2024",
+      "recDate": "11-Sep-2024",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "CHEMBOND",
+      "comp": "Chembond Material Technologies Limited",
+      "isin": "INE995D01025",
+      "series": "EQ",
+      "exDate": "09-May-2025",
+      "recDate": "09-May-2025",
+      "subject": "Demerger",
+      "faceVal": "5"
+    },
+    {
+      "symbol": "CPCAP",
+      "comp": "CP Capital Limited",
+      "isin": "INE521J01018",
+      "series": "EQ",
+      "exDate": "09-May-2025",
+      "recDate": "09-May-2025",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "DALMIASUG",
+      "comp": "Dalmia Bharat Sugar and Industries Limited",
+      "isin": "INE495A01022",
+      "series": "EQ",
+      "exDate": "31-Oct-2025",
+      "recDate": "31-Oct-2025",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "DBREALTY",
+      "comp": "Valor Estate Limited",
+      "isin": "INE879I01012",
+      "series": "EQ",
+      "exDate": "18-Jul-2025",
+      "recDate": "18-Jul-2025",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "DCMSRIND",
+      "comp": "DCM Shriram Industries Limited",
+      "isin": "INE843D01027",
+      "series": "EQ",
+      "exDate": "26-Dec-2025",
+      "recDate": "26-Dec-2025",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "DHAMPURSUG",
+      "comp": "Dhampur Sugar Mills Limited",
+      "isin": "INE041A01016",
+      "series": "EQ",
+      "exDate": "13-May-2022",
+      "recDate": "17-May-2022",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "EDELWEISS",
+      "comp": "Edelweiss Financial Services Limited",
+      "isin": "INE532F01047",
+      "series": "EQ",
+      "exDate": "02-Jun-2023",
+      "recDate": "02-Jun-2023",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "GENUSPOWER",
+      "comp": "Genus Power Infrastructures Limited",
+      "isin": "INE955D01011",
+      "series": "EQ",
+      "exDate": "06-Feb-2026",
+      "recDate": "06-Feb-2026",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "GFLLIMITED",
+      "comp": "GFL Limited",
+      "isin": "INE538A01037",
+      "series": "EQ",
+      "exDate": "26-Mar-2021",
+      "recDate": "30-Mar-2021",
+      "subject": " Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "GHCL",
+      "comp": "GHCL Limited",
+      "isin": "INE539A01019",
+      "series": "EQ",
+      "exDate": "06-Apr-2023",
+      "recDate": "08-Apr-2023",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "GMRAIRPORT",
+      "comp": "GMR AIRPORTS LIMITED",
+      "isin": "INE776C01039",
+      "series": "EQ",
+      "exDate": "11-Jan-2022",
+      "recDate": "12-Jan-2022",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "GUJENERGY",
+      "comp": "GUJARAT ENERGY LIMITED",
+      "isin": "INE844O01030",
+      "series": "EQ",
+      "exDate": "02-Jul-2026",
+      "recDate": "02-Jul-2026",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "HEGAM",
+      "comp": "HEG Advanced Materials Limited",
+      "isin": "INE545A01024",
+      "series": "EQ",
+      "exDate": "07-Sep-2026",
+      "recDate": "07-Sep-2026",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "HERCULES",
+      "comp": "HERCULES INVESTMENTS LIMITED",
+      "isin": "INE688E01024",
+      "series": "EQ",
+      "exDate": "11-Oct-2024",
+      "recDate": "11-Oct-2024",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "HINDUNILVR",
+      "comp": "Hindustan Unilever Limited",
+      "isin": "INE030A01027",
+      "series": "EQ",
+      "exDate": "05-Dec-2025",
+      "recDate": "05-Dec-2025",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "IBULLSLTD",
+      "comp": "Indiabulls Limited",
+      "isin": "INE126M01010",
+      "series": "EQ",
+      "exDate": "01-Sep-2022",
+      "recDate": "02-Sep-2022",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "INDIAGLYCO",
+      "comp": "India Glycols Limited",
+      "isin": "INE560A01015",
+      "series": "EQ",
+      "exDate": "02-Sep-2026",
+      "recDate": "02-Sep-2026",
+      "subject": "Demerger",
+      "faceVal": "5"
+    },
+    {
+      "symbol": "INOXGREEN",
+      "comp": "Inox Green Energy Services Limited",
+      "isin": "INE510W01014",
+      "series": "EQ",
+      "exDate": "31-Jul-2026",
+      "recDate": "01-Aug-2026",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "ITC",
+      "comp": "ITC Limited",
+      "isin": "INE154A01025",
+      "series": "EQ",
+      "exDate": "06-Jan-2025",
+      "recDate": "06-Jan-2025",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "JHS",
+      "comp": "JHS Svendgaard Laboratories Limited",
+      "isin": "INE544H01014",
+      "series": "EQ",
+      "exDate": "11-Sep-2023",
+      "recDate": "11-Sep-2023",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "JUBLPHARMA",
+      "comp": "Jubilant Pharmova Limited",
+      "isin": "INE700A01033",
+      "series": "EQ",
+      "exDate": "04-Feb-2021",
+      "recDate": "05-Feb-2021",
+      "subject": " Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "KAMDHENU",
+      "comp": "Kamdhenu Limited",
+      "isin": "INE390H01012",
+      "series": "EQ",
+      "exDate": "06-Sep-2022",
+      "recDate": "07-Sep-2022",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "KESORAMIND",
+      "comp": "Kesoram Industries Limited",
+      "isin": "INE087A01019",
+      "series": "EQ",
+      "exDate": "10-Mar-2025",
+      "recDate": "10-Mar-2025",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "KHADIM",
+      "comp": "Khadim India Limited",
+      "isin": "INE834I01025",
+      "series": "EQ",
+      "exDate": "06-Jun-2025",
+      "recDate": "07-Jun-2025",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "MEGH",
+      "comp": "Meghmani Organics Limited",
+      "isin": "INE974H01013",
+      "series": "EQ",
+      "exDate": "18-May-2021",
+      "recDate": "19-May-2021",
+      "subject": " Merger/Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "MHLXMIRU",
+      "comp": "Mahalaxmi Rubtech Limited",
+      "isin": "INE112D01035",
+      "series": "EQ",
+      "exDate": "19-Apr-2024",
+      "recDate": "19-Apr-2024",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "MIRZAINT",
+      "comp": "Mirza International Limited",
+      "isin": "INE771A01026",
+      "series": "EQ",
+      "exDate": "29-Mar-2023",
+      "recDate": "29-Mar-2023",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "MOTHERSON",
+      "comp": "Samvardhana Motherson International Limited",
+      "isin": "INE775A01035",
+      "series": "EQ",
+      "exDate": "14-Jan-2022",
+      "recDate": "17-Jan-2022",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "NDLVENTURE",
+      "comp": "NDL Ventures Limited",
+      "isin": "INE353A01023",
+      "series": "EQ",
+      "exDate": "22-Nov-2022",
+      "recDate": "23-Nov-2022",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "NIITLTD",
+      "comp": "NIIT Limited",
+      "isin": "INE161A01038",
+      "series": "EQ",
+      "exDate": "08-Jun-2023",
+      "recDate": "08-Jun-2023",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "NMDC",
+      "comp": "NMDC Limited",
+      "isin": "INE584A01023",
+      "series": "EQ",
+      "exDate": "27-Oct-2022",
+      "recDate": "28-Oct-2022",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "OCCL",
+      "comp": "Oriental Carbon & Chemicals Limited",
+      "isin": "INE321D01016",
+      "series": "EQ",
+      "exDate": "01-Jul-2024",
+      "recDate": "01-Jul-2024",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "PEL",
+      "comp": "Piramal Enterprises Limited",
+      "isin": "INE140A01024",
+      "series": "EQ",
+      "exDate": "30-Aug-2022",
+      "recDate": "01-Sep-2022",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "QUESS",
+      "comp": "Quess Corp Limited",
+      "isin": "INE615P01015",
+      "series": "EQ",
+      "exDate": "15-Apr-2025",
+      "recDate": "15-Apr-2025",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "RADIOCITY",
+      "comp": "Music Broadcast Limited",
+      "isin": "INE919I01016",
+      "series": "EQ",
+      "exDate": "13-Jan-2023",
+      "recDate": "13-Jan-2023",
+      "subject": "Scheme Of Arrangement - Bonus Ncrps 1:10",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "RAYMOND",
+      "comp": "Raymond Limited",
+      "isin": "INE301A01014",
+      "series": "EQ",
+      "exDate": "11-Jul-2024",
+      "recDate": "11-Jul-2024",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "RAYMOND",
+      "comp": "Raymond Limited",
+      "isin": "INE301A01014",
+      "series": "EQ",
+      "exDate": "14-May-2025",
+      "recDate": "14-May-2025",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "RELIANCE",
+      "comp": "Reliance Industries Limited",
+      "isin": "INE002A01018",
+      "series": "EQ",
+      "exDate": "20-Jul-2023",
+      "recDate": "20-Jul-2023",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "ROSSELLIND",
+      "comp": "Rossell India Limited",
+      "isin": "INE847C01020",
+      "series": "EQ",
+      "exDate": "20-Sep-2024",
+      "recDate": "20-Sep-2024",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "SANOFI",
+      "comp": "Sanofi India Limited",
+      "isin": "INE058A01010",
+      "series": "EQ",
+      "exDate": "13-Jun-2024",
+      "recDate": "13-Jun-2024",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "SAREGAMA",
+      "comp": "Saregama India Limited",
+      "isin": "INE979A01017",
+      "series": "EQ",
+      "exDate": "27-Jul-2023",
+      "recDate": "27-Jul-2023",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "SCI",
+      "comp": "Shipping Corporation Of India Limited",
+      "isin": "INE109A01011",
+      "series": "EQ",
+      "exDate": "31-Mar-2023",
+      "recDate": "31-Mar-2023",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "SEMAC",
+      "comp": "Semac Construction Limited",
+      "isin": "INE617A01013",
+      "series": "EQ",
+      "exDate": "03-May-2024",
+      "recDate": "03-May-2024",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "SHANKARA",
+      "comp": "Shankara Building Products Limited",
+      "isin": "INE274V01019",
+      "series": "EQ",
+      "exDate": "24-Sep-2025",
+      "recDate": "24-Sep-2025",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "SIEMENS",
+      "comp": "Siemens Limited",
+      "isin": "INE003A01024",
+      "series": "EQ",
+      "exDate": "07-Apr-2025",
+      "recDate": "07-Apr-2025",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "SIYSIL",
+      "comp": "Siyaram Silk Mills Limited",
+      "isin": "INE076B01010",
+      "series": "EQ",
+      "exDate": "21-Aug-2026",
+      "recDate": "22-Aug-2026",
+      "subject": "Scheme Of Arrangement - Bonus Ncrps 3:1",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "SIYSIL",
+      "comp": "Siyaram Silk Mills Limited",
+      "isin": "INE076B01010",
+      "series": "EQ",
+      "exDate": "21-Aug-2026",
+      "recDate": "22-Aug-2026",
+      "subject": "Scheme Of Arrangement - Bonus Ncrps 4:1",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "SKFINDIA",
+      "comp": "SKF India Limited",
+      "isin": "INE640A01023",
+      "series": "EQ",
+      "exDate": "15-Oct-2025",
+      "recDate": "15-Oct-2025",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "STAR",
+      "comp": "Strides Pharma Science Limited",
+      "isin": "INE939A01011",
+      "series": "EQ",
+      "exDate": "06-Dec-2024",
+      "recDate": "06-Dec-2024",
+      "subject": "Demerger",
+      "faceVal": "10"
+    },
+    {
+      "symbol": "STLTECH",
+      "comp": "Sterlite Technologies Limited",
+      "isin": "INE089C01029",
+      "series": "EQ",
+      "exDate": "24-Apr-2025",
+      "recDate": "24-Apr-2025",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "TIPSMUSIC",
+      "comp": "Tips Music Limited",
+      "isin": "INE716B01029",
+      "series": "EQ",
+      "exDate": "19-May-2022",
+      "recDate": "21-May-2022",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "TMPV",
+      "comp": "Tata Motors Passenger Vehicles Limited",
+      "isin": "INE155A01022",
+      "series": "EQ",
+      "exDate": "14-Oct-2025",
+      "recDate": "14-Oct-2025",
+      "subject": "Demerger",
+      "faceVal": "2"
+    },
+    {
+      "symbol": "TRIVENI",
+      "comp": "Triveni Engineering & Industries Limited",
+      "isin": "INE256C01024",
+      "series": "EQ",
+      "exDate": "22-Jul-2026",
+      "recDate": "22-Jul-2026",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "TVSHLTD",
+      "comp": "TVS Holdings Limited",
+      "isin": "INE105A01035",
+      "series": "EQ",
+      "exDate": "08-Sep-2026",
+      "recDate": "08-Sep-2026",
+      "subject": "Scheme Of Arrangement - Bonus Ncrps 46:1",
+      "faceVal": "5"
+    },
+    {
+      "symbol": "TVSHLTD",
+      "comp": "TVS Holdings Limited",
+      "isin": "INE105A01035",
+      "series": "EQ",
+      "exDate": "24-Aug-2023",
+      "recDate": "24-Aug-2023",
+      "subject": "Demerger",
+      "faceVal": "5"
+    },
+    {
+      "symbol": "TVSMOTOR",
+      "comp": "TVS Motor Company Limited",
+      "isin": "INE494B01015",
+      "series": "EQ",
+      "exDate": "25-Aug-2025",
+      "recDate": "25-Aug-2025",
+      "subject": "Scheme Of Arrangement - Bonus Ncrps 4:1",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "UEL",
+      "comp": "Ujaas Energy Limited",
+      "isin": "INE899L01030",
+      "series": "EQ",
+      "exDate": "22-May-2024",
+      "recDate": "22-May-2024",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "VAKRANGEE",
+      "comp": "Vakrangee Limited",
+      "isin": "INE051B01021",
+      "series": "EQ",
+      "exDate": "15-Jun-2023",
+      "recDate": "15-Jun-2023",
+      "subject": "Demerger",
+      "faceVal": "1"
+    },
+    {
+      "symbol": "VEDL",
+      "comp": "Vedanta Limited",
+      "isin": "INE205A01025",
+      "series": "EQ",
+      "exDate": "30-Apr-2026",
+      "recDate": "01-May-2026",
+      "subject": "Demerger",
+      "faceVal": "1"
+    }
+  ]
+}
