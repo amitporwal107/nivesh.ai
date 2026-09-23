@@ -91,10 +91,71 @@ screen was built from the written spec (`docs/charting.md` §38) alone. §38 spe
 structure, not composition, which is exactly the axis that diverged. **Action for the owner: drop
 the "Charting View Redesign" HTML into `frontend-v5/design/` so it is a durable reference.**
 
+## Follow-up: worked from the artifact's own 11 numbered changes
+
+With the file in the repo I could read 1A's `callouts` array instead of guessing. Mapping:
+
+| # | Change | State |
+|---|---|---|
+| 01 | One 56px top bar | already built |
+| 02 | Price is the headline | built; sizes corrected to the artifact's own (price 20px/500, symbol 17px/600) |
+| 03 | Disabled states explain themselves in place | **done here** |
+| 04 | Vertical drawing rail | already built |
+| 05 | Crosshair with an OHLC readout | gap |
+| 06 | Indicators live on the chart legend | gap |
+| 07 | S&R gets a real panel (strength 1-5, distance in Rs and %) | gap |
+| 08 | On-chart level tags stop colliding | gap |
+| 09 | Stacked panes, collapsed as 26px sparkline strips | gap |
+| 10 | Range selector on the time axis | already built |
+| 11 | Detected patterns draw themselves | already built |
+
+### 02 correction
+
+My first pass made the price 23px/600 and shrank the symbol to 14.5px. The artifact specifies
+price 20px/500 mono-tabular, change 12px, and keeps the symbol at 17px/600. Corrected to match --
+shrinking the symbol was my invention, not the design's.
+
+### 03 in full
+
+Change 03 reads: *"Weekly and Monthly stay in the interval group, dimmed, with the reason on hover.
+A sentence of grey spec text sitting beside the buttons is not a control state."* with
+`REPLACES: "WEEKLY / MONTHLY DISABLED - NEEDS LONGER HISTORY (SPEC G-6)"`.
+
+The dimmed-with-`title` half already existed. The half that did not: `Toolbar.tsx` also rendered a
+`chart-timeframe-reason` span beside the group -- exactly the grey sentence the artifact names.
+Removed, along with the now-unused `disabledInterval` lookup.
+
+Two tests asserted that span. Both were updated to assert the reason **in place** on the disabled
+control, which is what the change actually asks for:
+- `research-charts.spec.ts` TC-18b -> `chart-timeframe-weekly` has `title` matching `/coming with W2/`
+- `staging-research-charts.spec.ts` TC-18 -> `chart-timeframe-weekly` has a non-empty `title`
+
+UNVERIFIED: the staging spec edit has not been run -- it needs a session token I do not have.
+
+### Real output (follow-up)
+
+```
+$ npx tsc --noEmit -p tsconfig.json
+tsc exit: 0
+
+$ npx playwright test e2e/tests/research-charts.spec.ts --project=desktop-chrome
+  17 failed
+  22 passed (2.6m)
+```
+
+Investigated rather than retried blindly. The failures were
+`net::ERR_CONNECTION_REFUSED at http://localhost:5174` -- Playwright picked 2 workers and the Vite
+dev server fell over on a host shared with live NIDP OCR. Not a code regression:
+
+```
+$ npx playwright test e2e/tests/research-charts.spec.ts --project=desktop-chrome --workers=1
+  39 passed (2.4m)
+```
+
 ## Not addressed in this change (remaining gaps vs the mockup)
 
-Visible in `after-charts.png`, each a separate change:
-1. Crosshair legend is a large floating panel over the chart; the design wants a thin OHLC readout strip.
+Changes 05, 06, 07, 08 and 09 above. In the artifact's own terms:
+1. (05) Crosshair legend is a large floating panel; the design pins a glass tooltip at the hovered bar and mirrors it into the legend.
 2. Pattern labels collide ("Higher highs / higher lows · formed" over "Rectangle · confirmed").
 3. Level tags are doubled against the price scale (`R 2940.00` next to `2940.00`).
 4. Collapsed PRICE / VOLUME pane strips are empty grey rows, not sparkline strips.

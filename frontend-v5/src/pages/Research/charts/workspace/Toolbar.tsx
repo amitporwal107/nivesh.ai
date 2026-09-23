@@ -127,7 +127,6 @@ export default function Toolbar(props: ToolbarProps) {
       : [{ id: "none", label: "No saved layouts yet", disabled: true, disabledReason: "nothing saved yet", testId: "chart-layout-empty" }]),
   ];
 
-  const disabledInterval = timeframeOptions.find((o) => !o.enabled && o.reason);
   const up = change != null ? change >= 0 : null;
   const changeColor = up == null ? "var(--c-ink-3)" : up ? "var(--mint)" : "var(--danger-hex)";
 
@@ -147,14 +146,14 @@ export default function Toolbar(props: ToolbarProps) {
         aria-label={`Change symbol — currently ${symbol || "none"}`} title="Change symbol"
         style={{ display: "flex", alignItems: "baseline", gap: 6, background: "none", border: 0, cursor: "pointer", padding: "0 2px", flex: "none" }}
       >
-        <span style={{ fontSize: 14.5, fontWeight: 600, letterSpacing: ".01em", color: "var(--c-ink-2)" }}>{symbol || "—"}</span>
+        <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-.01em", color: "var(--c-ink)" }}>{symbol || "—"}</span>
         <span className="nv-mono" style={{ fontSize: 10, color: "var(--c-ink-4)" }}>{exchange}</span>
       </button>
 
-      <span data-testid="chart-toolbar-price" className="nv-mono" style={{ fontSize: 23, fontWeight: 600, letterSpacing: "-.01em", color: "var(--c-ink)", flex: "none" }}>
+      <span data-testid="chart-toolbar-price" className="nv-mono nv-num" style={{ fontSize: 20, fontWeight: 500, color: "var(--c-ink)", flex: "none" }}>
         {lastClose != null ? lastClose.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}
       </span>
-      <span data-testid="chart-toolbar-change" className="nv-mono" style={{ fontSize: 11.5, color: changeColor, flex: "none", whiteSpace: "nowrap" }}>
+      <span data-testid="chart-toolbar-change" className="nv-mono nv-num" style={{ fontSize: 12, color: changeColor, flex: "none", whiteSpace: "nowrap" }}>
         {change != null ? `${change >= 0 ? "+" : ""}${change.toFixed(2)}` : "—"}
         {changePct != null ? ` (${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%)` : ""}
       </span>
@@ -190,12 +189,6 @@ export default function Toolbar(props: ToolbarProps) {
           );
         })}
       </div>
-      {disabledInterval && (
-        <span data-testid="chart-timeframe-reason" className="nv-mono" style={{ fontSize: 10, color: "var(--c-ink-4)", whiteSpace: "nowrap", flex: "none" }}>
-          {disabledInterval.reason}
-        </span>
-      )}
-
       <MenuButton
         label={<>{CHART_TYPE_LABEL[chartType]} <Chevron /></>}
         ariaLabel="Chart type" title="Chart type" items={chartTypeItems} testId="chart-toolbar-charttype"
