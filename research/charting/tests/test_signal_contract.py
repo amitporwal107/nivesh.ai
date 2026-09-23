@@ -21,12 +21,14 @@ def test_every_state_has_a_transition_entry_and_vice_versa():
             assert to in c.TRANSITIONS, f"{frm} -> {to} targets an undeclared state"
 
 
-def test_the_six_research_states_match_states_py_exactly():
-    """The canonical names live in states.py; this contract must not fork them."""
-    assert set(states.RESEARCH_STATES) <= set(c.SIGNAL_STATES)
-    extra = set(c.SIGNAL_STATES) - set(states.RESEARCH_STATES)
-    # Exactly the two owner-decision-#110 states, no more.
-    assert extra == {c.NOT_TRIGGERED, c.INCONCLUSIVE}
+def test_the_research_states_match_states_py_exactly():
+    """The canonical names live in states.py; this contract must not fork them.
+
+    Until 2026-09-23 states.py carried six and the contract's extra two were NOT_TRIGGERED and
+    INCONCLUSIVE, pending owner decision #110. #110 is now wired, so the two sets are equal and
+    the gap this test used to document is closed."""
+    assert set(c.SIGNAL_STATES) == set(states.RESEARCH_STATES)
+    assert {c.NOT_TRIGGERED, c.INCONCLUSIVE} <= set(states.RESEARCH_STATES)
 
 
 def test_terminal_states_have_no_successors():

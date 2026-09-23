@@ -61,14 +61,29 @@ or data-quality value moved because the new detectors were invoked.
 snapshot.** `--include-ni3` is an export-selection switch, not enablement. The registry remains
 3 enabled / 16 disabled in both runs.
 
-## Four families produced nothing
+## Four families produced nothing — **at the last bar** (corrected 2026-09-23)
 
-`ASCENDING_CHANNEL`, `BEAR_FLAG`, `BEAR_PENNANT`, `CUP_AND_HANDLE` — 12 of the 16 emitted.
+`ASCENDING_CHANNEL`, `BEAR_FLAG`, `BEAR_PENNANT`, `CUP_AND_HANDLE` had no record at any symbol's
+last bar. **This is a snapshot observation, not a coverage claim.** The earlier wording of this
+section read it as "the detector never emits them", which was wrong: a last-bar export measures
+*pattern state at one point in time*, while replay measures *detector occurrence over time*.
 
-The bear-side and cup & handle zeroes are already recorded as observations for study v2
-(`COVERAGE_ASSESSMENT.md`), not as defects. `ASCENDING_CHANNEL` joins them: a shape can be
-implemented, tested against its frozen fixtures, and still not occur in a 50-symbol, ~1,200-bar
-window.
+Replay certification over the same 12 symbols (post-sealed bars, 80-bar windows) shows three of the
+four do occur:
+
+| Family | Last-bar snapshot | Replay (12 × 80 bars) |
+|---|---|---|
+| ASCENDING_CHANNEL | 0 | **5** |
+| BEAR_FLAG | 0 | **1** |
+| CUP_AND_HANDLE | 0 | **5** |
+| BEAR_PENNANT | 0 | 0 |
+
+The defensible statement is: **14 of 16 NI-3 families were observed during replay; `BEAR_PENNANT`
+was not observed in this sample.** Even that is scoped to 12 symbols × 80-bar windows — it is not a
+statement about universal detector coverage, and a family can pass its frozen fixtures and still
+not occur in a given window.
+
+The bear-side and cup & handle zeroes remain study-v2 observations, unchanged.
 
 ## Data limitation, stated not worked around
 

@@ -370,3 +370,67 @@ def test_write_run_artifact_assertion_catches_a_poisoned_sealed_transition(tmp_p
     with pytest.raises(research_window.SealedWindowError):
         replay.write_run(bars, tmp_path, symbol="SYN1")
     assert list(tmp_path.iterdir()) == []  # nothing written -- refused before any artifact touched disk
+
+
+# ── NLA-005: batch replay == sequential replay ───────────────────────────────────────────────────
+#
+# Certification pack v2 §20 names this a release blocker and leaves it at "batch replay result =
+# sequential replay result". The property that matters, made precise: ONE walk to N must produce a
+# transition log whose prefix at every t equals an INDEPENDENT walk that stops at t. If the two
+# ever diverged, the batch run would be carrying state across bars that a fresh as-of-t run does
+# not have -- which is a look-ahead by another name.
+#
+# The existing determinism test proves repeat-runs on the SAME path agree; this proves two
+# DIFFERENT paths (one long walk vs many short ones) agree, which is the uncovered case.
+
+def _fold_status_to(transitions: list, t: int) -> dict:
+    """The status each pattern would show if only transitions at or before `t` had happened."""
+    out: dict = {}
+    for tr in transitions:
+        if tr["event_index"] <= t:
+            out[tr["pattern_id"]] = tr["new_status"]
+    return out
+
+
+def test_NLA_005_batch_replay_equals_sequential_replay_at_every_t():
+    base = _shift_outside_sealed_window(_lookahead_fixture())
+    n = len(base)
+    batch = replay.replay(base, symbol="SYN1", end_index=n - 1).to_dict()
+    batch_tr = batch["transitions"]
+    assert batch_tr, "fixture must produce transitions or the comparison is vacuous"
+
+    checked = 0
+    # every t from the first transition onward, plus a few before it (must be empty on both sides)
+    # Every bar from 0 -- INCLUDING the bars before the first transition. Those are where a batch walk
+    # carrying hidden state would show it: both sides must report an empty log there.
+    for t in range(0, n):
+        seq = replay.replay(base, symbol="SYN1", end_index=t).to_dict()
+        expected_prefix = [tr for tr in batch_tr if tr["event_index"] <= t]
+        assert seq["transitions"] == expected_prefix, f"batch/sequential transition logs diverge at t={t}"
+
+        # and the folded status agrees with what the sequential run reports as final
+        folded = _fold_status_to(batch_tr, t)
+        seq_status = {pid: st["status"] if isinstance(st, dict) else st for pid, st in seq["final_state"].items()}
+        assert seq_status == folded, f"final_state diverges at t={t}"
+        checked += 1
+    assert checked >= 10
+
+
+def test_NLA_005_a_resumed_walk_is_not_the_sequential_reading():
+    """Documents the limit, so nobody reads NLA-005 as 'chunked runs stitch together'. A walk that
+    STARTS mid-series has no memory of what was alive at its start bar, so it re-emits first-seen
+    transitions and its log is not a suffix of the batch log. That is a resume feature, not this
+    test's property; the certification requirement is the prefix equivalence above."""
+    base = _shift_outside_sealed_window(_lookahead_fixture())
+    n = len(base)
+    batch = replay.replay(base, symbol="SYN1", end_index=n - 1).to_dict()["transitions"]
+    if not batch:
+        pytest.skip("fixture produced no transitions")
+    k = max(tr["event_index"] for tr in batch) - 1
+    if k <= 0:
+        pytest.skip("no room for a mid-series start")
+    resumed = replay.replay(base, symbol="SYN1", start_index=k, end_index=n - 1).to_dict()["transitions"]
+    batch_suffix = [tr for tr in batch if tr["event_index"] >= k]
+    # Not asserting equality: it is expected to differ. Asserting the reason is observable instead.
+    reemitted = [tr for tr in resumed if tr["prior_status"] is None]
+    assert len(resumed) >= len(batch_suffix) or reemitted, "a resumed walk re-observes live patterns"

@@ -93,9 +93,15 @@ def test_research_state_matches_direct_states_call():
     result = enrich.enrich_pattern(pattern_dict, bars, benchmark_df=_synthetic_benchmark())
 
     volume = pattern_dict["components"]["volume"]
-    expected = states.derive_research_state(pattern_dict["status"], None, pattern_dict["direction"], volume_status=volume)
+    # enrich supplies the breakout history #110 needs, so the direct call must be given it too --
+    # otherwise the two disagree for INVALIDATED/EXPIRED, which is exactly the argument's purpose.
+    ever = enrich._find_price_confirmed_event(pattern_dict) is not None
+    expected = states.derive_research_state(pattern_dict["status"], None, pattern_dict["direction"],
+                                            volume_status=volume, ever_price_confirmed=ever)
     assert result["research_state"] == expected
-    assert result["research_state_basis"] == {"lifecycle_state": pattern_dict["status"], "volume_component": volume}
+    assert result["research_state_basis"] == {
+        "lifecycle_state": pattern_dict["status"], "volume_component": volume, "ever_price_confirmed": ever,
+    }
     # PRICE_CONFIRMED is a CONFIRMED_BREAKOUT only with a confirmed volume component, else a BREAKOUT_CANDIDATE
     assert result["research_state"] == (states.CONFIRMED_BREAKOUT if str(volume).upper() in ("PASS", "CONFIRMED")
                                         else states.BREAKOUT_CANDIDATE)

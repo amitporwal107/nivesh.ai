@@ -33,13 +33,14 @@ rather than inventing a new one.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import pathlib
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 # Make `research.charting` importable whether this module is run as part of the package or
 # executed as a bare script -- mirrors research/charting/export.py and
@@ -172,6 +173,7 @@ def replay(
     end_index: Optional[int] = None,
     incomplete_bar: Optional[dict] = None,
     snapshot_sink: Optional[dict] = None,
+    detector: Optional[Callable[..., list]] = None,
 ) -> ReplayResult:
     """Chronological, point-in-time-safe replay over `bars[start_index..end_index]`.
 
@@ -219,6 +221,23 @@ def replay(
     if not (0 <= start_index <= end < n):
         raise ValueError(f"invalid replay range start_index={start_index} end_index={end} for {n} bars")
 
+    # `detector` (2026-09-23) lets a caller replay a DIFFERENT point-in-time detector under the
+    # identical walk -- the NI-3 families need the same look-ahead and lifecycle proof the P0 ones
+    # have, and re-implementing the walk for them would mean proving it twice. Default `None`
+    # reproduces every pre-existing call exactly: the same `patterns.detect_as_of`, same arguments.
+    # A detector that does not accept `incomplete_bar` (the NI-3 entry points do not) is called
+    # without it rather than being adapted, so nothing about its contract is assumed.
+    if detector is None:
+        def _detect(sub, t, *, cfg, symbol, incomplete_bar):
+            return patterns.detect_as_of(sub, t, cfg=cfg, symbol=symbol, incomplete_bar=incomplete_bar)
+    else:
+        _accepts_incomplete = "incomplete_bar" in inspect.signature(detector).parameters
+
+        def _detect(sub, t, *, cfg, symbol, incomplete_bar):
+            if _accepts_incomplete:
+                return detector(sub, t, symbol=symbol, incomplete_bar=incomplete_bar)
+            return detector(sub, t, symbol=symbol)
+
     research_bars(bars.iloc[: end + 1])  # lookback + window: every bar detect_as_of can read
 
     cfg_hash = config_hash(cfg)
@@ -231,7 +250,7 @@ def replay(
         sub = bars.iloc[: t + 1].reset_index(drop=True)  # PIT boundary #1: the walk's own loop bound
         date_t = _iso_date(bars["date"].iloc[t])
         ib = incomplete_bar if (incomplete_bar is not None and t == end) else None
-        snaps = patterns.detect_as_of(sub, t, cfg=cfg, symbol=symbol, incomplete_bar=ib)
+        snaps = _detect(sub, t, cfg=cfg, symbol=symbol, incomplete_bar=ib)
         if snapshot_sink is not None:
             snapshot_sink[t] = snaps
 

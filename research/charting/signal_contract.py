@@ -23,18 +23,20 @@ WHAT THIS MODULE DELIBERATELY DOES NOT CONTAIN
   from a §11 lifecycle status; this module validates transitions between states, which is a
   different job.
 
-KNOWN GAP, recorded rather than silently bridged
-------------------------------------------------
-`states.derive_research_state()` returns None for lifecycle INVALIDATED / EXPIRED / DATA_BLOCKED /
-UNRESOLVED, with a comment that it is "pending an owner decision on two extra states". That decision
-was since made -- #110, recorded in `docs/ai_research/CHARTING_NI3_PREDICATES_V1.md` §1.2:
+GAP CLOSED 2026-09-23
+--------------------
+This module used to declare eight states while `states.py` produced six and None for the rest,
+because owner decision #110 (`docs/ai_research/CHARTING_NI3_PREDICATES_V1.md` §1.2) had been made
+but never wired:
 
     INVALIDATED or EXPIRED before any BREAKOUT_CANDIDATE -> NOT_TRIGGERED
     DATA_BLOCKED or UNRESOLVED                           -> INCONCLUSIVE
 
-So this contract declares eight states while `states.py` still produces six and None for the rest.
-Closing that is Phase 2 (the pattern->signal adapter), not Phase 1; `states.py` is production
-research code with its own tests and is not touched here.
+It is now wired. `states.RESEARCH_STATES` carries all eight and the two sets are equal, which
+`tests/test_signal_contract.py` asserts. One nuance survives: the "before any BREAKOUT_CANDIDATE"
+precondition is not visible to a pure mapping over a terminal status, so `derive_research_state`
+takes `ever_price_confirmed` and leaves the row unmapped when the caller cannot supply it --
+"we do not know" never becomes NOT_TRIGGERED.
 """
 from __future__ import annotations
 

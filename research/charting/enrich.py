@@ -341,8 +341,13 @@ def enrich_pattern(
         benchmark_df = load_index_history(regime.FEATURE_CONFIG["market_benchmark"])
 
     volume_status = (pattern_dict.get("components") or {}).get("volume")
+    # #110 needs to know whether this instance ever reached BREAKOUT_CANDIDATE. The pure mapping
+    # cannot see that from a terminal status alone, but this record can: the event log is right
+    # here, and `_find_price_confirmed_event` already reads it for the confirmation date.
+    ever_price_confirmed = _find_price_confirmed_event(pattern_dict) is not None
     research_state = states.derive_research_state(
-        pattern_dict["status"], None, pattern_dict["direction"], volume_status=volume_status
+        pattern_dict["status"], None, pattern_dict["direction"], volume_status=volume_status,
+        ever_price_confirmed=ever_price_confirmed,
     )
 
     out: dict[str, Any] = {
@@ -350,7 +355,8 @@ def enrich_pattern(
         "as_of_date": ts.date().isoformat(),
         "research_state": research_state,
         # the inputs research_state was derived from, so an unmapped (None) state is never a dead end
-        "research_state_basis": {"lifecycle_state": pattern_dict["status"], "volume_component": volume_status},
+        "research_state_basis": {"lifecycle_state": pattern_dict["status"], "volume_component": volume_status,
+                                 "ever_price_confirmed": ever_price_confirmed},
     }
 
     for key, fv in regime.trend_classification(truncated, ts).items():
