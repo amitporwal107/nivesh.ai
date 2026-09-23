@@ -277,9 +277,22 @@ def manifest_view(manifest: dict) -> dict:
     source = {k: v for k, v in manifest["source"].items() if k != "files"}
     source["files"] = [{"name": f["name"]} for f in manifest["source"]["files"]]
     symbols = [{k: v for k, v in e.items() if k != "sha256"} for e in manifest["symbols"]]
-    return {k: v for k, v in manifest.items() if k not in ("source", "symbols")} | {
+    # The full indicator catalogue is served by its own endpoint (§38.5 "a catalogue endpoint serves
+    # it"), not on every screen load. Its hash stays here so a client can tell at a glance whether the
+    # catalogue it holds is still the one this snapshot was built from.
+    return {k: v for k, v in manifest.items() if k not in ("source", "symbols", "indicator_catalogue")} | {
         "source": source, "symbols": symbols,
     }
+
+
+def catalogue_view(manifest: dict) -> Optional[dict]:
+    """GET /catalogue: the controlled indicator preset catalogue (§38.5, D-3) exactly as the export
+    wrote it into this snapshot, plus its hash. Returns None when the snapshot predates the
+    catalogue, so the route can answer with a reason code rather than an empty dialog."""
+    cat = manifest.get("indicator_catalogue")
+    if not isinstance(cat, dict) or not isinstance(cat.get("indicators"), list) or not cat["indicators"]:
+        return None
+    return dict(cat) | {"hash": manifest.get("indicator_catalogue_hash")}
 
 
 # §38.11 `timeframe=1D|1W|1M`, default 1D so existing callers (which never pass the param) are

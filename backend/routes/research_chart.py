@@ -30,7 +30,8 @@ from fastapi import Path as PathParam
 
 from feature_gate import require_feature
 from services.research_chart import (
-    TIMEFRAMES, indicators_view, load_manifest, load_symbol, manifest_view, ohlcv_view, patterns_view,
+    TIMEFRAMES, catalogue_view, indicators_view, load_manifest, load_symbol, manifest_view, ohlcv_view,
+    patterns_view,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,16 @@ def _payload(symbol: str) -> dict:
 @router.get("/run")
 async def run(user: dict = Depends(require_feature(FLAG))):
     return manifest_view(_manifest())
+
+
+@router.get("/catalogue")
+async def catalogue(user: dict = Depends(require_feature(FLAG))):
+    """The controlled indicator preset catalogue (§38.5, D-3) that this snapshot's series were built
+    from. Read straight off the manifest -- nothing is computed here, same as every other route."""
+    view = catalogue_view(_manifest())
+    if view is None:
+        raise HTTPException(status_code=503, detail="catalogue_unavailable")
+    return view
 
 
 @router.get("/symbols")

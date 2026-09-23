@@ -38,6 +38,26 @@ backend/services/research_chart_snapshot/
     "last_bar_date": "2026-09-18"
   },
   "universe_rule": "string describing the display-universe selection",
+
+  // The controlled indicator preset catalogue this snapshot's series were built from (§38.5, D-3).
+  // Written in full, so GET /catalogue serves the dialog straight off the snapshot and can never
+  // describe a preset differently from the series that were actually computed. Adding a preset means
+  // a new catalogue version and a re-export — never a runtime change.
+  "indicator_catalogue": {
+    "version": "1.0.0",
+    "categories": ["trend", "momentum", "volatility", "volume"],
+    "indicators": [
+      {"indicator_id": "rsi", "name": "Relative strength index", "category": "momentum",
+       "default_pane": "own", "output_fields": ["rsi"], "calculation_version": "...",
+       "missing_data_policy": "...",
+       "reference_bands": [{"value": 30.0, "label": "oversold"}, {"value": 70.0, "label": "overbought"}],
+       "band_fill": {"from": 30.0, "to": 70.0},
+       "presets": [{"preset_id": "rsi_14", "name": "RSI 14", "series_id": "rsi_14",
+                    "parameters": {"period": 14}, "pane": "rsi_14", "plot_fields": null}]}
+    ]
+  },
+  "indicator_catalogue_hash": "<sha256 over the normalised catalogue>",
+
   "symbols": [
     {"symbol": "RELIANCE", "n_bars": 1417, "first_date": "2021-01-01", "last_date": "2026-09-18",
      "data_quality_status": "VALID", "pit_status": "PIT_VALIDATED",

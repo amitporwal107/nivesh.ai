@@ -24,6 +24,8 @@ async function mockCharts(page: Page, opts?: { ohlcvStatus?: (tf: string | null)
 
   await page.route("**/api/research/chart/run", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(load("research-chart-run.json")) }));
+  await page.route("**/api/research/chart/catalogue", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(load("research-chart-catalogue.json")) }));
   await page.route("**/api/research/chart/symbols", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(load("research-chart-symbols.json")) }));
   await page.route("**/api/research/chart/*/ohlcv**", (route) => {
@@ -395,10 +397,13 @@ test.describe("Charts — W1b workspace (§38.3–§38.8, AC 1–6, 8, 11, 12)",
     await expect(page.getByTestId("chart-indicators-panel")).toBeVisible();
     await expect(page.getByTestId("chart-drawings-list")).toBeVisible();
 
-    // the toolbar's Indicators button is a shortcut to that tab
+    // The toolbar's Indicators button opens the §38.5 catalogue dialog. It used to switch to this
+    // tab; the tab remains the quick on/off list for what this symbol carries.
     await page.getByTestId("chart-sidebar-tab-patterns").click();
     await page.getByTestId("chart-toolbar-indicators").click();
-    await expect(page.getByTestId("chart-indicators-panel")).toBeVisible();
+    await expect(page.getByTestId("chart-indicator-dialog")).toBeVisible();
+    await page.getByTestId("chart-indicator-dialog-close").click();
+    await expect(page.getByTestId("chart-indicator-dialog")).toHaveCount(0);
   });
 
   test("TC-177 level cards show touches, distance and HOLDING/BROKEN — and never a 1–5 strength score", async ({ page }) => {
@@ -672,5 +677,107 @@ test.describe("Charts — saved layouts (§38.8, AC 9)", () => {
 
     await expect(page.getByTestId("chart-layout-error")).toContainText("chart_type");
     await expect(page.getByTestId("chart-toolbar-layout-name")).toHaveText("Unnamed");
+  });
+});
+
+/**
+ * The indicator preset catalogue and its dialog (§38.5, decision D-3). TC-213..TC-218 in
+ * test_reports/charting_w2_indicator_catalogue.md — the catalogue's own shape is covered by the
+ * research and backend suites; these cover what the screen does with it.
+ *
+ * MOCK — not real data: `/api/research/chart/catalogue` is served from
+ * e2e/fixtures/research-chart-catalogue.json, which is generated from the real catalogue module.
+ */
+test.describe("Charts — indicator dialog (§38.5, D-3)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test.beforeEach(async ({ page }) => {
+    await mockAuthAs(page, "user-profile-charting.json");
+    await mockCharts(page);
+    await openCharts(page);
+  });
+
+  test("TC-213 the toolbar opens a dialog listing the catalogue grouped by category", async ({ page }) => {
+    await page.getByTestId("chart-toolbar-indicators").click();
+    const dialog = page.getByTestId("chart-indicator-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(page.getByTestId("chart-indicator-dialog-version")).toContainText("CATALOGUE");
+
+    for (const cat of ["trend", "momentum", "volatility", "volume"]) {
+      await expect(page.getByTestId(`chart-indicator-group-${cat}`)).toBeVisible();
+    }
+    // every §38.5 preset is offered
+    await expect(page.locator('[data-testid^="chart-indicator-preset-"]:not([data-testid*="-info-"])')).toHaveCount(17);
+    for (const id of ["sma_200", "ema_10", "rsi_7", "rsi_21", "macd_12_26_9", "bollinger_20_2", "atr_14"]) {
+      await expect(page.getByTestId(`chart-indicator-preset-${id}`)).toBeVisible();
+    }
+  });
+
+  test("TC-214 search narrows the list across name, id and category", async ({ page }) => {
+    await page.getByTestId("chart-toolbar-indicators").click();
+    const rows = page.locator('[data-testid^="chart-indicator-preset-"]:not([data-testid*="-info-"])');
+
+    await page.getByTestId("chart-indicator-search").fill("200");
+    await expect(rows).toHaveCount(2);                       // SMA 200, EMA 200
+    await page.getByTestId("chart-indicator-search").fill("momentum");
+    await expect(rows).toHaveCount(4);                       // RSI ×3 + MACD
+    await page.getByTestId("chart-indicator-search").fill("zzz");
+    await expect(page.getByTestId("chart-indicator-dialog-empty")).toBeVisible();
+  });
+
+  test("TC-215 adding a preset draws it and marks it added; adding again removes it", async ({ page }) => {
+    const canvas = page.getByTestId("chart-canvas");
+    await page.getByTestId("chart-toolbar-indicators").click();
+    await page.getByTestId("chart-indicator-add-sma_20").click();
+
+    await expect(page.getByTestId("chart-indicator-added-sma_20")).toBeVisible();
+    await expect.poll(async () => (await canvas.getAttribute("data-rendered-series")) ?? "").toContain("sma_20");
+
+    await page.getByTestId("chart-indicator-add-sma_20").click();
+    await expect(page.getByTestId("chart-indicator-added-sma_20")).toHaveCount(0);
+    await expect.poll(async () => (await canvas.getAttribute("data-rendered-series")) ?? "").not.toContain("sma_20");
+  });
+
+  test("TC-216 two presets of the same indicator coexist on the price pane", async ({ page }) => {
+    const canvas = page.getByTestId("chart-canvas");
+    await page.getByTestId("chart-toolbar-indicators").click();
+    await page.getByTestId("chart-indicator-add-sma_20").click();
+    await page.getByTestId("chart-indicator-add-sma_50").click();
+    const drawn = async () => ((await canvas.getAttribute("data-rendered-series")) ?? "").split(",").filter(Boolean);
+    await expect.poll(drawn).toEqual(["sma_20", "sma_50"]);
+    // SMA 200 is in the catalogue but not in this snapshot, so it is offered disabled with the
+    // reason rather than as a click that silently does nothing.
+    await expect(page.getByTestId("chart-indicator-add-sma_200")).toBeDisabled();
+    await expect(page.getByTestId("chart-indicator-unavailable-sma_200")).toHaveText("NOT IN THIS SNAPSHOT");
+    // both are overlays, so no extra pane appears
+    await expect.poll(async () => ((await canvas.getAttribute("data-pane-ids")) ?? "").split(",").filter(Boolean))
+      .toEqual(["price", "volume"]);
+  });
+
+  test("TC-217 an oscillator draws the reference bands its catalogue entry defines", async ({ page }) => {
+    const canvas = page.getByTestId("chart-canvas");
+    await page.getByTestId("chart-toolbar-indicators").click();
+    await page.getByTestId("chart-indicator-add-rsi_14").click();
+    await page.getByTestId("chart-indicator-dialog-close").click();
+
+    await expect.poll(async () => JSON.parse((await canvas.getAttribute("data-band-levels")) ?? "[]"))
+      .toEqual([["rsi_14", [30, 70]]]);
+    // and a preset with no bands defined draws none
+    await page.getByTestId("chart-toolbar-indicators").click();
+    await page.getByTestId("chart-indicator-add-rsi_14").click();
+    await page.getByTestId("chart-indicator-add-atr_14").click();
+    await expect.poll(async () => JSON.parse((await canvas.getAttribute("data-band-levels")) ?? "[]")).toEqual([]);
+  });
+
+  test("TC-218 a catalogue that cannot be read shows the reason, and the chart still works", async ({ page }) => {
+    await page.route("**/api/research/chart/catalogue", (route) =>
+      route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "catalogue_unavailable" }) }));
+    await page.reload();
+    await page.getByTestId("rail-charts").click();
+    await expect(page.getByTestId("chart-canvas").locator("canvas").first()).toBeVisible();
+
+    await page.getByTestId("chart-toolbar-indicators").click();
+    await expect(page.getByTestId("chart-indicator-dialog-error")).toContainText("could not be loaded");
+    await expect(page.getByTestId("charts-state-error")).toHaveCount(0);
   });
 });

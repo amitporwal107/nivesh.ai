@@ -317,6 +317,50 @@
           20.0
         ]
       ]
+    },
+    "sma_50": {
+      "contract": {
+        "indicator_id": "sma_50",
+        "parameters": {
+          "period": 50
+        },
+        "warmup_period": 50,
+        "calculation_version": "1",
+        "missing_data_policy": "omit_until_warmup",
+        "preset_id": "sma_50",
+        "catalogue_version": "1.0.0"
+      },
+      "pane": "price",
+      "values": [
+        [
+          "2026-09-04",
+          2917.54
+        ],
+        [
+          "2026-09-07",
+          2920.97
+        ],
+        [
+          "2026-09-08",
+          2924.4
+        ],
+        [
+          "2026-09-09",
+          2927.84
+        ],
+        [
+          "2026-09-10",
+          2931.27
+        ],
+        [
+          "2026-09-11",
+          2934.7
+        ],
+        [
+          "2026-09-14",
+          2938.14
+        ]
+      ]
     }
   }
 }
