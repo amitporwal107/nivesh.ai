@@ -3196,6 +3196,14 @@ The owner decided the open detection items, and they are recorded as given.
 **Research principle (owner).** The order is freeze → detect → evaluate → report everything → interpret, and never
 detect → optimise → retest → pick the best-looking result. No parameter is tuned after results are seen.
 
+**Study v2 cannot run in its v1 output shape (2026-09-23).** TC-113 measured the pre-registered run at ≈6.4 TB of
+random-control rows at 200 seeds, against 9.3 GB of free disk — and V-3 raises the seed count to 1,000. The seed count
+is **not** reduced to fit the disk; the run's output shape changes instead. The scope, the accumulator design and the
+three decisions it needs are in `docs/ai_research/CHARTING_STUDY_V2_STORAGE_REDESIGN.md`. The load-bearing finding is
+that the persisted control artefacts are **write-only** — the report is built from the in-memory comparison groups and
+nothing ever reads `events.jsonl` back — so what is persisted can change without any reported number changing, which is
+proved by a byte-identical `report.json` comparison before anything is discarded.
+
 **Execution order (owner).**
 1. Freeze these decisions.
 2. Revise NI-3, tagging every parameter OWNER / PROPOSED / FROZEN.
