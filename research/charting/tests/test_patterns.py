@@ -378,7 +378,10 @@ def test_pattern_snapshot_matches_documented_shape():
     expected_keys = {
         "pattern_id", "pattern_type", "direction", "population", "status", "stage",
         "formation_start", "formation_end", "levels", "pivots", "components", "rules", "events", "scores",
-        "retest_quality",  # §35.2 amendment addition (N§13) -- see test_patterns_retest_quality.py
+        # NOTE: no `retest_quality` here -- CANDLE-MOVE (2026-09-22, docs/charting.md §38.18
+        # decisions-log #93/#110) moved it (and candle quality) into the research enrichment
+        # record (research/charting/enrich.py), out of this production snapshot. See
+        # test_patterns_retest_quality.py / test_enrich.py.
     }
     assert set(d.keys()) == expected_keys
     assert d["population"] == "CONFIRMED"

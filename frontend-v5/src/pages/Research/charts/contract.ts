@@ -29,6 +29,10 @@ export type PitStatus = "PIT_VALIDATED" | "PIT_UNVERIFIED" | string;
 
 export interface ManifestSymbolEntry {
   symbol: string;
+  /** Optional: today's manifest (backend/services/research_chart_snapshot/manifest.json) carries no company name,
+   *  so the top bar renders the symbol alone rather than inventing one. Typed here so an export that later adds
+   *  the field is rendered without another frontend change. */
+  name?: string;
   n_bars: number;
   first_date: string;
   last_date: string;
@@ -71,6 +75,25 @@ export interface SymbolsPayload { symbols: ManifestSymbolEntry[]; }
 /** [date, open, high, low, close, volume] — ascending. */
 export type Bar = [string, number, number, number, number, number];
 
+/** §38.7 weekly/monthly rows are one element longer than a daily row: a trailing `incomplete` boolean
+ *  (backend/services/research_chart.py `_valid_timeframe_bar_row`). The API serves whichever shape matches the
+ *  requested timeframe, so a payload's rows are read through `splitBars` rather than assumed to be 6 wide. */
+export type TimeframeBar = [string, number, number, number, number, number, boolean];
+export type AnyBar = Bar | TimeframeBar;
+
+/** Splits a served bar list into the 6-wide `Bar[]` the chart draws plus the set of dates the API flagged
+ *  incomplete (§38.4: "A bar that is not complete yet ... is visibly marked"). A 6-wide daily row has no flag, so
+ *  the set is empty on 1D — the flag is never inferred here. */
+export function splitBars(rows: AnyBar[] | undefined): { bars: Bar[]; incomplete: Set<string> } {
+  const bars: Bar[] = [];
+  const incomplete = new Set<string>();
+  for (const row of rows ?? []) {
+    bars.push([row[0], row[1], row[2], row[3], row[4], row[5]]);
+    if (row.length > 6 && (row as TimeframeBar)[6] === true) incomplete.add(row[0]);
+  }
+  return { bars, incomplete };
+}
+
 export interface OhlcvFinding { date: string; rule_id: string; observed?: Json }
 
 export interface Provenance extends Json {
@@ -85,7 +108,9 @@ export interface Provenance extends Json {
 
 export interface OhlcvPayload {
   symbol: string;
-  bars: Bar[];
+  /** Echoed by the API since §38.11's `timeframe` param landed; absent on an older backend. */
+  timeframe?: string;
+  bars: AnyBar[];
   data_quality_status: DataQualityStatus;
   pit_status: PitStatus;
   findings: OhlcvFinding[];
@@ -176,7 +201,8 @@ const CONFIRMED_STATES = new Set(["PRICE_CONFIRMED", "VOLUME_CONFIRMED", "CONTEX
 
 /** Overlay style bucket, from the pattern's own status. Only a status past price confirmation is "confirmed" — a pattern that
  *  is merely formed (GEOMETRY_VALID) or only wicked through (BREAKOUT_ATTEMPT) draws as forming. */
-export function patternVisualCategory(p: Pattern): "forming" | "confirmed" | "failed" | "invalidated" {
+export type PatternVisualCategory = "forming" | "confirmed" | "failed" | "invalidated";
+export function patternVisualCategory(p: Pattern): PatternVisualCategory {
   const s = (p.status || "").toUpperCase();
   if (s.includes("INVALID") || s === "EXPIRED") return "invalidated";
   if (s.includes("FAIL")) return "failed";
@@ -209,6 +235,173 @@ export function levelOf(p: Pattern): { price: number; kind: "SUPPORT" | "RESISTA
   if (!isNum(price) || (kind !== "SUPPORT" && kind !== "RESISTANCE")) return null;
   const s = (p.status || "").toUpperCase();
   return { price, kind, broken: CONFIRMED_STATES.has(s), failed: s.includes("FAIL") };
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   W0 — patterns on the chart (§38.15). Every function here is pure and reads
+   only fields the snapshot already carries; nothing is computed by "recognising"
+   a pattern — the engine already did that (§38.15 "Accuracy").
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** §38.15: chips for All / Active (forming or confirmed) / Confirmed / Failed / Invalidated, plus one per family. */
+export type PatternFilter = "ALL" | "ACTIVE" | "CONFIRMED" | "FAILED" | "INVALIDATED" | `FAMILY:${string}`;
+
+export function matchesPatternFilter(p: Pattern, filter: PatternFilter): boolean {
+  if (filter === "ALL") return true;
+  const cat = patternVisualCategory(p);
+  if (filter === "ACTIVE") return cat === "forming" || cat === "confirmed";
+  if (filter === "CONFIRMED") return cat === "confirmed";
+  if (filter === "FAILED") return cat === "failed";
+  if (filter === "INVALIDATED") return cat === "invalidated";
+  return p.pattern_type === filter.slice("FAMILY:".length);
+}
+
+/** The distinct chart-pattern families present for this symbol, in first-seen order — drives the per-family chips. */
+export function patternFamilies(patterns: Pattern[]): string[] {
+  const seen: string[] = [];
+  for (const p of patterns) if (!seen.includes(p.pattern_type)) seen.push(p.pattern_type);
+  return seen;
+}
+
+/** §38.15 "Known" marker: until the §19 replay engine exports a real first-detection timestamp, this is the latest
+ *  pivot `confirmed_date` (falling back to the pivot's own `date` when `confirmed_date` is absent), labelled
+ *  "pivots confirmed" — see the label used at the call site. Null when the pattern carries no pivots. */
+export function knownMarkerDate(p: Pattern): string | null {
+  const dates = (p.pivots ?? []).map((piv) => piv.confirmed_date ?? piv.date).filter((d): d is string => !!d);
+  if (!dates.length) return null;
+  return dates.reduce((a, b) => (b > a ? b : a));
+}
+
+/** The pattern's own drawn window: formation_start to its LAST event (or formation_end with no events), per §38.15
+ *  "Shape, not lines" / AC19. ISO `YYYY-MM-DD` strings compare correctly with plain `<`/`>`. */
+export function patternWindow(p: Pattern): { start: string; end: string } {
+  const eventDates = (p.events ?? []).map((e) => e.date).filter(Boolean);
+  const end = eventDates.length ? eventDates.reduce((a, b) => (b > a ? b : a)) : p.formation_end;
+  return { start: p.formation_start, end };
+}
+
+/** The most recent numeric value of a single-output indicator series (e.g. atr_14's one "atr" column), regardless
+ *  of date. §38.15 item 8 specifies "the served atr_14 value at the last bar" for the S/R grouping tolerance; the
+ *  same last-bar convention is reused for the nearest-level ATR distance and the pattern-details ATR/relative-volume
+ *  fields (§20.3) — one documented convention rather than two, since the frozen snapshot has no live "as of" moment
+ *  to be more precise about. */
+export function lastIndicatorValue(ind: IndicatorSeries | undefined): number | null {
+  if (!ind || !ind.values.length) return null;
+  const row = ind.values[ind.values.length - 1];
+  const v = row[1];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/** §38.15 item 8: one grouped band per set of S/R records within `0.35 * ATR(14)` of each other (the frozen
+ *  `level_cluster_width_atr` touch tolerance, research/charting/config.py). Chain-grouped after sorting by price, so
+ *  a run of near-duplicates merges into one band even when the first and last of the run are more than the
+ *  tolerance apart. `atr14 == null` (no atr_14 series served) degrades to one band per record — never a crash, and
+ *  never a silent wrong grouping. */
+export interface SrBand { id: string; kind: "SUPPORT" | "RESISTANCE" | "MIXED"; price: number; records: Pattern[] }
+
+export function groupSrBands(levels: Pattern[], atr14: number | null): SrBand[] {
+  const rows = levels
+    .map((p) => ({ p, lv: levelOf(p) }))
+    .filter((x): x is { p: Pattern; lv: NonNullable<ReturnType<typeof levelOf>> } => x.lv !== null)
+    .sort((a, b) => a.lv.price - b.lv.price);
+  const tolerance = atr14 != null && atr14 > 0 ? 0.35 * atr14 : 0;
+
+  const bands: SrBand[] = [];
+  let current: typeof rows = [];
+  const flush = () => {
+    if (!current.length) return;
+    const kinds = new Set(current.map((x) => x.lv.kind));
+    const price = current.reduce((sum, x) => sum + x.lv.price, 0) / current.length;
+    bands.push({
+      id: current.map((x) => x.p.pattern_id).join("+"),
+      kind: kinds.size === 1 ? ([...kinds][0] as "SUPPORT" | "RESISTANCE") : "MIXED",
+      price,
+      records: current.map((x) => x.p),
+    });
+    current = [];
+  };
+  for (const row of rows) {
+    const prev = current[current.length - 1];
+    if (prev && row.lv.price - prev.lv.price > tolerance) flush();
+    current.push(row);
+  }
+  flush();
+  return bands;
+}
+
+/**
+ * One LEVELS-tab card per grouped S/R band (design-1a-reference.md item 8). Every field is read from the records
+ * the band already holds — price, side, the number of touches (the pivots the detector recorded) and the distance
+ * to the last close in ₹ and %. HOLDING/BROKEN comes from the records' own §11 status via `levelOf`: a band whose
+ * break was confirmed on any of its records reads BROKEN.
+ *
+ * There is deliberately **no 1–5 strength score**: the S/R record carries `scores: null`, so a score would be an
+ * invention (§11/§16, decisions-log #114, design-1a-reference.md "Strength 1–5 is not in the data").
+ */
+export interface LevelCard {
+  id: string;
+  price: number;
+  kind: SrBand["kind"];
+  touches: number;
+  distanceRupees: number | null;
+  distancePct: number | null;
+  state: "HOLDING" | "BROKEN";
+  records: Pattern[];
+}
+
+export function levelCards(bands: SrBand[], lastClose: number | null): LevelCard[] {
+  return bands.map((b) => {
+    const touches = b.records.reduce((n, p) => n + (p.pivots?.length ?? 0), 0);
+    const broken = b.records.some((p) => { const lv = levelOf(p); return !!lv && (lv.broken || lv.failed); });
+    const distanceRupees = isNum(lastClose) ? b.price - lastClose : null;
+    return {
+      id: b.id,
+      price: b.price,
+      kind: b.kind,
+      touches,
+      distanceRupees,
+      distancePct: distanceRupees != null && isNum(lastClose) && lastClose !== 0 ? (distanceRupees / lastClose) * 100 : null,
+      state: broken ? "BROKEN" : "HOLDING",
+      records: b.records,
+    };
+  });
+}
+
+/** §38.15 "Nearest-level readout": the S/R band or chart-pattern boundary (support/resistance/breakout/invalidation)
+ *  nearest to the last close — a fact, not a signal. Role is read from the candidate's own kind when it has one
+ *  (an S/R band, or a level explicitly named "support"/"resistance"); a boundary with no inherent side
+ *  (breakout_level, invalidation_level, or a MIXED band) is classed by plain position — at/above the last close
+ *  reads as resistance, below as support. Ties (equal distance) keep the first candidate built, in the order chart
+ *  patterns are supplied then bands — deterministic, not a ranking. */
+export interface NearestLevel { price: number; distanceRupees: number; distanceAtr: number | null; role: "SUPPORT" | "RESISTANCE"; label: string }
+
+export function nearestLevelReadout(lastClose: number | null, chartPatterns: Pattern[], bands: SrBand[], atr14: number | null): NearestLevel | null {
+  if (!isNum(lastClose)) return null;
+  const roleFor = (price: number, named?: "SUPPORT" | "RESISTANCE" | "MIXED") =>
+    named && named !== "MIXED" ? named : price >= lastClose ? "RESISTANCE" : "SUPPORT";
+  type Cand = { price: number; role: "SUPPORT" | "RESISTANCE"; label: string };
+  const candidates: Cand[] = [];
+  for (const p of chartPatterns) {
+    const type = patternTypeLabel(p.pattern_type);
+    if (isNum(p.levels?.support)) candidates.push({ price: p.levels.support, role: "SUPPORT", label: `${type} support` });
+    if (isNum(p.levels?.resistance)) candidates.push({ price: p.levels.resistance, role: "RESISTANCE", label: `${type} resistance` });
+    if (isNum(p.levels?.breakout_level)) candidates.push({ price: p.levels.breakout_level, role: roleFor(p.levels.breakout_level), label: `${type} breakout level` });
+    if (isNum(p.levels?.invalidation_level)) candidates.push({ price: p.levels.invalidation_level, role: roleFor(p.levels.invalidation_level), label: `${type} invalidation level` });
+  }
+  for (const b of bands) candidates.push({ price: b.price, role: roleFor(b.price, b.kind), label: `S/R band (${b.records.length})` });
+  if (!candidates.length) return null;
+
+  let best = candidates[0];
+  let bestDist = Math.abs(best.price - lastClose);
+  for (const c of candidates.slice(1)) {
+    const d = Math.abs(c.price - lastClose);
+    if (d < bestDist) { best = c; bestDist = d; }
+  }
+  return {
+    price: best.price, distanceRupees: bestDist,
+    distanceAtr: atr14 != null && atr14 > 0 ? bestDist / atr14 : null,
+    role: best.role, label: best.label,
+  };
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -273,11 +466,49 @@ export const chartApi = {
     if (!Array.isArray(r.data?.symbols)) return { kind: "error", message: "unexpected /symbols response shape" };
     return { kind: "ok", data: r.data.symbols };
   },
-  ohlcv: (symbol: string) => getJson<OhlcvPayload>(`${BASE}/${encodeURIComponent(symbol)}/ohlcv`),
-  indicators: (symbol: string, ids?: string[]) =>
-    getJson<IndicatorsPayload>(`${BASE}/${encodeURIComponent(symbol)}/indicators`, ids?.length ? { ids: ids.join(",") } : undefined),
+  /** `timeframe` is only sent for 1W/1M: an older backend has no such query param and 1D is its default, so a
+   *  daily request is byte-for-byte the request this screen has always made (§38.11 "default 1D so existing
+   *  callers are unaffected"). */
+  ohlcv: (symbol: string, timeframe = "1D") =>
+    getJson<OhlcvPayload>(`${BASE}/${encodeURIComponent(symbol)}/ohlcv`, timeframeQuery(timeframe)),
+  indicators: (symbol: string, ids?: string[], timeframe = "1D") => {
+    const query = { ...(ids?.length ? { ids: ids.join(",") } : {}), ...timeframeQuery(timeframe) };
+    return getJson<IndicatorsPayload>(`${BASE}/${encodeURIComponent(symbol)}/indicators`, Object.keys(query).length ? query : undefined);
+  },
   patterns: (symbol: string) => getJson<PatternsPayload>(`${BASE}/${encodeURIComponent(symbol)}/patterns`),
 };
+
+function timeframeQuery(timeframe: string): Record<string, string> | undefined {
+  return timeframe && timeframe !== "1D" ? { timeframe } : undefined;
+}
+
+/** True when a Result carries the API's `unknown_timeframe` reason code (400, §27 / research_chart.py) — i.e. a
+ *  backend deployed before the §38.7 weekly/monthly export. The caller degrades the interval to
+ *  disabled-with-a-reason rather than showing the screen's generic error state (task brief, §38.19.2). */
+export function isUnknownTimeframe(r: Result<unknown> | null): boolean {
+  return r?.kind === "error" && r.message.toLowerCase().includes("unknown_timeframe");
+}
+
+/**
+ * Heikin-Ashi bars, computed in the browser from the SAME served bars (§38.7 P1, "labelled synthetic"). This is a
+ * display transform, not an indicator: it recognises nothing and reads no extra field, and the UI labels it as a
+ * transform wherever it is shown. Patterns and indicators keep running on the real bars (§38.7), so this output is
+ * only ever handed to the candle series — never to the pattern layer, the legend's O/H/L/C or the Data view.
+ */
+export function heikinAshi(bars: Bar[]): Bar[] {
+  const out: Bar[] = [];
+  let prevOpen: number | null = null;
+  let prevClose: number | null = null;
+  for (const [date, o, h, l, c, v] of bars) {
+    const haClose = (o + h + l + c) / 4;
+    // Annotated: `prevOpen` is assigned from `haOpen` at the end of the loop body, so leaving this inferred
+    // makes its type circular through the loop's back edge (TS7022).
+    const haOpen: number = prevOpen == null || prevClose == null ? (o + c) / 2 : (prevOpen + prevClose) / 2;
+    out.push([date, haOpen, Math.max(h, haOpen, haClose), Math.min(l, haOpen, haClose), haClose, v]);
+    prevOpen = haOpen; prevClose = haClose;
+  }
+  return out;
+}
 
 export const drawingsApi = {
   list: (symbol: string) => getJson<Drawing[]>(DRAWINGS, { symbol }),

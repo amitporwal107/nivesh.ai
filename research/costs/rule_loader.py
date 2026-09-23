@@ -19,6 +19,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Optional
 
 RULES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rules")
@@ -35,13 +36,36 @@ def _safe_id(rule_id: str) -> str:
     return rule_id
 
 
-def load_rule_file(rule_id: str, *, rules_dir: str = RULES_DIR) -> dict:
-    """Load and return the raw JSON for a rule id (the filename stem, no extension)."""
+@lru_cache(maxsize=None)
+def _load_rule_file_cached(rule_id: str, rules_dir: str) -> dict:
     path = os.path.join(rules_dir, f"{_safe_id(rule_id)}.json")
     if not os.path.exists(path):
         raise RuleError(f"unknown rule set {rule_id!r} (looked in {rules_dir})")
     with open(path) as fh:
         return json.load(fh)
+
+
+def load_rule_file(rule_id: str, *, rules_dir: str = RULES_DIR) -> dict:
+    """Load and return the raw JSON for a rule id (the filename stem, no extension).
+
+    PERFORMANCE: memoized by (rule_id, rules_dir) -- `research/charting/study/execute.py`'s own
+    profiling (PERF-CONTROLS package) found this the single largest cost in a full study run:
+    the same handful of rule files (nse-equity-statutory-v1, tax-equity-v1, zerodha-equity-v1)
+    are re-read from disk and re-`json.load`ed on EVERY cost/tax computation -- hundreds of
+    thousands of times across a 200-seed x ~2,132-symbol run, for content that never changes
+    within a process. Every caller here only ever READS the returned dict (verified: no caller
+    anywhere in research/costs or research/charting assigns into, pops from, or otherwise
+    mutates the returned rule-file dict) -- so returning the SAME cached dict object on every
+    call for the same (rule_id, rules_dir) is behaviourally identical to re-reading the file
+    each time, just far cheaper. `rules_dir` is part of the cache key (not just `rule_id`) so a
+    test pointed at its own synthetic tmp_path never collides with another test's or the real
+    rules/ directory's cache entry -- each `tmp_path` pytest gives out is a distinct string, so a
+    test that writes then later REWRITES a rule file at the SAME path (see
+    tests/test_date_effectiveness.py's `test_a_null_rate_raises_loudly_instead_of_pricing_zero`,
+    which uses its own fresh `tmp_path` rather than reusing `synthetic_rules_dir`'s) still gets
+    a correct, uncached first read.
+    """
+    return _load_rule_file_cached(rule_id, rules_dir)
 
 
 def _parse_date(s: Optional[str]) -> Optional[dt.date]:
@@ -84,17 +108,38 @@ def _matches_selectors(rec: dict, selectors: dict) -> bool:
     return True
 
 
+_RESOLVE_RECORD_CACHE: dict = {}
+
+
 def resolve_record(records: list, on_date: dt.date, **selectors: Any) -> TimeBoxed:
     """The single record in `records` whose date window contains `on_date` and whose selector
     fields (segment=, exchange=, side=, ...) match. Raises RuleError if zero or more than one match
-    -- an ambiguous rule table is a defect, never silently resolved by "pick the first"."""
+    -- an ambiguous rule table is a defect, never silently resolved by "pick the first".
+
+    PERFORMANCE: memoized by `(id(records), on_date, selectors)`. `records` is a plain `list`,
+    not hashable, so it cannot be a `functools.lru_cache` argument directly -- `id(records)` is
+    used instead of the list's own contents. This is safe because every real caller's `records`
+    list comes from a `load_rule_file()` return value (now itself cached -- see that function's
+    docstring), which is held alive for the rest of the process by that cache, so its `id()` can
+    never be reused by an unrelated, later-created list while this cache entry is still live (the
+    one situation that would make an `id()`-keyed cache wrong). A caller passing its own literal
+    list (as this module's tests do) is equally safe: that list is kept alive by whatever local/
+    module variable already references it. Nothing here changes WHICH record is chosen -- the
+    original linear scan runs unchanged on a cache miss; a hit returns the exact same `TimeBoxed`
+    a fresh scan would have produced. A miss that raises `RuleError` is deliberately not cached
+    (the scan is cheap on the rare error path, and caching a raised exception would need a second
+    code path here for no real benefit)."""
+    cache_key = (id(records), on_date, tuple(sorted(selectors.items())))
+    cached = _RESOLVE_RECORD_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     hits = [r for r in records if _in_window(on_date, r) and _matches_selectors(r, selectors)]
     if not hits:
         raise RuleError(f"no rate covers {on_date} for {selectors!r}")
     if len(hits) > 1:
         raise RuleError(f"ambiguous rate table: {len(hits)} records cover {on_date} for {selectors!r}")
     rec = hits[0]
-    return TimeBoxed(
+    result = TimeBoxed(
         record=rec,
         effective_from=_parse_date(rec.get("effective_from")),
         effective_to=_parse_date(rec.get("effective_to")),
@@ -102,6 +147,8 @@ def resolve_record(records: list, on_date: dt.date, **selectors: Any) -> TimeBox
         source_url=rec.get("source_url"),
         note=rec.get("note"),
     )
+    _RESOLVE_RECORD_CACHE[cache_key] = result
+    return result
 
 
 def unverified_records(rule_json: dict) -> list[dict]:

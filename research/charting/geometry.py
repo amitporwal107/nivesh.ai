@@ -17,6 +17,7 @@ fails says *which* clause failed" — nothing here collapses into an opaque scor
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal, Sequence
 
@@ -32,7 +33,12 @@ BoundaryDirection = Literal["FLAT", "RISING", "FALLING", "INDETERMINATE"]
 
 
 def _atr_valid(atr: float | None) -> bool:
-    return atr is not None and np.isfinite(atr) and atr > 0
+    # PERF-DETECT (2026-09-22): `math.isfinite` on a scalar (plain float or numpy float64) is
+    # the same finiteness test as `np.isfinite` -- excludes NaN and +/-inf, identically -- but
+    # avoids numpy's ufunc-dispatch overhead, which dominates when called this often (this is
+    # the single most-called predicate in the hot per-bar walk loops: ~1M+ calls in a full
+    # replay). `atr is not None` still short-circuits before either finiteness check runs.
+    return atr is not None and math.isfinite(atr) and atr > 0
 
 
 # ── 1. Boundary drift — flat / rising / falling (§30.1 #1) ──────────────────
@@ -173,6 +179,37 @@ def touch_from_pivot(pivot: Pivot, bars: pd.DataFrame) -> Touch:
     )
 
 
+def _touch_from_arrays(
+    pivot: Pivot, opens: np.ndarray, highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, volumes: np.ndarray
+) -> Touch:
+    """Perf-only twin of `touch_from_pivot` (PERF-DETECT): identical value-for-value (same
+    float64 reads, same `_rejection_fraction` call with the same four floats in the same
+    order), but reads the pivot's own bar from pre-extracted numpy column arrays instead of
+    `bars.iloc[pivot.pivot_index]` — a full-row Series fetch is measurably more expensive per
+    call than one scalar read from each of five already-built numpy arrays, and
+    `cluster_pivots_into_levels` below calls this once per pivot, every `detect_as_of` call.
+    `touch_from_pivot` itself is kept byte-for-byte unchanged (it is imported directly by
+    test_geometry.py) — this is purely an internal fast path used by this module's own hot
+    loop. IEEE-754 double subtraction/arithmetic on the same bit pattern is bit-exact
+    regardless of whether the value arrived via `Series.iloc` or a numpy array, so `rng` and
+    `rejection` come out identical to `touch_from_pivot`'s own computation."""
+    i = pivot.pivot_index
+    o, h, l, c, v = float(opens[i]), float(highs[i]), float(lows[i]), float(closes[i]), float(volumes[i])
+    rng = h - l
+    rejection = _rejection_fraction(o, h, l, c, pivot.kind)
+    return Touch(
+        pivot_index=pivot.pivot_index,
+        pivot_date=pivot.pivot_date,
+        confirmed_index=pivot.confirmed_index,
+        confirmed_date=pivot.confirmed_date,
+        kind=pivot.kind,
+        price=pivot.price,
+        volume=v,
+        bar_range=rng,
+        rejection=rejection,
+    )
+
+
 def _weighted_mean(touches: Sequence[Touch]) -> float:
     total_w = sum(t.volume for t in touches)
     if total_w <= 0:
@@ -212,7 +249,20 @@ def cluster_pivots_into_levels(
     same_kind = [p for p in pivots if p.kind == kind]
     if not same_kind or not _atr_valid(atr):
         return []
-    touches = sorted((touch_from_pivot(p, bars) for p in same_kind), key=lambda t: t.price)
+    # PERF-DETECT: extract the five OHLCV columns to numpy ONCE for this call, then read each
+    # pivot's own row via `_touch_from_arrays` (plain array indexing) instead of
+    # `touch_from_pivot`'s per-pivot `bars.iloc[...]` (a full-row Series fetch, with pandas'
+    # own type/bounds-checking overhead on every call) -- value-for-value identical, see
+    # `_touch_from_arrays`'s own docstring.
+    opens = bars["open"].to_numpy(dtype=float)
+    highs_arr = bars["high"].to_numpy(dtype=float)
+    lows_arr = bars["low"].to_numpy(dtype=float)
+    closes_arr = bars["close"].to_numpy(dtype=float)
+    volumes_arr = bars["volume"].to_numpy(dtype=float)
+    touches = sorted(
+        (_touch_from_arrays(p, opens, highs_arr, lows_arr, closes_arr, volumes_arr) for p in same_kind),
+        key=lambda t: t.price,
+    )
     width = cfg["level_cluster_width_atr"] * atr
 
     price_clusters: list[list[Touch]] = [[touches[0]]]
@@ -288,10 +338,15 @@ def level_strength(
 
     rejection_c = float(np.mean([t.rejection for t in touches])) if n else 0.0
 
+    # PERF-DETECT: `np.asarray` on a pd.Series/ndarray is a cheap one-time conversion (a view,
+    # not a copy, for an already-numpy-backed Series); reading `rel_arr[i]` in the loop below is
+    # then a plain array index instead of `Series.iloc[i]`'s per-call overhead. Same float64
+    # values either way -- accepts a Series (every existing caller) or an ndarray unchanged.
+    rel_arr = np.asarray(relative_volume, dtype=float)
     rel_vols: list[float] = []
     for t in touches:
-        if 0 <= t.pivot_index < len(relative_volume):
-            v = relative_volume.iloc[t.pivot_index]
+        if 0 <= t.pivot_index < len(rel_arr):
+            v = rel_arr[t.pivot_index]
             if np.isfinite(v):
                 rel_vols.append(float(v))
     volume_c = min((float(np.mean(rel_vols)) / cfg["relative_volume_strong"]), 1.0) if rel_vols else 0.0

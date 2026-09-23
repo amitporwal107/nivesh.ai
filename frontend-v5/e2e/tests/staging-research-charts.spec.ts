@@ -27,18 +27,38 @@ async function openCharts(page: Page) {
   const symbolsP = page.waitForResponse((r) => is(r, "/api/research/chart/symbols"));
   const ohlcvP = page.waitForResponse((r) => r.url().includes("/api/research/chart/") && r.url().includes("/ohlcv") && r.status() === 200);
   const patternsP = page.waitForResponse((r) => r.url().includes("/api/research/chart/") && r.url().includes("/patterns") && r.status() === 200);
+  const indicatorsP = page.waitForResponse((r) => r.url().includes("/api/research/chart/") && r.url().includes("/indicators") && r.status() === 200);
   await page.getByTestId("rail-charts").click();
   const symbols = await (await symbolsP).json();
   const ohlcv = await (await ohlcvP).json();
   const patterns = await (await patternsP).json();
+  const indicators = await (await indicatorsP).json();
   await expect(page.getByTestId("charts-screen")).toBeVisible();
-  return { symbols, ohlcv, patterns };
+  return { symbols, ohlcv, patterns, indicators };
+}
+
+/** Same chain-grouping the app uses (contract.ts `groupSrBands`, §38.15 item 8) — reimplemented locally rather than
+ *  imported, since this spec runs through Playwright's own module loader (no `@/...` alias resolution configured
+ *  for e2e/, and this file must still fail closed with `test.skip` rather than an import error when no staging
+ *  session is configured). Keep in sync with contract.ts if the tolerance or grouping rule changes. */
+function expectedSrBandCount(levels: Array<{ levels?: { level?: number | null; kind?: string | null } }>, atr14: number | null): number {
+  const rows = levels
+    .map((p) => ({ price: p.levels?.level, kind: String(p.levels?.kind ?? "").toUpperCase() }))
+    .filter((r): r is { price: number; kind: string } => typeof r.price === "number" && (r.kind === "SUPPORT" || r.kind === "RESISTANCE"))
+    .sort((a, b) => a.price - b.price);
+  const tolerance = atr14 != null && atr14 > 0 ? 0.35 * atr14 : 0;
+  let bands = 0, prevPrice: number | null = null;
+  for (const r of rows) {
+    if (prevPrice == null || r.price - prevPrice > tolerance) bands++;
+    prevPrice = r.price;
+  }
+  return bands;
 }
 
 test("TC-15/16/17/21 real staging: symbols, candles, status chip and patterns equal the payloads", async ({ page }) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1440, height: 1000 });
-  const { symbols, ohlcv, patterns } = await openCharts(page);
+  const { symbols, ohlcv, patterns, indicators } = await openCharts(page);
 
   // TC-15: every served symbol is listed, and the candles render on a real canvas
   // chart-symbol-<SYM> rows only — the prefix also matches the list container and the search box
@@ -62,13 +82,19 @@ test("TC-15/16/17/21 real staging: symbols, candles, status chip and patterns eq
   type P = { pattern_type: string; levels?: { level?: number | null; kind?: string | null } };
   const served = patterns.patterns as P[];
   const chartPatterns = served.filter((p) => p.pattern_type !== "SUPPORT_RESISTANCE");
-  const drawableLevels = served.filter((p) => p.pattern_type === "SUPPORT_RESISTANCE"
+  const levelRecords = served.filter((p) => p.pattern_type === "SUPPORT_RESISTANCE"
     && typeof p.levels?.level === "number" && ["SUPPORT", "RESISTANCE"].includes(String(p.levels?.kind).toUpperCase()));
   await expect(page.locator('[data-testid^="chart-pattern-row-"]')).toHaveCount(chartPatterns.length);
   if (chartPatterns.length === 0) await expect(page.getByTestId("chart-patterns-empty")).toBeVisible();
   await expect(page.getByTestId("chart-patterns-panel")).not.toContainText("SUPPORT_RESISTANCE");
   await expect(page.getByTestId("chart-sr-toggle")).toBeChecked();
-  await expect.poll(async () => Number(await page.getByTestId("chart-canvas").getAttribute("data-rendered-levels"))).toBe(drawableLevels.length);
+  // §38.15 item 8: the drawn line count is the GROUPED band count, not the raw record count — near-duplicate
+  // levels within 0.35*ATR(14) collapse into one band (contract.ts groupSrBands / expectedSrBandCount above).
+  type IndRow = [string, ...number[]];
+  const atr14Rows = (indicators?.indicators?.atr_14?.values ?? []) as IndRow[];
+  const atr14 = atr14Rows.length ? (atr14Rows[atr14Rows.length - 1][1] as number) : null;
+  await expect.poll(async () => Number(await page.getByTestId("chart-canvas").getAttribute("data-rendered-levels")))
+    .toBe(expectedSrBandCount(levelRecords, atr14 ?? null));
 
   // TC-21: licence attribution
   await expect(page.getByTestId("chart-tv-attribution")).toBeVisible();

@@ -171,6 +171,7 @@ def replay(
     start_index: int = 0,
     end_index: Optional[int] = None,
     incomplete_bar: Optional[dict] = None,
+    snapshot_sink: Optional[dict] = None,
 ) -> ReplayResult:
     """Chronological, point-in-time-safe replay over `bars[start_index..end_index]`.
 
@@ -200,6 +201,16 @@ def replay(
     `research_window.SealedWindowError` is raised if it overlaps at all. A post-sealed replay
     must therefore be handed bars that start after 2024-07-31 (its own fresh history): a sealed
     bar used only as lookback would still shape every level and swing the replay reports.
+
+    `snapshot_sink` (PERF-DETECT, 2026-09-22, optional -- default `None` changes nothing about
+    this function's return value or behaviour): when given a dict, this walk also records
+    `snapshot_sink[t] = snaps` -- the RAW `patterns.detect_as_of` output at every step `t` --
+    purely as a side channel. `events.extraction.extract_events` used to call
+    `patterns.detect_as_of` a SECOND time, at the exact same `(bars.iloc[:t+1], t, cfg, symbol)`
+    this walk already computed internally, just to recover the full `PatternSnapshot` for a
+    transition it already knows about; passing a dict here lets it look that snapshot up instead
+    (see extraction.py's own note). Nothing about `transitions`/`final_state`/the returned
+    `ReplayResult` depends on whether this was passed.
     """
     n = len(bars)
     if n == 0:
@@ -221,6 +232,8 @@ def replay(
         date_t = _iso_date(bars["date"].iloc[t])
         ib = incomplete_bar if (incomplete_bar is not None and t == end) else None
         snaps = patterns.detect_as_of(sub, t, cfg=cfg, symbol=symbol, incomplete_bar=ib)
+        if snapshot_sink is not None:
+            snapshot_sink[t] = snaps
 
         for snap in sorted(snaps, key=lambda s: s.pattern_id):
             prior = last_status.get(snap.pattern_id)

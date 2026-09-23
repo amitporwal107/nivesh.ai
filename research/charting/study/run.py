@@ -249,11 +249,18 @@ def build_segment(
     exclusion_mask: Callable = no_exclusions, segmenter: Callable = no_segments,
     calendars: Optional[Mapping[str, Sequence]] = None, exclusion_mask_is_default: Optional[bool] = None,
     attach_context: bool = False, out_dir=None, now=None,
-    input_file_hashes: Optional[Sequence[dict]] = None,
+    input_file_hashes: Optional[Sequence[dict]] = None, max_workers: int = 1,
 ) -> dict:
     """One segment's full §3 pipeline: universe rule -> data-quality exclusion -> demerger
     hook -> `events.pipeline.build_event_dataset` (own segment-bound guard) -> optional
     context join -> hashed run-folder write with the extended §2 manifest.
+
+    `max_workers` (PERFORMANCE ONLY, default 1 = serial, byte-identical output for any value --
+    PERF-PARALLEL performance work): forwarded to `events.pipeline.build_event_dataset` (per-
+    symbol extraction) and, when `attach_context=True`, to `events.context_join
+    .attach_to_event_rows_by_symbol` (per-symbol context join) -- see each function's own
+    docstring. Universe/data-quality/demerger and the final manifest write stay single-process
+    (not this package's own perf target; see the PERF-PARALLEL task brief).
 
     `input_file_hashes`: pre-computed `[{"path":.., "sha256":.., "row_count":..}, ...]` (e.g.
     from `research.charting.bars.provenance().files`) -- accepted rather than computed
@@ -282,7 +289,7 @@ def build_segment(
         exclusion_mask is no_exclusions and segmenter is no_segments
     )
 
-    result = pipeline.build_event_dataset(filtered_bars, segment=segment, cfg=cfg, cost_cfg=cost_cfg)
+    result = pipeline.build_event_dataset(filtered_bars, segment=segment, cfg=cfg, cost_cfg=cost_cfg, max_workers=max_workers)
     findings = data_quality_findings(filtered_bars, calendar=calendar)
     rows, dq = data_quality_event_exclusions(
         result["rows"], filtered_bars, findings,
@@ -292,12 +299,13 @@ def build_segment(
         row["base_symbol"] = base_symbol(row["symbol"])
 
     if attach_context:
-        enriched: list = []
-        for symbol in sorted(filtered_bars):
-            symbol_rows = [r for r in rows if r["symbol"] == symbol]
-            if symbol_rows:
-                enriched.extend(context_join.attach_to_event_rows_for_symbol(symbol_rows, filtered_bars[symbol], cfg=cfg))
-        rows = enriched
+        rows_by_symbol: dict = {}
+        for r in rows:
+            rows_by_symbol.setdefault(r["symbol"], []).append(r)
+        enriched_by_symbol = context_join.attach_to_event_rows_by_symbol(
+            rows_by_symbol, filtered_bars, cfg=cfg, max_workers=max_workers,
+        )
+        rows = [r for symbol in sorted(enriched_by_symbol) for r in enriched_by_symbol[symbol]]
 
     manifest = None
     if out_dir is not None:
