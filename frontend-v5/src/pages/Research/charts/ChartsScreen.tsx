@@ -1175,15 +1175,42 @@ export default function ChartsScreen() {
 
   return (
     <Shell>
-      {fixture && (
-        <div role="alert" data-testid="chart-banner-fixture" style={{ border: "1px solid var(--danger-line)", background: "var(--danger-soft)", borderRadius: 12, padding: "10px 12px", color: "var(--c-ink)", fontSize: 12.5, lineHeight: 1.5 }}>
-          <b className="nv-mono" style={{ fontSize: 10.5, letterSpacing: ".1em", marginRight: 8, color: "var(--danger-hex)" }}>SYNTHETIC DEVELOPMENT DATA</b>
-          This snapshot is placeholder data for building the page — <b>not real market data</b>. No number here may be quoted, reported or acted on.
+      {/* One provenance strip rather than a stack of full-width banners: on a charting screen the
+          chart has to own the viewport, so the page heading and both notices share a single row.
+          The wording is unchanged and stays in the DOM (and in the title/aria text) — the pill is
+          what carries the weight visually, which makes the warning louder, not quieter. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <h2 className="nv-eyebrow" style={{ margin: 0, flex: "none" }}>Charts</h2>
+        {fixture && (
+          <div
+            role="alert" data-testid="chart-banner-fixture"
+            title="This snapshot is placeholder data for building the page — not real market data. No number here may be quoted, reported or acted on."
+            style={{
+              display: "flex", alignItems: "baseline", gap: 7, minWidth: 0, flex: "0 1 auto",
+              border: "1px solid var(--danger-line)", background: "var(--danger-soft)", borderRadius: 999,
+              padding: "3px 11px", color: "var(--c-ink)", fontSize: 11.5,
+            }}
+          >
+            <b className="nv-mono" style={{ fontSize: 9.5, letterSpacing: ".1em", color: "var(--danger-hex)", flex: "none" }}>SYNTHETIC DEVELOPMENT DATA</b>
+            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--c-ink-2)" }}>
+              This snapshot is placeholder data for building the page — <b>not real market data</b>. No number here may be quoted, reported or acted on.
+            </span>
+          </div>
+        )}
+        <div
+          role="note"
+          title={`Kite-derived prices, frozen research run ${txt(run.run_id)}. Not for redistribution, and not investment advice.`}
+          style={{
+            display: "flex", alignItems: "baseline", gap: 7, minWidth: 0, flex: "0 1 auto",
+            border: "1px solid var(--c-line-strong)", background: "var(--bg-1)", borderRadius: 999,
+            padding: "3px 11px", color: "var(--c-ink-2)", fontSize: 11.5,
+          }}
+        >
+          <b className="nv-mono" style={{ fontSize: 9.5, letterSpacing: ".1em", color: "var(--c-ink)", flex: "none" }}>INTERNAL ONLY</b>
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            Kite-derived prices, frozen research run {txt(run.run_id)}. Not for redistribution, and not investment advice.
+          </span>
         </div>
-      )}
-      <div role="note" style={{ border: "1px solid var(--c-line-strong)", borderRadius: 12, padding: "9px 12px", background: "var(--bg-1)", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.5 }}>
-        <b className="nv-mono" style={{ fontSize: 10.5, letterSpacing: ".1em", color: "var(--c-ink)", marginRight: 6 }}>INTERNAL ONLY</b>
-        Kite-derived prices, frozen research run {txt(run.run_id)}. Not for redistribution, and not investment advice.
       </div>
 
       {compact ? (
@@ -1202,7 +1229,7 @@ export default function ChartsScreen() {
           data-testid="chart-workspace"
           style={{
             display: "flex", minWidth: 0, border: "1px solid var(--c-line)", borderRadius: 14, overflow: "hidden",
-            height: "min(620px, calc(100vh - 250px))", minHeight: 420, background: "var(--bg-1)",
+            height: "calc(100vh - 132px)", minHeight: 420, maxHeight: 900, background: "var(--bg-1)",
           }}
         >
           {watchlist}
@@ -1253,14 +1280,7 @@ export default function ChartsScreen() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div data-testid="charts-screen" className="px-4 pt-5 pb-10 lg:px-6" style={{ display: "grid", gap: 12, maxWidth: 1600, margin: "0 auto", minWidth: 0 }}>
-      <div>
-        <h2 className="nv-serif" style={{ fontSize: 26, lineHeight: 1.1, margin: 0 }}>Charts</h2>
-        <p style={{ fontSize: 13, color: "var(--c-ink-2)", margin: "6px 0 0", maxWidth: "70ch" }}>
-          Daily, weekly and monthly candles, indicators and detected patterns from a frozen research snapshot —
-          read-only, with your own trendlines and levels on top.
-        </p>
-      </div>
+    <div data-testid="charts-screen" className="px-4 pt-3 pb-4 lg:px-6" style={{ display: "grid", gap: 8, maxWidth: 1600, margin: "0 auto", minWidth: 0 }}>
       {children}
     </div>
   );

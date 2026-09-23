@@ -11,6 +11,7 @@ Static HTML / JSX / CSS design deliverables. Not part of the production app — 
 | **`Nivesh retail.html`** | 6 simplified screens for the retail-investor variant — warm light theme, plain language, customizable. |
 | **`Nivesh MVP.html`** | 5-screen MVP per the spec — white minimal, single accent, Keep/Reduce/Add recommendations. |
 | **`Nivesh MVP-print.html`** | Print-to-PDF sheet of the MVP screens (A4 landscape, 10 pages). |
+| **`Nivesh charting · offline.html`** | Charting proposal — **1A** charting view and **2A** charting + live signals (alerts, paper trading, field dictionary). Self-contained; open it directly. Added 2026-09-23. |
 
 ## Offline / standalone variants
 
@@ -41,3 +42,18 @@ The production app under `frontend-v5/src/` is a port of these designs to a real
 - A/B comparing the production output against the canonical design
 
 Do not edit these to change the production app — they're reference, not source. Production source lives under `frontend-v5/src/`.
+
+### Charting (`Nivesh charting · offline.html`)
+
+This one is the canonical design for the V5 Charts screen (`src/pages/Research/charts/`), alongside
+the written spec in `docs/charting.md` §38. §38 owns behaviour and structure; this file owns
+**composition** — bar heights, what is the headline, what is a pill, how dense the panels are. The
+two are complementary, and a screen built from §38 alone will drift on composition, which is exactly
+what happened before this file was added to the repo (see
+`test_reports/charting_design_alignment_1a.md`).
+
+It has no sibling `.jsx`/`.css` here — it is a single self-contained artifact, so it does not follow
+the `… · standalone-src.html` pattern above.
+
+Screen **2A** (live signals, alerts, paper trading) is **not built**. Its functionality is specced in
+the PRDs under `docs/` rather than in this file.
