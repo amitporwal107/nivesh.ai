@@ -109,3 +109,53 @@ def test_handle_relative_volume_is_recorded_but_never_gates():
     row = [r for r in s.rules if r["rule_id"] == "CAH_HANDLE_REL_VOLUME"][0]
     assert row["result"] == "PASS"
     assert row["threshold"] == ni3_config.load()["cup_and_handle"]["handle_max_rel_volume"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# CERTIFICATION INVARIANT (owner, 2026-09-23)
+#
+#   Required contextual indicator unavailable
+#           -> explicit UNAVAILABLE / DATA_BLOCKED
+#           -> never silently interpreted as PASS
+#           -> never silently interpreted as "pattern absent"
+#
+# The second silent reading is what hid the date/index defect: a structurally valid cup was
+# dropped without trace, across all 50 symbols, and looked exactly like scarcity.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+# Too little lead-in for ADX(14) + the 20-bar slope, so the trend class at the cup's start is
+# genuinely uncomputable while the cup's own geometry is perfectly valid.
+NO_CONTEXT = list(np.linspace(97, 100, 5)) + CUP + [99, 97, 95, 94, 96, 103]
+
+
+def test_CERT_an_unavailable_context_is_reported_not_silently_dropped():
+    snaps = _cups(NO_CONTEXT)
+    assert snaps, "a valid structure whose context cannot be evaluated must still be emitted"
+    s = snaps[0]
+    assert s.status == "DATA_BLOCKED"
+    assert s.components["data_quality"] == "UNAVAILABLE"
+
+
+def test_CERT_an_unavailable_context_is_never_recorded_as_a_pass():
+    s = _cups(NO_CONTEXT)[0]
+    row = [r for r in s.rules if r["rule_id"] == "CAH_PRIOR_TREND"][0]
+    assert row["result"] == "UNAVAILABLE", "an uncomputable gate must not read PASS"
+    assert row["observed"] is None
+    assert row["threshold"] == ni3_config.load()["cup_and_handle"]["prior_trend_at_cup_start"]
+
+
+def test_CERT_a_context_blocked_candidate_does_not_walk_a_lifecycle():
+    """It is reported as blocked, not evaluated: claiming a breakout on a structure whose required
+    context could not be checked would be worse than silence."""
+    s = _cups(NO_CONTEXT)[0]
+    assert s.events == []
+    assert not any(r["rule_id"] == "CAH_CLOSE_ABOVE_RIM" for r in s.rules)
+
+
+def test_CERT_an_evaluated_failure_is_distinguishable_from_an_unavailable_one():
+    """A flat lead-in evaluates to SIDEWAYS and is an ordinary rejection — no record at all. An
+    uncomputable one is a record with UNAVAILABLE. The two must not look the same."""
+    evaluated_reject = _cups([100.0] * 60 + CUP + [99, 97, 95, 94, 96, 103])
+    unavailable = _cups(NO_CONTEXT)
+    assert evaluated_reject == []
+    assert len(unavailable) == 1 and unavailable[0].status == "DATA_BLOCKED"

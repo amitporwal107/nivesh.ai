@@ -43,7 +43,7 @@ def _pct_diff(a: float, b: float) -> float:
     return float("inf") if mid == 0 else abs(a - b) / mid * 100.0
 
 
-def _components(price_confirmed: bool) -> dict:
+def _components(price_confirmed: bool, *, data_quality: str = "VALID") -> dict:
     return {
         "geometry": "PASS",
         "price": "PASS" if price_confirmed else "PENDING",
@@ -51,7 +51,7 @@ def _components(price_confirmed: bool) -> dict:
         "market": "UNAVAILABLE",
         "sector": "UNAVAILABLE",
         "volatility": "PENDING",
-        "data_quality": "VALID",
+        "data_quality": data_quality,
     }
 
 
@@ -388,17 +388,25 @@ def _cup_and_handle_patterns(
 
             # prior trend at the cup's start -- a frozen gate, so an uncomputable value rejects.
             # `trend_classification` is keyed by DATE, not by bar index. Passing an index returns
-            # UNAVAILABLE silently, which -- because this gate rejects on an uncomputable value --
-            # produced zero cup & handle detections across all 50 symbols and looked exactly like
-            # the family simply being rare. Rejecting rather than passing is what surfaced it.
+            # UNAVAILABLE, which -- because this gate rejects on an uncomputable value -- produced
+            # zero cup & handle detections across all 50 symbols and looked exactly like the family
+            # simply being rare.
+            #
+            # CERTIFICATION INVARIANT (owner, 2026-09-23). A required contextual indicator that is
+            # unavailable must surface as an explicit UNAVAILABLE / DATA_BLOCKED record. It is never
+            # silently read as PASS, and never silently read as "pattern absent" -- the second is
+            # what hid this defect. So a structure whose geometry is valid but whose context cannot
+            # be evaluated is EMITTED, with status DATA_BLOCKED and the gate marked UNAVAILABLE.
             try:
                 tc = regime.trend_classification(view, dates[left.pivot_index])
                 cls = tc["class"]
                 trend_class = getattr(cls, "value", cls)
             except Exception:
                 trend_class = None
-            if trend_class not in block["prior_trend_at_cup_start"]:
-                continue
+
+            trend_available = trend_class is not None
+            if trend_available and trend_class not in block["prior_trend_at_cup_start"]:
+                continue        # evaluated and failed -- an ordinary rejection, not a blind spot
 
             # The handle: everything after the right rim, up to t.
             handle_bars = t - right.pivot_index
@@ -433,7 +441,8 @@ def _cup_and_handle_patterns(
                         (block["cup_low_position_min_frac"], block["cup_low_position_max_frac"])),
                 RuleRow("CAH_MAX_SINGLE_BAR_RANGE_ATR", "PASS", round(max_bar_atr, 6),
                         block["cup_max_single_bar_range_atr"]),
-                RuleRow("CAH_PRIOR_TREND", "PASS", trend_class, block["prior_trend_at_cup_start"]),
+                RuleRow("CAH_PRIOR_TREND", "PASS" if trend_available else "UNAVAILABLE",
+                        trend_class, block["prior_trend_at_cup_start"]),
                 RuleRow("CAH_HANDLE_BARS", "PASS", int(handle_bars),
                         (block["handle_min_bars"], block["handle_max_bars"])),
                 RuleRow("CAH_HANDLE_DEPTH_PCT_OF_CUP", "PASS",
@@ -444,9 +453,10 @@ def _cup_and_handle_patterns(
             ]
 
             ready = max(left.confirmed_index, low.confirmed_index, right.confirmed_index)
-            status = LifecycleState.GEOMETRY_VALID
+            status = LifecycleState.GEOMETRY_VALID if trend_available else LifecycleState.DATA_BLOCKED
             events: list[dict] = []
-            for b in range(max(ready, right.pivot_index + 1), t + 1):
+            walk = range(max(ready, right.pivot_index + 1), t + 1) if trend_available else range(0)
+            for b in walk:
                 c = float(closes[b])
                 if c > trigger:
                     status = LifecycleState.PRICE_CONFIRMED
@@ -473,7 +483,8 @@ def _cup_and_handle_patterns(
                         "layer1_stop": handle_low, "cup_depth_pct": round(depth_pct, 6)},
                 pivots=[{"date": _iso(p.pivot_date), "price": p.price, "kind": p.kind,
                          "confirmed_date": _iso(p.confirmed_date)} for p in (left, low, right)],
-                components=_components(status == LifecycleState.PRICE_CONFIRMED),
+                components=_components(status == LifecycleState.PRICE_CONFIRMED,
+                                      data_quality="UNAVAILABLE" if not trend_available else "VALID"),
                 rules=[r.to_dict() for r in rules],
                 events=events,
             ))

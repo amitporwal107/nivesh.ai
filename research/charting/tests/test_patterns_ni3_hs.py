@@ -71,7 +71,7 @@ def test_before_the_breakdown_it_stays_geometry_valid():
     assert snaps and snaps[0].status == "GEOMETRY_VALID"
 
 
-def test_both_stop_variants_are_always_reported():
+def test_CERT_both_stop_variants_are_always_reported():
     """#110: "Both stop variants are computed and reported for every H&S event. Neither is picked
     for looking better." """
     s = _only(detect_ni3_as_of(_bars(HS_BREAK), len(HS_BREAK) - 1, symbol="T"), "HEAD_AND_SHOULDERS")[0]
@@ -91,7 +91,7 @@ def test_every_frozen_gate_is_recorded_with_its_threshold():
 
 
 # ── the gates actually reject ───────────────────────────────────────────────────────────────────
-def test_a_head_that_does_not_clear_both_shoulders_is_rejected():
+def test_CERT_head_prominence_is_measured_against_the_nearer_shoulder():
     """H2: prominence is measured against the NEARER shoulder, so a head clearing only the lower
     one must fail."""
     px = ([92] * 4 + [95, 97, 99, 100, 99, 97, 95] + [93, 91, 90, 91, 93, 96]

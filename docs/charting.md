@@ -3767,6 +3767,35 @@ each one looks locally reasonable. It is locked by the certification fixtures in
 `research/charting/tests/test_patterns_ni3_double.py` (`test_CERT_*`): a break through an
 unconfirmed trough must yield no pattern; a break through an established one must invalidate.
 
+### 39.13a The availability invariant
+
+**Owner, 2026-09-23.** A required contextual indicator that cannot be computed must surface, not
+vanish:
+
+```text
+required contextual indicator unavailable
+        -> explicit UNAVAILABLE / DATA_BLOCKED
+        -> never silently interpreted as PASS
+        -> never silently interpreted as "pattern absent"
+```
+
+Both silent readings are dangerous, and the second is the one that actually bit. A cup & handle gate
+read `regime.trend_classification` with a bar index where it expects a date; it returned UNAVAILABLE,
+the gate rejected, and the family reported **zero detections across all 50 symbols** — indistinguishable
+from genuine scarcity. Nothing crashed, so ordinary tests could not see it.
+
+Had the gate defaulted the other way — pass when unavailable — the bug would have been equally
+invisible *and* a frozen gate would have been silently absent from every detection.
+
+The rule is therefore: a structure whose geometry is valid but whose required context cannot be
+evaluated is **emitted** with `status = DATA_BLOCKED`, `components.data_quality = UNAVAILABLE`, and
+the gate's rule row marked `UNAVAILABLE` (never `PASS`). Such a candidate does **not** walk a
+lifecycle — claiming a breakout on a structure whose required context went unchecked would be worse
+than silence. An *evaluated* failure stays an ordinary rejection with no record, so the two remain
+distinguishable.
+
+Locked by `test_CERT_*` in `research/charting/tests/test_patterns_ni3_cup.py`.
+
 ### 39.14 Tolerance convention
 
 Already resolved; recorded here so it is not re-litigated per family:
