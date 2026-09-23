@@ -562,11 +562,17 @@ position_size
 capital_at_risk
 reward_risk_ratio
 
-signal_score
+signal_components
 signal_id
 pattern_id
 strategy_version
 ```
+
+> **Amended 2026-09-23 (owner decision) per §38.19 Amendment E position 2.** This field was
+> `signal_score` (a 0–100 number) in §16, §23 and §28. The headline number is removed; the row
+> carries **components only**. Any composite of them is a research object — pre-registered in a
+> later study version, tested, then shown. Frozen in `research/charting/signal_contract.py`,
+> which has `score_components` and deliberately no `score` field. Original text is in git history.
 
 Example:
 
@@ -773,8 +779,8 @@ RSI:
 Trend:
 Bullish
 
-Signal Score:
-84
+Signal components:
+Pattern 18/20 · Breakout 19/20 · Volume 14/15 · Trend 13/15 · Relative 8/10
 
 Entry:
 ₹1,256
@@ -1249,8 +1255,8 @@ Holding:
 Exit:
 Target 1
 
-Signal score:
-84/100
+Signal components:
+Pattern 18/20 · Breakout 19/20 · Volume 14/15 · Trend 13/15 · Relative 8/10
 ```
 
 The user may add notes:

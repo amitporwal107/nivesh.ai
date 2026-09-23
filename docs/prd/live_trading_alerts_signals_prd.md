@@ -462,42 +462,48 @@ The system must record the raw volume ratio regardless of pass/fail.
 
 ---
 
-# 12. Signal Score
+# 12. Signal Components
 
-The system may calculate an explainable signal score from 0–100.
+> **Amended 2026-09-23 (owner decision) per §38.19 Amendment E position 2.** This section previously
+> specified an explainable 0–100 signal score with a seven-component weighting that summed to 100%.
+> **The single headline number is removed**, and **retest quality and risk/reward are removed from any
+> live weighting**. The components themselves stay. Any composite of them is a research object: it must
+> be pre-registered in a later study version, tested, and only then shown. The original text is
+> preserved in git history.
 
-Initial weighting:
+The system exposes **components, not a headline number**. Each component is shown on its own, with its
+own value, so a reader can see what is strong and what is weak rather than a single figure that hides it.
 
-| Component | Weight |
-|---|---:|
-| Pattern quality | 20% |
-| Breakout quality | 20% |
-| Volume confirmation | 15% |
-| Trend alignment | 15% |
-| Relative strength | 10% |
-| Retest quality | 10% |
-| Risk/reward | 10% |
-| **Total** | **100%** |
+Live components:
 
-The score is descriptive and must not be presented as a guaranteed probability of success.
+| Component | Shown | In live weighting |
+|---|---|---|
+| Pattern quality | yes | — |
+| Breakout quality | yes | — |
+| Volume confirmation | yes | — |
+| Trend alignment | yes | — |
+| Relative strength | yes | — |
+| Retest quality | yes, as a row event | **no** (Amendment E) |
+| Risk/reward | owner-only until NI-1a | **no** (Amendment E) |
 
-The UI must expose component-level contributions.
+There is no total, because there is no composite to total. Components are descriptive and must never be
+presented as a probability of success.
 
 Example:
 
 ```text
-CONFIRMED — 84/100
+CONFIRMED_BREAKOUT
 
 Pattern       18/20
 Breakout      19/20
 Volume        14/15
 Trend         13/15
 Relative      8/10
-Retest        6/10
-Risk/Reward   6/10
 ```
 
-Weights must be configuration-versioned and must not be tuned against the evaluation dataset.
+Component definitions must be configuration-versioned and must not be tuned against the evaluation
+dataset. The contract that freezes this is `research/charting/signal_contract.py`
+(`SIGNAL_FIELDS["score_components"]`; there is deliberately no `score` field).
 
 ---
 
@@ -695,8 +701,6 @@ Every alert must explicitly display its timeframe.
 │ Trend       Bullish                 │
 │ ADX         27                      │
 │ RSI         64                      │
-│                                     │
-│ Signal Score 84/100                 │
 │                                     │
 │ Why confirmed?                      │
 │ ✓ Pattern valid                     │
@@ -1006,7 +1010,6 @@ CONFIRMED alerts
 RETEST alerts
 INVALIDATED alerts
 
-Minimum signal score
 Minimum volume ratio
 
 Quiet hours
