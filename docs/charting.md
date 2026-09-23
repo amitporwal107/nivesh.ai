@@ -3333,3 +3333,469 @@ READY at 1% equals NI-3 S9; §22–§24 versioning, fingerprint and no look-ahea
 plan v2 is drafted. The Paper PRD's principle 12, §41 and §65 (paper results never tune frozen rules; pattern, signal
 and trade are three separate truths) match #110; §7.3 signal-only mode is the research question; §34 gap handling
 matches v1 §5. The 2A and 4A disclaimers ("simulated, no broker order", "not a guarantee") match §2.1.
+
+---
+
+## 39. Pattern detection rules and the indicator matrix (owner specification, 2026-09-23)
+
+### 39.1 Why this section exists, and what it owns
+
+§38.15 records that the engine detects three families. The Signals PRD §7 claimed fourteen and NI-3
+specifies sixteen. Three independent lists had drifted apart, and every worked example in the 2A and
+4A PRDs used an ascending triangle — a family with no detector. This section closes that by stating
+the shared detection layer once, and by pointing at a single executable source of truth for which
+families exist.
+
+**This section owns** the layer that no other section owned: the detection principles, the common
+pipeline, the pivot/look-ahead rule, the registry invariant, the three indicator classes and their
+per-family matrices, the evidence-over-scores rule, the detector output contract, and the
+architectural invariant.
+
+**This section indexes, it does not restate.** Per-family predicates already have owners — §13 and
+§30.1 for the P0 families, §37.7 and NI-3 v1.0 for the new ones. NI-3 is frozen, fingerprinted
+`de86626c…`, and cannot be edited without minting v1.1; a rule copied out of it into here becomes a
+second, unhashed copy that can drift. That is the failure this section exists to prevent, so it must
+not commit it. Where a number appears below, it is a quotation with its source named.
+
+### 39.2 Core detection principles
+
+1. **No look-ahead.** A pattern may use only bars up to `event_bar`. Future bars must never influence
+   detection, boundaries, pivots, breakout levels or confirmation.
+2. **Deterministic.** Same OHLCV + same detector version + same configuration = identical result. No
+   model judgement, no sampling, no LLM anywhere in the detection path.
+3. **Versioned.** Every detection stores `pattern_type`, `detector_version`, `config_version`,
+   `timeframe`, `event_bar`, `start_bar`, `end_bar`.
+4. **OHLCV only for core geometry.** Geometry comes from price structure. Volume confirms a
+   breakout; it never manufactures the pattern.
+5. **Minimum evidence.** A pattern is never created from visual resemblance. Every family declares
+   minimum bars, pivots, touches, structural relationships and geometric tolerance.
+6. **No subjective language.** Rules such as "looks like", "strong trend", "clean breakout" or
+   "obvious resistance" are not admissible as predicates.
+7. **Pattern ≠ signal.** Detection identifies structure. Whether that structure produces an
+   actionable event is decided downstream by the signal evaluator (§38.19, Signals PRD §9).
+
+### 39.3 The common detection pipeline
+
+Every detector follows the same stages, in this order:
+
+```text
+OHLCV
+  ↓
+Data validation
+  ↓
+Swing / pivot detection
+  ↓
+Structure extraction
+  ↓
+Candidate generation
+  ↓
+Geometric validation
+  ↓
+Minimum-evidence validation
+  ↓
+Pattern lifecycle
+  ↓
+Pattern detection
+```
+
+**Data validation — reject before detecting.** Detection does not run when any of these hold:
+
+| Reject condition | Why |
+|---|---|
+| Any of O/H/L/C missing | no geometry is derivable |
+| `high < max(open, close)` | bar is internally inconsistent |
+| `low > min(open, close)` | bar is internally inconsistent |
+| `high < low` | bar is internally inconsistent |
+| duplicate timestamps | pivot indices become ambiguous |
+| bars materially out of chronological order | the walk's ordering assumption breaks |
+| insufficient historical bars | below `minimum_pattern_length` (§10.2) there is nothing to fit |
+
+These rules are **already implemented** with frozen reason codes in
+`research/charting/validate.py` (`RULE_IDS`, `HARD_INVALID_RULE_IDS`, `SOFT_RULE_IDS`), and the full
+rule set is §9.1 — the table above is the subset that stops detection, not a replacement for it.
+A detector cites those reason codes; it does not define its own.
+
+A data-validation failure resolves through **three distinct vocabularies, which are not the same
+field**: the reason code (`validate.py`) → the §9.2 data status → the §11 lifecycle state
+`DATA_BLOCKED` → the research_state `INCONCLUSIVE` (NI-3 §1.2 maps `DATA_BLOCKED or UNRESOLVED` →
+`INCONCLUSIVE`). It never resolves to a silent absence of a pattern, and never to a false negative
+recorded as a true one.
+
+Two reason codes the owner's list requires do not exist in `validate.py` today — "insufficient
+history" and a missing-OHLC-field rule (it checks `NONPOSITIVE_PRICE` and `NEGATIVE_VOLUME`, not a
+missing field). See §39.16.
+
+### 39.4 Pivots and the look-ahead rule
+
+All geometric families use one pivot engine. A pivot that requires `N` future bars to confirm is not
+knowable until those bars have closed, so:
+
+```text
+pivot_confirmed_at = pivot_bar + right_bars
+```
+
+Every pivot therefore stores **both** the bar it occurred on and the bar it became knowable at. This
+is the single most important control in the whole engine: without it, a backtest silently uses a
+pivot the market had not yet revealed.
+
+Implemented in `research/charting/swings.py` — `Pivot` carries `pivot_index`/`pivot_date` and
+`confirmed_index`/`confirmed_date`, and `swings_as_of(bars, t)` slices the frame **before** detecting
+rather than filtering afterwards, so `confirmed_index <= t` holds by construction. Window values
+(`swing_left_bars`, `swing_right_bars`) and the tie rule are §10.2 / §30 and are not restated here.
+
+### 39.5 The Pattern Registry — which families may be detected and alerted
+
+`research/charting/pattern_registry.py` is the **single source of truth**. A family may produce a
+production alert only when all four hold:
+
+1. its detector is **registered**;
+2. its detector version is **enabled** for the signal version;
+3. the required OHLCV data is available;
+4. its lifecycle state can be determined **without look-ahead**.
+
+**Unsupported patterns MUST NOT generate alerts.** This is enforced in code, not by convention:
+`pattern_registry.assert_alertable()` raises, and the signal contract's alert-identity function calls
+it, so a disabled family cannot be given an alert key.
+
+`enabled` means a detector exists, is frozen under the v1 configuration, and has historical
+validation behind it. It does not mean a specification exists.
+
+| Family | Detector | Geometry | Volume rule | v1 |
+|---|---|---|---|---|
+| Support / resistance | `SR-v1` | own | follow-through 1.0–4.0× | **ENABLED** |
+| Rectangle | `RECT-v1` | own | follow-through 1.0–4.0× | **ENABLED** |
+| Higher highs / higher lows | `STRUCTURE-v1` | own | follow-through 1.0–4.0× | **ENABLED** |
+| Ascending triangle | `TRI-ASC-v1` | P-1 | breakout bar ≥ 1.5× | DISABLED |
+| Descending triangle | `TRI-DESC-v1` | P-1 | breakout bar ≥ 1.5× | DISABLED |
+| Symmetrical triangle | `TRI-SYM-v1` | P-1 | breakout bar ≥ 1.5× | DISABLED |
+| Rising wedge | `WEDGE-R-v1` | P-1 | breakout bar ≥ 1.5× | DISABLED |
+| Falling wedge | `WEDGE-F-v1` | P-1 | breakout bar ≥ 1.5× | DISABLED |
+| Ascending channel | `CHANNEL-ASC-v1` | P-1 | breakout bar ≥ 1.5× | DISABLED |
+| Descending channel | `CHANNEL-DESC-v1` | P-1 | breakout bar ≥ 1.5× | DISABLED |
+| Bull flag | `FLAG-BULL-v1` | P-2 | breakout bar ≥ 1.5× | DISABLED |
+| Bear flag | `FLAG-BEAR-v1` | P-2 | breakout bar ≥ 1.5× | DISABLED |
+| Bull pennant | `PENNANT-BULL-v1` | P-2 | breakout bar ≥ 1.5× | DISABLED |
+| Bear pennant | `PENNANT-BEAR-v1` | P-2 | breakout bar ≥ 1.5× | DISABLED |
+| Double bottom | `DB-v1` | own | breakout bar ≥ 1.5× | DISABLED |
+| Double top | `DT-v1` | own | breakout bar ≥ 1.5× | DISABLED |
+| Head & shoulders | `HS-v1` | own | breakout bar ≥ 1.5× | DISABLED |
+| Inverse head & shoulders | `IHS-v1` | own | breakout bar ≥ 1.5× | DISABLED |
+| Cup & handle | `CAH-v1` | own | breakout bar ≥ 1.5× | DISABLED |
+
+The volume rule is a **registry property, not a global**. The two rules must not be merged (#109,
+#110): keeping the rule on the family is what stops the new-family threshold being applied to a
+frozen family, which would silently change frozen v1 behaviour.
+
+### 39.6 Where each family's predicates live
+
+| Family group | Formation and geometry | Tolerances | Breakout / failure |
+|---|---|---|---|
+| Support/resistance, Rectangle, HH/HL | §13.1–§13.3 | §30.1 (ATR-normalised) | §12.2–§12.5, §17 |
+| Triangles, wedges, channels | **NI-3 §2** (P-1 engine, G1–G13) | NI-3 §2 + §37.7 | NI-3 §1.3 |
+| Flags, pennants | **NI-3 §3** (P-2, pole + shape, F1–F8) | NI-3 §3 | NI-3 §1.3 |
+| Double bottom / top | **NI-3 §4 / §5** (B1–B5, P1–P5) | NI-3 §4/§5 | NI-3 §1.3 |
+| Head & shoulders, inverse H&S | **NI-3 §6 / §6b** (H1–H5, I1–I5) | NI-3 §6/§6b | NI-3 §1.3 |
+| Cup & handle | **NI-3 §7** (C1–C17) | NI-3 §7 | NI-3 §1.3 |
+| Shared parameters for all new families | **NI-3 §1.7** (S1–S10) | — | — |
+
+Lifecycle states and the `research_state` mapping are §11 and NI-3 §1.2; readiness is NI-3 S9 (1%).
+
+### 39.7 The three indicator classes
+
+The distinction that makes historical validation possible — and the one this section exists to fix —
+is that **an indicator either defines a pattern or it does not**.
+
+| Class | Role | May it create or destroy a pattern? |
+|---|---|---|
+| **A — Pattern geometry** | swing high/low, ATR-normalised tolerance, trendline slope, convergence, parallelism, pivot relationships, price similarity, duration | **Yes.** These *are* the definition. |
+| **B — Breakout confirmation** | close beyond trigger, volume / relative volume, breakout magnitude, ATR-normalised breakout distance, retest | **No.** They decide whether a detected structure has broken, not whether it exists. |
+| **C — Context confirmation** | ADX, RSI, EMA, MACD, relative strength, market and sector trend | **No.** Evidence only, consumed by the signal evaluator. |
+
+> **An ascending triangle exists because of its price geometry. It does not stop being an ascending
+> triangle because RSI is 48.**
+
+A Class C indicator must never appear in a detection predicate. Making one a gate produces an
+overfitted detector whose definition is "triangle + RSI + MACD + ADX + EMA + volume", and makes it
+impossible to measure the incremental value of any single confirmation input.
+
+**Class C is new, unfrozen scope.** NI-3 gates on ATR(14) and 20-session average volume and contains
+no ADX, RSI, EMA, MACD or relative strength anywhere. The Class C layer below therefore cannot be
+sourced from NI-3 and is not covered by fingerprint `de86626c…`; it requires its own pre-registration
+before any of it is allowed to weight a signal.
+
+### 39.8 Matrix 1 — Class A geometry indicators by family
+
+✅ = required to detect the pattern. — = not used in detection.
+
+| Family | Swing | ATR | Slope | Convergence | Parallelism |
+|---|---|---|---|---|---|
+| Support / resistance | ✅ | ✅ | — | — | — |
+| Rectangle | ✅ | ✅ | ✅ | — | — |
+| Higher highs / higher lows | ✅ | ✅ | — | — | — |
+| Ascending triangle | ✅ | ✅ | ✅ | ✅ | — |
+| Descending triangle | ✅ | ✅ | ✅ | ✅ | — |
+| Symmetrical triangle | ✅ | ✅ | ✅ | ✅ | — |
+| Rising wedge | ✅ | ✅ | ✅ | ✅ | — |
+| Falling wedge | ✅ | ✅ | ✅ | ✅ | — |
+| Ascending channel | ✅ | ✅ | ✅ | — | ✅ |
+| Descending channel | ✅ | ✅ | ✅ | — | ✅ |
+| Bull flag | ✅ | ✅ | ✅ | — | ✅ |
+| Bear flag | ✅ | ✅ | ✅ | — | ✅ |
+| Bull pennant | ✅ | ✅ | ✅ | ✅ | — |
+| Bear pennant | ✅ | ✅ | ✅ | ✅ | — |
+| Double bottom | ✅ | ✅ | — | — | — |
+| Double top | ✅ | ✅ | — | — | — |
+| Head & shoulders | ✅ | ✅ | ✅ | — | — |
+| Inverse head & shoulders | ✅ | ✅ | ✅ | — | — |
+| Cup & handle | ✅ | ✅ | — | — | — |
+
+Notes on the columns:
+
+- **Slope** for H&S and inverse H&S is the **neckline** slope only: NI-3 §6/§6b allow a sloping
+  neckline whose live value comes from `trendline_value_at`. It is not a boundary-fitting slope.
+- **Flags and pennants** additionally require an **impulse (pole) measure** — NI-3 §3 F1/F2. A
+  downward channel is not a bull flag without the pole that precedes it.
+- **Slope must be normalised**, not raw price-per-bar, or the same rule behaves differently across
+  price levels — but the two family groups normalise **differently, and must not be harmonised**:
+  the three frozen families use the ATR drift test `boundary_drift_atr = |slope| × L / ATR`
+  (§30.1, `geometry.boundary_drift`, flat ≤ 0.50 / sloped ≥ 0.75); the P-1 families use NI-3 G4, a
+  **percentage** — flat if the fitted value changes by ≤ 1.5% of its starting value, one threshold
+  with no gap (§38.18: "the owner's percentage rules decide flatness"). Building the P-1 engine on
+  the ATR rule produces a detector that cannot reproduce fingerprint `de86626c…`. Every detection
+  therefore stores `flatness_test = ATR_DRIFT | PCT_DRIFT`.
+- **Convergence and parallelism are one measurement, not two.** NI-3 §2 computes a single
+  `w = width at the last pivot / width at the first pivot` and classifies it against three bands —
+  converging (G5 ≤ 0.70), expanding (G6 ≥ 1.43), parallel (G7 0.85–1.15). The two columns above are
+  a reading aid for which band a family must land in; a P-1 detector computes `w` once for every
+  shape. Note also that a flag body may be a **converging** falling wedge as well as a parallel
+  channel (NI-3 §3), so the flag rows are not parallel-only.
+- Family-specific similarity tolerances (peak/trough similarity, shoulder similarity, rim
+  similarity) are geometry too; their values live in NI-3 §4–§7 and are not repeated here.
+
+### 39.9 Matrix 2 — Class B and C confirmation indicators by family
+
+**Class B (volume) is a gate, not advice.** NI-3 §1.3 states it as an `iff`:
+
+```text
+CONFIRMED_BREAKOUT  iff  BREAKOUT_CANDIDATE and breakout-bar volume >= 1.5 x 20-session average
+```
+
+So volume is **Required for every one of the sixteen new families** — but "required" names a
+different transition in each regime, which is why a single Required/Recommended column cannot carry
+it. The regime, not this section, decides:
+
+| Regime | Breakout price test | Volume rule, and the transition it gates | Failure test |
+|---|---|---|---|
+| The three frozen families | close beyond level ± 0.25 × ATR (§12.2, §12.3; a wick-only breach is `BREAKOUT_ATTEMPT`) → `PRICE_CONFIRMED` | follow-through bar relative volume 1.00–4.00× (§30.1) → `VOLUME_CONFIRMED`. It does **not** gate `PRICE_CONFIRMED` — §10.2 sets `require_volume_confirmation: false` | close back through the level ∓ 0.25 × ATR within 5 bars (§17, §30.1) |
+| The sixteen new families | close beyond `level(t)` × (1 ± 0.5%) (NI-3 S5) → `BREAKOUT_CANDIDATE` | breakout-bar volume ≥ 1.5 × 20-session average (NI-3 S8) → `CONFIRMED_BREAKOUT` | close back through `level(t)` × (1 ∓ 0.5%) (S6) within 5 bars (S7) |
+
+The per-family rule is read from `pattern_registry.volume_rule()`, never authored here. The raw ratio
+is stored whether it passes or fails (#109, #110, NI-3 §1.6).
+
+**Class C is evidence only, and none of it is frozen.** The shape rule below is checkable by eye and
+by test:
+
+> **No cell in a Class C column may ever read Required.** If one does, the pattern definition has
+> changed and NI-3 must be re-minted at v1.1.
+
+`C` = Recommended (stored as evidence, may weight a signal once pre-registered) · `O` = Optional ·
+`†` = the input does not exist in code today (§39.10).
+
+| Family | RSI(14) | ADX(14)† | EMA stack | RS vs index | RS vs sector† | MACD |
+|---|---|---|---|---|---|---|
+| Support / resistance | O | O† | O | O | O† | O |
+| Rectangle | O | C† | O | O | O† | O |
+| Higher highs / higher lows | O | C† | C | C | C† | O |
+| Ascending triangle | O | C† | C | C | C† | O |
+| Descending triangle | O | C† | C | C | C† | O |
+| Symmetrical triangle | O | C† | O | O | O† | O |
+| Rising wedge | C | C† | O | C | O† | C |
+| Falling wedge | C | C† | O | C | O† | C |
+| Ascending channel | O | C† | C | C | C† | O |
+| Descending channel | O | C† | C | C | C† | O |
+| Bull flag | O | C† | C | C | C† | O |
+| Bear flag | O | C† | C | C | C† | O |
+| Bull pennant | O | C† | C | C | C† | O |
+| Bear pennant | O | C† | C | C | C† | O |
+| Double bottom | C | C† | O | C | O† | C |
+| Double top | C | C† | O | C | O† | C |
+| Head & shoulders | C | C† | O | C | O† | C |
+| Inverse head & shoulders | C | C† | O | C | O† | C |
+| Cup & handle | O | C† | C | C | C† | O |
+
+**Why these ratings, so they do not read as arbitrary.** Continuation families (triangles, channels,
+flags, pennants, cup & handle, HH/HL) take trend-participation context — ADX, the EMA stack,
+relative strength — as Recommended and momentum as Optional. Reversal families (wedges, double
+top/bottom, H&S, inverse H&S) take momentum divergence — RSI, MACD — plus prior-trend strength as
+Recommended, and the EMA stack as Optional. Range families (support/resistance, rectangle) take
+nothing above Optional, except ADX on the rectangle where a low reading corroborates a genuine range.
+
+**Every Class C cell above is PROPOSED on 2026-09-23. None is frozen**, none is covered by
+fingerprint `de86626c…`, and none may weight a signal before its own pre-registration. Relative
+strength is split into two columns because §8.5 and §34.4 both require the sector comparison and only
+the index one exists.
+
+### 39.10 Availability — what these matrices need versus what exists
+
+Stated bluntly, because a matrix that assumes unavailable inputs is a plan to discover the gap during
+implementation.
+
+| Input | Shipped? | Where it is today |
+|---|---|---|
+| Swing high / low with confirmation bar | yes | `research/charting/swings.py` — `find_swings`, `swings_as_of` |
+| ATR(14) | yes | `research/charting/series.py: atr`; catalogue preset `atr_14` |
+| Trendline slope | **partly** | `geometry.ols_slope` + `geometry.boundary_drift` fit a **slope only, with no intercept** — so boundaries today are horizontal-only and there is no fitted-line object |
+| Convergence | **not usable** | `geometry.convergence_ratio` exists with its threshold, but has **no production caller** and cannot be computed without a fitted line (it needs width at the first and last pivot) |
+| Parallelism | **no** | not implemented anywhere in `research/charting/` |
+| `trendline_value_at()` | **no** | NI-3 names it a prerequisite that "must exist before any P-1, P-2 or sloped-neckline detector" |
+| Volume / relative volume (20) | yes | `series.relative_volume`; catalogue `relative_volume_20` |
+| RSI(14), EMA, MACD | yes | `series.py`; catalogue presets |
+| **ADX(14)** | **not served** | exists only as the private `regime._adx_series`; absent from the chart indicator catalogue |
+| **Relative strength** | **partial, not served** | `regime.relative_strength` is vs **NIFTY 500 only** (windows 5/20/50/100). There is **no stock-vs-sector relative strength**; absent from the catalogue |
+
+Two consequences follow, and neither is resolved by this section:
+
+- **The P-1 family cannot be built until the fitted-line primitives exist.** Slope-with-intercept, a
+  convergence caller and a parallelism metric are prerequisites, not details.
+- **The Class C layer cannot be delivered as specified today.** ADX and relative strength are the two
+  most-cited Class C inputs in §39.9 and neither is served; stock-vs-sector relative strength does not
+  exist at all. Promoting them is a separate, costed piece of work.
+
+### 39.11 Evidence, not quality scores
+
+A pattern's quality is recorded as **the facts that produced it**, not as a number:
+
+```text
+{
+  "touches": 4,
+  "pivot_count": 7,
+  "duration_bars": 38,
+  "boundary_error_pct": 0.72,
+  "convergence_ratio": 0.61,
+  "volume_contraction_pct": 28.4
+}
+```
+
+rather than `Pattern Quality: 18/20`. A component score with no formula, inputs, thresholds,
+normalisation, version and missing-data behaviour is not measurable and cannot be validated; it only
+looks quantitative. Historical validation then determines which characteristics actually matter,
+instead of the weighting asserting it in advance.
+
+This is the same decision as §38.19.4 position 2, which removed the 0–100 headline signal score, and
+it extends to the component scores beneath it. §16's pattern-quality model and
+`geometry.level_strength` remain descriptive by construction (`is_probability = False`) and are never
+presented as a probability.
+
+### 39.12 Detector output contract
+
+The record a detector returns is **not a new schema**. It is the §37.8 common pattern schema and the
+shipped `PatternSnapshot` (`research/charting/SNAPSHOT_SCHEMA.md`, §23.1), which already carry
+`pattern_id`, `pattern_type`, `direction`, `population`, `status`, `stage`, `levels`, `pivots`,
+`components`, `rules`, `events` and `scores`. §39 adds no field names of its own and renames nothing;
+the illustrative JSON in the owner's specification is a sketch, not the contract.
+
+What §39 does own is the **delta** — fields a detector must also carry that the current record does
+not make explicit:
+
+| Field | Why |
+|---|---|
+| `detector_version`, `config_version` | §39.2 D3. A record that cannot name its detector cannot be reproduced |
+| `config_fingerprint` | NI-3: "the detector code must reproduce this fingerprint … or it is not this table" |
+| `flatness_test` | `ATR_DRIFT` or `PCT_DRIFT` — which convention this family used (§39.8) |
+| `first_known_date` | the earliest date the structure could have been known (NI-3 §1.1; the §38.15 "Known" marker) |
+| `reason_code` | for every rejection and every invalidation (§39.2 D8) |
+| `scale` | which swing scale produced it, once the large-swing layer lands (NI-3 §8) |
+
+And the half that is actually enforceable — **fields that must never appear on a detector record**:
+
+```text
+headline score or confidence      entry price
+probability of success            target price
+tradability verdict               stop as a recommendation
+alert-worthiness flag             position quantity or R-multiple
+historical hit rate or comparables
+```
+
+Each of these is a downstream object: setup values belong to the signal evaluator behind the owner
+allowlist (§38.19.4 position 3), comparables belong to research (§40 of the Paper PRD), and there is
+no headline score anywhere (§38.19.4 position 2). A detector that emits one has crossed the boundary
+in §39.13.
+
+Indicator values carried on the record follow the §8.7 indicator contract (`calculation_version`,
+`warmup_period`, `point_in_time_validated`, `missing_data_policy`).
+
+### 39.13 The architectural invariant
+
+> A pattern detector may say only whether the historical price structure satisfies its formal
+> definition. It must not decide whether the pattern is bullish, profitable, high-probability,
+> tradeable, or worth alerting on.
+
+```text
+OHLCV → PATTERN DETECTOR → PATTERN + GEOMETRY + EVIDENCE → LIFECYCLE ENGINE
+      → SIGNAL EVALUATOR → VOLUME / INDICATOR / RS CONFIRMATION
+      → ALERT → PAPER TRADE → HISTORICAL OUTCOME
+```
+
+The separation is what makes it possible to test whether a particular pattern *plus* a particular
+confirmation actually has an edge, instead of baking an assumption about profitability into the
+detector and then measuring it with itself.
+
+### 39.14 Tolerance convention
+
+Already resolved; recorded here so it is not re-litigated per family:
+
+- **P0 families** (support/resistance, rectangle, HH/HL) use the **ATR-normalised** tolerances of
+  §30.1 — §35.1 resolves every percentage-versus-ATR clash with "§30.1 stands".
+- **The sixteen new families** use the owner's **percentage** rules — §37.7: "these percentage rules
+  apply to the new families; the §30.1 ATR rules stay for the P0 families (owner-confirmed, baseline
+  v1.1)", with NI-3 as the frozen table of the values.
+
+Where a family is validated, the research record stores `breakout_level`,
+`breakout_threshold_pct`, `breakout_threshold_atr` and `breakout_volume_ratio` (§37.7), so the
+stability of the two conventions can be compared across volatility regimes rather than assumed.
+
+### 39.15 Prerequisites and build order
+
+**Prerequisites before any P-1 or P-2 family can be attempted**, in order:
+
+1. `trendline_value_at(pivots, t)` — a fitted line with an intercept, evaluable at any bar.
+2. A convergence caller — `geometry.convergence_ratio` exists but nothing computes the widths it
+   needs.
+3. A parallelism metric — net-new; it is what separates a channel from a wedge.
+
+**Build order**, cheapest structural value first:
+
+| Wave | Families | State |
+|---|---|---|
+| 0 | Support/resistance, Rectangle, HH/HL | **done** |
+| 1 | Ascending / descending / symmetrical triangle, rising / falling wedge, ascending / descending channel | blocked on the three prerequisites above |
+| 2 | Bull / bear flag, bull / bear pennant | blocked on wave 1 (P-2 bodies are P-1 shapes) |
+| 3 | Double top, double bottom, head & shoulders, inverse head & shoulders, cup & handle | independent of P-1; needs only swing + ATR + similarity tolerances |
+
+Wave 3 is not blocked by the fitted-line work, so it can proceed in parallel with wave 1 if the
+owner prefers pattern breadth earlier than triangle support.
+
+### 39.16 Conflicts with frozen sources, and what §39 does not change
+
+§39 resolves nothing by itself. Where two frozen sources disagree, the conflict is recorded here with
+its owner, because a section that quietly picks one would recreate the drift it exists to prevent.
+
+| # | Conflict | What each source says | Status |
+|---|---|---|---|
+| C-1 | Flatness test | §30.1 ATR drift (flat ≤ 0.50, sloped ≥ 0.75, with an undocumented middle band) vs NI-3 G4 percentage (≤ 1.5%, one threshold, no gap) | **Already decided, split by family** (§37.7, §38.18). Do not harmonise — harmonising re-mints NI-3 v1.1 and changes frozen v1. `flatness_test` records which was used |
+| C-2 | Convergence window | `geometry.convergence_ratio` is documented over the first and last **bar**; NI-3 G5 measures width at the first and last **pivot** | NI-3 G5 governs the new families. The existing parameter naming is misleading — **documentation defect, no code change** |
+| C-3 | Expanding / parallel bands | §30.1 has no expanding or parallel band at all; NI-3 has G6 1.43 and G7 0.85–1.15 | Not a conflict but a **gap**: parallelism is net-new and has no §30.1 counterpart |
+| **C-4** | **Double-bottom tolerance** | **§13.6 says `abs(T2 − T1) <= 1.0 × ATR` and a 5-bar minimum trough separation. NI-3 B1/B2 say 10 sessions and 3% of price, both OWNER, re-confirmed #110** | **NI-3 governs this family. §13.6's values are superseded for double bottom/top and must not be used.** §35.1's "5-bar separation applies where a pattern rule states it, e.g. §13.6 troughs" now reads against NI-3's 10 and needs the owner's word |
+| C-5 | Breakout / failure buffer | §12.2 ± 0.25 × ATR vs NI-3 S5/S6 0.5% | Already resolved (§37.7, §38.18); NI-3 §1.6 stores `breakout_threshold_atr` alongside so the two can be compared |
+| C-6 | Volume rule | §12.4 bands and §30.1 follow-through 1.00–4.00× vs NI-3 S8 ≥ 1.5× | Already resolved (#109, #110) and encoded as a **registry property**. Matrix 2's Class B rows are read from the registry, never authored here |
+| C-7 | Maximum pattern length | §10.2 `maximum_pattern_length: 120` vs NI-3 C6 cup up to 260 and L2 40/260 | Scoped overrides, not a conflict — but §10.2 read alone gives the wrong answer for cup & handle |
+| C-8 | Class C scope | NI-3 requires only ATR(14) and 20-session volume; it names no ADX/RSI/EMA/MACD/RS anywhere | Class C is **new, unfrozen scope**, outside fingerprint `de86626c…`. Promoting any Class C input to a gate requires NI-3 v1.1 and a study-plan amendment |
+| C-9 | Class C "never creates the pattern" vs §34.5 | §34.5's Early Pattern Score already weights momentum/relative strength 15% and market/sector context 10% | Both hold, with the line drawn precisely: Class C may feed §34.5 early scores and §16 components — research and UI objects — but **never a §11 lifecycle transition**. §34.5 is not repealed |
+| C-10 | Evidence vs scores | §16 Pattern Quality Model and `geometry.level_strength`'s frozen weights vs "evidence, not scores" | Three tiers: the detector record carries raw evidence only; `level_strength` survives as the one frozen composite because it describes a *level*, is `is_probability=False`, and stores its components separately; §16 and §34.5 composites are research objects (§38.19.4 position 2) |
+| C-11 | Evidence field units | NI-3 G3 is `pivot_line_residual_max_atr` 0.25 **ATR**; F8/C16 are `1.0×` ratios. §39.11's `boundary_error_pct` and `volume_contraction_pct` are **percentages** | The frozen-unit value is the gating field; the percentage is a derived display field and is never tested against. `convergence_ratio` needs no translation — it is already the frozen name and number |
+| C-12 | Missing reason codes | `validate.py` has no "insufficient history" rule and no missing-OHLC-field rule | Genuinely absent. Recorded, not fixed — `RULE_IDS` is a frozen list and extending it is an owner decision |
+
+**What §39 does not change.** NI-3 v1.0 (`de86626c…`), the frozen v1 detector configuration
+(`05167d3ae57f…`), study plan v1, §30.1's approved predicates, and the §38.19 Amendment E positions
+all stand exactly as they are. §39 adds no number of its own; every value above is a quotation with
+its source named.

@@ -15,9 +15,10 @@ clear. One blocker I thought was real — intraday market data — is **not** a 
 | Requirement | Where | State |
 |---|---|---|
 | Lifecycle states + the research-state mapping | `research/charting/states.py` (11 KB, pure fn, own tests) | **built** |
-| Pattern detection, 16 NI-3 types, frozen config hash | `research/charting/patterns.py` | **built** |
+| Pattern detection, frozen config hash | `research/charting/patterns.py` | **3 of 19 families** — `SUPPORT_RESISTANCE`, `RECTANGLE`, `HH_HL` only. The 16 NI-3 families have no detector; they are registered and DISABLED in `research/charting/pattern_registry.py`. |
 | Event dataset: schema + versioning (`EVENTS_SCHEMA_VERSION = 2`) | `research/charting/events/schema.py` | **built** |
-| Outcomes: entry at next open, gap fills at open, AMBIGUOUS rule | `research/charting/events/outcomes.py` | **built** |
+| Outcomes: entry at next open, gap fills at open | `research/charting/events/outcomes.py` | **built** |
+| AMBIGUOUS rule (stop and target in the same bar) | `research/charting/events/stops.py` (`first_exit_event == "AMBIGUOUS"`, `both_hit`, `exit_price` is `None`); excluded from gross and net hit rates by `research/charting/study/report.py` | **built** |
 | Stops / targets / R framework (§37.2–§37.3) | `research/charting/events/stops.py` (354 lines) | **built** |
 | Cost model: statutory + broker rules, 4 slippage scenarios, liquidity bucket | `research/costs/`, `events/costs_bridge.py` | **built** |
 | Control arms, context join, extraction, pipeline, writer | `research/charting/events/` (2,367 lines total) | **built** |
@@ -26,6 +27,13 @@ clear. One blocker I thought was real — intraday market data — is **not** a 
 
 The execution and outcome mathematics that 4A describes in §13 and §17–§21 is largely **already
 written** for the research path. 4A is mostly a matter of exposing it, not deriving it.
+
+> **Corrected 2026-09-23.** Two rows above were wrong when first written. (a) This table claimed
+> patterns.py implemented "16 NI-3 types"; it implements **three**. That error contradicted the
+> detector-coverage roadblock identified later in this same session — the pattern registry now makes
+> the real count checkable in code. (b) The AMBIGUOUS rule was attributed to `outcomes.py`; it lives
+> in `stops.py`. The rule itself is present and behaves as specified, so §10 of the paper PRD review
+> ("the AMBIGUOUS rule is missing") was also wrong — only the PRD's pointer is.
 
 ## 2. What is missing in code
 
