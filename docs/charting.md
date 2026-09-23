@@ -3644,19 +3644,23 @@ implementation.
 |---|---|---|
 | Swing high / low with confirmation bar | yes | `research/charting/swings.py` — `find_swings`, `swings_as_of` |
 | ATR(14) | yes | `research/charting/series.py: atr`; catalogue preset `atr_14` |
-| Trendline slope | **partly** | `geometry.ols_slope` + `geometry.boundary_drift` fit a **slope only, with no intercept** — so boundaries today are horizontal-only and there is no fitted-line object |
-| Convergence | **not usable** | `geometry.convergence_ratio` exists with its threshold, but has **no production caller** and cannot be computed without a fitted line (it needs width at the first and last pivot) |
-| Parallelism | **no** | not implemented anywhere in `research/charting/` |
-| `trendline_value_at()` | **no** | NI-3 names it a prerequisite that "must exist before any P-1, P-2 or sloped-neckline detector" |
+| Fitted line (slope + intercept) | **yes, 2026-09-23** | `geometry.fit_line() -> Line(slope, intercept)`. Its slope is pinned by test to equal `ols_slope` exactly, so the two cannot drift |
+| Width ratio `w` (convergence **and** parallelism) | **yes, 2026-09-23** | `geometry.width_ratio()` measured at the first and last **pivot**, then `geometry.classify_pair()`. Convergence and parallelism are two bands of one measurement, not two primitives |
+| G4 percentage flatness | **yes, 2026-09-23** | `geometry.line_direction()`. Deliberately not `boundary_drift`, which is the P0 ATR test — a hard CI gate (`test_F2_*`) proves the two stay distinguishable |
+| `trendline_value_at()` | **yes, 2026-09-23** | `geometry.trendline_value_at(line, x)`. This is what unblocks the sloped neckline, so head & shoulders and inverse head & shoulders no longer wait on the P-1 engine |
 | Volume / relative volume (20) | yes | `series.relative_volume`; catalogue `relative_volume_20` |
 | RSI(14), EMA, MACD | yes | `series.py`; catalogue presets |
 | **ADX(14)** | **not served** | exists only as the private `regime._adx_series`; absent from the chart indicator catalogue |
 | **Relative strength** | **partial, not served** | `regime.relative_strength` is vs **NIFTY 500 only** (windows 5/20/50/100). There is **no stock-vs-sector relative strength**; absent from the catalogue |
 
-Two consequences follow, and neither is resolved by this section:
+**Wave A landed on 2026-09-23** and closed the geometry half of this table. The P-1 family is no
+longer blocked on primitives; what remains is the detector itself (§39.15). The frozen v1
+`config_hash` is unchanged at `05167d3a…`, because the new thresholds are read from the NI-3
+configuration (`research/charting/ni3_config.py`, which verifies fingerprint `de86626c…` on load)
+and nothing was added to `CONFIG`.
 
-- **The P-1 family cannot be built until the fitted-line primitives exist.** Slope-with-intercept, a
-  convergence caller and a parallelism metric are prerequisites, not details.
+One consequence still stands:
+
 - **The Class C layer cannot be delivered as specified today.** ADX and relative strength are the two
   most-cited Class C inputs in §39.9 and neither is served; stock-vs-sector relative strength does not
   exist at all. Promoting them is a separate, costed piece of work.
@@ -3740,6 +3744,58 @@ The separation is what makes it possible to test whether a particular pattern *p
 confirmation actually has an edge, instead of baking an assumption about profitability into the
 detector and then measuring it with itself.
 
+**The second boundary — detection versus lifecycle** (owner, 2026-09-23):
+
+> A pattern detector determines structure from confirmed pivots; the replay/lifecycle engine
+> determines what happens subsequently to an already-established pattern.
+
+These answer different questions and must not be merged:
+
+| | Question | Answer at bar `t` |
+|---|---|---|
+| Snapshot detection | "What pattern exists at `t`, using pivots confirmed by `t`?" | a structure, or nothing |
+| Replay lifecycle | "What happened to a pattern that was already established?" | a state transition |
+
+The case that forces the distinction: a bar that breaks through a trough may be the same bar that
+**displaces that trough as a swing low**. The pair then never was a structure as of `t`, so the
+detector must report **no pattern** — not an invalidated one. Reporting INVALIDATED would claim a
+structure that was never established. Only when the trough survives as a confirmed pivot is the
+break a lifecycle transition.
+
+Getting this wrong produces subtle false invalidations that are very hard to find later, because
+each one looks locally reasonable. It is locked by the certification fixtures in
+`research/charting/tests/test_patterns_ni3_double.py` (`test_CERT_*`): a break through an
+unconfirmed trough must yield no pattern; a break through an established one must invalidate.
+
+### 39.13a The availability invariant
+
+**Owner, 2026-09-23.** A required contextual indicator that cannot be computed must surface, not
+vanish:
+
+```text
+required contextual indicator unavailable
+        -> explicit UNAVAILABLE / DATA_BLOCKED
+        -> never silently interpreted as PASS
+        -> never silently interpreted as "pattern absent"
+```
+
+Both silent readings are dangerous, and the second is the one that actually bit. A cup & handle gate
+read `regime.trend_classification` with a bar index where it expects a date; it returned UNAVAILABLE,
+the gate rejected, and the family reported **zero detections across all 50 symbols** — indistinguishable
+from genuine scarcity. Nothing crashed, so ordinary tests could not see it.
+
+Had the gate defaulted the other way — pass when unavailable — the bug would have been equally
+invisible *and* a frozen gate would have been silently absent from every detection.
+
+The rule is therefore: a structure whose geometry is valid but whose required context cannot be
+evaluated is **emitted** with `status = DATA_BLOCKED`, `components.data_quality = UNAVAILABLE`, and
+the gate's rule row marked `UNAVAILABLE` (never `PASS`). Such a candidate does **not** walk a
+lifecycle — claiming a breakout on a structure whose required context went unchecked would be worse
+than silence. An *evaluated* failure stays an ordinary rejection with no record, so the two remain
+distinguishable.
+
+Locked by `test_CERT_*` in `research/charting/tests/test_patterns_ni3_cup.py`.
+
 ### 39.14 Tolerance convention
 
 Already resolved; recorded here so it is not re-litigated per family:
@@ -3756,21 +3812,27 @@ stability of the two conventions can be compared across volatility regimes rathe
 
 ### 39.15 Prerequisites and build order
 
-**Prerequisites before any P-1 or P-2 family can be attempted**, in order:
+**Prerequisites — delivered 2026-09-23 (Wave A).** The dependency graph is one chain, not four
+independent items:
 
-1. `trendline_value_at(pivots, t)` — a fitted line with an intercept, evaluable at any bar.
-2. A convergence caller — `geometry.convergence_ratio` exists but nothing computes the widths it
-   needs.
-3. A parallelism metric — net-new; it is what separates a channel from a wedge.
+```text
+fit_line()  ->  trendline_value_at()  ->  width_ratio() at pivots  ->  classify_pair()
+```
+
+`convergence_ratio` and "parallelism" are not separate primitives: they are two bands of the single
+ratio `w`, which is why the earlier four-item blocker list overstated the work. All of it is in
+`research/charting/geometry.py`, with thresholds read from `ni3_config.py`.
 
 **Build order**, cheapest structural value first:
 
 | Wave | Families | State |
 |---|---|---|
 | 0 | Support/resistance, Rectangle, HH/HL | **done** |
-| 1 | Ascending / descending / symmetrical triangle, rising / falling wedge, ascending / descending channel | blocked on the three prerequisites above |
+| A | `fit_line`, `trendline_value_at`, `width_ratio`, `line_direction`, `classify_pair` | **done 2026-09-23** |
+| 1 | Ascending / descending / symmetrical triangle, rising / falling wedge, ascending / descending channel | unblocked; needs the NI-3 §2 seven-step detector and its 9 fixtures |
 | 2 | Bull / bear flag, bull / bear pennant | blocked on wave 1 (P-2 bodies are P-1 shapes) |
-| 3 | Double top, double bottom, head & shoulders, inverse head & shoulders, cup & handle | independent of P-1; needs only swing + ATR + similarity tolerances |
+| B | Head & shoulders, inverse head & shoulders | unblocked by `trendline_value_at` alone (sloped neckline, NI-3 §6b) — they do **not** wait for the P-1 detector |
+| 3 | Double top, double bottom, cup & handle | never blocked; needs only swing + ATR + similarity tolerances |
 
 Wave 3 is not blocked by the fitted-line work, so it can proceed in parallel with wave 1 if the
 owner prefers pattern breadth earlier than triangle support.
@@ -3793,6 +3855,7 @@ its owner, because a section that quietly picks one would recreate the drift it 
 | C-9 | Class C "never creates the pattern" vs §34.5 | §34.5's Early Pattern Score already weights momentum/relative strength 15% and market/sector context 10% | Both hold, with the line drawn precisely: Class C may feed §34.5 early scores and §16 components — research and UI objects — but **never a §11 lifecycle transition**. §34.5 is not repealed |
 | C-10 | Evidence vs scores | §16 Pattern Quality Model and `geometry.level_strength`'s frozen weights vs "evidence, not scores" | Three tiers: the detector record carries raw evidence only; `level_strength` survives as the one frozen composite because it describes a *level*, is `is_probability=False`, and stores its components separately; §16 and §34.5 composites are research objects (§38.19.4 position 2) |
 | C-11 | Evidence field units | NI-3 G3 is `pivot_line_residual_max_atr` 0.25 **ATR**; F8/C16 are `1.0×` ratios. §39.11's `boundary_error_pct` and `volume_contraction_pct` are **percentages** | The frozen-unit value is the gating field; the percentage is a derived display field and is never tested against. `convergence_ratio` needs no translation — it is already the frozen name and number |
+| C-13 | Double-extreme adjacency | NI-3 §4 says "troughs at least B1 apart and within B2 of each other" without saying the two must be **adjacent** extremes | Read literally, a window with six lows emits pairs whose troughs have four other troughs between them — 320 detections across 12 symbols. The detector requires consecutive same-kind pivots, giving 117 across all 50 (1.2 per family per symbol, in line with the frozen families). **Open question for the owner**; the check is one line in `patterns_ni3.py` and is commented with how to revert |
 | C-12 | Missing reason codes | `validate.py` has no "insufficient history" rule and no missing-OHLC-field rule | Genuinely absent. Recorded, not fixed — `RULE_IDS` is a frozen list and extending it is an owner decision |
 
 **What §39 does not change.** NI-3 v1.0 (`de86626c…`), the frozen v1 detector configuration
