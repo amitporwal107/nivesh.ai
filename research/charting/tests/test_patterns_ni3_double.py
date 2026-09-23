@@ -160,3 +160,69 @@ def test_the_frozen_v1_detector_is_untouched_by_this_module():
     assert all(s.pattern_type in {"SUPPORT_RESISTANCE", "RECTANGLE", "HH_HL"} for s in v1)
     ni3 = detect_ni3_as_of(_bars(DB_BREAKOUT), len(DB_BREAKOUT) - 1, symbol="T")
     assert all(s.pattern_type in {"DOUBLE_BOTTOM", "DOUBLE_TOP"} for s in ni3)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# CERTIFICATION FIXTURES (owner, 2026-09-23). These five are locked: they exist to stop a later
+# "helpful" relaxation of a frozen boundary, and to keep the detector/replay split honest.
+#
+#   | Fixture                              | Expected                   | Protects            |
+#   | 9-bar separation                     | reject                     | minimum-duration    |
+#   | 10-bar separation                    | accept candidate           | minimum-duration    |
+#   | break through UNCONFIRMED trough     | no snapshot invalidation   | pivot integrity     |
+#   | break through ESTABLISHED trough     | invalidate                 | lifecycle integrity |
+#   | future bar changes historical pivot  | historical result unchanged| no-look-ahead       |
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+def _double_bottom_with_separation(sep_bars: int):
+    """A double bottom whose two troughs are exactly `sep_bars` apart, everything else valid."""
+    pre = [100] * 4 + [97, 94, 91, 90]                    # trough at bar 7
+    mid = [92, 95, 98, 100, 100, 99][: max(1, sep_bars - 4)]
+    while len(pre) + len(mid) + 4 - 1 - 7 < sep_bars:      # pad the middle until the gap is right
+        mid = mid + [99]
+    tail = [97, 94, 91, 90.5]                              # second trough closes the gap
+    return pre + mid + tail + [92, 95, 98, 101, 103]
+
+
+@pytest.mark.parametrize("sep,expected", [(9, 0), (10, 1)])
+def test_CERT_separation_boundary_is_exactly_ten_bars(sep, expected):
+    """LOCKED. B1/P1 = 10 sessions (OWNER, re-confirmed #110). Nine must reject, ten must accept —
+    the off-by-one that protects the frozen minimum from later relaxation."""
+    px = _double_bottom_with_separation(sep)
+    snaps = _only(detect_ni3_as_of(_bars(px), len(px) - 1, symbol="T"), "DOUBLE_BOTTOM")
+    troughs = [p for s in snaps for p in s.pivots if p["kind"] == "LOW"]
+    assert len(snaps) == expected, f"separation {sep} should {'accept' if expected else 'reject'}; got {len(snaps)}"
+    if expected:
+        idx = sorted(troughs, key=lambda p: p["date"])
+        assert len(idx) == 2
+
+
+def test_CERT_a_break_through_an_unconfirmed_trough_does_not_invalidate_a_snapshot():
+    """LOCKED — pivot integrity. If the breaking bar itself displaces the trough as a swing low,
+    the pair never was a structure as of `t`: the detector reports NO PATTERN, not an invalidated
+    one. Reporting INVALIDATED here would mean claiming a structure that was never established.
+    """
+    px = W_BASE + [92, 90, 88, 86, 85]          # falls straight through; trough at 17 is displaced
+    snaps = _only(detect_ni3_as_of(_bars(px), len(px) - 1, symbol="T"), "DOUBLE_BOTTOM")
+    assert snaps == [], "a displaced trough yields no pattern, not an invalidated one"
+
+
+def test_CERT_a_break_through_an_established_trough_invalidates():
+    """LOCKED — lifecycle integrity. The trough survives as a confirmed pivot, the structure was
+    established, so the subsequent break is a lifecycle transition and must be recorded."""
+    snaps = _only(detect_ni3_as_of(_bars(DB_INVALID), len(DB_INVALID) - 1, symbol="T"), "DOUBLE_BOTTOM")
+    assert len(snaps) == 1
+    assert snaps[0].status == "INVALIDATED"
+    assert [e["event_type"] for e in snaps[0].events] == ["INVALIDATED"]
+
+
+def test_CERT_a_future_bar_cannot_change_a_historical_pivot_or_result():
+    """LOCKED — no-look-ahead. Covered functionally by test_NLA_*; restated here as a named
+    certification fixture so the suite reads as the pack's matrix does."""
+    t = len(W_BASE) + 1
+    clean = _bars(DB_BREAKOUT)
+    poisoned = clean.copy()
+    for i in range(t + 1, len(poisoned)):
+        poisoned.loc[i, ["open", "high", "low", "close"]] = [1.0, 1.0, 1.0, 1.0]
+    assert [s.__dict__ for s in detect_ni3_as_of(clean, t, symbol="T")] == \
+           [s.__dict__ for s in detect_ni3_as_of(poisoned, t, symbol="T")]

@@ -3744,6 +3744,29 @@ The separation is what makes it possible to test whether a particular pattern *p
 confirmation actually has an edge, instead of baking an assumption about profitability into the
 detector and then measuring it with itself.
 
+**The second boundary — detection versus lifecycle** (owner, 2026-09-23):
+
+> A pattern detector determines structure from confirmed pivots; the replay/lifecycle engine
+> determines what happens subsequently to an already-established pattern.
+
+These answer different questions and must not be merged:
+
+| | Question | Answer at bar `t` |
+|---|---|---|
+| Snapshot detection | "What pattern exists at `t`, using pivots confirmed by `t`?" | a structure, or nothing |
+| Replay lifecycle | "What happened to a pattern that was already established?" | a state transition |
+
+The case that forces the distinction: a bar that breaks through a trough may be the same bar that
+**displaces that trough as a swing low**. The pair then never was a structure as of `t`, so the
+detector must report **no pattern** — not an invalidated one. Reporting INVALIDATED would claim a
+structure that was never established. Only when the trough survives as a confirmed pivot is the
+break a lifecycle transition.
+
+Getting this wrong produces subtle false invalidations that are very hard to find later, because
+each one looks locally reasonable. It is locked by the certification fixtures in
+`research/charting/tests/test_patterns_ni3_double.py` (`test_CERT_*`): a break through an
+unconfirmed trough must yield no pattern; a break through an established one must invalidate.
+
 ### 39.14 Tolerance convention
 
 Already resolved; recorded here so it is not re-litigated per family:
@@ -3803,6 +3826,7 @@ its owner, because a section that quietly picks one would recreate the drift it 
 | C-9 | Class C "never creates the pattern" vs §34.5 | §34.5's Early Pattern Score already weights momentum/relative strength 15% and market/sector context 10% | Both hold, with the line drawn precisely: Class C may feed §34.5 early scores and §16 components — research and UI objects — but **never a §11 lifecycle transition**. §34.5 is not repealed |
 | C-10 | Evidence vs scores | §16 Pattern Quality Model and `geometry.level_strength`'s frozen weights vs "evidence, not scores" | Three tiers: the detector record carries raw evidence only; `level_strength` survives as the one frozen composite because it describes a *level*, is `is_probability=False`, and stores its components separately; §16 and §34.5 composites are research objects (§38.19.4 position 2) |
 | C-11 | Evidence field units | NI-3 G3 is `pivot_line_residual_max_atr` 0.25 **ATR**; F8/C16 are `1.0×` ratios. §39.11's `boundary_error_pct` and `volume_contraction_pct` are **percentages** | The frozen-unit value is the gating field; the percentage is a derived display field and is never tested against. `convergence_ratio` needs no translation — it is already the frozen name and number |
+| C-13 | Double-extreme adjacency | NI-3 §4 says "troughs at least B1 apart and within B2 of each other" without saying the two must be **adjacent** extremes | Read literally, a window with six lows emits pairs whose troughs have four other troughs between them — 320 detections across 12 symbols. The detector requires consecutive same-kind pivots, giving 117 across all 50 (1.2 per family per symbol, in line with the frozen families). **Open question for the owner**; the check is one line in `patterns_ni3.py` and is commented with how to revert |
 | C-12 | Missing reason codes | `validate.py` has no "insufficient history" rule and no missing-OHLC-field rule | Genuinely absent. Recorded, not fixed — `RULE_IDS` is a frozen list and extending it is an owner decision |
 
 **What §39 does not change.** NI-3 v1.0 (`de86626c…`), the frozen v1 detector configuration
