@@ -70,6 +70,8 @@ export interface ToolbarProps {
   onFit: () => void;
   dataViewOpen: boolean;
   onToggleDataView: () => void;
+  /** Opens the 3A field guide — what every field on this screen means. */
+  onOpenFieldGuide: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
 
@@ -89,7 +91,7 @@ export default function Toolbar(props: ToolbarProps) {
     indicatorCount, onOpenIndicators, canUndo, canRedo, onUndo, onRedo,
     layoutName, layouts, layoutDirty, onSaveLayout, onSaveLayoutAs, onRenameLayout, onDeleteLayout,
     onOpenLayout, hasOpenLayout,
-    onFit, dataViewOpen, onToggleDataView, isFullscreen, onToggleFullscreen, compact, className,
+    onFit, dataViewOpen, onToggleDataView, onOpenFieldGuide, isFullscreen, onToggleFullscreen, compact, className,
   } = props;
 
   const chartTypeItems: MenuItem[] = (Object.keys(CHART_TYPE_LABEL) as ChartType[]).map((ct) => ({
@@ -104,6 +106,7 @@ export default function Toolbar(props: ToolbarProps) {
     { id: "fit", label: "Fit to data", onSelect: onFit, testId: "chart-toolbar-more-fit" },
     { id: "dataview", label: dataViewOpen ? "Hide data view" : "Data view", onSelect: onToggleDataView, testId: "chart-toolbar-more-dataview" },
     { id: "fullscreen", label: isFullscreen ? "Exit full screen" : "Full screen", onSelect: onToggleFullscreen, testId: "chart-toolbar-more-fullscreen" },
+    { id: "fieldguide", label: "What every field means", onSelect: onOpenFieldGuide, testId: "chart-toolbar-more-fieldguide" },
   ];
 
   const layoutItems: MenuItem[] = [
@@ -252,6 +255,13 @@ export default function Toolbar(props: ToolbarProps) {
             style={{ width: 32, height: 32, borderRadius: 9, flex: "none" }}
           >
             ▤
+          </button>
+          <button
+            type="button" data-testid="chart-field-guide-open" onClick={onOpenFieldGuide}
+            aria-label="What every field means" title="What every field on this screen means"
+            className="rail-ico" style={{ width: 32, height: 32, borderRadius: 9, flex: "none" }}
+          >
+            ?
           </button>
           <button
             type="button" data-testid="chart-fullscreen" onClick={onToggleFullscreen} aria-pressed={isFullscreen}
