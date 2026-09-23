@@ -22,6 +22,7 @@ import {
 } from "lightweight-charts";
 import { DrawingsPrimitive, type DrawingPoint } from "./primitives";
 import { PatternsPrimitive } from "./patternLayer";
+import { BandsPrimitive } from "./bandLayer";
 import { resolveTheme, useAppTheme, withAlpha, type ChartTheme } from "./theme";
 import Legend, { type LegendIndicatorRow } from "./workspace/Legend";
 import { PaneControls, PaneDivider } from "./workspace/PaneControls";
@@ -31,6 +32,7 @@ import type { VisibleRange } from "./workspace/ranges";
 import {
   type Bar, type IndicatorSeries, type Pattern, type Drawing, type NewDrawing, type SrBand, type NearestLevel,
   plotColumns, patternWindow, patternTypeLabel, statusLabel, knownMarkerDate, heikinAshi, num as fmtNum, price as fmtPrice,
+  type IndicatorCatalogue,
 } from "./contract";
 
 export interface ChartCanvasHandle {
@@ -105,6 +107,10 @@ interface Props {
   /** Set by a bottom-bar range preset; re-applied whenever the object identity changes. */
   visibleRange: VisibleRange | null;
 
+  /** The catalogue this snapshot was built with. Only used for the reference bands an indicator
+   *  defines (§38.5) — the chart never invents a level. */
+  catalogue: IndicatorCatalogue | null;
+
   statusBadge?: React.ReactNode;
   onHideIndicator: (id: string) => void;
   onRemoveIndicator: (id: string) => void;
@@ -119,6 +125,7 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
     bars, incompleteDates, chartType, scaleMode, indicators, selectedIndicatorIds, hiddenIndicatorIds, panes,
     patterns, hasAnyPatterns, selectedPatternId, srBands, showLevels, selectedSrBandId, nearestLevel,
     drawings, activeTool, selectedDrawingId, drawingsHidden, drawingsLocked, visibleRange, maximisedPaneId,
+    catalogue,
   } = props;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -155,6 +162,18 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
     const i = bars.findIndex((b) => b[0] === activeBar[0]);
     return i > 0 ? bars[i - 1][4] : null;
   }, [bars, activeBar]);
+
+  /** seriesId -> the reference bands its catalogue entry defines, if any (§38.5). */
+  const bandsBySeries = useMemo(() => {
+    const out = new Map<string, { bands: Array<{ value: number; label: string }>; fill: { from: number; to: number } | null }>();
+    for (const ind of catalogue?.indicators ?? []) {
+      if (!ind.reference_bands?.length && !ind.band_fill) continue;
+      for (const preset of ind.presets) {
+        out.set(preset.series_id, { bands: ind.reference_bands ?? [], fill: ind.band_fill ?? null });
+      }
+    }
+    return out;
+  }, [catalogue]);
 
   const indicatorColour = useCallback((id: string): string => {
     const i = selectedIndicatorIds.indexOf(id);
@@ -459,6 +478,7 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
     if (!chart || !theme) return;
     const createdSeries: ISeriesApi<SeriesType>[] = [];
     const createdPanes: number[] = [];
+    const createdBands: Array<{ series: ISeriesApi<SeriesType>; primitive: BandsPrimitive }> = [];
     const visible = selectedIndicatorIds.filter((id) => !hiddenIndicatorIds.includes(id));
 
     const addIndicator = (id: string, paneIdx: number) => {
@@ -501,6 +521,19 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
         createdSeries.push(volume);
       } else {
         for (const id of spec.indicatorIds) if (visible.includes(id)) addIndicator(id, paneIdx);
+        // §38.5 reference bands, drawn inside this pane only. Attached to the pane's first series,
+        // since a series primitive draws in the pane its series belongs to.
+        const banded = spec.indicatorIds.find((id) => visible.includes(id) && bandsBySeries.has(id));
+        const paneSeries = banded ? createdSeries[createdSeries.length - 1] : null;
+        if (banded && paneSeries) {
+          const def = bandsBySeries.get(banded)!;
+          const primitive = new BandsPrimitive();
+          try {
+            paneSeries.attachPrimitive(primitive);
+            primitive.set(def.bands, def.fill, withAlpha(theme.ink4, 0.85), withAlpha(theme.ink4, 0.10));
+            createdBands.push({ series: paneSeries, primitive });
+          } catch { /* a pane the library refused to build has nothing to band */ }
+        }
       }
       live.push(spec);
     }
@@ -523,17 +556,22 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
     if (container) {
       container.dataset.renderedSeries = createdSeries.map((x) => x.options().title).filter((t) => t && t !== "Volume").join(",");
       container.dataset.paneIds = live.map((p) => p.id).join(",");
+      // Test hook: which panes drew catalogue reference bands, and at which levels.
+      container.dataset.bandLevels = JSON.stringify(
+        createdBands.length ? [...bandsBySeries].filter(([id]) => visible.includes(id)).map(([id, d]) => [id, d.bands.map((b) => b.value)]) : [],
+      );
       // Test hook: the price pane's own pixel height, so a test that must click at a PRICE can convert a
       // fraction of the price pane into a page coordinate instead of guessing against the whole host.
       try { container.dataset.pricePaneHeight = String(Math.round(chartPanes[0]?.getHeight() ?? 0)); } catch { /* pane not ready */ }
     }
 
     return () => {
-      if (container) { container.dataset.renderedSeries = ""; container.dataset.paneIds = ""; container.dataset.pricePaneHeight = "0"; }
+      if (container) { container.dataset.renderedSeries = ""; container.dataset.paneIds = ""; container.dataset.pricePaneHeight = "0"; container.dataset.bandLevels = "[]"; }
+      for (const b of createdBands) { try { b.series.detachPrimitive(b.primitive); } catch { /* series already removed */ } }
       for (const s of createdSeries) { try { chart.removeSeries(s); } catch { /* chart may already be torn down */ } }
       for (const idx of [...createdPanes].sort((a, b) => b - a)) { try { chart.removePane(idx); } catch { /* already gone */ } }
     };
-  }, [panes, indicators, selectedIndicatorIds, hiddenIndicatorIds, bars, maximisedPaneId, indicatorColour]);
+  }, [panes, indicators, selectedIndicatorIds, hiddenIndicatorIds, bars, maximisedPaneId, indicatorColour, bandsBySeries, colors]);
 
   // ── pattern overlays: PatternsPrimitive draws each pattern over its own dates (§38.15, AC19) ──────────────
   useEffect(() => {

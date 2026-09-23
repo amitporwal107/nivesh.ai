@@ -511,6 +511,76 @@ export function heikinAshi(bars: Bar[]): Bar[] {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   Indicator preset catalogue (§38.5, D-3) — backend/routes/research_chart.py GET /catalogue
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** One fixed parameter set. D-3: users pick a preset and cannot type arbitrary parameters, because
+ *  every preset is precomputed at export — there is no on-demand compute endpoint by design. */
+export interface CataloguePreset {
+  preset_id: string;
+  name: string;
+  /** The key this preset occupies in a symbol payload's `indicators` map. */
+  series_id: string;
+  parameters: Json;
+  pane: string;
+  plot_fields: string[] | null;
+}
+
+export interface CatalogueBand { value: number; label: string }
+
+export interface CatalogueIndicator {
+  indicator_id: string;
+  name: string;
+  category: string;
+  default_pane: string;
+  output_fields: string[];
+  calculation_version: string;
+  missing_data_policy: string;
+  presets: CataloguePreset[];
+  /** §38.5 "reference bands appear where the indicator defines them (e.g. RSI 30/70 with shaded
+   *  fill)" — the levels come from the catalogue, never from a number the browser picks. */
+  reference_bands?: CatalogueBand[];
+  band_fill?: { from: number; to: number };
+}
+
+export interface IndicatorCatalogue {
+  version: string;
+  hash: string;
+  categories: string[];
+  indicators: CatalogueIndicator[];
+}
+
+export const catalogueApi = {
+  /** Shape-checked before it reaches the screen: a proxy or an error page can answer 200 with
+   *  something that is not a catalogue, and the dialog must show an error rather than crash. */
+  get: async (): Promise<Result<IndicatorCatalogue>> => {
+    const r = await getJson<IndicatorCatalogue>(`${BASE}/catalogue`);
+    if (r.kind !== "ok") return r;
+    const d = r.data as IndicatorCatalogue | undefined;
+    if (!d || !Array.isArray(d.indicators) || !Array.isArray(d.categories)) {
+      return { kind: "error", message: "unexpected /catalogue response shape" };
+    }
+    return { kind: "ok", data: d };
+  },
+};
+
+/** Every preset in the catalogue, flattened with its parent indicator — what the dialog lists. */
+export function catalogueEntries(c: IndicatorCatalogue | null): Array<{ indicator: CatalogueIndicator; preset: CataloguePreset }> {
+  if (!c) return [];
+  return c.indicators.flatMap((indicator) => indicator.presets.map((preset) => ({ indicator, preset })));
+}
+
+/** Case-insensitive match over the preset name, the indicator name and the ids, so "200", "sma" and
+ *  "moving average" all find SMA 200. */
+export function matchesIndicatorSearch(entry: { indicator: CatalogueIndicator; preset: CataloguePreset }, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const hay = [entry.preset.name, entry.preset.preset_id, entry.preset.series_id,
+               entry.indicator.name, entry.indicator.indicator_id, entry.indicator.category].join(" ").toLowerCase();
+  return hay.includes(q);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    Saved layouts (§38.8, §38.11) — backend/routes/research_chart_layouts.py
    ══════════════════════════════════════════════════════════════════════════ */
 

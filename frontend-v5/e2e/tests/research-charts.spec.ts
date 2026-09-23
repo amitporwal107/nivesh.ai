@@ -37,6 +37,8 @@ async function mockCharts(page: Page, opts?: { run?: () => Reply; symbols?: () =
     const r = opts?.run ? opts.run() : { status: 200, body: load("research-chart-run.json") };
     return route.fulfill({ status: r.status, contentType: "application/json", body: JSON.stringify(r.body) });
   });
+  await page.route("**/api/research/chart/catalogue", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(load("research-chart-catalogue.json")) }));
   await page.route("**/api/research/chart/symbols", (route) => {
     const r = opts?.symbols ? opts.symbols() : { status: 200, body: load("research-chart-symbols.json") };
     return route.fulfill({ status: r.status, contentType: "application/json", body: JSON.stringify(r.body) });

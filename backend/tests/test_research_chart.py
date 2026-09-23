@@ -281,9 +281,13 @@ def test_tc8_indicators_filters_by_ids_and_rejects_unknown(monkeypatch, real_sna
 
     r = _get(c, "/api/research/chart/SYN2/indicators")
     assert r.status_code == 200
-    assert set(r.json()["indicators"].keys()) == {
-        "sma_20", "sma_50", "ema_20", "bollinger", "rsi_14", "macd", "atr_14", "relative_volume",
-    }
+    # The full set is whatever the controlled catalogue defines (§38.5, D-3) — asserting a
+
+    # hand-written list here would just re-fail every time a preset is added.
+
+    from research.charting import indicator_catalogue as _cat
+
+    assert set(r.json()["indicators"].keys()) == {p["series_id"] for _, p in _cat.iter_presets()}
 
     r = _get(c, "/api/research/chart/SYN2/indicators?ids=sma_20,not_a_real_one")
     assert r.status_code == 400 and "not_a_real_one" in r.json()["detail"]
@@ -512,3 +516,87 @@ def test_ui_fixtures_have_the_real_api_top_level_shape(monkeypatch, real_snapsho
     if isinstance(real, dict):
         invented = set(mock) - set(real)
         assert not invented, f"{fixture} carries keys the API never sends: {sorted(invented)}"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# The indicator preset catalogue — docs/charting.md §38.5, decision D-3.
+# TC-209..TC-211 from test_reports/charting_w2_indicator_catalogue.md.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_tc209_catalogue_is_served_behind_the_charting_flag(monkeypatch, real_snapshot):
+    c = _client(monkeypatch, real_snapshot)
+
+    r = _get(c, "/api/research/chart/catalogue")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["version"]
+    assert len(body["hash"]) == 64
+    assert body["categories"] == ["trend", "momentum", "volatility", "volume"]
+
+    ids = [i["indicator_id"] for i in body["indicators"]]
+    assert ids == ["sma", "ema", "rsi", "macd", "bollinger", "atr", "relative_volume"]
+    assert sum(len(i["presets"]) for i in body["indicators"]) == 17
+
+    # Every preset says enough for the dialog to render and for a citation to be reproducible.
+    for ind in body["indicators"]:
+        assert ind["category"] in ("trend", "momentum", "volatility", "volume")
+        assert ind["output_fields"] and ind["calculation_version"]
+        for p in ind["presets"]:
+            assert p["preset_id"] and p["name"] and p["series_id"] and p["parameters"]
+            assert p["pane"]
+
+    # RSI carries its reference bands (§38.5) rather than the browser inventing 30/70.
+    rsi = next(i for i in body["indicators"] if i["indicator_id"] == "rsi")
+    assert [b["value"] for b in rsi["reference_bands"]] == [30.0, 70.0]
+    assert rsi["band_fill"] == {"from": 30.0, "to": 70.0}
+
+    # and the gate applies: an uninvited user never sees it
+    denied = _get(c, "/api/research/chart/catalogue", who="other")
+    assert denied.status_code == 403 and denied.json()["detail"] == "feature_not_enabled"
+
+
+def test_tc210_unknown_indicator_id_still_carries_its_reason_code(monkeypatch, real_snapshot):
+    c = _client(monkeypatch, real_snapshot)
+    r = _get(c, "/api/research/chart/SYN1/indicators?ids=not_a_real_indicator")
+    assert r.status_code == 400
+    assert r.json()["detail"] == "unknown_indicator: not_a_real_indicator"
+
+
+def test_tc211_served_catalogue_matches_the_one_the_snapshot_was_built_with(monkeypatch, real_snapshot):
+    """The dialog must never describe a preset differently from the series actually written: the
+    hash the API serves is the hash the exporter recorded, and every preset's series_id is a key in
+    a real symbol payload."""
+    from research.charting import indicator_catalogue as cat
+
+    c = _client(monkeypatch, real_snapshot)
+    served = _get(c, "/api/research/chart/catalogue").json()
+    manifest = json.loads((real_snapshot / "manifest.json").read_text())
+    assert served["hash"] == manifest["indicator_catalogue_hash"] == cat.catalogue_hash()
+
+    payload = json.loads(gzip.open(real_snapshot / "symbols" / "SYN1.json.gz").read())
+    written = set(payload["indicators"])
+    catalogued = {p["series_id"] for ind in served["indicators"] for p in ind["presets"]}
+    assert catalogued == written
+
+    # the same set on every display timeframe (§38.7 runs one spec list against all three)
+    for tf in ("1W", "1M"):
+        assert set(payload["timeframes"][tf]["indicators"]) == catalogued
+
+
+def test_tc211b_a_snapshot_without_a_catalogue_answers_with_a_reason_code(monkeypatch, real_snapshot, tmp_path):
+    """A snapshot exported before the catalogue existed must produce a reason code, not an empty
+    dialog that looks like 'this chart has no indicators'."""
+    import shutil
+    older = tmp_path / "older_snapshot"
+    shutil.copytree(real_snapshot, older)
+    manifest = json.loads((older / "manifest.json").read_text())
+    manifest.pop("indicator_catalogue", None)
+    manifest.pop("indicator_catalogue_hash", None)
+    (older / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
+
+    c = _client(monkeypatch, older)
+    r = _get(c, "/api/research/chart/catalogue")
+    assert r.status_code == 503
+    assert r.json()["detail"] == "catalogue_unavailable"
+    # the rest of the chart still works — a missing catalogue is not a broken snapshot
+    assert _get(c, "/api/research/chart/run").status_code == 200

@@ -17,6 +17,7 @@ import Toolbar, { type TimeframeOption } from "./workspace/Toolbar";
 import DrawingRail, { type ActiveTool } from "./workspace/DrawingRail";
 import BottomBar from "./workspace/BottomBar";
 import Sidebar from "./workspace/Sidebar";
+import IndicatorDialog from "./workspace/IndicatorDialog";
 import { DrawingHistory, type DrawingCommand } from "./workspace/drawingHistory";
 import { useChartShortcuts } from "./workspace/keyboard";
 import { resolveRange, type RangePreset, type VisibleRange } from "./workspace/ranges";
@@ -24,10 +25,10 @@ import { TIMEFRAMES, type ChartType, type ScaleMode, type SidebarTab, type Timef
 import {
   chartApi, drawingsApi, combinedStatus, statusTone, patternVisualCategory, isLevelPattern, statusLabel, patternTypeLabel,
   matchesPatternFilter, patternFamilies, groupSrBands, nearestLevelReadout, lastIndicatorValue, levelCards, splitBars,
-  isUnknownTimeframe, layoutsApi, DASH, txt, price as fmtPrice, num as fmtNum,
+  isUnknownTimeframe, layoutsApi, catalogueApi, DASH, txt, price as fmtPrice, num as fmtNum,
   type Result, type RunPayload, type ManifestSymbolEntry, type OhlcvPayload, type IndicatorsPayload,
   type PatternsPayload, type Pattern, type Drawing, type NewDrawing, type Bar, type PatternFilter,
-  type ChartLayout, type NewChartLayout, type LayoutIndicator, type LayoutPane,
+  type ChartLayout, type NewChartLayout, type LayoutIndicator, type LayoutPane, type IndicatorCatalogue,
 } from "./contract";
 
 const PATTERN_FILTER_CHIPS: Array<{ id: PatternFilter; label: string }> = [
@@ -139,6 +140,11 @@ export default function ChartsScreen() {
    *  during the apply would be read one commit too early. */
   const [primeTick, setPrimeTick] = useState(0);
   const primedTickRef = useRef(-1);
+
+  // ── indicator preset catalogue (§38.5, D-3) ──────────────────────────────
+  // Fetched once per session, not per symbol: it describes the snapshot, not a symbol.
+  const [catalogue, setCatalogue] = useState<Result<IndicatorCatalogue> | null>(null);
+  const [indicatorDialogOpen, setIndicatorDialogOpen] = useState(false);
 
   const [showDataView, setShowDataView] = useState(false);
   type DrawerCtx =
@@ -459,6 +465,16 @@ export default function ChartsScreen() {
   }, [denyAll]);
 
   useEffect(() => { void refreshLayouts(); }, [refreshLayouts]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void catalogueApi.get().then((r) => {
+      if (cancelled) return;
+      if (r.kind === "no_access") { denyAll(); return; }
+      setCatalogue(r);
+    });
+    return () => { cancelled = true; };
+  }, [denyAll]);
 
   /** Applies a chosen layout once its symbol's payloads have arrived (see `pendingLayout`). */
   useEffect(() => {
@@ -1035,7 +1051,7 @@ export default function ChartsScreen() {
       chartType={chartType}
       onChartTypeChange={setChartType}
       indicatorCount={selectedIndicatorIds.length}
-      onOpenIndicators={() => { setSidebarTab("indicators"); setSidebarCollapsed(false); }}
+      onOpenIndicators={() => setIndicatorDialogOpen(true)}
       canUndo={historyRef.current.canUndo}
       canRedo={historyRef.current.canRedo}
       onUndo={() => void undo()}
@@ -1136,6 +1152,7 @@ export default function ChartsScreen() {
           drawingsHidden={drawingsHidden}
           drawingsLocked={drawingsLocked}
           visibleRange={visibleRange}
+          catalogue={catalogue?.kind === "ok" ? catalogue.data : null}
           onHideIndicator={(id) => setHiddenIndicatorIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}
           onRemoveIndicator={(id) => setSelectedIndicatorIds((cur) => cur.filter((x) => x !== id))}
           onOpenIndicatorProvenance={(id) => setDrawer({ kind: "indicator", id })}
@@ -1208,6 +1225,16 @@ export default function ChartsScreen() {
       )}
 
       {showDataView && <DataView symbol={symbol ?? ""} bars={bars} patterns={chartPatterns} levels={showLevels ? levelPatterns : []} />}
+
+      <IndicatorDialog
+        open={indicatorDialogOpen}
+        onClose={() => setIndicatorDialogOpen(false)}
+        catalogue={catalogue}
+        activeSeriesIds={selectedIndicatorIds}
+        availableSeries={Object.fromEntries(Object.entries(indicators).map(([id, v]) => [id, v.values.length]))}
+        onToggle={toggleIndicator}
+        onShowProvenance={(id) => setDrawer({ kind: "indicator", id })}
+      />
 
       {/* ── provenance drawer (B6) ── */}
       {drawer && symEntry && (

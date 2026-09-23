@@ -1,0 +1,310 @@
+{
+  "version": "1.0.0",
+  "categories": [
+    "trend",
+    "momentum",
+    "volatility",
+    "volume"
+  ],
+  "indicators": [
+    {
+      "indicator_id": "sma",
+      "name": "Simple moving average",
+      "category": "trend",
+      "default_pane": "price",
+      "output_fields": [
+        "sma"
+      ],
+      "calculation_version": "1.0.0",
+      "missing_data_policy": "NaN until n consecutive non-null closes are available; any NaN close inside the window propagates to NaN.",
+      "presets": [
+        {
+          "preset_id": "sma_10",
+          "name": "SMA 10",
+          "series_id": "sma_10",
+          "parameters": {
+            "period": 10
+          },
+          "pane": "price",
+          "plot_fields": null
+        },
+        {
+          "preset_id": "sma_20",
+          "name": "SMA 20",
+          "series_id": "sma_20",
+          "parameters": {
+            "period": 20
+          },
+          "pane": "price",
+          "plot_fields": null
+        },
+        {
+          "preset_id": "sma_50",
+          "name": "SMA 50",
+          "series_id": "sma_50",
+          "parameters": {
+            "period": 50
+          },
+          "pane": "price",
+          "plot_fields": null
+        },
+        {
+          "preset_id": "sma_100",
+          "name": "SMA 100",
+          "series_id": "sma_100",
+          "parameters": {
+            "period": 100
+          },
+          "pane": "price",
+          "plot_fields": null
+        },
+        {
+          "preset_id": "sma_200",
+          "name": "SMA 200",
+          "series_id": "sma_200",
+          "parameters": {
+            "period": 200
+          },
+          "pane": "price",
+          "plot_fields": null
+        }
+      ]
+    },
+    {
+      "indicator_id": "ema",
+      "name": "Exponential moving average",
+      "category": "trend",
+      "default_pane": "price",
+      "output_fields": [
+        "ema"
+      ],
+      "calculation_version": "1.0.0",
+      "missing_data_policy": "NaN for the first n-1 bars (matches calculator.py's gate); recursive thereafter, seeded on the first available close.",
+      "presets": [
+        {
+          "preset_id": "ema_10",
+          "name": "EMA 10",
+          "series_id": "ema_10",
+          "parameters": {
+            "period": 10
+          },
+          "pane": "price",
+          "plot_fields": null
+        },
+        {
+          "preset_id": "ema_20",
+          "name": "EMA 20",
+          "series_id": "ema_20",
+          "parameters": {
+            "period": 20
+          },
+          "pane": "price",
+          "plot_fields": null
+        },
+        {
+          "preset_id": "ema_50",
+          "name": "EMA 50",
+          "series_id": "ema_50",
+          "parameters": {
+            "period": 50
+          },
+          "pane": "price",
+          "plot_fields": null
+        },
+        {
+          "preset_id": "ema_100",
+          "name": "EMA 100",
+          "series_id": "ema_100",
+          "parameters": {
+            "period": 100
+          },
+          "pane": "price",
+          "plot_fields": null
+        },
+        {
+          "preset_id": "ema_200",
+          "name": "EMA 200",
+          "series_id": "ema_200",
+          "parameters": {
+            "period": 200
+          },
+          "pane": "price",
+          "plot_fields": null
+        }
+      ]
+    },
+    {
+      "indicator_id": "rsi",
+      "name": "Relative strength index",
+      "category": "momentum",
+      "default_pane": "own",
+      "output_fields": [
+        "rsi"
+      ],
+      "calculation_version": "1.0.0",
+      "missing_data_policy": "NaN until period+1 consecutive closes are available (one bar consumed to form the first delta).",
+      "presets": [
+        {
+          "preset_id": "rsi_7",
+          "name": "RSI 7",
+          "series_id": "rsi_7",
+          "parameters": {
+            "period": 7
+          },
+          "pane": "rsi_7",
+          "plot_fields": null
+        },
+        {
+          "preset_id": "rsi_14",
+          "name": "RSI 14",
+          "series_id": "rsi_14",
+          "parameters": {
+            "period": 14
+          },
+          "pane": "rsi_14",
+          "plot_fields": null
+        },
+        {
+          "preset_id": "rsi_21",
+          "name": "RSI 21",
+          "series_id": "rsi_21",
+          "parameters": {
+            "period": 21
+          },
+          "pane": "rsi_21",
+          "plot_fields": null
+        }
+      ],
+      "reference_bands": [
+        {
+          "value": 30.0,
+          "label": "oversold"
+        },
+        {
+          "value": 70.0,
+          "label": "overbought"
+        }
+      ],
+      "band_fill": {
+        "from": 30.0,
+        "to": 70.0
+      }
+    },
+    {
+      "indicator_id": "macd",
+      "name": "MACD",
+      "category": "momentum",
+      "default_pane": "own",
+      "output_fields": [
+        "macd",
+        "signal",
+        "hist"
+      ],
+      "calculation_version": "1.0.0",
+      "missing_data_policy": "All three outputs are NaN together until slow+signal bars exist (matches calculator.py: never emits the macd line alone).",
+      "presets": [
+        {
+          "preset_id": "macd_12_26_9",
+          "name": "MACD 12/26/9",
+          "series_id": "macd",
+          "parameters": {
+            "fast": 12,
+            "slow": 26,
+            "signal": 9
+          },
+          "pane": "macd",
+          "plot_fields": [
+            "macd",
+            "signal",
+            "hist"
+          ]
+        }
+      ],
+      "reference_bands": [
+        {
+          "value": 0.0,
+          "label": "zero"
+        }
+      ]
+    },
+    {
+      "indicator_id": "bollinger",
+      "name": "Bollinger bands",
+      "category": "volatility",
+      "default_pane": "price",
+      "output_fields": [
+        "bb_mid",
+        "bb_upper",
+        "bb_lower",
+        "bb_width",
+        "bb_pos"
+      ],
+      "calculation_version": "1.0.0",
+      "missing_data_policy": "NaN until period consecutive closes are available; also NaN (not divide-by-zero) whenever the window's std or mean is exactly zero.",
+      "presets": [
+        {
+          "preset_id": "bollinger_20_2",
+          "name": "Bollinger 20 \u00d7 2",
+          "series_id": "bollinger",
+          "parameters": {
+            "period": 20,
+            "n_std": 2.0
+          },
+          "pane": "price",
+          "plot_fields": [
+            "bb_mid",
+            "bb_upper",
+            "bb_lower"
+          ]
+        }
+      ]
+    },
+    {
+      "indicator_id": "atr",
+      "name": "Average true range",
+      "category": "volatility",
+      "default_pane": "own",
+      "output_fields": [
+        "atr"
+      ],
+      "calculation_version": "1.0.0",
+      "missing_data_policy": "NaN until period+1 consecutive bars are available (bar 0 has no prior close, so TR needs one bar of history before Wilder smoothing starts).",
+      "presets": [
+        {
+          "preset_id": "atr_14",
+          "name": "ATR 14",
+          "series_id": "atr_14",
+          "parameters": {
+            "period": 14
+          },
+          "pane": "atr_14",
+          "plot_fields": null
+        }
+      ]
+    },
+    {
+      "indicator_id": "relative_volume",
+      "name": "Relative volume",
+      "category": "volume",
+      "default_pane": "own",
+      "output_fields": [
+        "relative_volume"
+      ],
+      "calculation_version": "1.0.0",
+      "missing_data_policy": "NaN until the n-bar prior baseline is fully populated and non-zero; current bar excluded from its own baseline (PRD \u00a712.4).",
+      "presets": [
+        {
+          "preset_id": "relative_volume_20",
+          "name": "Relative volume 20",
+          "series_id": "relative_volume",
+          "parameters": {
+            "n": 20
+          },
+          "pane": "relative_volume",
+          "plot_fields": null
+        }
+      ]
+    }
+  ],
+  "hash": "6c263d64f462362e85d7d5c5e7fae9cd7b58c5d4a5e89249445d41a94659a94f"
+}
