@@ -18,6 +18,7 @@ import DrawingRail, { type ActiveTool } from "./workspace/DrawingRail";
 import BottomBar from "./workspace/BottomBar";
 import Sidebar from "./workspace/Sidebar";
 import IndicatorDialog from "./workspace/IndicatorDialog";
+import FieldGuide from "./workspace/FieldGuide";
 import { DrawingHistory, type DrawingCommand } from "./workspace/drawingHistory";
 import { useChartShortcuts } from "./workspace/keyboard";
 import { resolveRange, type RangePreset, type VisibleRange } from "./workspace/ranges";
@@ -95,6 +96,7 @@ export default function ChartsScreen() {
   const [overlapIds, setOverlapIds] = useState<string[]>([]);
   const [overlapIndex, setOverlapIndex] = useState(0);
   const [selectedSrBandId, setSelectedSrBandId] = useState<string | null>(null);
+  const [fieldGuideOpen, setFieldGuideOpen] = useState(false);
 
   const [tool, setTool] = useState<ActiveTool>("select");
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
@@ -1083,6 +1085,7 @@ export default function ChartsScreen() {
       onFit={() => canvasRef.current?.fit()}
       dataViewOpen={showDataView}
       onToggleDataView={() => setShowDataView((v) => !v)}
+      onOpenFieldGuide={() => setFieldGuideOpen(true)}
       isFullscreen={isFullscreen}
       onToggleFullscreen={() => canvasRef.current?.toggleFullscreen()}
       compact={compact}
@@ -1267,6 +1270,8 @@ export default function ChartsScreen() {
       )}
 
       {showDataView && <DataView symbol={symbol ?? ""} bars={bars} patterns={chartPatterns} levels={showLevels ? levelPatterns : []} />}
+
+      <FieldGuide open={fieldGuideOpen} onClose={() => setFieldGuideOpen(false)} />
 
       <IndicatorDialog
         open={indicatorDialogOpen}

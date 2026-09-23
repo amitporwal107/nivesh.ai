@@ -858,3 +858,66 @@ test.describe("Charts — 1A design changes 07/08/09 (TC-230..TC-239)", () => {
     await expect(value).not.toHaveText("");
   });
 });
+
+/**
+ * Field guide — design artifact tab 3A ("What every field on the screen means"), scoped to the fields the
+ * Charts screen actually renders. See test_reports/charting_1a_field_guide_3a.md.
+ */
+test.describe("Charts — field guide (3A, TC-240..TC-243)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+  test.beforeEach(async ({ page }) => {
+    await mockAuthAs(page, "user-profile-charting.json");
+    await mockCharts(page);
+    await openCharts(page);
+    await expect(page.getByTestId("chart-canvas").locator("canvas").first()).toBeVisible();
+  });
+
+  // Desktop has its own button; the More menu only exists in compact/mobile, where the same item lives.
+  const openGuide = async (page: Page) => {
+    await page.getByTestId("chart-field-guide-open").click();
+    await expect(page.getByTestId("chart-field-guide")).toBeVisible();
+  };
+
+  test("TC-240 the More menu opens a guide grouped by area, each row carrying its source", async ({ page }) => {
+    await openGuide(page);
+    const guide = page.getByTestId("chart-field-guide");
+    await expect(guide).toContainText("LABEL · MEANING · SOURCE");
+    for (const g of ["top-bar", "on-the-chart", "levels-panel", "panes-legend", "provenance"]) {
+      await expect(page.getByTestId(`chart-field-guide-group-${g}`)).toBeVisible();
+    }
+    await page.getByTestId("chart-field-guide-close").click();
+    await expect(page.getByTestId("chart-field-guide")).toHaveCount(0);
+  });
+
+  test("TC-241 search narrows across label, meaning and source", async ({ page }) => {
+    await openGuide(page);
+    await page.getByTestId("chart-field-guide-search").fill("strength");
+    await expect(page.getByTestId("chart-field-guide-group-levels-panel")).toBeVisible();
+    await expect(page.getByTestId("chart-field-guide-group-provenance")).toHaveCount(0);
+    await page.getByTestId("chart-field-guide-search").fill("zzzz-no-such-field");
+    await expect(page.getByTestId("chart-field-guide-empty")).toBeVisible();
+  });
+
+  test("TC-242 strength is documented as the engine computes it, not as the mock described it", async ({ page }) => {
+    await openGuide(page);
+    const levels = page.getByTestId("chart-field-guide-group-levels-panel");
+    await expect(levels).toContainText("STRENGTH 4/5");
+    // the engine's own components (geometry.py level_strength / §13.2)
+    for (const part of ["touches", "recency", "rejection", "volume", "time"]) {
+      await expect(levels).toContainText(part);
+    }
+    await expect(levels).toContainText("never a probability");
+    // the artifact's wording, which the engine does not implement
+    await expect(levels).not.toContainText(/reaction size/i);
+  });
+
+  test("TC-243 the guide never documents a screen that does not exist", async ({ page }) => {
+    await openGuide(page);
+    const guide = page.getByTestId("chart-field-guide");
+    // 2A / 4A vocabulary — documenting it would describe a product we do not have
+    for (const absent of [/paper trade/i, /slippage/i, /brokerage/i, /signal score/i, /lifecycle/i, /expectancy/i]) {
+      await expect(guide).not.toContainText(absent);
+    }
+    await expect(guide).toContainText("Signals, alerts and paper trading are not built.");
+  });
+});
