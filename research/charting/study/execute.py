@@ -70,7 +70,7 @@ from research.charting import universe as universe_mod
 from research.charting.config import CONFIG
 from research.charting.events import controls, costs_bridge, schema, writer
 from research.charting.research_window import SealedWindowError
-from research.charting.study import accumulate, integrity, report
+from research.charting.study import accumulate, integrity, remote_store, report
 from research.charting.study import run as study_run
 from research.corporate_actions.regime import regime_break_mask, regime_segments
 
@@ -326,7 +326,7 @@ def _sha256_file(path: Path) -> Optional[str]:
     return h.hexdigest()
 
 
-def _write_rows_artifact(rows: Sequence[dict], out_dir, *, segment: str, symbols: Sequence[str], cfg: dict) -> dict:
+def _write_rows_artifact(rows: Sequence[dict], out_dir, *, segment: str, symbols: Sequence[str], cfg: dict, compress: bool = False) -> dict:
     """`events.jsonl` + `manifest.json` for a comparison-group row set, via the SAME hashed
     writer real pattern events use (`events.writer.write_run`) -- one shape for every
     artifact this package writes."""
@@ -334,7 +334,7 @@ def _write_rows_artifact(rows: Sequence[dict], out_dir, *, segment: str, symbols
     tax_versions = {r["versioning"]["tax_rule_version"] for r in rows if r.get("versioning", {}).get("tax_rule_version")}
     return writer.write_run(
         rows, out_dir, segment=segment, symbols=symbols, cfg=cfg,
-        cost_rule_versions=cost_versions, tax_rule_versions=tax_versions,
+        cost_rule_versions=cost_versions, tax_rule_versions=tax_versions, compress=compress,
     )
 
 
@@ -356,7 +356,7 @@ def _write_nifty_artifact(fam_dir: Path, detail_by_horizon: Mapping, *, segment:
     return {"path": "nifty_500_returns.json", "sha256": hashlib.sha256(content).hexdigest()}
 
 
-def _write_summary_artifact(summary: Mapping, out_dir, *, segment: str, family: str, group_name: str) -> dict:
+def _write_summary_artifact(summary: Mapping, out_dir, *, segment: str, family: str, group_name: str, compress: bool = False) -> dict:
     """`summary.json` -- what replaces a comparison group's `events.jsonl` under the v2 storage
     redesign. It carries the group's own row digest (`sha256` + `row_count` over the bytes the
     writer WOULD have produced), so the §8 kill-switch property survives at ~64 bytes per seed."""
@@ -369,12 +369,20 @@ def _write_summary_artifact(summary: Mapping, out_dir, *, segment: str, family: 
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "summary": report.to_json_dict(summary),
     }
-    path = out_dir / "summary.json"
-    path.write_text(json.dumps(payload, sort_keys=True, indent=2, allow_nan=False) + "\n")
-    return {"path": str(path), "sha256": _sha256_file(path), "rows_summarised": summary.get("n_rows")}
+    blob = (json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode()
+    if compress:
+        path = out_dir / "summary.json.gz"
+        path.write_bytes(writer._gzip_bytes(blob))
+    else:
+        path = out_dir / "summary.json"
+        path.write_bytes(blob)
+    return {
+        "path": str(path), "sha256": writer._sha256_bytes(blob), "compressed": bool(compress),
+        "stored_sha256": _sha256_file(path), "rows_summarised": summary.get("n_rows"),
+    }
 
 
-def _write_seed_summaries_artifact(summaries: Mapping, out_dir, *, segment: str, family: str) -> dict:
+def _write_seed_summaries_artifact(summaries: Mapping, out_dir, *, segment: str, family: str, compress: bool = False) -> dict:
     """The random control's per-seed summaries as ONE compact `summaries.jsonl`, a line per seed.
 
     Deliberately not a file per seed: at V-3's 1,000 seeds across ~40 reporting units that is 80,000
@@ -390,17 +398,26 @@ def _write_seed_summaries_artifact(summaries: Mapping, out_dir, *, segment: str,
              "summary_version": accumulate.SUMMARY_VERSION, "summary": report.to_json_dict(summary)},
             sort_keys=True, separators=(",", ":"), allow_nan=False,
         ))
-    path = out_dir / "summaries.jsonl"
-    path.write_text("\n".join(lines) + ("\n" if lines else ""))
+    blob = ("\n".join(lines) + ("\n" if lines else "")).encode()
+    if compress:
+        # The summaries are what REPLACE the rows, so they get the same treatment: measured 29.0x,
+        # the highest ratio of any artefact here (one line per seed, every line the same key set).
+        path = out_dir / "summaries.jsonl.gz"
+        path.write_bytes(writer._gzip_bytes(blob))
+    else:
+        path = out_dir / "summaries.jsonl"
+        path.write_bytes(blob)
     return {
-        "path": str(path), "sha256": _sha256_file(path), "n_seeds": len(summaries),
+        "path": str(path), "sha256": writer._sha256_bytes(blob), "compressed": bool(compress),
+        "stored_sha256": _sha256_file(path), "n_seeds": len(summaries),
+        "bytes": len(blob), "stored_bytes": path.stat().st_size,
         "rows_summarised": sum(s.get("n_rows", 0) for s in summaries.values()),
     }
 
 
 def _write_family_comparison_artifacts(
     comparisons_dir: Path, family: str, segment: str, group: Mapping, *, cfg: dict,
-    symbols: Sequence[str], benchmark_path,
+    symbols: Sequence[str], benchmark_path, compress: bool = False,
 ) -> dict:
     fam_dir = Path(comparisons_dir) / family
     if "random_summaries" in group:
@@ -408,10 +425,12 @@ def _write_family_comparison_artifacts(
         # under `random_control/`, which is what turns ~6.4 TB into a few MB.
         out = {"random_control": _write_seed_summaries_artifact(
             group["random_summaries"], fam_dir / "random_control", segment=segment, family=family,
+            compress=compress,
         )}
         for key, group_name in (("atr_decile_summary", "atr_decile_control"), ("buy_next_open_summary", "buy_next_open")):
             out[group_name] = _write_summary_artifact(
                 group[key], fam_dir / group_name, segment=segment, family=family, group_name=group_name,
+                compress=compress,
             )
         out["nifty_500"] = _write_nifty_artifact(
             fam_dir, group["nifty_500_detail_by_horizon"], segment=segment, family=family, benchmark_path=benchmark_path,
@@ -422,9 +441,9 @@ def _write_family_comparison_artifacts(
         {**row, "control_seed": seed} for seed in sorted(group["random_batch"]) for row in group["random_batch"][seed]
     ]
     return {
-        "random_control": _write_rows_artifact(flattened_random, fam_dir / "random_control", segment=segment, symbols=symbols, cfg=cfg),
-        "atr_decile_control": _write_rows_artifact(group["atr_decile_rows"], fam_dir / "atr_decile_control", segment=segment, symbols=symbols, cfg=cfg),
-        "buy_next_open": _write_rows_artifact(group["buy_next_open_rows"], fam_dir / "buy_next_open", segment=segment, symbols=symbols, cfg=cfg),
+        "random_control": _write_rows_artifact(flattened_random, fam_dir / "random_control", segment=segment, symbols=symbols, cfg=cfg, compress=compress),
+        "atr_decile_control": _write_rows_artifact(group["atr_decile_rows"], fam_dir / "atr_decile_control", segment=segment, symbols=symbols, cfg=cfg, compress=compress),
+        "buy_next_open": _write_rows_artifact(group["buy_next_open_rows"], fam_dir / "buy_next_open", segment=segment, symbols=symbols, cfg=cfg, compress=compress),
         "nifty_500": _write_nifty_artifact(fam_dir, group["nifty_500_detail_by_horizon"], segment=segment, family=family, benchmark_path=benchmark_path),
     }
 
@@ -588,6 +607,8 @@ def execute_study(
     now: Optional[datetime] = None,
     max_workers: int = 1,
     summarise_controls: bool = False,
+    compress_events: bool = False,
+    upload_to: Optional[str] = None,
 ) -> dict:
     """Run the whole CHARTING_PREREGISTRATION_V1 study end to end into `out_dir` (module
     docstring lists the six steps). `bars_by_symbol` is a test-only seam: when given, step 1's
@@ -628,6 +649,7 @@ def execute_study(
         cfg=cfg, cost_cfg=cost_cfg, etf_symbols=etf_symbols,
         exclusion_mask=regime_break_mask, segmenter=regime_segments, exclusion_mask_is_default=False,
         attach_context=True, input_file_hashes=input_file_hashes, now=started_at, max_workers=max_workers,
+        compress_events=compress_events,
     )
     build_fns = {
         schema.SEGMENT_PRE_SEALED: study_run.build_pre_sealed_segment,
@@ -660,6 +682,7 @@ def execute_study(
             _write_family_comparison_artifacts(
                 out_dir / segment / "comparisons", family, segment, group,
                 cfg=cfg, symbols=symbols_for_manifest, benchmark_path=benchmark_path,
+                compress=compress_events,
             )
 
     integrity_result = _run_integrity_gate(
@@ -701,6 +724,7 @@ def execute_study(
         # control rows from one that summarised them, without inspecting the directory tree.
         "control_output": {
             "mode": "summaries" if summarise_controls else "rows",
+            "compressed": bool(compress_events),
             "summary_version": accumulate.SUMMARY_VERSION if summarise_controls else None,
             "random_control_seeds": len(random_control_seeds),
         },
@@ -721,6 +745,25 @@ def execute_study(
         json.dumps(study_manifest, sort_keys=True, indent=2, default=str) + "\n"
     )
 
+    # The finished run, off the host. gzip already made it small; this makes it durable and removes
+    # the local-disk ceiling entirely. Deliberately AFTER the manifest is written, so what is
+    # uploaded is the complete run. A failure raises -- an upload that quietly did not happen would
+    # be worse than not offering the option.
+    if upload_to:
+        upload = remote_store.upload_run(out_dir, prefix=upload_to)
+        verification = remote_store.verify_uploaded_run(upload)
+        if not verification["passed"]:
+            raise remote_store.RemoteStoreError(
+                f"uploaded run failed verification: {verification['missing']} missing, "
+                f"{verification['mismatched']} mismatched"
+            )
+        result_upload = {
+            "uri": upload.uri, "n_objects": upload.n_objects, "bytes": upload.bytes_uploaded,
+            "verified": verification,
+        }
+    else:
+        result_upload = None
+
     return {
         "status": status,
         "out_dir": str(out_dir),
@@ -729,6 +772,7 @@ def execute_study(
         "segment_results": segment_results,
         "comparison_groups": comparison_groups,
         "integrity": integrity_result,
+        "upload": result_upload,
     }
 
 
@@ -752,6 +796,23 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
              "core count) for a real run; pass 1 for the fully serial path this file used "
              "before PERF-CONTROLS/PERF-PARALLEL. Output is byte-identical for any value.",
     )
+    parser.add_argument(
+        "--summarise-controls", action="store_true",
+        help="write per-seed SUMMARIES for the comparison groups instead of their rows "
+             "(study-v2 storage redesign). The reported numbers are identical -- proved by "
+             "tests/test_study_accumulate.py -- but the ~6.4 TB random-control tree becomes a few MB.",
+    )
+    parser.add_argument(
+        "--compress-events", action="store_true",
+        help="write events.jsonl.gz instead of events.jsonl (measured 24.8x on real rows). The "
+             "manifest's sha256 still hashes the UNCOMPRESSED bytes, so §8's kill switch is unaffected.",
+    )
+    parser.add_argument(
+        "--upload-to", default=None, metavar="PREFIX",
+        help=f"after the run completes, upload it to gs://{remote_store.DEFAULT_BUCKET}/<PREFIX>/<run dir name> "
+             f"and verify every object by re-reading it (default prefix: {remote_store.DEFAULT_PREFIX}). "
+             "Uses Application Default Credentials; no token is read or passed here.",
+    )
     return parser.parse_args(argv)
 
 
@@ -761,8 +822,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     `report.md`, read deliberately, never in a CLI's stdout."""
     args = _parse_args(argv)
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
-    result = execute_study(args.out, symbols=symbols, max_workers=args.max_workers)
-    print(json.dumps({"status": result["status"], "out_dir": result["out_dir"]}, indent=2))
+    result = execute_study(
+        args.out, symbols=symbols, max_workers=args.max_workers,
+        summarise_controls=args.summarise_controls, compress_events=args.compress_events,
+        upload_to=args.upload_to,
+    )
+    out = {"status": result["status"], "out_dir": result["out_dir"]}
+    if result.get("upload"):
+        out["uploaded_to"] = result["upload"]["uri"]
+        out["objects_uploaded"] = result["upload"]["n_objects"]
+    print(json.dumps(out, indent=2))
     return 0 if result["status"] == "COMPLETE" else 1
 
 

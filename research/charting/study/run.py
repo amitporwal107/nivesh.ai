@@ -250,6 +250,7 @@ def build_segment(
     calendars: Optional[Mapping[str, Sequence]] = None, exclusion_mask_is_default: Optional[bool] = None,
     attach_context: bool = False, out_dir=None, now=None,
     input_file_hashes: Optional[Sequence[dict]] = None, max_workers: int = 1,
+    compress_events: bool = False,
 ) -> dict:
     """One segment's full §3 pipeline: universe rule -> data-quality exclusion -> demerger
     hook -> `events.pipeline.build_event_dataset` (own segment-bound guard) -> optional
@@ -314,6 +315,7 @@ def build_segment(
         manifest = writer.write_run(
             rows, out_dir, segment=segment, symbols=sorted(filtered_bars), cfg=cfg,
             cost_rule_versions=cost_versions, tax_rule_versions=tax_versions, now=now,
+            compress=compress_events,
         )
         manifest["feature_config_hash"] = regime.feature_config_hash()
         manifest["prereg_sha256"] = prereg_sha256()
