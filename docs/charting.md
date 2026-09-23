@@ -2662,8 +2662,11 @@ parameters.
 - **Adding a preset:** means a new catalogue version and a re-export.
 - **Reproducibility:** a chart view or research run cites preset ids and the catalogue version, so it can be reproduced
   exactly.
-- **Initial catalogue:** the 8 series in today's snapshot, plus SMA and EMA 10/20/50/100/200, RSI 7/14/21, Bollinger
-  20×2, MACD 12/26/9 and ATR 14.
+- **Initial catalogue (v1.0.0):** the 8 series in today's snapshot, plus SMA and EMA 10/20/50/100/200, RSI 7/14/21,
+  Bollinger 20×2, MACD 12/26/9 and ATR 14 — 17 presets.
+- **v1.1.0 (2026-09-23):** adds **ADX 14** (own pane, reference bands 20/25) — 18 presets. Per the rule above this needs
+  a re-export before the chart serves it; until then the API keeps serving the `1.0.0` catalogue recorded in the
+  committed snapshot manifest. ADX is a §39.9 **Class C context** indicator: displayed as evidence, never a gate.
 - **Not planned:** free parameters and an on-demand compute endpoint.
 
 ### 38.6 Drawing rail
@@ -3650,7 +3653,7 @@ implementation.
 | `trendline_value_at()` | **yes, 2026-09-23** | `geometry.trendline_value_at(line, x)`. This is what unblocks the sloped neckline, so head & shoulders and inverse head & shoulders no longer wait on the P-1 engine |
 | Volume / relative volume (20) | yes | `series.relative_volume`; catalogue `relative_volume_20` |
 | RSI(14), EMA, MACD | yes | `series.py`; catalogue presets |
-| **ADX(14)** | **not served** | exists only as the private `regime._adx_series`; absent from the chart indicator catalogue |
+| ADX(14) | **yes, 2026-09-23** | `series.adx()` — promoted from the private `regime._adx_series`, which now delegates to it, so there is exactly one implementation. Catalogue preset `adx_14`, own pane, bands at 20/25 (§37.1's own regime thresholds). Served on the chart from the **next snapshot re-export**: the API reads the catalogue recorded in the snapshot manifest, which is still `1.0.0` |
 | **Relative strength** | **partial, not served** | `regime.relative_strength` is vs **NIFTY 500 only** (windows 5/20/50/100). There is **no stock-vs-sector relative strength**; absent from the catalogue |
 
 **Wave A landed on 2026-09-23** and closed the geometry half of this table. The P-1 family is no
@@ -3661,9 +3664,15 @@ and nothing was added to `CONFIG`.
 
 One consequence still stands:
 
-- **The Class C layer cannot be delivered as specified today.** ADX and relative strength are the two
-  most-cited Class C inputs in §39.9 and neither is served; stock-vs-sector relative strength does not
-  exist at all. Promoting them is a separate, costed piece of work.
+- **The Class C layer is still incomplete, but for one input rather than two.** ADX — the most-cited
+  Class C input in §39.9 — is served from 2026-09-23 (`series.adx`, catalogue `adx_14`). Relative
+  strength is not: `regime.relative_strength` is vs NIFTY 500 only, stock-vs-sector relative strength
+  does not exist at all, and `NIFTY_500.csv` carries no rows inside the sealed window, so a served RS
+  series would be NaN for ~390 sessions. That is a **data** problem, not a plumbing one, and remains
+  separate, costed work.
+- **Serving ADX does not promote it.** Class C is evidence only (§39.9, C-8): a catalogue preset is an
+  availability and display change. No pattern gate reads ADX, and promoting it to one would need NI-3
+  v1.1 plus a study-plan amendment.
 
 ### 39.11 Evidence, not quality scores
 
@@ -3855,7 +3864,8 @@ its owner, because a section that quietly picks one would recreate the drift it 
 | C-9 | Class C "never creates the pattern" vs §34.5 | §34.5's Early Pattern Score already weights momentum/relative strength 15% and market/sector context 10% | Both hold, with the line drawn precisely: Class C may feed §34.5 early scores and §16 components — research and UI objects — but **never a §11 lifecycle transition**. §34.5 is not repealed |
 | C-10 | Evidence vs scores | §16 Pattern Quality Model and `geometry.level_strength`'s frozen weights vs "evidence, not scores" | Three tiers: the detector record carries raw evidence only; `level_strength` survives as the one frozen composite because it describes a *level*, is `is_probability=False`, and stores its components separately; §16 and §34.5 composites are research objects (§38.19.4 position 2) |
 | C-11 | Evidence field units | NI-3 G3 is `pivot_line_residual_max_atr` 0.25 **ATR**; F8/C16 are `1.0×` ratios. §39.11's `boundary_error_pct` and `volume_contraction_pct` are **percentages** | The frozen-unit value is the gating field; the percentage is a derived display field and is never tested against. `convergence_ratio` needs no translation — it is already the frozen name and number |
-| C-13 | Double-extreme adjacency | NI-3 §4 says "troughs at least B1 apart and within B2 of each other" without saying the two must be **adjacent** extremes | Read literally, a window with six lows emits pairs whose troughs have four other troughs between them — 320 detections across 12 symbols. The detector requires consecutive same-kind pivots, giving 117 across all 50 (1.2 per family per symbol, in line with the frozen families). **Open question for the owner**; the check is one line in `patterns_ni3.py` and is commented with how to revert |
+| C-13 | Double-extreme adjacency | NI-3 §4 says "troughs at least B1 apart and within B2 of each other" without saying the two must be **adjacent** extremes | **RESOLVED 2026-09-23 (owner): adjacency stands.** The two troughs must be consecutive same-kind pivots. Read literally, a window with six lows emits pairs whose troughs have four other troughs between them — 320 records against 117 with adjacency, and double extremes would then be ~60% of the whole snapshot. A "double" bottom with four troughs between its two is not the pattern. Implemented in `patterns_ni3.py`; the check is one line and carries the reverting note. |
+| C-14 | #110 states not wired | `states.py` produced six research states and `None` for INVALIDATED / EXPIRED / DATA_BLOCKED / UNRESOLVED, with a comment saying it awaited "an owner decision on two extra states" — a decision already made as #110 | **RESOLVED 2026-09-23.** Wired: DATA_BLOCKED / UNRESOLVED → `INCONCLUSIVE` unconditionally; INVALIDATED / EXPIRED → `NOT_TRIGGERED` **only when the caller supplies `ever_price_confirmed=False`**. The "before any BREAKOUT_CANDIDATE" precondition is not visible to a pure mapping over a terminal status, so an unsupplied history leaves the row unmapped — "we do not know" never becomes a research state. Invalidation *after* a breakout stays unmapped too: NI-3 does not decide it and Amendment E forbids merging INVALIDATED with FAILED_BREAKOUT. `enrich.py` supplies the history from the event log it already reads. |
 | C-12 | Missing reason codes | `validate.py` has no "insufficient history" rule and no missing-OHLC-field rule | Genuinely absent. Recorded, not fixed — `RULE_IDS` is a frozen list and extending it is an owner decision |
 
 **What §39 does not change.** NI-3 v1.0 (`de86626c…`), the frozen v1 detector configuration

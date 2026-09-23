@@ -426,63 +426,11 @@ def relative_strength(
 
 
 def _adx_series(bars: pd.DataFrame, period: int = 14) -> pd.Series:
-    """Wilder's Average Directional Index, causal, same recursive-smoothing style as
-    `series.atr` (reuses `series._wilder_smoothing` rather than re-deriving Wilder's
-    recursion a second time -- N10 asks for ADX and it does not exist anywhere in
-    `series.py` or its `calculator.py` parity oracle, confirmed by inspection before
-    writing this).
-
-    Standard method: +DM/-DM/TR from consecutive high/low/close, each Wilder-smoothed
-    over `period`, +DI/-DI from the smoothed DM over smoothed TR (=ATR), DX =
-    100*|+DI - -DI| / (+DI + -DI), and ADX itself is DX Wilder-smoothed a SECOND time
-    (seeded from the simple mean of its own first `period` valid values, exactly
-    `_wilder_smoothing`'s existing seeding rule, applied to the slice of `dx` where it
-    is first fully defined -- the same "tail slice, then re-embed" technique
-    `series.macd()` already uses for its signal-line EMA).
-
-    First valid index (0-based, aligned to `bars`) is `2*period - 1` -> warmup_period =
-    `2*period` (verified against a numerically independent implementation in
-    `tests/test_regime_trend.py`).
-    """
-    for col in ("high", "low", "close"):
-        if col not in bars.columns:
-            raise ValueError(f"bars frame is missing required column: {col}")
-    high = bars["high"].to_numpy(dtype=float)
-    low = bars["low"].to_numpy(dtype=float)
-    close = bars["close"].to_numpy(dtype=float)
-    n = len(close)
-    out = np.full(n, np.nan, dtype=float)
-    if n < 2 * period + 1:
-        return pd.Series(out, index=bars.index, name=f"adx_{period}")
-
-    up_move = high[1:] - high[:-1]
-    down_move = low[:-1] - low[1:]
-    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
-    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
-
-    h, l, c = high[1:], low[1:], close[:-1]
-    tr = np.maximum(h - l, np.maximum(np.abs(h - c), np.abs(l - c)))
-
-    atr_sm = series._wilder_smoothing(tr, period)
-    plus_dm_sm = series._wilder_smoothing(plus_dm, period)
-    minus_dm_sm = series._wilder_smoothing(minus_dm, period)
-
-    with np.errstate(divide="ignore", invalid="ignore"):
-        plus_di = 100.0 * plus_dm_sm / atr_sm
-        minus_di = 100.0 * minus_dm_sm / atr_sm
-        di_sum = plus_di + minus_di
-        dx = 100.0 * np.abs(plus_di - minus_di) / di_sum
-    dx = np.where(di_sum == 0.0, 0.0, dx)
-    dx = np.where(np.isnan(plus_di) | np.isnan(minus_di), np.nan, dx)
-
-    valid_start = period - 1  # first index (within the length-(n-1) dx array) that is not NaN
-    dx_tail = dx[valid_start:]
-    adx_tail = series._wilder_smoothing(dx_tail, period)
-    adx_dm = np.full(len(dx), np.nan, dtype=float)
-    adx_dm[valid_start:] = adx_tail
-
-    out[1:] = adx_dm
-    return pd.Series(out, index=bars.index, name=f"adx_{period}")
+    """Wilder's ADX. The implementation moved to `series.adx` on 2026-09-23 when the chart indicator
+    catalogue began serving it; this stays as the regime-local name (and its `adx_<period>` series
+    name, which `trend_context` and `trend_classification` key off) so there is exactly one
+    implementation and no call site had to change."""
+    return series.adx(bars, period).rename(f"adx_{period}")
 
 
 def _sma_slope(bars: pd.DataFrame, period: int, lookback: int) -> pd.Series:

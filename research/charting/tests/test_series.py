@@ -219,6 +219,15 @@ def test_warmup_atr():
     assert s.iloc[14:].notna().all()
 
 
+def test_warmup_adx():
+    """ADX is DX Wilder-smoothed a second time, so its first value is at 2*period-1 = 27,
+    not period. The registry declares warmup_period 28 for exactly this reason."""
+    bars = _make_synthetic_bars(60, seed=1)
+    s = series.adx(bars, 14)
+    assert s.iloc[:27].isna().all()
+    assert s.iloc[27:].notna().all()
+
+
 def test_warmup_macd():
     bars = _make_synthetic_bars(80, seed=1)
     out = series.macd(bars)
@@ -286,6 +295,7 @@ def test_registry_warmup_periods_match_declared_contract():
     bars = _make_synthetic_bars(220, seed=2)
     checks = {
         "rsi": (series.rsi(bars, 14), None),
+        "adx": (series.adx(bars, 14), None),
         "atr": (series.atr(bars, series.CONFIG["atr_period"]), None),
         "bollinger": (series.bollinger(bars, period=20)["bb_width"], None),
         "avg_volume": (series.avg_volume(bars, series.CONFIG["volume_baseline_bars"]), None),
@@ -342,6 +352,7 @@ def test_probe_b2_poisoned_future_does_not_change_past_values(t):
         ("ema", series.ema(truncated, 20), series.ema(poisoned, 20).iloc[: t + 1]),
         ("rsi", series.rsi(truncated, 14), series.rsi(poisoned, 14).iloc[: t + 1]),
         ("atr", series.atr(truncated, 14), series.atr(poisoned, 14).iloc[: t + 1]),
+        ("adx", series.adx(truncated, 14), series.adx(poisoned, 14).iloc[: t + 1]),
         (
             "avg_volume",
             series.avg_volume(truncated, 20),
