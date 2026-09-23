@@ -30,7 +30,7 @@ import pandas as pd
 
 from research.charting import series
 
-CATALOGUE_VERSION = "1.0.0"
+CATALOGUE_VERSION = "1.1.0"
 
 # §8.1–§8.4, the four groups the dialog shows.
 CATEGORIES = ("trend", "momentum", "volatility", "volume")
@@ -130,6 +130,27 @@ INDICATORS: tuple[dict[str, Any], ...] = (
                 "parameters": {"period": 20, "n_std": 2.0},
                 "warmup_period": None,
                 "compute": lambda df: series.bollinger(df),
+            },
+        ),
+    },
+    {
+        "indicator_id": "adx",
+        "name": "Average directional index",
+        "category": "trend",
+        "registry_key": "adx",
+        # Own pane: ADX is 0-100, so overlaying it on price would be unreadable.
+        "default_pane": None,
+        # §37.1's own regime thresholds, so the bands on the chart are the ones the trend
+        # classifier actually uses rather than a textbook default.
+        "reference_bands": ({"value": 20.0, "label": "no trend"}, {"value": 25.0, "label": "strong trend"}),
+        "presets": (
+            {
+                "preset_id": "adx_14",
+                "name": "ADX 14",
+                "series_id": "adx_14",
+                "parameters": {"period": 14},
+                "warmup_period": None,
+                "compute": lambda df: series.adx(df, 14).to_frame("adx"),
             },
         ),
     },

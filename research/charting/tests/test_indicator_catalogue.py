@@ -24,9 +24,10 @@ def test_tc200_every_section_385_preset_is_present():
     assert [p["period"] for p in by_indicator["rsi"]] == [7, 14, 21]
     assert by_indicator["bollinger"] == [{"period": 20, "n_std": 2.0}]
     assert by_indicator["macd"] == [{"fast": 12, "slow": 26, "signal": 9}]
+    assert by_indicator["adx"] == [{"period": 14}]
     assert by_indicator["atr"] == [{"period": 14}]
     assert by_indicator["relative_volume"] == [{"n": 20}]
-    assert len(_presets()) == 17
+    assert len(_presets()) == 18
 
 
 def test_tc201_every_indicator_describes_itself_fully():
@@ -79,7 +80,7 @@ def test_tc204_the_hash_is_stable_and_content_addressed():
 
 def test_tc205_export_specs_cover_every_preset_with_the_shape_export_expects():
     specs = cat.export_specs()
-    assert len(specs) == len(_presets()) == 17
+    assert len(specs) == len(_presets()) == 18
     for spec in specs:
         assert set(spec) >= {"id", "registry_key", "pane", "parameters", "warmup_period", "compute",
                              "preset_id", "indicator_id"}
@@ -107,6 +108,10 @@ def test_tc206_a_preset_equals_the_series_helper_called_directly(real_bars):
 
     got = specs["rsi_21"]["compute"](real_bars).iloc[:, 0]
     want = series.rsi(real_bars, 21)
+    pd.testing.assert_series_equal(got.reset_index(drop=True), want.reset_index(drop=True), check_names=False)
+
+    got = specs["adx_14"]["compute"](real_bars).iloc[:, 0]
+    want = series.adx(real_bars, 14)
     pd.testing.assert_series_equal(got.reset_index(drop=True), want.reset_index(drop=True), check_names=False)
 
 

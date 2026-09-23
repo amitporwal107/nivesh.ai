@@ -534,8 +534,8 @@ def test_tc209_catalogue_is_served_behind_the_charting_flag(monkeypatch, real_sn
     assert body["categories"] == ["trend", "momentum", "volatility", "volume"]
 
     ids = [i["indicator_id"] for i in body["indicators"]]
-    assert ids == ["sma", "ema", "rsi", "macd", "bollinger", "atr", "relative_volume"]
-    assert sum(len(i["presets"]) for i in body["indicators"]) == 17
+    assert ids == ["sma", "ema", "rsi", "macd", "bollinger", "adx", "atr", "relative_volume"]
+    assert sum(len(i["presets"]) for i in body["indicators"]) == 18
 
     # Every preset says enough for the dialog to render and for a citation to be reproducible.
     for ind in body["indicators"]:
@@ -549,6 +549,14 @@ def test_tc209_catalogue_is_served_behind_the_charting_flag(monkeypatch, real_sn
     rsi = next(i for i in body["indicators"] if i["indicator_id"] == "rsi")
     assert [b["value"] for b in rsi["reference_bands"]] == [30.0, 70.0]
     assert rsi["band_fill"] == {"from": 30.0, "to": 70.0}
+
+    # ADX carries §37.1's own regime thresholds, so the chart draws the lines the trend
+    # classifier uses rather than a textbook default. It is a context indicator only (class C):
+    # nothing in the catalogue promotes it to a pattern gate.
+    adx = next(i for i in body["indicators"] if i["indicator_id"] == "adx")
+    assert [b["value"] for b in adx["reference_bands"]] == [20.0, 25.0]
+    assert adx["default_pane"] == "own"
+    assert [p["series_id"] for p in adx["presets"]] == ["adx_14"]
 
     # and the gate applies: an uninvited user never sees it
     denied = _get(c, "/api/research/chart/catalogue", who="other")

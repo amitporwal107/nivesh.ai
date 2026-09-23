@@ -690,7 +690,15 @@ test.describe("Charts — saved layouts (§38.8, AC 9)", () => {
  * research and backend suites; these cover what the screen does with it.
  *
  * MOCK — not real data: `/api/research/chart/catalogue` is served from
- * e2e/fixtures/research-chart-catalogue.json, which is generated from the real catalogue module.
+ * e2e/fixtures/research-chart-catalogue.json.
+ *
+ * That fixture mirrors the catalogue recorded in the COMMITTED SNAPSHOT MANIFEST
+ * (backend/services/research_chart_snapshot/manifest.json), not indicator_catalogue.py — because
+ * that is what the endpoint serves (backend/services/research_chart.py returns the manifest's
+ * catalogue plus its hash). The two are deliberately one version apart from 2026-09-23: the module
+ * is at 1.1.0 (18 presets, ADX 14 added), the snapshot is still at 1.0.0 (17 presets). §38.5's rule
+ * is that adding a preset needs a re-export, so this fixture moves to 18 with that re-export and
+ * not before — keeping these counts equal to what staging actually serves.
  */
 test.describe("Charts — indicator dialog (§38.5, D-3)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });

@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 
 from research.charting import regime
+from research.charting import series
 from research.charting.tests import synth
 
 _SAFE_START = "2019-01-02"  # well before the sealed window
@@ -186,6 +187,13 @@ def test_adx_matches_independent_naive_implementation(seed):
     valid = ~np.isnan(naive)
     assert valid.sum() > 20  # meaningful overlap, not a degenerate all-NaN comparison
     np.testing.assert_allclose(naive[valid], vec[valid], atol=1e-9)
+
+    # `regime._adx_series` delegates to `series.adx` since 2026-09-23 (one implementation).
+    # Assert the oracle against the public charting series directly too, so this cross-check
+    # stays attached to the real calculation if the delegation direction ever changes.
+    public = series.adx(bars, period=14).to_numpy()
+    assert (np.isnan(public) == np.isnan(naive)).all()
+    np.testing.assert_allclose(naive[valid], public[valid], atol=1e-9)
 
 
 def test_adx_warmup_period_is_2x_period_first_valid_index():

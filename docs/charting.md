@@ -2662,8 +2662,11 @@ parameters.
 - **Adding a preset:** means a new catalogue version and a re-export.
 - **Reproducibility:** a chart view or research run cites preset ids and the catalogue version, so it can be reproduced
   exactly.
-- **Initial catalogue:** the 8 series in today's snapshot, plus SMA and EMA 10/20/50/100/200, RSI 7/14/21, Bollinger
-  20×2, MACD 12/26/9 and ATR 14.
+- **Initial catalogue (v1.0.0):** the 8 series in today's snapshot, plus SMA and EMA 10/20/50/100/200, RSI 7/14/21,
+  Bollinger 20×2, MACD 12/26/9 and ATR 14 — 17 presets.
+- **v1.1.0 (2026-09-23):** adds **ADX 14** (own pane, reference bands 20/25) — 18 presets. Per the rule above this needs
+  a re-export before the chart serves it; until then the API keeps serving the `1.0.0` catalogue recorded in the
+  committed snapshot manifest. ADX is a §39.9 **Class C context** indicator: displayed as evidence, never a gate.
 - **Not planned:** free parameters and an on-demand compute endpoint.
 
 ### 38.6 Drawing rail
@@ -3650,7 +3653,7 @@ implementation.
 | `trendline_value_at()` | **yes, 2026-09-23** | `geometry.trendline_value_at(line, x)`. This is what unblocks the sloped neckline, so head & shoulders and inverse head & shoulders no longer wait on the P-1 engine |
 | Volume / relative volume (20) | yes | `series.relative_volume`; catalogue `relative_volume_20` |
 | RSI(14), EMA, MACD | yes | `series.py`; catalogue presets |
-| **ADX(14)** | **not served** | exists only as the private `regime._adx_series`; absent from the chart indicator catalogue |
+| ADX(14) | **yes, 2026-09-23** | `series.adx()` — promoted from the private `regime._adx_series`, which now delegates to it, so there is exactly one implementation. Catalogue preset `adx_14`, own pane, bands at 20/25 (§37.1's own regime thresholds). Served on the chart from the **next snapshot re-export**: the API reads the catalogue recorded in the snapshot manifest, which is still `1.0.0` |
 | **Relative strength** | **partial, not served** | `regime.relative_strength` is vs **NIFTY 500 only** (windows 5/20/50/100). There is **no stock-vs-sector relative strength**; absent from the catalogue |
 
 **Wave A landed on 2026-09-23** and closed the geometry half of this table. The P-1 family is no
@@ -3661,9 +3664,15 @@ and nothing was added to `CONFIG`.
 
 One consequence still stands:
 
-- **The Class C layer cannot be delivered as specified today.** ADX and relative strength are the two
-  most-cited Class C inputs in §39.9 and neither is served; stock-vs-sector relative strength does not
-  exist at all. Promoting them is a separate, costed piece of work.
+- **The Class C layer is still incomplete, but for one input rather than two.** ADX — the most-cited
+  Class C input in §39.9 — is served from 2026-09-23 (`series.adx`, catalogue `adx_14`). Relative
+  strength is not: `regime.relative_strength` is vs NIFTY 500 only, stock-vs-sector relative strength
+  does not exist at all, and `NIFTY_500.csv` carries no rows inside the sealed window, so a served RS
+  series would be NaN for ~390 sessions. That is a **data** problem, not a plumbing one, and remains
+  separate, costed work.
+- **Serving ADX does not promote it.** Class C is evidence only (§39.9, C-8): a catalogue preset is an
+  availability and display change. No pattern gate reads ADX, and promoting it to one would need NI-3
+  v1.1 plus a study-plan amendment.
 
 ### 39.11 Evidence, not quality scores
 
