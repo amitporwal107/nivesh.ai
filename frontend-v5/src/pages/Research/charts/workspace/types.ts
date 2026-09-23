@@ -13,10 +13,12 @@ export const TIMEFRAME_LABEL: Record<Timeframe, string> = { "1D": "Daily", "1W":
 /** §38.7 P0 set plus Heikin-Ashi, which §38.7 calls "P1, labelled synthetic" — it is a client-side display
  *  transform over the same served bars (contract.ts `heikinAshi`), never an indicator and never an input to the
  *  pattern layer. */
-export type ChartType = "candles" | "hollow_candles" | "ohlc_bars" | "line" | "area" | "heikin_ashi";
+// The ids are the ones the layouts API persists (backend/routes/research_chart_layouts.py CHART_TYPES),
+// so a saved layout round-trips without a translation table in between.
+export type ChartType = "candles" | "hollow_candles" | "bars" | "line" | "area" | "heikin_ashi";
 
 export const CHART_TYPE_LABEL: Record<ChartType, string> = {
-  candles: "Candles", hollow_candles: "Hollow candles", ohlc_bars: "OHLC bars",
+  candles: "Candles", hollow_candles: "Hollow candles", bars: "OHLC bars",
   line: "Line", area: "Area", heikin_ashi: "Heikin-Ashi",
 };
 

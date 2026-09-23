@@ -24,9 +24,10 @@ import { TIMEFRAMES, type ChartType, type ScaleMode, type SidebarTab, type Timef
 import {
   chartApi, drawingsApi, combinedStatus, statusTone, patternVisualCategory, isLevelPattern, statusLabel, patternTypeLabel,
   matchesPatternFilter, patternFamilies, groupSrBands, nearestLevelReadout, lastIndicatorValue, levelCards, splitBars,
-  isUnknownTimeframe, DASH, txt, price as fmtPrice, num as fmtNum,
+  isUnknownTimeframe, layoutsApi, DASH, txt, price as fmtPrice, num as fmtNum,
   type Result, type RunPayload, type ManifestSymbolEntry, type OhlcvPayload, type IndicatorsPayload,
   type PatternsPayload, type Pattern, type Drawing, type NewDrawing, type Bar, type PatternFilter,
+  type ChartLayout, type NewChartLayout, type LayoutIndicator, type LayoutPane,
 } from "./contract";
 
 const PATTERN_FILTER_CHIPS: Array<{ id: PatternFilter; label: string }> = [
@@ -119,6 +120,25 @@ export default function ChartsScreen() {
   const [collapsedPaneIds, setCollapsedPaneIds] = useState<string[]>([]);
   const [paneHeights, setPaneHeights] = useState<Record<string, number>>({});
   const [maximisedPaneId, setMaximisedPaneId] = useState<string | null>(null);
+
+  // ── saved layouts (§38.8, AC 9) ──────────────────────────────────────────
+  const [layouts, setLayouts] = useState<ChartLayout[]>([]);
+  const [openLayout, setOpenLayout] = useState<{ id: string; name: string } | null>(null);
+  const [layoutDirty, setLayoutDirty] = useState(false);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
+  /** A layout chosen from the menu, held as STATE until its symbol's payloads have loaded — applying pane and
+   *  indicator state before then would be undone by the per-symbol reset effect. State, not a ref, because
+   *  choosing a layout whose symbol and interval already match changes nothing else: a ref would leave the
+   *  apply effect's dependencies untouched and the layout would never be applied at all. */
+  const [pendingLayout, setPendingLayout] = useState<ChartLayout | null>(null);
+  /** The workspace signature that is already on the server. Autosave writes only when the live signature differs
+   *  from it, which is what stops applying a layout from writing that same layout straight back. */
+  const lastSyncedSignatureRef = useRef<string | null>(null);
+  /** Bumped when a layout has been applied. The autosave pass that sees a new value records the resulting
+   *  signature as synced instead of saving it — the applied state lands on the following commit, so a ref set
+   *  during the apply would be read one commit too early. */
+  const [primeTick, setPrimeTick] = useState(0);
+  const primedTickRef = useRef(-1);
 
   const [showDataView, setShowDataView] = useState(false);
   type DrawerCtx =
@@ -386,6 +406,168 @@ export default function ChartsScreen() {
 
   const undo = useCallback(async () => { setDrawingError(null); await historyRef.current.undo(onHistoryError); bump(); }, [onHistoryError, bump]);
   const redo = useCallback(async () => { setDrawingError(null); await historyRef.current.redo(onHistoryError); bump(); }, [onHistoryError, bump]);
+
+  // ── saved layouts: capture, apply, autosave (§38.8, AC 9) ────────────────
+  /** The current workspace as the API's layout shape. The price pane is deliberately left out of
+   *  `panes`: it is always first and the API requires a height above zero, while the price pane's height
+   *  is simply whatever the others leave. */
+  const captureLayout = useCallback((name: string): NewChartLayout => {
+    const nonPrice = panes.filter((p) => p.kind !== "price");
+    const layoutPanes: LayoutPane[] = nonPrice.map((p, i) => ({
+      pane_id: p.id, order: i, height: Math.max(1, Math.round(p.height)), collapsed: p.collapsed,
+    }));
+    const layoutIndicators: LayoutIndicator[] = selectedIndicatorIds.map((id) => {
+      const paneId = (indicators[id]?.pane ?? "price") === "price" ? "price" : `ind:${indicators[id].pane}`;
+      const idx = panes.findIndex((p) => p.id === paneId);
+      return {
+        instance_id: id,
+        indicator_id: id,
+        // No preset catalogue yet (§38.5, W2): every instance uses the parameters the snapshot's own
+        // indicator contract fixes, and "default" names exactly that.
+        preset_id: "default",
+        pane_index: idx < 0 ? 0 : idx,
+        visible: !hiddenIndicatorIds.includes(id),
+      };
+    });
+    return {
+      name,
+      symbol: symbol ?? "",
+      timeframe,
+      chart_type: chartType,
+      indicators: layoutIndicators,
+      panes: layoutPanes,
+      visible_range: visibleRange ? { from_date: visibleRange.from, to_date: visibleRange.to } : null,
+      // The rail hides drawings all at once rather than one by one, so "hidden" is recorded as every
+      // current drawing being hidden. A drawing added after the layout was saved is not in the map, and
+      // the chart then opens with drawings shown — visible, never silently missing.
+      drawing_visibility: drawingsHidden ? Object.fromEntries(drawings.map((d) => [d.drawing_id, false])) : {},
+      sidebar_state: { collapsed: sidebarCollapsed, active_tab: sidebarTab },
+    };
+  }, [panes, selectedIndicatorIds, hiddenIndicatorIds, indicators, symbol, timeframe, chartType,
+      visibleRange, drawingsHidden, drawings, sidebarCollapsed, sidebarTab]);
+
+  /** The change detector: the captured workspace itself, minus the name — a rename is its own explicit call, and
+   *  including it here would make renaming look like a workspace edit. */
+  const layoutSignature = JSON.stringify(captureLayout(""));
+
+  const refreshLayouts = useCallback(async () => {
+    const r = await layoutsApi.list();
+    if (r.kind === "ok") setLayouts(r.data);
+    else if (r.kind === "no_access") denyAll();
+    // Any other outcome leaves the list as it was: a layout menu that cannot be read is an empty menu, not a
+    // blocking error — the rest of the chart works without it.
+  }, [denyAll]);
+
+  useEffect(() => { void refreshLayouts(); }, [refreshLayouts]);
+
+  /** Applies a chosen layout once its symbol's payloads have arrived (see `pendingLayout`). */
+  useEffect(() => {
+    const l = pendingLayout;
+    if (!l || !symbol || symbol !== l.symbol) return;
+    if (ohlcvRes?.kind !== "ok" || indicatorsRes?.kind !== "ok") return;
+    setPendingLayout(null);
+    setPrimeTick((t) => t + 1);
+
+    setChartType(l.chart_type as ChartType);
+    const wanted = l.indicators.filter((i) => indicators[i.indicator_id]);
+    setSelectedIndicatorIds(wanted.map((i) => i.indicator_id));
+    setHiddenIndicatorIds(wanted.filter((i) => !i.visible).map((i) => i.indicator_id));
+    setPaneOrder([...l.panes].sort((a, b) => a.order - b.order).map((p) => p.pane_id));
+    setPaneHeights(Object.fromEntries(l.panes.map((p) => [p.pane_id, p.height])));
+    setCollapsedPaneIds(l.panes.filter((p) => p.collapsed).map((p) => p.pane_id));
+    setVisibleRange(l.visible_range ? { from: l.visible_range.from_date, to: l.visible_range.to_date } : null);
+    const hiddenIds = Object.entries(l.drawing_visibility).filter(([, v]) => v === false).map(([k]) => k);
+    setDrawingsHidden(hiddenIds.length > 0);
+    if (l.sidebar_state) {
+      setSidebarCollapsed(l.sidebar_state.collapsed);
+      const tab = l.sidebar_state.active_tab;
+      if (tab === "levels" || tab === "indicators" || tab === "patterns") setSidebarTab(tab);
+    }
+    setLayoutDirty(false);
+  }, [pendingLayout, symbol, ohlcvRes, indicatorsRes, indicators]);
+
+  const onOpenLayout = useCallback((id: string) => {
+    const l = layouts.find((x) => x.layout_id === id);
+    if (!l) return;
+    setLayoutError(null);
+    setPendingLayout(l);
+    setOpenLayout({ id: l.layout_id, name: l.name });
+    if (l.timeframe === "1D" || l.timeframe === "1W" || l.timeframe === "1M") setTimeframe(l.timeframe);
+    if (l.symbol !== symbol) setSymbol(l.symbol);
+  }, [layouts, symbol]);
+
+  const onSaveLayoutAs = useCallback(async () => {
+    const name = typeof window !== "undefined" ? window.prompt("Name this layout", openLayout?.name ?? "Unnamed") : null;
+    if (!name) return;
+    setLayoutError(null);
+    const r = await layoutsApi.create(captureLayout(name));
+    if (r.kind === "ok") {
+      setOpenLayout({ id: r.data.layout_id, name: r.data.name });
+      lastSyncedSignatureRef.current = layoutSignature;
+      setLayoutDirty(false);
+      await refreshLayouts();
+    } else if (r.kind === "no_access") denyAll();
+    else setLayoutError(resultMessage(r));
+  }, [openLayout, captureLayout, refreshLayouts, denyAll]);
+
+  const onSaveLayout = useCallback(async () => {
+    if (!openLayout) { await onSaveLayoutAs(); return; }
+    setLayoutError(null);
+    const r = await layoutsApi.update(openLayout.id, captureLayout(openLayout.name));
+    if (r.kind === "ok") { lastSyncedSignatureRef.current = layoutSignature; setLayoutDirty(false); await refreshLayouts(); }
+    else if (r.kind === "no_access") denyAll();
+    else setLayoutError(resultMessage(r));
+  }, [openLayout, captureLayout, onSaveLayoutAs, refreshLayouts, denyAll, layoutSignature]);
+
+  const onRenameLayout = useCallback(async () => {
+    if (!openLayout) return;
+    const name = typeof window !== "undefined" ? window.prompt("Rename layout", openLayout.name) : null;
+    if (!name || name === openLayout.name) return;
+    setLayoutError(null);
+    const r = await layoutsApi.update(openLayout.id, { name });
+    if (r.kind === "ok") { setOpenLayout({ id: r.data.layout_id, name: r.data.name }); await refreshLayouts(); }
+    else if (r.kind === "no_access") denyAll();
+    else setLayoutError(resultMessage(r));
+  }, [openLayout, refreshLayouts, denyAll]);
+
+  const onDeleteLayout = useCallback(async () => {
+    if (!openLayout) return;
+    if (typeof window !== "undefined" && !window.confirm(`Delete the layout "${openLayout.name}"?`)) return;
+    setLayoutError(null);
+    const r = await layoutsApi.remove(openLayout.id);
+    if (r.kind === "ok") { setOpenLayout(null); setLayoutDirty(false); await refreshLayouts(); }
+    else if (r.kind === "no_access") denyAll();
+    else setLayoutError(resultMessage(r));
+  }, [openLayout, refreshLayouts, denyAll]);
+
+  /** §38.8 "layouts autosave after changes": once a layout is open, a change marks it dirty and is written
+   *  back after a pause. Nothing autosaves before the chart has been saved once — an unnamed chart has no
+   *  row to write to, and creating one silently would litter the list. */
+  useEffect(() => {
+    // Nothing to save before the chart has been saved once, and nothing to save while a chosen layout is still
+    // being applied — what is on screen at that moment is a half-applied layout, not a user's workspace.
+    if (!openLayout || pendingLayout) return;
+    // The first pass after a layout was applied or saved records what is already on the server rather than
+    // writing it back: the chart now holds exactly what was just read from or sent to it.
+    if (primedTickRef.current !== primeTick) {
+      primedTickRef.current = primeTick;
+      lastSyncedSignatureRef.current = layoutSignature;
+      setLayoutDirty(false);
+      return;
+    }
+    if (lastSyncedSignatureRef.current === layoutSignature) return;
+    setLayoutDirty(true);
+    const id = window.setTimeout(() => {
+      void (async () => {
+        const r = await layoutsApi.update(openLayout.id, captureLayout(openLayout.name));
+        if (r.kind === "ok") { lastSyncedSignatureRef.current = layoutSignature; setLayoutDirty(false); }
+        else if (r.kind === "no_access") denyAll();
+        else setLayoutError(resultMessage(r));
+      })();
+    }, 1500);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutSignature, openLayout?.id, pendingLayout, primeTick]);
 
   // ── selection helpers ────────────────────────────────────────────────────
   const clearSelection = useCallback(() => {
@@ -761,6 +943,7 @@ export default function ChartsScreen() {
     <div className="nv-card" data-testid="chart-drawings-list" style={{ padding: 12 }}>
       <p className="nv-eyebrow" style={{ margin: "0 0 8px" }}>Your drawings · {drawings.length}</p>
       {drawingError && <p role="alert" data-testid="chart-drawing-error" style={{ margin: "0 0 8px", fontSize: 11.5, color: "var(--danger-hex)" }}>{drawingError}</p>}
+      {layoutError && <p role="alert" data-testid="chart-layout-error" style={{ margin: "0 0 8px", fontSize: 11.5, color: "var(--danger-hex)" }}>Layout: {layoutError}</p>}
       {drawings.length === 0 ? (
         <p style={{ margin: 0, fontSize: 12.5, color: "var(--c-ink-3)" }}>No drawings on {symbol} yet — pick a tool in the rail and click the chart.</p>
       ) : (
@@ -857,6 +1040,15 @@ export default function ChartsScreen() {
       canRedo={historyRef.current.canRedo}
       onUndo={() => void undo()}
       onRedo={() => void redo()}
+      layoutName={openLayout?.name ?? "Unnamed"}
+      layouts={layouts.map((l) => ({ id: l.layout_id, name: l.name, symbol: l.symbol }))}
+      layoutDirty={layoutDirty}
+      hasOpenLayout={!!openLayout}
+      onSaveLayout={() => void onSaveLayout()}
+      onSaveLayoutAs={() => void onSaveLayoutAs()}
+      onRenameLayout={() => void onRenameLayout()}
+      onDeleteLayout={() => void onDeleteLayout()}
+      onOpenLayout={onOpenLayout}
       onFit={() => canvasRef.current?.fit()}
       dataViewOpen={showDataView}
       onToggleDataView={() => setShowDataView((v) => !v)}

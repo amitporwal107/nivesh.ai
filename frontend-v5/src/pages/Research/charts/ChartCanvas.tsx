@@ -390,7 +390,7 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
     const t = colors;
     // Line/area/OHLC-bar types draw their own series (below) and paint the candles out — the candlestick series
     // stays as the data + primitive host so nothing is ever detached from a removed series.
-    const invisible = chartType === "line" || chartType === "area" || chartType === "ohlc_bars";
+    const invisible = chartType === "line" || chartType === "area" || chartType === "bars";
     if (invisible) {
       candle.applyOptions({
         upColor: "rgba(0,0,0,0)", downColor: "rgba(0,0,0,0)", borderVisible: false,
@@ -416,9 +416,9 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    if (chartType !== "line" && chartType !== "area" && chartType !== "ohlc_bars") return;
+    if (chartType !== "line" && chartType !== "area" && chartType !== "bars") return;
     let series: ISeriesApi<SeriesType> | null = null;
-    if (chartType === "ohlc_bars") {
+    if (chartType === "bars") {
       const s = chart.addSeries(BarSeries, { upColor: colors.mint, downColor: colors.danger, thinBars: false }, 0);
       s.setData(drawnBars.map(([date, o, h, l, c]) => ({ time: date as Time, open: o, high: h, low: l, close: c })));
       series = s;
