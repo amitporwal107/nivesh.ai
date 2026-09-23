@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from research.charting.config import CONFIG
+from research.charting import ni3_config
 from research.charting.swings import Pivot
 
 PivotKind = Literal["HIGH", "LOW"]
@@ -432,3 +433,126 @@ def boundary_stability(
         full_level=full_level, truncated_level=truncated_level, shift_atr=shift_atr,
         residual_std_atr=residual_std_atr, stable=stable, insufficient_data=False,
     )
+
+
+# ── Wave A: fitted lines for the P-1 geometry engine (NI-3 §2) ───────────────
+#
+# These are the primitives the sixteen new families were blocked on. `ols_slope` above fits a slope
+# and nothing else, which is why today's boundaries can only be horizontal; a P-1 shape needs the
+# line itself, so it needs an intercept.
+#
+# Scope discipline (owner, 2026-09-23): these implement exactly what the NI-3 detector contracts
+# require and are not generalised beyond it. Every threshold is read from the frozen NI-3
+# configuration (`ni3_config.py`, fingerprint de86626c…), never from `CONFIG` — CONFIG's ATR rules
+# govern the three live families and must not reach the new ones (§37.7).
+
+
+@dataclass(frozen=True)
+class Line:
+    """A fitted straight line in (bar index, price) space. `slope` is price per bar."""
+    slope: float
+    intercept: float
+
+
+def fit_line(xs: Sequence[float], ys: Sequence[float]) -> Line:
+    """Least-squares fit through the given pivots, WITH the intercept `ols_slope` discards.
+
+    The slope is computed by the identical arithmetic to `ols_slope`, and a test pins the two to
+    the same value so they cannot drift apart. A degenerate input (fewer than two distinct x)
+    yields slope 0 and the mean of `ys` as the intercept -- a flat line through the data, which is
+    the same honest default `ols_slope` takes rather than raising.
+    """
+    x = np.asarray(xs, dtype=float)
+    y = np.asarray(ys, dtype=float)
+    if len(x) == 0:
+        return Line(slope=0.0, intercept=float("nan"))
+    slope = ols_slope(xs, ys)
+    return Line(slope=slope, intercept=float(y.mean() - slope * x.mean()))
+
+
+def trendline_value_at(line: Line, x: float) -> float:
+    """The line's projected value at bar `x`.
+
+    NI-3 names this as the prerequisite that "must exist before any P-1, P-2 or sloped-neckline
+    detector" -- the sloped neckline of a head & shoulders reads its breakout level from here, and
+    so does every P-1 width measurement.
+    """
+    return float(line.slope) * float(x) + float(line.intercept)
+
+
+#: NI-3 §2 line directions, decided by the G4 PERCENTAGE rule -- never by `boundary_drift`, which is
+#: the ATR test belonging to the three frozen families (§37.7, §39.8).
+FLAT = "FLAT"
+RISING = "RISING"
+FALLING = "FALLING"
+
+
+def line_direction(line: Line, first_x: float, last_x: float, cfg: dict | None = None) -> str:
+    """FLAT / RISING / FALLING per NI-3 §2: "A line is FLAT if its fitted value changes by <= G4
+    (1.5%) of its starting value across the formation. Otherwise it is RISING or FALLING by the sign
+    of the change. One threshold, so there is no gap and no second number."
+
+    Deliberately NOT `boundary_drift`: that is the ATR-normalised test for the P0 families, and
+    using it here would produce a detector that cannot reproduce fingerprint de86626c… (§39.16 C-1).
+    """
+    p1 = cfg if cfg is not None else ni3_config.p1()
+    start = trendline_value_at(line, first_x)
+    end = trendline_value_at(line, last_x)
+    if not np.isfinite(start) or not np.isfinite(end) or start == 0.0:
+        return FLAT
+    change_pct = (end - start) / abs(start) * 100.0
+    if abs(change_pct) <= float(p1["flat_max_drift_pct"]):
+        return FLAT
+    return RISING if change_pct > 0 else FALLING
+
+
+def width_ratio(upper_line: Line, lower_line: Line, first_pivot_x: float, last_pivot_x: float) -> float:
+    """NI-3 §2: `w = width at the last pivot / width at the first pivot`, width = upper - lower.
+
+    Measured at the first and last PIVOT, not the first and last bar of the formation. The existing
+    `convergence_ratio` docstring says "bar", which is the older NI-2 reading; NI-3 governs the new
+    families and a bar-based width will not reproduce the frozen fixtures (§39.16 C-2).
+
+    A non-positive width at the first pivot (the lines already crossed) returns NaN, which
+    `classify_pair` reports as SHAPE_UNCLASSIFIED -- such a structure is rejected by the no-crossing
+    check anyway.
+    """
+    first = trendline_value_at(upper_line, first_pivot_x) - trendline_value_at(lower_line, first_pivot_x)
+    last = trendline_value_at(upper_line, last_pivot_x) - trendline_value_at(lower_line, last_pivot_x)
+    if not np.isfinite(first) or first <= 0:
+        return float("nan")
+    return float(last) / float(first)
+
+
+#: NI-3 §2 pair classes. EXPANDING is classified honestly even though `expanding_in_scope` is false
+#: -- whether to EMIT it is the detector's decision (SHAPE_EXPANDING_OUT_OF_SCOPE), not this
+#: function's. Classification and emission are different questions.
+CONVERGING = "CONVERGING"
+PARALLEL = "PARALLEL"
+EXPANDING = "EXPANDING"
+SHAPE_UNCLASSIFIED = "SHAPE_UNCLASSIFIED"
+
+
+def classify_pair(w: float, cfg: dict | None = None) -> str:
+    """Classify the width ratio into NI-3 §2's bands. The two gaps are real and deliberate:
+
+        w <= 0.70          CONVERGING          (G5)
+        0.70 < w < 0.85    SHAPE_UNCLASSIFIED
+        0.85 <= w <= 1.15  PARALLEL            (G7)
+        1.15 < w < 1.43    SHAPE_UNCLASSIFIED
+        w >= 1.43          EXPANDING           (G6)
+
+    A structure landing in a gap is rejected rather than rounded into the nearer band -- "anything
+    else: unclassified, rejected" (NI-3 §2). Convergence and parallelism are two readings of this
+    one number, not two measurements.
+    """
+    p1 = cfg if cfg is not None else ni3_config.p1()
+    if w is None or not np.isfinite(w):
+        return SHAPE_UNCLASSIFIED
+    if w <= float(p1["convergence_max_ratio"]):
+        return CONVERGING
+    if float(p1["parallel_ratio_min"]) <= w <= float(p1["parallel_ratio_max"]):
+        return PARALLEL
+    if w >= float(p1["expanding_min_ratio"]):
+        return EXPANDING
+    return SHAPE_UNCLASSIFIED

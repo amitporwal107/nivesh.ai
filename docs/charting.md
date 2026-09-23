@@ -3644,19 +3644,23 @@ implementation.
 |---|---|---|
 | Swing high / low with confirmation bar | yes | `research/charting/swings.py` — `find_swings`, `swings_as_of` |
 | ATR(14) | yes | `research/charting/series.py: atr`; catalogue preset `atr_14` |
-| Trendline slope | **partly** | `geometry.ols_slope` + `geometry.boundary_drift` fit a **slope only, with no intercept** — so boundaries today are horizontal-only and there is no fitted-line object |
-| Convergence | **not usable** | `geometry.convergence_ratio` exists with its threshold, but has **no production caller** and cannot be computed without a fitted line (it needs width at the first and last pivot) |
-| Parallelism | **no** | not implemented anywhere in `research/charting/` |
-| `trendline_value_at()` | **no** | NI-3 names it a prerequisite that "must exist before any P-1, P-2 or sloped-neckline detector" |
+| Fitted line (slope + intercept) | **yes, 2026-09-23** | `geometry.fit_line() -> Line(slope, intercept)`. Its slope is pinned by test to equal `ols_slope` exactly, so the two cannot drift |
+| Width ratio `w` (convergence **and** parallelism) | **yes, 2026-09-23** | `geometry.width_ratio()` measured at the first and last **pivot**, then `geometry.classify_pair()`. Convergence and parallelism are two bands of one measurement, not two primitives |
+| G4 percentage flatness | **yes, 2026-09-23** | `geometry.line_direction()`. Deliberately not `boundary_drift`, which is the P0 ATR test — a hard CI gate (`test_F2_*`) proves the two stay distinguishable |
+| `trendline_value_at()` | **yes, 2026-09-23** | `geometry.trendline_value_at(line, x)`. This is what unblocks the sloped neckline, so head & shoulders and inverse head & shoulders no longer wait on the P-1 engine |
 | Volume / relative volume (20) | yes | `series.relative_volume`; catalogue `relative_volume_20` |
 | RSI(14), EMA, MACD | yes | `series.py`; catalogue presets |
 | **ADX(14)** | **not served** | exists only as the private `regime._adx_series`; absent from the chart indicator catalogue |
 | **Relative strength** | **partial, not served** | `regime.relative_strength` is vs **NIFTY 500 only** (windows 5/20/50/100). There is **no stock-vs-sector relative strength**; absent from the catalogue |
 
-Two consequences follow, and neither is resolved by this section:
+**Wave A landed on 2026-09-23** and closed the geometry half of this table. The P-1 family is no
+longer blocked on primitives; what remains is the detector itself (§39.15). The frozen v1
+`config_hash` is unchanged at `05167d3a…`, because the new thresholds are read from the NI-3
+configuration (`research/charting/ni3_config.py`, which verifies fingerprint `de86626c…` on load)
+and nothing was added to `CONFIG`.
 
-- **The P-1 family cannot be built until the fitted-line primitives exist.** Slope-with-intercept, a
-  convergence caller and a parallelism metric are prerequisites, not details.
+One consequence still stands:
+
 - **The Class C layer cannot be delivered as specified today.** ADX and relative strength are the two
   most-cited Class C inputs in §39.9 and neither is served; stock-vs-sector relative strength does not
   exist at all. Promoting them is a separate, costed piece of work.
@@ -3756,21 +3760,27 @@ stability of the two conventions can be compared across volatility regimes rathe
 
 ### 39.15 Prerequisites and build order
 
-**Prerequisites before any P-1 or P-2 family can be attempted**, in order:
+**Prerequisites — delivered 2026-09-23 (Wave A).** The dependency graph is one chain, not four
+independent items:
 
-1. `trendline_value_at(pivots, t)` — a fitted line with an intercept, evaluable at any bar.
-2. A convergence caller — `geometry.convergence_ratio` exists but nothing computes the widths it
-   needs.
-3. A parallelism metric — net-new; it is what separates a channel from a wedge.
+```text
+fit_line()  ->  trendline_value_at()  ->  width_ratio() at pivots  ->  classify_pair()
+```
+
+`convergence_ratio` and "parallelism" are not separate primitives: they are two bands of the single
+ratio `w`, which is why the earlier four-item blocker list overstated the work. All of it is in
+`research/charting/geometry.py`, with thresholds read from `ni3_config.py`.
 
 **Build order**, cheapest structural value first:
 
 | Wave | Families | State |
 |---|---|---|
 | 0 | Support/resistance, Rectangle, HH/HL | **done** |
-| 1 | Ascending / descending / symmetrical triangle, rising / falling wedge, ascending / descending channel | blocked on the three prerequisites above |
+| A | `fit_line`, `trendline_value_at`, `width_ratio`, `line_direction`, `classify_pair` | **done 2026-09-23** |
+| 1 | Ascending / descending / symmetrical triangle, rising / falling wedge, ascending / descending channel | unblocked; needs the NI-3 §2 seven-step detector and its 9 fixtures |
 | 2 | Bull / bear flag, bull / bear pennant | blocked on wave 1 (P-2 bodies are P-1 shapes) |
-| 3 | Double top, double bottom, head & shoulders, inverse head & shoulders, cup & handle | independent of P-1; needs only swing + ATR + similarity tolerances |
+| B | Head & shoulders, inverse head & shoulders | unblocked by `trendline_value_at` alone (sloped neckline, NI-3 §6b) — they do **not** wait for the P-1 detector |
+| 3 | Double top, double bottom, cup & handle | never blocked; needs only swing + ATR + similarity tolerances |
 
 Wave 3 is not blocked by the fitted-line work, so it can proceed in parallel with wave 1 if the
 owner prefers pattern breadth earlier than triangle support.

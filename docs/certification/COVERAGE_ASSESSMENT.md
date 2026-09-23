@@ -85,8 +85,79 @@ The exception worth acting on: **double bottom, double top and cup & handle need
 only swing, ATR and similarity tolerances, all of which exist. They are the cheapest families to move
 from "specified" to "certified".
 
+## Blocker section — rewritten (owner directive, 2026-09-23)
+
+The pack's manifest lists six `critical_blockers`:
+
+```
+trendline fitted line with intercept · trendline_value_at · production convergence caller
+parallelism metric · ADX chart service · stock_vs_sector_relative_strength
+```
+
+The first four are **not four items**. They are one chain, and stating them separately overstated
+the work by implying four independent builds:
+
+```text
+fit_line()  ->  trendline_value_at()  ->  width_ratio() at pivots  ->  classify_pair()
+                                                                        |
+                                                            CONVERGING / PARALLEL / EXPANDING
+```
+
+**Convergence and parallelism must not be certified as separate primitives.** They are two bands of
+the same ratio `w`. A certification suite that tests them independently would be testing one
+function twice and would imply a channel detector can skip the convergence computation, which is
+false.
+
+The manifest's first four entries are therefore superseded by one: **geometry foundation — fitted
+lines, projected line values, pivot-based width ratio.** The pack body is filed verbatim and not
+edited; this is the correction of record.
+
+### Status: the geometry foundation is delivered (2026-09-23)
+
+| Primitive | Where |
+|---|---|
+| `Line(slope, intercept)`, `fit_line()` | `research/charting/geometry.py` |
+| `trendline_value_at(line, x)` | ibid |
+| `width_ratio(upper, lower, first_pivot, last_pivot)` | ibid — measured at pivots |
+| `line_direction()` — G4 percentage flatness | ibid |
+| `classify_pair()` — five bands, two of them deliberate gaps | ibid |
+| NI-3 config loader, fingerprint-verified on load | `research/charting/ni3_config.py` |
+
+35 tests, all passing; full suite 1,122. The frozen v1 `config_hash` is **unchanged** at
+`05167d3a…` — the new thresholds are read from the NI-3 configuration, which verifies
+`de86626c…` when loaded, so nothing was added to `CONFIG` and the three live families cannot have
+been affected.
+
+**The two traps are now hard CI gates**, exactly as directed:
+
+- `test_F2_the_percentage_flatness_rule_is_not_the_atr_drift_rule` — builds a line the ATR test
+  calls FLAT and the G4 percentage test calls RISING, and asserts the two verdicts differ. A
+  detector using `boundary_drift` for a P-1 family fails here.
+- `test_C2_width_is_measured_at_the_pivots_not_at_the_formation_bars` — a structure whose
+  pivot-based `w` is PARALLEL (0.884) and whose bar-based `w` is CONVERGING (0.100). The two
+  conventions do not merely differ numerically; they emit **different shapes**. A bar-based detector
+  would call a channel a wedge.
+
+### What this unblocks
+
+| Wave | Families | State |
+|---|---|---|
+| A | — | **done** |
+| B — head & shoulders, inverse H&S | +2 | unblocked now; needs only the sloped neckline, not the P-1 detector |
+| Parallel — double bottom, double top, cup & handle | +3 | never blocked |
+| C — the seven P-1 shapes | +7 | unblocked; needs the NI-3 §2 seven-step detector and its 9 fixtures |
+| D — the four P-2 flags and pennants | +4 | needs wave C (their bodies are P-1 shapes) |
+
+The registry remains the authority: none of these flips to `enabled` because code exists. Each waits
+on its fixture certification and, for P-1, on reproducing fingerprint `de86626c…`.
+
 ## Recommended next step
 
-Close **NLA-005** first. It is one test, it is the only uncovered case in a release-blocking suite,
-and batch-versus-sequential divergence is exactly the class of defect that stays invisible until a
-live run disagrees with a backtest.
+With wave A delivered, the next two are independent and can run in parallel:
+
+1. **Wave B + the three unblocked families** — head & shoulders and inverse H&S need only
+   `trendline_value_at`; double bottom, double top and cup & handle need nothing new. That is five
+   families, and it takes the registry from 3 enabled to 8 without touching the P-1 engine.
+2. **NLA-005** — batch versus sequential replay equivalence. One test, the only uncovered case in a
+   release-blocking suite, and exactly the class of defect that stays invisible until a live run
+   disagrees with a backtest.
