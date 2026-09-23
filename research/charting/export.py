@@ -312,6 +312,7 @@ def build_snapshot(
     source_dir: Optional[str] = None,
     out_dir=DEFAULT_OUT_DIR,
     pattern_provider: Optional[PatternProvider] = None,
+    include_ni3: bool = False,
     now: Optional[datetime] = None,
 ) -> dict:
     """Build and write the snapshot to `out_dir`. Returns the manifest dict actually written.
@@ -399,10 +400,52 @@ def build_snapshot(
         # snapshot and never describe a preset the series in this snapshot were not built from.
         "indicator_catalogue": indicator_catalogue.serialisable(),
         "indicator_catalogue_hash": indicator_catalogue.catalogue_hash(),
+        # Which detector specification produced the pattern records in this snapshot. Without this a
+        # reader can prove WHEN a snapshot was generated but not WHICH frozen table generated it.
+        "export_mode": "ni3_experimental" if include_ni3 else "p0_certified",
+        "include_ni3": bool(include_ni3),
+        "detector_families": _detector_families(include_ni3),
+        "ni3_version": _ni3_version() if include_ni3 else None,
+        "ni3_fingerprint": _ni3_fingerprint() if include_ni3 else None,
+        "pattern_registry_version": _registry_version(),
+        "pattern_registry_hash": _registry_hash(),
         "symbols": symbol_entries,
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
     return manifest
+
+
+def _detector_families(include_ni3: bool) -> list[str]:
+    """The families whose detectors were actually RUN for this snapshot. Distinct from the registry's
+    enabled set: a family can be exported for research while remaining disabled for production."""
+    p0 = ["SUPPORT_RESISTANCE", "RECTANGLE", "HH_HL"]
+    if not include_ni3:
+        return p0
+    from research.charting import pattern_registry
+    return p0 + [f.pattern_type for f in pattern_registry.disabled_families()]
+
+
+def _registry_version() -> str:
+    from research.charting import pattern_registry
+    return pattern_registry.REGISTRY_VERSION
+
+
+def _registry_hash() -> str:
+    from research.charting import pattern_registry
+    return pattern_registry.registry_hash()
+
+
+def _ni3_version() -> Optional[str]:
+    from research.charting import ni3_config
+    return ni3_config.load().get("ni3_version")
+
+
+def _ni3_fingerprint() -> Optional[str]:
+    """The frozen NI-3 fingerprint, verified on load — so a snapshot can never claim NI-3
+    provenance it did not actually run under."""
+    from research.charting import ni3_config
+    ni3_config.load()
+    return ni3_config.NI3_FINGERPRINT
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +463,33 @@ def detector_pattern_provider() -> PatternProvider:
     return provider
 
 
+def ni3_pattern_provider() -> PatternProvider:
+    """The P0 detectors PLUS the sixteen NI-3 families, at each symbol's last bar.
+
+    EXPORT SELECTION ONLY. This is not a second implementation of anything: it calls the same
+    `detect_*_as_of` entry points the unit tests and fixtures exercise, and it does not consult or
+    change `pattern_registry`. A family stays DISABLED in the registry whether or not its records
+    appear in an experimental snapshot — registry enablement is a certification decision, export
+    inclusion is a research switch, and conflating them is exactly what this flag exists to avoid.
+
+    Ordering is fixed (P0, then NI-3 own-rule families, then P-1, then P-2) so two runs over the
+    same bars produce byte-identical files.
+    """
+    from research.charting.patterns import detect_as_of
+    from research.charting.patterns_ni3 import detect_ni3_as_of
+    from research.charting.patterns_p1 import detect_p1_as_of
+    from research.charting.patterns_p2 import detect_p2_as_of
+
+    def provider(symbol: str, df: pd.DataFrame) -> list[dict]:
+        t = len(df) - 1
+        out: list[dict] = []
+        for fn in (detect_as_of, detect_ni3_as_of, detect_p1_as_of, detect_p2_as_of):
+            out.extend(p.to_dict() for p in fn(df, t, symbol=symbol))
+        return out
+
+    return provider
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(description="Export the research chart snapshot.")
     parser.add_argument("--fixture", action="store_true",
@@ -431,12 +501,21 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR), help="Snapshot output directory.")
     parser.add_argument("--with-patterns", action="store_true",
                         help="Run the P0 detectors (research.charting.patterns) at each symbol's last bar.")
+    parser.add_argument("--include-ni3", action="store_true",
+                        help="EXPERIMENTAL, research only. Additionally run the sixteen NI-3 detectors. This is an "
+                             "EXPORT-SELECTION switch: it does not enable any family in pattern_registry and must "
+                             "not be used to produce a snapshot that ships.")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    provider = detector_pattern_provider() if args.with_patterns else None
+    if args.include_ni3:
+        provider = ni3_pattern_provider()
+    elif args.with_patterns:
+        provider = detector_pattern_provider()
+    else:
+        provider = None
     manifest = build_snapshot(fixture=args.fixture, top_n=args.top_n, source_dir=args.source_dir, out_dir=args.out_dir,
-                              pattern_provider=provider)
+                              pattern_provider=provider, include_ni3=bool(args.include_ni3))
 
     out_dir = Path(args.out_dir)
     total_bytes = sum(p.stat().st_size for p in out_dir.rglob("*") if p.is_file())
