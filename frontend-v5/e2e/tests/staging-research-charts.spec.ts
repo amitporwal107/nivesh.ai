@@ -107,7 +107,8 @@ test("TC-18 real staging: weekly and monthly are disabled with a reason; daily i
   await openCharts(page);
   await expect(page.getByTestId("chart-timeframe-weekly")).toBeDisabled();
   await expect(page.getByTestId("chart-timeframe-monthly")).toBeDisabled();
-  await expect(page.getByTestId("chart-timeframe-reason")).toBeVisible();
+  // reason in place on the control (design 1A change 03), not a grey sentence beside the group
+  await expect(page.getByTestId("chart-timeframe-weekly")).toHaveAttribute("title", /\S/);
   await expect(page.getByTestId("chart-timeframe-daily")).toBeEnabled();
 });
 

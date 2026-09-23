@@ -237,6 +237,31 @@ export function levelOf(p: Pattern): { price: number; kind: "SUPPORT" | "RESISTA
   return { price, kind, broken: CONFIRMED_STATES.has(s), failed: s.includes("FAIL") };
 }
 
+/**
+ * The engine's own level strength for an S/R record, read from its `SR_LEVEL_STRENGTH` rule.
+ *
+ * This is NOT `pattern.scores` (which is null for S/R records — the mistake an earlier pass made).
+ * `research/charting/geometry.py: level_strength()` combines touches, recency, rejection, relative
+ * volume and time, each component in [0,1], by the frozen §13.2 weights. docs/charting.md line 1622:
+ * "descriptive, not a probability". It is present on every S/R record in the snapshot.
+ */
+export function levelStrengthScore(p: Pattern): number | null {
+  const row = (p.rules ?? []).find((r) => r.rule_id === "SR_LEVEL_STRENGTH");
+  return row && isNum(row.observed) ? row.observed : null;
+}
+
+/**
+ * The 1–5 bucket the 1A design asks for ("strength 1–5"), over the score's own [0,1] domain.
+ *
+ * The score is the engine's; this bucketing is a presentation choice and is stated rather than
+ * buried — the raw score travels alongside it (`LevelCard.strengthScore`) and is surfaced in the
+ * row's tooltip, so the derived number is always checkable against the number it came from.
+ */
+export function levelStrengthBucket(score: number | null): number | null {
+  if (!isNum(score)) return null;
+  return Math.min(5, Math.max(1, Math.ceil(score * 5)));
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    W0 — patterns on the chart (§38.15). Every function here is pure and reads
    only fields the snapshot already carries; nothing is computed by "recognising"
@@ -297,7 +322,17 @@ export function lastIndicatorValue(ind: IndicatorSeries | undefined): number | n
  *  a run of near-duplicates merges into one band even when the first and last of the run are more than the
  *  tolerance apart. `atr14 == null` (no atr_14 series served) degrades to one band per record — never a crash, and
  *  never a silent wrong grouping. */
-export interface SrBand { id: string; kind: "SUPPORT" | "RESISTANCE" | "MIXED"; price: number; records: Pattern[] }
+export interface SrBand {
+  id: string;
+  kind: "SUPPORT" | "RESISTANCE" | "MIXED";
+  price: number;
+  /** True when any record in the band had its break confirmed or failed — drawn dimmed and dashed
+   *  (1A change 08) so live levels read first. */
+  broken: boolean;
+  /** The strongest record's raw engine score in [0,1], or null when no record carries the rule. */
+  strengthScore: number | null;
+  records: Pattern[];
+}
 
 export function groupSrBands(levels: Pattern[], atr14: number | null): SrBand[] {
   const rows = levels
@@ -312,10 +347,14 @@ export function groupSrBands(levels: Pattern[], atr14: number | null): SrBand[] 
     if (!current.length) return;
     const kinds = new Set(current.map((x) => x.lv.kind));
     const price = current.reduce((sum, x) => sum + x.lv.price, 0) / current.length;
+    const scores = current.map((x) => levelStrengthScore(x.p)).filter(isNum);
     bands.push({
       id: current.map((x) => x.p.pattern_id).join("+"),
       kind: kinds.size === 1 ? ([...kinds][0] as "SUPPORT" | "RESISTANCE") : "MIXED",
       price,
+      // "How strong is this band" is its strongest level, not an average that a weak near-duplicate drags down.
+      broken: current.some((x) => x.lv.broken || x.lv.failed),
+      strengthScore: scores.length ? Math.max(...scores) : null,
       records: current.map((x) => x.p),
     });
     current = [];
@@ -335,8 +374,11 @@ export function groupSrBands(levels: Pattern[], atr14: number | null): SrBand[] 
  * to the last close in ₹ and %. HOLDING/BROKEN comes from the records' own §11 status via `levelOf`: a band whose
  * break was confirmed on any of its records reads BROKEN.
  *
- * There is deliberately **no 1–5 strength score**: the S/R record carries `scores: null`, so a score would be an
- * invention (§11/§16, decisions-log #114, design-1a-reference.md "Strength 1–5 is not in the data").
+ * Strength (1A change 07, §38.19.2 "the S/R panel with price, type, strength, distance in ₹ and %, and
+ * HOLDING/BROKEN"): the score is the engine's own `SR_LEVEL_STRENGTH`, present on every S/R record in the
+ * snapshot — see `levelStrengthScore`. An earlier pass concluded strength was "not in the data" by reading
+ * `scores` (null for S/R) and not `rules`; that conclusion is reversed here. Only the 1–5 bucketing is a
+ * presentation choice, and the raw score is carried alongside so it stays checkable.
  */
 export interface LevelCard {
   id: string;
@@ -346,13 +388,16 @@ export interface LevelCard {
   distanceRupees: number | null;
   distancePct: number | null;
   state: "HOLDING" | "BROKEN";
+  /** 1–5, bucketed from `strengthScore`; null when the band carries no strength rule at all. */
+  strength: number | null;
+  /** The engine's raw [0,1] score behind `strength`, so the bucket can always be checked against it. */
+  strengthScore: number | null;
   records: Pattern[];
 }
 
 export function levelCards(bands: SrBand[], lastClose: number | null): LevelCard[] {
   return bands.map((b) => {
     const touches = b.records.reduce((n, p) => n + (p.pivots?.length ?? 0), 0);
-    const broken = b.records.some((p) => { const lv = levelOf(p); return !!lv && (lv.broken || lv.failed); });
     const distanceRupees = isNum(lastClose) ? b.price - lastClose : null;
     return {
       id: b.id,
@@ -361,7 +406,9 @@ export function levelCards(bands: SrBand[], lastClose: number | null): LevelCard
       touches,
       distanceRupees,
       distancePct: distanceRupees != null && isNum(lastClose) && lastClose !== 0 ? (distanceRupees / lastClose) * 100 : null,
-      state: broken ? "BROKEN" : "HOLDING",
+      state: b.broken ? "BROKEN" : "HOLDING",
+      strength: levelStrengthBucket(b.strengthScore),
+      strengthScore: b.strengthScore,
       records: b.records,
     };
   });

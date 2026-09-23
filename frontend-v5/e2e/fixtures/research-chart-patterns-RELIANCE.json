@@ -145,7 +145,20 @@
         "sector": "UNAVAILABLE",
         "data_quality": "VALID"
       },
-      "rules": [],
+      "rules": [
+        {
+          "rule_id": "SR_MIN_TOUCHES",
+          "result": "PASS",
+          "observed": 5,
+          "threshold": 3
+        },
+        {
+          "rule_id": "SR_LEVEL_STRENGTH",
+          "result": "PASS",
+          "observed": 0.62,
+          "threshold": null
+        }
+      ],
       "events": [],
       "scores": null
     },
@@ -173,7 +186,20 @@
         "sector": "UNAVAILABLE",
         "data_quality": "VALID"
       },
-      "rules": [],
+      "rules": [
+        {
+          "rule_id": "SR_MIN_TOUCHES",
+          "result": "PASS",
+          "observed": 3,
+          "threshold": 3
+        },
+        {
+          "rule_id": "SR_LEVEL_STRENGTH",
+          "result": "PASS",
+          "observed": 0.41,
+          "threshold": null
+        }
+      ],
       "events": [],
       "scores": null
     }

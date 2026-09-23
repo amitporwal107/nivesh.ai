@@ -37,8 +37,6 @@ async function mockCharts(page: Page, opts?: { run?: () => Reply; symbols?: () =
     const r = opts?.run ? opts.run() : { status: 200, body: load("research-chart-run.json") };
     return route.fulfill({ status: r.status, contentType: "application/json", body: JSON.stringify(r.body) });
   });
-  await page.route("**/api/research/chart/catalogue", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(load("research-chart-catalogue.json")) }));
   await page.route("**/api/research/chart/symbols", (route) => {
     const r = opts?.symbols ? opts.symbols() : { status: 200, body: load("research-chart-symbols.json") };
     return route.fulfill({ status: r.status, contentType: "application/json", body: JSON.stringify(r.body) });
@@ -224,7 +222,8 @@ test.describe("Charts — chart surface", () => {
     await page.getByTestId("chart-timeframe-weekly").click();
     await expect(page.getByTestId("chart-timeframe-weekly")).toBeDisabled();
     await expect(page.getByTestId("chart-timeframe-monthly")).toBeDisabled();
-    await expect(page.getByTestId("chart-timeframe-reason")).toContainText("coming with W2");
+    // the reason lives on the disabled control itself, not in a sentence beside it (design 1A change 03)
+    await expect(page.getByTestId("chart-timeframe-weekly")).toHaveAttribute("title", /coming with W2/);
     await expect(page.getByTestId("chart-timeframe-daily")).toHaveAttribute("aria-pressed", "true");
     // the daily chart is still there — this is a capability gap, not a failure
     await expect(page.getByTestId("charts-state-error")).toHaveCount(0);
@@ -783,5 +782,79 @@ test.describe("Charts — W0 patterns on the chart (§38.15, TC-70..87)", () => 
     await page.getByTestId("chart-pattern-prev").click();
     const backText = await details.getByTestId("chart-pattern-fields").textContent();
     expect(backText).toBe(firstText);
+  });
+});
+
+/**
+ * 1A changes 07, 08 and 09 from the design artifact (`frontend-v5/design/Nivesh charting · offline.html`).
+ * See test_reports/charting_1a_changes_05_09.md for the test-case table and, for 07, the reversal of the
+ * earlier "strength is not in the data" decision.
+ *
+ * MOCK — not real data: the two SUPPORT_RESISTANCE records in research-chart-patterns-RELIANCE.json were
+ * given SR_LEVEL_STRENGTH values (0.62 and 0.41) inside the real snapshot's observed range (0.3395–0.7598),
+ * so the 1–5 bucketing is exercised at two different buckets. The TCS fixture keeps `rules: []`, which is
+ * what covers the no-strength path.
+ */
+test.describe("Charts — 1A design changes 07/08/09 (TC-230..TC-239)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+  test.beforeEach(async ({ page }) => {
+    await mockAuthAs(page, "user-profile-charting.json");
+    await mockCharts(page);
+    await openCharts(page);
+    await expect(page.getByTestId("chart-canvas").locator("canvas").first()).toBeVisible();
+  });
+
+  test("TC-230 change 07: each level band shows the engine's strength as 1–5", async ({ page }) => {
+    await openSidebarTab(page, "levels");
+    const chips = page.locator('[data-testid^="chart-sr-band-strength-"]');
+    await expect(chips).toHaveCount(2);
+    // 0.62 -> ceil(3.1) = 4 ; 0.41 -> ceil(2.05) = 3
+    await expect(chips.filter({ hasText: "STRENGTH 4/5" })).toHaveCount(1);
+    await expect(chips.filter({ hasText: "STRENGTH 3/5" })).toHaveCount(1);
+  });
+
+  test("TC-231 change 07: the raw engine score sits behind the bucket, so it stays checkable", async ({ page }) => {
+    await openSidebarTab(page, "levels");
+    const holder = page.locator('[title*="engine score"]').first();
+    await expect(holder).toHaveAttribute("title", /engine score 0\.(6200|4100)/);
+    await expect(holder).toHaveAttribute("title", /§13\.2/);
+  });
+
+  test("TC-233 change 07: a band with no strength rule degrades — no chip, no crash", async ({ page }) => {
+    await openSidebarTab(page, "levels");
+    // RELIANCE first, so the assertion below is "the chips went away", not "the panel was never open"
+    await expect(page.locator('[data-testid^="chart-sr-band-strength-"]').first()).toBeVisible();
+    await page.getByTestId("chart-symbol-TCS").click();
+    await expect(page.getByTestId("chart-canvas").locator("canvas").first()).toBeVisible();
+    await expect(page.locator('button[data-testid^="chart-sr-band-"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid^="chart-sr-band-strength-"]')).toHaveCount(0);
+    await expect(page.getByTestId("charts-state-error")).toHaveCount(0);
+  });
+
+  test("TC-234/235 change 08: tags carry label + distance only — never a second copy of the price", async ({ page }) => {
+    const tags = (await page.getByTestId("chart-canvas").getAttribute("data-level-tags")) ?? "";
+    expect(tags).not.toBe("");
+    for (const tag of tags.split("|")) {
+      const label = tag.replace(" [broken]", "");
+      expect(label).toMatch(/^(S|R|S\/R) · [+-]\d+\.\d%$/);
+      // the doubling this change fixes: "R 2940.00" beside the axis's own "2940.00"
+      expect(label).not.toMatch(/\d{3,}\.\d{2}/);
+    }
+  });
+
+  test("TC-236 change 08: a broken level is marked so live levels read first", async ({ page }) => {
+    const tags = (await page.getByTestId("chart-canvas").getAttribute("data-level-tags")) ?? "";
+    const parts = tags.split("|");
+    // RESISTANCE 2940 is PRICE_CONFIRMED (its break was confirmed); SUPPORT 2890 is GEOMETRY_VALID.
+    expect(parts.filter((t) => t.includes("[broken]"))).toHaveLength(1);
+    expect(parts.find((t) => t.includes("[broken]"))).toMatch(/^R /);
+  });
+
+  test("TC-237 change 09: a collapsed pane strip carries its current value", async ({ page }) => {
+    await page.getByTestId("chart-pane-volume-collapse").click();
+    await expect(page.getByTestId("chart-pane-sparkline-volume")).toBeVisible();
+    const value = page.getByTestId("chart-pane-value-volume");
+    await expect(value).toBeVisible();
+    await expect(value).not.toHaveText("");
   });
 });
