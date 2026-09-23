@@ -74,13 +74,19 @@ elif [[ "${BUILD_FRONTEND}" == "true" ]]; then
     docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --force-recreate --remove-orphans app-frontend app-frontend-v5
 fi
 
-# ── Bound the BuildKit cache ─────────────────────────────────────────────────
-# This VM's disk is shared with PROD. `build --pull` adds ~3 GB of cache per deploy and nothing else
-# ever removes it, so each deploy ate the headroom the next one needed (2026-09-21: 4.1 GB free until
-# a manual prune). Keep at most 1 GB; the rest is regenerable. Never fatal — a prune failure must not
-# fail an otherwise good deploy.
-log "Pruning build cache (keep ≤1GB)..."
-docker builder prune -f --keep-storage 1GB >/dev/null 2>&1 || log "WARN: builder prune failed (continuing)"
+# ── Drop the local BuildKit cache ────────────────────────────────────────────
+# This VM's disk is shared with PROD and runs at ~92% full: `build --pull` adds ~3 GB of cache per
+# deploy, and on 2026-09-23 a deploy drove it to 833 MB free (99%) before a manual prune.
+#
+# The cache is no longer kept HERE. Every build service in docker-compose.staging.yml exports its
+# cache to Artifact Registry (`cache_to type=registry`) and imports it back on the next build
+# (`cache_from`), so the local copy is now a duplicate of something durable and can go entirely.
+# That is what makes `-a` safe: it used to mean the next deploy rebuilt every layer from scratch,
+# and now it means the next deploy pulls those layers from the registry instead.
+#
+# Never fatal — a prune failure must not fail an otherwise good deploy.
+log "Dropping local build cache (it is mirrored in Artifact Registry)..."
+docker builder prune -af >/dev/null 2>&1 || log "WARN: builder prune failed (continuing)"
 log "Disk after prune: $(df -h / | awk 'NR==2{print $4" free ("$5" used)"}')"
 
 # ── Backend health check (skip for frontend-only deploys) ────────────────────

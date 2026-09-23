@@ -86,6 +86,14 @@ services:
     build:
       context: ../../
       dockerfile: deploy/nivesh-app/Dockerfile.backend.prod
+      # Build cache lives in Artifact Registry, not on this VM's disk (which is shared with PROD and
+      # runs at ~92% full). `mode=max` keeps the intermediate stages, which is where the expensive
+      # work is — the Python dependency layer here, the node build stage for the frontends.
+      # `ignore-error=true` on the export: a registry hiccup must never fail a deploy.
+      cache_from:
+        - type=registry,ref=asia-south1-docker.pkg.dev/niveshdataintelligence/nidp-cache/app-backend-staging:cache
+      cache_to:
+        - type=registry,ref=asia-south1-docker.pkg.dev/niveshdataintelligence/nidp-cache/app-backend-staging:cache,mode=max,ignore-error=true
     image: nivesh/backend:staging
     container_name: nivesh-staging-app-backend
     restart: unless-stopped
@@ -166,6 +174,14 @@ services:
         VITE_BASE: /v5/
         VITE_API_URL: https://staging.niveshcopilot.com
         VITE_USE_MOCK_API: "false"
+      # Build cache lives in Artifact Registry, not on this VM's disk (which is shared with PROD and
+      # runs at ~92% full). `mode=max` keeps the intermediate stages, which is where the expensive
+      # work is — the Python dependency layer here, the node build stage for the frontends.
+      # `ignore-error=true` on the export: a registry hiccup must never fail a deploy.
+      cache_from:
+        - type=registry,ref=asia-south1-docker.pkg.dev/niveshdataintelligence/nidp-cache/app-frontend-v5-staging:cache
+      cache_to:
+        - type=registry,ref=asia-south1-docker.pkg.dev/niveshdataintelligence/nidp-cache/app-frontend-v5-staging:cache,mode=max,ignore-error=true
     image: nivesh/frontend-v5:staging
     container_name: nivesh-staging-app-frontend-v5
     restart: unless-stopped
@@ -183,6 +199,14 @@ services:
       args:
         REACT_APP_BACKEND_URL: https://staging.niveshcopilot.com
         PUBLIC_URL: /v2
+      # Build cache lives in Artifact Registry, not on this VM's disk (which is shared with PROD and
+      # runs at ~92% full). `mode=max` keeps the intermediate stages, which is where the expensive
+      # work is — the Python dependency layer here, the node build stage for the frontends.
+      # `ignore-error=true` on the export: a registry hiccup must never fail a deploy.
+      cache_from:
+        - type=registry,ref=asia-south1-docker.pkg.dev/niveshdataintelligence/nidp-cache/app-frontend-staging:cache
+      cache_to:
+        - type=registry,ref=asia-south1-docker.pkg.dev/niveshdataintelligence/nidp-cache/app-frontend-staging:cache,mode=max,ignore-error=true
     image: nivesh/frontend:staging
     container_name: nivesh-staging-app-frontend
     restart: unless-stopped
