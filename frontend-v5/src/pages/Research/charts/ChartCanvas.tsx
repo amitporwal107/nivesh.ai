@@ -23,6 +23,7 @@ import {
 import { DrawingsPrimitive, type DrawingPoint } from "./primitives";
 import { PatternsPrimitive } from "./patternLayer";
 import { BandsPrimitive } from "./bandLayer";
+import { LevelTagsPrimitive, type LevelTag } from "./levelTagLayer";
 import { resolveTheme, useAppTheme, withAlpha, type ChartTheme } from "./theme";
 import Legend, { type LegendIndicatorRow } from "./workspace/Legend";
 import { PaneControls, PaneDivider } from "./workspace/PaneControls";
@@ -32,6 +33,7 @@ import type { VisibleRange } from "./workspace/ranges";
 import {
   type Bar, type IndicatorSeries, type Pattern, type Drawing, type NewDrawing, type SrBand, type NearestLevel,
   plotColumns, patternWindow, patternTypeLabel, statusLabel, knownMarkerDate, heikinAshi, num as fmtNum, price as fmtPrice,
+  vol as fmtVol,
   type IndicatorCatalogue,
 } from "./contract";
 
@@ -136,6 +138,7 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
   const themeRef = useRef<ChartTheme | null>(null);
   const pendingFirstRef = useRef<DrawingPoint | null>(null);
   const [hover, setHover] = useState<{ pattern: Pattern; x: number; y: number } | null>(null);
+  const levelTagsRef = useRef<LevelTagsPrimitive | null>(null);
   const [crosshair, setCrosshair] = useState<{ date: string; x: number; y: number } | null>(null);
   const [legendCollapsed, setLegendCollapsed] = useState(false);
 
@@ -238,6 +241,11 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
     patternsPrimitive.setTheme(theme);
     candle.attachPrimitive(patternsPrimitive);
     patternsPrimitiveRef.current = patternsPrimitive;
+
+    // 1A change 08: the S/R tags draw themselves in a right-hand lane, so they can be nudged apart.
+    const levelTagsPrimitive = new LevelTagsPrimitive();
+    candle.attachPrimitive(levelTagsPrimitive);
+    levelTagsRef.current = levelTagsPrimitive;
 
     /** A clicked band within HIT_PX of its drawn price line — a price-space tolerance derived from the two nearby
      *  pixel rows, since S/R bands are native createPriceLine (full-width) rather than a hand-drawn primitive. */
@@ -614,25 +622,45 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
     const candle = candleRef.current, theme = themeRef.current, container = containerRef.current;
     if (!candle || !theme) return;
     const lines: IPriceLine[] = [];
+    const tags: LevelTag[] = [];
+    const lastClose = bars.length ? bars[bars.length - 1][4] : null;
     if (showLevels) {
       for (const b of srBands) {
         const colour = b.kind === "SUPPORT" ? theme.mint : b.kind === "RESISTANCE" ? theme.danger : theme.amber;
         const dim = selectedSrBandId != null && selectedSrBandId !== b.id;
-        const countLabel = b.records.length > 1 ? ` · ${b.records.length} levels` : "";
+        // 1A change 08: a broken level drops back to a dashed hairline so the live ones read first.
+        const alpha = dim ? 0.25 : b.broken ? 0.35 : 0.9;
         lines.push(candle.createPriceLine({
-          price: b.price, color: withAlpha(colour, dim ? 0.25 : 0.9), lineWidth: selectedSrBandId === b.id ? 2 : 1,
-          lineStyle: LineStyle.Solid, axisLabelVisible: true,
-          title: `${b.kind === "SUPPORT" ? "S" : b.kind === "RESISTANCE" ? "R" : "S/R"} ${b.price.toFixed(2)}${countLabel}`,
+          price: b.price, color: withAlpha(colour, alpha), lineWidth: selectedSrBandId === b.id ? 2 : 1,
+          lineStyle: b.broken ? LineStyle.Dashed : LineStyle.Solid,
+          // No axis badge and no title: the price was being drawn twice (tag "R 2940.00" beside axis
+          // "2940.00"). The tag now comes from LevelTagsPrimitive, which can lay them out in one lane.
+          axisLabelVisible: false,
+          title: "",
         }));
+        tags.push({
+          price: b.price,
+          side: b.kind === "SUPPORT" ? "S" : b.kind === "RESISTANCE" ? "R" : "S/R",
+          pct: lastClose != null && lastClose !== 0 ? ((b.price - lastClose) / lastClose) * 100 : null,
+          colour, broken: b.broken, dim,
+        });
       }
     }
-    // Test/debug hook: how many band lines are drawn (a canvas cannot be inspected).
-    if (container) container.dataset.renderedLevels = String(lines.length);
+    levelTagsRef.current?.set(tags);
+    // Test/debug hook: how many band lines are drawn (a canvas cannot be inspected), and what the
+    // right-lane tags read — the tag text is drawn to canvas, so this is the only way to assert it.
+    if (container) {
+      container.dataset.renderedLevels = String(lines.length);
+      container.dataset.levelTags = tags
+        .map((t) => `${t.side}${t.pct != null ? ` · ${t.pct >= 0 ? "+" : ""}${t.pct.toFixed(1)}%` : ""}${t.broken ? " [broken]" : ""}`)
+        .join("|");
+    }
     return () => {
-      if (container) container.dataset.renderedLevels = "0";
+      if (container) { container.dataset.renderedLevels = "0"; container.dataset.levelTags = ""; }
+      levelTagsRef.current?.set([]);
       for (const l of lines) { try { candle.removePriceLine(l); } catch { /* series may already be gone */ } }
     };
-  }, [srBands, showLevels, selectedSrBandId, colors]);
+  }, [srBands, showLevels, selectedSrBandId, colors, bars]);
 
   // ── drawings → primitive ────────────────────────────────────────────────
   useEffect(() => {
@@ -782,13 +810,29 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
         {panes.map((spec, i) => (
           <div key={spec.id} data-testid={`chart-pane-row-${spec.id}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 8px", minHeight: 26, borderBottom: i < panes.length - 1 ? "1px solid var(--c-line)" : undefined }}>
             <span className="nv-mono" style={{ fontSize: 10, color: "var(--c-ink-3)", letterSpacing: ".06em", textTransform: "uppercase", minWidth: 74 }}>{spec.title}</span>
-            {spec.collapsed && (
-              <Sparkline
-                values={sparkValues(spec, bars, indicators)}
-                color={spec.kind === "volume" ? colors.ink4 : indicatorColour(spec.indicatorIds[0] ?? "")}
-                testId={`chart-pane-sparkline-${spec.id}`}
-              />
-            )}
+            {spec.collapsed && (() => {
+              // 1A change 09: "collapse to 26px strips with a value and sparkline". Without the value the
+              // strip says a pane exists but not what it currently reads, which is the point of collapsing it.
+              const vals = sparkValues(spec, bars, indicators);
+              const latest = vals.length ? vals[vals.length - 1] : null;
+              return (
+                <>
+                  <Sparkline
+                    values={vals}
+                    color={spec.kind === "volume" ? colors.ink4 : indicatorColour(spec.indicatorIds[0] ?? "")}
+                    testId={`chart-pane-sparkline-${spec.id}`}
+                  />
+                  {latest != null && (
+                    <span
+                      data-testid={`chart-pane-value-${spec.id}`} className="nv-mono"
+                      style={{ fontSize: 10, color: "var(--c-ink-2)", whiteSpace: "nowrap" }}
+                    >
+                      {spec.kind === "volume" ? fmtVol(latest) : fmtNum(latest)}
+                    </span>
+                  )}
+                </>
+              );
+            })()}
             <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
               {!spec.collapsed && spec.kind !== "price" && (
                 <span style={{ display: "block", width: 34, flex: "none" }} title={`Drag to resize the ${spec.title} pane`}>

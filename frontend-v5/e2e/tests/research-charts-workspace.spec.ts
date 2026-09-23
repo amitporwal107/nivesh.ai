@@ -406,7 +406,11 @@ test.describe("Charts — W1b workspace (§38.3–§38.8, AC 1–6, 8, 11, 12)",
     await expect(page.getByTestId("chart-indicator-dialog")).toHaveCount(0);
   });
 
-  test("TC-177 level cards show touches, distance and HOLDING/BROKEN — and never a 1–5 strength score", async ({ page }) => {
+  // 2026-09-23: this used to assert the sidebar never says "strength". That encoded a decision made by reading
+  // `pattern.scores` (null for S/R) and not `pattern.rules`, where the engine's own SR_LEVEL_STRENGTH lives on
+  // every S/R record. docs/charting.md §38.19.2 adopts "the S/R panel with price, type, strength, distance in ₹
+  // and %, and HOLDING/BROKEN", so the card now shows it. See test_reports/charting_1a_changes_05_09.md.
+  test("TC-177 level cards show touches, distance, HOLDING/BROKEN and the engine's strength", async ({ page }) => {
     await page.getByTestId("chart-sidebar-tab-levels").click();
     const cards = page.locator('button[data-testid^="chart-sr-band-"]');
     await expect(cards).toHaveCount(2);
@@ -415,7 +419,7 @@ test.describe("Charts — W1b workspace (§38.3–§38.8, AC 1–6, 8, 11, 12)",
     await expect(page.getByTestId(`chart-sr-band-touches-${id}`)).toContainText("touch");
     await expect(page.getByTestId(`chart-sr-band-distance-${id}`)).toContainText("₹");
     await expect(page.getByTestId(`chart-sr-band-state-${id}`)).toHaveText(/HOLDING|BROKEN/);
-    await expect(page.getByTestId("chart-sidebar")).not.toContainText(/strength/i);
+    await expect(page.getByTestId(`chart-sr-band-strength-${id}`)).toHaveText(/^STRENGTH [1-5]\/5$/);
   });
 
   test("TC-178 the watchlist column lists the snapshot's symbols and switches symbol", async ({ page }) => {

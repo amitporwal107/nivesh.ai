@@ -753,8 +753,8 @@ export default function ChartsScreen() {
       </label>
 
       {/* §38.15 item 8: near-duplicate S/R records grouped into bands; click a band to list every record (AC24).
-          There is deliberately no 1–5 strength score — the record carries `scores: null`, so the card shows the
-          touch count and HOLDING/BROKEN instead of an invented number (§11/§16). */}
+          Strength (1A change 07) is the engine's own SR_LEVEL_STRENGTH, bucketed to the 1–5 the design asks for;
+          the raw score sits in the row's tooltip so the bucket stays checkable. See contract.ts levelStrengthScore. */}
       {showLevels && cards.length > 0 && (
         <div data-testid="chart-sr-bands" style={{ display: "grid", gap: 6 }}>
           {cards.map((c) => {
@@ -788,6 +788,21 @@ export default function ChartsScreen() {
                   </span>
                   {c.records.length > 1 && <span data-testid={`chart-sr-band-count-${c.id}`}>{c.records.length} levels</span>}
                 </span>
+                {c.strength != null && (
+                  <span
+                    style={{ display: "flex", alignItems: "center", gap: 6 }}
+                    title={`Level strength ${c.strength}/5 — engine score ${c.strengthScore?.toFixed(4)} (touches, recency, rejection, volume, time; §13.2)`}
+                  >
+                    <span aria-hidden="true" style={{ display: "flex", gap: 2 }}>
+                      {[0, 1, 2, 3, 4].map((i) => (
+                        <span key={i} style={{ width: 11, height: 3, borderRadius: 2, background: i < c.strength! ? tone : "var(--c-line-strong)" }} />
+                      ))}
+                    </span>
+                    <span data-testid={`chart-sr-band-strength-${c.id}`} className="nv-mono" style={{ fontSize: 8.5, letterSpacing: ".1em", color: "var(--c-ink-4)" }}>
+                      STRENGTH {c.strength}/5
+                    </span>
+                  </span>
+                )}
               </button>
             );
           })}
