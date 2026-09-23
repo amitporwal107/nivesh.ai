@@ -161,3 +161,103 @@ With wave A delivered, the next two are independent and can run in parallel:
 2. **NLA-005** — batch versus sequential replay equivalence. One test, the only uncovered case in a
    release-blocking suite, and exactly the class of defect that stays invisible until a live run
    disagrees with a backtest.
+
+---
+
+# Wave D close-out — implementation complete, certification pending
+
+**Owner position, 2026-09-23:** implementation is frozen here. No further detector behaviour is
+added; the remaining path is certification.
+
+All 19 registered families now have detector implementations. **Only the original 3 are enabled**,
+and that distinction holds through certification.
+
+## 1. The P-2 reuse is correct
+
+`patterns_p2` delegates to `patterns_p1.evaluate_candidate` rather than duplicating line fitting,
+the fit tolerance, containment, crossing or classification. Two copies of the seven-step engine
+would drift and only one would be covered by the frozen fixtures.
+
+The `FLAT/FLAT/PARALLEL` handling is correctly localised: P-1 rejects it because the live RECTANGLE
+family owns that geometry, while NI-3 §3 permits it as a flag body. The detector reads that specific
+rejection reason as a legitimate body shape; nothing is recomputed.
+
+Building the classification table **from** the frozen configuration was what exposed two incorrect
+key names (`body_max_retracement_pct`, `body_max_rel_volume`) before they became silently encoded
+behaviour.
+
+## 2. The 2% reach rate is measured behaviour, not a defect
+
+Under the frozen NI-3 configuration, across all 50 snapshot symbols:
+
+```text
+7,543 valid poles
+    -> 4,536 fail the length gates (F3/F4/F5)        60%
+    -> 2,860 have fewer than 4 confirmed pivots      38%
+    ->   147 reach shape testing                      2%
+    ->    20 emitted   (5 bull flag, 15 bull pennant)
+```
+
+Recorded as observed behaviour, **not corrected by relaxing F2/F3/F4/F5**. NI-3 §3 discloses the
+cause and forbids the fix after results: "If very short flags are wanted, the fix is a smaller body
+swing, which would be a new decision before the freeze, never a change after results."
+
+`test_the_disclosed_body_length_limitation_is_real_and_is_not_tuned_away` pins the arithmetic — four
+pivots at the 3/3 swing cost need roughly 15 bars, while F3 plus F2 cap a body at 14 — so the
+parameters cannot be quietly relaxed to make flags more numerous.
+
+## 3. The bear-side zeroes stay an observation
+
+| | |
+|---|---|
+| Bull flag | 5 |
+| Bull pennant | 15 |
+| **Bear flag** | **0** |
+| **Bear pennant** | **0** |
+
+There is not enough here to call this a detector defect or a specification defect. It is a question
+for study plan v2, consistent with the freeze.
+
+## 4. The fixture lesson is now a testing standard
+
+Seen repeatedly across waves B, C and D: **hand-built OHLCV can fail to exercise the geometry it was
+meant to, even when the geometry rule is correct.** Every such failure in this work was a fixture
+defect; none was a detector defect.
+
+- A 9-bar separation fixture found nothing because the frozen 10-bar rule correctly rejected it.
+- An invalidation fixture fell through a trough, which *displaces it as a swing low*.
+- P-1 fixture 7 placed a crossing outside the window the engine selected; then, moved inside, the
+  line-built series went degenerate past the crossing and the detected pivots stopped being the
+  intended ones.
+- A P-2 synthetic produced no body while real data produced 20 patterns.
+
+**Standard:** test a rule at the level the rule lives at. Geometry rules take an explicit pivot
+window or fitted lines; only end-to-end behaviour takes a price series. The six §3 fixtures and P-1
+fixture 7 follow this.
+
+## 5. What the detection counts do and do not establish
+
+| Observed | Establishes | Does **not** establish |
+|---|---|---|
+| 14 P-1 shapes over 6 of 7 types | the implementation executes and produces explainable results under the frozen rules | that the 7 P-1 families may be enabled |
+| 20 P-2 detections | the same | that the 4 P-2 families may be enabled |
+| 132 wave-B/parallel detections | the same | that those 5 families may be enabled |
+
+Certification must still establish the complete detector / replay / no-look-ahead requirements.
+**Detection counts never justify enablement.**
+
+## Remaining certification path
+
+```text
+19 detector implementations
+        -> fixture review
+        -> P-0 / P-1 / P-2 replay validation
+        -> historical validation
+        -> no-look-ahead + determinism verification
+        -> certification
+        -> explicit registry enablement
+```
+
+Every fixture-review finding is classified as **detector defect · fixture defect · replay/lifecycle
+assertion · specification decision**. **C-13 stays in the fourth category and must not be resolved
+implicitly by certification.**
