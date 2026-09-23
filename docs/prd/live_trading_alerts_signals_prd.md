@@ -331,28 +331,64 @@ It must never be silently treated as success or failure.
 
 # 7. Pattern Coverage
 
-Initial live support:
+> **Amended 2026-09-23 (owner decision).** This section previously listed 14 families as "initial
+> live support". Three of them have detectors. Maintaining a list here that disagrees with the
+> detectors is what produced that gap, so this section no longer holds a list.
 
-1. Existing support/resistance
-2. Rectangle
-3. Higher-high / higher-low
-4. Ascending triangle
-5. Descending triangle
-6. Symmetrical triangle
-7. Double bottom
-8. Double top
-9. Head & shoulders
-10. Bull flag
-11. Bear flag
-12. Cup & handle
-13. Wedges
-14. Channels
+**Pattern availability is determined by the Pattern Registry**
+(`research/charting/pattern_registry.py`), which is the single source of truth.
 
-Pattern availability depends on the approved NI-3 implementation.
+A pattern may only produce an alert when all four hold:
+
+1. its detector is **registered**;
+2. its detector version is **enabled** for the signal version;
+3. the required OHLCV data is available;
+4. its lifecycle state can be determined **without look-ahead**.
+
+**Unsupported patterns MUST NOT generate alerts.** This is enforced in code, not by convention:
+`pattern_registry.assert_alertable()` raises, and `signal_contract.dedupe_key()` calls it, so a
+disabled family cannot be given an alert identity.
+
+| Family | Detector | v1 |
+|---|---|---|
+| Support / resistance | `SR-v1` | **ENABLED** |
+| Rectangle | `RECT-v1` | **ENABLED** |
+| Higher highs / higher lows | `STRUCTURE-v1` | **ENABLED** |
+| Ascending triangle | `TRI-ASC-v1` | DISABLED |
+| Descending triangle | `TRI-DESC-v1` | DISABLED |
+| Symmetrical triangle | `TRI-SYM-v1` | DISABLED |
+| Rising wedge | `WEDGE-R-v1` | DISABLED |
+| Falling wedge | `WEDGE-F-v1` | DISABLED |
+| Ascending channel | `CHANNEL-ASC-v1` | DISABLED |
+| Descending channel | `CHANNEL-DESC-v1` | DISABLED |
+| Bull flag | `FLAG-BULL-v1` | DISABLED |
+| Bear flag | `FLAG-BEAR-v1` | DISABLED |
+| Bull pennant | `PENNANT-BULL-v1` | DISABLED |
+| Bear pennant | `PENNANT-BEAR-v1` | DISABLED |
+| Double bottom | `DB-v1` | DISABLED |
+| Double top | `DT-v1` | DISABLED |
+| Head & shoulders | `HS-v1` | DISABLED |
+| Inverse head & shoulders | `IHS-v1` | DISABLED |
+| Cup & handle | `CAH-v1` | DISABLED |
+
+Volume confirmation is a **registry property**, not a global: the three enabled families keep the
+frozen follow-through rule (1.0x-4.0x), and every disabled family is registered against the
+breakout-bar rule (>= 1.5x). Keeping this per-family is what stops the new threshold being applied
+to a frozen family (#109/#110).
 
 ---
 
 # 8. P-1 Geometry Integration
+
+> **DEFERRED — amended 2026-09-23 (owner decision).** P-1 is defined for triangles, wedges and
+> channels. **None of those detectors exists**, so as written this section is dead specification
+> rather than incomplete documentation. It is deferred rather than redefined: the alternative —
+> restating P-1 over rectangles and S/R — would keep the name while changing the thing it names.
+>
+> **Activation requires the TRI / WEDGE / CHANNEL detector family release.** Until then the P-1
+> families are registered and DISABLED (§7), and no P-1 geometry is drawn or evaluated.
+>
+> The specification below is retained unchanged as the target for that release.
 
 The live engine shall use the P-1 shared geometry method for:
 

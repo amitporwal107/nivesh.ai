@@ -42,6 +42,8 @@ import hashlib
 import json
 from typing import Optional
 
+from research.charting import pattern_registry
+
 CONTRACT_VERSION = "1.0.0"
 
 # ── 1. Signal states ────────────────────────────────────────────────────────────────────────────
@@ -180,7 +182,8 @@ SIGNAL_FIELDS: dict[str, str] = {
     "symbol": "NSE trading symbol.",
     "timeframe": "One of TIMEFRAMES. Every signal and every alert displays it (§17).",
     "pattern_id": "The detector record this signal was adapted from.",
-    "pattern_type": "One of the 16 NI-3 v1.0 types (supersedes the PRD §7 list of 14).",
+    "pattern_type": "A family in `pattern_registry.FAMILIES`. Only an ENABLED family may produce an alert "
+                    "(the registry is the single source of truth; the PRD §7 list of 14 is superseded).",
     "direction": "BULLISH or BEARISH.",
     "state": "One of SIGNAL_STATES.",
     "state_basis": "The §11 lifecycle status the state was derived from, kept for audit.",
@@ -239,7 +242,13 @@ DEDUPE_FIELDS: tuple[str, ...] = ("symbol", "timeframe", "pattern_type", "state"
 def dedupe_key(symbol: str, timeframe: str, pattern_type: str, state: str, bar_time) -> str:
     """§16 deduplication key: symbol + timeframe + pattern + state + bar. Two alerts with the same
     key are the same alert and the later one is suppressed. `bar_time` -- not wall-clock -- is what
-    makes a re-run of the same bar produce the same key instead of a duplicate."""
+    makes a re-run of the same bar produce the same key instead of a duplicate.
+
+    Minting an alert identity is the narrowest point every alert must pass through, so the registry
+    invariant is enforced here: a family with no validated detector raises rather than quietly
+    getting a key. Research code that needs a key for a disabled family should not be using the
+    ALERT dedupe key."""
+    pattern_registry.assert_alertable(pattern_type)
     _require_state(state)
     if timeframe not in TIMEFRAMES:
         raise ValueError(f"unknown timeframe {timeframe!r}; known: {list(TIMEFRAMES)}")
@@ -264,6 +273,10 @@ def serialisable() -> dict:
         "alert_types": dict(ALERT_TYPES),
         "alert_fields": dict(ALERT_FIELDS),
         "dedupe_fields": list(DEDUPE_FIELDS),
+        # The registry this contract was frozen against: an alert's legality depends on both.
+        "pattern_registry_version": pattern_registry.REGISTRY_VERSION,
+        "pattern_registry_hash": pattern_registry.registry_hash(),
+        "alertable_families": [f.pattern_type for f in pattern_registry.enabled_families()],
     }
 
 
