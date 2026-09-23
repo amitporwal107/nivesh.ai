@@ -510,6 +510,105 @@ export function heikinAshi(bars: Bar[]): Bar[] {
   return out;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   Saved layouts (§38.8, §38.11) — backend/routes/research_chart_layouts.py
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** One indicator instance in a saved layout. `preset_id` is "default" until the preset catalogue
+ *  (§38.5, W2) exists: today every indicator is drawn with the parameters the snapshot's own
+ *  contract fixes, and that is what "default" names. It is not a placeholder for missing data. */
+export interface LayoutIndicator {
+  instance_id: string;
+  indicator_id: string;
+  preset_id: string;
+  pane_index: number;
+  visible: boolean;
+  style?: Json;
+}
+
+/** A stacked pane's position, height and collapse state. The price pane is not stored: it is always
+ *  first and takes whatever height the others leave (the API requires height > 0). */
+export interface LayoutPane {
+  pane_id: string;
+  order: number;
+  height: number;
+  collapsed: boolean;
+}
+
+export interface LayoutVisibleRange { from_date: string; to_date: string }
+export interface LayoutSidebarState { collapsed: boolean; active_tab?: string | null }
+
+export interface ChartLayout {
+  layout_id: string;
+  user_id: string;
+  name: string;
+  symbol: string;
+  timeframe: string;
+  chart_type: string;
+  indicators: LayoutIndicator[];
+  panes: LayoutPane[];
+  visible_range: LayoutVisibleRange | null;
+  drawing_visibility: Record<string, boolean>;
+  sidebar_state: LayoutSidebarState | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The writable half of a layout — everything except the server's own ids and timestamps. */
+export type NewChartLayout = Omit<ChartLayout, "layout_id" | "user_id" | "created_at" | "updated_at">;
+
+const LAYOUTS = "/api/research/chart-layouts";
+
+export const layoutsApi = {
+  /** Shape-checked before it reaches the screen, exactly as `chartApi.symbols` is: a proxy or an error page can
+   *  answer 200 with something that is not a list, and a screen must show an error state rather than crash on
+   *  `.map`. Any other shape is an error, never a crash. */
+  list: async (): Promise<Result<ChartLayout[]>> => {
+    const r = await getJson<unknown>(LAYOUTS);
+    if (r.kind !== "ok") return r;
+    if (!Array.isArray(r.data)) return { kind: "error", message: "unexpected /chart-layouts response shape" };
+    return { kind: "ok", data: r.data as ChartLayout[] };
+  },
+  create: async (l: NewChartLayout): Promise<Result<ChartLayout>> => {
+    try {
+      const res = await http<ChartLayout>({ method: "POST", path: LAYOUTS, body: l, noRetry: true });
+      return { kind: "ok", data: res.data };
+    } catch (e) {
+      if (e instanceof ApiError) {
+        if (e.status === 403) return { kind: "no_access" };
+        return { kind: "error", message: e.detail || (e.status ? `HTTP ${e.status}` : e.message) };
+      }
+      return { kind: "error", message: e instanceof Error ? e.message : "request failed" };
+    }
+  },
+  update: async (id: string, patch: Partial<NewChartLayout>): Promise<Result<ChartLayout>> => {
+    try {
+      const res = await http<ChartLayout>({ method: "PATCH", path: `${LAYOUTS}/${encodeURIComponent(id)}`, body: patch, noRetry: true });
+      return { kind: "ok", data: res.data };
+    } catch (e) {
+      if (e instanceof ApiError) {
+        if (e.status === 403) return { kind: "no_access" };
+        if (e.status === 404) return { kind: "not_found" };
+        return { kind: "error", message: e.detail || (e.status ? `HTTP ${e.status}` : e.message) };
+      }
+      return { kind: "error", message: e instanceof Error ? e.message : "request failed" };
+    }
+  },
+  remove: async (id: string): Promise<Result<{ status: string }>> => {
+    try {
+      const res = await http<{ status: string }>({ method: "DELETE", path: `${LAYOUTS}/${encodeURIComponent(id)}`, noRetry: true });
+      return { kind: "ok", data: res.data };
+    } catch (e) {
+      if (e instanceof ApiError) {
+        if (e.status === 403) return { kind: "no_access" };
+        if (e.status === 404) return { kind: "not_found" };
+        return { kind: "error", message: e.detail || (e.status ? `HTTP ${e.status}` : e.message) };
+      }
+      return { kind: "error", message: e instanceof Error ? e.message : "request failed" };
+    }
+  },
+};
+
 export const drawingsApi = {
   list: (symbol: string) => getJson<Drawing[]>(DRAWINGS, { symbol }),
   create: async (d: NewDrawing): Promise<Result<Drawing>> => {

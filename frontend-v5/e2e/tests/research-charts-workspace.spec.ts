@@ -166,7 +166,7 @@ test.describe("Charts — W1b workspace (§38.3–§38.8, AC 1–6, 8, 11, 12)",
     const seriesType = () => canvas.getAttribute("data-series-type");
     await expect.poll(seriesType).toBe("candles");
 
-    for (const type of ["hollow_candles", "ohlc_bars", "line", "area", "heikin_ashi"]) {
+    for (const type of ["hollow_candles", "bars", "line", "area", "heikin_ashi"]) {
       await page.getByTestId("chart-toolbar-charttype").click();
       await page.getByTestId(`chart-toolbar-charttype-${type}`).click();
       await expect.poll(seriesType).toBe(type);
@@ -488,5 +488,189 @@ test.describe("Charts — W1b workspace on a narrow viewport", () => {
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
+  });
+});
+
+/**
+ * W1b-L: the saved-layout menu (§38.8, AC 9). The API and its tests already exist
+ * (test_reports/charting_w2_layouts.md); this covers the screen wiring: save, save as, rename, delete, reopen,
+ * and the debounced autosave.
+ *
+ * MOCK — not real data: `/api/research/chart-layouts` is backed by an in-test store here, exactly as the
+ * drawings API is above.
+ */
+test.describe("Charts — saved layouts (§38.8, AC 9)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  type StoredLayout = Record<string, unknown> & { layout_id: string };
+
+  async function mockLayouts(page: Page, seed: StoredLayout[] = []) {
+    const store: StoredLayout[] = [...seed];
+    const posted: Array<Record<string, unknown>> = [];
+    const patched: Array<{ id: string; body: Record<string, unknown> }> = [];
+    const removed: string[] = [];
+    await page.route("**/api/research/chart-layouts**", async (route: Route) => {
+      const req = route.request();
+      const url = new URL(req.url());
+      const id = url.pathname.split("/").pop()!;
+      const json = (status: number, body: unknown) =>
+        route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+
+      if (req.method() === "GET") return json(200, store);
+      if (req.method() === "POST") {
+        const body = req.postDataJSON() as Record<string, unknown>;
+        posted.push(body);
+        const now = new Date().toISOString();
+        const created = { ...body, layout_id: `lay_${store.length + 1}`, user_id: "u1", created_at: now, updated_at: now } as StoredLayout;
+        store.unshift(created);
+        return json(201, created);
+      }
+      if (req.method() === "PATCH") {
+        const body = req.postDataJSON() as Record<string, unknown>;
+        patched.push({ id, body });
+        const i = store.findIndex((l) => l.layout_id === id);
+        if (i < 0) return json(404, { detail: "not_found" });
+        store[i] = { ...store[i], ...body, updated_at: new Date().toISOString() };
+        return json(200, store[i]);
+      }
+      if (req.method() === "DELETE") {
+        removed.push(id);
+        const i = store.findIndex((l) => l.layout_id === id);
+        if (i < 0) return json(404, { detail: "not_found" });
+        store.splice(i, 1);
+        return json(200, { status: "deleted", layout_id: id });
+      }
+      return json(200, {});
+    });
+    return { store, posted, patched, removed };
+  }
+
+  test("TC-190 a chart is Unnamed until saved, and Save captures the workspace", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-charting.json");
+    await mockCharts(page);
+    const layouts = await mockLayouts(page);
+    await openCharts(page);
+
+    await expect(page.getByTestId("chart-toolbar-layout-name")).toHaveText("Unnamed");
+
+    // make the workspace distinctive first: an indicator in its own pane, and a chart type
+    await page.getByTestId("chart-sidebar-tab-indicators").click();
+    await page.getByTestId("chart-indicator-toggle-rsi_14").check();
+    await page.getByTestId("chart-toolbar-charttype").click();
+    await page.getByTestId("chart-toolbar-charttype-line").click();
+
+    page.once("dialog", (d) => d.accept("Desk A"));
+    await page.getByTestId("chart-toolbar-layouts").click();
+    await page.getByTestId("chart-layout-save").click();
+
+    await expect.poll(() => layouts.posted.length).toBe(1);
+    const body = layouts.posted[0];
+    expect(body.name).toBe("Desk A");
+    expect(body.symbol).toBe("RELIANCE");
+    expect(body.chart_type).toBe("line");
+    expect((body.indicators as Array<{ indicator_id: string }>).map((i) => i.indicator_id)).toContain("rsi_14");
+    // the price pane is not stored: it is always first and the API requires a height above zero
+    expect((body.panes as Array<{ pane_id: string }>).map((p) => p.pane_id)).not.toContain("price");
+    expect((body.panes as Array<{ pane_id: string }>).map((p) => p.pane_id)).toContain("ind:rsi");
+    await expect(page.getByTestId("chart-toolbar-layout-name")).toHaveText("Desk A");
+  });
+
+  test("TC-191 reopening a layout restores symbol, chart type, indicators and panes", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-charting.json");
+    await mockCharts(page);
+    await mockLayouts(page, [{
+      layout_id: "lay_seed", user_id: "u1", name: "TCS area", symbol: "TCS", timeframe: "1D",
+      chart_type: "area",
+      indicators: [{ instance_id: "rsi_14", indicator_id: "rsi_14", preset_id: "default", pane_index: 2, visible: true, style: {} }],
+      panes: [{ pane_id: "ind:rsi", order: 0, height: 120, collapsed: false }, { pane_id: "volume", order: 1, height: 70, collapsed: true }],
+      visible_range: null, drawing_visibility: {}, sidebar_state: { collapsed: false, active_tab: "levels" },
+      created_at: "2026-09-23T00:00:00Z", updated_at: "2026-09-23T00:00:00Z",
+    }]);
+    await openCharts(page);
+
+    await page.getByTestId("chart-toolbar-layouts").click();
+    await page.getByTestId("chart-layout-open-lay_seed").click();
+
+    await expect(page.getByTestId("chart-toolbar-layout-name")).toHaveText("TCS area");
+    await expect(page.getByTestId("chart-toolbar-symbol")).toContainText("TCS");
+    const canvas = page.getByTestId("chart-canvas");
+    await expect.poll(async () => canvas.getAttribute("data-series-type")).toBe("area");
+    // the RSI pane is restored ahead of volume, and volume comes back collapsed
+    await expect.poll(async () => ((await canvas.getAttribute("data-pane-ids")) ?? "").split(",").filter(Boolean))
+      .toEqual(["price", "ind:rsi"]);
+    await expect(page.getByTestId("chart-pane-sparkline-volume")).toBeVisible();
+    await expect(page.getByTestId("chart-sidebar-tab-levels")).toHaveAttribute("aria-selected", "true");
+  });
+
+  test("TC-192 a change after saving autosaves the open layout", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-charting.json");
+    await mockCharts(page);
+    const layouts = await mockLayouts(page, [{
+      layout_id: "lay_seed", user_id: "u1", name: "Desk A", symbol: "RELIANCE", timeframe: "1D",
+      chart_type: "candles", indicators: [], panes: [{ pane_id: "volume", order: 0, height: 70, collapsed: false }],
+      visible_range: null, drawing_visibility: {}, sidebar_state: { collapsed: false, active_tab: "patterns" },
+      created_at: "2026-09-23T00:00:00Z", updated_at: "2026-09-23T00:00:00Z",
+    }]);
+    await openCharts(page);
+    await page.getByTestId("chart-toolbar-layouts").click();
+    await page.getByTestId("chart-layout-open-lay_seed").click();
+    await expect(page.getByTestId("chart-toolbar-layout-name")).toHaveText("Desk A");
+    // applying the layout must not itself count as an edit
+    await page.waitForTimeout(2200);
+    expect(layouts.patched.length, "applying a layout wrote it back").toBe(0);
+
+    await page.getByTestId("chart-toolbar-charttype").click();
+    await page.getByTestId("chart-toolbar-charttype-line").click();
+    await expect(page.getByTestId("chart-toolbar-layout-dirty")).toBeVisible();
+    await expect.poll(() => layouts.patched.length, { timeout: 8000 }).toBe(1);
+    expect(layouts.patched[0].body.chart_type).toBe("line");
+    await expect(page.getByTestId("chart-toolbar-layout-dirty")).toHaveCount(0);
+  });
+
+  test("TC-193 rename and delete act on the open layout; both are disabled before the first save", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-charting.json");
+    await mockCharts(page);
+    const layouts = await mockLayouts(page, [{
+      layout_id: "lay_seed", user_id: "u1", name: "Desk A", symbol: "RELIANCE", timeframe: "1D",
+      chart_type: "candles", indicators: [], panes: [], visible_range: null, drawing_visibility: {},
+      sidebar_state: null, created_at: "2026-09-23T00:00:00Z", updated_at: "2026-09-23T00:00:00Z",
+    }]);
+    await openCharts(page);
+
+    await page.getByTestId("chart-toolbar-layouts").click();
+    await expect(page.getByTestId("chart-layout-rename")).toBeDisabled();
+    await expect(page.getByTestId("chart-layout-delete")).toBeDisabled();
+    await page.getByTestId("chart-layout-open-lay_seed").click();
+
+    page.once("dialog", (d) => d.accept("Desk B"));
+    await page.getByTestId("chart-toolbar-layouts").click();
+    await page.getByTestId("chart-layout-rename").click();
+    await expect(page.getByTestId("chart-toolbar-layout-name")).toHaveText("Desk B");
+    expect(layouts.patched.at(-1)!.body.name).toBe("Desk B");
+
+    page.once("dialog", (d) => d.accept());
+    await page.getByTestId("chart-toolbar-layouts").click();
+    await page.getByTestId("chart-layout-delete").click();
+    await expect.poll(() => layouts.removed.length).toBe(1);
+    await expect(page.getByTestId("chart-toolbar-layout-name")).toHaveText("Unnamed");
+  });
+
+  test("TC-194 a failed save is shown and the layout stays dirty", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-charting.json");
+    await mockCharts(page);
+    await page.route("**/api/research/chart-layouts**", (route) => {
+      if (route.request().method() === "GET") {
+        return route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+      }
+      return route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ detail: "chart_type: must be one of ['candles']" }) });
+    });
+    await openCharts(page);
+
+    page.once("dialog", (d) => d.accept("Doomed"));
+    await page.getByTestId("chart-toolbar-layouts").click();
+    await page.getByTestId("chart-layout-save").click();
+
+    await expect(page.getByTestId("chart-layout-error")).toContainText("chart_type");
+    await expect(page.getByTestId("chart-toolbar-layout-name")).toHaveText("Unnamed");
   });
 });

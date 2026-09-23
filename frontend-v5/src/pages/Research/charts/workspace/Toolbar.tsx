@@ -54,6 +54,19 @@ export interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
 
+  /** §38.8: the open layout's name, or "Unnamed" before the chart has been saved once. */
+  layoutName: string;
+  /** Recent layouts, newest first, for the reopen list. */
+  layouts: Array<{ id: string; name: string; symbol: string }>;
+  layoutDirty: boolean;
+  onSaveLayout: () => void;
+  onSaveLayoutAs: () => void;
+  onRenameLayout: () => void;
+  onDeleteLayout: () => void;
+  onOpenLayout: (id: string) => void;
+  /** True once a layout is open, which is what makes rename and delete meaningful. */
+  hasOpenLayout: boolean;
+
   onFit: () => void;
   dataViewOpen: boolean;
   onToggleDataView: () => void;
@@ -74,6 +87,8 @@ export default function Toolbar(props: ToolbarProps) {
     symbol, exchange, onOpenSymbolSearch, lastClose, change, changePct, statusBadge,
     timeframe, timeframeOptions, onTimeframeChange, chartType, onChartTypeChange,
     indicatorCount, onOpenIndicators, canUndo, canRedo, onUndo, onRedo,
+    layoutName, layouts, layoutDirty, onSaveLayout, onSaveLayoutAs, onRenameLayout, onDeleteLayout,
+    onOpenLayout, hasOpenLayout,
     onFit, dataViewOpen, onToggleDataView, isFullscreen, onToggleFullscreen, compact, className,
   } = props;
 
@@ -89,6 +104,27 @@ export default function Toolbar(props: ToolbarProps) {
     { id: "fit", label: "Fit to data", onSelect: onFit, testId: "chart-toolbar-more-fit" },
     { id: "dataview", label: dataViewOpen ? "Hide data view" : "Data view", onSelect: onToggleDataView, testId: "chart-toolbar-more-dataview" },
     { id: "fullscreen", label: isFullscreen ? "Exit full screen" : "Full screen", onSelect: onToggleFullscreen, testId: "chart-toolbar-more-fullscreen" },
+  ];
+
+  const layoutItems: MenuItem[] = [
+    { id: "save", label: hasOpenLayout ? "Save" : "Save…", onSelect: onSaveLayout, testId: "chart-layout-save" },
+    { id: "save_as", label: "Save as…", onSelect: onSaveLayoutAs, testId: "chart-layout-save-as" },
+    {
+      id: "rename", label: "Rename…", onSelect: onRenameLayout, disabled: !hasOpenLayout,
+      disabledReason: "save the layout first", testId: "chart-layout-rename",
+    },
+    {
+      id: "delete", label: "Delete", onSelect: onDeleteLayout, disabled: !hasOpenLayout,
+      disabledReason: "save the layout first", testId: "chart-layout-delete",
+    },
+    ...(layouts.length
+      ? layouts.map((l) => ({
+          id: `open:${l.id}`,
+          label: `${l.name} · ${l.symbol}`,
+          onSelect: () => onOpenLayout(l.id),
+          testId: `chart-layout-open-${l.id}`,
+        }))
+      : [{ id: "none", label: "No saved layouts yet", disabled: true, disabledReason: "nothing saved yet", testId: "chart-layout-empty" }]),
   ];
 
   const disabledInterval = timeframeOptions.find((o) => !o.enabled && o.reason);
@@ -203,6 +239,14 @@ export default function Toolbar(props: ToolbarProps) {
       >
         ↷
       </button>
+
+      <div style={{ width: 1, alignSelf: "stretch", margin: "14px 4px", background: "var(--c-line)" }} />
+
+      <MenuButton
+        label={<><span data-testid="chart-toolbar-layout-name">{layoutName}</span>{layoutDirty ? <span data-testid="chart-toolbar-layout-dirty" title="Unsaved changes" aria-label="Unsaved changes" style={{ marginLeft: 4, color: "var(--amber)" }}>•</span> : null} <Chevron /></>}
+        ariaLabel="Layouts" title="Saved layouts" testId="chart-toolbar-layouts"
+        items={layoutItems}
+      />
 
       <span style={{ marginLeft: "auto" }} />
 
