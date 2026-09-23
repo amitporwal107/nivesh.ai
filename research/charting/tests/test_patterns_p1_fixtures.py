@@ -306,3 +306,98 @@ def test_same_ohlcv_and_config_give_an_identical_result():
     b = detect_p1_as_of(df, len(df) - 1, symbol="T")
     assert [s.__dict__ for s in a] == [s.__dict__ for s in b]
     assert ni3_config.fingerprint(ni3_config.load()) == ni3_config.NI3_FINGERPRINT
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# APEX-DEADLINE BOUNDARY (owner-approved, 2026-09-23)
+#
+# Replay certification found 2 EXPIRED -> PRICE_CONFIRMED transitions. EXPIRED is terminal: NI-3 §2
+# makes the temporal boundary part of the definition — "EXPIRED, reason APEX_REACHED, if no breakout
+# comes before G13 of the distance from the first pivot to the apex". A breakout after G13 is a
+# breakout of a dead structure and must not revive it.
+#
+# The pair below is the exact boundary:
+#     breakout at G13 - 1  -> PRICE_CONFIRMED
+#     breakout at G13 + 1  -> stays EXPIRED
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+def _converging_with_room(n_bars=90):
+    """A converging structure whose apex — and therefore its G13 deadline — falls well AFTER the
+    last pivot, leaving bars on both sides of the deadline to place a breakout on.
+
+    Pivots are placed only up to bar 29; every later bar sits on the channel mid (monotone, so no
+    new pivot forms and the candidate window stays 4..29). A gentler w keeps the apex distant.
+    """
+    upper, lower = _lines_for_w(0.66, 40, first_x=4, last_x=29, upper_flat=True)
+    df = _from_lines(upper, lower, 34)
+    extra_idx = range(34, n_bars)
+    rows = []
+    for x in extra_idx:
+        u = geometry.trendline_value_at(upper, x)
+        l = geometry.trendline_value_at(lower, x)
+        mid = (u + l) / 2.0
+        rows.append({"open": mid, "high": mid + (u - mid) * 0.15, "low": mid - (mid - l) * 0.15,
+                     "close": mid, "volume": 1_000_000.0})
+    extra = pd.DataFrame(rows)
+    extra["date"] = pd.date_range(df["date"].iloc[-1] + pd.Timedelta(days=1), periods=len(extra), freq="D")
+    df = pd.concat([df, extra[df.columns]], ignore_index=True)
+    return upper, lower, df
+
+
+def _deadline_of(df):
+    from research.charting.patterns_p1 import _apex_x
+    cand, _ = _evaluate(df, len(df) - 1)
+    assert cand is not None and cand.pair == geometry.CONVERGING, "fixture must yield a converging shape"
+    first_x = cand.pivots[0].pivot_index
+    apex = _apex_x(cand.upper, cand.lower)
+    assert apex is not None and apex > first_x
+    return cand, first_x, apex, first_x + P1["apex_breakout_deadline_frac"] * (apex - first_x)
+
+
+def _break_at(df, cand, bar):
+    """Put a decisive close above the upper line at `bar`."""
+    out = df.copy()
+    u = geometry.trendline_value_at(cand.upper, bar)
+    out.loc[bar, ["open", "close"]] = u * 1.02
+    out.loc[bar, "high"] = u * 1.025
+    out.loc[bar, "low"] = u * 1.015
+    return out
+
+
+def test_BOUNDARY_a_breakout_one_bar_before_the_apex_deadline_confirms():
+    upper, lower, df = _converging_with_room()
+    cand, first_x, apex, deadline = _deadline_of(df)
+    bar = int(deadline) - 1
+    assert bar > cand.pivots[-1].pivot_index, "the breakout must land after the last pivot"
+
+    snaps = detect_p1_as_of(_break_at(df, cand, bar), bar, symbol="T")
+    assert snaps, "expected the structure to still be detected"
+    assert snaps[0].status == "PRICE_CONFIRMED"
+
+
+def test_BOUNDARY_a_breakout_one_bar_after_the_apex_deadline_stays_expired():
+    """The defect this fixture exists for. Before the fix the walk scanned every bar to `t` and this
+    breakout confirmed a structure that had already expired."""
+    upper, lower, df = _converging_with_room()
+    cand, first_x, apex, deadline = _deadline_of(df)
+    bar = int(deadline) + 1
+
+    snaps = detect_p1_as_of(_break_at(df, cand, bar), bar, symbol="T")
+    assert snaps, "expected the structure to still be reported"
+    s = snaps[0]
+    assert s.status == "EXPIRED", f"a post-deadline breakout must not revive an expired structure (got {s.status})"
+    assert any(e["rule_id"] == "APEX_REACHED" for e in s.events)
+    assert not any(r["rule_id"] == "P1_CLOSE_BEYOND_LINE" for r in s.rules), \
+        "a post-deadline bar must not even be considered for breakout"
+
+
+def test_BOUNDARY_expired_is_terminal_in_the_detector_output():
+    """No snapshot may carry both an EXPIRED event and a PRICE_CONFIRMED one."""
+    upper, lower, df = _converging_with_room()
+    cand, first_x, apex, deadline = _deadline_of(df)
+    for bar in (int(deadline) + 1, int(deadline) + 3):
+        if bar >= len(df):
+            continue
+        for s in detect_p1_as_of(_break_at(df, cand, bar), bar, symbol="T"):
+            kinds = {e["event_type"] for e in s.events}
+            assert not ({"EXPIRED", "PRICE_CONFIRMED"} <= kinds), "EXPIRED and PRICE_CONFIRMED cannot coexist"

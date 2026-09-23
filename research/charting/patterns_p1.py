@@ -26,6 +26,8 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
+import math
+
 import numpy as np
 import pandas as pd
 
@@ -231,12 +233,33 @@ def detect_p1_as_of(bars: pd.DataFrame, t: int, *, symbol: str = "UNKNOWN") -> l
         RuleRow("P1_SHAPE", "PASS", cand.shape, None),
     ]
 
-    # Lifecycle: the walk starts only once every pivot in the window was knowable.
+    # Lifecycle: the walk starts only once every pivot in the window was knowable, and STOPS at the
+    # structure's own deadline.
+    #
+    # NI-3 §2 makes the temporal boundary part of the definition -- "EXPIRED, reason APEX_REACHED,
+    # if no breakout comes before G13 of the distance from the first pivot to the apex". Once G13
+    # passes without a qualifying breakout the candidate is dead, so a later breakout must not
+    # revive it. Replay certification caught exactly that: 2 EXPIRED -> PRICE_CONFIRMED transitions,
+    # which a last-bar export could never have surfaced.
+    #
+    # The bound is applied to the SEARCH, not as a guard after the fact (owner, 2026-09-23). The
+    # candidate stops considering post-deadline bars rather than confirming on one and being
+    # corrected afterwards.
+    deadline: Optional[float] = None
+    if cand.pair == geometry.CONVERGING:
+        apex = _apex_x(cand.upper, cand.lower)
+        if apex is not None and apex > first_x:
+            deadline = first_x + p1["apex_breakout_deadline_frac"] * (apex - first_x)
+    elif cand.pair == geometry.PARALLEL:
+        deadline = float(first_x + shared["max_formation_bars"] - 1)
+
+    walk_end = t if deadline is None else min(t, int(math.floor(deadline)))
+
     ready = max(p.confirmed_index for p in cand.pivots)
     status = LifecycleState.GEOMETRY_VALID
     events: list[dict] = []
     direction = cand.direction
-    for b in range(max(ready, last_x), t + 1):
+    for b in range(max(ready, last_x), walk_end + 1):
         u = geometry.trendline_value_at(cand.upper, b)
         l = geometry.trendline_value_at(cand.lower, b)
         c = float(closes[b])
@@ -265,23 +288,18 @@ def detect_p1_as_of(bars: pd.DataFrame, t: int, *, symbol: str = "UNKNOWN") -> l
                                                    "side": "UPPER" if broke_up else "LOWER"}})
             break
 
-    # Expiry (NI-3 §2), only while no breakout has happened.
-    if status == LifecycleState.GEOMETRY_VALID:
+    # Expiry (NI-3 §2). The walk above could not have seen a post-deadline bar, so reaching here in
+    # GEOMETRY_VALID with `t` past the deadline means no qualifying breakout arrived in time.
+    if status == LifecycleState.GEOMETRY_VALID and deadline is not None and t > deadline:
+        status = LifecycleState.EXPIRED
         if cand.pair == geometry.CONVERGING:
-            apex = _apex_x(cand.upper, cand.lower)
-            if apex is not None and apex > first_x:
-                deadline = first_x + p1["apex_breakout_deadline_frac"] * (apex - first_x)
-                if t > deadline:
-                    status = LifecycleState.EXPIRED
-                    rules.append(RuleRow("P1_APEX_DEADLINE", "FAIL", int(t), round(deadline, 4)))
-                    events.append({"date": _iso(dates[t]), "event_type": "EXPIRED", "rule_id": APEX_REACHED,
-                                   "observed_values": {"apex_x": round(apex, 4), "deadline_x": round(deadline, 4)}})
-        elif cand.pair == geometry.PARALLEL:
-            if (t - first_x + 1) >= shared["max_formation_bars"]:
-                status = LifecycleState.EXPIRED
-                rules.append(RuleRow("P1_MAX_FORMATION_BARS", "FAIL", int(t - first_x + 1), shared["max_formation_bars"]))
-                events.append({"date": _iso(dates[t]), "event_type": "EXPIRED", "rule_id": "MAX_FORMATION_BARS",
-                               "observed_values": {"length": int(t - first_x + 1)}})
+            rules.append(RuleRow("P1_APEX_DEADLINE", "FAIL", int(t), round(deadline, 4)))
+            events.append({"date": _iso(dates[t]), "event_type": "EXPIRED", "rule_id": APEX_REACHED,
+                           "observed_values": {"deadline_x": round(deadline, 4)}})
+        else:
+            rules.append(RuleRow("P1_MAX_FORMATION_BARS", "FAIL", int(t - first_x + 1), shared["max_formation_bars"]))
+            events.append({"date": _iso(dates[t]), "event_type": "EXPIRED", "rule_id": "MAX_FORMATION_BARS",
+                           "observed_values": {"length": int(t - first_x + 1)}})
 
     return [PatternSnapshot(
         pattern_id=f"{symbol}:{cand.shape}:{_iso(dates[first_x])}:k{cand.k}",

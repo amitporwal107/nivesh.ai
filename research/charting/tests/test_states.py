@@ -34,11 +34,13 @@ from research.charting.lifecycle import LifecycleState
         (LifecycleState.RESEARCH_ELIGIBLE.value, "PENDING", states.BREAKOUT_CANDIDATE),  # never COMPLETED
         (LifecycleState.RESEARCH_ELIGIBLE.value, "PASS", states.CONFIRMED_BREAKOUT),
         (LifecycleState.FAILED.value, None, states.FAILED_BREAKOUT),
-        # never broke out / could not be assessed: unmapped pending an owner decision, never FAILED_BREAKOUT
+        # #110 (wired 2026-09-23). INVALIDATED/EXPIRED need the breakout history, which this
+        # parametrize does not supply, so they stay unmapped here -- see test_110_* below for the
+        # decided cases. A data failure needs no such precondition.
         (LifecycleState.INVALIDATED.value, None, None),
         (LifecycleState.EXPIRED.value, None, None),
-        (LifecycleState.DATA_BLOCKED.value, None, None),
-        (LifecycleState.UNRESOLVED.value, None, None),
+        (LifecycleState.DATA_BLOCKED.value, None, states.INCONCLUSIVE),
+        (LifecycleState.UNRESOLVED.value, None, states.INCONCLUSIVE),
     ],
 )
 def test_every_lifecycle_state_maps(lifecycle_state, volume, expected):
@@ -146,3 +148,32 @@ def test_neither_given_raises():
 def test_unknown_direction_raises():
     with pytest.raises(ValueError):
         states.derive_research_state(LifecycleState.FORMING.value, None, "SIDEWAYS")
+
+
+# ── owner decision #110, wired 2026-09-23 ───────────────────────────────────────────────────────
+@pytest.mark.parametrize("lifecycle", [LifecycleState.INVALIDATED.value, LifecycleState.EXPIRED.value])
+def test_110_invalidated_or_expired_before_any_breakout_is_not_triggered(lifecycle):
+    assert states.derive_research_state(lifecycle, None, "BULLISH", ever_price_confirmed=False) \
+        == states.NOT_TRIGGERED
+
+
+@pytest.mark.parametrize("lifecycle", [LifecycleState.INVALIDATED.value, LifecycleState.EXPIRED.value])
+def test_110_after_a_breakout_it_stays_unmapped_because_ni3_does_not_decide_it(lifecycle):
+    """Amendment E: INVALIDATED and FAILED_BREAKOUT "must not be merged". Guessing either here
+    would merge them, so the row stays unmapped and the basis carries the reason."""
+    assert states.derive_research_state(lifecycle, None, "BULLISH", ever_price_confirmed=True) is None
+
+
+@pytest.mark.parametrize("lifecycle", [LifecycleState.INVALIDATED.value, LifecycleState.EXPIRED.value])
+def test_110_an_unsupplied_history_is_never_silently_read_as_never_broke_out(lifecycle):
+    """"We do not know" must not become NOT_TRIGGERED. Omitting the argument reproduces the
+    pre-#110 behaviour exactly."""
+    assert states.derive_research_state(lifecycle, None, "BULLISH") is None
+
+
+def test_110_a_data_failure_is_inconclusive_regardless_of_breakout_history():
+    for evr in (None, False, True):
+        assert states.derive_research_state(
+            LifecycleState.DATA_BLOCKED.value, None, "BULLISH", ever_price_confirmed=evr) == states.INCONCLUSIVE
+        assert states.derive_research_state(
+            LifecycleState.UNRESOLVED.value, None, "BULLISH", ever_price_confirmed=evr) == states.INCONCLUSIVE

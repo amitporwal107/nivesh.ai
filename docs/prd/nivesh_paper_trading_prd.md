@@ -10,8 +10,10 @@
 > - **One execution kernel (§38.19.4, position 5).** The paper engine extends the existing TPD paper engine
 >   (`backend/nidp/services/tpd_model/paper/` on `feat/paper-trade-engine`, `/api/paper-trades`) rather than
 >   building a second one, and reuses `research/costs/` (statutory and broker rules, four slippage scenarios, the
->   liquidity bucket, sensitivity tables) and `research/charting/events/outcomes.py` (entry at the next open, gap
->   fills at the open, AMBIGUOUS when the stop and the target are inside one bar). The §13 cost engine and §17–§21
+>   liquidity bucket, sensitivity tables), `research/charting/events/outcomes.py` (entry at the next open) and
+>   `research/charting/events/stops.py` (gap fills at the open, and AMBIGUOUS when the stop and the target are
+>   inside one bar — `first_exit_event == "AMBIGUOUS"`, `exit_price` None; corrected 2026-09-23, it was
+>   attributed to `outcomes.py`). The §13 cost engine and §17–§21
 >   fills, stops, ledger and replay describe these. This document lacks the AMBIGUOUS rule; without it paper results
 >   would not reconcile with v2 on the same events. Paper results must reconcile row for row with v2.
 > - **Phase 1 (§61).** Daily, long-only, owner-only and fixed quantity.
