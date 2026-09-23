@@ -318,6 +318,48 @@ def random_control_summaries(
     return summaries
 
 
+def stream_random_control_summaries(
+    bars_by_symbol: Mapping, draws: Mapping, priced: Mapping, *,
+    cfg: Optional[Mapping] = None, row_check: Optional[Callable[[Mapping], None]] = None, **kwargs
+) -> dict:
+    """The same summaries as `random_control_summaries`, but never holding more than ONE seed's rows.
+
+    `random_control_summaries` takes a materialised `{seed: rows}` batch, which is the thing that
+    does not fit: at V-3's 1,000 seeds that batch is the ≈32 TB object. This assembles one seed,
+    summarises it, and drops it, so peak memory is one seed rather than all of them.
+
+    Row identity is not re-implemented — each seed goes through
+    `controls.assemble_random_control_batch` itself, with a one-entry draws dict — so a streamed
+    seed's rows are the same objects the batch path would have produced, by construction rather than
+    by assertion. `priced` is shared and bounded by the number of DISTINCT (symbol, bar_index) pairs,
+    not by the seed count, so it is not what grows with V-3.
+
+    `row_check` runs per row at generation time: this is where
+    `integrity.assert_no_sealed_rows_in_dataset` moves to, so its coverage does not silently shrink
+    to pattern rows when the control rows stop being kept (scope §5).
+    """
+    from research.charting.events import controls
+
+    cfg_kwargs = {} if cfg is None else {"cfg": cfg}
+    kwargs.setdefault("keep_net_vectors", False)
+    segment = kwargs.setdefault("segment", False)
+
+    summaries: dict = {}
+    for seed in sorted(draws):
+        one = controls.assemble_random_control_batch(
+            bars_by_symbol, {seed: draws[seed]}, priced, **cfg_kwargs
+        )
+        summaries[seed] = group_summary(one[seed], row_check=row_check, **kwargs)
+        del one  # the seed's rows go here, and nowhere else
+    if not segment:
+        for summary in summaries.values():
+            summary["segmentation"] = {
+                "status": "NOT_COMPUTED",
+                "reason": "RANDOM_CONTROL_ENTERS_REPORT_AS_PER_SEED_MEANS",
+            }
+    return summaries
+
+
 # ── rebuilding the report block from summaries ──────────────────────────────────────────────────
 
 def comparison_block_from_summaries(
@@ -373,3 +415,19 @@ def comparison_block_from_summaries(
         out["nifty_500"] = {"return": nifty_500_return}
 
     return out
+
+
+def summary_comparison_builder(bullish_rows: Sequence[Mapping], horizon: int, cg: Mapping) -> dict:
+    """The summary-based counterpart to `report.default_comparison_builder`, injected into
+    `report.build_report` by `study/execute.py` when a run summarises its controls.
+
+    Same signature, same return shape; the difference is only where the comparison groups' numbers
+    come from. `test_study_accumulate.py` proves the two produce identical blocks.
+    """
+    return comparison_block_from_summaries(
+        bullish_rows, horizon,
+        random_summaries=cg.get("random_summaries"),
+        atr_decile_summary=cg.get("atr_decile_summary"),
+        buy_next_open_summary=cg.get("buy_next_open_summary"),
+        nifty_500_return=(cg.get("nifty_500_return_by_horizon") or {}).get(horizon),
+    )

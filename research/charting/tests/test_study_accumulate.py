@@ -322,3 +322,151 @@ def test_the_summary_is_json_serialisable(summaries):
     """It has to be writable as the artefact that replaces events.jsonl."""
     for name, summary in (("atr", summaries["atr"]), ("bno", summaries["bno"])):
         json.dumps(report.to_json_dict(summary), sort_keys=True, allow_nan=False), name
+
+
+# ── step 5: the streaming path ──────────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def draws_and_priced(pipeline):
+    """The draw/price split `execute.build_family_comparison_groups` uses, so the streaming test
+    runs on the same inputs the real study would hand it."""
+    from research.charting.events import controls as c
+    from research.charting.study import execute
+    eligible = execute.eligible_population(pipeline["bars_by_symbol"])
+    draws = c.random_control_draws(eligible, n=len(pipeline["pattern_rows"]), seeds=tuple(range(10)))
+    pairs = {p for picks in draws.values() for p in picks}
+    priced = c.price_signals(pipeline["bars_by_symbol"], pairs)
+    return draws, priced
+
+
+def test_streaming_summaries_equal_the_batch_summaries(pipeline, draws_and_priced):
+    """Step 5's own gate: summarising seed-by-seed must give exactly what summarising the
+    materialised batch gives. Exact equality, same reasoning as the step-4 gate."""
+    from research.charting.events import controls as c
+    draws, priced = draws_and_priced
+    batch = c.assemble_random_control_batch(pipeline["bars_by_symbol"], draws, priced)
+
+    assert accumulate.stream_random_control_summaries(
+        pipeline["bars_by_symbol"], draws, priced
+    ) == accumulate.random_control_summaries(batch)
+
+
+def test_streaming_never_materialises_more_than_one_seed(pipeline, draws_and_priced, monkeypatch):
+    """The whole point of the streaming path. If it ever assembled the full batch it would defeat
+    itself silently — peak memory would be unchanged and only a profiler would notice — so this
+    watches the draws dict every assemble call receives."""
+    from research.charting.events import controls as c
+    draws, priced = draws_and_priced
+    seen_sizes: list = []
+    real = c.assemble_random_control_batch
+
+    def spy(bars_by_symbol, d, p, **kw):
+        seen_sizes.append(len(d))
+        return real(bars_by_symbol, d, p, **kw)
+
+    monkeypatch.setattr(c, "assemble_random_control_batch", spy)
+    accumulate.stream_random_control_summaries(pipeline["bars_by_symbol"], draws, priced)
+
+    assert seen_sizes, "the streaming path never assembled anything"
+    assert set(seen_sizes) == {1}, f"a call assembled more than one seed: {sorted(set(seen_sizes))}"
+    assert len(seen_sizes) == len(draws)
+
+
+def test_streaming_runs_the_real_sealed_gate_on_every_control_row(pipeline, draws_and_priced):
+    """§8 coverage must not shrink when the rows stop being kept. The real gate, per row, and a
+    count proving every generated row went through it."""
+    from research.charting.study import integrity
+    draws, priced = draws_and_priced
+    checked: list = []
+
+    def gate(row):
+        integrity.assert_no_sealed_rows_in_dataset([row])
+        checked.append(row["event_id"])
+
+    summaries = accumulate.stream_random_control_summaries(
+        pipeline["bars_by_symbol"], draws, priced, row_check=gate
+    )
+    assert len(checked) == sum(len(picks) for picks in draws.values())
+    assert len(checked) > 0
+    assert sum(s["n_rows"] for s in summaries.values()) == len(checked)
+
+
+# ── step 5: the flag, end to end through execute_study ──────────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def two_runs(tmp_path_factory):
+    """`execute_study` run twice over identical inputs — once keeping control rows, once
+    summarising them. This is the step-5 gate: the flag must not change the study's own output."""
+    from research.charting.study import execute
+    # Reuse `test_study_execute`'s own end-to-end universe rather than inventing one. A fixture built
+    # here first came back with ZERO families in both segments -- the synth frames are anchored at
+    # 2024-01-02, inside the sealed block -- and this gate would then have compared two empty reports
+    # and passed. That harness is already known to produce three families in both segments.
+    from research.charting.tests.test_study_execute import (
+        _mixed_segment_universe, _write_etf_list, _write_kite_dir,
+    )
+
+    setup = tmp_path_factory.mktemp("study_inputs")
+    kwargs = {
+        "kite_dir": _write_kite_dir(setup),
+        "etf_list_path": _write_etf_list(setup),
+        "bars_by_symbol": _mixed_segment_universe(),
+        "random_control_seeds": (0, 1, 2, 3, 4),
+        "kill_switch": False,          # orchestration gate, not a power study
+        "recompute_sample_size": 5,
+    }
+
+    out = {}
+    for mode, flag in (("rows", False), ("summaries", True)):
+        d = tmp_path_factory.mktemp(f"study_{mode}")
+        out[mode] = execute.execute_study(d, summarise_controls=flag, **kwargs)
+        out[mode + "_dir"] = d
+
+    # Non-vacuity guard: without comparison groups there is nothing for this gate to compare.
+    built = {seg: sorted(g) for seg, g in out["summaries"]["comparison_groups"].items()}
+    assert any(built.values()), f"no comparison groups were built, the step-5 gate would be vacuous: {built}"
+    return out
+
+
+def test_step5_the_report_is_identical_with_and_without_summarised_controls(two_runs):
+    """THE step-5 gate: the same study, run both ways, must produce the same report.json bytes."""
+    compared = 0
+    for segment in ("pre_sealed", "post_sealed"):
+        a = (two_runs["rows_dir"] / segment / "report.json")
+        b = (two_runs["summaries_dir"] / segment / "report.json")
+        if not a.is_file() and not b.is_file():
+            continue
+        assert a.is_file() and b.is_file(), f"{segment}: one path wrote a report and the other did not"
+        assert a.read_bytes() == b.read_bytes(), f"{segment}: report.json differs between the two paths"
+        assert b"comparisons" in a.read_bytes(), f"{segment}: the report carries no comparison block"
+        compared += 1
+    assert compared, "neither segment produced a report: this gate compared nothing"
+
+
+def test_step5_the_sealed_gate_checked_the_same_number_of_rows_both_ways(two_runs):
+    """§8 coverage must not shrink. The summarised run checks its control rows at generation, so
+    its `n_rows_checked` must still account for every one of them."""
+    for segment in ("pre_sealed", "post_sealed"):
+        rows_chk = two_runs["rows"]["integrity"][segment]["sealed_window_check"]
+        summ_chk = two_runs["summaries"]["integrity"][segment]["sealed_window_check"]
+        assert rows_chk["n_rows_checked"] == summ_chk["n_rows_checked"]
+        assert summ_chk["control_rows_checked_at_generation"] > 0
+        assert rows_chk["passed"] and summ_chk["passed"]
+
+
+def test_step5_the_manifest_says_which_output_shape_was_used(two_runs):
+    assert two_runs["rows"]["study_manifest"]["control_output"]["mode"] == "rows"
+    assert two_runs["summaries"]["study_manifest"]["control_output"]["mode"] == "summaries"
+
+
+def test_step5_the_summarised_run_writes_no_control_rows_at_all(two_runs):
+    """The point of the exercise: no `events.jsonl` under any comparison group, and summaries there
+    instead. The segment's own PATTERN events.jsonl stays — only the controls change shape."""
+    summ_dir = two_runs["summaries_dir"]
+    control_row_files = list(summ_dir.glob("*/comparisons/*/**/events.jsonl"))
+    assert control_row_files == [], f"summarised run still wrote control rows: {control_row_files}"
+    assert list(summ_dir.glob("*/comparisons/*/random_control/summaries.jsonl")), "no seed summaries written"
+    assert list(summ_dir.glob("*/comparisons/*/*/summary.json")), "no group summaries written"
+
+    rows_dir = two_runs["rows_dir"]
+    assert list(rows_dir.glob("*/comparisons/*/*/events.jsonl")), "the row path should still write rows"
