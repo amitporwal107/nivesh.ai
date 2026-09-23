@@ -102,3 +102,35 @@ def test_export_timeframes_are_deterministic_across_runs(tmp_path):
         p1 = json.loads(gzip.decompress((out1 / e1["file"]).read_bytes()))
         p2 = json.loads(gzip.decompress((out2 / e2["file"]).read_bytes()))
         assert p1["timeframes"] == p2["timeframes"]
+
+
+# ── --include-ni3 is an export-selection switch, not enablement ──────────────────────────────────
+def test_include_ni3_provider_does_not_consult_or_change_the_registry():
+    """The flag must never be a back door to enablement. Asserted structurally: the provider's own
+    source imports the four detector modules and nothing else."""
+    import ast
+    import inspect
+
+    from research.charting import export, pattern_registry
+
+    tree = ast.parse(inspect.getsource(export.ni3_pattern_provider).lstrip())
+    modules = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
+    assert modules == {
+        "research.charting.patterns", "research.charting.patterns_ni3",
+        "research.charting.patterns_p1", "research.charting.patterns_p2",
+    }
+    assert not any("registry" in m for m in modules)
+
+    before = pattern_registry.registry_hash()
+    export.ni3_pattern_provider()
+    assert pattern_registry.registry_hash() == before
+    assert len(pattern_registry.enabled_families()) == 3
+
+
+def test_the_two_export_modes_are_distinguishable_in_provenance():
+    from research.charting import export, ni3_config
+
+    assert export._detector_families(False) == ["SUPPORT_RESISTANCE", "RECTANGLE", "HH_HL"]
+    assert len(export._detector_families(True)) == 19
+    assert export._ni3_fingerprint() == ni3_config.NI3_FINGERPRINT
+    assert export._ni3_version() == "1.0"
