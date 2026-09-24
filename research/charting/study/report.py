@@ -32,7 +32,7 @@ headline conclusion by this module (this module draws no conclusions at all; it 
 from __future__ import annotations
 
 import statistics
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Callable, Mapping, Optional, Sequence
 
 import numpy as np
 
@@ -540,6 +540,23 @@ def build_family_horizon_cell(
     return cell
 
 
+def default_comparison_builder(bullish_rows: Sequence[Mapping], horizon: int, cg: Mapping) -> dict:
+    """The row-based comparison block: `cg` carries the control ROWS. This is the v1 path and stays
+    the default, so a run that passes nothing behaves exactly as it always has.
+
+    `study/accumulate.py` supplies the alternative, which reads per-seed summaries instead of rows
+    (the v2 storage redesign). It is injected rather than imported here because `accumulate` imports
+    this module — injection keeps the dependency one-way.
+    """
+    return comparison_block(
+        bullish_rows, horizon,
+        random_batch=cg.get("random_batch"),
+        atr_decile_rows=cg.get("atr_decile_rows"),
+        buy_next_open_rows=cg.get("buy_next_open_rows"),
+        nifty_500_return=(cg.get("nifty_500_return_by_horizon") or {}).get(horizon),
+    )
+
+
 def build_report(
     *, segment: str, pattern_rows: Sequence[Mapping], bars_by_symbol: Mapping,
     exclusion_counts: Mapping[str, int], horizons: Sequence[int] = HORIZONS,
@@ -549,6 +566,7 @@ def build_report(
     unverified_cost_rates: Sequence[str] = (),
     input_hashes: Optional[Mapping[str, str]] = None,
     prereg_sha256: Optional[str] = None,
+    build_comparisons: Optional[Callable] = None,
 ) -> dict:
     """Assemble the full §7 report for one segment, across every pattern family present in
     `pattern_rows`. `comparison_groups_by_family`: `{family: {"random_batch":..,
@@ -561,6 +579,7 @@ def build_report(
     "never because a number is favourable") -- every family present in `pattern_rows`, BULLISH
     or BEARISH, gets a cell.
     """
+    build_comparisons = build_comparisons or default_comparison_builder
     families = sorted({r["pattern_type"] for r in pattern_rows})
     families_out: dict = {}
     for family in families:
@@ -575,13 +594,7 @@ def build_report(
         for h in horizons:
             comparisons = None
             if cg:
-                comparisons = comparison_block(
-                    bullish_rows, h,
-                    random_batch=cg.get("random_batch"),
-                    atr_decile_rows=cg.get("atr_decile_rows"),
-                    buy_next_open_rows=cg.get("buy_next_open_rows"),
-                    nifty_500_return=(cg.get("nifty_500_return_by_horizon") or {}).get(h),
-                )
+                comparisons = build_comparisons(bullish_rows, h, cg)
             cell = build_family_horizon_cell(
                 bullish_rows, h, target_names=target_names, comparisons=comparisons,
                 move_direction=move_direction.get((family, h)),

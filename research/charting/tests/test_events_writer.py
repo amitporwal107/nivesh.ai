@@ -101,3 +101,75 @@ def test_non_finite_values_are_written_as_null_so_the_jsonl_is_strict_json(tmp_p
     row = json.loads(data.decode("utf-8"))
     assert row["liquidity"]["participation_ratio"] is None and row["x"] == [None, 1.0]
     assert b"Infinity" not in data and b"NaN" not in data
+
+
+# ── gzip artifacts (study-v2 storage redesign, 2026-09-23) ──────────────────────────────────────
+
+def _rows_for_compression():
+    """Enough repeated structure to be a fair compression subject without needing real bars."""
+    return [
+        {"event_id": f"E{i}", "symbol": "SYN1", "signal_date": "2021-03-01", "pattern_type": "RECTANGLE",
+         "costs": {"by_horizon": {h: {"available": True, "scenarios": {
+             s: {"gross": 1.0 + i, "net_before_tax": 0.9 + i, "total_cost": 0.1,
+                 "entry_slippage": 0.01, "exit_slippage": 0.02} for s in
+             ("optimistic", "base", "conservative", "stress")}} for h in (1, 3, 5, 10, 20)}}}
+        for i in range(200)
+    ]
+
+
+def test_gzip_artifact_round_trips_to_exactly_the_same_rows(tmp_path):
+    rows = _rows_for_compression()
+    manifest = writer.write_run(rows, tmp_path, segment="pre_sealed", symbols=["SYN1"], compress=True)
+
+    path = tmp_path / "events.jsonl.gz"
+    assert path.is_file()
+    assert not (tmp_path / "events.jsonl").exists()   # the uncompressed copy is not left behind
+
+    import gzip as _gz, json as _json
+    back = [_json.loads(line) for line in _gz.open(path, "rt", encoding="utf-8")]
+    assert len(back) == len(rows)
+    assert back == [_json.loads(line) for line in writer._dump_jsonl(rows).decode().splitlines()]
+    assert manifest["artifacts"][0]["path"] == "events.jsonl.gz"
+
+
+def test_the_manifest_sha256_still_hashes_the_UNCOMPRESSED_bytes(tmp_path):
+    """The §8 kill switch compares `sha256(_dump_jsonl(rows))` computed in memory. If compression
+    changed what `sha256` means, that comparison would silently start failing (or worse, passing for
+    the wrong reason), so the two manifests must agree on it."""
+    rows = _rows_for_compression()
+    plain = writer.write_run(rows, tmp_path / "plain", segment="pre_sealed", symbols=["SYN1"])
+    gz = writer.write_run(rows, tmp_path / "gz", segment="pre_sealed", symbols=["SYN1"], compress=True)
+
+    assert gz["artifacts"][0]["sha256"] == plain["artifacts"][0]["sha256"]
+    assert gz["artifacts"][0]["sha256"] == writer._sha256_bytes(writer._dump_jsonl(rows))
+    # and the stored bytes are separately verifiable
+    assert gz["artifacts"][0]["compressed_sha256"] == writer._sha256_bytes(
+        (tmp_path / "gz" / "events.jsonl.gz").read_bytes()
+    )
+    assert gz["artifacts"][0]["compressed_bytes"] < gz["artifacts"][0]["bytes"]
+
+
+def test_gzip_output_is_byte_identical_across_runs(tmp_path):
+    """`gzip.compress` stamps the current time into the header, which would make two identical runs
+    produce different artifact bytes -- and byte-identical output across runs is exactly what §8's
+    kill switch is for. `mtime=0` is what prevents that, so it is pinned here."""
+    rows = _rows_for_compression()
+    a = writer._gzip_bytes(writer._dump_jsonl(rows))
+    b = writer._gzip_bytes(writer._dump_jsonl(rows))
+    assert a == b
+    assert a[4:8] == b"\x00\x00\x00\x00", "the gzip header carries an mtime: output is not reproducible"
+
+
+def test_compression_actually_compresses_and_the_ratio_is_reported(tmp_path):
+    rows = _rows_for_compression()
+    raw = writer._dump_jsonl(rows)
+    blob = writer._gzip_bytes(raw)
+    assert len(blob) < len(raw) / 5, f"only {len(raw)/len(blob):.1f}x -- expected the key-name repetition to dominate"
+
+
+def test_uncompressed_remains_the_default(tmp_path):
+    """Nothing changes for an existing caller that does not ask for compression."""
+    manifest = writer.write_run(_rows_for_compression(), tmp_path, segment="pre_sealed", symbols=["SYN1"])
+    assert (tmp_path / "events.jsonl").is_file()
+    assert not (tmp_path / "events.jsonl.gz").exists()
+    assert set(manifest["artifacts"][0]) == {"path", "sha256", "row_count"}

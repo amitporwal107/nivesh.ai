@@ -70,7 +70,7 @@ from research.charting import universe as universe_mod
 from research.charting.config import CONFIG
 from research.charting.events import controls, costs_bridge, schema, writer
 from research.charting.research_window import SealedWindowError
-from research.charting.study import integrity, report
+from research.charting.study import accumulate, integrity, remote_store, report
 from research.charting.study import run as study_run
 from research.corporate_actions.regime import regime_break_mask, regime_segments
 
@@ -203,7 +203,8 @@ def build_family_comparison_groups(
     rows: Sequence[Mapping], bars_by_symbol: Mapping[str, pd.DataFrame], *, cfg: dict = CONFIG,
     cost_cfg: Optional[costs_bridge.CostConfig] = None, random_seeds: Sequence[int] = controls.RANDOM_CONTROL_SEEDS,
     atr_decile_seed: int = 0, benchmark_df: pd.DataFrame, horizons: Sequence[int] = schema.HORIZONS,
-    max_workers: int = 1,
+    max_workers: int = 1, summarise_controls: bool = False,
+    control_row_check: Optional[Callable[[Mapping], None]] = None,
 ) -> dict:
     """One segment's §7.6 comparison groups, per pattern family present in `rows`:
     `{family: {"random_batch", "atr_decile_rows", "buy_next_open_rows",
@@ -269,16 +270,46 @@ def build_family_comparison_groups(
     priced = controls.price_signals(bars_by_symbol, all_pairs, cfg=cfg, cost_cfg=cost_cfg, max_workers=max_workers)
 
     # Phase 3 -- assemble (pure dict lookups, always serial: see block above).
+    #
+    # `summarise_controls` is the study-v2 storage redesign (docs/ai_research/
+    # CHARTING_STUDY_V2_STORAGE_REDESIGN.md). OFF by default, so the v1 row path is unchanged and
+    # stays re-runnable for the equivalence comparison; ON, the random control is summarised one
+    # seed at a time and its rows are never all held at once -- the ~6.4 TB (~32 TB at V-3's 1,000
+    # seeds) object simply does not come into existence. `study/accumulate.py` proves the two paths
+    # produce identical comparison blocks.
+    #
+    # `control_row_check` runs on EVERY generated control row before it is summarised. That is where
+    # `integrity.assert_no_sealed_rows_in_dataset` moves to: it is the only §8 probe that touches
+    # control rows, and if the rows are summarised and dropped without it, its coverage silently
+    # shrinks to pattern rows with nothing failing.
     results: dict = {}
     for family in families:
         draws = per_family_draws[family]
-        results[family] = {
-            "random_batch": controls.assemble_random_control_batch(bars_by_symbol, draws["random"], priced, cfg=cfg),
-            "atr_decile_rows": controls.assemble_atr_decile_control_rows(bars_by_symbol, draws["atr_decile"], priced, cfg=cfg),
-            "buy_next_open_rows": controls.assemble_buy_next_open_baseline_rows(bars_by_symbol, draws["buy_next_open"], priced, cfg=cfg),
+        common = {
             "nifty_500_return_by_horizon": {h: d["mean"] for h, d in nifty_detail_by_family[family].items()},
             "nifty_500_detail_by_horizon": nifty_detail_by_family[family],
         }
+        atr_rows = controls.assemble_atr_decile_control_rows(bars_by_symbol, draws["atr_decile"], priced, cfg=cfg)
+        bno_rows = controls.assemble_buy_next_open_baseline_rows(bars_by_symbol, draws["buy_next_open"], priced, cfg=cfg)
+        if summarise_controls:
+            results[family] = {
+                **common,
+                "random_summaries": accumulate.stream_random_control_summaries(
+                    bars_by_symbol, draws["random"], priced, cfg=cfg, row_check=control_row_check,
+                ),
+                # Both of these are bounded by the family's own event count, not by the seed count,
+                # so they are summarised but not streamed -- and they keep their per-row net vectors,
+                # which the ATR-decile percentile needs.
+                "atr_decile_summary": accumulate.group_summary(atr_rows, row_check=control_row_check),
+                "buy_next_open_summary": accumulate.group_summary(bno_rows, row_check=control_row_check),
+            }
+        else:
+            results[family] = {
+                **common,
+                "random_batch": controls.assemble_random_control_batch(bars_by_symbol, draws["random"], priced, cfg=cfg),
+                "atr_decile_rows": atr_rows,
+                "buy_next_open_rows": bno_rows,
+            }
     return {family: results[family] for family in families}
 
 
@@ -295,7 +326,7 @@ def _sha256_file(path: Path) -> Optional[str]:
     return h.hexdigest()
 
 
-def _write_rows_artifact(rows: Sequence[dict], out_dir, *, segment: str, symbols: Sequence[str], cfg: dict) -> dict:
+def _write_rows_artifact(rows: Sequence[dict], out_dir, *, segment: str, symbols: Sequence[str], cfg: dict, compress: bool = False) -> dict:
     """`events.jsonl` + `manifest.json` for a comparison-group row set, via the SAME hashed
     writer real pattern events use (`events.writer.write_run`) -- one shape for every
     artifact this package writes."""
@@ -303,7 +334,7 @@ def _write_rows_artifact(rows: Sequence[dict], out_dir, *, segment: str, symbols
     tax_versions = {r["versioning"]["tax_rule_version"] for r in rows if r.get("versioning", {}).get("tax_rule_version")}
     return writer.write_run(
         rows, out_dir, segment=segment, symbols=symbols, cfg=cfg,
-        cost_rule_versions=cost_versions, tax_rule_versions=tax_versions,
+        cost_rule_versions=cost_versions, tax_rule_versions=tax_versions, compress=compress,
     )
 
 
@@ -325,18 +356,94 @@ def _write_nifty_artifact(fam_dir: Path, detail_by_horizon: Mapping, *, segment:
     return {"path": "nifty_500_returns.json", "sha256": hashlib.sha256(content).hexdigest()}
 
 
+def _write_summary_artifact(summary: Mapping, out_dir, *, segment: str, family: str, group_name: str, compress: bool = False) -> dict:
+    """`summary.json` -- what replaces a comparison group's `events.jsonl` under the v2 storage
+    redesign. It carries the group's own row digest (`sha256` + `row_count` over the bytes the
+    writer WOULD have produced), so the §8 kill-switch property survives at ~64 bytes per seed."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": "comparison_group_summary",
+        "summary_version": accumulate.SUMMARY_VERSION,
+        "segment": segment, "family": family, "group": group_name,
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "summary": report.to_json_dict(summary),
+    }
+    blob = (json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode()
+    if compress:
+        path = out_dir / "summary.json.gz"
+        path.write_bytes(writer._gzip_bytes(blob))
+    else:
+        path = out_dir / "summary.json"
+        path.write_bytes(blob)
+    return {
+        "path": str(path), "sha256": writer._sha256_bytes(blob), "compressed": bool(compress),
+        "stored_sha256": _sha256_file(path), "rows_summarised": summary.get("n_rows"),
+    }
+
+
+def _write_seed_summaries_artifact(summaries: Mapping, out_dir, *, segment: str, family: str, compress: bool = False) -> dict:
+    """The random control's per-seed summaries as ONE compact `summaries.jsonl`, a line per seed.
+
+    Deliberately not a file per seed: at V-3's 1,000 seeds across ~40 reporting units that is 80,000
+    files per segment, and `indent=2` alone doubled the payload (measured: 149.8 KB -> 73.1 KB a seed
+    for the identical content). Both are encoding choices and neither drops a field.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    lines = []
+    for seed, summary in sorted(summaries.items()):
+        lines.append(json.dumps(
+            {"segment": segment, "family": family, "group": "random_control", "control_seed": seed,
+             "summary_version": accumulate.SUMMARY_VERSION, "summary": report.to_json_dict(summary)},
+            sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ))
+    blob = ("\n".join(lines) + ("\n" if lines else "")).encode()
+    if compress:
+        # The summaries are what REPLACE the rows, so they get the same treatment: measured 29.0x,
+        # the highest ratio of any artefact here (one line per seed, every line the same key set).
+        path = out_dir / "summaries.jsonl.gz"
+        path.write_bytes(writer._gzip_bytes(blob))
+    else:
+        path = out_dir / "summaries.jsonl"
+        path.write_bytes(blob)
+    return {
+        "path": str(path), "sha256": writer._sha256_bytes(blob), "compressed": bool(compress),
+        "stored_sha256": _sha256_file(path), "n_seeds": len(summaries),
+        "bytes": len(blob), "stored_bytes": path.stat().st_size,
+        "rows_summarised": sum(s.get("n_rows", 0) for s in summaries.values()),
+    }
+
+
 def _write_family_comparison_artifacts(
     comparisons_dir: Path, family: str, segment: str, group: Mapping, *, cfg: dict,
-    symbols: Sequence[str], benchmark_path,
+    symbols: Sequence[str], benchmark_path, compress: bool = False,
 ) -> dict:
     fam_dir = Path(comparisons_dir) / family
+    if "random_summaries" in group:
+        # v2 storage redesign: summaries, not rows. The random control writes one summary per seed
+        # under `random_control/`, which is what turns ~6.4 TB into a few MB.
+        out = {"random_control": _write_seed_summaries_artifact(
+            group["random_summaries"], fam_dir / "random_control", segment=segment, family=family,
+            compress=compress,
+        )}
+        for key, group_name in (("atr_decile_summary", "atr_decile_control"), ("buy_next_open_summary", "buy_next_open")):
+            out[group_name] = _write_summary_artifact(
+                group[key], fam_dir / group_name, segment=segment, family=family, group_name=group_name,
+                compress=compress,
+            )
+        out["nifty_500"] = _write_nifty_artifact(
+            fam_dir, group["nifty_500_detail_by_horizon"], segment=segment, family=family, benchmark_path=benchmark_path,
+        )
+        return out
+
     flattened_random = [
         {**row, "control_seed": seed} for seed in sorted(group["random_batch"]) for row in group["random_batch"][seed]
     ]
     return {
-        "random_control": _write_rows_artifact(flattened_random, fam_dir / "random_control", segment=segment, symbols=symbols, cfg=cfg),
-        "atr_decile_control": _write_rows_artifact(group["atr_decile_rows"], fam_dir / "atr_decile_control", segment=segment, symbols=symbols, cfg=cfg),
-        "buy_next_open": _write_rows_artifact(group["buy_next_open_rows"], fam_dir / "buy_next_open", segment=segment, symbols=symbols, cfg=cfg),
+        "random_control": _write_rows_artifact(flattened_random, fam_dir / "random_control", segment=segment, symbols=symbols, cfg=cfg, compress=compress),
+        "atr_decile_control": _write_rows_artifact(group["atr_decile_rows"], fam_dir / "atr_decile_control", segment=segment, symbols=symbols, cfg=cfg, compress=compress),
+        "buy_next_open": _write_rows_artifact(group["buy_next_open_rows"], fam_dir / "buy_next_open", segment=segment, symbols=symbols, cfg=cfg, compress=compress),
         "nifty_500": _write_nifty_artifact(fam_dir, group["nifty_500_detail_by_horizon"], segment=segment, family=family, benchmark_path=benchmark_path),
     }
 
@@ -344,7 +451,10 @@ def _write_family_comparison_artifacts(
 # ── §7 report per segment ─────────────────────────────────────────────────────────────────
 
 
-def _build_segment_report(segment_result: Mapping, comparison_groups_by_family: Mapping, *, prereg_sha: str, input_hashes: Mapping) -> dict:
+def _build_segment_report(
+    segment_result: Mapping, comparison_groups_by_family: Mapping, *, prereg_sha: str,
+    input_hashes: Mapping, build_comparisons: Optional[Callable] = None,
+) -> dict:
     rows = segment_result["rows"]
     dq = segment_result["data_quality_exclusions"]
     demerger = segment_result["demerger_regimes"]
@@ -359,7 +469,7 @@ def _build_segment_report(segment_result: Mapping, comparison_groups_by_family: 
         segment=segment_result["segment"], pattern_rows=rows, bars_by_symbol=segment_result["bars_by_symbol"],
         exclusion_counts=exclusion_counts, comparison_groups_by_family=comparison_groups_by_family,
         universe_caveats=UNIVERSE_CAVEATS, unverified_cost_rates=_collect_unverified_cost_rates(rows),
-        input_hashes=input_hashes, prereg_sha256=prereg_sha,
+        input_hashes=input_hashes, prereg_sha256=prereg_sha, build_comparisons=build_comparisons,
     )
 
 
@@ -396,17 +506,32 @@ def _run_integrity_gate(
             }
         seg_out["kill_switch"] = ks
 
+        # Bullet 3. The control rows are checked WHERE THEY EXIST. In the v1 row path they are all
+        # still in memory, so they are gathered here as before. Under the v2 storage redesign they
+        # were checked one at a time as each was generated (`control_row_check`, wired in
+        # `execute_study`), because by now they are gone -- so this adds their counts rather than
+        # re-reading rows that no longer exist. Either way `n_rows_checked` covers every row, which
+        # is the number that would otherwise silently shrink to the pattern rows alone.
         all_rows: list = list(result["rows"])
+        summarised_rows_checked = 0
         for group in comparison_groups[segment].values():
+            if "random_summaries" in group:
+                summarised_rows_checked += sum(s["n_rows"] for s in group["random_summaries"].values())
+                summarised_rows_checked += group["atr_decile_summary"]["n_rows"]
+                summarised_rows_checked += group["buy_next_open_summary"]["n_rows"]
+                continue
             for seed_rows in group["random_batch"].values():
                 all_rows.extend(seed_rows)
             all_rows.extend(group["atr_decile_rows"])
             all_rows.extend(group["buy_next_open_rows"])
+        n_checked = len(all_rows) + summarised_rows_checked
         try:
             integrity.assert_no_sealed_rows_in_dataset(all_rows)
-            sealed_check = {"passed": True, "error": None, "n_rows_checked": len(all_rows)}
+            sealed_check = {"passed": True, "error": None, "n_rows_checked": n_checked}
         except SealedWindowError as exc:
-            sealed_check = {"passed": False, "error": str(exc), "n_rows_checked": len(all_rows)}
+            sealed_check = {"passed": False, "error": str(exc), "n_rows_checked": n_checked}
+        if summarised_rows_checked:
+            sealed_check["control_rows_checked_at_generation"] = summarised_rows_checked
         seg_out["sealed_window_check"] = sealed_check
 
         rc = integrity.recompute_sample(
@@ -481,6 +606,9 @@ def execute_study(
     atr_decile_seed: int = 0,
     now: Optional[datetime] = None,
     max_workers: int = 1,
+    summarise_controls: bool = False,
+    compress_events: bool = False,
+    upload_to: Optional[str] = None,
 ) -> dict:
     """Run the whole CHARTING_PREREGISTRATION_V1 study end to end into `out_dir` (module
     docstring lists the six steps). `bars_by_symbol` is a test-only seam: when given, step 1's
@@ -521,6 +649,7 @@ def execute_study(
         cfg=cfg, cost_cfg=cost_cfg, etf_symbols=etf_symbols,
         exclusion_mask=regime_break_mask, segmenter=regime_segments, exclusion_mask_is_default=False,
         attach_context=True, input_file_hashes=input_file_hashes, now=started_at, max_workers=max_workers,
+        compress_events=compress_events,
     )
     build_fns = {
         schema.SEGMENT_PRE_SEALED: study_run.build_pre_sealed_segment,
@@ -533,10 +662,18 @@ def execute_study(
         result = build_fn(bars_by_symbol, out_dir=out_dir / segment, **segment_kwargs)
         segment_results[segment] = result
 
+        # §8 bullet 3, moved to the point each control row exists (v2 storage redesign). In the row
+        # path the gate still runs in `_run_integrity_gate` over the retained rows; here it runs per
+        # row at generation, so a summarised run keeps identical coverage. A sealed row raises
+        # `SealedWindowError` out of generation, which is the same failure, earlier.
+        control_row_check = (
+            (lambda row: integrity.assert_no_sealed_rows_in_dataset([row])) if summarise_controls else None
+        )
         groups = build_family_comparison_groups(
             result["rows"], result["bars_by_symbol"], cfg=cfg, cost_cfg=cost_cfg,
             random_seeds=random_control_seeds, atr_decile_seed=atr_decile_seed, benchmark_df=benchmark_df,
-            max_workers=max_workers,
+            max_workers=max_workers, summarise_controls=summarise_controls,
+            control_row_check=control_row_check,
         )
         comparison_groups[segment] = groups
 
@@ -545,6 +682,7 @@ def execute_study(
             _write_family_comparison_artifacts(
                 out_dir / segment / "comparisons", family, segment, group,
                 cfg=cfg, symbols=symbols_for_manifest, benchmark_path=benchmark_path,
+                compress=compress_events,
             )
 
     integrity_result = _run_integrity_gate(
@@ -562,6 +700,7 @@ def execute_study(
         for segment, result in segment_results.items():
             rep = _build_segment_report(
                 result, comparison_groups[segment], prereg_sha=prereg_sha, input_hashes=input_hashes_map,
+                build_comparisons=accumulate.summary_comparison_builder if summarise_controls else None,
             )
             safe = report.to_json_dict(rep)
             (out_dir / segment / "report.json").write_text(
@@ -581,6 +720,14 @@ def execute_study(
         "symbols_requested": list(symbols) if symbols is not None else "ALL",
         "n_symbols_loaded": len(bars_by_symbol),
         "input_file_hashes": input_file_hashes,
+        # Which output shape this run used. A reader must be able to tell a run that kept its
+        # control rows from one that summarised them, without inspecting the directory tree.
+        "control_output": {
+            "mode": "summaries" if summarise_controls else "rows",
+            "compressed": bool(compress_events),
+            "summary_version": accumulate.SUMMARY_VERSION if summarise_controls else None,
+            "random_control_seeds": len(random_control_seeds),
+        },
         "segments": {
             segment: {
                 "manifest_path": str(out_dir / segment / "manifest.json"),
@@ -598,6 +745,25 @@ def execute_study(
         json.dumps(study_manifest, sort_keys=True, indent=2, default=str) + "\n"
     )
 
+    # The finished run, off the host. gzip already made it small; this makes it durable and removes
+    # the local-disk ceiling entirely. Deliberately AFTER the manifest is written, so what is
+    # uploaded is the complete run. A failure raises -- an upload that quietly did not happen would
+    # be worse than not offering the option.
+    if upload_to:
+        upload = remote_store.upload_run(out_dir, prefix=upload_to)
+        verification = remote_store.verify_uploaded_run(upload)
+        if not verification["passed"]:
+            raise remote_store.RemoteStoreError(
+                f"uploaded run failed verification: {verification['missing']} missing, "
+                f"{verification['mismatched']} mismatched"
+            )
+        result_upload = {
+            "uri": upload.uri, "n_objects": upload.n_objects, "bytes": upload.bytes_uploaded,
+            "verified": verification,
+        }
+    else:
+        result_upload = None
+
     return {
         "status": status,
         "out_dir": str(out_dir),
@@ -606,6 +772,7 @@ def execute_study(
         "segment_results": segment_results,
         "comparison_groups": comparison_groups,
         "integrity": integrity_result,
+        "upload": result_upload,
     }
 
 
@@ -629,6 +796,23 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
              "core count) for a real run; pass 1 for the fully serial path this file used "
              "before PERF-CONTROLS/PERF-PARALLEL. Output is byte-identical for any value.",
     )
+    parser.add_argument(
+        "--summarise-controls", action="store_true",
+        help="write per-seed SUMMARIES for the comparison groups instead of their rows "
+             "(study-v2 storage redesign). The reported numbers are identical -- proved by "
+             "tests/test_study_accumulate.py -- but the ~6.4 TB random-control tree becomes a few MB.",
+    )
+    parser.add_argument(
+        "--compress-events", action="store_true",
+        help="write events.jsonl.gz instead of events.jsonl (measured 24.8x on real rows). The "
+             "manifest's sha256 still hashes the UNCOMPRESSED bytes, so §8's kill switch is unaffected.",
+    )
+    parser.add_argument(
+        "--upload-to", default=None, metavar="PREFIX",
+        help=f"after the run completes, upload it to gs://{remote_store.DEFAULT_BUCKET}/<PREFIX>/<run dir name> "
+             f"and verify every object by re-reading it (default prefix: {remote_store.DEFAULT_PREFIX}). "
+             "Uses Application Default Credentials; no token is read or passed here.",
+    )
     return parser.parse_args(argv)
 
 
@@ -638,8 +822,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     `report.md`, read deliberately, never in a CLI's stdout."""
     args = _parse_args(argv)
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
-    result = execute_study(args.out, symbols=symbols, max_workers=args.max_workers)
-    print(json.dumps({"status": result["status"], "out_dir": result["out_dir"]}, indent=2))
+    result = execute_study(
+        args.out, symbols=symbols, max_workers=args.max_workers,
+        summarise_controls=args.summarise_controls, compress_events=args.compress_events,
+        upload_to=args.upload_to,
+    )
+    out = {"status": result["status"], "out_dir": result["out_dir"]}
+    if result.get("upload"):
+        out["uploaded_to"] = result["upload"]["uri"]
+        out["objects_uploaded"] = result["upload"]["n_objects"]
+    print(json.dumps(out, indent=2))
     return 0 if result["status"] == "COMPLETE" else 1
 
 
