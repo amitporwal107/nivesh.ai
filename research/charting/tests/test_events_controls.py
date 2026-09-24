@@ -100,3 +100,75 @@ def test_buy_next_open_baseline_one_row_per_event_same_confirmation_bar():
 def test_buy_next_open_baseline_empty_for_no_events():
     bars = confirmed_rectangle_with_runway()
     assert controls.buy_next_open_baseline_rows({"SYN1": bars}, []) == []
+
+
+# ── with_targets=False: the random-control fast path (2026-09-24) ───────────────────────────────
+
+def _lean_universe():
+    from research.charting.tests._events_helpers import confirmed_rectangle_with_runway
+    base = confirmed_rectangle_with_runway(tail_len=40)
+    bbs = {}
+    for i in range(6):
+        b = base.copy()
+        f = 1.0 + 0.05 * i
+        for c in ("open", "high", "low", "close"):
+            b[c] = b[c] * f
+        bbs[f"SYM{i:02d}"] = b
+    pairs = [(s, i) for s in bbs for i in range(20, 30)]
+    return bbs, pairs
+
+
+def test_skipping_the_target_walk_leaves_every_cost_figure_bit_identical():
+    """The whole justification for the fast path: `report.comparison_block` reads
+    `costs.by_horizon[h].scenarios[s].net_before_tax`, which must not move by a single bit when the
+    target walk is skipped. If this fails, the speedup is changing the study's numbers."""
+    import json
+    bbs, pairs = _lean_universe()
+    full = controls.price_signals(bbs, set(pairs), with_targets=True)
+    lean = controls.price_signals(bbs, set(pairs), with_targets=False)
+
+    assert set(full) == set(lean) and full, "the two paths priced different pairs"
+    for key in full:
+        a, b = full[key], lean[key]
+        assert json.dumps(a["costs"], sort_keys=True, default=str) == \
+               json.dumps(b["costs"], sort_keys=True, default=str), f"{key}: costs differ"
+        assert a["atr_at_t"] == b["atr_at_t"]
+        assert json.dumps(a["outcomes"], sort_keys=True, default=str) == \
+               json.dumps(b["outcomes"], sort_keys=True, default=str), f"{key}: outcomes differ"
+        assert json.dumps(a["entry"], sort_keys=True, default=str) == \
+               json.dumps(b["entry"], sort_keys=True, default=str)
+
+
+def test_the_lean_path_marks_targets_absent_rather_than_faking_them():
+    """`targets: None` is the value a BEARISH row already carries, so every consumer treats it as
+    "absent". A zeroed target block would instead read as "no target was hit", which is a different
+    and wrong claim."""
+    bbs, pairs = _lean_universe()
+    lean = controls.price_signals(bbs, set(pairs), with_targets=False)
+    one = next(iter(lean.values()))
+    assert one["targets"] is None
+    assert one["stop"]["stop_layer"] == "not_computed"
+    assert "TARGET_WALK_SKIPPED" in one["stop"]["reason"]
+
+    from research.charting.study import report
+    assert report._target_horizon_block(one, "pct_2", 5) is None   # reads as absent, not as a miss
+
+
+def test_the_full_path_remains_the_default():
+    """Only the random control opts out. Pattern events and the other control groups must be
+    unaffected, or the study loses its hit-rate tables."""
+    bbs, pairs = _lean_universe()
+    default = controls.price_signals(bbs, set(pairs))
+    one = next(iter(default.values()))
+    assert one["targets"] is not None and one["stop"]["stop_layer"] != "not_computed"
+
+
+def test_the_fast_path_is_actually_faster():
+    """A flag that does not speed anything up would be pure risk. Measured 8.1x; asserted at 3x to
+    stay robust on a loaded box."""
+    import time
+    bbs, pairs = _lean_universe()
+    controls.price_signals(bbs, set(pairs[:3]))                      # warm caches
+    t = time.time(); controls.price_signals(bbs, set(pairs), with_targets=True); full = time.time() - t
+    t = time.time(); controls.price_signals(bbs, set(pairs), with_targets=False); lean = time.time() - t
+    assert full / lean > 3.0, f"only {full/lean:.1f}x faster — the target walk was not the cost"

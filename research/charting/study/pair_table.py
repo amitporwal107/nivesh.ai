@@ -175,6 +175,10 @@ class PairTable:
         self.flag = np.zeros((capacity, layout.n_flag), dtype=np.float32)
         self.ambiguity: dict = {}          # row index -> {(target, horizon, scenario, leg): net}
         self.index: dict = {}              # (symbol, bar_index) -> row index
+        # (signal_date, event_id) per row. `report.return_stats` orders by this before computing
+        # max_drawdown, so a group that wants a drawdown has to carry it; ~30 MB at full scale,
+        # against the 66 GB the rows themselves would cost.
+        self.order_keys: list = []
         self._n = 0
 
     def add(self, pair, row: Mapping) -> int:
@@ -186,6 +190,7 @@ class PairTable:
         if amb:
             self.ambiguity[i] = amb
         self.index[pair] = i
+        self.order_keys.append((row.get("signal_date") or "", row.get("event_id") or ""))
         self._n += 1
         return i
 
@@ -279,9 +284,77 @@ DEFAULT_CHUNK = 5_000
 per-pair work — and 20,000 would peak at 5.7 GB."""
 
 
+class Checkpoint:
+    """Per-chunk resume for the pricing stage — the longest thing in the run.
+
+    Without this, a failure in a later stage throws away every hour of pricing done so far, which is
+    the difference between a long run and a gamble. Each chunk's encoded columns are written as they
+    are produced; a restart reloads the chunks already on disk and prices only what is missing.
+
+    Keyed by (start offset, chunk contents), so a checkpoint written for a DIFFERENT pair set is
+    never silently reused — the draw depends on the seed list and the eligible population, and
+    resuming across a changed universe would quietly corrupt the run.
+    """
+
+    def __init__(self, directory, total: int, chunk_size: int):
+        from pathlib import Path
+        self.dir = Path(directory)
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.total, self.chunk_size = total, chunk_size
+
+    def _path(self, start: int, chunk) -> "object":
+        import hashlib
+        key = hashlib.sha256(repr((self.total, self.chunk_size, start, chunk)).encode()).hexdigest()[:16]
+        return self.dir / f"chunk_{start:09d}_{key}.npz"
+
+    def save(self, table: "PairTable", start: int, chunk) -> None:
+        end = table._n
+        begin = end - sum(1 for p in chunk if p in table.index)
+        path = self._path(start, chunk)
+        tmp = path.with_name(path.name + ".tmp")
+        # A FILE HANDLE, not a path: `np.savez` appends ".npz" to a path that lacks it, so passing
+        # "....npz.tmp" would silently write "....npz.tmp.npz" and the rename below would then fail
+        # on a missing file — a checkpoint that looks written and is not.
+        with open(tmp, "wb") as fh:
+            np.savez(
+                fh,
+                exact=table.exact[begin:end], money=table.money[begin:end], flag=table.flag[begin:end],
+                pairs=np.array([repr(p) for p in chunk if p in table.index], dtype=object),
+                order=np.array(table.order_keys[begin:end], dtype=object),
+                amb=np.array([repr((i - begin, table.ambiguity[i]))
+                              for i in range(begin, end) if i in table.ambiguity], dtype=object),
+            )
+        tmp.replace(path)                      # atomic: a half-written chunk is never resumed from
+
+    def load_into(self, table: "PairTable", start: int, chunk) -> bool:
+        """True if this chunk was already on disk and has been restored."""
+        path = self._path(start, chunk)
+        if not path.is_file():
+            return False
+        try:
+            z = np.load(path, allow_pickle=True)
+        except Exception:                      # noqa: BLE001 — a corrupt checkpoint is re-priced
+            return False
+        n = z["exact"].shape[0]
+        begin = table._n
+        table.exact[begin:begin + n] = z["exact"]
+        table.money[begin:begin + n] = z["money"]
+        table.flag[begin:begin + n] = z["flag"]
+        import ast
+        for j, rp in enumerate(z["pairs"].tolist()):
+            table.index[ast.literal_eval(rp)] = begin + j
+        table.order_keys.extend(tuple(o) for o in z["order"].tolist())
+        for entry in z["amb"].tolist():
+            off, amb = ast.literal_eval(entry)
+            table.ambiguity[begin + off] = amb
+        table._n = begin + n
+        return True
+
+
 def build_table(
     bars_by_symbol: Mapping, pairs, layout: PairLayout, *, cfg=None, cost_cfg=None,
     chunk_size: int = DEFAULT_CHUNK, row_check=None, progress=None, max_workers: int = 1,
+    checkpoint_dir=None, with_targets: bool = True,
 ) -> "PairTable":
     """Price every pair once, encode it, drop the fat object. Pairs are walked in GLOBALLY SORTED
     order, which matters: a seed's picks are `sorted()`, so a seed meets its own rows in its own
@@ -301,10 +374,16 @@ def build_table(
     cfg = CONFIG if cfg is None else cfg
     ordered = sorted(pairs)
     table = PairTable(layout, capacity=len(ordered))
+    ckpt = None if checkpoint_dir is None else Checkpoint(checkpoint_dir, len(ordered), chunk_size)
+
     for start in range(0, len(ordered), chunk_size):
         chunk = ordered[start:start + chunk_size]
+        if ckpt is not None and ckpt.load_into(table, start, chunk):
+            if progress is not None:
+                progress(min(start + chunk_size, len(ordered)), len(ordered))
+            continue
         priced = controls.price_signals(bars_by_symbol, set(chunk), cfg=cfg, cost_cfg=cost_cfg,
-                                        max_workers=max_workers)
+                                        max_workers=max_workers, with_targets=with_targets)
         for pair in chunk:
             ps = priced.get(pair)
             if ps is None:
@@ -320,6 +399,8 @@ def build_table(
                 row_check(row)
             table.add(pair, row)
         del priced
+        if ckpt is not None:
+            ckpt.save(table, start, chunk)
         if progress is not None:
             progress(min(start + chunk_size, len(ordered)), len(ordered))
     return table
@@ -415,3 +496,52 @@ def seed_summary(table: "PairTable", picks: Sequence) -> dict:
 def _median_from_hist(hist: Mapping) -> Optional[float]:
     from research.charting.study.stream_accumulate import _median_from_histogram
     return _median_from_histogram(hist)
+
+
+def full_group_summary(table: "PairTable", rows: Optional[np.ndarray] = None) -> dict:
+    """The COMPLETE summary — medians and `max_drawdown` included — for a group small enough to
+    afford them.
+
+    The ATR-decile and buy-next-open groups are one row set per family, not one per seed, so the
+    non-additive statistics cost ~75 MB rather than the ~19 GB they would cost across 1,000 random
+    seeds. They are therefore computed in full here, exactly as `report.return_stats` computes them:
+    `statistics.median` over the same values, and the drawdown of the cumulative net curve with rows
+    ordered by `(signal_date, event_id)`.
+
+    The per-row `net_before_tax` vector is returned too, because
+    `report.comparison_block` builds the ATR-decile percentile from the per-ROW distribution (its
+    own docstring: matched 1:1, "not resampled").
+    """
+    import statistics
+
+    L = table.layout
+    if rows is None:
+        rows = np.arange(len(table), dtype=np.int64)
+    base = table.seed_stats(rows)
+    order = np.array(sorted(range(rows.size), key=lambda j: table.order_keys[int(rows[j])]),
+                     dtype=np.int64) if rows.size else np.zeros(0, dtype=np.int64)
+
+    net_vectors: dict = {}
+    for h in L.horizons:
+        for s in L.scenarios:
+            cell = base[h][s]
+            if not cell["n"]:
+                net_vectors.setdefault(h, {})[s] = []
+                continue
+            avail = table.flag[rows][:, L.flag_index[("cost", h, s, "available")]] > 0
+            net = table.exact[rows][:, L.exact_index[(h, s)]]
+            gross = table.money[rows][:, L.money_index[("cost", h, s, "gross")]]
+            cell["net_return"]["median"] = float(statistics.median(net[avail].tolist()))
+            cell["gross_return"]["median"] = float(statistics.median(gross[avail].tolist()))
+            # drawdown of the equal-weight event sequence, in (signal_date, event_id) order
+            seq = net[order][avail[order]]
+            curve = np.cumsum(seq)
+            cell["max_drawdown"] = float((curve - np.maximum.accumulate(curve)).min())
+            net_vectors.setdefault(h, {})[s] = net[avail].tolist()
+
+    out = seed_summary(table, [p for p, i in sorted(table.index.items(), key=lambda kv: kv[1])
+                               if i in set(rows.tolist())]) if rows.size else seed_summary(table, [])
+    out["stats"] = base
+    out["net_vectors"] = net_vectors
+    out.pop("segmentation", None)
+    return out

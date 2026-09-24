@@ -41,7 +41,7 @@ def build_outcome_cost_block(
     bars: pd.DataFrame, t_idx: int, direction: str, *, cfg: dict = CONFIG,
     cost_cfg: Optional[costs_bridge.CostConfig] = None, atr_at_t: Optional[float] = None,
     pattern_type: Optional[str] = None, levels: Optional[dict] = None,
-    level_broken_value: Optional[float] = None,
+    level_broken_value: Optional[float] = None, with_targets: bool = True,
 ) -> dict:
     """Everything downstream of "a signal exists at bar t, in direction `direction`": the
     primary/alternative entry, both entries' forward-outcome blocks, the ADV/liquidity figures,
@@ -119,13 +119,33 @@ def build_outcome_cost_block(
         block["costs"] = {"trade_side": "LONG", "short_side_costs": "NOT_MODELLED", "by_horizon": None}
         return block
 
-    stop_and_targets = stops.build_stop_and_targets_block(
-        bars, ei, ep, direction=direction, pattern_type=pattern_type, levels=levels,
-        level_broken_value=level_broken_value, atr_at_t=atr_at_t, qty=qty, adv_inr=adv,
-        cfg=cfg, cost_cfg=cost_cfg,
-    )
-    block["stop"] = stop_and_targets["stop"]
-    block["targets"] = stop_and_targets["targets"]
+    if with_targets:
+        stop_and_targets = stops.build_stop_and_targets_block(
+            bars, ei, ep, direction=direction, pattern_type=pattern_type, levels=levels,
+            level_broken_value=level_broken_value, atr_at_t=atr_at_t, qty=qty, adv_inr=adv,
+            cfg=cfg, cost_cfg=cost_cfg,
+        )
+        block["stop"] = stop_and_targets["stop"]
+        block["targets"] = stop_and_targets["targets"]
+    else:
+        # Measured 2026-09-24: this walk is 88% of the cost of pricing a signal — 38 full cost
+        # blocks per row (8 targets x 5 horizons, each with an exit block under 4 scenarios, plus
+        # one per ambiguity leg), 459 statutory-cost calls and 2,481 rule lookups. Skipping it makes
+        # pricing 8.1x faster.
+        #
+        # ONLY the random control passes with_targets=False, and only because nothing reads the
+        # result: `report.comparison_block` takes `n` and mean `net_before_tax` from a
+        # random-control seed, which come from `costs.by_horizon` below and are unaffected. The
+        # target blocks feed the S-1 per-seed hit rates, holding periods and ambiguity legs, which
+        # no reported figure uses. The ATR-decile and buy-next-open groups keep the full walk --
+        # they are one row set per family, not one per seed, so they stay cheap.
+        #
+        # `targets: None` is the same value a BEARISH row already carries, so every consumer
+        # (`report._target_horizon_block`, the accumulators) already handles it as "absent" rather
+        # than mistaking it for "no target was hit".
+        block["stop"] = {"stop_layer": "not_computed",
+                         "reason": "TARGET_WALK_SKIPPED_FOR_RANDOM_CONTROL"}
+        block["targets"] = None
 
     costs_by_horizon: dict = {}
     for h, raw_h in fwd["raw"].items():

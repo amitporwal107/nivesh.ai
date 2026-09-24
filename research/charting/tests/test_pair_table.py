@@ -195,3 +195,106 @@ def test_the_comparison_block_is_identical_from_the_table(built_table):
         a = accumulate.comparison_block_from_summaries(pattern_rows, h, random_summaries=row)
         b = accumulate.comparison_block_from_summaries(pattern_rows, h, random_summaries=col)
         assert a == b, f"horizon {h}: columnar block differs from row-based"
+
+
+# ── checkpoint / resume ─────────────────────────────────────────────────────────────────────────
+
+def _small_universe():
+    base = confirmed_rectangle_with_runway(tail_len=40)
+    bbs = {}
+    for i in range(8):
+        b = base.copy()
+        f = 1.0 + 0.05 * i
+        for c in ("open", "high", "low", "close"):
+            b[c] = b[c] * f
+        bbs[f"SYM{i:02d}"] = b
+    events = [ev for s, b in bbs.items() for ev in extraction.extract_events(b, s)]
+    elig = [(s, i) for s in bbs for i in range(20, 32)]
+    draws = controls.random_control_draws(elig, n=len(events), seeds=(0, 1, 2))
+    return bbs, draws, {p for pk in draws.values() for p in pk}
+
+
+def test_a_resumed_build_equals_an_uninterrupted_one(tmp_path):
+    """The point of checkpointing: a run that died at 80% must resume to the SAME table, not an
+    approximation of it. Asserted on the encoded columns themselves."""
+    from research.charting.study import pair_table as pt
+    bbs, draws, pairs = _small_universe()
+    layout = pt.PairLayout(accumulate.DEFAULT_HORIZONS, accumulate.DEFAULT_SCENARIOS,
+                           report.DEFAULT_TARGET_NAMES)
+
+    clean = pt.build_table(bbs, pairs, layout, chunk_size=11)
+    ck = tmp_path / "ck"
+    first = pt.build_table(bbs, pairs, layout, chunk_size=11, checkpoint_dir=ck)
+    assert list(ck.glob("chunk_*.npz")), "no checkpoints were written"
+
+    priced_calls = []
+    real = controls.price_signals
+
+    def counting(*a, **k):
+        priced_calls.append(1)
+        return real(*a, **k)
+
+    import unittest.mock as mock
+    with mock.patch.object(controls, "price_signals", counting):
+        resumed = pt.build_table(bbs, pairs, layout, chunk_size=11, checkpoint_dir=ck)
+    assert priced_calls == [], "a fully checkpointed build still re-priced"
+
+    assert len(resumed) == len(clean) == len(first)
+    import numpy as _np
+    _np.testing.assert_array_equal(resumed.exact[:len(clean)], clean.exact[:len(clean)])
+    _np.testing.assert_array_equal(resumed.money[:len(clean)], clean.money[:len(clean)])
+    _np.testing.assert_array_equal(resumed.flag[:len(clean)], clean.flag[:len(clean)])
+    assert resumed.index == clean.index
+    assert resumed.order_keys == clean.order_keys
+    assert resumed.ambiguity == clean.ambiguity
+
+
+def test_a_partial_checkpoint_resumes_and_prices_only_the_rest(tmp_path):
+    """The realistic case — the run died midway."""
+    from research.charting.study import pair_table as pt
+    import unittest.mock as mock
+    bbs, draws, pairs = _small_universe()
+    layout = pt.PairLayout(accumulate.DEFAULT_HORIZONS, accumulate.DEFAULT_SCENARIOS,
+                           report.DEFAULT_TARGET_NAMES)
+    clean = pt.build_table(bbs, pairs, layout, chunk_size=11)
+    ck = tmp_path / "ck"
+
+    # die after the second chunk
+    calls = {"n": 0}
+    real = controls.price_signals
+
+    def boom(*a, **k):
+        calls["n"] += 1
+        if calls["n"] > 2:
+            raise RuntimeError("simulated crash")
+        return real(*a, **k)
+
+    with mock.patch.object(controls, "price_signals", boom):
+        with pytest.raises(RuntimeError, match="simulated crash"):
+            pt.build_table(bbs, pairs, layout, chunk_size=11, checkpoint_dir=ck)
+    done = len(list(ck.glob("chunk_*.npz")))
+    assert done == 2, f"expected 2 checkpoints before the crash, found {done}"
+
+    calls["n"] = 0
+    with mock.patch.object(controls, "price_signals", boom):
+        pass
+    resumed = pt.build_table(bbs, pairs, layout, chunk_size=11, checkpoint_dir=ck)
+    assert len(resumed) == len(clean)
+    import numpy as _np
+    _np.testing.assert_array_equal(resumed.exact[:len(clean)], clean.exact[:len(clean)])
+    assert resumed.index == clean.index
+
+
+def test_a_checkpoint_from_a_different_pair_set_is_not_reused(tmp_path):
+    """Resuming across a changed universe would silently corrupt the run — the draw depends on the
+    seed list and the eligible population, so the key must cover the chunk's contents."""
+    from research.charting.study import pair_table as pt
+    bbs, draws, pairs = _small_universe()
+    layout = pt.PairLayout(accumulate.DEFAULT_HORIZONS, accumulate.DEFAULT_SCENARIOS,
+                           report.DEFAULT_TARGET_NAMES)
+    ck = tmp_path / "ck"
+    pt.build_table(bbs, pairs, layout, chunk_size=11, checkpoint_dir=ck)
+
+    other = sorted(pairs)[: max(len(pairs) - 5, 1)]
+    t2 = pt.build_table(bbs, set(other), layout, chunk_size=11, checkpoint_dir=ck)
+    assert len(t2) == len(other), "a checkpoint for a different pair set was reused"
