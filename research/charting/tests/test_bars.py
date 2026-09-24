@@ -184,9 +184,18 @@ _REAL_DIR = Path(bars.DEFAULT_KITE_DAILY_DIR)
 
 
 @pytest.mark.skipif(not _REAL_DIR.is_dir(), reason="real Kite daily-bars directory not present in this environment")
-def test_real_data_has_2926_symbols():
-    # Independently verified (data-availability.md and this task's own re-derivation via
-    # status.csv's OK count and a direct scan of the part files): 2,926 symbols.
+def test_real_data_symbol_count_is_self_consistent_and_never_shrinks():
+    """Was `== 2926`, a figure re-derived once from status.csv and a part-file scan.
+
+    That count is not a property of the loader, it is a property of the calendar: the corpus is
+    live, and a delta refresh on 2026-09-24 brought ten newly listed symbols and broke this test.
+    Pinning it again would only defer the same failure to the next refresh -- and the danger is that
+    the next person "fixes" it by editing the number without asking why it moved.
+
+    So this asserts what is actually invariant: the two read paths agree with each other, and the
+    universe never falls below the independently verified baseline (new listings only add).
+    """
     prov = bars.provenance()
-    assert prov.symbol_count == 2926
-    assert len(dict(bars.load_all())) == 2926
+    loaded = dict(bars.load_all())
+    assert prov.symbol_count == len(loaded), "provenance disagrees with what load_all returns"
+    assert prov.symbol_count >= 2926, "the universe shrank below the 2026-09-19 verified baseline"
