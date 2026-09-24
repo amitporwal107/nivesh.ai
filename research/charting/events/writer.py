@@ -16,7 +16,9 @@ this module never assumes that specific location, it only writes wherever `out_d
 """
 from __future__ import annotations
 
+import gzip
 import hashlib
+import io
 import json
 import math
 from dataclasses import asdict, is_dataclass
@@ -63,10 +65,30 @@ def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+#: gzip level for `compress=True`. Measured on real pattern-event rows built from real Kite bars
+#: (496 rows, 33.0 MB): -1 gives 15.9x at 379 MB/s, -6 gives 24.8x at 124 MB/s, -9 gives 26.0x at
+#: 63 MB/s. -6 is the knee: -9 buys 4% more for half the speed. The rows compress this well because
+#: every line repeats the same ~350 key names, which is a structural property of the format rather
+#: than of any particular dataset -- so the ratio should hold at scale rather than decay.
+GZIP_LEVEL = 6
+
+
+def _gzip_bytes(data: bytes, level: int = GZIP_LEVEL) -> bytes:
+    """Deterministic gzip: `mtime=0` and a fixed filename, so the same rows always produce the same
+    BYTES. `gzip.compress` stamps the current time into the header, which would make every artifact
+    hash differ between two otherwise identical runs -- and byte-identical output across runs is
+    exactly what §8's kill switch checks.
+    """
+    buf = io.BytesIO()
+    with gzip.GzipFile(filename="", mode="wb", compresslevel=level, fileobj=buf, mtime=0) as f:
+        f.write(data)
+    return buf.getvalue()
+
+
 def write_run(
     rows: Sequence[dict], out_dir, *, segment: str, symbols: Sequence[str], cfg: dict = CONFIG,
     cost_rule_versions: Optional[Sequence[str]] = None, tax_rule_versions: Optional[Sequence[str]] = None,
-    now: Optional[datetime] = None,
+    now: Optional[datetime] = None, compress: bool = False,
 ) -> dict:
     """Write `rows` (already-built event/control rows, any of `extraction`/`controls`' output)
     to `out_dir/events.jsonl`, plus `manifest.json` recording the artifact's SHA-256, the row
@@ -75,13 +97,36 @@ def write_run(
     an existing file at that path is OVERWRITTEN (the "immutable" guarantee is about the
     manifest's own content-hash, not about the directory path being single-use -- callers that
     want a fresh path per run should pass a fresh `out_dir`, e.g. one that embeds `now`).
+
+    `compress=True` writes `events.jsonl.gz` instead (measured 24.8x on real rows). The manifest's
+    `sha256` still hashes the UNCOMPRESSED bytes either way, so a manifest written before and after
+    this option existed compares identically and §8's kill switch is untouched; `compressed_sha256`
+    records the stored bytes separately. Reading it back is `gzip.open(path, "rt")` -- and pandas'
+    `read_json(lines=True)` handles `.gz` natively, so the format note above still holds.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     content = _dump_jsonl(rows)
-    (out_dir / "events.jsonl").write_bytes(content)
     sha = _sha256_bytes(content)
+    if compress:
+        # `sha256` stays the hash of the UNCOMPRESSED bytes. That is deliberate: it is the value
+        # §8's kill switch compares (`integrity.kill_switch_check` hashes `_dump_jsonl(rows)` in
+        # memory, never a file), and it must not change meaning because the artifact on disk is now
+        # compressed. The compressed file's own hash is recorded separately, so the stored bytes are
+        # verifiable too.
+        blob = _gzip_bytes(content)
+        artifact_path = "events.jsonl.gz"
+        (out_dir / artifact_path).write_bytes(blob)
+        artifact = {
+            "path": artifact_path, "sha256": sha, "row_count": len(rows),
+            "compression": "gzip", "compressed_sha256": _sha256_bytes(blob),
+            "bytes": len(content), "compressed_bytes": len(blob),
+        }
+    else:
+        artifact_path = "events.jsonl"
+        (out_dir / artifact_path).write_bytes(content)
+        artifact = {"path": artifact_path, "sha256": sha, "row_count": len(rows)}
 
     now = now or datetime.now(timezone.utc)
     manifest = {
@@ -96,7 +141,7 @@ def write_run(
         "row_count": len(rows),
         "cost_rule_versions": sorted(set(cost_rule_versions)) if cost_rule_versions else [],
         "tax_rule_versions": sorted(set(tax_rule_versions)) if tax_rule_versions else [],
-        "artifacts": [{"path": "events.jsonl", "sha256": sha, "row_count": len(rows)}],
+        "artifacts": [artifact],
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
     return manifest

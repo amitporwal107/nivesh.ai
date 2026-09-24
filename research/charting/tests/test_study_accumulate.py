@@ -465,8 +465,8 @@ def test_step5_the_summarised_run_writes_no_control_rows_at_all(two_runs):
     summ_dir = two_runs["summaries_dir"]
     control_row_files = list(summ_dir.glob("*/comparisons/*/**/events.jsonl"))
     assert control_row_files == [], f"summarised run still wrote control rows: {control_row_files}"
-    assert list(summ_dir.glob("*/comparisons/*/random_control/summaries.jsonl")), "no seed summaries written"
-    assert list(summ_dir.glob("*/comparisons/*/*/summary.json")), "no group summaries written"
+    assert list(summ_dir.glob("*/comparisons/*/random_control/summaries.jsonl*")), "no seed summaries written"
+    assert list(summ_dir.glob("*/comparisons/*/*/summary.json*")), "no group summaries written"
 
     rows_dir = two_runs["rows_dir"]
     assert list(rows_dir.glob("*/comparisons/*/*/events.jsonl")), "the row path should still write rows"
