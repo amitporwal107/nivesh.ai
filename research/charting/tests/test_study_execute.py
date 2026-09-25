@@ -20,6 +20,8 @@ import gzip
 import json
 
 import pandas as pd
+from pathlib import Path
+
 import pytest
 
 from research.charting.events import schema
@@ -86,6 +88,9 @@ def _mixed_segment_universe(tail_len: int = 260) -> dict:
 # ── _git_commit ───────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.skipif(not (Path(execute.__file__).resolve().parents[3] / ".git").exists(),
+                    reason="not a git checkout — the study can run from an exported tree, which is "
+                           "what GIT_COMMIT_ENV covers (see test_git_commit_falls_back_...)")
 def test_git_commit_resolves_the_real_worktree_head():
     import subprocess
 
@@ -97,7 +102,10 @@ def test_git_commit_resolves_the_real_worktree_head():
     assert len(expected) == 40  # a real sha, not a placeholder
 
 
-def test_git_commit_returns_none_for_a_non_git_directory(tmp_path):
+def test_git_commit_returns_none_for_a_non_git_directory(tmp_path, monkeypatch):
+    """Still None with no git AND no env override -- the fallback added 2026-09-25 must not invent
+    a commit, only report one the operator supplied."""
+    monkeypatch.delenv(execute.GIT_COMMIT_ENV, raising=False)
     assert execute._git_commit(tmp_path) is None
 
 
@@ -447,3 +455,20 @@ def test_main_returns_nonzero_on_integrity_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(execute, "execute_study", lambda out_dir, **kwargs: {"status": "INTEGRITY_FAILED", "out_dir": str(out_dir)})
     rc = execute.main(["--out", str(tmp_path / "out")])
     assert rc == 1
+
+
+def test_git_commit_falls_back_to_the_env_var_outside_a_checkout(tmp_path, monkeypatch):
+    """A study run from an exported tree (a purpose-built VM fed a tarball) still has to record
+    WHICH code produced it. Without this the manifest carries `git_commit: null`, and a
+    pre-registered result that cannot name its own code is not reproducible."""
+    monkeypatch.setenv(execute.GIT_COMMIT_ENV, "76eff14dadbb9244d9351aab2d1955a31155aad4")
+    assert execute._git_commit(tmp_path) == "76eff14dadbb9244d9351aab2d1955a31155aad4"
+
+
+def test_a_real_checkout_still_wins_over_the_env_var(monkeypatch):
+    """The fallback must never override git where git can answer -- that would let a stale env var
+    mislabel a run."""
+    monkeypatch.setenv(execute.GIT_COMMIT_ENV, "0000000000000000000000000000000000000000")
+    got = execute._git_commit()
+    if got is not None and got != "0000000000000000000000000000000000000000":
+        assert len(got) == 40      # a real SHA from the real checkout
