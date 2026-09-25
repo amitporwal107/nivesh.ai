@@ -478,3 +478,115 @@ def test_pass_through_blocks_are_not_the_tables_business(real_table, layout):
                                      comparisons=comparisons, move_direction=move)
     assert cell["comparisons"] is comparisons
     assert cell["move_auc"] == 0.7 and cell["direction_reason"] == "R"
+
+
+# ── the whole segment report ────────────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def bars_for_rows():
+    """The same bar frames the fixture's rows were extracted from — `move_direction_auc_report`
+    needs them, and it must see the identical frames or the AUCs diverge for the wrong reason."""
+    from research.charting.tests import _events_helpers as H
+
+    anchor = float(H.confirmed_rectangle_with_runway(tail_len=1)["close"].iloc[-2])
+    specs = [
+        H.confirmed_rectangle_with_runway(tail_len=40),
+        H.confirmed_rectangle_with_runway(tail_closes=[anchor - 0.9 * i for i in range(1, 41)]),
+        H.confirmed_rectangle_bearish_with_runway(tail_len=40),
+        H.confirmed_support_resistance_with_runway(tail_len=40),
+        H.confirmed_hh_hl_with_runway(tail_len=40),
+    ]
+    out = {}
+    for j, bars in enumerate(specs):
+        for i in range(2):
+            scaled = bars.copy()
+            for c in ("open", "high", "low", "close"):
+                scaled[c] = scaled[c] * (1.0 + 0.05 * i)
+            out[f"SYM{j}{i}"] = scaled
+    return out
+
+
+def test_family_and_direction_masks_partition_the_table(real_rows, real_table):
+    """A row lost or double-counted here would change every `n` in the report."""
+    from research.charting.study.pattern_table import direction_mask, family_masks
+
+    fams = family_masks(real_table)
+    assert list(fams) == sorted(fams), "family order is part of the report's output"
+    total = np.zeros(len(real_table), dtype=bool)
+    for m in fams.values():
+        assert not (total & m).any(), "a row is in two families"
+        total |= m
+    assert total.all(), "a row belongs to no family"
+
+    for family, m in fams.items():
+        expected = sum(1 for r in real_rows if (r.get("pattern_type") or NO_CONTEXT) == family)
+        assert int(m.sum()) == expected, family
+        bull = direction_mask(real_table, "BULLISH", m)
+        bear = direction_mask(real_table, "BEARISH", m)
+        assert not (bull & bear).any()
+
+
+def test_move_direction_auc_matches_the_row_path(real_rows, real_table, bars_for_rows):
+    from research.charting.study.pattern_table import table_move_direction_auc_report
+
+    rows = [r for r in real_rows if r.get("pattern_type")]      # the partial ambiguity row has none
+    mask = np.array([bool(r.get("pattern_type")) for r in real_rows], dtype=bool)
+    expected = report.move_direction_auc_report(rows, bars_for_rows)
+    got = table_move_direction_auc_report(real_table, bars_for_rows, subset=mask)
+    assert got == expected
+    assert expected, "no AUC cells — vacuous"
+
+
+def test_a_whole_segment_report_matches_the_row_path(real_rows, real_table, bars_for_rows):
+    """The end of the chain: `build_report` vs `build_report_from_table`, compared with `==`.
+
+    This is the gate that decides whether the run path can switch. Every family, every horizon,
+    every target, both directions, plus the bearish block and the exclusion table.
+    """
+    from research.charting.study.pattern_table import build_report_from_table
+
+    rows = [r for r in real_rows if r.get("pattern_type")]
+    mask = np.array([bool(r.get("pattern_type")) for r in real_rows], dtype=bool)
+    kwargs = dict(segment="post_sealed", bars_by_symbol=bars_for_rows,
+                  exclusion_counts={"data_quality": 3, "demerger_window": 1},
+                  universe_caveats=["c1"], unverified_cost_rates=["r1"],
+                  input_hashes={"bars": "abc"}, prereg_sha256="deadbeef")
+    expected = report.build_report(pattern_rows=rows, **kwargs)
+
+    from research.charting.study import pattern_table as pt
+    sub = pt.PatternTable.from_rows(rows, real_table.layout)
+    got = build_report_from_table(table=sub, **kwargs)
+
+    assert set(got["families"]) == set(expected["families"]), "family set differs"
+    assert got["families"] == expected["families"]
+    assert got == expected
+    assert sum(f["n_total"]["n"] for f in expected["families"].values()) > 0, "vacuous"
+
+
+def test_the_segment_report_matches_with_comparison_groups_attached(real_rows, real_table,
+                                                                    bars_for_rows):
+    """The comparison path is separately injectable, so it needs its own comparison — the pattern
+    side comes from the table while the control side stays rows."""
+    from research.charting.study.pattern_table import build_report_from_table
+
+    rows = [r for r in real_rows if r.get("pattern_type")]
+    priced = [r for r in rows if (r.get("costs") or {}).get("by_horizon")]
+    assert priced, "no priced rows — the comparison block would be empty"
+
+    families = sorted({r["pattern_type"] for r in rows})
+    cg = {fam: {"random_batch": {0: priced, 1: priced[:1]},
+                "atr_decile_rows": priced,
+                "buy_next_open_rows": priced,
+                "nifty_500_return_by_horizon": {h: 0.01 for h in report.HORIZONS}}
+          for fam in families}
+
+    kwargs = dict(segment="post_sealed", bars_by_symbol=bars_for_rows,
+                  exclusion_counts={}, comparison_groups_by_family=cg)
+    expected = report.build_report(pattern_rows=rows, **kwargs)
+
+    from research.charting.study import pattern_table as pt
+    sub = pt.PatternTable.from_rows(rows, real_table.layout)
+    assert build_report_from_table(table=sub, **kwargs) == expected
+
+    any_cell = expected["families"][families[0]]["horizons"][report.HORIZONS[0]]
+    assert any_cell.get("comparisons"), "comparisons were not built — this gate proved nothing"
