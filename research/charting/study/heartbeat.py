@@ -27,12 +27,16 @@ the same things `study_manifest.json` already records — not results.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
+
+
+logger = logging.getLogger(__name__)
 
 
 class ResourceGuard(Exception):
@@ -121,12 +125,14 @@ class Heartbeat:
 
     # ── narrative ───────────────────────────────────────────────────────────────────────────────
 
-    def log(self, message: str) -> None:
-        line = f"{_now()}  {message}"
+    def log(self, message: str, level: int = logging.INFO) -> None:
+        """The run narrative. Goes to the module logger (levels, routing, redaction) AND to
+        `run.log` beside the artefacts, so the narrative ships with the results to GCS even when
+        the process log is collected elsewhere."""
         with open(self.log_path, "a") as f:
-            f.write(line + "\n")
+            f.write(f"{_now()}  {message}\n")
         if self.echo:
-            print(line, flush=True)
+            logger.log(level, "%s", message)
 
     def stage(self, name: str) -> None:
         """Close the previous stage (recording how long it really took) and open a new one."""
@@ -144,7 +150,7 @@ class Heartbeat:
         self.log(f"  {key} = {value}")
         self._write(force=True)
 
-    def progress(self, done: int, total: int, unit: str = "") -> None:
+    def progress(self, done: int, total: int, unit: str = "") -> None:   # noqa: D401
         """Throttled — called per chunk, so it must not itself become the cost."""
         self._done, self._total, self._unit = done, total, unit
         if time.time() - self._last_write < self.throttle and done < total:
@@ -182,7 +188,7 @@ class Heartbeat:
         if condition:
             self.log(f"  [gate OK] {name}" + (f" — {detail}" if detail else ""))
             return
-        self.log(f"  [GATE FAILED] {name} — {detail}")
+        self.log(f"  [GATE FAILED] {name} — {detail}", level=logging.ERROR)
         raise FailFast(f"{name}: {detail}")
 
     # ── status file ─────────────────────────────────────────────────────────────────────────────

@@ -79,10 +79,32 @@ def percentile_rank(value: Optional[float], distribution: Sequence[float]) -> Op
 # ── Row-field accessors (defensive: a BEARISH / unavailable row returns None, never raises) ──
 
 
+class HorizonKeyError(KeyError):
+    """A priced row whose `by_horizon` map does not contain a horizon it should.
+
+    This exists because the failure it catches is SILENT. `by_h.get(horizon)` returning `None`
+    reads exactly like "this row has no priced trade", so a key-type corruption -- an int horizon
+    arriving as the string "5", which is what a JSON round trip does -- makes every lookup miss and
+    the study compute empty statistics from a full dataset, with no error anywhere. That is a
+    confident wrong answer, which is worse than a crash. Encountered for real on 2026-09-25 in a
+    JSON-backed extraction cache.
+    """
+
+
 def _horizon_cost_scenario(row: Mapping, horizon: int, scenario: str = "base") -> Optional[dict]:
     costs = row.get("costs") or {}
-    by_h = costs.get("by_horizon") or {}
-    block = by_h.get(horizon)
+    by_h = costs.get("by_horizon")
+    if not by_h:
+        # Legitimately absent: a BEARISH row prices no trade, so `by_horizon` is None. Distinct
+        # from "the map exists but this horizon is missing", which is the corruption below.
+        return None
+    if horizon not in by_h:
+        raise HorizonKeyError(
+            f"horizon {horizon!r} ({type(horizon).__name__}) absent from by_horizon with keys "
+            f"{sorted(by_h)[:8]} ({type(next(iter(by_h))).__name__}) -- key-type corruption, not "
+            f"missing data"
+        )
+    block = by_h[horizon]
     if not block or not block.get("available"):
         return None
     return (block.get("scenarios") or {}).get(scenario)
@@ -111,7 +133,15 @@ def _target_horizon_block(row: Mapping, target_name: str, horizon: int) -> Optio
     t = targets.get(target_name)
     if not t:
         return None
-    block = (t.get("by_horizon") or {}).get(horizon)
+    by_h = t.get("by_horizon")
+    if not by_h:
+        return None
+    if horizon not in by_h:                     # same silent-miss guard as the cost block above
+        raise HorizonKeyError(
+            f"horizon {horizon!r} absent from targets[{target_name!r}].by_horizon with keys "
+            f"{sorted(by_h)[:8]} -- key-type corruption, not missing data"
+        )
+    block = by_h[horizon]
     if not block or not block.get("available"):
         return None
     return block
@@ -717,3 +747,36 @@ def render_markdown(report: Mapping) -> str:
             lines.append("")
 
     return "\n".join(lines)
+
+
+def assert_statistics_are_not_vacuous(rows: Sequence[Mapping], cells: Mapping,
+                                      *, label: str = "") -> None:
+    """Fail when a non-empty, priceable dataset produced statistics over zero observations.
+
+    This is the general form of the guard above, and it is the one that matters. `HorizonKeyError`
+    catches the key-type corruption already seen; this catches the whole CLASS -- a column-name
+    typo, a filter that silently matches nothing, a dtype change, a units mismatch -- by asserting
+    the one thing that must always hold:
+
+        if rows carry priced cost blocks, at least one cell must have n > 0.
+
+    Without it, every such bug produces a complete-looking report full of nulls, which reads as
+    "the patterns did nothing" rather than "the pipeline is broken". Those two conclusions are
+    opposite and a reader cannot tell them apart.
+    """
+    if not rows:
+        return
+    priceable = sum(1 for r in rows if (r.get("costs") or {}).get("by_horizon"))
+    if not priceable:
+        return                                  # genuinely nothing to price (e.g. all BEARISH)
+    observed = 0
+    for by_scenario in cells.values():
+        for cell in (by_scenario.values() if isinstance(by_scenario, Mapping) else []):
+            if isinstance(cell, Mapping) and (cell.get("n") or 0) > 0:
+                observed += 1
+    if observed == 0:
+        raise ValueError(
+            f"{label or 'dataset'}: {len(rows)} rows, {priceable} carrying priced cost blocks, but "
+            f"every computed cell has n=0. That is a pipeline defect, not a result -- a report of "
+            f"nulls would read as 'no effect' rather than 'nothing was measured'."
+        )

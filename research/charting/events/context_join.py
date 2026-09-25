@@ -48,6 +48,8 @@ own return shape (and its ~30 passing tests) completely untouched.
 """
 from __future__ import annotations
 
+import gc
+import logging
 import multiprocessing
 from typing import Any, Mapping, Optional
 
@@ -186,6 +188,8 @@ def attach_to_event_rows_for_symbol(
 # inherited via copy-on-write rather than pickled through the task queue.
 
 
+logger = logging.getLogger(__name__)
+
 _JOIN_CTX: dict = {}
 
 
@@ -205,7 +209,7 @@ def _join_worker(symbol: str) -> tuple:
 def attach_to_event_rows_by_symbol(
     rows_by_symbol: Mapping[str, list], bars_by_symbol: Mapping[str, pd.DataFrame], *, cfg: dict = CONFIG,
     benchmark_df: Optional[pd.DataFrame] = None, vix_df: Optional[pd.DataFrame] = None,
-    breadth_df: Optional[pd.DataFrame] = None, max_workers: int = 1,
+    breadth_df: Optional[pd.DataFrame] = None, max_workers: int = 1, consume: bool = False,
 ) -> dict:
     """`{symbol: enriched_rows}` for every symbol in `rows_by_symbol` (only symbols that HAVE
     rows -- a symbol absent from `rows_by_symbol` is never looked up in `bars_by_symbol` and
@@ -236,17 +240,46 @@ def attach_to_event_rows_by_symbol(
             for symbol in symbols
         }
 
+    # MEMORY (measured 2026-09-25, after two OOM kills at a 50 GB peak on a 62 GB host):
+    #
+    # The previous shape held every original row alive for the whole join and then materialised
+    # every enriched row before returning, so both sets coexisted:
+    #   * `_JOIN_CTX` kept `rows_by_symbol` in a MODULE GLOBAL until the `finally` -- a reference no
+    #     caller could drop, which defeated dropping the caller's own references;
+    #   * `pool.map` collected all results before `dict()` ran.
+    #
+    # Now the parent hands ownership over symbol by symbol (`pop`) and consumes results as they
+    # arrive, so an original is freed once its enriched replacement exists. `consume=True` is opt-in
+    # because it EMPTIES `rows_by_symbol`; callers that still need it pass the default.
     global _JOIN_CTX
+    source = rows_by_symbol if consume else dict(rows_by_symbol)
     _JOIN_CTX = dict(
-        rows_by_symbol=rows_by_symbol, bars_by_symbol=bars_by_symbol, cfg=cfg,
+        rows_by_symbol=source, bars_by_symbol=bars_by_symbol, cfg=cfg,
         benchmark_df=benchmark_df, vix_df=vix_df, breadth_df=breadth_df,
     )
+    results: dict = {}
     try:
         ctx = multiprocessing.get_context("fork")
-        with ctx.Pool(processes=min(max_workers, len(symbols))) as pool:
-            results = dict(pool.map(_join_worker, symbols))
+        # Inherited objects are never collected in the children, and a GC pass would write to their
+        # headers and copy-on-write the pages. Freezing before the fork keeps them shared.
+        gc.freeze()
+        try:
+            with ctx.Pool(processes=min(max_workers, len(symbols))) as pool:
+                done = 0
+                for symbol, enriched in pool.imap_unordered(_join_worker, symbols, chunksize=1):
+                    results[symbol] = enriched
+                    if consume:
+                        source.pop(symbol, None)     # the parent's copy of the originals goes here
+                    done += 1
+                    if done % 200 == 0:
+                        gc.collect()
+                        logger.debug("context join: %d/%d symbols enriched", done, len(symbols))
+        finally:
+            gc.unfreeze()
     finally:
         _JOIN_CTX = {}
+    logger.info("context join: %d symbols enriched, %d rows",
+                len(results), sum(len(v) for v in results.values()))
     return results
 
 
