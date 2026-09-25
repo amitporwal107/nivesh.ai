@@ -11,10 +11,16 @@ from __future__ import annotations
 from datetime import date
 
 from nidp.services.event_lifecycle.lifecycle import (BUYBACK, QIP_PREF,
-                                                     classify_family,
+                                                     SOURCE_DESCRIPTION,
+                                                     SOURCE_DOCUMENT,
+                                                     SOURCE_NONE, SOURCE_RANK,
+                                                     SOURCE_SUBJECT,
+                                                     UNRESOLVED, classify_family,
                                                      classify_stage,
                                                      group_transactions,
-                                                     is_confounded)
+                                                     is_confounded,
+                                                     is_lifecycle_ready,
+                                                     resolve_stage)
 
 
 # ── family ───────────────────────────────────────────────────────────
@@ -83,17 +89,53 @@ def test_most_specific_stage_wins():
                           "The Board Of Directors - Buyback Of Shares") == "APPROVED"
 
 
-def test_a_bare_subject_is_update_not_a_guess():
+def test_a_bare_subject_is_unresolved_not_a_stage():
     """NSE files this literally as 'Buyback' for every stage of the offer, so
-    there is nothing to read. UPDATE says 'in-family, stage unknown' — inventing
-    a stage here would put filings in the wrong lifecycle position."""
-    assert classify_stage("Buyback") == "UPDATE"
+    the stage genuinely cannot be read. UNRESOLVED keeps it out of lifecycle
+    statistics; calling it UPDATE would make it indistinguishable from a filing
+    positively classified as an update."""
+    assert classify_stage("Buyback") == UNRESOLVED
     assert classify_stage("Announcement under Regulation 30 (LODR)-"
-                          "Preferential Issue") == "UPDATE"
+                          "Preferential Issue") == UNRESOLVED
+    assert classify_stage("") == UNRESOLVED
 
 
-def test_unknown_for_no_text():
-    assert classify_stage("") == "UNKNOWN"
+def test_a_real_update_filing_is_distinguishable_from_unresolved():
+    """'Updates on Buyback Offer' is a genuine filing type. It must be a
+    POSITIVE match, not the fallback, or the two collapse together."""
+    assert classify_stage("Updates on Buyback Offer") == "UPDATE"
+    assert classify_stage("Updates On Open Offer") == "UPDATE"
+    assert classify_stage("Buyback") != "UPDATE"
+
+
+# ── provenance ───────────────────────────────────────────────────────
+def test_stage_records_the_weakest_input_that_sufficed():
+    r = resolve_stage("Intimation Of Record Date For Buyback")
+    assert (r.stage, r.source) == ("RECORD_DATE", SOURCE_SUBJECT)
+
+
+def test_falls_through_to_description_then_document():
+    r = resolve_stage("Announcement under Regulation 30 (LODR)-Preferential Issue",
+                      description="Outcome of Board meeting approving the "
+                                  "Preferential issue")
+    assert (r.stage, r.source) == ("APPROVED", SOURCE_DESCRIPTION)
+    r = resolve_stage("Preferential Issue", description=None,
+                      document="Despatch of the letter of offer to shareholders")
+    assert (r.stage, r.source) == ("OFFER_OPEN", SOURCE_DOCUMENT)
+
+
+def test_unresolved_carries_no_source():
+    r = resolve_stage("Preferential Issue", description="please find attached")
+    assert (r.stage, r.source) == (UNRESOLVED, SOURCE_NONE)
+
+
+# ── family readiness gate ────────────────────────────────────────────
+def test_only_buyback_is_lifecycle_ready():
+    """QIP is persisted but must not feed a cohort until its stages can be read
+    from documents. The gate makes that a rule, not a convention."""
+    assert is_lifecycle_ready(BUYBACK)
+    assert not is_lifecycle_ready(QIP_PREF)
+    assert not is_lifecycle_ready(None)
 
 
 # ── confounding (PRD 7.5) ────────────────────────────────────────────
@@ -165,3 +207,25 @@ def test_grouping_does_not_depend_on_input_order():
     a = {r["filed_on"]: r["txn_ordinal"] for r in group_transactions([early, late])}
     b = {r["filed_on"]: r["txn_ordinal"] for r in group_transactions([late, early])}
     assert a == b
+
+
+def test_python_and_sql_agree_on_the_provenance_ordering():
+    """The rank exists twice: lifecycle.SOURCE_RANK and nidp.stage_source_rank()
+    in migration 155. The writer's guard uses the SQL one and the classifier the
+    Python one, so a drift between them would silently let a weaker source
+    overwrite a stronger stage. Parse the migration and assert they match."""
+    import re
+    from pathlib import Path
+
+    sql = (Path(__file__).resolve().parents[2]
+           / "migrations" / "155_corporate_transactions.sql").read_text()
+    body = re.search(r"CREATE OR REPLACE FUNCTION nidp\.stage_source_rank"
+                     r".*?AS \$\$(.*?)\$\$", sql, re.S).group(1)
+    from_sql = {m.group(1): int(m.group(2))
+                for m in re.finditer(r"WHEN '(\w+)'\s+THEN (\d+)", body)}
+    from_sql[SOURCE_NONE] = 0  # the ELSE branch
+    assert len(from_sql) == 4, f"parsed {from_sql} -- regex missed the CASE body"
+
+    assert from_sql == SOURCE_RANK
+    assert SOURCE_RANK[SOURCE_DOCUMENT] > SOURCE_RANK[SOURCE_DESCRIPTION] \
+        > SOURCE_RANK[SOURCE_SUBJECT] > SOURCE_RANK[SOURCE_NONE]

@@ -17,6 +17,7 @@ specification. The exclusions matter as much as the matches — see EXCLUDE_*.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import date
 from typing import Any, Iterable, Optional
 
@@ -79,18 +80,66 @@ _STAGE_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
                                 r"shareholders.{0,20}approv", re.I)),
     ("PROPOSED",     re.compile(r"board meeting intimation|advance intimation|"
                                 r"prior intimation|proposal (for|of)", re.I)),
+    # A POSITIVE update filing ("Updates on Buyback Offer"), not the fallback.
+    # Keeping these apart is the point: if an unresolved stage were also called
+    # UPDATE, a filing the classifier could not read would be indistinguishable
+    # from one it positively classified, and both would enter lifecycle
+    # statistics as if known.
+    ("UPDATE",       re.compile(r"^updates? on|updates? (on|regarding|in respect of)\b", re.I)),
 )
+
+# The fallback. Never a stage — an explicit "we could not tell".
+UNRESOLVED = "UNRESOLVED"
 
 
 def classify_stage(text: str) -> str:
-    """Lifecycle stage of one filing. UPDATE when it is clearly in-family but
-    carries no stage marker (e.g. NSE's bare subject 'Buyback')."""
+    """Lifecycle stage of one filing, or UNRESOLVED.
+
+    UNRESOLVED is not a stage. NSE files the bare subject "Buyback" for every
+    step of an offer, and BSE files "Announcement under Regulation 30 (LODR)-
+    Preferential Issue" for most of a QIP, so for those the stage genuinely
+    cannot be read from this text. Saying UNRESOLVED keeps them out of
+    lifecycle statistics instead of quietly placing them at a stage.
+    """
     if not text:
-        return "UNKNOWN"
+        return UNRESOLVED
     for stage, rx in _STAGE_RULES:
         if rx.search(text):
             return stage
-    return "UPDATE"
+    return UNRESOLVED
+
+
+# Provenance: which input produced the stage. Ordered weakest to strongest, so
+# a later pass over parsed documents upserts over a metadata-derived value
+# rather than competing with it.
+SOURCE_NONE, SOURCE_SUBJECT, SOURCE_DESCRIPTION, SOURCE_DOCUMENT = (
+    "none", "subject", "description", "document")
+SOURCE_RANK = {SOURCE_NONE: 0, SOURCE_SUBJECT: 1,
+               SOURCE_DESCRIPTION: 2, SOURCE_DOCUMENT: 3}
+
+
+@dataclass(frozen=True)
+class StageResult:
+    stage: str
+    source: str
+
+
+def resolve_stage(subject: Optional[str], description: Optional[str] = None,
+                  document: Optional[str] = None) -> StageResult:
+    """Best stage available, and which input produced it.
+
+    Tries the cheapest source first and stops at the first that resolves, so
+    the recorded source is the weakest input that sufficed. A later document
+    pass can then upsert only where SOURCE_RANK improves.
+    """
+    for text, src in ((subject, SOURCE_SUBJECT),
+                      (description, SOURCE_DESCRIPTION),
+                      (document, SOURCE_DOCUMENT)):
+        if text:
+            stage = classify_stage(text)
+            if stage != UNRESOLVED:
+                return StageResult(stage, src)
+    return StageResult(UNRESOLVED, SOURCE_NONE)
 
 
 # Results season bundles announcements: "Consideration And Approval Of The
@@ -143,3 +192,25 @@ def group_transactions(rows: Iterable[dict[str, Any]],
         r["txn_ordinal"] = ordinal
         prev_key, prev_date = key, r["filed_on"]
     return out
+
+
+# ── family readiness (cohort gate) ───────────────────────────────────
+# A family is lifecycle_ready only when its stages can actually be read. On
+# 2026-09-25, measured over every filing resolving to an NSE symbol:
+#
+#     BUYBACK   64% staged from metadata  (54 of 151 UNRESOLVED)
+#     QIP_PREF  33% staged from metadata  (180 of 245 UNRESOLVED)
+#
+# QIP subjects are mostly the bare category name and description recovers only
+# 15 of those 180, so the stage lives in the attachment. QIP is persisted —
+# honestly incomplete — but must not feed a cohort until document_parser is
+# wired in and the gold set is extended. The cohort builder checks this flag so
+# the exclusion is a rule, not something everyone has to remember.
+LIFECYCLE_READY: dict[str, bool] = {
+    BUYBACK: True,
+    QIP_PREF: False,     # flip after document stages are backfilled + gold-set
+}
+
+
+def is_lifecycle_ready(family: Optional[str]) -> bool:
+    return bool(family) and LIFECYCLE_READY.get(family, False)
