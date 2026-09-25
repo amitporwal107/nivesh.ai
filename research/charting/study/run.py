@@ -30,6 +30,9 @@ Assembles, in order:
 """
 from __future__ import annotations
 
+import gc
+import logging
+
 import hashlib
 import json
 from pathlib import Path
@@ -45,6 +48,9 @@ from research.charting.events import context_join, costs_bridge, pipeline, schem
 
 # §2: "If the detector config_hash at run time differs from the value above, the run is
 # invalid under this document."
+
+logger = logging.getLogger(__name__)
+
 FROZEN_CONFIG_HASH = "05167d3ae57f18602b8761ee21de311f5ffb96c428a16df5c119678a748514cf"
 
 PREREG_PATH = Path(__file__).resolve().parents[3] / "docs" / "ai_research" / "CHARTING_PREREGISTRATION_V1.md"
@@ -251,6 +257,7 @@ def build_segment(
     attach_context: bool = False, out_dir=None, now=None,
     input_file_hashes: Optional[Sequence[dict]] = None, max_workers: int = 1,
     compress_events: bool = False, extraction_cache_dir=None, progress=None,
+    join_max_workers: Optional[int] = None,
 ) -> dict:
     """One segment's full §3 pipeline: universe rule -> data-quality exclusion -> demerger
     hook -> `events.pipeline.build_event_dataset` (own segment-bound guard) -> optional
@@ -299,17 +306,44 @@ def build_segment(
         result["rows"], filtered_bars, findings,
         lookback_bars=cfg["maximum_pattern_length"], forward_bars=1 + max(schema.HORIZONS),
     )
+    # `result["rows"]` is not needed again, and holding it doubles peak memory through the context
+    # join below: the join runs in forked workers that PICKLE ENRICHED COPIES BACK, so the original
+    # and enriched sets coexist. Measured 2026-09-25: the run peaked at 50 GB and was OOM-killed
+    # twice on a 62 GB host. Dropping the reference here lets the originals be collected as the
+    # enriched rows arrive. `rows` still holds everything that survived the exclusion filter.
+    result["rows"] = None
+    n_rows_in = len(rows)
+
     for row in rows:
         row["base_symbol"] = base_symbol(row["symbol"])
 
     if attach_context:
+        logger.info("context join: %d rows across %d symbols, %d workers",
+                    n_rows_in, len({r["symbol"] for r in rows}), max_workers)
         rows_by_symbol: dict = {}
         for r in rows:
             rows_by_symbol.setdefault(r["symbol"], []).append(r)
+        # `rows` and `rows_by_symbol` hold the SAME objects, so dropping the flat list alone frees
+        # nothing. `consume=True` makes the join pop each symbol as its enriched replacement
+        # arrives, which is the only point at which an original can actually be released.
+        del rows
+        # FEWER WORKERS THAN EXTRACTION, DELIBERATELY. Extraction is CPU-bound on small inputs and
+        # scales with cores; the context join carries the whole enriched row set through forked
+        # workers, whose private copy-on-write pages all count against the cgroup. Measured
+        # 2026-09-25: at 8 workers the unit climbed ~2 GB/min past 37 GB with no plateau, having
+        # already been OOM-killed twice at 50 GB. Memory here is bounded by worker count, not by
+        # core count, so this is capped independently.
+        join_workers = max(1, min(join_max_workers or max(1, max_workers // 3), max_workers))
+        logger.info("context join: %d symbols, %d workers (extraction used %d)",
+                    len(rows_by_symbol), join_workers, max_workers)
         enriched_by_symbol = context_join.attach_to_event_rows_by_symbol(
-            rows_by_symbol, filtered_bars, cfg=cfg, max_workers=max_workers,
+            rows_by_symbol, filtered_bars, cfg=cfg, max_workers=join_workers, consume=True,
         )
+        del rows_by_symbol                      # emptied by the join; this drops the husk
         rows = [r for symbol in sorted(enriched_by_symbol) for r in enriched_by_symbol[symbol]]
+        del enriched_by_symbol                  # `rows` now owns them; this is references only
+        gc.collect()
+        logger.info("context join complete: %d rows", len(rows))
 
     manifest = None
     if out_dir is not None:
