@@ -399,3 +399,82 @@ def test_per_symbol_encode_write_load_concat_equals_the_row_path(real_rows, layo
         for t in layout.targets:
             assert table_hit_rate_table(merged, t, h) == report.hit_rate_table(ordered, t, h)
     assert compared > 0, "the merged table priced nothing — vacuous"
+
+
+# ── a whole (family, horizon) cell ──────────────────────────────────────────────────────────────
+
+def test_atr_pct_matches_the_row_path_including_the_non_positive_price_guard(real_rows, real_table):
+    """`report.atr_pct_for_row` returns None for a non-positive price. Dropping that guard would
+    put rows in a volatility bucket the row path leaves out."""
+    from research.charting.study.pattern_table import table_atr_pct
+
+    got = table_atr_pct(real_table)
+    for i, row in enumerate(real_rows):
+        expected = report.atr_pct_for_row(row)
+        if expected is None:
+            assert np.isnan(got[i]), f"row {i}: expected no value, got {got[i]}"
+        else:
+            assert got[i] == expected, f"row {i}"
+
+
+def test_segment_masks_match_the_row_path_on_every_dimension(real_rows, real_table):
+    from research.charting.study.pattern_table import table_segment_masks
+
+    for dim in report.SEGMENTATION_DIMENSIONS:
+        expected = {label: {r.get("event_id") for r in rows}
+                    for label, rows in report.segment_rows(real_rows, dimension=dim).items()}
+        got = {label: {real_table.event_id[i] for i in np.flatnonzero(mask)}
+               for label, mask in table_segment_masks(real_table, dimension=dim).items()}
+        assert got == expected, dim
+
+
+def test_atr_terciles_are_computed_within_the_subset_not_across_everything(real_table):
+    """The row path segments a cell's BULLISH rows only, so the in-sample tercile edges are taken
+    over that subset. Computing them over every row would shift every boundary — and still produce
+    a full, plausible-looking table."""
+    from research.charting.study.pattern_table import bullish_mask, table_segment_masks
+
+    bull = bullish_mask(real_table)
+    within = table_segment_masks(real_table, dimension="atr_bucket", subset=bull)
+    across = table_segment_masks(real_table, dimension="atr_bucket")
+    assert all(not (m & ~bull).any() for m in within.values()), "a subset mask escaped its subset"
+    assert sum(int(m.sum()) for m in within.values()) == int(bull.sum())
+    assert across != within or int(bull.sum()) == len(real_table)
+
+
+def test_segmentation_report_matches_the_row_path(real_rows, real_table, layout):
+    from research.charting.study.pattern_table import bullish_mask, table_segmentation_report
+
+    bullish_rows = [r for r in real_rows if r.get("direction") == "BULLISH"]
+    bull = bullish_mask(real_table)
+    for h in layout.horizons:
+        expected = report.segmentation_report(bullish_rows, h, target_name=layout.targets[0])
+        got = table_segmentation_report(real_table, h, target_name=layout.targets[0], subset=bull)
+        assert got == expected, f"horizon={h}"
+
+
+def test_a_whole_family_horizon_cell_matches_the_row_path(real_rows, real_table, layout):
+    """The end of the equivalence chain: everything `build_family_horizon_cell` computes from
+    pattern rows, produced from columns instead, compared with `==`."""
+    from research.charting.study.pattern_table import table_family_horizon_cell
+
+    compared = 0
+    for h in layout.horizons:
+        expected = report.build_family_horizon_cell(real_rows, h)
+        assert table_family_horizon_cell(real_table, h) == expected, f"horizon={h}"
+        compared += expected["n"]["n"]
+    assert compared > 0, "every cell was empty — this gate compared nothing"
+
+
+def test_pass_through_blocks_are_not_the_tables_business(real_table, layout):
+    """Comparison groups are CONTROL rows and the AUC block comes from movement.py. Both must pass
+    through untouched rather than be recomputed from this table."""
+    from research.charting.study.pattern_table import table_family_horizon_cell
+
+    comparisons = {"random_200_seed": {"sentinel": 1}}
+    move = {"move_auc": 0.7, "move_n": 5, "move_reason": None,
+            "direction_auc": 0.5, "direction_n": 5, "direction_reason": "R"}
+    cell = table_family_horizon_cell(real_table, layout.horizons[0],
+                                     comparisons=comparisons, move_direction=move)
+    assert cell["comparisons"] is comparisons
+    assert cell["move_auc"] == 0.7 and cell["direction_reason"] == "R"
