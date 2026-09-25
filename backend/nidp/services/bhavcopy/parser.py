@@ -206,3 +206,79 @@ def parse_bse_scrip_isin(body: bytes) -> dict[str, str]:
         if code and isin.startswith("IN"):
             out.setdefault(code, isin)
     return out
+
+
+def parse_bse_scrip_master(body: bytes) -> list[dict[str, Any]]:
+    """Full {scrip_code, isin, ticker, group, name} rows from a BSE bhavcopy.
+
+    parse_bse_scrip_isin() above keeps only the scrip→ISIN pair, because that
+    is all the delivery gap-fill bridge needs. Three more columns in the same
+    file are worth persisting per day (migration 153):
+
+      TckrSymb    BSE's own ticker — lets a filing resolve without an ISIN
+      SctySrs     the trading/surveillance group ON THAT DAY (A, B, X, XT,
+                  T, Z, M, …). X/XT/T/Z are trade-for-trade or restricted,
+                  so this decides whether a fill was possible at all. It is
+                  revised by surveillance and is NOT recoverable afterwards.
+      FinInstrmNm the company name as filed that day, so renames are dated
+
+    Returns [] if the file is not in the SEBI layout, matching
+    parse_bse_scrip_isin()'s contract. Rows without a scrip code are skipped;
+    a row with a missing or malformed ISIN is KEPT with isin=None, because the
+    scrip still traded that day and its absence from a later file is the
+    delisting signal.
+    """
+    text = body.decode("utf-8", errors="replace")
+    reader = csv.reader(io.StringIO(text))
+    try:
+        header = next(reader)
+    except StopIteration:
+        return []
+    h = {c.strip(): i for i, c in enumerate(header)}
+    if "FinInstrmId" not in h or "ISIN" not in h:
+        logger.warning("BSE scrip master: no FinInstrmId/ISIN columns; got %s",
+                       list(h)[:12])
+        return []
+
+    def cell(row: list[str], name: str) -> Optional[str]:
+        i = h.get(name)
+        if i is None or len(row) <= i:
+            return None
+        v = (row[i] or "").strip()
+        return v or None
+
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in reader:
+        # Same equity filter as format B above — keep F&O rows out.
+        tp = (cell(row, "FinInstrmTp") or "").upper()
+        sgmt = (cell(row, "Sgmt") or "").upper()
+        if tp and tp not in {"STK", "EQ"}:
+            continue
+        if sgmt and sgmt != "CM":
+            continue
+        code = cell(row, "FinInstrmId")
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        isin = cell(row, "ISIN")
+        out.append({
+            "scrip_code": code,
+            "isin": isin if (isin or "").startswith("IN") else None,
+            "bse_ticker": cell(row, "TckrSymb"),
+            "bse_group": cell(row, "SctySrs"),
+            "company_name": cell(row, "FinInstrmNm"),
+        })
+    return out
+
+
+def looks_like_html(body: bytes) -> bool:
+    """True when BSE answered with its landing page instead of a bhavcopy.
+
+    BSE returns HTTP 200 and an HTML document for a non-trading day rather
+    than a 404. A caller that treats that as a parse failure would bury
+    genuine failures among the ~15 exchange holidays a year, so it is worth
+    telling the two apart explicitly.
+    """
+    head = body[:400].lstrip().lower()
+    return head.startswith(b"<!doctype html") or head.startswith(b"<html")
