@@ -250,7 +250,7 @@ def build_segment(
     calendars: Optional[Mapping[str, Sequence]] = None, exclusion_mask_is_default: Optional[bool] = None,
     attach_context: bool = False, out_dir=None, now=None,
     input_file_hashes: Optional[Sequence[dict]] = None, max_workers: int = 1,
-    compress_events: bool = False,
+    compress_events: bool = False, extraction_cache_dir=None, progress=None,
 ) -> dict:
     """One segment's full §3 pipeline: universe rule -> data-quality exclusion -> demerger
     hook -> `events.pipeline.build_event_dataset` (own segment-bound guard) -> optional
@@ -290,7 +290,10 @@ def build_segment(
         exclusion_mask is no_exclusions and segmenter is no_segments
     )
 
-    result = pipeline.build_event_dataset(filtered_bars, segment=segment, cfg=cfg, cost_cfg=cost_cfg, max_workers=max_workers)
+    result = pipeline.build_event_dataset(
+        filtered_bars, segment=segment, cfg=cfg, cost_cfg=cost_cfg, max_workers=max_workers,
+        cache_dir=extraction_cache_dir, progress=progress,
+    )
     findings = data_quality_findings(filtered_bars, calendar=calendar)
     rows, dq = data_quality_event_exclusions(
         result["rows"], filtered_bars, findings,

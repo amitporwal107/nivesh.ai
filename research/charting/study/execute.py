@@ -70,7 +70,9 @@ from research.charting import universe as universe_mod
 from research.charting.config import CONFIG
 from research.charting.events import controls, costs_bridge, schema, writer
 from research.charting.research_window import SealedWindowError
-from research.charting.study import accumulate, integrity, remote_store, report
+from research.charting.study import accumulate, heartbeat as hb_mod, integrity
+from research.charting.study import pair_table as pt_mod
+from research.charting.study import remote_store, report
 from research.charting.study import run as study_run
 from research.corporate_actions.regime import regime_break_mask, regime_segments
 
@@ -205,6 +207,7 @@ def build_family_comparison_groups(
     atr_decile_seed: int = 0, benchmark_df: pd.DataFrame, horizons: Sequence[int] = schema.HORIZONS,
     max_workers: int = 1, summarise_controls: bool = False,
     control_row_check: Optional[Callable[[Mapping], None]] = None,
+    columnar: bool = False, checkpoint_dir=None, heartbeat=None,
 ) -> dict:
     """One segment's §7.6 comparison groups, per pattern family present in `rows`:
     `{family: {"random_batch", "atr_decile_rows", "buy_next_open_rows",
@@ -259,15 +262,45 @@ def build_family_comparison_groups(
 
     # Phase 2 -- price the UNION of every pair any family's draw needs, exactly once, optionally
     # across a by-symbol worker pool (see block above / `controls.price_signals`'s own docstring).
-    all_pairs: set = set()
+    random_pairs: set = set()
+    other_pairs: set = set()
     for draws in per_family_draws.values():
         for picks in draws["random"].values():
-            all_pairs.update(picks)
+            random_pairs.update(picks)
         for _ev, picks in draws["atr_decile"]:
-            all_pairs.update(picks)
+            other_pairs.update(picks)
         for _ev, pick in draws["buy_next_open"]:
-            all_pairs.add(pick)
-    priced = controls.price_signals(bars_by_symbol, all_pairs, cfg=cfg, cost_cfg=cost_cfg, max_workers=max_workers)
+            other_pairs.add(pick)
+
+    if columnar:
+        # Only the random control's union saturates the eligible population (~100% at 1,000 seeds,
+        # measured), so it is the only group that cannot be a dict of priced signals. It goes
+        # through the columnar table -- chunked, encoded, fat objects dropped -- and WITHOUT the
+        # target walk, which is 88% of pricing and feeds only figures nothing reads. The other two
+        # groups are bounded by the family's own event count, so they are priced normally and keep
+        # their full blocks.
+        layout = pt_mod.PairLayout(schema.HORIZONS, accumulate.DEFAULT_SCENARIOS,
+                                   report.DEFAULT_TARGET_NAMES)
+        if heartbeat is not None:
+            heartbeat.stage("pricing random control (columnar)")
+            heartbeat.note("random_control_pairs", len(random_pairs))
+        table = pt_mod.build_table(
+            bars_by_symbol, random_pairs, layout, cfg=cfg, cost_cfg=cost_cfg,
+            max_workers=max_workers, row_check=control_row_check, with_targets=False,
+            checkpoint_dir=checkpoint_dir,
+            progress=(lambda d, n: (heartbeat.progress(d, n, "pairs"), heartbeat.check_resources()))
+            if heartbeat is not None else None,
+        )
+        if heartbeat is not None:
+            heartbeat.stage("pricing atr-decile + buy-next-open")
+            heartbeat.note("other_control_pairs", len(other_pairs))
+        priced = controls.price_signals(bars_by_symbol, other_pairs, cfg=cfg, cost_cfg=cost_cfg,
+                                        max_workers=max_workers)
+    else:
+        table = None
+        all_pairs = random_pairs | other_pairs
+        priced = controls.price_signals(bars_by_symbol, all_pairs, cfg=cfg, cost_cfg=cost_cfg,
+                                        max_workers=max_workers)
 
     # Phase 3 -- assemble (pure dict lookups, always serial: see block above).
     #
@@ -291,7 +324,15 @@ def build_family_comparison_groups(
         }
         atr_rows = controls.assemble_atr_decile_control_rows(bars_by_symbol, draws["atr_decile"], priced, cfg=cfg)
         bno_rows = controls.assemble_buy_next_open_baseline_rows(bars_by_symbol, draws["buy_next_open"], priced, cfg=cfg)
-        if summarise_controls:
+        if columnar:
+            results[family] = {
+                **common,
+                "random_summaries": {seed: pt_mod.seed_summary(table, picks)
+                                     for seed, picks in sorted(draws["random"].items())},
+                "atr_decile_summary": accumulate.group_summary(atr_rows, row_check=control_row_check),
+                "buy_next_open_summary": accumulate.group_summary(bno_rows, row_check=control_row_check),
+            }
+        elif summarise_controls:
             results[family] = {
                 **common,
                 "random_summaries": accumulate.stream_random_control_summaries(
@@ -609,6 +650,9 @@ def execute_study(
     summarise_controls: bool = False,
     compress_events: bool = False,
     upload_to: Optional[str] = None,
+    columnar: bool = False,
+    checkpoint_dir=None,
+    observe: bool = False,
 ) -> dict:
     """Run the whole CHARTING_PREREGISTRATION_V1 study end to end into `out_dir` (module
     docstring lists the six steps). `bars_by_symbol` is a test-only seam: when given, step 1's
@@ -645,6 +689,14 @@ def execute_study(
     benchmark_df = regime.load_index_history(benchmark_name)
     benchmark_path = context.index_history_path(benchmark_name)
 
+    hb = hb_mod.Heartbeat(out_dir) if observe else None
+    if hb is not None:
+        hb.note("summarise_controls", summarise_controls)
+        hb.note("columnar", columnar)
+        hb.note("compress_events", compress_events)
+        hb.note("random_control_seeds", len(random_control_seeds))
+        hb.note("max_workers", max_workers)
+
     segment_kwargs = dict(
         cfg=cfg, cost_cfg=cost_cfg, etf_symbols=etf_symbols,
         exclusion_mask=regime_break_mask, segmenter=regime_segments, exclusion_mask_is_default=False,
@@ -659,7 +711,17 @@ def execute_study(
     segment_results: dict = {}
     comparison_groups: dict = {}
     for segment, build_fn in build_fns.items():
-        result = build_fn(bars_by_symbol, out_dir=out_dir / segment, **segment_kwargs)
+        if hb is not None:
+            hb.stage(f"extraction {segment}")
+        # Per-symbol extraction cache: the stage persists as it goes and a restart resumes, instead
+        # of throwing away up to 3 h. Its own directory per segment, keyed inside by segment+config.
+        seg_kwargs = dict(segment_kwargs)
+        if checkpoint_dir is not None:
+            seg_kwargs["extraction_cache_dir"] = Path(checkpoint_dir) / segment / "extract"
+        if hb is not None:
+            seg_kwargs["progress"] = lambda d, n, u="symbols": (hb.progress(d, n, u),
+                                                                hb.check_resources())
+        result = build_fn(bars_by_symbol, out_dir=out_dir / segment, **seg_kwargs)
         segment_results[segment] = result
 
         # §8 bullet 3, moved to the point each control row exists (v2 storage redesign). In the row
@@ -669,11 +731,23 @@ def execute_study(
         control_row_check = (
             (lambda row: integrity.assert_no_sealed_rows_in_dataset([row])) if summarise_controls else None
         )
+        if hb is not None:
+            # Fail fast: a segment with no events or no families cannot produce a report, and
+            # discovering that at hour 4 wastes the run. Recorded either way.
+            fams = sorted({r["pattern_type"] for r in result["rows"]})
+            hb.require(f"{segment}: events present", bool(result["rows"]),
+                       f"{len(result['rows']):,} rows")
+            hb.require(f"{segment}: families present", bool(fams), ", ".join(fams) or "none")
+            hb.check_resources()
+
         groups = build_family_comparison_groups(
             result["rows"], result["bars_by_symbol"], cfg=cfg, cost_cfg=cost_cfg,
             random_seeds=random_control_seeds, atr_decile_seed=atr_decile_seed, benchmark_df=benchmark_df,
             max_workers=max_workers, summarise_controls=summarise_controls,
             control_row_check=control_row_check,
+            columnar=columnar,
+            checkpoint_dir=(None if checkpoint_dir is None else Path(checkpoint_dir) / segment),
+            heartbeat=hb,
         )
         comparison_groups[segment] = groups
 
@@ -685,6 +759,8 @@ def execute_study(
                 compress=compress_events,
             )
 
+    if hb is not None:
+        hb.stage("integrity gate")
     integrity_result = _run_integrity_gate(
         segment_results, comparison_groups, bars_by_symbol=bars_by_symbol, build_fns=build_fns,
         segment_kwargs=segment_kwargs, kill_switch=kill_switch,
@@ -696,11 +772,14 @@ def execute_study(
     input_hashes_map = {h["path"]: h["sha256"] for h in input_file_hashes}
     status = "COMPLETE" if integrity_result["passed"] else "INTEGRITY_FAILED"
 
+    if hb is not None:
+        hb.stage("report")
     if integrity_result["passed"]:
         for segment, result in segment_results.items():
             rep = _build_segment_report(
                 result, comparison_groups[segment], prereg_sha=prereg_sha, input_hashes=input_hashes_map,
-                build_comparisons=accumulate.summary_comparison_builder if summarise_controls else None,
+                build_comparisons=(accumulate.summary_comparison_builder
+                                   if (summarise_controls or columnar) else None),
             )
             safe = report.to_json_dict(rep)
             (out_dir / segment / "report.json").write_text(
@@ -725,6 +804,7 @@ def execute_study(
         "control_output": {
             "mode": "summaries" if summarise_controls else "rows",
             "compressed": bool(compress_events),
+            "columnar": bool(columnar),
             "summary_version": accumulate.SUMMARY_VERSION if summarise_controls else None,
             "random_control_seeds": len(random_control_seeds),
         },

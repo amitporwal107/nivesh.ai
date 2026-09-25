@@ -164,12 +164,16 @@ def _atr_pct_at_cached(bars_by_symbol: dict, symbol: str, idx: int, cfg: dict, c
 
 
 def _priced_signal_fields(bars: pd.DataFrame, symbol: str, t_idx: int, cfg: dict,
-                           cost_cfg: Optional[costs_bridge.CostConfig], cache: ControlPriceCache) -> dict:
+                           cost_cfg: Optional[costs_bridge.CostConfig], cache: ControlPriceCache,
+                           with_targets: bool = True) -> dict:
     """`{"atr_at_t": ..., **build_outcome_cost_block(...)}` for one (symbol, bar_index) BULLISH
     baseline signal -- memoized in `cache.priced_signal` by `(symbol, t_idx)` (see the
     "PERFORMANCE ONLY" block above for why this is safe to share across every control
     family/type/seed/source-event)."""
-    key = (symbol, t_idx)
+    # The cache key carries `with_targets`: a lean row and a full row for the same (symbol, bar)
+    # are different objects, and returning one where the other was asked for would either lose the
+    # target blocks or silently undo the speedup.
+    key = (symbol, t_idx, with_targets)
     cached = cache.priced_signal.get(key)
     if cached is not None:
         return cached
@@ -178,6 +182,7 @@ def _priced_signal_fields(bars: pd.DataFrame, symbol: str, t_idx: int, cfg: dict
     result = {"atr_at_t": atr_at_t}
     result.update(build_outcome_cost_block(
         bars, t_idx, _BASELINE_DIRECTION, cfg=cfg, cost_cfg=cost_cfg, atr_at_t=atr_at_t,
+        with_targets=with_targets,
     ))  # pattern_type/levels/level_broken_value default to None -- Layer 2 ATR stop only (item 7)
     cache.priced_signal[key] = result
     return result
@@ -576,7 +581,8 @@ def _price_worker(symbol: str) -> tuple:
     bars = ctx["bars_by_symbol"][symbol]
     cache = ControlPriceCache()
     out = {
-        idx: _priced_signal_fields(bars, symbol, idx, ctx["cfg"], ctx["cost_cfg"], cache)
+        idx: _priced_signal_fields(bars, symbol, idx, ctx["cfg"], ctx["cost_cfg"], cache,
+                                   ctx.get("with_targets", True))
         for idx in ctx["pairs_by_symbol"][symbol]
     }
     return symbol, out
@@ -585,7 +591,7 @@ def _price_worker(symbol: str) -> tuple:
 def price_signals(
     bars_by_symbol: dict, pairs: Sequence[tuple], *, cfg: dict = CONFIG,
     cost_cfg: Optional[costs_bridge.CostConfig] = None, cache: Optional[ControlPriceCache] = None,
-    max_workers: int = 1,
+    max_workers: int = 1, with_targets: bool = True,
 ) -> dict:
     """`{(symbol, bar_index): priced_fields}` for every UNIQUE pair in `pairs` -- the PRICE half
     of the draw/price/assemble split (see the block above). `priced_fields` is exactly
@@ -610,12 +616,14 @@ def price_signals(
     if max_workers <= 1 or len(pairs_by_symbol) <= 1:
         cache = cache if cache is not None else ControlPriceCache()
         return {
-            (symbol, idx): _priced_signal_fields(bars_by_symbol[symbol], symbol, idx, cfg, cost_cfg, cache)
+            (symbol, idx): _priced_signal_fields(bars_by_symbol[symbol], symbol, idx, cfg, cost_cfg,
+                                                 cache, with_targets)
             for symbol, idxs in pairs_by_symbol.items() for idx in idxs
         }
 
     global _PRICE_CTX
-    _PRICE_CTX = dict(bars_by_symbol=bars_by_symbol, pairs_by_symbol=pairs_by_symbol, cfg=cfg, cost_cfg=cost_cfg)
+    _PRICE_CTX = dict(bars_by_symbol=bars_by_symbol, pairs_by_symbol=pairs_by_symbol, cfg=cfg,
+                      cost_cfg=cost_cfg, with_targets=with_targets)
     try:
         ctx = multiprocessing.get_context("fork")
         symbols = sorted(pairs_by_symbol)

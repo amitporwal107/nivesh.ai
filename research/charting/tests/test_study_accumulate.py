@@ -470,3 +470,63 @@ def test_step5_the_summarised_run_writes_no_control_rows_at_all(two_runs):
 
     rows_dir = two_runs["rows_dir"]
     assert list(rows_dir.glob("*/comparisons/*/*/events.jsonl")), "the row path should still write rows"
+
+
+# ── the columnar run, end to end through execute_study ──────────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def three_runs(tmp_path_factory):
+    """`execute_study` three ways over identical inputs: v1 rows, streamed summaries, and the
+    columnar fast path. All three must produce the same report."""
+    from research.charting.study import execute
+    from research.charting.tests.test_study_execute import (
+        _mixed_segment_universe, _write_etf_list, _write_kite_dir,
+    )
+    setup = tmp_path_factory.mktemp("inputs")
+    kwargs = {
+        "kite_dir": _write_kite_dir(setup),
+        "etf_list_path": _write_etf_list(setup),
+        "bars_by_symbol": _mixed_segment_universe(),
+        "random_control_seeds": (0, 1, 2, 3, 4),
+        "kill_switch": False,
+        "recompute_sample_size": 5,
+    }
+    out = {}
+    for mode, extra in (
+        ("rows", {}),
+        ("summaries", {"summarise_controls": True}),
+        ("columnar", {"columnar": True, "observe": True}),
+    ):
+        d = tmp_path_factory.mktemp(f"study_{mode}")
+        out[mode] = execute.execute_study(d, **extra, **kwargs)
+        out[mode + "_dir"] = d
+    assert any(out["columnar"]["comparison_groups"].values()), "no comparison groups — vacuous"
+    return out
+
+
+@pytest.mark.parametrize("segment", ("pre_sealed", "post_sealed"))
+def test_the_columnar_run_produces_the_same_report_as_the_row_run(three_runs, segment):
+    """THE gate for the fast path: 8.1x faster pricing must not change a single reported number."""
+    a = three_runs["rows_dir"] / segment / "report.json"
+    c = three_runs["columnar_dir"] / segment / "report.json"
+    if not a.is_file() and not c.is_file():
+        pytest.skip(f"{segment} produced no report in either mode")
+    assert a.is_file() and c.is_file()
+    assert a.read_bytes() == c.read_bytes(), f"{segment}: columnar report differs from the row report"
+
+
+def test_the_columnar_run_wrote_a_status_file_and_gates(three_runs):
+    """A multi-hour run has to be observable, and the gates have to be recorded."""
+    import json
+    d = three_runs["columnar_dir"]
+    status = json.loads((d / "run_status.json").read_text())
+    assert status["state"] in ("running", "COMPLETE")
+    assert [g["gate"] for g in status["gates"]], "no fail-fast gates recorded"
+    assert all(g["passed"] for g in status["gates"])
+    assert any("extraction" in s["stage"] for s in status["stages_completed"])
+    assert (d / "run.log").read_text().strip(), "run.log is empty"
+
+
+def test_the_manifest_records_the_columnar_mode(three_runs):
+    assert three_runs["columnar"]["study_manifest"]["control_output"]["columnar"] is True
+    assert three_runs["rows"]["study_manifest"]["control_output"]["columnar"] is False
