@@ -31,6 +31,7 @@ Assembles, in order:
 from __future__ import annotations
 
 import gc
+import itertools
 import logging
 
 import hashlib
@@ -257,7 +258,7 @@ def build_segment(
     attach_context: bool = False, out_dir=None, now=None,
     input_file_hashes: Optional[Sequence[dict]] = None, max_workers: int = 1,
     compress_events: bool = False, extraction_cache_dir=None, progress=None,
-    join_max_workers: Optional[int] = None,
+    join_max_workers: Optional[int] = None, row_sink=None,
 ) -> dict:
     """One segment's full §3 pipeline: universe rule -> data-quality exclusion -> demerger
     hook -> `events.pipeline.build_event_dataset` (own segment-bound guard) -> optional
@@ -296,6 +297,10 @@ def build_segment(
     is_default = exclusion_mask_is_default if exclusion_mask_is_default is not None else (
         exclusion_mask is no_exclusions and segmenter is no_segments
     )
+
+    if row_sink is not None and out_dir is not None:
+        # `writer.write_run` needs every row, which is what a sink exists to avoid holding.
+        raise ValueError("row_sink and out_dir are mutually exclusive: write_run needs every row")
 
     result = pipeline.build_event_dataset(
         filtered_bars, segment=segment, cfg=cfg, cost_cfg=cost_cfg, max_workers=max_workers,
@@ -340,10 +345,35 @@ def build_segment(
             rows_by_symbol, filtered_bars, cfg=cfg, max_workers=join_workers, consume=True,
         )
         del rows_by_symbol                      # emptied by the join; this drops the husk
-        rows = [r for symbol in sorted(enriched_by_symbol) for r in enriched_by_symbol[symbol]]
-        del enriched_by_symbol                  # `rows` now owns them; this is references only
-        gc.collect()
-        logger.info("context join complete: %d rows", len(rows))
+        if row_sink is not None:
+            # Hand each symbol over and drop it, so the enriched set is never assembled into one
+            # list. This is what lets the SS8 kill switch prove reproducibility without a second
+            # copy of the dataset: the digest is folded per symbol, in the same sorted order the
+            # list would have had, so the event-file hash is unchanged.
+            n_sunk = 0
+            for symbol in sorted(enriched_by_symbol):
+                sym_rows = enriched_by_symbol.pop(symbol)
+                n_sunk += len(sym_rows)
+                row_sink(symbol, sym_rows)
+                del sym_rows
+            rows = []
+            del enriched_by_symbol
+            gc.collect()
+            logger.info("context join complete: %d rows streamed to sink", n_sunk)
+        else:
+            rows = [r for symbol in sorted(enriched_by_symbol) for r in enriched_by_symbol[symbol]]
+            del enriched_by_symbol              # `rows` now owns them; this is references only
+            gc.collect()
+            logger.info("context join complete: %d rows", len(rows))
+
+    if row_sink is not None and rows:
+        # attach_context=False: the rows are already assembled, so there is nothing to save here --
+        # but the sink contract must hold either way, and in the SAME order `rows` carries (the
+        # pipeline assembles by sorted symbol and the exclusion filter preserves relative order),
+        # or the digest would be of a differently-ordered file.
+        for symbol, group in itertools.groupby(rows, key=lambda r: r["symbol"]):
+            row_sink(symbol, list(group))
+        rows = []
 
     manifest = None
     if out_dir is not None:

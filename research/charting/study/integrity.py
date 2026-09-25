@@ -63,6 +63,66 @@ def kill_switch_check(rows_a: Sequence[dict], rows_b: Sequence[dict]) -> dict:
     }
 
 
+class RunDigest:
+    """§8 kill-switch evidence, accumulated a chunk at a time instead of over a whole dataset.
+
+    WHY
+    ---
+    `kill_switch_check` takes two fully-materialised row lists, so proving a run reproducible
+    costs TWICE the dataset in memory — on top of the copy the report is using. At ~200 KB live
+    per pattern row that is what made the v2 run's peak unsurvivable, and it is the last thing
+    standing between the columnar report path and a run that finishes.
+
+    Both pieces of §8's evidence stream. The sha256 is over `writer._dump_jsonl`, which emits
+    `"\n".join(lines) + "\n"`, so the bytes for a whole list are exactly the concatenation of the
+    bytes for its chunks — fed in the same order. The pattern-id set is strings, which are small.
+
+    ORDER IS PART OF THE ANSWER. "Identical event files (sha256)" is a claim about the bytes
+    `writer.write_run` would produce, and those follow the caller's own generation order. Feed
+    chunks in the order the run assembles them (symbols sorted, rows within a symbol as extracted)
+    or the digest is of a different file — which would read as a reproducibility FAILURE rather
+    than as the usage error it is. `tests/test_study_integrity.py` pins the chunked digest against
+    the whole-list hash.
+    """
+
+    __slots__ = ("_h", "pattern_ids", "n_rows")
+
+    def __init__(self) -> None:
+        self._h = hashlib.sha256()
+        self.pattern_ids: set = set()
+        self.n_rows = 0
+
+    def update(self, rows: Sequence[dict]) -> "RunDigest":
+        """Add one chunk — typically one symbol's rows — in run order."""
+        if not rows:
+            return self                         # `_dump_jsonl([])` is b"", so this is a no-op
+        self._h.update(writer._dump_jsonl(rows))
+        self.pattern_ids.update(r["pattern_id"] for r in rows)
+        self.n_rows += len(rows)
+        return self
+
+    def hexdigest(self) -> str:
+        return self._h.hexdigest()
+
+
+def kill_switch_check_digests(digest_a: "RunDigest", digest_b: "RunDigest") -> dict:
+    """`kill_switch_check`'s verdict from two `RunDigest`s — identical output, without either
+    dataset ever being held whole."""
+    pattern_ids_match = digest_a.pattern_ids == digest_b.pattern_ids
+    sha_a, sha_b = digest_a.hexdigest(), digest_b.hexdigest()
+    files_match = sha_a == sha_b
+    return {
+        "passed": pattern_ids_match and files_match,
+        "pattern_id_sets_match": pattern_ids_match,
+        "event_file_sha256_match": files_match,
+        "sha256_a": sha_a,
+        "sha256_b": sha_b,
+        "pattern_id_set_symmetric_difference": sorted(digest_a.pattern_ids ^ digest_b.pattern_ids),
+        "n_rows_a": digest_a.n_rows,
+        "n_rows_b": digest_b.n_rows,
+    }
+
+
 # ── Sealed-window absence (§8, bullet 3) ─────────────────────────────────────────────────
 
 

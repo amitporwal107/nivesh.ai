@@ -299,3 +299,54 @@ def test_build_study_builds_both_segments():
     assert set(out.keys()) == {"pre_sealed", "post_sealed"}
     assert out["pre_sealed"]["segment"] == schema.SEGMENT_PRE_SEALED
     assert out["post_sealed"]["segment"] == schema.SEGMENT_POST_SEALED
+
+
+# ── row_sink: §8 evidence without a second copy of the segment ──────────────────────────────────
+
+
+@pytest.mark.parametrize("attach_context", [False, True])
+def test_the_sink_streams_exactly_the_rows_build_segment_would_return(attach_context):
+    """Same rows, same order, with and without the context join — the join is where the streaming
+    actually saves anything, but the contract has to hold in both branches or the §8 event-file
+    hash depends on which one ran."""
+    bars_by_symbol = _universe()
+    listed = study_run.build_segment(bars_by_symbol, segment=schema.SEGMENT_PRE_SEALED,
+                                     attach_context=attach_context)["rows"]
+    assert listed, "no rows — this comparison would be vacuous"
+
+    seen: list = []
+    out = study_run.build_segment(bars_by_symbol, segment=schema.SEGMENT_PRE_SEALED,
+                                  attach_context=attach_context,
+                                  row_sink=lambda sym, rows: seen.append((sym, rows)))
+
+    assert [s for s, _ in seen] == sorted({r["symbol"] for r in listed})
+    assert [r for _s, rows in seen for r in rows] == listed
+    assert out["rows"] == [], "the parent must not also accumulate — that defeats the sink"
+    # everything else the caller depends on must survive streaming
+    assert out["segment"] == schema.SEGMENT_PRE_SEALED
+    assert set(out["bars_by_symbol"]) and out["data_quality_exclusions"] is not None
+
+
+def test_the_streamed_kill_switch_verdict_equals_the_row_based_one():
+    """The §8 claim itself: digesting a duplicate build a symbol at a time must reach exactly the
+    verdict that holding both datasets would."""
+    from research.charting.study import integrity
+
+    bars_by_symbol = _universe()
+    rows = study_run.build_segment(bars_by_symbol, segment=schema.SEGMENT_PRE_SEALED)["rows"]
+
+    def streamed():
+        d = integrity.RunDigest()
+        study_run.build_segment(bars_by_symbol, segment=schema.SEGMENT_PRE_SEALED,
+                                row_sink=lambda _s, r: d.update(r))
+        return d
+
+    assert integrity.kill_switch_check_digests(streamed(), streamed()) == \
+        integrity.kill_switch_check(rows, rows)
+
+
+def test_a_sink_with_an_out_dir_is_refused(tmp_path):
+    """`write_run` needs every row, which is what the sink exists to avoid holding."""
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        study_run.build_segment(_universe(), segment=schema.SEGMENT_PRE_SEALED,
+                                out_dir=tmp_path, row_sink=lambda s, r: None)
