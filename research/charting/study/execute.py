@@ -56,6 +56,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import math
 import subprocess
 from datetime import datetime, timezone
@@ -616,15 +617,24 @@ def _write_integrity_failed(out_dir: Path, integrity_result: Mapping) -> None:
 # ── git commit (best-effort, read-only) ──────────────────────────────────────────────────
 
 
+#: Set when the study runs from an exported tree rather than a git checkout -- e.g. a purpose-built
+#: VM that received the code as a tarball. Without it the manifest records `git_commit: null`, which
+#: leaves a pre-registered run unable to say which code produced it. The value is the upstream SHA
+#: the tree was exported from, and it is only consulted when git itself cannot answer.
+GIT_COMMIT_ENV = "CHARTING_GIT_COMMIT"
+
+
 def _git_commit(repo_root: Optional[Path] = None) -> Optional[str]:
     root = repo_root or Path(__file__).resolve().parents[3]
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=str(root), capture_output=True, text=True, timeout=10,
         )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
     except Exception:
-        return None
-    return result.stdout.strip() if result.returncode == 0 else None
+        pass
+    return os.environ.get(GIT_COMMIT_ENV) or None
 
 
 # ── Top-level entry point ────────────────────────────────────────────────────────────────
