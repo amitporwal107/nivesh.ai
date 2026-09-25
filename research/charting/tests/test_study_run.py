@@ -4,6 +4,7 @@ this package's own one-off, artifact-deleted smoke run, documented separately)."
 from __future__ import annotations
 
 import copy
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -13,7 +14,7 @@ import pytest
 from research.charting import context, regime
 from research.charting.config import CONFIG
 from research.charting.config import BARS_COLUMNS
-from research.charting.events import schema
+from research.charting.events import schema, writer
 from research.charting.study import run as study_run
 from research.charting.tests._events_helpers import (
     confirmed_hh_hl_with_runway,
@@ -345,8 +346,112 @@ def test_the_streamed_kill_switch_verdict_equals_the_row_based_one():
         integrity.kill_switch_check(rows, rows)
 
 
-def test_a_sink_with_an_out_dir_is_refused(tmp_path):
-    """`write_run` needs every row, which is what the sink exists to avoid holding."""
-    with pytest.raises(ValueError, match="mutually exclusive"):
-        study_run.build_segment(_universe(), segment=schema.SEGMENT_PRE_SEALED,
-                                out_dir=tmp_path, row_sink=lambda s, r: None)
+def test_a_sink_and_an_out_dir_now_coexist_and_publish_the_same_artifact(tmp_path):
+    """Both used to be impossible together, because `write_run` needed every row — the very thing
+    the sink exists to avoid holding. The segment write streams now, so a run can publish
+    `events.jsonl` AND stream its rows, which is what lets the real study do both."""
+    bars_by_symbol = _universe()
+    now = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
+
+    plain = study_run.build_segment(bars_by_symbol, segment=schema.SEGMENT_PRE_SEALED,
+                                    out_dir=tmp_path / "plain", now=now)
+    seen: list = []
+    sunk = study_run.build_segment(bars_by_symbol, segment=schema.SEGMENT_PRE_SEALED,
+                                   out_dir=tmp_path / "sunk", now=now,
+                                   row_sink=lambda sym, rows: seen.append((sym, rows)))
+
+    assert (tmp_path / "sunk" / "events.jsonl").read_bytes() == \
+        (tmp_path / "plain" / "events.jsonl").read_bytes(), "the published artifact differs"
+    assert sunk["manifest"] == plain["manifest"]
+    assert [r for _s, rows in seen for r in rows] == plain["rows"]
+    assert sunk["rows"] == [], "the parent must not also accumulate"
+
+
+def test_the_published_artifact_is_unchanged_by_streaming_the_write(tmp_path):
+    """`build_segment` now writes incrementally even without a sink. §8 compares these bytes, so a
+    difference here would read as a reproducibility failure on the next run."""
+    bars_by_symbol = _universe()
+    now = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
+    result = study_run.build_segment(bars_by_symbol, segment=schema.SEGMENT_PRE_SEALED,
+                                     out_dir=tmp_path / "seg", now=now)
+    rows = result["rows"]
+    assert rows, "no rows — vacuous"
+
+    reference = writer.write_run(
+        rows, tmp_path / "ref", segment=schema.SEGMENT_PRE_SEALED,
+        symbols=sorted(result["bars_by_symbol"]), now=now,
+        cost_rule_versions={r["versioning"]["cost_rule_version"] for r in rows
+                            if r["versioning"].get("cost_rule_version")},
+        tax_rule_versions={r["versioning"]["tax_rule_version"] for r in rows
+                           if r["versioning"].get("tax_rule_version")})
+
+    assert (tmp_path / "seg" / "events.jsonl").read_bytes() == \
+        (tmp_path / "ref" / "events.jsonl").read_bytes()
+    assert result["manifest"]["artifacts"] == reference["artifacts"]
+
+
+# ── join cache: the stage five runs died in is now resumable ────────────────────────────────────
+
+
+def test_a_join_cached_run_is_byte_identical_to_a_fresh_one(tmp_path):
+    """The join cache must be invisible in the output. Order is the subtle part: a resumed run
+    interleaves cached and freshly-joined symbols, and the event-file hash is computed over that
+    order — so getting it wrong produces a valid-looking file with a different hash, which §8 would
+    report as a reproducibility failure."""
+    bars_by_symbol = _universe()
+    now = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
+    common = dict(segment=schema.SEGMENT_PRE_SEALED, attach_context=True, now=now)
+
+    fresh = study_run.build_segment(bars_by_symbol, out_dir=tmp_path / "fresh", **common)
+    assert fresh["rows"], "no rows — vacuous"
+
+    cache = tmp_path / "joincache"
+    first = study_run.build_segment(bars_by_symbol, out_dir=tmp_path / "first",
+                                    join_cache_dir=cache, **common)
+    cached_files = list(cache.glob("*.pkl.gz"))
+    assert cached_files, "nothing was cached"
+
+    # second run: every symbol resumed, none re-joined
+    second = study_run.build_segment(bars_by_symbol, out_dir=tmp_path / "second",
+                                     join_cache_dir=cache, **common)
+
+    assert first["rows"] == fresh["rows"]
+    assert second["rows"] == fresh["rows"]
+    assert (tmp_path / "second" / "events.jsonl").read_bytes() == \
+        (tmp_path / "fresh" / "events.jsonl").read_bytes()
+    assert second["manifest"]["artifacts"] == fresh["manifest"]["artifacts"]
+
+
+def test_a_partially_cached_run_interleaves_in_the_right_order(tmp_path):
+    """The real resume case: some symbols cached, some not. If cached symbols were appended rather
+    than merged into sorted order, the rows would be complete but the file would differ."""
+    bars_by_symbol = _universe()
+    now = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
+    common = dict(segment=schema.SEGMENT_PRE_SEALED, attach_context=True, now=now)
+
+    fresh = study_run.build_segment(bars_by_symbol, out_dir=tmp_path / "fresh", **common)
+    cache = tmp_path / "joincache"
+    study_run.build_segment(bars_by_symbol, out_dir=tmp_path / "warm", join_cache_dir=cache, **common)
+
+    cached = sorted(cache.glob("*.pkl.gz"))
+    assert len(cached) > 1, "need >1 cached symbol for a partial resume to mean anything"
+    cached[0].unlink()                       # force ONE symbol to be re-joined
+
+    partial = study_run.build_segment(bars_by_symbol, out_dir=tmp_path / "partial",
+                                      join_cache_dir=cache, **common)
+    assert partial["rows"] == fresh["rows"]
+    assert (tmp_path / "partial" / "events.jsonl").read_bytes() == \
+        (tmp_path / "fresh" / "events.jsonl").read_bytes()
+
+
+def test_the_join_cache_is_config_keyed(tmp_path):
+    """Reusing joined rows across a config change would silently mix two engines' output."""
+    import copy as _copy
+    from research.charting.config import CONFIG as _CFG
+
+    tampered = _copy.deepcopy(_CFG)
+    tampered["atr_period"] = 7
+    a = study_run._join_cache_key("SYN1", schema.SEGMENT_PRE_SEALED, _CFG)
+    b = study_run._join_cache_key("SYN1", schema.SEGMENT_PRE_SEALED, tampered)
+    c = study_run._join_cache_key("SYN1", schema.SEGMENT_POST_SEALED, _CFG)
+    assert a != b and a != c, "cache key ignores config or segment"
