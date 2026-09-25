@@ -172,3 +172,88 @@ def test_the_fast_path_is_actually_faster():
     t = time.time(); controls.price_signals(bbs, set(pairs), with_targets=True); full = time.time() - t
     t = time.time(); controls.price_signals(bbs, set(pairs), with_targets=False); lean = time.time() - t
     assert full / lean > 3.0, f"only {full/lean:.1f}x faster — the target walk was not the cost"
+
+
+# ── event projection: the control phase must not pin whole pattern rows ─────────────────────────
+
+
+def _projection_universe():
+    """Real multi-symbol pattern events — the ATR-decile draw needs >= 2 same-date candidates, so a
+    single symbol would make every assertion below vacuous."""
+    from research.charting.events import extraction
+    from research.charting.tests._events_helpers import confirmed_rectangle_with_runway
+
+    base = confirmed_rectangle_with_runway(tail_len=40)
+    bars_by_symbol, events = {}, []
+    for i in range(6):
+        scaled = base.copy()
+        for c in ("open", "high", "low", "close"):
+            scaled[c] = scaled[c] * (1.0 + 0.05 * i)
+        sym = f"SYM{i:02d}"
+        bars_by_symbol[sym] = scaled
+        events.extend(extraction.extract_events(scaled, sym))
+    eligible = [(s, i) for s in bars_by_symbol for i in range(20, 35)]
+    assert events, "no events — the projection gate would compare nothing"
+    return bars_by_symbol, events, eligible
+
+
+def test_a_projection_carries_nothing_a_pattern_row_reports_on():
+    """A projection is deliberately NOT a pattern row. If it quietly carried costs or outcomes it
+    could be passed to the report by mistake and produce a plausible, wrong answer."""
+    _bars, events, _eligible = _projection_universe()
+    proj = controls.event_projection(events[0])
+    for absent in ("costs", "outcomes", "targets", "context", "research", "liquidity", "versioning"):
+        assert absent not in proj, f"projection leaked {absent!r}"
+    assert set(proj) == set(controls.DRAW_FIELDS) | {"entry"}
+
+
+def test_draws_and_assembly_are_identical_on_projections_and_full_rows():
+    """The gate on DRAW_FIELDS: if any draw or assembly step reads a field the projection omits,
+    this fails instead of the projection silently changing a control row."""
+    bars_by_symbol, events, eligible = _projection_universe()
+    projected = [controls.event_projection(e) for e in events]
+
+    full_atr = controls.atr_decile_control_draws(bars_by_symbol, events, eligible, seed=0)
+    proj_atr = controls.atr_decile_control_draws(bars_by_symbol, projected, eligible, seed=0)
+    assert [picks for _ev, picks in full_atr] == [picks for _ev, picks in proj_atr]
+    assert full_atr, "ATR-decile draw is empty — needs >= 2 same-date candidates"
+
+    full_bno = controls.buy_next_open_baseline_draws(events)
+    proj_bno = controls.buy_next_open_baseline_draws(projected)
+    assert [pick for _ev, pick in full_bno] == [pick for _ev, pick in proj_bno]
+
+    pairs = {p for _ev, picks in full_atr for p in picks} | {p for _ev, p in full_bno}
+    priced = controls.price_signals(bars_by_symbol, pairs)
+    for assemble, full_draws, proj_draws in (
+        (controls.assemble_atr_decile_control_rows, full_atr, proj_atr),
+        (controls.assemble_buy_next_open_baseline_rows, full_bno, proj_bno),
+    ):
+        from_full = assemble(bars_by_symbol, full_draws, priced)
+        from_proj = assemble(bars_by_symbol, proj_draws, priced)
+        assert from_full == from_proj, assemble.__name__
+        assert from_full, f"{assemble.__name__} produced nothing — vacuous"
+
+
+def test_a_projection_is_far_smaller_than_the_row_it_stands_in_for():
+    """The whole point. The draws hold one reference per drawn event for the entire pricing phase."""
+    import sys
+
+    def deep(o, seen=None):
+        seen = seen if seen is not None else set()
+        if id(o) in seen:
+            return 0
+        seen.add(id(o))
+        n = sys.getsizeof(o)
+        if isinstance(o, dict):
+            for k, v in o.items():
+                n += deep(k, seen) + deep(v, seen)
+        elif isinstance(o, (list, tuple, set)):
+            for v in o:
+                n += deep(v, seen)
+        return n
+
+    _bars, events, _eligible = _projection_universe()
+    row_bytes = deep(events[0])
+    proj_bytes = deep(controls.event_projection(events[0]))
+    assert proj_bytes * 50 < row_bytes, (
+        f"projection {proj_bytes} B vs row {row_bytes} B — not worth the indirection")

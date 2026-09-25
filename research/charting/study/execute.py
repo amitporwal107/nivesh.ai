@@ -238,6 +238,13 @@ def build_family_comparison_groups(
     or of which worker, if any, finished a given symbol first.
     """
     eligible = eligible_population(bars_by_symbol)
+    # Every draw below returns `(event, picks)` and so keeps its event REFERENCED for the whole
+    # pricing phase. A pattern row is ~219 KB live against ~2.7 KB of real data, so holding the
+    # rows themselves pins most of the segment in memory until pricing finishes -- one of the
+    # retentions behind the v2 run's 53 GB. Projecting first keeps the same seven fields the draw
+    # and assembly steps actually read (`controls.DRAW_FIELDS`, pinned by its own equivalence
+    # test) and lets the rows go. Nothing downstream of here reports on a row's own results.
+    rows = [controls.event_projection(r) for r in rows]
     families = sorted({r["pattern_type"] for r in rows})
     if not families:
         return {}

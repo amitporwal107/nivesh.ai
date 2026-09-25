@@ -569,6 +569,39 @@ def buy_next_open_baseline_draws(events: Sequence[dict]) -> list:
     return [(ev, (ev["symbol"], ev["confirmation_bar_index"])) for ev in events]
 
 
+#: The ONLY fields of a pattern-event row the control draw/assemble path ever reads. Derived by
+#: enumerating `atr_decile_control_draws`, `buy_next_open_baseline_draws`,
+#: `assemble_atr_decile_control_rows` and `assemble_buy_next_open_baseline_rows` -- and pinned by
+#: `test_events_controls.py`, so adding a read without adding it here fails rather than silently
+#: working on full rows and breaking on projected ones.
+DRAW_FIELDS: tuple = ("event_id", "pattern_id", "symbol", "signal_date",
+                      "confirmation_bar_index", "pattern_type", "direction")
+
+
+def event_projection(row: Mapping) -> dict:
+    """A light stand-in for a pattern-event row, carrying only what the control phase reads.
+
+    WHY THIS EXISTS
+    ---------------
+    `atr_decile_control_draws` and `buy_next_open_baseline_draws` return `(event, picks)` pairs, so
+    every drawn event stays REFERENCED for as long as the draws do -- and a pattern row is ~219 KB
+    live against ~2.7 KB of real data. Across every family in a segment that pins most of the
+    dataset in memory through the whole pricing phase, which is one of the retentions that put the
+    v2 run at 53 GB.
+
+    The seven fields below plus the primary entry DATE are the whole of it. `entry.primary.date`
+    keeps its nested shape so `study.execute._benchmark_forward_returns` reads a projection exactly
+    as it reads a real row, rather than growing a second code path.
+
+    A projection is NOT a pattern row: it carries no costs, outcomes, targets or context, and must
+    never be passed anywhere that reports on a row's own results.
+    """
+    entry_date = ((row.get("entry") or {}).get("primary") or {}).get("date")
+    out = {k: row.get(k) for k in DRAW_FIELDS}
+    out["entry"] = {"primary": {"date": entry_date}}
+    return out
+
+
 _PRICE_CTX: dict = {}
 
 
