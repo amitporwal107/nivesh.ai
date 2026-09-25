@@ -459,7 +459,8 @@ def table_mfe_mae_stats(table: "PatternTable", horizon: int,
     return out
 
 
-def table_bearish_directional_report(table: "PatternTable", horizon: int) -> dict:
+def table_bearish_directional_report(table: "PatternTable", horizon: int,
+                                     *, subset: Optional[np.ndarray] = None) -> dict:
     """Columnar `report.bearish_directional_report` (§7.8).
 
     Note the asymmetry inherited from the report: `directional_return` is counted over BEARISH rows
@@ -469,6 +470,8 @@ def table_bearish_directional_report(table: "PatternTable", horizon: int) -> dic
     n_rows = len(table)
     codes = table.codes[:n_rows, table.layout.code_index["direction"]]
     bearish = np.array([table.dicts["direction"].value(c) == "BEARISH" for c in codes], dtype=bool)
+    if subset is not None:
+        bearish = bearish & subset
     dir_avail = table.flag[:n_rows, table.layout.flag_index[("out", horizon, "dir_available")]] == 1.0
     mask = bearish & dir_avail
     vals = _col(table, table.money, table.layout.money_index[("out", horizon, "dir_return")], mask)
@@ -686,7 +689,8 @@ def bullish_mask(table: "PatternTable") -> np.ndarray:
 def table_family_horizon_cell(table: "PatternTable", horizon: int, *,
                               target_names: Optional[Sequence[str]] = None,
                               comparisons: Optional[dict] = None,
-                              move_direction: Optional[dict] = None) -> dict:
+                              move_direction: Optional[dict] = None,
+                              subset: Optional[np.ndarray] = None) -> dict:
     """Columnar `report.build_family_horizon_cell` -- one whole (family, horizon) cell.
 
     `comparisons` and `move_direction` are passed through untouched: the comparison groups are
@@ -694,7 +698,9 @@ def table_family_horizon_cell(table: "PatternTable", horizon: int, *,
     `movement.py`, so neither is this table's business.
     """
     target_names = report.DEFAULT_TARGET_NAMES if target_names is None else target_names
-    bullish = bullish_mask(table)
+    # `subset` is the FAMILY's rows when called from `build_report_from_table`; the row path
+    # filters to BULLISH inside the family, never across the whole segment.
+    bullish = bullish_mask(table) if subset is None else (bullish_mask(table) & subset)
     cell: dict = {
         "n": report.n_cell(int(bullish.sum())),
         "returns": table_return_stats(table, horizon, subset=bullish),
@@ -712,3 +718,177 @@ def table_family_horizon_cell(table: "PatternTable", horizon: int, *,
                   "direction_auc", "direction_n", "direction_reason"):
             cell[k] = move_direction.get(k)
     return cell
+
+
+# ── a whole segment report, from columns ────────────────────────────────────────────────────────
+
+
+def direction_mask(table: "PatternTable", direction: str,
+                   subset: Optional[np.ndarray] = None) -> np.ndarray:
+    n = len(table)
+    codes = table.codes[:n, table.layout.code_index["direction"]]
+    m = np.array([table.dicts["direction"].value(c) == direction for c in codes], dtype=bool)
+    return m if subset is None else (m & subset)
+
+
+def family_masks(table: "PatternTable") -> dict:
+    """`{pattern_type: row mask}` in `sorted(families)` order — the grouping `build_report`
+    iterates. Sorted because the report's family order is part of its output."""
+    n = len(table)
+    labels = table.labels("pattern_type")
+    out: dict = {}
+    for family in sorted(set(labels)):
+        m = np.zeros(n, dtype=bool)
+        for i, lab in enumerate(labels):
+            if lab == family:
+                m[i] = True
+        out[family] = m
+    return out
+
+
+def table_move_direction_auc_report(table: "PatternTable", bars_by_symbol: Mapping,
+                                    horizons: Optional[Sequence[int]] = None,
+                                    *, subset: Optional[np.ndarray] = None) -> dict:
+    """Columnar `report.move_direction_auc_report` (§7.5).
+
+    `movement.py` reads only `pattern_type`, `direction` and a PRICE_CONFIRMED event date off each
+    item, all of which the table carries — so this rebuilds the same minimal item shape rather than
+    reimplementing the AUC, exactly as the row version does.
+    """
+    n = len(table)
+    horizons = report.HORIZONS if horizons is None else horizons
+    idx = range(n) if subset is None else np.flatnonzero(subset)
+    ptypes, dirs = table.labels("pattern_type"), table.labels("direction")
+    items = [
+        (table.symbol[i], {
+            "pattern_id": table.pattern_id[i],
+            "pattern_type": ptypes[i],
+            "direction": dirs[i],
+            "events": [{"event_type": "PRICE_CONFIRMED", "date": table.signal_date[i]}],
+        })
+        for i in idx
+    ]
+    raw = report.movement.movement_vs_direction_report(items, bars_by_symbol, horizons=horizons)
+    return {(fh.family, fh.horizon): fh.to_dict() for fh in raw.values()}
+
+
+def table_comparison_block(table: "PatternTable", horizon: int, *,
+                           subset: Optional[np.ndarray] = None,
+                           random_batch: Optional[Mapping] = None,
+                           atr_decile_rows: Optional[Sequence[Mapping]] = None,
+                           buy_next_open_rows: Optional[Sequence[Mapping]] = None,
+                           nifty_500_return: Optional[float] = None,
+                           scenario: str = "base") -> dict:
+    """Columnar `report.comparison_block` (§7.6).
+
+    Only the PATTERN side comes from the table. The control groups stay rows because they are a
+    different population with their own storage path (`pair_table`/`accumulate`), and conflating
+    the two is how a comparison silently starts comparing a group against itself.
+    """
+    pattern_stats = table_return_stats(table, horizon, scenario=scenario, subset=subset)
+    out: dict = {"pattern": pattern_stats}
+
+    if random_batch:
+        seed_means: list = []
+        for _seed, seed_rows in random_batch.items():
+            st = report.return_stats(seed_rows, horizon, scenario=scenario)
+            if st["n"] > 0:
+                seed_means.append(st["net_return"]["mean"])
+        out["random_200_seed"] = {
+            "n_seeds_with_data": len(seed_means),
+            "n_seeds_total": len(random_batch),
+            "mean_of_seed_means": report._mean(seed_means),
+            "median_of_seed_means": report._median(seed_means),
+            "pattern_percentile_within_seed_distribution": (
+                report.percentile_rank(pattern_stats["net_return"]["mean"], seed_means)
+                if pattern_stats["n"] else None
+            ),
+        }
+
+    if atr_decile_rows is not None:
+        atr_stats = report.return_stats(atr_decile_rows, horizon, scenario=scenario)
+        atr_net = [v for v in ((report._horizon_cost_scenario(r, horizon, scenario) or {})
+                               .get("net_before_tax") for r in atr_decile_rows) if v is not None]
+        out["atr_decile_matched"] = {
+            **atr_stats,
+            "pattern_percentile_within_distribution": (
+                report.percentile_rank(pattern_stats["net_return"]["mean"], atr_net)
+                if pattern_stats["n"] else None
+            ),
+        }
+
+    if buy_next_open_rows is not None:
+        out["buy_next_open"] = report.return_stats(buy_next_open_rows, horizon, scenario=scenario)
+
+    if nifty_500_return is not None:
+        out["nifty_500"] = {"return": nifty_500_return}
+
+    return out
+
+
+def default_table_comparison_builder(table: "PatternTable", horizon: int, cg: Mapping,
+                                     subset: Optional[np.ndarray] = None) -> dict:
+    """The table counterpart of `report.default_comparison_builder`."""
+    return table_comparison_block(
+        table, horizon, subset=subset,
+        random_batch=cg.get("random_batch"),
+        atr_decile_rows=cg.get("atr_decile_rows"),
+        buy_next_open_rows=cg.get("buy_next_open_rows"),
+        nifty_500_return=(cg.get("nifty_500_return_by_horizon") or {}).get(horizon),
+    )
+
+
+def build_report_from_table(
+    *, segment: str, table: "PatternTable", bars_by_symbol: Mapping,
+    exclusion_counts: Mapping[str, int], horizons: Optional[Sequence[int]] = None,
+    target_names: Optional[Sequence[str]] = None,
+    comparison_groups_by_family: Optional[Mapping[str, dict]] = None,
+    universe_caveats: Sequence[str] = (),
+    unverified_cost_rates: Sequence[str] = (),
+    input_hashes: Optional[Mapping[str, str]] = None,
+    prereg_sha256: Optional[str] = None,
+    build_comparisons: Optional[object] = None,
+) -> dict:
+    """`report.build_report`, computed from columns. Output is identical — asserted with `==`.
+
+    Same §1/§7 rule as the row version: no family, horizon, target or sign is dropped for being
+    unfavourable. Every family in the table gets a cell, BULLISH or BEARISH.
+    """
+    horizons = report.HORIZONS if horizons is None else horizons
+    target_names = report.DEFAULT_TARGET_NAMES if target_names is None else target_names
+    build_comparisons = build_comparisons or default_table_comparison_builder
+
+    families_out: dict = {}
+    for family, fam_mask in family_masks(table).items():
+        bull = direction_mask(table, "BULLISH", fam_mask)
+        bear = direction_mask(table, "BEARISH", fam_mask)
+        cg = (comparison_groups_by_family or {}).get(family, {})
+        move_direction = table_move_direction_auc_report(
+            table, bars_by_symbol, horizons=horizons, subset=fam_mask)
+
+        horizons_out: dict = {}
+        for h in horizons:
+            comparisons = build_comparisons(table, h, cg, bull) if cg else None
+            cell = table_family_horizon_cell(
+                table, h, target_names=target_names, comparisons=comparisons,
+                move_direction=move_direction.get((family, h)), subset=bull,
+            )
+            cell["bearish"] = table_bearish_directional_report(table, h, subset=bear)
+            horizons_out[h] = cell
+
+        families_out[family] = {
+            "n_total": report.n_cell(int(fam_mask.sum())),
+            "n_bullish": int(bull.sum()),
+            "n_bearish": int(bear.sum()),
+            "horizons": horizons_out,
+        }
+
+    return {
+        "segment": segment,
+        "prereg_sha256": prereg_sha256,
+        "universe_caveats": list(universe_caveats),
+        "unverified_cost_rates": list(unverified_cost_rates),
+        "input_hashes": dict(input_hashes) if input_hashes else {},
+        "exclusions": report.exclusion_table(exclusion_counts),
+        "families": families_out,
+    }
