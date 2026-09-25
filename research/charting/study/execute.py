@@ -56,6 +56,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import random
 import os
 import math
 import subprocess
@@ -73,6 +74,7 @@ from research.charting.events import controls, costs_bridge, schema, writer
 from research.charting.research_window import SealedWindowError
 from research.charting.study import accumulate, heartbeat as hb_mod, integrity
 from research.charting.study import pair_table as pt_mod
+from research.charting.study import pattern_table
 from research.charting.study import remote_store, report
 from research.charting.study import run as study_run
 from research.corporate_actions.regime import regime_break_mask, regime_segments
@@ -186,6 +188,79 @@ def _collect_unverified_cost_rates(rows: Sequence[Mapping]) -> list:
             if block and block.get("available"):
                 out.update(block.get("unverified_rates_used") or [])
     return sorted(out)
+
+
+class SegmentAccumulator:
+    """Everything the study needs from a segment's pattern rows, folded one symbol at a time.
+
+    This is what replaces holding the segment. Each consumer that used to walk the full row list
+    now gets its own fold, and the rows for a symbol are released as soon as the last fold has
+    seen them:
+
+      columnar table      the report (`pattern_table.build_report_from_table`)
+      run digest          §8 bullet 1, the kill switch
+      sealed-row check    §8 bullet 3, per row at the point it exists
+      projections         the §7.6 control draws (`controls.event_projection`)
+      unverified rates    §7.10
+      retained rows       §8 bullet 4, the ~50 rows `recompute_sample` re-derives
+
+    The per-symbol tables are concatenated at the end rather than written into one preallocated
+    table, because a segment's row count is not known until the last symbol has been extracted.
+    """
+
+    def __init__(self, layout, *, retain_ids: Optional[set] = None):
+        self.layout = layout
+        self._parts: list = []
+        self.digest = integrity.RunDigest()
+        self.projections: list = []
+        self.retained: list = []
+        self._unverified: set = set()
+        self._retain_ids = retain_ids or set()
+        self.n_rows = 0
+        self.sealed_error: Optional[str] = None
+
+    def __call__(self, symbol: str, rows: Sequence[dict]) -> None:
+        if not rows:
+            return
+        # §8 bullet 3 at the point the row exists, the same discipline `control_row_check` already
+        # applies to control rows. The first failure is kept and reported by the gate rather than
+        # raised here, so the run records a FAILED check instead of dying mid-build.
+        if self.sealed_error is None:
+            try:
+                integrity.assert_no_sealed_rows_in_dataset(rows)
+            except SealedWindowError as exc:
+                self.sealed_error = str(exc)
+
+        self.digest.update(rows)
+        self._parts.append(pattern_table.PatternTable.from_rows(rows, self.layout))
+        self.projections.extend(controls.event_projection(r) for r in rows)
+        self._unverified.update(_collect_unverified_cost_rates(rows))
+        if self._retain_ids:
+            self.retained.extend(r for r in rows if r["event_id"] in self._retain_ids)
+        self.n_rows += len(rows)
+
+    def table(self):
+        return pattern_table.concat_tables(self._parts, self.layout)
+
+    def unverified_cost_rates(self) -> list:
+        return sorted(self._unverified)
+
+
+def recompute_selector(sample_size: Optional[int], seed: int):
+    """The event_ids §8 bullet 4's `recompute_sample` would draw, chosen from ids alone.
+
+    `recompute_sample` does `random.Random(seed).sample(rows_sorted_by_event_id, k)`, and
+    `random.sample` depends only on the population LENGTH and the seed — so sampling the sorted
+    ids reproduces exactly the same choice without the rows existing yet. Pinned by
+    `test_study_execute.py`; if it drifted, §8 would silently verify a different sample than the
+    one it reports.
+    """
+    def select(event_ids: Sequence[str]) -> set:
+        ordered = sorted(event_ids)
+        if sample_size is not None and sample_size < len(ordered):
+            return set(random.Random(seed).sample(ordered, k=sample_size))
+        return set(ordered)
+    return select
 
 
 # ── §7.6: per-segment, per-family comparison groups ──────────────────────────────────────
@@ -504,6 +579,7 @@ def _build_segment_report(
     segment_result: Mapping, comparison_groups_by_family: Mapping, *, prereg_sha: str,
     input_hashes: Mapping, build_comparisons: Optional[Callable] = None,
 ) -> dict:
+    table = segment_result.get("pattern_table")
     rows = segment_result["rows"]
     dq = segment_result["data_quality_exclusions"]
     demerger = segment_result["demerger_regimes"]
@@ -514,11 +590,21 @@ def _build_segment_report(
         # (report.exclusion_table's own docstring: never duplicated here).
         "demerger_window": sum(v.get("sessions_excluded", 0) for v in demerger.values()),
     }
-    return report.build_report(
-        segment=segment_result["segment"], pattern_rows=rows, bars_by_symbol=segment_result["bars_by_symbol"],
+    common = dict(
+        segment=segment_result["segment"], bars_by_symbol=segment_result["bars_by_symbol"],
         exclusion_counts=exclusion_counts, comparison_groups_by_family=comparison_groups_by_family,
-        universe_caveats=UNIVERSE_CAVEATS, unverified_cost_rates=_collect_unverified_cost_rates(rows),
-        input_hashes=input_hashes, prereg_sha256=prereg_sha, build_comparisons=build_comparisons,
+        universe_caveats=UNIVERSE_CAVEATS, input_hashes=input_hashes, prereg_sha256=prereg_sha,
+    )
+    if table is not None:
+        # Identical output to the row path — asserted with `==` in tests/test_pattern_table.py.
+        acc = segment_result["accumulator"]
+        return pattern_table.build_report_from_table(
+            table=table, unverified_cost_rates=acc.unverified_cost_rates(),
+            build_comparisons=build_comparisons, **common,
+        )
+    return report.build_report(
+        pattern_rows=rows, unverified_cost_rates=_collect_unverified_cost_rates(rows),
+        build_comparisons=build_comparisons, **common,
     )
 
 
@@ -546,8 +632,25 @@ def _run_integrity_gate(
         seg_out: dict = {}
 
         if kill_switch:
-            dup = build_fns[segment](bars_by_symbol, out_dir=None, **segment_kwargs)
-            ks = integrity.kill_switch_check(result["rows"], dup["rows"])
+            # The duplicate build is DIGESTED, never materialised. §8 asks whether two runs would
+            # write byte-identical event files, and both halves of that evidence -- the sha256 over
+            # `writer._dump_jsonl` and the pattern-id set -- fold one symbol at a time. Holding the
+            # second dataset instead cost a full extra copy of the segment at ~200 KB live per row,
+            # on top of the copy the report is already using, which is what made the peak
+            # unsurvivable on a 62 GB host.
+            dup_digest = integrity.RunDigest()
+            build_fns[segment](bars_by_symbol, out_dir=None,
+                               row_sink=lambda _symbol, rows: dup_digest.update(rows),
+                               **segment_kwargs)
+            # The first build's digest was folded as its rows were produced when the columnar
+            # path ran; otherwise it is computed here from the retained list.
+            acc = result.get("accumulator")
+            if acc is not None:
+                own_digest = acc.digest
+            else:
+                own_digest = integrity.RunDigest()
+                own_digest.update(result["rows"])
+            ks = integrity.kill_switch_check_digests(own_digest, dup_digest)
         else:
             ks = {
                 "skipped": True, "passed": True,
@@ -561,8 +664,12 @@ def _run_integrity_gate(
         # `execute_study`), because by now they are gone -- so this adds their counts rather than
         # re-reading rows that no longer exist. Either way `n_rows_checked` covers every row, which
         # is the number that would otherwise silently shrink to the pattern rows alone.
-        all_rows: list = list(result["rows"])
-        summarised_rows_checked = 0
+        acc = result.get("accumulator")
+        # Pattern rows are checked at the point they exist when the columnar path ran (the same
+        # discipline `control_row_check` applies to control rows), so their count is added here
+        # rather than the rows being re-walked — they are gone by now.
+        all_rows: list = [] if acc is not None else list(result["rows"])
+        summarised_rows_checked = acc.n_rows if acc is not None else 0
         for group in comparison_groups[segment].values():
             if "random_summaries" in group:
                 summarised_rows_checked += sum(s["n_rows"] for s in group["random_summaries"].values())
@@ -576,17 +683,27 @@ def _run_integrity_gate(
         n_checked = len(all_rows) + summarised_rows_checked
         try:
             integrity.assert_no_sealed_rows_in_dataset(all_rows)
-            sealed_check = {"passed": True, "error": None, "n_rows_checked": n_checked}
+            error = acc.sealed_error if acc is not None else None
+            sealed_check = {"passed": error is None, "error": error, "n_rows_checked": n_checked}
         except SealedWindowError as exc:
             sealed_check = {"passed": False, "error": str(exc), "n_rows_checked": n_checked}
         if summarised_rows_checked:
             sealed_check["control_rows_checked_at_generation"] = summarised_rows_checked
         seg_out["sealed_window_check"] = sealed_check
 
-        rc = integrity.recompute_sample(
-            result["bars_by_symbol"], result["rows"], horizon=recompute_horizon,
-            sample_size=recompute_sample_size, seed=recompute_seed, cfg=cfg, cost_cfg=cost_cfg,
-        )
+        if acc is not None:
+            # Already sampled: `build_segment`'s `retain_selector` kept exactly the rows this
+            # would have drawn (`recompute_selector`, pinned by its own test), so `sample_size`
+            # must be None here or a seeded sample would be taken OF the sample.
+            rc = integrity.recompute_sample(
+                result["bars_by_symbol"], acc.retained, horizon=recompute_horizon,
+                sample_size=None, seed=recompute_seed, cfg=cfg, cost_cfg=cost_cfg,
+            )
+        else:
+            rc = integrity.recompute_sample(
+                result["bars_by_symbol"], result["rows"], horizon=recompute_horizon,
+                sample_size=recompute_sample_size, seed=recompute_seed, cfg=cfg, cost_cfg=cost_cfg,
+            )
         seg_out["recompute_sample"] = rc
 
         seg_out["passed"] = bool(ks.get("passed", True) and sealed_check["passed"] and rc["passed"])
@@ -668,6 +785,7 @@ def execute_study(
     compress_events: bool = False,
     upload_to: Optional[str] = None,
     columnar: bool = False,
+    columnar_rows: bool = False,
     checkpoint_dir=None,
     observe: bool = False,
 ) -> dict:
@@ -738,7 +856,26 @@ def execute_study(
         if hb is not None:
             seg_kwargs["progress"] = lambda d, n, u="symbols": (hb.progress(d, n, u),
                                                                 hb.check_resources())
+
+        acc = None
+        if columnar_rows:
+            # The rows are folded as they are produced and never assembled. Every consumer that
+            # used to walk the full list gets its own fold; see `SegmentAccumulator`.
+            acc = SegmentAccumulator(
+                pattern_table.PatternLayout(schema.HORIZONS, accumulate.DEFAULT_SCENARIOS,
+                                            report.DEFAULT_TARGET_NAMES),
+                retain_ids=None,
+            )
+            seg_kwargs["row_sink"] = acc
+            seg_kwargs["retain_selector"] = recompute_selector(recompute_sample_size, recompute_seed)
+
         result = build_fn(bars_by_symbol, out_dir=out_dir / segment, **seg_kwargs)
+        if acc is not None:
+            # `retained_rows` is chosen inside build_segment (it knows the final population); the
+            # accumulator only needs to carry it on to the gate.
+            acc.retained = result["retained_rows"]
+            result["pattern_table"] = acc.table()
+            result["accumulator"] = acc
         segment_results[segment] = result
 
         # §8 bullet 3, moved to the point each control row exists (v2 storage redesign). In the row
@@ -751,14 +888,16 @@ def execute_study(
         if hb is not None:
             # Fail fast: a segment with no events or no families cannot produce a report, and
             # discovering that at hour 4 wastes the run. Recorded either way.
-            fams = sorted({r["pattern_type"] for r in result["rows"]})
-            hb.require(f"{segment}: events present", bool(result["rows"]),
-                       f"{len(result['rows']):,} rows")
+            n_rows = acc.n_rows if acc is not None else len(result["rows"])
+            fams = (sorted(set(result["pattern_table"].labels("pattern_type"))) if acc is not None
+                    else sorted({r["pattern_type"] for r in result["rows"]}))
+            hb.require(f"{segment}: events present", bool(n_rows), f"{n_rows:,} rows")
             hb.require(f"{segment}: families present", bool(fams), ", ".join(fams) or "none")
             hb.check_resources()
 
         groups = build_family_comparison_groups(
-            result["rows"], result["bars_by_symbol"], cfg=cfg, cost_cfg=cost_cfg,
+            acc.projections if acc is not None else result["rows"],
+            result["bars_by_symbol"], cfg=cfg, cost_cfg=cost_cfg,
             random_seeds=random_control_seeds, atr_decile_seed=atr_decile_seed, benchmark_df=benchmark_df,
             max_workers=max_workers, summarise_controls=summarise_controls,
             control_row_check=control_row_check,
