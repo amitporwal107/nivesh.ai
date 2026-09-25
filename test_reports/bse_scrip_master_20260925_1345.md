@@ -118,4 +118,105 @@ F4 stops at 55.4%.
   identifiers is Phase 0.2.
 - Not wired into any scheduler — no cron entry added.
 
+---
+
+# Phase 0.2 — announcement resolution + security_master.bse_code
+
+## Additional test cases
+
+| ID | Area | Scenario | Type | Expected | Result |
+|----|------|----------|------|----------|--------|
+| TC-13 | backfill | Jun-2024 -> Sep-2026 completes | e2e | ~570 trading days | PASS |
+| TC-14 | migration | 154 applies; view resolves as-of filing date | data | 4 resolution classes | PASS |
+| TC-15 | data | BSE announcements gain a symbol | data | material lift | PASS |
+| TC-16 | sync | ref.security_master.bse_code populated | data | >0 equities, 1:1 | PASS |
+| TC-17 | edge | ISIN changes do not violate the unique index | failure | no UniqueViolation | PASS |
+| TC-18 | edge | "#" one-day settlement series never chosen | data | 0 securities | PASS |
+
+## Backfill (staging)
+
+```
+"days_written": 573, "days_failed": 32, "rows_written": 2660810, "suspect_days": []
+
+ days |  rows   |    min     |    max
+------+---------+------------+------------
+  573 | 2665809 | 2024-06-03 | 2026-09-24
+```
+The 32 "failed" are exchange holidays: BSE answers a non-trading day with its landing page and
+HTTP 200, not a 404. Fixed in commit de35253e (`looks_like_html`), which the running backfill
+predated — no bad data was written either way. ~14 holidays/year over 28 months is the expected count.
+
+## Announcement resolution (TC-15)
+
+```
+       resolution        |   n    | syms
+-------------------------+--------+------
+ exchange_symbol         | 110356 | 2421     NSE-supplied, unchanged
+ bse_scrip_isin_bridge   |  69085 | 2462     <-- resolved by this work
+ bse_only_no_nse_listing |  37351 |    0     no NSE listing, out of universe
+ scrip_not_in_master     |   2752 |    0     residual gap
+```
+
+**69,085 BSE announcements that previously had no symbol at all now resolve**, across 2,462 NSE
+symbols. Before the full backfill this was 61,817 with 12,600 unresolved; completing the range cut
+the residual by 78%.
+
+## security_master.bse_code (TC-16/17/18)
+
+```
+ entity_type |   n   | with_bse | pct
+-------------+-------+----------+------
+ EQUITY      |  5743 |     3948 | 68.7
+ MF_SCHEME   | 14544 |       88 |  0.6
+
+  symbol   | bse_code |     isin
+-----------+----------+--------------
+ HDFCBANK  | 500180   | INE040A01034
+ INFY      | 500209   | INE009A01021
+ POLICYBZR | 543390   | INE417T01026
+ RAYMOND   | 500330   | INE301A01014
+ RELIANCE  | 500325   | INE002A01018
+ TCS       | 532540   | INE467B01029
+
+ securities_pointing_at_a_hash_series
+--------------------------------------
+                                    0
+```
+
+Two defects were found by spot-checking and fixed before this result:
+
+1. **UniqueViolation on `ux_security_master_bse`.** 288 scrips carry more than one ISIN over time
+   (890236 was IN90I0M01014 in Apr-May 2026, IN90I0M01022 in Jul), so matching on ISIN alone handed
+   one scrip to two securities. Fixed by taking the newest ISIN per scrip, then one scrip per ISIN,
+   then one security per ISIN.
+2. **Wrong scrip chosen for the largest names.** The first run gave RELIANCE `100325` and TCS
+   `132540`. BSE lists a one-day "#" settlement series beside the real listing — 500325 RELIANCE
+   (573 days) vs 100325 RELIANCE# (1 day). Ordering by scrip code preferred the wrong one. Fixed by
+   preferring the scrip that actually traded the most days. 34 ISINs were affected.
+
+## Point-in-time design validated on real data
+
+```
+scrips_that_changed_group | scrips_renamed | scrips_isin_changed | scrips_seen
+                     2024 |            357 |                 249 |        7274
+
+SUPHA       B -> T -> X -> Z
+BBOX        A -> B -> T
+HINDMOTORS  B -> T -> X
+```
+
+**28% of scrips changed trading group** over the window. A current-state master would have silently
+rewritten all of it, making any historical tradability judgement wrong for more than a quarter of
+the universe — on the single field that gates executability.
+
+## Known gaps (not defects in this change)
+
+- `scrip_not_in_master` = 2,752 filings. Scrips absent from the master across the whole range —
+  delisted before 2024-06, or non-equity segments.
+- 88 MF_SCHEME rows received a bse_code. Listed ETFs/InvITs legitimately carry BSE scrip codes;
+  not separately verified.
+- BSE announcements stop at **2026-09-22** while NSE reaches 09-25 — BSE ingestion is 3 days
+  behind. Pre-existing, unrelated to this change.
+- Still not wired into any scheduler.
+
 ## Verdict: PASS
