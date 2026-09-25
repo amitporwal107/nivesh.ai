@@ -87,3 +87,15 @@ def test_empty_for_a_non_sebi_layout():
     never to wrong mappings."""
     assert parse_bse_scrip_master(b"SYMBOL,SERIES,CLOSE\nRELIANCE,EQ,1300\n") == []
     assert parse_bse_scrip_master(b"") == []
+
+
+# ── BSE answers a holiday with HTML and HTTP 200, not a 404 ──────────
+def test_holiday_html_is_not_a_parse_failure():
+    """Observed on 2024-06-17: BSE served its landing page with HTTP 200 and
+    14,287 bytes. Counting that as a failure would bury real failures among
+    ~15 exchange holidays a year."""
+    from nidp.services.bhavcopy.parser import looks_like_html
+    assert looks_like_html(b'<!DOCTYPE html><html lang="en"><head>')
+    assert looks_like_html(b'\n  <html>\n')
+    assert not looks_like_html(BHAV)
+    assert not looks_like_html(b"")

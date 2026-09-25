@@ -270,3 +270,15 @@ def parse_bse_scrip_master(body: bytes) -> list[dict[str, Any]]:
             "company_name": cell(row, "FinInstrmNm"),
         })
     return out
+
+
+def looks_like_html(body: bytes) -> bool:
+    """True when BSE answered with its landing page instead of a bhavcopy.
+
+    BSE returns HTTP 200 and an HTML document for a non-trading day rather
+    than a 404. A caller that treats that as a parse failure would bury
+    genuine failures among the ~15 exchange holidays a year, so it is worth
+    telling the two apart explicitly.
+    """
+    head = body[:400].lstrip().lower()
+    return head.startswith(b"<!doctype html") or head.startswith(b"<html")

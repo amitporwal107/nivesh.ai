@@ -21,7 +21,8 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from nidp.services.bhavcopy.parser import parse_bse_scrip_master
+from nidp.services.bhavcopy.parser import (looks_like_html,
+                                           parse_bse_scrip_master)
 from nidp.shared.sources.bse_fetcher import bhavcopy_url, fetch_bytes
 
 from .writer import dates_present, upsert_scrip_master
@@ -72,6 +73,12 @@ async def ingest_day(target: date, run_id: uuid.UUID, rep: Report) -> int:
         return 0
     if status == 404:
         rep.days_no_file += 1
+        return 0
+
+    if looks_like_html(body):
+        rep.days_no_file += 1
+        logger.info("bse_scrip_master: %s served HTML, not a bhavcopy "
+                    "(holiday?)", target)
         return 0
 
     rows = parse_bse_scrip_master(body)
