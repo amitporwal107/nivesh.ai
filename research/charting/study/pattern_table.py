@@ -349,15 +349,20 @@ def _col(table: "PatternTable", array: np.ndarray, index: int, mask: np.ndarray)
     return array[:len(table), index][mask].tolist()
 
 
-def table_return_stats(table: "PatternTable", horizon: int, *, scenario: str = "base") -> dict:
+def table_return_stats(table: "PatternTable", horizon: int, *, scenario: str = "base",
+                       subset: Optional[np.ndarray] = None) -> dict:
     """Columnar `report.return_stats`. Identical output, including `max_drawdown`, which depends on
-    the equal-weight ORDER and so reuses `table.order()`."""
+    the equal-weight ORDER and so reuses `table.order()`. `subset` is a boolean row mask; the order
+    within it is the order it would have had on its own, so a segmented cell matches the row path."""
     n_rows = len(table)
     order = table.order()
     ei = table.layout.exact_index[(horizon, scenario)]
     gi = table.layout.flag_index
     mi = table.layout.money_index
-    avail = table.flag[:n_rows, gi[("cost", horizon, scenario, "available")]][order] == 1.0
+    avail = table.flag[:n_rows, gi[("cost", horizon, scenario, "available")]] == 1.0
+    if subset is not None:
+        avail = avail & subset
+    avail = avail[order]
 
     net_vals = table.exact[:n_rows, ei][order][avail].tolist()
     gross_vals = table.money[:n_rows, mi[("cost", horizon, scenario, "gross")]][order][avail].tolist()
@@ -404,11 +409,13 @@ def table_return_stats(table: "PatternTable", horizon: int, *, scenario: str = "
 
 
 def table_hit_rate_table(table: "PatternTable", target_name: str, horizon: int,
-                         *, scenario: str = "base") -> dict:
-    """Columnar `report.hit_rate_table`."""
+                         *, scenario: str = "base", subset: Optional[np.ndarray] = None) -> dict:
+    """Columnar `report.hit_rate_table`. `subset` is a boolean row mask."""
     n_rows = len(table)
     gi = table.layout.flag_index
     present = table.flag[:n_rows, gi[("tgt", target_name, horizon, "present")]] == 1.0
+    if subset is not None:
+        present = present & subset
     n = int(present.sum())
 
     code = table.flag[:n_rows, gi[("tgt", target_name, horizon, "code")]][present]
@@ -574,3 +581,134 @@ def concat_tables(parts: Sequence["PatternTable"], layout: "PatternLayout") -> "
         at += n
     out._n = at
     return out
+
+
+# ── §7.7 segmentation, and a whole (family, horizon) cell ───────────────────────────────────────
+
+
+def table_atr_pct(table: "PatternTable", subset: Optional[np.ndarray] = None) -> np.ndarray:
+    """`report.atr_pct_for_row` for every row, as an array with NaN where it is not computable.
+
+    Mirrors the row version's guard exactly: a missing ATR, a missing price, or a NON-POSITIVE
+    price all yield "no value". The `price <= 0` case is not defensive padding -- it is the row
+    path's own rule, and dropping it here would put rows in a volatility bucket the row path
+    leaves out.
+    """
+    n = len(table)
+    mi = table.layout.money_index
+    atr = table.money[:n, mi[("row", "atr_at_t")]]
+    price = table.money[:n, mi[("row", "entry_price")]]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out = np.where(price > 0, atr / price, np.nan)
+    if subset is not None:
+        out = np.where(subset, out, np.nan)
+    return out
+
+
+def table_segment_masks(table: "PatternTable", *, dimension: str,
+                        subset: Optional[np.ndarray] = None) -> dict:
+    """`{bucket_label: boolean row mask}` for one §7.7 dimension -- the columnar `segment_rows`.
+
+    `atr_bucket` terciles are IN-SAMPLE across the rows being segmented, so `subset` must be
+    applied BEFORE the quantiles are taken: the row path segments a cell's BULLISH rows only, and
+    computing the edges over every row would silently shift every boundary.
+    """
+    n = len(table)
+    base = np.ones(n, dtype=bool) if subset is None else np.asarray(subset, dtype=bool)
+    out: dict = {}
+
+    def put(labels: Sequence[str]) -> dict:
+        for i, label in enumerate(labels):
+            if not base[i]:
+                continue
+            m = out.get(label)
+            if m is None:
+                m = out[label] = np.zeros(n, dtype=bool)
+            m[i] = True
+        return out
+
+    if dimension == "liquidity_bucket":
+        mi, gi = table.layout.money_index, table.layout.flag_index
+        adv = table.money[:n, mi[("row", "adv_inr_at_t")]]
+        has = table.flag[:n, gi[("row", "has_adv")]] == 1.0
+        return put([report.liquidity_bucket_label(float(adv[i]) if has[i] else None) for i in range(n)])
+
+    if dimension == "atr_bucket":
+        vals = table_atr_pct(table, base)
+        valid = vals[~np.isnan(vals)]
+        if valid.size < 3:                      # a tercile split is not meaningful below 3
+            return put(["UNKNOWN"] * n)
+        edges = np.quantile(valid, [1 / 3, 2 / 3])
+        names = ("LOW_VOL", "MID_VOL", "HIGH_VOL")
+        return put(["UNKNOWN" if np.isnan(v) else names[int(np.searchsorted(edges, v, side="right"))]
+                    for v in vals])
+
+    key = {"stock_trend_class": "trend_class_class",
+           "market_trend_class": "market_trend_class_class",
+           "regime": "regime_regime"}.get(dimension)
+    if key is None:
+        raise ValueError(f"unknown segmentation dimension {dimension!r}")
+    return put(table.labels(key))
+
+
+def table_segmentation_report(table: "PatternTable", horizon: int, *,
+                              target_name: Optional[str] = None,
+                              subset: Optional[np.ndarray] = None) -> dict:
+    """Columnar `report.segmentation_report` (§7.7)."""
+    out: dict = {}
+    for dim in report.SEGMENTATION_DIMENSIONS:
+        dim_out: dict = {}
+        for label, mask in table_segment_masks(table, dimension=dim, subset=subset).items():
+            cell = {"returns": table_return_stats(table, horizon, subset=mask)}
+            if target_name is not None:
+                cell["hit_rate"] = table_hit_rate_table(table, target_name, horizon, subset=mask)
+            dim_out[label] = cell
+        out[dim] = dim_out
+    return out
+
+
+def table_cost_sensitivity_table(table: "PatternTable", horizon: int, *,
+                                 scenarios: Optional[Sequence[str]] = None,
+                                 subset: Optional[np.ndarray] = None) -> dict:
+    """Columnar `report.cost_sensitivity_table` (§7.9 / §36.3)."""
+    scenarios = report.DEFAULT_COST_SCENARIOS if scenarios is None else scenarios
+    return {s: table_return_stats(table, horizon, scenario=s, subset=subset) for s in scenarios}
+
+
+def bullish_mask(table: "PatternTable") -> np.ndarray:
+    """The BULLISH rows -- the only ones §1/§7.6 prices a trade for. BEARISH rows are reported
+    separately (§7.8), so every cell below starts from this."""
+    n = len(table)
+    codes = table.codes[:n, table.layout.code_index["direction"]]
+    return np.array([table.dicts["direction"].value(c) == "BULLISH" for c in codes], dtype=bool)
+
+
+def table_family_horizon_cell(table: "PatternTable", horizon: int, *,
+                              target_names: Optional[Sequence[str]] = None,
+                              comparisons: Optional[dict] = None,
+                              move_direction: Optional[dict] = None) -> dict:
+    """Columnar `report.build_family_horizon_cell` -- one whole (family, horizon) cell.
+
+    `comparisons` and `move_direction` are passed through untouched: the comparison groups are
+    CONTROL rows (already handled by `pair_table`/`accumulate`) and the AUC block comes from
+    `movement.py`, so neither is this table's business.
+    """
+    target_names = report.DEFAULT_TARGET_NAMES if target_names is None else target_names
+    bullish = bullish_mask(table)
+    cell: dict = {
+        "n": report.n_cell(int(bullish.sum())),
+        "returns": table_return_stats(table, horizon, subset=bullish),
+        "mfe_mae": table_mfe_mae_stats(table, horizon, subset=bullish),
+        "cost_sensitivity": table_cost_sensitivity_table(table, horizon, subset=bullish),
+        "targets": {name: table_hit_rate_table(table, name, horizon, subset=bullish)
+                    for name in target_names},
+        "segmentation": table_segmentation_report(
+            table, horizon, target_name=target_names[0] if target_names else None, subset=bullish),
+    }
+    if comparisons is not None:
+        cell["comparisons"] = comparisons
+    if move_direction is not None:
+        for k in ("move_auc", "move_n", "move_reason",
+                  "direction_auc", "direction_n", "direction_reason"):
+            cell[k] = move_direction.get(k)
+    return cell
