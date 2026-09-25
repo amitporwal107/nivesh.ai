@@ -713,7 +713,15 @@ def execute_study(
     for segment, build_fn in build_fns.items():
         if hb is not None:
             hb.stage(f"extraction {segment}")
-        result = build_fn(bars_by_symbol, out_dir=out_dir / segment, **segment_kwargs)
+        # Per-symbol extraction cache: the stage persists as it goes and a restart resumes, instead
+        # of throwing away up to 3 h. Its own directory per segment, keyed inside by segment+config.
+        seg_kwargs = dict(segment_kwargs)
+        if checkpoint_dir is not None:
+            seg_kwargs["extraction_cache_dir"] = Path(checkpoint_dir) / segment / "extract"
+        if hb is not None:
+            seg_kwargs["progress"] = lambda d, n, u="symbols": (hb.progress(d, n, u),
+                                                                hb.check_resources())
+        result = build_fn(bars_by_symbol, out_dir=out_dir / segment, **seg_kwargs)
         segment_results[segment] = result
 
         # §8 bullet 3, moved to the point each control row exists (v2 storage redesign). In the row

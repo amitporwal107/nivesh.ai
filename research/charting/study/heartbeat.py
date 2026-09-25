@@ -48,14 +48,41 @@ def _now() -> str:
 
 
 def rss_gb() -> float:
+    """Memory of the WHOLE run, not just this process.
+
+    The parent's own RSS is the wrong number and nearly killed the study: on 2026-09-25 the run was
+    OOM-killed at ~10 GB while this function was reporting 0.76 GB, because the memory lives in the
+    four extraction workers, not the parent. Under systemd the cgroup total is the honest figure;
+    outside it, fall back to parent + children.
+    """
     try:
-        with open(f"/proc/{os.getpid()}/status") as f:
-            for line in f:
-                if line.startswith("VmRSS:"):
-                    return int(line.split()[1]) / 1024 / 1024
+        with open("/sys/fs/cgroup/memory.current") as f:      # cgroup v2, the unit's own total
+            return int(f.read().strip()) / 1024 ** 3
     except OSError:
         pass
-    return 0.0
+    total = 0
+    for pid in [os.getpid()] + _child_pids(os.getpid()):
+        try:
+            with open(f"/proc/{pid}/status") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        total += int(line.split()[1])
+                        break
+        except OSError:
+            continue
+    return total / 1024 / 1024
+
+
+def _child_pids(pid: int) -> list:
+    try:
+        with open(f"/proc/{pid}/task/{pid}/children") as f:
+            kids = [int(x) for x in f.read().split()]
+    except OSError:
+        return []
+    out = list(kids)
+    for k in kids:
+        out.extend(_child_pids(k))
+    return out
 
 
 def disk_free_gb(path: str = "/") -> float:
@@ -74,7 +101,7 @@ class Heartbeat:
     more.
     """
 
-    def __init__(self, out_dir, *, max_rss_gb: float = 8.0, min_disk_gb: float = 3.0,
+    def __init__(self, out_dir, *, max_rss_gb: float = 7.5, min_disk_gb: float = 3.0,
                  throttle_seconds: float = 20.0, echo: bool = True):
         self.dir = Path(out_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
