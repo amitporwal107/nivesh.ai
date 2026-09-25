@@ -79,7 +79,7 @@ def _extract_worker(symbol: str) -> tuple:
 def build_event_dataset(
     bars_by_symbol: dict, *, segment: str, cfg: dict = CONFIG,
     cost_cfg: Optional[costs_bridge.CostConfig] = None, out_dir=None, now: Optional[datetime] = None,
-    max_workers: int = 1, cache_dir=None, progress=None,
+    max_workers: int = 1, cache_dir=None, progress=None, row_sink=None,
 ) -> dict:
     """Extract events for every symbol in `bars_by_symbol` (sorted order), enforcing the S35
     segment bound per symbol BEFORE any extraction runs (so a single mis-scoped symbol's frame
@@ -97,17 +97,27 @@ def build_event_dataset(
     """
     symbols = sorted(bars_by_symbol)
 
+    if row_sink is not None and out_dir is not None:
+        # `writer.write_run` needs the whole dataset, which is exactly what a sink exists to avoid
+        # holding. Silently ignoring one of the two would either write a truncated events.jsonl or
+        # defeat the sink -- both quiet, both wrong.
+        raise ValueError("row_sink and out_dir are mutually exclusive: write_run needs every row")
+
     if cache_dir is not None:
         rows = _extract_with_cache(
             bars_by_symbol, symbols, segment=segment, cfg=cfg, cost_cfg=cost_cfg,
-            max_workers=max_workers, cache_dir=cache_dir, progress=progress,
+            max_workers=max_workers, cache_dir=cache_dir, progress=progress, row_sink=row_sink,
         )
     elif max_workers <= 1 or len(symbols) <= 1:
         rows: list[dict] = []
         for symbol in symbols:
             bars = bars_by_symbol[symbol]
             assert_segment_bounds(bars, segment, symbol=symbol)
-            rows.extend(extraction.extract_events(bars, symbol, cfg=cfg, cost_cfg=cost_cfg))
+            sym_rows = extraction.extract_events(bars, symbol, cfg=cfg, cost_cfg=cost_cfg)
+            if row_sink is not None:
+                row_sink(symbol, sym_rows)
+            else:
+                rows.extend(sym_rows)
     else:
         global _EXTRACT_CTX
         _EXTRACT_CTX = dict(bars_by_symbol=bars_by_symbol, segment=segment, cfg=cfg, cost_cfg=cost_cfg)
@@ -118,8 +128,11 @@ def build_event_dataset(
         finally:
             _EXTRACT_CTX = {}
         rows = []
-        for symbol in symbols:
-            rows.extend(results[symbol])
+        for symbol in symbols:                   # sorted order, whatever order workers finished in
+            if row_sink is not None:
+                row_sink(symbol, results.pop(symbol))
+            else:
+                rows.extend(results[symbol])
 
     manifest = None
     if out_dir is not None:
@@ -180,7 +193,8 @@ def _reclaim_if_over(threshold_fraction: float = 0.5) -> None:
 
 
 def _extract_with_cache(bars_by_symbol: dict, symbols, *, segment: str, cfg: dict,
-                        cost_cfg, max_workers: int, cache_dir, progress=None) -> list:
+                        cost_cfg, max_workers: int, cache_dir, progress=None,
+                        row_sink=None) -> list:
     cache = Path(cache_dir)
     cache.mkdir(parents=True, exist_ok=True)
 
@@ -232,6 +246,11 @@ def _extract_with_cache(bars_by_symbol: dict, symbols, *, segment: str, cfg: dic
     rows: list = []
     for symbol in symbols:                       # sorted order -- identical to the non-cached path
         path = cache / _cache_key(symbol, segment, cfg)
-        rows.extend(pickle.loads(gzip.decompress(path.read_bytes())))
+        sym_rows = pickle.loads(gzip.decompress(path.read_bytes()))
+        if row_sink is not None:
+            row_sink(symbol, sym_rows)
+            del sym_rows                         # the whole point: one symbol live, never the set
+        else:
+            rows.extend(sym_rows)
         _reclaim_if_over()
     return rows

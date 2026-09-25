@@ -350,13 +350,16 @@ def test_execute_study_kill_switch_false_is_recorded_as_skipped_not_a_silent_pas
 
 
 def test_execute_study_integrity_failure_writes_integrity_failed_and_no_report(tmp_path, _small_kwargs, monkeypatch):
-    def _forced_failure(rows_a, rows_b):
+    # Patches the DIGEST entry point, which is what the kill switch calls now that the duplicate
+    # build is folded a symbol at a time instead of held whole. Patching the old row-based
+    # `kill_switch_check` would leave this test green while testing nothing.
+    def _forced_failure(digest_a, digest_b):
         return {
             "passed": False, "pattern_id_sets_match": False, "event_file_sha256_match": False,
             "sha256_a": "a", "sha256_b": "b", "pattern_id_set_symmetric_difference": ["FORCED_TEST_FAILURE"],
-            "n_rows_a": len(rows_a), "n_rows_b": len(rows_b),
+            "n_rows_a": digest_a.n_rows, "n_rows_b": digest_b.n_rows,
         }
-    monkeypatch.setattr(execute.integrity, "kill_switch_check", _forced_failure)
+    monkeypatch.setattr(execute.integrity, "kill_switch_check_digests", _forced_failure)
 
     out_dir = tmp_path / "out"
     result = execute.execute_study(out_dir, **_small_kwargs)
