@@ -7,6 +7,8 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
+import pytest
+
 from research.charting.events import extraction, writer
 from research.charting.tests._events_helpers import confirmed_rectangle_with_runway
 
@@ -173,3 +175,112 @@ def test_uncompressed_remains_the_default(tmp_path):
     assert (tmp_path / "events.jsonl").is_file()
     assert not (tmp_path / "events.jsonl.gz").exists()
     assert set(manifest["artifacts"][0]) == {"path", "sha256", "row_count"}
+
+
+# ── RunWriter: the same artifact, without materialising the dataset ─────────────────────────────
+
+
+def _writer_universe():
+    """Real rows grouped by symbol, in the order a streaming caller would see them."""
+    from research.charting.events import extraction
+    from research.charting.tests._events_helpers import confirmed_rectangle_with_runway
+
+    base = confirmed_rectangle_with_runway(tail_len=40)
+    by_symbol = {}
+    for i in range(4):
+        scaled = base.copy()
+        for c in ("open", "high", "low", "close"):
+            scaled[c] = scaled[c] * (1.0 + 0.05 * i)
+        sym = f"SYM{i:02d}"
+        by_symbol[sym] = extraction.extract_events(scaled, sym)
+    assert sum(len(v) for v in by_symbol.values()) > 1, "need >1 row for chunking to mean anything"
+    return by_symbol
+
+
+@pytest.mark.parametrize("compress", [False, True])
+def test_the_streamed_artifact_is_byte_identical_to_write_run(compress, tmp_path):
+    """Including `compressed_sha256`: GzipFile with a fixed mtime and level produces the same bytes
+    whether the data arrives in one write or many. Pinned here rather than assumed."""
+    by_symbol = _writer_universe()
+    rows = [r for sym in sorted(by_symbol) for r in by_symbol[sym]]
+    now = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
+    common = dict(segment="pre_sealed", symbols=sorted(by_symbol), now=now, compress=compress)
+
+    # `write_run` is TOLD the rule versions; `RunWriter` harvests them from the chunks, because a
+    # streaming caller would otherwise have to walk every row a second time to collect them. The
+    # real caller (`study.run.build_segment`) derives them from exactly these rows, so the two
+    # agree by construction — this passes them the way it does.
+    one_shot = writer.write_run(
+        rows, tmp_path / "a",
+        cost_rule_versions={r["versioning"]["cost_rule_version"] for r in rows
+                            if r["versioning"].get("cost_rule_version")},
+        tax_rule_versions={r["versioning"]["tax_rule_version"] for r in rows
+                           if r["versioning"].get("tax_rule_version")},
+        **common)
+
+    w = writer.RunWriter(tmp_path / "b", **common)
+    for sym in sorted(by_symbol):
+        w.add(by_symbol[sym])
+    streamed = w.finish()
+
+    assert streamed == one_shot, "manifests differ"
+    name = "events.jsonl.gz" if compress else "events.jsonl"
+    assert (tmp_path / "b" / name).read_bytes() == (tmp_path / "a" / name).read_bytes()
+    assert (tmp_path / "b" / "manifest.json").read_text() == (tmp_path / "a" / "manifest.json").read_text()
+
+
+def test_rule_versions_are_harvested_from_the_chunks(tmp_path):
+    """A streaming caller cannot pre-compute the version sets without walking every row twice."""
+    by_symbol = _writer_universe()
+    rows = [r for sym in sorted(by_symbol) for r in by_symbol[sym]]
+    expected = {r["versioning"]["cost_rule_version"] for r in rows
+                if r["versioning"].get("cost_rule_version")}
+    assert expected, "fixture carries no cost rule version — this gate would be vacuous"
+
+    w = writer.RunWriter(tmp_path / "s", segment="pre_sealed", symbols=sorted(by_symbol))
+    for sym in sorted(by_symbol):
+        w.add(by_symbol[sym])
+    assert set(w.finish()["cost_rule_versions"]) == expected
+
+
+def test_an_empty_chunk_changes_nothing(tmp_path):
+    by_symbol = _writer_universe()
+    now = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
+    common = dict(segment="pre_sealed", symbols=sorted(by_symbol), now=now)
+
+    a = writer.RunWriter(tmp_path / "a", **common)
+    b = writer.RunWriter(tmp_path / "b", **common)
+    for sym in sorted(by_symbol):
+        a.add(by_symbol[sym])
+        b.add([])
+        b.add(by_symbol[sym])
+    assert a.finish() == b.finish()
+
+
+def test_reordered_chunks_produce_a_different_artifact(tmp_path):
+    """Order is part of the file, and §8 compares the file. A reordered stream must not quietly
+    produce the same hash."""
+    by_symbol = _writer_universe()
+    syms = sorted(by_symbol)
+    now = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
+    common = dict(segment="pre_sealed", symbols=syms, now=now)
+
+    fwd = writer.RunWriter(tmp_path / "f", **common)
+    for sym in syms:
+        fwd.add(by_symbol[sym])
+    rev = writer.RunWriter(tmp_path / "r", **common)
+    for sym in reversed(syms):
+        rev.add(by_symbol[sym])
+
+    f, r = fwd.finish(), rev.finish()
+    assert f["row_count"] == r["row_count"]
+    assert f["artifacts"][0]["sha256"] != r["artifacts"][0]["sha256"]
+
+
+def test_use_after_finish_is_refused(tmp_path):
+    w = writer.RunWriter(tmp_path / "x", segment="pre_sealed", symbols=["A"])
+    w.finish()
+    with pytest.raises(RuntimeError):
+        w.add([{"versioning": {}}])
+    with pytest.raises(RuntimeError):
+        w.finish()
