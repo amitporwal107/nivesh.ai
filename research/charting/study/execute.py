@@ -546,8 +546,19 @@ def _run_integrity_gate(
         seg_out: dict = {}
 
         if kill_switch:
-            dup = build_fns[segment](bars_by_symbol, out_dir=None, **segment_kwargs)
-            ks = integrity.kill_switch_check(result["rows"], dup["rows"])
+            # The duplicate build is DIGESTED, never materialised. §8 asks whether two runs would
+            # write byte-identical event files, and both halves of that evidence -- the sha256 over
+            # `writer._dump_jsonl` and the pattern-id set -- fold one symbol at a time. Holding the
+            # second dataset instead cost a full extra copy of the segment at ~200 KB live per row,
+            # on top of the copy the report is already using, which is what made the peak
+            # unsurvivable on a 62 GB host.
+            dup_digest = integrity.RunDigest()
+            build_fns[segment](bars_by_symbol, out_dir=None,
+                               row_sink=lambda _symbol, rows: dup_digest.update(rows),
+                               **segment_kwargs)
+            own_digest = integrity.RunDigest()
+            own_digest.update(result["rows"])
+            ks = integrity.kill_switch_check_digests(own_digest, dup_digest)
         else:
             ks = {
                 "skipped": True, "passed": True,

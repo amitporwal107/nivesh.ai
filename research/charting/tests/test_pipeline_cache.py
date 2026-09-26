@@ -125,3 +125,67 @@ def test_progress_is_reported_including_what_was_resumed(tmp_path):
     pipeline.build_event_dataset(bbs, segment="pre_sealed", cache_dir=cache, max_workers=1,
                                  progress=lambda d, n, u="": seen2.append((d, n, u)))
     assert seen2[0] == (len(bbs), len(bbs), "symbols (resumed)"), "a fully resumed run must say so"
+
+
+# ── row_sink: the parent stops holding the dataset ──────────────────────────────────────────────
+
+
+def _sink_universe(n=4):
+    from research.charting.tests._events_helpers import confirmed_rectangle_with_runway
+    base = confirmed_rectangle_with_runway(tail_len=40)
+    out = {}
+    for i in range(n):
+        scaled = base.copy()
+        for c in ("open", "high", "low", "close"):
+            scaled[c] = scaled[c] * (1.0 + 0.05 * i)
+        out[f"SYM{i:02d}"] = scaled
+    return out
+
+
+@pytest.mark.parametrize("mode", ["serial", "parallel", "cache"])
+def test_the_sink_sees_exactly_the_rows_the_list_path_returns(mode, tmp_path):
+    """Same rows, same order, in all three branches — a sink that dropped or reordered a symbol
+    would change the §8 event-file hash and read as a reproducibility failure."""
+    bars = _sink_universe()
+    common = dict(segment="pre_sealed")
+    kw = {"serial": {}, "parallel": {"max_workers": 2},
+          "cache": {"cache_dir": tmp_path / "c"}}[mode]
+
+    expected = pipeline.build_event_dataset(bars, **common, **kw)["rows"]
+    assert expected, "no rows — this comparison would be vacuous"
+
+    seen: list = []
+    kw2 = dict(kw)
+    if "cache_dir" in kw2:
+        kw2["cache_dir"] = tmp_path / "c2"
+    out = pipeline.build_event_dataset(
+        bars, **common, **kw2, row_sink=lambda sym, rows: seen.append((sym, rows)))
+
+    assert [s for s, _ in seen] == sorted(bars), "symbols must arrive in sorted run order"
+    assert [r for _s, rows in seen for r in rows] == expected
+    assert out["rows"] == [], "the parent must not also accumulate — that defeats the sink"
+
+
+def test_a_sink_with_an_out_dir_is_refused_rather_than_silently_wrong(tmp_path):
+    """`write_run` needs every row, which is what a sink exists to avoid holding. Ignoring either
+    one would write a truncated events.jsonl or defeat the sink — both quiet, both wrong."""
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        pipeline.build_event_dataset(_sink_universe(2), segment="pre_sealed",
+                                     out_dir=tmp_path / "o", row_sink=lambda s, r: None)
+
+
+def test_the_sink_reproduces_the_kill_switch_hash_without_holding_the_dataset(tmp_path):
+    """The §8 use: two builds compared by digest, neither materialised."""
+    from research.charting.study import integrity
+
+    bars = _sink_universe()
+    rows = pipeline.build_event_dataset(bars, segment="pre_sealed")["rows"]
+
+    def digest():
+        d = integrity.RunDigest()
+        pipeline.build_event_dataset(bars, segment="pre_sealed",
+                                     row_sink=lambda sym, r: d.update(r))
+        return d
+
+    assert integrity.kill_switch_check_digests(digest(), digest()) == \
+        integrity.kill_switch_check(rows, rows)
