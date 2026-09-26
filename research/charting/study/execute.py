@@ -853,6 +853,9 @@ def execute_study(
         seg_kwargs = dict(segment_kwargs)
         if checkpoint_dir is not None:
             seg_kwargs["extraction_cache_dir"] = Path(checkpoint_dir) / segment / "extract"
+            # The join is the longest unresumable stage and the one five runs died in. Caching it
+            # per symbol means a restart pays only for the symbols it has not joined yet.
+            seg_kwargs["join_cache_dir"] = Path(checkpoint_dir) / segment / "join"
         if hb is not None:
             seg_kwargs["progress"] = lambda d, n, u="symbols": (hb.progress(d, n, u),
                                                                 hb.check_resources())

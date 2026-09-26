@@ -34,7 +34,9 @@ import gc
 import itertools
 import logging
 
+import gzip
 import hashlib
+import pickle
 import json
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Sequence
@@ -250,6 +252,32 @@ def data_quality_event_exclusions(
 # ── Segment build ─────────────────────────────────────────────────────────────────────────
 
 
+#: Bumped when the joined-row format changes, so a stale cache is skipped rather than reused.
+_JOIN_CACHE_VERSION = "join-v1"
+
+
+def _join_cache_key(symbol: str, segment: str, cfg: dict) -> str:
+    """A cached joined symbol is reusable only for the same segment AND config — the same rule the
+    extraction cache applies, for the same reason: reusing rows across a config change would
+    silently mix two engines' output into one dataset."""
+    digest = hashlib.sha256(
+        f"{_JOIN_CACHE_VERSION}|{segment}|{config_hash(cfg)}|{symbol}".encode()).hexdigest()[:16]
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in symbol)
+    return f"{safe}_{digest}.pkl.gz"
+
+
+def _load_joined(path: Path) -> list:
+    return pickle.loads(gzip.decompress(path.read_bytes()))
+
+
+def _store_joined(path: Path, rows: list) -> None:
+    """Atomic, for the same reason the extraction cache is: five runs have died mid-stage here, and
+    a half-written symbol resumed as if complete would corrupt the dataset rather than fail."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(gzip.compress(pickle.dumps(rows, protocol=pickle.HIGHEST_PROTOCOL), 6))
+    tmp.replace(path)
+
+
 def build_segment(
     bars_by_symbol: Mapping[str, pd.DataFrame], *, segment: str, cfg: dict = CONFIG,
     cost_cfg: Optional[costs_bridge.CostConfig] = None, etf_symbols=None, calendar=None,
@@ -259,6 +287,7 @@ def build_segment(
     input_file_hashes: Optional[Sequence[dict]] = None, max_workers: int = 1,
     compress_events: bool = False, extraction_cache_dir=None, progress=None,
     join_max_workers: Optional[int] = None, row_sink=None, retain_selector=None,
+    join_cache_dir=None,
 ) -> dict:
     """One segment's full §3 pipeline: universe rule -> data-quality exclusion -> demerger
     hook -> `events.pipeline.build_event_dataset` (own segment-bound guard) -> optional
@@ -357,17 +386,44 @@ def build_segment(
         join_workers = max(1, min(join_max_workers or max(1, max_workers // 3), max_workers))
         logger.info("context join: %d symbols, %d workers (extraction used %d)",
                     len(rows_by_symbol), join_workers, max_workers)
+        # JOIN CACHE. The join is the stage five runs died in, and until now nothing about it was
+        # resumable: a failure threw away every joined symbol and the next attempt redid all of
+        # them. Cached symbols are dropped from the work set BEFORE the join runs, so a restart
+        # pays only for what is left. Same per-symbol, atomic, config-keyed discipline as the
+        # extraction cache — and the cached rows re-enter the SAME emit path below, so the event
+        # file, its hash and the report are identical whether a symbol was joined or resumed.
+        join_cache = Path(join_cache_dir) if join_cache_dir is not None else None
+        cached_syms: dict = {}
+        if join_cache is not None:
+            join_cache.mkdir(parents=True, exist_ok=True)
+            for symbol in list(rows_by_symbol):
+                path = join_cache / _join_cache_key(symbol, segment, cfg)
+                if path.is_file():
+                    cached_syms[symbol] = path
+                    rows_by_symbol.pop(symbol)   # never re-joined, never re-held
+            if cached_syms:
+                logger.info("join cache: %d symbols resumed, %d to join",
+                            len(cached_syms), len(rows_by_symbol))
+
         enriched_by_symbol = context_join.attach_to_event_rows_by_symbol(
             rows_by_symbol, filtered_bars, cfg=cfg, max_workers=join_workers, consume=True,
-        )
+        ) if rows_by_symbol else {}
         del rows_by_symbol                      # emptied by the join; this drops the husk
+
+        if join_cache is not None:
+            for symbol, sym_rows in enriched_by_symbol.items():
+                _store_joined(join_cache / _join_cache_key(symbol, segment, cfg), sym_rows)
         # Hand each symbol to the artifact writer and the sink, then drop it, so the enriched set is
         # never assembled into one list. With `row_sink` given this is what lets the SS8 kill switch
         # prove reproducibility without a second copy of the dataset -- the digest folds per symbol,
         # in the same sorted order the list would have had, so the event file is byte-identical.
         n_emitted = 0
-        for symbol in sorted(enriched_by_symbol):
-            sym_rows = enriched_by_symbol.pop(symbol)
+        # Sorted across BOTH sources: order is what the event-file hash is computed over, so a
+        # resumed run must interleave cached and freshly-joined symbols exactly as a fresh run
+        # would have ordered them.
+        for symbol in sorted(set(enriched_by_symbol) | set(cached_syms)):
+            sym_rows = (enriched_by_symbol.pop(symbol) if symbol in enriched_by_symbol
+                        else _load_joined(cached_syms[symbol]))
             n_emitted += len(sym_rows)
             if run_writer is not None:
                 run_writer.add(sym_rows)
