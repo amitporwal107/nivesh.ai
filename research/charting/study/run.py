@@ -298,10 +298,6 @@ def build_segment(
         exclusion_mask is no_exclusions and segmenter is no_segments
     )
 
-    if row_sink is not None and out_dir is not None:
-        # `writer.write_run` needs every row, which is what a sink exists to avoid holding.
-        raise ValueError("row_sink and out_dir are mutually exclusive: write_run needs every row")
-
     result = pipeline.build_event_dataset(
         filtered_bars, segment=segment, cfg=cfg, cost_cfg=cost_cfg, max_workers=max_workers,
         cache_dir=extraction_cache_dir, progress=progress,
@@ -321,6 +317,16 @@ def build_segment(
 
     for row in rows:
         row["base_symbol"] = base_symbol(row["symbol"])
+
+    # The artifact is written INCREMENTALLY. `write_run` serialises the whole dataset to bytes
+    # before writing one, so publishing a segment used to cost the rows plus a full serialised copy
+    # of them. `RunWriter` produces a byte-identical file and manifest (pinned in
+    # tests/test_events_writer.py, including `compressed_sha256`).
+    run_writer = writer.RunWriter(
+        out_dir, segment=segment, symbols=sorted(filtered_bars), cfg=cfg, now=now,
+        compress=compress_events,
+    ) if out_dir is not None else None
+    rows_kept: list = []
 
     if attach_context:
         logger.info("context join: %d rows across %d symbols, %d workers",
@@ -345,45 +351,45 @@ def build_segment(
             rows_by_symbol, filtered_bars, cfg=cfg, max_workers=join_workers, consume=True,
         )
         del rows_by_symbol                      # emptied by the join; this drops the husk
-        if row_sink is not None:
-            # Hand each symbol over and drop it, so the enriched set is never assembled into one
-            # list. This is what lets the SS8 kill switch prove reproducibility without a second
-            # copy of the dataset: the digest is folded per symbol, in the same sorted order the
-            # list would have had, so the event-file hash is unchanged.
-            n_sunk = 0
-            for symbol in sorted(enriched_by_symbol):
-                sym_rows = enriched_by_symbol.pop(symbol)
-                n_sunk += len(sym_rows)
+        # Hand each symbol to the artifact writer and the sink, then drop it, so the enriched set is
+        # never assembled into one list. With `row_sink` given this is what lets the SS8 kill switch
+        # prove reproducibility without a second copy of the dataset -- the digest folds per symbol,
+        # in the same sorted order the list would have had, so the event file is byte-identical.
+        n_emitted = 0
+        for symbol in sorted(enriched_by_symbol):
+            sym_rows = enriched_by_symbol.pop(symbol)
+            n_emitted += len(sym_rows)
+            if run_writer is not None:
+                run_writer.add(sym_rows)
+            if row_sink is not None:
                 row_sink(symbol, sym_rows)
-                del sym_rows
-            rows = []
-            del enriched_by_symbol
-            gc.collect()
-            logger.info("context join complete: %d rows streamed to sink", n_sunk)
-        else:
-            rows = [r for symbol in sorted(enriched_by_symbol) for r in enriched_by_symbol[symbol]]
-            del enriched_by_symbol              # `rows` now owns them; this is references only
-            gc.collect()
-            logger.info("context join complete: %d rows", len(rows))
-
-    if row_sink is not None and rows:
-        # attach_context=False: the rows are already assembled, so there is nothing to save here --
-        # but the sink contract must hold either way, and in the SAME order `rows` carries (the
-        # pipeline assembles by sorted symbol and the exclusion filter preserves relative order),
-        # or the digest would be of a differently-ordered file.
+            else:
+                rows_kept.extend(sym_rows)
+            del sym_rows
+        del enriched_by_symbol
+        rows = rows_kept
+        gc.collect()
+        logger.info("context join complete: %d rows%s", n_emitted,
+                    " streamed to sink" if row_sink is not None else "")
+    elif run_writer is not None or row_sink is not None:
+        # attach_context=False: the rows are already assembled, so nothing is saved here -- but both
+        # contracts must hold either way, and in the SAME order `rows` carries (the pipeline
+        # assembles by sorted symbol and the exclusion filter preserves relative order), or the
+        # artifact and its hash would be of a differently-ordered file.
         for symbol, group in itertools.groupby(rows, key=lambda r: r["symbol"]):
-            row_sink(symbol, list(group))
-        rows = []
+            chunk = list(group)
+            if run_writer is not None:
+                run_writer.add(chunk)
+            if row_sink is not None:
+                row_sink(symbol, chunk)
+        if row_sink is not None:
+            rows = []
 
     manifest = None
-    if out_dir is not None:
-        cost_versions = {r["versioning"]["cost_rule_version"] for r in rows if r["versioning"].get("cost_rule_version")}
-        tax_versions = {r["versioning"]["tax_rule_version"] for r in rows if r["versioning"].get("tax_rule_version")}
-        manifest = writer.write_run(
-            rows, out_dir, segment=segment, symbols=sorted(filtered_bars), cfg=cfg,
-            cost_rule_versions=cost_versions, tax_rule_versions=tax_versions, now=now,
-            compress=compress_events,
-        )
+    if run_writer is not None:
+        # Rule versions are harvested by the writer from the chunks it saw, so a streaming caller
+        # does not have to walk every row a second time to collect them.
+        manifest = run_writer.finish()
         manifest["feature_config_hash"] = regime.feature_config_hash()
         manifest["prereg_sha256"] = prereg_sha256()
         manifest["universe"] = {

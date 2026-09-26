@@ -4,6 +4,7 @@ this package's own one-off, artifact-deleted smoke run, documented separately)."
 from __future__ import annotations
 
 import copy
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -13,7 +14,7 @@ import pytest
 from research.charting import context, regime
 from research.charting.config import CONFIG
 from research.charting.config import BARS_COLUMNS
-from research.charting.events import schema
+from research.charting.events import schema, writer
 from research.charting.study import run as study_run
 from research.charting.tests._events_helpers import (
     confirmed_hh_hl_with_runway,
@@ -345,8 +346,45 @@ def test_the_streamed_kill_switch_verdict_equals_the_row_based_one():
         integrity.kill_switch_check(rows, rows)
 
 
-def test_a_sink_with_an_out_dir_is_refused(tmp_path):
-    """`write_run` needs every row, which is what the sink exists to avoid holding."""
-    with pytest.raises(ValueError, match="mutually exclusive"):
-        study_run.build_segment(_universe(), segment=schema.SEGMENT_PRE_SEALED,
-                                out_dir=tmp_path, row_sink=lambda s, r: None)
+def test_a_sink_and_an_out_dir_now_coexist_and_publish_the_same_artifact(tmp_path):
+    """Both used to be impossible together, because `write_run` needed every row — the very thing
+    the sink exists to avoid holding. The segment write streams now, so a run can publish
+    `events.jsonl` AND stream its rows, which is what lets the real study do both."""
+    bars_by_symbol = _universe()
+    now = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
+
+    plain = study_run.build_segment(bars_by_symbol, segment=schema.SEGMENT_PRE_SEALED,
+                                    out_dir=tmp_path / "plain", now=now)
+    seen: list = []
+    sunk = study_run.build_segment(bars_by_symbol, segment=schema.SEGMENT_PRE_SEALED,
+                                   out_dir=tmp_path / "sunk", now=now,
+                                   row_sink=lambda sym, rows: seen.append((sym, rows)))
+
+    assert (tmp_path / "sunk" / "events.jsonl").read_bytes() == \
+        (tmp_path / "plain" / "events.jsonl").read_bytes(), "the published artifact differs"
+    assert sunk["manifest"] == plain["manifest"]
+    assert [r for _s, rows in seen for r in rows] == plain["rows"]
+    assert sunk["rows"] == [], "the parent must not also accumulate"
+
+
+def test_the_published_artifact_is_unchanged_by_streaming_the_write(tmp_path):
+    """`build_segment` now writes incrementally even without a sink. §8 compares these bytes, so a
+    difference here would read as a reproducibility failure on the next run."""
+    bars_by_symbol = _universe()
+    now = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
+    result = study_run.build_segment(bars_by_symbol, segment=schema.SEGMENT_PRE_SEALED,
+                                     out_dir=tmp_path / "seg", now=now)
+    rows = result["rows"]
+    assert rows, "no rows — vacuous"
+
+    reference = writer.write_run(
+        rows, tmp_path / "ref", segment=schema.SEGMENT_PRE_SEALED,
+        symbols=sorted(result["bars_by_symbol"]), now=now,
+        cost_rule_versions={r["versioning"]["cost_rule_version"] for r in rows
+                            if r["versioning"].get("cost_rule_version")},
+        tax_rule_versions={r["versioning"]["tax_rule_version"] for r in rows
+                           if r["versioning"].get("tax_rule_version")})
+
+    assert (tmp_path / "seg" / "events.jsonl").read_bytes() == \
+        (tmp_path / "ref" / "events.jsonl").read_bytes()
+    assert result["manifest"]["artifacts"] == reference["artifacts"]

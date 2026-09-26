@@ -85,6 +85,112 @@ def _gzip_bytes(data: bytes, level: int = GZIP_LEVEL) -> bytes:
     return buf.getvalue()
 
 
+class RunWriter:
+    """`write_run`, fed a chunk at a time — the same files, the same manifest, the same hashes.
+
+    WHY
+    ---
+    `write_run` builds `_dump_jsonl(rows)` for the WHOLE dataset before writing a byte, so
+    publishing a segment costs the rows plus a full serialised copy of them, on top of whatever the
+    caller is still holding. That is the last place a v2 study run materialises everything at once.
+
+    Both hashes survive chunking. The uncompressed sha256 is over `"\n".join(lines) + "\n"`, whose
+    bytes for a whole list are exactly its chunks' bytes concatenated. The compressed one survives
+    because `GzipFile` with a fixed `mtime`/level produces identical output whether the data arrives
+    in one `write` or many, provided nothing flushes in between — pinned by
+    `tests/test_events_writer.py`, not assumed.
+
+    ORDER IS PART OF THE ARTIFACT. Chunks must arrive in the order `write_run` would have received
+    them, or the file differs and §8's kill switch reads it as a reproducibility failure.
+
+    Usage is `add(...)` per chunk then `finish()`, which returns the manifest `write_run` returns.
+    """
+
+    __slots__ = ("out_dir", "_segment", "_symbols", "_cfg", "_cost_versions", "_tax_versions",
+                 "_now", "_compress", "_sha", "_rows", "_raw_bytes", "_fh", "_gz", "_finished")
+
+    def __init__(self, out_dir, *, segment: str, symbols: Sequence[str], cfg: dict = CONFIG,
+                 cost_rule_versions: Optional[Sequence[str]] = None,
+                 tax_rule_versions: Optional[Sequence[str]] = None,
+                 now: Optional[datetime] = None, compress: bool = False):
+        self.out_dir = Path(out_dir)
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        self._segment, self._symbols, self._cfg = segment, symbols, cfg
+        self._cost_versions = set(cost_rule_versions or ())
+        self._tax_versions = set(tax_rule_versions or ())
+        self._now, self._compress = now, compress
+        self._sha = hashlib.sha256()
+        self._rows = 0
+        self._raw_bytes = 0
+        self._finished = False
+
+        path = self.out_dir / ("events.jsonl.gz" if compress else "events.jsonl")
+        self._fh = open(path, "wb")
+        self._gz = (gzip.GzipFile(filename="", mode="wb", compresslevel=GZIP_LEVEL,
+                                  fileobj=self._fh, mtime=0) if compress else None)
+
+    def add(self, rows: Sequence[dict]) -> "RunWriter":
+        """Append one chunk — typically one symbol's rows — in run order.
+
+        Rule versions are harvested here rather than demanded up front, so a streaming caller does
+        not have to walk every row a second time to collect them.
+        """
+        if self._finished:
+            raise RuntimeError("RunWriter.add after finish()")
+        if not rows:
+            return self                          # `_dump_jsonl([])` is b"": a real no-op
+        content = _dump_jsonl(rows)
+        self._sha.update(content)
+        self._raw_bytes += len(content)
+        self._rows += len(rows)
+        (self._gz or self._fh).write(content)
+        for row in rows:
+            versioning = row.get("versioning") or {}
+            if versioning.get("cost_rule_version"):
+                self._cost_versions.add(versioning["cost_rule_version"])
+            if versioning.get("tax_rule_version"):
+                self._tax_versions.add(versioning["tax_rule_version"])
+        return self
+
+    def finish(self) -> dict:
+        """Close the artifact and write `manifest.json`. Returns the manifest, as `write_run` does."""
+        if self._finished:
+            raise RuntimeError("RunWriter.finish called twice")
+        self._finished = True
+        if self._gz is not None:
+            self._gz.close()
+        self._fh.close()
+
+        sha = self._sha.hexdigest()
+        if self._compress:
+            stored = (self.out_dir / "events.jsonl.gz").read_bytes()
+            artifact = {
+                "path": "events.jsonl.gz", "sha256": sha, "row_count": self._rows,
+                "compression": "gzip", "compressed_sha256": _sha256_bytes(stored),
+                "bytes": self._raw_bytes, "compressed_bytes": len(stored),
+            }
+        else:
+            artifact = {"path": "events.jsonl", "sha256": sha, "row_count": self._rows}
+
+        now = self._now or datetime.now(timezone.utc)
+        manifest = {
+            "schema_version": EVENTS_SCHEMA_VERSION,
+            "run_id": f"events_{self._segment}_{now.strftime('%Y%m%dT%H%M%SZ')}",
+            "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "engine_version": ENGINE_VERSION,
+            "profile": PROFILE_NAME,
+            "config_hash": config_hash(self._cfg),
+            "segment": self._segment,
+            "symbols": sorted(self._symbols),
+            "row_count": self._rows,
+            "cost_rule_versions": sorted(self._cost_versions),
+            "tax_rule_versions": sorted(self._tax_versions),
+            "artifacts": [artifact],
+        }
+        (self.out_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
+        return manifest
+
+
 def write_run(
     rows: Sequence[dict], out_dir, *, segment: str, symbols: Sequence[str], cfg: dict = CONFIG,
     cost_rule_versions: Optional[Sequence[str]] = None, tax_rule_versions: Optional[Sequence[str]] = None,
