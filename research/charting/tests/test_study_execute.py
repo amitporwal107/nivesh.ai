@@ -475,3 +475,85 @@ def test_a_real_checkout_still_wins_over_the_env_var(monkeypatch):
     got = execute._git_commit()
     if got is not None and got != "0000000000000000000000000000000000000000":
         assert len(got) == 40      # a real SHA from the real checkout
+
+
+# ── columnar_rows: the study never assembles the segment ────────────────────────────────────────
+
+
+def test_recompute_selector_picks_exactly_what_recompute_sample_would():
+    """§8 bullet 4 selects its sample from rows sorted by event_id. `recompute_selector` makes the
+    same choice from ids alone, before the rows exist. If it drifted, the gate would verify a
+    different sample than the one it reports — and still pass."""
+    import random as _random
+
+    ids = [f"EV-{i:04d}" for i in range(137)]
+    for size in (1, 7, 50, 200):
+        rows = [{"event_id": i} for i in ids]
+        ordered = sorted(rows, key=lambda r: r["event_id"])
+        if size < len(ordered):
+            expected = {r["event_id"] for r in _random.Random(0).sample(ordered, k=size)}
+        else:
+            expected = set(ids)
+        assert execute.recompute_selector(size, 0)(ids) == expected, size
+    assert execute.recompute_selector(None, 0)(ids) == set(ids)
+
+
+def test_columnar_rows_produces_the_same_reports_as_the_row_path(tmp_path, _small_kwargs):
+    """The decisive comparison: a whole study run both ways. The reports must be identical, or the
+    memory work changed a result rather than only how it is stored."""
+    row_path = execute.execute_study(tmp_path / "rows", **_small_kwargs)
+    col_path = execute.execute_study(tmp_path / "cols", columnar_rows=True, **_small_kwargs)
+    assert row_path["status"] == col_path["status"] == "COMPLETE"
+
+    for segment in ("pre_sealed", "post_sealed"):
+        expected = json.loads((tmp_path / "rows" / segment / "report.json").read_text())
+        got = json.loads((tmp_path / "cols" / segment / "report.json").read_text())
+        assert got == expected, segment
+        fams = expected["families"]
+        assert fams and any(f["n_total"]["n"] for f in fams.values()), "empty report — vacuous"
+        # the rendered companion too, since a reader looks at that one
+        assert (tmp_path / "cols" / segment / "report.md").read_text() == \
+            (tmp_path / "rows" / segment / "report.md").read_text()
+
+
+def test_columnar_rows_publishes_a_byte_identical_events_file(tmp_path, _small_kwargs):
+    """§8 compares these bytes on the next run, so streaming the write must not change them."""
+    execute.execute_study(tmp_path / "rows", **_small_kwargs)
+    execute.execute_study(tmp_path / "cols", columnar_rows=True, **_small_kwargs)
+    for segment in ("pre_sealed", "post_sealed"):
+        a = (tmp_path / "rows" / segment / "events.jsonl").read_bytes()
+        b = (tmp_path / "cols" / segment / "events.jsonl").read_bytes()
+        assert a == b and a, f"{segment}: published artifact differs"
+
+
+def test_columnar_rows_reaches_the_same_integrity_verdict(tmp_path, _small_kwargs):
+    """Every §8 bullet has moved: the kill switch digests, the sealed check runs per row at
+    generation, and the recompute sample is pre-selected. All three must still agree."""
+    row_path = execute.execute_study(tmp_path / "rows", **_small_kwargs)
+    col_path = execute.execute_study(tmp_path / "cols", columnar_rows=True, **_small_kwargs)
+
+    for segment in ("pre_sealed", "post_sealed"):
+        r, c = row_path["integrity"][segment], col_path["integrity"][segment]
+        assert c["passed"] == r["passed"] is True
+        assert c["kill_switch"]["sha256_a"] == r["kill_switch"]["sha256_a"]
+        assert c["kill_switch"]["passed"] is True
+        assert c["sealed_window_check"]["passed"] is True
+        assert c["sealed_window_check"]["n_rows_checked"] == r["sealed_window_check"]["n_rows_checked"]
+        # the sample must be the same size AND the same verdict, not merely both green
+        assert c["recompute_sample"]["n_rows"] == r["recompute_sample"]["n_rows"]
+        assert c["recompute_sample"]["fields"] == r["recompute_sample"]["fields"]
+        assert c["recompute_sample"]["passed"] is True
+        assert c["recompute_sample"]["n_rows"] > 0, "nothing recomputed — vacuous"
+
+
+def test_columnar_rows_does_not_retain_the_segment(tmp_path, _small_kwargs):
+    """The point of all of it: the parent holds a table and ~50 retained rows, not the dataset."""
+    result = execute.execute_study(tmp_path / "cols", columnar_rows=True, **_small_kwargs)
+    for segment in ("pre_sealed", "post_sealed"):
+        seg = result["segment_results"][segment]
+        assert seg["rows"] == [], f"{segment}: the row list was still assembled"
+        assert len(seg["pattern_table"]) > 0, "no table was built"
+        # only the §8 recompute sample survives whole, and it is bounded by sample_size
+        assert len(seg["retained_rows"]) <= execute.DEFAULT_RECOMPUTE_SAMPLE_SIZE
+        assert len(seg["retained_rows"]) < len(seg["pattern_table"]) or \
+            len(seg["pattern_table"]) <= execute.DEFAULT_RECOMPUTE_SAMPLE_SIZE

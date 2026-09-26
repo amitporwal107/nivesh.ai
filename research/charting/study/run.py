@@ -258,7 +258,7 @@ def build_segment(
     attach_context: bool = False, out_dir=None, now=None,
     input_file_hashes: Optional[Sequence[dict]] = None, max_workers: int = 1,
     compress_events: bool = False, extraction_cache_dir=None, progress=None,
-    join_max_workers: Optional[int] = None, row_sink=None,
+    join_max_workers: Optional[int] = None, row_sink=None, retain_selector=None,
 ) -> dict:
     """One segment's full §3 pipeline: universe rule -> data-quality exclusion -> demerger
     hook -> `events.pipeline.build_event_dataset` (own segment-bound guard) -> optional
@@ -318,6 +318,16 @@ def build_segment(
     for row in rows:
         row["base_symbol"] = base_symbol(row["symbol"])
 
+    # `retain_selector` picks, from the FINAL event_id population (post data-quality exclusion, so
+    # this is the right place -- the join neither adds nor removes rows), the handful of rows a
+    # caller needs to keep whole. §8's `recompute_sample` re-derives a seeded sample of rows from
+    # bars, and it is the only consumer that still needs real nested rows once the report reads
+    # columns. Selecting on ids first means ~50 rows survive instead of the segment.
+    retain_ids: set = set()
+    if retain_selector is not None:
+        retain_ids = set(retain_selector([r["event_id"] for r in rows]))
+    retained_rows: list = []
+
     # The artifact is written INCREMENTALLY. `write_run` serialises the whole dataset to bytes
     # before writing one, so publishing a segment used to cost the rows plus a full serialised copy
     # of them. `RunWriter` produces a byte-identical file and manifest (pinned in
@@ -361,6 +371,8 @@ def build_segment(
             n_emitted += len(sym_rows)
             if run_writer is not None:
                 run_writer.add(sym_rows)
+            if retain_ids:
+                retained_rows.extend(r for r in sym_rows if r["event_id"] in retain_ids)
             if row_sink is not None:
                 row_sink(symbol, sym_rows)
             else:
@@ -380,6 +392,8 @@ def build_segment(
             chunk = list(group)
             if run_writer is not None:
                 run_writer.add(chunk)
+            if retain_ids:
+                retained_rows.extend(r for r in chunk if r["event_id"] in retain_ids)
             if row_sink is not None:
                 row_sink(symbol, chunk)
         if row_sink is not None:
@@ -403,7 +417,8 @@ def build_segment(
         (Path(out_dir) / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
 
     return {
-        "rows": rows, "segment": segment, "universe": universe, "data_quality_exclusions": dq,
+        "rows": rows, "retained_rows": retained_rows,
+        "segment": segment, "universe": universe, "data_quality_exclusions": dq,
         "demerger_regimes": demerger_report, "manifest": manifest,
         # The EXACT bars each row in `rows` was actually built from (post universe/data-quality/
         # demerger filtering, and -- via build_pre_sealed_segment/build_post_sealed_segment --
