@@ -21,6 +21,7 @@ import {
 } from "@/services/adapters/paperTrades.adapter";
 import { MODE_SESSION, clock, day, dayYear, inr, levels, modeResult, pct, price, prob, sizeBasket, type Path, type Sizing } from "./paperMath";
 import PaperIntradayChart from "./PaperIntradayChart";
+import PaperTradeChart from "./PaperTradeChart";
 import "./moveOdds.css";
 import "./paperTrades.css";
 
@@ -600,6 +601,8 @@ function TradeView({ data, tradeId, onPick }: { data: PaperPortfolioData; tradeI
             <div className="pt-stat"><span className="pt-stat-l">Levels</span><span className="pt-stat-v" style={{ fontSize: 13 }}>{target != null ? `${price(target)} / ${price(t.stop_loss_price)}` : "—"}</span>
               <span className="pt-stat-s">{t.stop_method ? `${t.stop_method === "CAP_8PCT" ? "stop capped at 8%" : t.stop_method === "SUPPORT" ? "stop at support" : `${cfg.atr_multiplier}× ATR14`} · R:R ${t.risk_reward_ratio != null ? t.risk_reward_ratio.toFixed(2) : "—"}` : "set at entry"}</span></div>
           </div>
+
+          <PaperTradeChart t={t} />
 
           <div className="mo-tablewrap" tabIndex={0}>
             <table className="mo-table pt-table" data-testid="pt-path" style={{ minWidth: 760 }}>
