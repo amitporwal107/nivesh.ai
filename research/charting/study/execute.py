@@ -54,6 +54,8 @@ module only wires them together in the order §3/§7/§8 require):
 from __future__ import annotations
 
 import argparse
+import gzip
+import pickle
 import hashlib
 import json
 import random
@@ -69,7 +71,7 @@ import pandas as pd
 from research.charting import bars as bars_mod
 from research.charting import context, regime
 from research.charting import universe as universe_mod
-from research.charting.config import CONFIG
+from research.charting.config import CONFIG, config_hash
 from research.charting.events import controls, costs_bridge, schema, writer
 from research.charting.research_window import SealedWindowError
 from research.charting.study import accumulate, heartbeat as hb_mod, integrity
@@ -277,6 +279,25 @@ def recompute_selector(sample_size: Optional[int], seed: int):
 # boundary); assembly (pure dict lookups into the priced result) stays serial.
 
 
+def _draw_cache_key(segment: str, family: str, cfg: Mapping, seeds, atr_seed: int,
+                    eligible, event_ids) -> str:
+    """A cached draw is reusable only for the exact inputs that produced it.
+
+    Everything that can change a draw goes into the key: the segment, the family, the config hash,
+    both seeds, the eligible population and the event set. Miss one and a restart silently reuses
+    draws for a different population -- which would be worse than repaying the 85 minutes, because
+    nothing downstream would fail.
+    """
+    h = hashlib.sha256()
+    h.update(f"draw-v1|{segment}|{family}|{config_hash(dict(cfg))}|{atr_seed}".encode())
+    h.update(("|".join(str(s) for s in sorted(seeds))).encode())
+    for sym, idx in sorted(set(eligible)):
+        h.update(f"|{sym}:{idx}".encode())
+    for eid in sorted(event_ids):
+        h.update(f"|{eid}".encode())
+    return h.hexdigest()[:24]
+
+
 def build_family_comparison_groups(
     rows: Sequence[Mapping], bars_by_symbol: Mapping[str, pd.DataFrame], *, cfg: dict = CONFIG,
     cost_cfg: Optional[costs_bridge.CostConfig] = None, random_seeds: Sequence[int] = controls.RANDOM_CONTROL_SEEDS,
@@ -284,6 +305,7 @@ def build_family_comparison_groups(
     max_workers: int = 1, summarise_controls: bool = False,
     control_row_check: Optional[Callable[[Mapping], None]] = None,
     columnar: bool = False, checkpoint_dir=None, heartbeat=None,
+    draw_cache_dir=None, segment_name: Optional[str] = None,
 ) -> dict:
     """One segment's §7.6 comparison groups, per pattern family present in `rows`:
     `{family: {"random_batch", "atr_decile_rows", "buy_next_open_rows",
@@ -324,24 +346,56 @@ def build_family_comparison_groups(
     if not families:
         return {}
 
-    # Phase 1 -- draw (cheap, deterministic, always serial: see block above). `draw_cache` is
-    # shared across every family's ATR-decile draw (its `atr_by_symbol` half only -- ranking
-    # ATR%(t) needs a full-series read, never the heavier `priced_signal` half, which this phase
-    # never touches at all).
+    # Phase 1 -- draw. Described as "cheap" when it was written; MEASURED 2026-09-29 it is the
+    # longest unreported stretch in the whole run -- 85 minutes between "families present" and
+    # "pricing random control", serial, at 99.7% CPU with flat memory. With no `stage()` call it
+    # looks identical to a hang, and a healthy run was very nearly killed on that basis. It is also
+    # the only long stage with NO checkpoint, so every restart repays all 85 minutes even though
+    # the draws are seeded and deterministic.
+    #
+    # `draw_cache` is shared across every family's ATR-decile draw (its `atr_by_symbol` half only --
+    # ranking ATR%(t) needs a full-series read, never the heavier `priced_signal` half, which this
+    # phase never touches at all).
+    if heartbeat is not None:
+        heartbeat.stage("comparison-group draws")
+        heartbeat.note("families", len(families))
     draw_cache = controls.ControlPriceCache()
     per_family_draws: dict = {}
     nifty_detail_by_family: dict = {}
     for family in families:
         family_rows = [r for r in rows if r["pattern_type"] == family]
         bullish = [r for r in family_rows if r.get("direction") == "BULLISH"]
-        per_family_draws[family] = {
-            "random": controls.random_control_draws(eligible, n=len(bullish), seeds=random_seeds),
-            "atr_decile": controls.atr_decile_control_draws(
-                bars_by_symbol, bullish, eligible, seed=atr_decile_seed, cfg=cfg, cache=draw_cache,
-            ),
-            "buy_next_open": controls.buy_next_open_baseline_draws(family_rows),
-        }
+        draw_path = None
+        if draw_cache_dir is not None:
+            key = _draw_cache_key(segment_name or "?", family, cfg, random_seeds, atr_decile_seed,
+                                  eligible, [r["event_id"] for r in family_rows])
+            draw_path = Path(draw_cache_dir) / f"{family}_{key}.pkl.gz"
+
+        if draw_path is not None and draw_path.is_file():
+            per_family_draws[family] = pickle.loads(gzip.decompress(draw_path.read_bytes()))
+            if heartbeat is not None:
+                heartbeat.note(f"draw_cache_resumed_{family}", 1)
+        else:
+            per_family_draws[family] = {
+                "random": controls.random_control_draws(eligible, n=len(bullish), seeds=random_seeds),
+                "atr_decile": controls.atr_decile_control_draws(
+                    bars_by_symbol, bullish, eligible, seed=atr_decile_seed, cfg=cfg, cache=draw_cache,
+                ),
+                "buy_next_open": controls.buy_next_open_baseline_draws(family_rows),
+            }
+            if draw_path is not None:
+                draw_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = draw_path.with_name(draw_path.name + ".tmp")
+                tmp.write_bytes(gzip.compress(
+                    pickle.dumps(per_family_draws[family], protocol=pickle.HIGHEST_PROTOCOL), 6))
+                tmp.replace(draw_path)     # atomic: a half-written draw must never resume
         nifty_detail_by_family[family] = _benchmark_forward_returns(bullish, benchmark_df, horizons)
+        if heartbeat is not None:
+            # Per FAMILY, not per event: the ATR-decile draw ranks a whole date's eligible pool per
+            # event, so there is no cheap inner counter. Three lines beats eighty-five silent
+            # minutes.
+            heartbeat.progress(len(per_family_draws), len(families), "families drawn")
+            heartbeat.check_resources()
 
     # Phase 2 -- price the UNION of every pair any family's draw needs, exactly once, optionally
     # across a by-symbol worker pool (see block above / `controls.price_signals`'s own docstring).
@@ -944,7 +998,9 @@ def execute_study(
             result["bars_by_symbol"], cfg=cfg, cost_cfg=cost_cfg,
             random_seeds=random_control_seeds, atr_decile_seed=atr_decile_seed, benchmark_df=benchmark_df,
             max_workers=max_workers, summarise_controls=summarise_controls,
-            control_row_check=control_row_check,
+            control_row_check=control_row_check, segment_name=segment,
+            # 85 minutes of seeded, deterministic work that no restart could recover.
+            draw_cache_dir=(Path(checkpoint_dir) / segment / "draws") if checkpoint_dir else None,
             columnar=columnar,
             checkpoint_dir=(None if checkpoint_dir is None else Path(checkpoint_dir) / segment),
             heartbeat=hb,
