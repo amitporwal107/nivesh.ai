@@ -210,6 +210,7 @@ def attach_to_event_rows_by_symbol(
     rows_by_symbol: Mapping[str, list], bars_by_symbol: Mapping[str, pd.DataFrame], *, cfg: dict = CONFIG,
     benchmark_df: Optional[pd.DataFrame] = None, vix_df: Optional[pd.DataFrame] = None,
     breadth_df: Optional[pd.DataFrame] = None, max_workers: int = 1, consume: bool = False,
+    on_symbol=None,
 ) -> dict:
     """`{symbol: enriched_rows}` for every symbol in `rows_by_symbol` (only symbols that HAVE
     rows -- a symbol absent from `rows_by_symbol` is never looked up in `bars_by_symbol` and
@@ -222,6 +223,14 @@ def attach_to_event_rows_by_symbol(
     `max_workers` (PERFORMANCE ONLY, default 1 = serial): with `max_workers > 1`, symbols are
     dispatched one-per-task across a forked process pool instead of looped over in this process
     -- see the block above.
+
+    `on_symbol(symbol, rows)`: MEMORY, not performance. Given, each symbol is handed to the callback
+    as it completes and the parent retains NOTHING -- the returned dict is empty. Without it this
+    function materialises every enriched row before returning, so the originals and their
+    replacements coexist: measured 25.5 GB + 27.9 GB at 133,743 rows, which OOM-killed a run on a
+    62 GB host. Callbacks arrive in COMPLETION order, not sorted order, so a caller that needs
+    deterministic order must re-order downstream (`study.run.build_segment` streams to its
+    per-symbol join cache and then emits in sorted order from there).
     """
     if benchmark_df is None:
         benchmark_df = regime.load_index_history(regime.FEATURE_CONFIG["market_benchmark"])
@@ -232,13 +241,20 @@ def attach_to_event_rows_by_symbol(
 
     symbols = sorted(rows_by_symbol)
     if max_workers <= 1 or len(symbols) <= 1:
-        return {
-            symbol: attach_to_event_rows_for_symbol(
+        out: dict = {}
+        for symbol in symbols:
+            enriched = attach_to_event_rows_for_symbol(
                 rows_by_symbol[symbol], bars_by_symbol[symbol], cfg=cfg,
                 benchmark_df=benchmark_df, vix_df=vix_df, breadth_df=breadth_df,
             )
-            for symbol in symbols
-        }
+            if on_symbol is not None:
+                on_symbol(symbol, enriched)
+                if consume:
+                    rows_by_symbol.pop(symbol, None)
+                del enriched
+            else:
+                out[symbol] = enriched
+        return out
 
     # MEMORY (measured 2026-09-25, after two OOM kills at a 50 GB peak on a 62 GB host):
     #
@@ -267,9 +283,18 @@ def attach_to_event_rows_by_symbol(
             with ctx.Pool(processes=min(max_workers, len(symbols))) as pool:
                 done = 0
                 for symbol, enriched in pool.imap_unordered(_join_worker, symbols, chunksize=1):
-                    results[symbol] = enriched
+                    if on_symbol is not None:
+                        # STREAMING. The caller takes ownership immediately and the parent keeps
+                        # NOTHING, so the enriched set is never assembled. Without this the peak is
+                        # originals + enriched simultaneously -- 25.5 GB + 27.9 GB at 133,743 rows,
+                        # which is what OOM-killed the run on a 62 GB host. With it the peak is the
+                        # originals alone, and they DRAIN as their replacements are handed over.
+                        on_symbol(symbol, enriched)
+                    else:
+                        results[symbol] = enriched
                     if consume:
                         source.pop(symbol, None)     # the parent's copy of the originals goes here
+                    del enriched
                     done += 1
                     if done % 200 == 0:
                         gc.collect()
@@ -278,8 +303,11 @@ def attach_to_event_rows_by_symbol(
             gc.unfreeze()
     finally:
         _JOIN_CTX = {}
-    logger.info("context join: %d symbols enriched, %d rows",
-                len(results), sum(len(v) for v in results.values()))
+    if on_symbol is not None:
+        logger.info("context join: %d symbols enriched and streamed (nothing retained)", len(symbols))
+    else:
+        logger.info("context join: %d symbols enriched, %d rows",
+                    len(results), sum(len(v) for v in results.values()))
     return results
 
 
