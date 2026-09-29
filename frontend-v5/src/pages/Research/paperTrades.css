@@ -99,3 +99,16 @@
    experiment whose measured result (-0.19%/trade over 402 sessions, FAIL) is shown beside them, never alone. */
 .research-screen .pt-chart { width: 100%; height: auto; display: block; margin-top: 2px;
   border: 1px solid var(--c-line); border-radius: 10px; background: var(--bg-1); }
+
+/* --- swing chart: the trade's own sessions with its three pre-registered legs --------------- */
+.pt-swing { margin: 0 0 14px; }
+.pt-swing-canvas { width: 100%; min-height: 260px; border: 1px solid var(--c-line); border-radius: 8px; overflow: hidden; }
+.pt-swing-legend { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 18px; margin-top: 8px; }
+.pt-swing-levels { display: flex; flex-wrap: wrap; gap: 6px 14px; list-style: none; margin: 0; padding: 0; }
+.pt-swing-leg { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12px; }
+.pt-swing-leg::before { content: ""; width: 14px; height: 2px; border-radius: 1px; background: var(--c-ink-3); }
+.pt-swing-leg.danger::before { background: var(--danger-hex); }
+.pt-swing-leg.mint::before { background: var(--mint); }
+.pt-swing-leg-l { color: var(--c-ink-3); }
+.pt-swing-legend .pt-note { margin: 0; }
+@media (max-width: 720px) { .pt-swing-canvas { min-height: 220px; } }
