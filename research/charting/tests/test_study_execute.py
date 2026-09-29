@@ -588,3 +588,51 @@ def test_the_kill_switch_rebuild_reuses_the_segment_caches(tmp_path, _small_kwar
             f"the kill-switch rebuild dropped {key} — it would redo the whole pipeline, and "
             f"without join_cache_dir it would take the accumulating batch join")
     assert dup_build.get("out_dir") is None, "the duplicate must not publish over the real run"
+
+
+def test_the_draw_cache_resumes_and_produces_identical_groups(tmp_path, _small_kwargs):
+    """The draw phase is 85 minutes, serial, deterministic — and until now the only long stage with
+    no checkpoint, so every restart repaid it in full. A resumed run must produce byte-identical
+    comparison groups, or the cache has changed the study rather than skipped work."""
+    fresh = execute.execute_study(tmp_path / "a", columnar_rows=True,
+                                  checkpoint_dir=tmp_path / "ck_a", **_small_kwargs)
+    drawn = list((tmp_path / "ck_a" / "pre_sealed" / "draws").glob("*.pkl.gz"))
+    assert drawn, "nothing was cached"
+
+    # second run over the SAME checkpoint dir: every family resumed, none redrawn
+    resumed = execute.execute_study(tmp_path / "b", columnar_rows=True,
+                                    checkpoint_dir=tmp_path / "ck_a", **_small_kwargs)
+
+    for segment in ("pre_sealed", "post_sealed"):
+        a = json.loads((tmp_path / "a" / segment / "report.json").read_text())
+        b = json.loads((tmp_path / "b" / segment / "report.json").read_text())
+        assert b == a, f"{segment}: the draw cache changed the report"
+    assert fresh["status"] == resumed["status"] == "COMPLETE"
+
+
+def test_the_draw_cache_key_changes_when_any_input_does():
+    """Reusing draws for a different population would be worse than repaying the 85 minutes —
+    nothing downstream would fail, the study would just be wrong."""
+    from research.charting.config import CONFIG
+    import copy as _copy
+
+    base = dict(segment="pre_sealed", family="RECTANGLE", cfg=CONFIG, seeds=(0, 1),
+                atr_seed=0, eligible=[("A", 1), ("B", 2)], event_ids=["E1", "E2"])
+
+    def key(**over):
+        a = {**base, **over}
+        return execute._draw_cache_key(a["segment"], a["family"], a["cfg"], a["seeds"],
+                                       a["atr_seed"], a["eligible"], a["event_ids"])
+
+    ref = key()
+    tampered = _copy.deepcopy(CONFIG); tampered["atr_period"] = 7
+    assert key(segment="post_sealed") != ref, "segment ignored"
+    assert key(family="HH_HL") != ref, "family ignored"
+    assert key(cfg=tampered) != ref, "config ignored"
+    assert key(seeds=(0, 2)) != ref, "random seeds ignored"
+    assert key(atr_seed=1) != ref, "atr seed ignored"
+    assert key(eligible=[("A", 1)]) != ref, "eligible population ignored"
+    assert key(event_ids=["E1"]) != ref, "event set ignored"
+    # order must NOT matter — the same population in a different order is the same draw
+    assert key(eligible=[("B", 2), ("A", 1)]) == ref
+    assert key(event_ids=["E2", "E1"]) == ref
