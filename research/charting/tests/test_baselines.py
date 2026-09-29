@@ -162,3 +162,68 @@ def test_missing_features_are_listed_not_silently_dropped():
     for rung in ("B1", "B2", "B3", "B4", "B5"):
         assert F.MISSING.get(rung), f"{rung} claims nothing is missing — verify that"
     assert any("SECTOR" in m for m in F.MISSING["B4"]), "the absent sector rung must be recorded"
+
+
+# ── breadth momentum: the derivative, and the hole it has to survive ────────────────────────────
+
+def test_momentum_is_a_difference_not_a_level():
+    """The owner's point: 42%→48%→57%→63% is a different market from 63% flat for weeks, and the
+    level alone cannot tell them apart."""
+    from research.charting.baselines import breadth_momentum as BM
+
+    rising = [{"date": f"2021-01-{d:02d}", "pct_above_sma50": v, "pct_above_sma200": v,
+               "advance_decline_ratio": 1.0}
+              for d, v in zip(range(4, 20), [0.42 + 0.02 * i for i in range(16)])]
+    flat = [{"date": f"2021-01-{d:02d}", "pct_above_sma50": 0.63, "pct_above_sma200": 0.63,
+             "advance_decline_ratio": 1.0} for d in range(4, 20)]
+
+    def momentum(series):
+        import research.charting.baselines.breadth_momentum as m
+        orig = m.load_series
+        m.load_series = lambda path=None: series
+        try:
+            return m.build_index()
+        finally:
+            m.load_series = orig
+
+    r = momentum(rising)["2021-01-19"]["pct_above_sma50_mom_10"]
+    f = momentum(flat)["2021-01-19"]["pct_above_sma50_mom_10"]
+    assert r > 0.15, f"a clearly rising series gave momentum {r}"
+    assert f == pytest.approx(0.0), f"a flat series gave momentum {f}"
+
+
+def test_a_lookback_across_the_sealed_hole_is_unavailable_not_a_number():
+    """BREADTH_UNIVERSE.csv jumps 2022-12-30 -> 2024-08-01. A naive difference across that boundary
+    computes a NINETEEN-MONTH change and calls it a 10-session move — the largest readings in the
+    dataset, all landing at the start of the post-sealed segment, with nothing erroring. This is
+    the guard, tested on the real file rather than a fixture."""
+    from research.charting.baselines import breadth_momentum as BM
+
+    idx = BM.build_index()
+    dates = sorted(idx)
+    post = [d for d in dates if d >= "2024-08-01"][:10]
+    assert post, "no post-sealed dates in the breadth series"
+    for d in post:
+        assert idx[d]["pct_above_sma200_mom_10"] is None, (
+            f"{d} produced a 10-session momentum across the sealed gap")
+    pre = [d for d in dates if d <= "2022-12-30"][-1]
+    assert idx[pre]["pct_above_sma200_mom_10"] is not None, (
+        "the guard is too aggressive — it killed a legitimate pre-gap window")
+
+
+def test_a_blank_source_cell_is_never_read_as_zero():
+    """`breadth.py` leaves pct_above_sma200 blank until 200 names have a full trailing window.
+    Reading that as 0% asserts 'no stock in the market is above its 200-day average'."""
+    from research.charting.baselines import breadth_momentum as BM
+
+    assert BM._f("") is None
+    assert BM._f(None) is None
+    assert BM._f("0") == 0.0, "a real zero must survive"
+
+
+def test_missing_dates_yield_none_so_the_ladder_imputes_the_mean():
+    from research.charting.baselines import breadth_momentum as BM
+
+    feats = BM.features_for("1999-01-01", {})
+    assert set(feats) == set(BM.feature_names())
+    assert all(v is None for v in feats.values()), "a missing date must not fabricate zeros"

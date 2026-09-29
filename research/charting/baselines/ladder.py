@@ -129,6 +129,7 @@ def cross_val_auc(rows_feats: list, names: Sequence[str], labels: Sequence[int],
     fold_aucs: list = []
     all_p: list = []
     all_y: list = []
+    row_order: list = []
     for tr, te in zip(train_idx, test_idx):
         if not tr or not te:
             continue
@@ -150,10 +151,16 @@ def cross_val_auc(rows_feats: list, names: Sequence[str], labels: Sequence[int],
             fold_aucs.append(a)
         all_p.extend(p)
         all_y.extend(y)
+        row_order.extend(te)
     mean_auc = sum(fold_aucs) / len(fold_aucs) if fold_aucs else None
     return {"auc": mean_auc, "fold_aucs": fold_aucs,
             "brier": brier(all_p, all_y) if all_p else None, "n": len(all_y),
-            "base_rate": sum(all_y) / len(all_y) if all_y else None}
+            "base_rate": sum(all_y) / len(all_y) if all_y else None,
+            # Per-ROW out-of-fold predictions, indexed back to the caller's rows. Needed for
+            # market-sensitivity analysis: one model, evaluated WITHIN each regime. Fitting a
+            # separate model per regime would be a different experiment with a fraction of the n,
+            # and the segment differences would partly be fitting noise.
+            "oof": {i: p for i, p in zip(row_order, all_p)}}
 
 
 def symbol_cluster_ci(scores: Sequence[float], labels: Sequence[int], symbols: Sequence[str],
