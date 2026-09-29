@@ -257,3 +257,100 @@ def test_a_projection_is_far_smaller_than_the_row_it_stands_in_for():
     proj_bytes = deep(controls.event_projection(events[0]))
     assert proj_bytes * 50 < row_bytes, (
         f"projection {proj_bytes} B vs row {row_bytes} B — not worth the indirection")
+
+
+# ── chunked pricing: the union of "small" groups was 151,537 pairs and 42.6 GB ──────────────────
+
+
+def test_chunked_assembly_is_row_identical_to_pricing_the_whole_union():
+    """Chunking must be invisible in the output. Rows AND their order, because `rows_digest` is
+    order-sensitive and §8 compares digests — a reordering would read as a reproducibility failure
+    rather than as the optimisation it is."""
+    bars_by_symbol, events, eligible = _projection_universe()
+    draws = controls.atr_decile_control_draws(bars_by_symbol, events, eligible, seed=0)
+    assert len(draws) > 2, "need >2 draws for chunking to mean anything"
+
+    pairs = {p for _ev, picks in draws for p in picks}
+    whole = controls.assemble_atr_decile_control_rows(
+        bars_by_symbol, draws, controls.price_signals(bars_by_symbol, pairs))
+
+    # chunk_draws=1 is the most aggressive split possible: every draw priced on its own
+    chunked = controls.assemble_in_priced_chunks(
+        bars_by_symbol, draws, controls.assemble_atr_decile_control_rows, chunk_draws=1)
+
+    assert chunked == whole, "chunking changed the rows"
+    assert [r["event_id"] for r in chunked] == [r["event_id"] for r in whole], "order changed"
+    assert whole, "no rows — vacuous"
+
+
+def test_chunked_assembly_handles_the_single_pick_shape():
+    """buy-next-open yields ONE pair per draw, not a list. Treating it as iterable would silently
+    expand a tuple into its components and price the wrong pairs."""
+    bars_by_symbol, events, eligible = _projection_universe()
+    draws = controls.buy_next_open_baseline_draws(events)
+    assert draws, "no draws — vacuous"
+
+    pairs = {pick for _ev, pick in draws}
+    whole = controls.assemble_buy_next_open_baseline_rows(
+        bars_by_symbol, draws, controls.price_signals(bars_by_symbol, pairs))
+    chunked = controls.assemble_in_priced_chunks(
+        bars_by_symbol, draws, controls.assemble_buy_next_open_baseline_rows, chunk_draws=2)
+
+    assert chunked == whole
+    assert whole
+
+
+def test_a_chunk_does_not_retain_the_priced_blocks():
+    """The whole point. If `priced` survived the loop the peak would be unchanged and the fix
+    would be cosmetic — which is exactly what the previous 'bounded by event count' comment
+    assumed without measuring."""
+    import gc
+
+    bars_by_symbol, events, eligible = _projection_universe()
+    draws = controls.atr_decile_control_draws(bars_by_symbol, events, eligible, seed=0)
+
+    seen: list = []
+    real_price = controls.price_signals
+
+    def spy(bars, pairs, **kw):
+        out = real_price(bars, pairs, **kw)
+        seen.append((len(pairs), weakref_safe(out)))
+        return out
+
+    def weakref_safe(d):
+        # dicts are not weak-referenceable; track identity instead and check reachability later
+        return id(d)
+
+    controls.price_signals = spy
+    try:
+        controls.assemble_in_priced_chunks(
+            bars_by_symbol, draws, controls.assemble_atr_decile_control_rows, chunk_draws=1)
+    finally:
+        controls.price_signals = real_price
+
+    assert len(seen) == len(draws), "expected one pricing call per chunk"
+    gc.collect()
+    live = {id(o) for o in gc.get_objects() if isinstance(o, dict)}
+    leaked = [pid for _n, pid in seen if pid in live]
+    assert not leaked, f"{len(leaked)} of {len(seen)} priced dicts still reachable after the loop"
+
+
+def test_chunking_prices_each_pair_only_within_its_own_chunk():
+    """Sizing evidence: the peak is set by pairs-per-chunk, not by the total. A chunk must not be
+    handed the whole union by accident."""
+    bars_by_symbol, events, eligible = _projection_universe()
+    draws = controls.atr_decile_control_draws(bars_by_symbol, events, eligible, seed=0)
+    total_pairs = len({p for _ev, picks in draws for p in picks})
+
+    sizes: list = []
+    real_price = controls.price_signals
+    controls.price_signals = lambda bars, pairs, **kw: (sizes.append(len(pairs)),
+                                                        real_price(bars, pairs, **kw))[1]
+    try:
+        controls.assemble_in_priced_chunks(
+            bars_by_symbol, draws, controls.assemble_atr_decile_control_rows, chunk_draws=1)
+    finally:
+        controls.price_signals = real_price
+
+    assert max(sizes) < total_pairs or len(draws) == 1, (
+        f"a chunk was priced with {max(sizes)} pairs out of {total_pairs} — not actually chunked")
