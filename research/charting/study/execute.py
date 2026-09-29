@@ -356,12 +356,18 @@ def build_family_comparison_groups(
             other_pairs.add(pick)
 
     if columnar:
-        # Only the random control's union saturates the eligible population (~100% at 1,000 seeds,
-        # measured), so it is the only group that cannot be a dict of priced signals. It goes
-        # through the columnar table -- chunked, encoded, fat objects dropped -- and WITHOUT the
-        # target walk, which is 88% of pricing and feeds only figures nothing reads. The other two
-        # groups are bounded by the family's own event count, so they are priced normally and keep
-        # their full blocks.
+        # The random control's union saturates the eligible population (~100% at 1,000 seeds), so it
+        # goes through the columnar table -- chunked, encoded, fat objects dropped -- and WITHOUT
+        # the target walk, which is 88% of pricing and feeds only figures nothing reads. Measured
+        # 2026-09-26: 785,020 pairs in 22.2 min at 14.45 GB.
+        #
+        # The other two groups USED to be priced as one union here, on the reasoning that they are
+        # "bounded by the family's own event count" and therefore small. That was wrong, and the
+        # run died on it: the union was 151,537 pairs -- a fifth of the random control's -- and it
+        # reached 42.6 GB and was OOM-KILLED by the kernel, after the join and the random control
+        # had both already succeeded. Bounded is not the same as small. They are now priced in
+        # chunks at assembly time (`controls.assemble_in_priced_chunks`), so the peak is set by
+        # pairs-per-chunk rather than by the whole union.
         layout = pt_mod.PairLayout(schema.HORIZONS, accumulate.DEFAULT_SCENARIOS,
                                    report.DEFAULT_TARGET_NAMES)
         if heartbeat is not None:
@@ -375,10 +381,9 @@ def build_family_comparison_groups(
             if heartbeat is not None else None,
         )
         if heartbeat is not None:
-            heartbeat.stage("pricing atr-decile + buy-next-open")
+            heartbeat.stage("pricing atr-decile + buy-next-open (chunked)")
             heartbeat.note("other_control_pairs", len(other_pairs))
-        priced = controls.price_signals(bars_by_symbol, other_pairs, cfg=cfg, cost_cfg=cost_cfg,
-                                        max_workers=max_workers)
+        priced = None          # priced per chunk at assembly time; see the block above
     else:
         table = None
         all_pairs = random_pairs | other_pairs
@@ -405,8 +410,20 @@ def build_family_comparison_groups(
             "nifty_500_return_by_horizon": {h: d["mean"] for h, d in nifty_detail_by_family[family].items()},
             "nifty_500_detail_by_horizon": nifty_detail_by_family[family],
         }
-        atr_rows = controls.assemble_atr_decile_control_rows(bars_by_symbol, draws["atr_decile"], priced, cfg=cfg)
-        bno_rows = controls.assemble_buy_next_open_baseline_rows(bars_by_symbol, draws["buy_next_open"], priced, cfg=cfg)
+        if priced is None:
+            # Columnar path: price these two groups a chunk at a time so the 151,537-pair union
+            # never exists. Row-identical to the whole-union path, pinned by
+            # test_events_controls.test_chunked_assembly_is_row_identical_to_pricing_the_whole_union.
+            chunk_kw = dict(cfg=cfg, cost_cfg=cost_cfg, max_workers=max_workers)
+            atr_rows = controls.assemble_in_priced_chunks(
+                bars_by_symbol, draws["atr_decile"],
+                controls.assemble_atr_decile_control_rows, **chunk_kw)
+            bno_rows = controls.assemble_in_priced_chunks(
+                bars_by_symbol, draws["buy_next_open"],
+                controls.assemble_buy_next_open_baseline_rows, **chunk_kw)
+        else:
+            atr_rows = controls.assemble_atr_decile_control_rows(bars_by_symbol, draws["atr_decile"], priced, cfg=cfg)
+            bno_rows = controls.assemble_buy_next_open_baseline_rows(bars_by_symbol, draws["buy_next_open"], priced, cfg=cfg)
         if columnar:
             results[family] = {
                 **common,
@@ -613,7 +630,8 @@ def _build_segment_report(
 
 def _run_integrity_gate(
     segment_results: Mapping[str, dict], comparison_groups: Mapping[str, dict], *,
-    bars_by_symbol: Mapping[str, pd.DataFrame], build_fns: Mapping[str, Callable], segment_kwargs: dict,
+    bars_by_symbol: Mapping[str, pd.DataFrame], build_fns: Mapping[str, Callable],
+    segment_kwargs: Mapping[str, dict],
     kill_switch: bool, recompute_sample_size: int, recompute_seed: int, recompute_horizon: int,
     cfg: dict, cost_cfg: Optional[costs_bridge.CostConfig],
 ) -> dict:
@@ -639,9 +657,13 @@ def _run_integrity_gate(
             # on top of the copy the report is already using, which is what made the peak
             # unsurvivable on a 62 GB host.
             dup_digest = integrity.RunDigest()
+            # That segment's OWN kwargs: the caches make the duplicate resume rather than redo
+            # the whole pipeline, and keep its join on the streaming (bounded) path.
+            dup_kwargs = dict(segment_kwargs[segment])
+            dup_kwargs.pop("progress", None)     # the heartbeat is showing the real build
             build_fns[segment](bars_by_symbol, out_dir=None,
                                row_sink=lambda _symbol, rows: dup_digest.update(rows),
-                               **segment_kwargs)
+                               **dup_kwargs)
             # The first build's digest was folded as its rows were produced when the columnar
             # path ran; otherwise it is computed here from the retained list.
             acc = result.get("accumulator")
@@ -786,6 +808,7 @@ def execute_study(
     upload_to: Optional[str] = None,
     columnar: bool = False,
     columnar_rows: bool = False,
+    max_rss_gb: Optional[float] = None,
     checkpoint_dir=None,
     observe: bool = False,
 ) -> dict:
@@ -824,7 +847,18 @@ def execute_study(
     benchmark_df = regime.load_index_history(benchmark_name)
     benchmark_path = context.index_history_path(benchmark_name)
 
-    hb = hb_mod.Heartbeat(out_dir) if observe else None
+    # The RSS ceiling is a property of the HOST, not of the study. Its 7.5 GB default was chosen
+    # for a box that also runs prod Postgres, where a runaway study could take production down. On
+    # a dedicated machine that default aborts a healthy run -- it stopped one at 11.18 GB with 50 GB
+    # free, after the work had already succeeded. Configurable, so the guard protects the host it is
+    # actually on rather than the host it was written for.
+    #
+    # SET IT BELOW THE KILL POINT, NOT BELOW THE RAM. A ceiling of 45 GB on a 62 GB box did nothing:
+    # the kernel OOM-killed the run at 42.6 GB RSS on 2026-09-26, because the parent's RSS is not
+    # the whole story -- forked workers hold their own pages, and the sum is what the kernel counts.
+    # A guard above the effective kill point is decoration. Leave headroom for the workers.
+    hb = hb_mod.Heartbeat(out_dir, **({"max_rss_gb": max_rss_gb} if max_rss_gb else {})) \
+        if observe else None
     if hb is not None:
         hb.note("summarise_controls", summarise_controls)
         hb.note("columnar", columnar)
@@ -845,6 +879,7 @@ def execute_study(
 
     segment_results: dict = {}
     comparison_groups: dict = {}
+    seg_kwargs_by_segment: dict = {}
     for segment, build_fn in build_fns.items():
         if hb is not None:
             hb.stage(f"extraction {segment}")
@@ -853,9 +888,18 @@ def execute_study(
         seg_kwargs = dict(segment_kwargs)
         if checkpoint_dir is not None:
             seg_kwargs["extraction_cache_dir"] = Path(checkpoint_dir) / segment / "extract"
+            # The join is the longest unresumable stage and the one five runs died in. Caching it
+            # per symbol means a restart pays only for the symbols it has not joined yet.
+            seg_kwargs["join_cache_dir"] = Path(checkpoint_dir) / segment / "join"
         if hb is not None:
             seg_kwargs["progress"] = lambda d, n, u="symbols": (hb.progress(d, n, u),
                                                                 hb.check_resources())
+        # §8's kill switch rebuilds this segment, and it must rebuild it the SAME WAY. Handing it
+        # the base kwargs instead of these would drop `extraction_cache_dir` AND `join_cache_dir`,
+        # so the duplicate would re-extract every symbol and re-join them in BATCH mode -- the
+        # accumulating path that OOM-killed the run. Reproducibility evidence is worthless if
+        # producing it kills the run.
+        seg_kwargs_by_segment[segment] = dict(seg_kwargs)
 
         acc = None
         if columnar_rows:
@@ -919,7 +963,7 @@ def execute_study(
         hb.stage("integrity gate")
     integrity_result = _run_integrity_gate(
         segment_results, comparison_groups, bars_by_symbol=bars_by_symbol, build_fns=build_fns,
-        segment_kwargs=segment_kwargs, kill_switch=kill_switch,
+        segment_kwargs=seg_kwargs_by_segment, kill_switch=kill_switch,
         recompute_sample_size=recompute_sample_size, recompute_seed=recompute_seed,
         recompute_horizon=recompute_horizon, cfg=cfg, cost_cfg=cost_cfg,
     )

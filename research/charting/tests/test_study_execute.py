@@ -557,3 +557,34 @@ def test_columnar_rows_does_not_retain_the_segment(tmp_path, _small_kwargs):
         assert len(seg["retained_rows"]) <= execute.DEFAULT_RECOMPUTE_SAMPLE_SIZE
         assert len(seg["retained_rows"]) < len(seg["pattern_table"]) or \
             len(seg["pattern_table"]) <= execute.DEFAULT_RECOMPUTE_SAMPLE_SIZE
+
+
+def test_the_kill_switch_rebuild_reuses_the_segment_caches(tmp_path, _small_kwargs, monkeypatch):
+    """§8's kill switch rebuilds each segment to prove reproducibility. It must rebuild it the SAME
+    WAY the real build ran.
+
+    Handing it the base kwargs instead of the segment's own silently drops `extraction_cache_dir`
+    and `join_cache_dir`, so the duplicate re-extracts everything and re-joins in BATCH mode — the
+    accumulating path that OOM-kills the run. The verdict would still be correct; producing it
+    would just kill the study. Nothing in the output reveals that, which is why this asserts on the
+    kwargs the rebuild is actually given.
+    """
+    seen: list = []
+    real_pre = execute.study_run.build_pre_sealed_segment
+
+    def spy(bars, **kwargs):
+        seen.append(kwargs)
+        return real_pre(bars, **kwargs)
+
+    monkeypatch.setattr(execute.study_run, "build_pre_sealed_segment", spy)
+    execute.execute_study(tmp_path / "out", columnar_rows=True,
+                          checkpoint_dir=tmp_path / "ckpt", **_small_kwargs)
+
+    assert len(seen) >= 2, "kill switch did not rebuild the segment"
+    real_build, dup_build = seen[0], seen[-1]
+    for key in ("extraction_cache_dir", "join_cache_dir"):
+        assert real_build.get(key) is not None, f"the real build had no {key}"
+        assert dup_build.get(key) == real_build.get(key), (
+            f"the kill-switch rebuild dropped {key} — it would redo the whole pipeline, and "
+            f"without join_cache_dir it would take the accumulating batch join")
+    assert dup_build.get("out_dir") is None, "the duplicate must not publish over the real run"

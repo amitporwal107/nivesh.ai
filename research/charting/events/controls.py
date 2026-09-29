@@ -602,6 +602,49 @@ def event_projection(row: Mapping) -> dict:
     return out
 
 
+#: Draws per pricing chunk. `priced` holds a full nested block per pair, so its size is set by how
+#: many pairs are live at once -- not by how many rows come out. 20k draws keeps that well under a
+#: GB while still amortising the worker-pool setup.
+PRICE_CHUNK_DRAWS = 20_000
+
+
+def assemble_in_priced_chunks(bars_by_symbol: dict, draws: Sequence[tuple], assemble,
+                              *, cfg: dict = CONFIG, cost_cfg=None, max_workers: int = 1,
+                              chunk_draws: int = PRICE_CHUNK_DRAWS, progress=None) -> list:
+    """Price and assemble a control group in chunks, so `priced` never holds every pair at once.
+
+    WHY
+    ---
+    `execute.build_family_comparison_groups` priced the ATR-decile and buy-next-open pairs as ONE
+    union across every family, on the documented assumption that those groups are "bounded by the
+    family's own event count" and therefore small. Measured 2026-09-26: that union was 151,537
+    pairs -- a fifth of the random control's 785,020 -- and it reached **42.6 GB and was OOM-killed**
+    by the kernel, after the join and the 1,000-seed random control had both already succeeded at
+    14.45 GB. Bounded is not the same as small.
+
+    Chunking is by DRAW, not by pair, because assembly is a per-draw dict lookup with no
+    cross-draw state: a chunk's rows are byte-identical to the rows the whole-union path would have
+    produced for those same draws, and draw ORDER is preserved, which `rows_digest` depends on.
+
+    `assemble` is `assemble_atr_decile_control_rows` or `assemble_buy_next_open_baseline_rows`.
+    """
+    out: list = []
+    total = len(draws)
+    for start in range(0, total, chunk_draws):
+        chunk = draws[start:start + chunk_draws]
+        pairs: set = set()
+        for _ev, picks in chunk:
+            # atr-decile yields a LIST of picks per draw; buy-next-open yields a single pair.
+            pairs.update(picks if isinstance(picks, list) else [picks])
+        priced = price_signals(bars_by_symbol, pairs, cfg=cfg, cost_cfg=cost_cfg,
+                               max_workers=max_workers)
+        out.extend(assemble(bars_by_symbol, chunk, priced, cfg=cfg))
+        del priced, pairs          # the whole point: one chunk's blocks live at a time
+        if progress is not None:
+            progress(min(start + chunk_draws, total), total)
+    return out
+
+
 _PRICE_CTX: dict = {}
 
 
