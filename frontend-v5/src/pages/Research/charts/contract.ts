@@ -322,6 +322,31 @@ export function lastIndicatorValue(ind: IndicatorSeries | undefined): number | n
  *  a run of near-duplicates merges into one band even when the first and last of the run are more than the
  *  tolerance apart. `atr14 == null` (no atr_14 series served) degrades to one band per record — never a crash, and
  *  never a silent wrong grouping. */
+/** A level fixed by a trade BEFORE the session, not detected from price.
+ *
+ *  Deliberately not an SrBand. An SrBand carries `records: Pattern[]` because it is a detected
+ *  feature with evidence behind it; a trade level is a pre-registered decision with none. Forcing
+ *  one into the other would mean inventing Pattern objects, and those inventions would then be
+ *  counted by the pattern filters and the nearest-level readout as though the engine had found
+ *  something. Two different things, two different layers. */
+export interface TradeLevel {
+  kind: "ENTRY" | "STOP" | "TARGET_1" | "TARGET_2";
+  price: number;
+  label: string;
+}
+
+/** The zones a trade defines: what is risked below entry, what is sought above it. */
+export function tradeZones(levels: TradeLevel[]): { risk: { from: number; to: number } | null;
+                                                    reward: { from: number; to: number } | null } {
+  const at = (k: TradeLevel["kind"]) => levels.find((l) => l.kind === k)?.price ?? null;
+  const entry = at("ENTRY"), stop = at("STOP");
+  const top = at("TARGET_2") ?? at("TARGET_1");
+  return {
+    risk: entry != null && stop != null && stop < entry ? { from: stop, to: entry } : null,
+    reward: entry != null && top != null && top > entry ? { from: entry, to: top } : null,
+  };
+}
+
 export interface SrBand {
   id: string;
   kind: "SUPPORT" | "RESISTANCE" | "MIXED";
@@ -502,6 +527,7 @@ async function getJson<T>(path: string, query?: Record<string, string>): Promise
 }
 
 const BASE = "/api/research/chart";
+const LIVE = "/api/research/chart-live";
 const DRAWINGS = "/api/research/drawings";
 
 export const chartApi = {
@@ -516,8 +542,16 @@ export const chartApi = {
   /** `timeframe` is only sent for 1W/1M: an older backend has no such query param and 1D is its default, so a
    *  daily request is byte-for-byte the request this screen has always made (§38.11 "default 1D so existing
    *  callers are unaffected"). */
-  ohlcv: (symbol: string, timeframe = "1D") =>
-    getJson<OhlcvPayload>(`${BASE}/${encodeURIComponent(symbol)}/ohlcv`, timeframeQuery(timeframe)),
+  /** Falls back to the LIVE source when the symbol is not in the frozen snapshot.
+   *  The snapshot is 50 large caps; a paper trade is almost never one of them (measured overlap
+   *  0 of 10), so without this a trade chart is just a 404. The fallback is daily-only: the live
+   *  route serves 1D, and silently handing back daily bars for a 1W request would misdate every
+   *  candle, so other intervals keep the not_found and the UI reports it. */
+  ohlcv: async (symbol: string, timeframe = "1D"): Promise<Result<OhlcvPayload>> => {
+    const r = await getJson<OhlcvPayload>(`${BASE}/${encodeURIComponent(symbol)}/ohlcv`, timeframeQuery(timeframe));
+    if (r.kind !== "not_found" || timeframe !== "1D") return r;
+    return getJson<OhlcvPayload>(`${LIVE}/${encodeURIComponent(symbol)}/ohlcv`);
+  },
   indicators: (symbol: string, ids?: string[], timeframe = "1D") => {
     const query = { ...(ids?.length ? { ids: ids.join(",") } : {}), ...timeframeQuery(timeframe) };
     return getJson<IndicatorsPayload>(`${BASE}/${encodeURIComponent(symbol)}/indicators`, Object.keys(query).length ? query : undefined);

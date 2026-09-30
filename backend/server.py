@@ -91,6 +91,7 @@ from routes.move_odds import router as move_odds_router          # Research → 
 from routes.paper_trades import router as paper_trades_router    # Research → Paper (/api/paper-trades/*, move_odds allowlist)
 from routes.sim_lab import router as sim_lab_router            # Research → Simulation Lab (/api/sim-lab/*, allowlist flag)
 from routes.research_chart import router as research_chart_router        # Research → Charts (/api/research/chart/*, allowlist flag)
+from routes.research_chart_live import router as research_chart_live_router  # Research → Charts LIVE bars (/api/research/chart-live/*)
 from routes.research_drawings import router as research_drawings_router  # Research → Charts drawings (/api/research/drawings, allowlist flag)
 from routes.research_chart_layouts import router as research_chart_layouts_router  # Research → Charts saved layouts (/api/research/chart-layouts, allowlist flag)
 from routes.portfolio_exposure import router as portfolio_exposure_router  # Diversification & Concentration analytics — AMC / Sector / Company exposure
@@ -208,6 +209,7 @@ app.include_router(move_odds_router)              # Research → Move odds (/api
 app.include_router(paper_trades_router)           # Research → Paper (/api/paper-trades/*, move_odds allowlist)
 app.include_router(sim_lab_router)                # Research → Simulation Lab (/api/sim-lab/*, allowlist flag)
 app.include_router(research_chart_router)         # Research → Charts (/api/research/chart/*, allowlist flag)
+app.include_router(research_chart_live_router)    # Research → Charts LIVE bars (/api/research/chart-live/*, allowlist flag)
 app.include_router(research_drawings_router)      # Research → Charts drawings (/api/research/drawings, allowlist flag)
 app.include_router(research_chart_layouts_router)  # Research → Charts saved layouts (/api/research/chart-layouts, allowlist flag)
 app.include_router(portfolio_exposure_router)      # Diversification & Concentration analytics (/api/portfolio/exposure/concentration)

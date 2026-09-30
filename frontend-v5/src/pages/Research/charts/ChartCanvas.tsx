@@ -34,7 +34,7 @@ import {
   type Bar, type IndicatorSeries, type Pattern, type Drawing, type NewDrawing, type SrBand, type NearestLevel,
   plotColumns, patternWindow, patternTypeLabel, statusLabel, knownMarkerDate, heikinAshi, num as fmtNum, price as fmtPrice,
   vol as fmtVol,
-  type IndicatorCatalogue,
+  type IndicatorCatalogue, type TradeLevel, tradeZones,
 } from "./contract";
 
 export interface ChartCanvasHandle {
@@ -91,6 +91,9 @@ interface Props {
   /** SUPPORT_RESISTANCE records, grouped into bands (contract.ts groupSrBands) and drawn by the S/R layer. */
   srBands: SrBand[];
   showLevels: boolean;
+  /** Levels a trade fixed before the session (entry/stop/targets). Optional: every existing
+   *  caller passes nothing and renders exactly as it did. */
+  tradeLevels?: TradeLevel[];
   selectedSrBandId: string | null;
   onSelectSrBand: (id: string | null) => void;
   /** §38.15 item 9 — rendered in the chart's right lane, as in the 1A design. */
@@ -126,6 +129,7 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
   const {
     bars, incompleteDates, chartType, scaleMode, indicators, selectedIndicatorIds, hiddenIndicatorIds, panes,
     patterns, hasAnyPatterns, selectedPatternId, srBands, showLevels, selectedSrBandId, nearestLevel,
+    tradeLevels,
     drawings, activeTool, selectedDrawingId, drawingsHidden, drawingsLocked, visibleRange, maximisedPaneId,
     catalogue,
   } = props;
@@ -646,21 +650,104 @@ const ChartCanvas = forwardRef<ChartCanvasHandle, Props>(function ChartCanvas(pr
         });
       }
     }
+    // ── trade levels: fixed before the session, drawn in the SAME pass as S/R ──────────────
+    // They must share this effect because it owns the tag lane: a second effect calling
+    // levelTagsRef.set() would simply overwrite whichever ran first, and the levels would
+    // flicker between the two sets on every re-render.
+    const TRADE_STYLE: Record<TradeLevel["kind"], { colour: () => string; dashed: boolean; side: string }> = {
+      ENTRY:    { colour: () => theme.ink,    dashed: false, side: "E" },
+      STOP:     { colour: () => theme.danger, dashed: true,  side: "SL" },
+      TARGET_1: { colour: () => theme.mint,   dashed: true,  side: "T1" },
+      TARGET_2: { colour: () => theme.mint,   dashed: true,  side: "T2" },
+    };
+    for (const tl of tradeLevels ?? []) {
+      if (!Number.isFinite(tl.price) || tl.price <= 0) continue;   // never draw a level we do not have
+      const st = TRADE_STYLE[tl.kind];
+      lines.push(candle.createPriceLine({
+        price: tl.price, color: withAlpha(st.colour(), 0.95),
+        lineWidth: tl.kind === "ENTRY" ? 2 : 1,
+        lineStyle: st.dashed ? LineStyle.Dashed : LineStyle.Solid,
+        axisLabelVisible: true, title: tl.label,
+      }));
+      tags.push({
+        price: tl.price, side: st.side,
+        pct: lastClose != null && lastClose !== 0 ? ((tl.price - lastClose) / lastClose) * 100 : null,
+        colour: st.colour(), broken: false, dim: false,
+      });
+    }
+
     levelTagsRef.current?.set(tags);
     // Test/debug hook: how many band lines are drawn (a canvas cannot be inspected), and what the
     // right-lane tags read — the tag text is drawn to canvas, so this is the only way to assert it.
     if (container) {
       container.dataset.renderedLevels = String(lines.length);
+      container.dataset.tradeLevels = (tradeLevels ?? [])
+        .filter((t) => Number.isFinite(t.price) && t.price > 0)
+        .map((t) => `${t.kind}:${t.price}`).join("|");
       container.dataset.levelTags = tags
         .map((t) => `${t.side}${t.pct != null ? ` · ${t.pct >= 0 ? "+" : ""}${t.pct.toFixed(1)}%` : ""}${t.broken ? " [broken]" : ""}`)
         .join("|");
     }
     return () => {
-      if (container) { container.dataset.renderedLevels = "0"; container.dataset.levelTags = ""; }
+      if (container) { container.dataset.renderedLevels = "0"; container.dataset.levelTags = ""; container.dataset.tradeLevels = ""; }
       levelTagsRef.current?.set([]);
       for (const l of lines) { try { candle.removePriceLine(l); } catch { /* series may already be gone */ } }
     };
-  }, [srBands, showLevels, selectedSrBandId, colors, bars]);
+  }, [srBands, showLevels, selectedSrBandId, colors, bars, tradeLevels]);
+
+  // ── keep trade levels inside the price scale ───────────────────────────────────────────
+  // The scale auto-fits to the BARS. A level outside that range is drawn where nobody can see it
+  // and its tag clamps silently to the axis edge, so the chart looks like it has no stop on it at
+  // all. Widening the autoscale to span the levels is the difference between "the stop is far
+  // away" and "there is no stop" -- and the second reading is the dangerous one.
+  useEffect(() => {
+    const candle = candleRef.current;
+    if (!candle) return;
+    const prices = (tradeLevels ?? []).map((l) => l.price).filter((v) => Number.isFinite(v) && v > 0);
+    if (!prices.length) return;
+    const lo = Math.min(...prices), hi = Math.max(...prices);
+    candle.applyOptions({
+      autoscaleInfoProvider: (original: () => { priceRange: { minValue: number; maxValue: number } | null } | null) => {
+        const res = original();
+        if (!res?.priceRange) return res;
+        return {
+          ...res,
+          priceRange: {
+            minValue: Math.min(res.priceRange.minValue, lo),
+            maxValue: Math.max(res.priceRange.maxValue, hi),
+          },
+        };
+      },
+    });
+    return () => { try { candle.applyOptions({ autoscaleInfoProvider: undefined }); } catch { /* series gone */ } };
+  }, [tradeLevels, bars]);
+
+  // ── trade zones: what is risked below entry, what is sought above it ────────────────────
+  // Its own BandsPrimitive pair rather than the indicator band layer, because those belong to an
+  // indicator's catalogue definition and these belong to a trade. Shading makes the asymmetry
+  // legible at a glance -- on the live rules an 8% stop against a 10% target is not symmetric.
+  useEffect(() => {
+    const candle = candleRef.current, theme = themeRef.current;
+    if (!candle || !theme || !tradeLevels?.length) return;
+    const { risk, reward } = tradeZones(tradeLevels);
+    const attached: BandsPrimitive[] = [];
+    const add = (fill: { from: number; to: number } | null, colour: string) => {
+      if (!fill) return;
+      const prim = new BandsPrimitive();
+      try {
+        candle.attachPrimitive(prim);
+        prim.set([], fill, withAlpha(colour, 0.0), withAlpha(colour, 0.10));
+        attached.push(prim);
+      } catch { /* a series the library refused has nothing to shade */ }
+    };
+    add(risk, theme.danger);
+    add(reward, theme.mint);
+    return () => {
+      for (const prim of attached) {
+        try { candle.detachPrimitive(prim); } catch { /* series may already be gone */ }
+      }
+    };
+  }, [tradeLevels, colors, bars]);
 
   // ── drawings → primitive ────────────────────────────────────────────────
   useEffect(() => {
