@@ -43,16 +43,36 @@ Selection rules (enforced in `services/move_odds_filing_analysis.py`):
 | TC-15 | ui | filing-analysis API fails | e2e | "could not be loaded" note; estimates still render | |
 | TC-16 | ui | existing Move odds spec | e2e | still passes | |
 
-## API / Endpoint Tests (staging)
-_pending_
+## API / Endpoint Tests
+- **pytest (local, real FastAPI app + real move_odds gate, Mongo read injected):**
+  `/opt/nidp/venv/bin/python -m pytest tests/test_move_odds_filing_analysis.py tests/test_move_odds_routes.py -q -p no:cacheprovider`
+  - Output: `25 passed in 0.57s`. Reverse order: `25 passed in 0.61s`.
+  - Covers TC-1..TC-11 plus a 502 when Mongo fails. Result: PASS.
+- **Staging endpoint (TC-12, TC-13):** NOT RUN. The route only exists on staging after PR #191 is merged to dev and
+  deployed. UNVERIFIED on staging.
 
 ## UI / Playwright Tests
-_pending_
+- `npx playwright test research-move-odds --reporter=line` (mocked API; fixture labelled MOCK)
+  - Output: `50 passed (1.8m)`, including the new TC-14, TC-14b and TC-15, plus TC-16 (the existing 47 cases, among them
+    TC-26 banned words and TC-98 phone width). Result: PASS.
+- The block's screenshot was captured, but not viewed: the image reader timed out on a hook.
 
-## Data Correctness (staging)
-_pending_
+## Data Correctness
+- The staging Mongo dump failed: the GCP token had expired (`Request had invalid authentication credentials`).
+- Instead, the same documents were rebuilt from the pipeline's source files with the loader's own builder
+  (`to_mongo.to_doc`) and run through `select()`:
+  - `docs 2953 unreadable 0`.
+  - `symbols with any doc: 1057 | symbols with rows shown: 103 | rows shown: 114`.
+  - `evidence mix: Counter({'CONFIRMED': 93, 'PARTIALLY_CONFIRMED': 21})`.
+  - `SAPPHIRE -> [('2026-09-22T16:02', 'LITIGATION', 'slightly_negative', 'PARTIALLY_CONFIRMED')]`.
+  - `KSB -> []`: resolution CONFIRMED but importance 25, correctly hidden.
+  - `POLICYBZR -> None`: its crash was a regulator paper, not a filing.
+- **Finding:** `rows containing a page-banned word: 4`. Examples: GANESHBE "agreed to sell its ... businesses",
+  PRESTIGE "CPPIB to invest". These are factual uses, but the page's D2 vocabulary rule bans the words outright. Owner
+  decision needed.
 
 ## Inputs required from user
-- none yet
+- Merge PR #191 to dev. This is a live staging deploy; check app-vm disk first.
+- Decide on the four summaries that use banned words.
 
 ## Verdict: BLOCKED
