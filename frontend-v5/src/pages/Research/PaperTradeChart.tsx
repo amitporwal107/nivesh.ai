@@ -100,10 +100,16 @@ export default function PaperTradeChart({ t }: { t: PaperTradeChartTrade }) {
       value != null && Number.isFinite(value) ? [{ key, label, value, tone }] : []);
   }, [t.entry_price, t.stop_loss_price, t.target_1_price, t.target_2_price]);
 
-  const marks = useMemo(
-    () => t.observations.filter((o) => o.stop_hit || o.target_hit).length,
-    [t.observations],
-  );
+  // Count of markers actually DRAWN (first touch of each level), so the debug attribute and the
+  // picture cannot disagree.
+  const marks = useMemo(() => {
+    let n = 0, sawTarget = false, sawStop = false;
+    for (const o of t.observations) {
+      if (o.stop_hit && !sawStop) { sawStop = true; n++; }
+      else if (o.target_hit && !sawTarget) { sawTarget = true; n++; }
+    }
+    return n;
+  }, [t.observations]);
 
   const riskPct = useMemo(() => {
     if (t.entry_price == null || t.stop_loss_price == null || t.entry_price <= 0) return null;
@@ -188,18 +194,26 @@ export default function PaperTradeChart({ t }: { t: PaperTradeChartTrade }) {
       })));
     } catch { /* tags are an enhancement; the text list below is the real record */ }
 
-    // Mark the sessions where price actually reached a level, which is the question the table answers
-    // only by making the reader compare four columns per row.
+    // Mark the FIRST session that reached each level, not every session flagged.
+    // `target_hit` / `stop_hit` are per-session facts, so once price sits beyond a level every
+    // later session flags too: OLAELEC on staging drew five "target" arrows across six sessions,
+    // reading as five separate events when it was one level reached and then held. Only the first
+    // touch is an event; the rest is the position still being open.
+    const firstTouch = { target: false, stop: false };
     const markers: SeriesMarker<Time>[] = (isContext ? [] : t.observations).flatMap((o) => {
-      if (!o.stop_hit && !o.target_hit) return [];
-      const stopped = Boolean(o.stop_hit);
-      return [{
-        time: o.session_date as Time,
-        position: stopped ? "belowBar" : "aboveBar",
-        color: stopped ? theme.danger : theme.mint,
-        shape: stopped ? "arrowDown" : "arrowUp",
-        text: stopped ? "stop" : "target",
-      } as SeriesMarker<Time>];
+      const out: SeriesMarker<Time>[] = [];
+      // Stop first: on a session that flags both, the stop is the conservative reading and it is
+      // the one the exit rules apply (rules_v1 `same_session_tie`).
+      if (o.stop_hit && !firstTouch.stop) {
+        firstTouch.stop = true;
+        out.push({ time: o.session_date as Time, position: "belowBar", color: theme.danger,
+                   shape: "arrowDown", text: "stop" } as SeriesMarker<Time>);
+      } else if (o.target_hit && !firstTouch.target) {
+        firstTouch.target = true;
+        out.push({ time: o.session_date as Time, position: "aboveBar", color: theme.mint,
+                   shape: "arrowUp", text: "target" } as SeriesMarker<Time>);
+      }
+      return out;
     });
     if (markers.length) {
       try { createSeriesMarkers(series, markers); } catch { /* markers are decoration too */ }
