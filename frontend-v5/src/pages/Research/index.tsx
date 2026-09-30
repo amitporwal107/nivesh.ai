@@ -96,7 +96,15 @@ interface Answer {
 
 export default function ResearchPage() {
   // ── shell ───────────────────────────────────────────────────────────────
-  const [screen, setScreen] = useState<Screen>("feed");
+  // ?screen= lets another page deep-link in (Paper -> Charts carries a trade's symbol and levels).
+  // The existing flag effects below still bounce an un-entitled screen back to the feed, so an
+  // unknown or gated value here cannot strand anyone on a blank pane.
+  const [screen, setScreen] = useState<Screen>(() => {
+    if (typeof window === "undefined") return "feed";
+    const want = new URLSearchParams(window.location.search).get("screen");
+    const known: Screen[] = ["feed", "alerts", "odds", "paper", "lab", "charts"];
+    return (known as string[]).includes(want ?? "") ? (want as Screen) : "feed";
+  });
   // Move odds is allowlist-gated (feature move_odds); the API also answers 403 to anyone not on the list.
   const { data: me } = useMe();
   const oddsEnabled = !!me?.features?.move_odds;

@@ -30,6 +30,7 @@ import {
   type Result, type RunPayload, type ManifestSymbolEntry, type OhlcvPayload, type IndicatorsPayload,
   type PatternsPayload, type Pattern, type Drawing, type NewDrawing, type Bar, type PatternFilter,
   type ChartLayout, type NewChartLayout, type LayoutIndicator, type LayoutPane, type IndicatorCatalogue,
+  type TradeLevel,
 } from "./contract";
 
 const PATTERN_FILTER_CHIPS: Array<{ id: PatternFilter; label: string }> = [
@@ -76,7 +77,29 @@ export default function ChartsScreen() {
   const [runRes, setRunRes] = useState<Result<RunPayload> | null>(null);
   const [symbolsRes, setSymbolsRes] = useState<Result<ManifestSymbolEntry[]> | null>(null);
   const [search, setSearch] = useState("");
-  const [symbol, setSymbol] = useState<string | null>(null);
+  // A trade opened from the Paper page arrives as query params: its symbol and the levels that were
+  // fixed before the session. Read once on mount -- later navigation inside the workspace must not
+  // keep re-imposing the trade's symbol over whatever the user has since picked.
+  const [tradeCtx] = useState(() => {
+    if (typeof window === "undefined") return null;
+    const q = new URLSearchParams(window.location.search);
+    const sym = (q.get("symbol") ?? "").toUpperCase().trim();
+    if (!sym || !/^[A-Z0-9&-]{1,32}$/.test(sym)) return null;
+    const num = (k: string) => {
+      const v = Number(q.get(k));
+      return Number.isFinite(v) && v > 0 ? v : null;
+    };
+    const mk = (kind: TradeLevel["kind"], v: number | null, label: string): TradeLevel[] =>
+      v == null ? [] : [{ kind, price: v, label }];
+    const levels: TradeLevel[] = [
+      ...mk("ENTRY", num("entry"), "entry"),
+      ...mk("STOP", num("stop"), "stop"),
+      ...mk("TARGET_1", num("t1"), "target 1"),
+      ...mk("TARGET_2", num("t2"), "target 2"),
+    ];
+    return { symbol: sym, levels, tradeId: q.get("trade") };
+  });
+  const [symbol, setSymbol] = useState<string | null>(tradeCtx?.symbol ?? null);
 
   const [ohlcvRes, setOhlcvRes] = useState<Result<OhlcvPayload> | null>(null);
   const [indicatorsRes, setIndicatorsRes] = useState<Result<IndicatorsPayload> | null>(null);
@@ -1133,6 +1156,7 @@ export default function ChartsScreen() {
       {() => (
         <ChartCanvas
           ref={canvasRef}
+          tradeLevels={tradeCtx && tradeCtx.symbol === symbol ? tradeCtx.levels : undefined}
           symbol={symbol ?? ""}
           exchange={exchange}
           timeframeLabel={timeframe}
