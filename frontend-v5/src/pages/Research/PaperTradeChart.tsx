@@ -19,7 +19,7 @@
  * Accessibility: a <canvas> is opaque to assistive technology, so every level is also rendered as text
  * beside it. That list is the chart's real content -- the canvas is the decoration.
  */
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart, CandlestickSeries, createSeriesMarkers, CrosshairMode, LineStyle,
   type IChartApi, type ISeriesApi, type Time, type SeriesMarker,
@@ -27,12 +27,14 @@ import {
 import { BandsPrimitive, type ReferenceBand } from "./charts/bandLayer";
 import { LevelTagsPrimitive, type LevelTag } from "./charts/levelTagLayer";
 import { resolveTheme, withAlpha } from "./charts/theme";
-import { price } from "./paperMath";
+import { price, day } from "./paperMath";
+import { fetchPreEntryBars, type PreEntryBar } from "@/services/adapters/paperTrades.adapter";
 
 const HEIGHT = 260;
 
 export interface PaperTradeChartTrade {
   symbol: string;
+  prediction_date?: string | null;
   entry_price: number | null;
   stop_loss_price: number | null;
   target_1_price: number | null;
@@ -70,6 +72,21 @@ export default function PaperTradeChart({ t }: { t: PaperTradeChartTrade }) {
     [t.observations],
   );
 
+  // A trade that has not entered has no observations. Rather than show an empty panel at the one
+  // moment a reader most wants to see where the levels sit against recent price, fall back to the
+  // sessions BEFORE the prediction date. Fetched only in that case -- an entered trade already has
+  // its own bars and must never be drawn from a second price source.
+  const [preEntry, setPreEntry] = useState<PreEntryBar[] | null>(null);
+  const needsContext = bars.length === 0 && !!t.prediction_date;
+  useEffect(() => {
+    if (!needsContext) { setPreEntry(null); return; }
+    let live = true;
+    fetchPreEntryBars(t.symbol, t.prediction_date as string, 5)
+      .then((b) => { if (live) setPreEntry(b); })
+      .catch(() => { if (live) setPreEntry([]); });
+    return () => { live = false; };
+  }, [needsContext, t.symbol, t.prediction_date]);
+
   const legs = useMemo<Leg[]>(() => {
     const raw: Array<[LegKey, string, number | null, Leg["tone"]]> = [
       ["entry", "entry", t.entry_price, "ink"],
@@ -93,9 +110,18 @@ export default function PaperTradeChart({ t }: { t: PaperTradeChartTrade }) {
     return (t.entry_price - t.stop_loss_price) / t.entry_price;
   }, [t.entry_price, t.stop_loss_price]);
 
+  // What actually gets plotted: the trade's own sessions when it has them, otherwise the
+  // pre-entry context. Never both -- mixing the engine's record with a second source in one
+  // series would make it impossible to tell which candles the engine is accountable for.
+  const isContext = bars.length === 0 && (preEntry?.length ?? 0) > 0;
+  const plotted = useMemo(
+    () => (bars.length ? bars : (preEntry ?? []).map((b) => ({ time: b.date as Time, open: b.o, high: b.h, low: b.l, close: b.c }))),
+    [bars, preEntry],
+  );
+
   useEffect(() => {
     const el = host.current;
-    if (!el || bars.length === 0) return;
+    if (!el || plotted.length === 0) return;
     const theme = resolveTheme(el);
 
     const chart = createChart(el, {
@@ -116,7 +142,7 @@ export default function PaperTradeChart({ t }: { t: PaperTradeChartTrade }) {
       borderVisible: false,
       priceLineVisible: false,
     });
-    series.setData(bars);
+    series.setData(plotted);
 
     const by = (k: LegKey) => legs.find((l) => l.key === k)?.value ?? null;
     const entry = by("entry"), stop = by("stop"), t2 = by("t2");
@@ -146,7 +172,7 @@ export default function PaperTradeChart({ t }: { t: PaperTradeChartTrade }) {
                                lineStyle: LineStyle.Solid, axisLabelVisible: true, title: "entry" });
     }
 
-    const last = bars.at(-1)?.close ?? null;
+    const last = plotted.at(-1)?.close ?? null;
     const tags = new LevelTagsPrimitive();
     try {
       series.attachPrimitive(tags);
@@ -164,7 +190,7 @@ export default function PaperTradeChart({ t }: { t: PaperTradeChartTrade }) {
 
     // Mark the sessions where price actually reached a level, which is the question the table answers
     // only by making the reader compare four columns per row.
-    const markers: SeriesMarker<Time>[] = t.observations.flatMap((o) => {
+    const markers: SeriesMarker<Time>[] = (isContext ? [] : t.observations).flatMap((o) => {
       if (!o.stop_hit && !o.target_hit) return [];
       const stopped = Boolean(o.stop_hit);
       return [{
@@ -186,29 +212,41 @@ export default function PaperTradeChart({ t }: { t: PaperTradeChartTrade }) {
     chart.applyOptions({ width: el.clientWidth });
 
     return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
-  }, [bars, legs, t.observations]);
+  }, [plotted, isContext, legs, t.observations]);
 
-  if (bars.length === 0) {
+  if (plotted.length === 0) {
+    // Still loading the context, or there is genuinely no prior history (a freshly listed symbol).
     return (
       <div className="pt-note" data-testid="pt-swing-empty">
-        No sessions recorded for this trade yet, so there is nothing to plot. The levels below were still
-        fixed when the trade was registered.
+        {preEntry === null && needsContext
+          ? `Loading the sessions up to ${day(t.prediction_date)}\u2026`
+          : "No sessions recorded for this trade yet, and no prior history to show. The levels below were still fixed when the trade was registered."}
       </div>
     );
   }
 
-  const label =
-    `${t.symbol}: ${bars.length} daily sessions with the pre-registered entry, stop and target levels drawn. ` +
-    legs.map((l) => `${l.label} ${price(l.value)}`).join(", ") + ".";
+  const label = isContext
+    ? `${t.symbol}: the ${plotted.length} daily sessions up to ${day(t.prediction_date)}, shown as context. ` +
+      `This trade has not entered, so none of these candles are part of its record. ` +
+      `Levels fixed at registration: ${legs.map((l) => `${l.label} ${price(l.value)}`).join(", ")}.`
+    : `${t.symbol}: ${plotted.length} daily sessions with the pre-registered entry, stop and target levels drawn. ` +
+      legs.map((l) => `${l.label} ${price(l.value)}`).join(", ") + ".";
 
   return (
     <figure className="pt-swing" style={{ margin: 0 }}>
+      {isContext && (
+        <p className="pt-note pt-swing-context" data-testid="pt-swing-context">
+          Not entered yet — these are the {plotted.length} sessions up to {day(t.prediction_date)}, shown so the
+          levels can be read against recent price. None of them is part of this trade&rsquo;s record.
+        </p>
+      )}
       <div
         ref={host}
-        className="pt-swing-canvas"
+        className={`pt-swing-canvas${isContext ? " context" : ""}`}
         data-testid="pt-swing-chart"
-        data-bars={bars.length}
-        data-marks={marks}
+        data-context={isContext ? "1" : "0"}
+        data-bars={plotted.length}
+        data-marks={isContext ? 0 : marks}
         role="img"
         aria-label={label}
       />
