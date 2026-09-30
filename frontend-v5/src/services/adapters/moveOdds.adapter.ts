@@ -5,6 +5,7 @@
  *   GET /api/move-odds/stocks/{symbol}   → one stock: four estimates, inputs on record, events on record
  *   GET /api/move-odds/diagnostics       → backtest results of the rejected entry setups (research, never signals)
  *   GET /api/move-odds/history           → past sessions: what was estimated and how it turned out
+ *   GET /api/move-odds/stocks/{symbol}/filing-analysis → AI analyses of the company's own filings (context only)
  *
  * Every state is explicit so the screen can never show numbers it should not:
  *   final         → rows (sorted by estimate, no rank)
@@ -385,6 +386,49 @@ export async function fetchStockCard(symbol: string): Promise<StockCardResult> {
     return env.success ? { kind: "ok", widget: env.data.data } : { kind: "error", message: "unexpected response shape" };
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) return { kind: "not_found" };
+    const f = fromError(e);
+    return f.kind === "no_access" ? f : { kind: "error", message: f.kind === "withheld" ? f.reason : f.message };
+  }
+}
+
+// ── Filing analysis (GET /api/move-odds/stocks/{symbol}/filing-analysis) ─────────────────────────────────────────────
+// AI analyses of the company's own exchange filings in the last 30 days (backend/services/move_odds_filing_analysis.py).
+// Context beside the estimates: not a forecast and not a model input. Filings the importance filter dropped are absent.
+const FilingRowC = z.object({
+  announcement_id: z.string(),
+  exchange: z.string(),
+  filed_at: z.string(),
+  exchange_category: z.string().nullable().optional(),
+  event_type: z.string().nullable(),
+  event_subtype: z.string().nullable(),
+  certainty: z.string().nullable(),
+  summary: z.string().nullable(),
+  impact_band: z.string().nullable(),
+  net_impact_score: z.number().nullable(),
+  materiality_score: z.number().nullable(),
+  confidence_score: z.number().nullable(),
+  importance_score: z.number().nullable(),
+  evidence_status: z.string(),
+  positive_factors: z.array(z.string()),
+  negative_factors: z.array(z.string()),
+  unknowns: z.array(z.string()),
+  model: z.string().nullable(),
+  analyzed_at: z.string().nullable(),
+});
+const FilingAnalysisC = z.object({ symbol: z.string(), window_days: z.number(), rows: z.array(FilingRowC), more: z.number() });
+export type FilingRow = z.infer<typeof FilingRowC>;
+export type FilingAnalysis = z.infer<typeof FilingAnalysisC>;
+export type FilingAnalysisResult =
+  | { kind: "ok"; data: FilingAnalysis }
+  | { kind: "no_access" }
+  | { kind: "error"; message: string };
+
+export async function fetchFilingAnalysis(symbol: string): Promise<FilingAnalysisResult> {
+  try {
+    const res = await http<unknown>({ path: `/api/move-odds/stocks/${encodeURIComponent(symbol)}/filing-analysis`, noRetry: true, timeoutMs: 20_000 });
+    const env = z.object({ data: FilingAnalysisC }).safeParse(res.data);
+    return env.success ? { kind: "ok", data: env.data.data } : { kind: "error", message: "unexpected response shape" };
+  } catch (e) {
     const f = fromError(e);
     return f.kind === "no_access" ? f : { kind: "error", message: f.kind === "withheld" ? f.reason : f.message };
   }

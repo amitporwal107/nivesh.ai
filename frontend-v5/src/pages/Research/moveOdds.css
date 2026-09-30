@@ -522,3 +522,12 @@
 .research-screen .mo-card > * { margin-top: 0; }
 .research-screen .mo-card-loading { display: grid; gap: 10px; border: 1px solid var(--c-line); border-radius: 12px; padding: 18px; }
 .research-screen .mo-card-off { border: 1px dashed var(--c-line-strong); border-radius: 10px; padding: 10px 12px; }
+
+/* Filing analysis block (stock view) */
+.research-screen .mo-filingsec { margin-top: 16px; }
+.research-screen .mo-filingsec h4 { margin: 0 0 8px; }
+.research-screen .mo-fsum { color: var(--c-ink); }
+.research-screen .mo-fread { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--c-ink-2); }
+.research-screen .mo-fband { font-weight: 600; }
+/* ink, not green/red: like the direction reading, a filing's impact band is not a buy or sell cue */
+.research-screen .mo-ffactors { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11.5px; color: var(--c-ink-2); }
