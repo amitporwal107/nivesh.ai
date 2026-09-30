@@ -116,10 +116,27 @@ test.describe("Paper — swing chart", () => {
     }
   });
 
-  test("TC-PC5 a session that touched a level is marked", async ({ page }) => {
+  test("TC-PC5 only the FIRST touch of each level is marked", async ({ page }) => {
     await openTrade532(page);
-    const touched = TRADE.observations.filter((o) => o.stop_hit || o.target_hit).length;
-    await expect(page.getByTestId("pt-swing-chart")).toHaveAttribute("data-marks", String(touched));
+    // target_hit / stop_hit are per-session facts, so once price sits beyond a level every later
+    // session flags too. Marking all of them reads as several separate events; only the first is.
+    let sawT = false, sawS = false, expected = 0;
+    for (const o of TRADE.observations) {
+      if (o.stop_hit && !sawS) { sawS = true; expected++; }
+      else if (o.target_hit && !sawT) { sawT = true; expected++; }
+    }
+    expect(expected, "a trade can mark at most one first-target and one first-stop").toBeLessThanOrEqual(2);
+    await expect(page.getByTestId("pt-swing-chart")).toHaveAttribute("data-marks", String(expected));
+  });
+
+  test("TC-PC5b a level held across many sessions still marks once", async ({ page }) => {
+    const held = {
+      ...TRADE,
+      observations: TRADE.observations.map((o, i) => ({ ...o, stop_hit: false, target_hit: i >= 1 })),
+    };
+    await mockPaper(page, (id) => (id === "532" ? { data: held } : null));
+    await openTrade532(page);
+    await expect(page.getByTestId("pt-swing-chart")).toHaveAttribute("data-marks", "1");
   });
 
   test("TC-PC6 a trade with no sessions yet says so instead of drawing an empty chart", async ({ page }) => {
