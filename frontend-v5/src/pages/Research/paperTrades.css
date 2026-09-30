@@ -117,3 +117,7 @@
 .pt-chartlink { margin: 0 0 14px; }
 .pt-chartlink a { color: var(--mint); text-decoration: none; font-weight: 600; }
 .pt-chartlink a:hover, .pt-chartlink a:focus-visible { text-decoration: underline; }
+
+/* Pre-entry context: visibly not the trade's own record */
+.pt-swing-canvas.context { border-style: dashed; }
+.pt-swing-context { margin: 0 0 6px; color: var(--amber); }

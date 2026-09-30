@@ -152,3 +152,88 @@ test.describe("Paper — swing chart", () => {
     await expect(page.getByTestId("pt-swing-level-entry")).toBeVisible();
   });
 });
+
+/* ── pre-entry context (TC-PC10..TC-PC13) ────────────────────────────────────────────
+ * A forward trade that has not entered has no observations. It should still show the sessions
+ * BEFORE the prediction date, so the levels can be read against recent price — clearly marked as
+ * context, never as the trade's own record.
+ */
+const PRE_BARS = [
+  ["2025-03-04", 2500, 2560, 2490, 2550, 1000],
+  ["2025-03-05", 2550, 2600, 2540, 2590, 1000],
+  ["2025-03-06", 2590, 2640, 2575, 2620, 1000],
+  ["2025-03-07", 2620, 2660, 2600, 2630, 1000],
+  ["2025-03-10", 2630, 2680, 2610, 2627.25, 1000],
+];
+
+async function mockLiveBars(page: Page, bars: unknown[] | null) {
+  await page.route("**/api/research/chart-live/**", (route) =>
+    bars === null
+      ? route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "no_bars_for_symbol" }) })
+      : route.fulfill({ status: 200, contentType: "application/json",
+                        body: JSON.stringify({ symbol: "MPSLTD", timeframe: "1D", bars,
+                                               pit_status: "PIT_UNVERIFIED", findings: [],
+                                               provenance: { source_mode: "live" } }) }));
+}
+
+const PENDING = { ...TRADE, observations: [], prediction_date: "2025-03-10" };
+
+test.describe("Paper — swing chart, not entered yet", () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test.beforeEach(async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+  });
+
+  test("TC-PC10 a pending trade shows the sessions up to and including the prediction date", async ({ page }) => {
+    await mockPaper(page, (id) => (id === "532" ? { data: PENDING } : null));
+    await mockLiveBars(page, PRE_BARS);
+    await openTrade532(page);
+    const chart = page.getByTestId("pt-swing-chart");
+    await expect(chart).toBeVisible();
+    await expect(chart).toHaveAttribute("data-bars", String(PRE_BARS.length));
+    await expect(chart).toHaveAttribute("data-context", "1");
+  });
+
+  test("TC-PC11 context bars are labelled as not part of the trade's record", async ({ page }) => {
+    await mockPaper(page, (id) => (id === "532" ? { data: PENDING } : null));
+    await mockLiveBars(page, PRE_BARS);
+    await openTrade532(page);
+    const note = page.getByTestId("pt-swing-context");
+    await expect(note).toBeVisible();
+    await expect(note).toContainText("Not entered yet");
+    await expect(note).toContainText("None of them is part of this trade");
+    // no outcome markers can exist on a trade that has not started
+    await expect(page.getByTestId("pt-swing-chart")).toHaveAttribute("data-marks", "0");
+  });
+
+  test("TC-PC12 the levels are still drawn over the context", async ({ page }) => {
+    await mockPaper(page, (id) => (id === "532" ? { data: PENDING } : null));
+    await mockLiveBars(page, PRE_BARS);
+    await openTrade532(page);
+    for (const leg of ["entry", "stop", "t1", "t2"]) {
+      await expect(page.getByTestId(`pt-swing-level-${leg}`)).toBeVisible();
+    }
+  });
+
+  test("TC-PC13 genuinely no prior history falls back to the explicit empty state", async ({ page }) => {
+    await mockPaper(page, (id) => (id === "532" ? { data: PENDING } : null));
+    await mockLiveBars(page, null);          // live route 404s: a freshly listed symbol
+    await openTrade532(page);
+    await expect(page.getByTestId("pt-swing-empty")).toBeVisible();
+    await expect(page.getByTestId("pt-swing-empty")).toContainText("no prior history");
+    await expect(page.getByTestId("pt-swing-chart")).toHaveCount(0);
+  });
+
+  test("TC-PC14 an ENTERED trade never asks for context bars", async ({ page }) => {
+    const calls: string[] = [];
+    await page.route("**/api/research/chart-live/**", (route) => {
+      calls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ bars: PRE_BARS }) });
+    });
+    await mockPaper(page);                    // the real fixture, which HAS observations
+    await openTrade532(page);
+    await expect(page.getByTestId("pt-swing-chart")).toHaveAttribute("data-context", "0");
+    expect(calls, "an entered trade must plot its own bars, never a second source").toHaveLength(0);
+  });
+});
