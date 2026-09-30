@@ -25,7 +25,7 @@ const MOCK_MEDIA_EVENT = {
 type Reply = { status: number; body: unknown };
 const liveCalls: string[] = [];
 async function mockOdds(page: Page, latest?: (head: string) => Reply, diagnostics?: () => Reply, history?: () => Reply, profile?: () => Reply,
-                        card?: (sym: string) => Reply) {
+                        card?: (sym: string) => Reply, filings?: (sym: string) => Reply) {
   await page.route("**/api/move-odds/profile**", (route) => {
     const r = profile ? profile() : { status: 200, body: load("move-odds-profile.json") };   // MOCK — see the fixture's _note
     return route.fulfill({ status: r.status, contentType: "application/json", body: JSON.stringify(r.body) });
@@ -56,6 +56,13 @@ async function mockOdds(page: Page, latest?: (head: string) => Reply, diagnostic
       const cs = tail.slice(0, -5);
       const r = card ? card(cs) : fs.existsSync(path.join(FX, `move-odds-card-${cs}.json`))
         ? { status: 200, body: load(`move-odds-card-${cs}.json`) } : { status: 404, body: { detail: "not_found" } };
+      return route.fulfill({ status: r.status, contentType: "application/json", body: JSON.stringify(r.body) });
+    }
+    if (tail.endsWith("/filing-analysis")) {            // AI filing analysis (MOCK — e2e/fixtures/move-odds-filing-analysis-*.json)
+      const fs2 = tail.slice(0, -"/filing-analysis".length);
+      const r = filings ? filings(fs2) : fs.existsSync(path.join(FX, `move-odds-filing-analysis-${fs2}.json`))
+        ? { status: 200, body: load(`move-odds-filing-analysis-${fs2}.json`) }
+        : { status: 200, body: { data: { symbol: fs2, window_days: 30, rows: [], more: 0 } } };
       return route.fulfill({ status: r.status, contentType: "application/json", body: JSON.stringify(r.body) });
     }
     const sym = tail;
@@ -976,5 +983,55 @@ test.describe("Move odds — stock card failure (TC-106, test_reports/move_odds_
     await expect(page.getByTestId("mo-answer-panel")).toContainText(`P/E ${ratio("PNCINFRA", "pe")!.toFixed(1)}×`);
     for (const id of ["mo-inputs", "mo-events", "mo-checks-PNCINFRA", "mo-stands"]) await expect(dlg.getByTestId(id)).toBeVisible();
     expect((await screenText(page)).match(BANNED), "banned vocabulary").toBeNull();
+  });
+});
+
+test.describe("Move odds — filing analysis in the stock view (TC-14..TC-16, test_reports/move_odds_filing_analysis_20260930.md)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("TC-14 the stock view lists analysed filings with summary, reading, evidence and the not-a-forecast note", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await mockOdds(page);
+    await openOdds(page);
+    await page.getByTestId("mo-details-PNCINFRA").click();
+    const block = page.getByTestId("mo-filing-analysis");
+    await expect(block).toBeVisible();
+    const rows = page.locator('[data-testid^="mo-filing-mock-"]');
+    await expect(rows).toHaveCount(2);
+    const first = page.getByTestId("mo-filing-mock-pnc-litigation");
+    await expect(first).toContainText("GST show cause notice");
+    await expect(first.getByTestId("mo-filing-band")).toHaveText("Reads slightly negative for the company");
+    await expect(first).toContainText("materiality 35/100");
+    await expect(first).toContainText("certainty: proposed");
+    await expect(first.getByTestId("mo-filing-evidence")).toHaveText("evidence confirmed by the filing");
+    await expect(first).toContainText("− Not yet adjudicated, show-cause stage");
+    await expect(page.getByTestId("mo-filing-mock-pnc-order").getByTestId("mo-filing-evidence")).toHaveText("evidence awaiting confirmation");
+    await expect(block).toContainText("1 more analysed filing in the window not shown.");
+    await expect(block).toContainText("not a price forecast and not an input to the move odds");
+    // newest first
+    const ids = await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+    expect(ids).toEqual(["mo-filing-mock-pnc-litigation", "mo-filing-mock-pnc-order"]);
+    const text = await screenText(page);
+    const hit = text.match(BANNED);
+    expect(hit, `banned word: ${hit?.[0]}`).toBeNull();
+  });
+
+  test("TC-14b a stock with no kept filings says so", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await mockOdds(page);
+    await openOdds(page);
+    await page.getByTestId("mo-details-ANTELOPUS").click();
+    await expect(page.getByTestId("mo-filings-none")).toContainText("No analysed filings from ANTELOPUS that passed the importance check in the last 30 days.");
+  });
+
+  test("TC-15 a filing-analysis failure is contained: the note shows and the estimates still render", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await mockOdds(page, undefined, undefined, undefined, undefined, undefined,
+      () => ({ status: 502, body: { detail: "filing_analysis_unavailable" } }));
+    await openOdds(page);
+    await page.getByTestId("mo-details-PNCINFRA").click();
+    await expect(page.getByTestId("mo-filings-error")).toContainText("Filing analysis could not be loaded (HTTP 502). The move odds are unaffected.");
+    await expect(page.getByTestId("mo-inputs")).toContainText("Close vs previous close");
+    await expect(page.getByTestId("mo-events")).toBeVisible();
   });
 });
