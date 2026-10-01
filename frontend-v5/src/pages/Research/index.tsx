@@ -866,7 +866,7 @@ function FeedScreen(p: FeedProps) {
                       )}
                     </div>
                     <div className="nv-serif" style={{ fontSize: 16, lineHeight: 1.3, color: "var(--c-ink)", marginBottom: 12, flex: 1 }}>
-                      {s.one || "Material filing — open for the AI insight."}
+                      {s.one || (s.docLabel ? `${s.docLabel} · no AI insight yet` : "No AI insight for this filing yet")}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       {s.metric && (
