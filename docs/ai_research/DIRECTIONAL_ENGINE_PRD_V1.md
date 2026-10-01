@@ -187,12 +187,85 @@ calibrated for movement (35.0% actual vs 38.9% predicted at rank 1–5; 5.5% vs 
 Leakage was audited and is clean: six checks, **zero violations** across 346,940 snapshots. The
 losses are real, not artefacts.
 
+### H. LLM-generated features carry look-ahead the timestamp check cannot catch
+
+PR #195 (merged 2026-10-01) produces exactly the input the direction programme said was missing:
+per-event `materiality_score` (0-100), **signed** `net_impact_score`, `positive_impact_score` /
+`negative_impact_score`, `event_importance_score`, `confidence_score`, `event_certainty`,
+`evidence_confidence`. The ~374 failed direction tests used `event_category` and `sentiment` —
+**categorical labels**. This is a genuinely different input, and the retraction's own conclusion
+was that *"direction depends on materiality and exposure, not the category label"*.
+
+**That raises the prior on this branch. It also introduces a leakage mode nothing else here
+catches.**
+
+If `analyzed_at` is October 2026 and the filing is March 2025, the scoring model may already know
+how the stock reacted — from its training data, or from anything in the prompt beyond the filing
+text. **§35's rule `FeatureTimestamp <= PredictionTimestamp` is satisfied while the CONTENT is
+contaminated.** The six-check leakage audit run on the paper engine (0 violations across 346,940
+snapshots) would pass such a feature cleanly.
+
+Before any of these fields enter a model, all three must hold:
+
+1. The prompt sees **only** the filing text and data available at `filed_at`.
+2. The scoring model's knowledge cutoff **predates** the outcome window — or historical scores are
+   treated as unusable and only forward-generated scores count.
+3. A **placebo** passes: score random non-event dates the same way. If "materiality" separates
+   outcomes there too, it is hindsight, not signal. This is the H#35 lesson, where a placebo on
+   random dates reached t = 10.8 when a correct null is ~0.
+
+Coverage is the second constraint: the pipeline landed 2026-09-30/10-01, the research window is
+2025, and the `classifier` + `filing_insights` crons are permanently disabled. Expect near-zero
+coverage over any backtestable period — the same wall as amendment E.
+
+### I. Chart-pattern features (§22) add nothing — measured twice
+
+§22 proposes feeding the chart-pattern framework into the directional model. Its incremental
+predictive contribution has now been measured on two independent periods:
+
+| | pre-sealed | post-sealed (2024-08..2026-08) |
+|---|---|---|
+| P1 − B5 increment | +0.0056 | **+0.0001** |
+
+Fold by fold the two models are indistinguishable, and in one fold P1 is *below* B5. The B0 canary
+reads exactly 0.5000, so this is a real null rather than a broken harness.
+
+The full rung decomposition shows where signal actually lives:
+
+```
+B1 volatility        +0.1352      <- 85% of all available signal
+B2 price             +0.0000
+B3 liquidity         +0.0002
+B4 market+calendar   +0.0200
+B5 technical         +0.0033
+P1 pattern           +0.0001
+```
+
+**Amendment:** include pattern features only as a declared ablation arm expected to return zero,
+never as an assumed contributor. The pattern engine's value is explanation and visualisation.
+
+### J. Regime accounts for about a third of the absolute loss
+
+The replay window (2024-12-31 → 2025-08-28, 165 sessions) was a declining market for the tradeable
+universe: **every eligible entered stock averaged −0.1251%/day** across 325,024 predictions. P5's
+−0.434% decomposes as costs −0.250%, universe drift −0.125%, selection −0.034%.
+
+This does **not** rescue the model — `edge_vs_a_all ≈ 0` and the 6/6 control defeat are relative
+measures and immune to drift — but any EV stated in this PRD must separate regime from edge, and
+the control arms in §31 are what make that separation possible.
+
+(`nidp.index_eod` holds no rows for 2025, so no index comparison is available; the eligible
+universe is the better regime measure regardless, being the population actually traded.)
+
 ---
 
 ## Status
 
-Not approved. Amendments A–F are prerequisites, not suggestions. The §45 MVP is correctly scoped
-once B (numeric GO thresholds), C (real friction) and D (power) are settled.
+Not approved. Amendments **A–J** are prerequisites, not suggestions. The §45 MVP is correctly
+scoped once B (numeric GO thresholds), C (real friction) and D (power) are settled.
+
+H is the one that can invalidate a positive result after the fact: an LLM-scored feature can pass
+every timestamp check and still be contaminated. Its placebo test is not optional.
 
 Related: `PATTERN_VALIDATION_PRD_V1.md`, `CONFLUENCE_ENGINE_PRD_V1.md`,
 `tpd3/pattern_engine/REGISTRY_SEED.md`.
