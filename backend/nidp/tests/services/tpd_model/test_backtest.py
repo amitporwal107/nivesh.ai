@@ -19,9 +19,17 @@ def test_universe_by_session_equals_pit_universe_with_gaps():
     p = p.drop(p.sample(frac=0.08, random_state=1).index)          # scattered missing bars
     p = p[~((p["symbol"] == "S03") & (p["as_of_date"] < pd.Timestamp(s[80])))]  # late listing
     p.loc[p["symbol"] == "S07", "turnover"] = p.loc[p["symbol"] == "S01", "turnover"].median()  # ties
-    fast = universe_by_session(p, s[120:], n=15, lookback=126, min_bars=100)
+    kw = {"lookback": 126, "min_bars": 100, "min_turnover": 0.0, "max_symbols": 15}
+    fast = universe_by_session(p, s[120:], **kw)
     for D in s[120:]:
-        assert fast[D] == pit_universe(p, D, n=15, lookback=126, min_bars=100), D
+        assert fast[D] == pit_universe(p, D, **kw), D
+
+    # and with the real Rs 1 cr floor engaged, not just the cap — the two must still agree, because
+    # universe_by_session feeds training while pit_universe feeds live scoring.
+    live = {"lookback": 126, "min_bars": 100}
+    fast_live = universe_by_session(p, s[120:], **live)
+    for D in s[120:]:
+        assert fast_live[D] == pit_universe(p, D, **live), D
 
 
 def _ca_rows():

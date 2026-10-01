@@ -37,13 +37,21 @@ WARMUP_BARS = 60
 PRICE_EVENT_TYPES = {"SPLIT", "BONUS", "RIGHTS", "DEMERGER", "CAPITAL_REDUCTION", "MERGER"}
 # NSE circuit rules make a 40% overnight gap impossible for a traded stock; an open that far from the prior
 # close is an unrecorded split, bonus or consolidation.
+from .universe import MIN_BARS, MIN_MEDIAN_TURNOVER
+
 SUSPECT_GAP = (0.6, 1.6)
 
 
-def universe_by_session(panel: pd.DataFrame, sessions: list[date], n: int = 1000, lookback: int = 126,
-                        min_bars: int = 100) -> dict[date, list[str]]:
-    """pit_universe for many target sessions at once: rolling median turnover over the `lookback` market
-    sessions before each date, `min_bars` present, top `n`, ties by symbol."""
+def universe_by_session(panel: pd.DataFrame, sessions: list[date], lookback: int = 126,
+                        min_bars: int = MIN_BARS, min_turnover: float = MIN_MEDIAN_TURNOVER,
+                        max_symbols: Optional[int] = None) -> dict[date, list[str]]:
+    """pit_universe for many target sessions at once: rolling median turnover over the `lookback`
+    market sessions before each date, `min_bars` present, clearing `min_turnover`, ties by symbol.
+
+    Must stay identical in behaviour to `pit_universe` — training and scoring would otherwise see
+    different universes, and every forward number would be measured against a membership the model
+    was never trained on.
+    """
     wide = panel.pivot_table(index="as_of_date", columns="symbol", values="turnover", aggfunc="first").sort_index()
     roll = wide.rolling(lookback, min_periods=1)
     median = roll.median().shift(1)
@@ -52,9 +60,11 @@ def universe_by_session(panel: pd.DataFrame, sessions: list[date], n: int = 1000
     for D in sessions:
         t = pd.Timestamp(D)
         m = median.loc[t][count.loc[t] >= min_bars].dropna()
+        m = m[m >= min_turnover]
         ranked = pd.DataFrame({"symbol": m.index, "median": m.to_numpy()}).sort_values(
             ["median", "symbol"], ascending=[False, True], kind="mergesort")
-        out[D] = ranked["symbol"].head(n).tolist()
+        syms = ranked["symbol"].tolist()
+        out[D] = syms[:max_symbols] if max_symbols is not None else syms
     return out
 
 
