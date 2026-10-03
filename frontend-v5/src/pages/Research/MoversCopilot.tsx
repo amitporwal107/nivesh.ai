@@ -124,11 +124,30 @@ function resolveFocus(detail: MoverDetail, pinnedId: string | null | undefined, 
   if (ev) {
     const ty = TYPE[ev.type] ?? { label: ev.type_label || ev.type.toUpperCase(), c: "indigo" };
     const flags = ev.flags.map((f) => ({ label: f.label, tone: tone(f.tone), dim: f.verdict === "DECORATION" }));
-    const leak = ev.flags.some((f) => /^(LEAK|PRE-DRIFT)/i.test(f.label));
+    const md = !pinned ? detail.move_day : undefined; // API move-day figures (full history) win over the event's own when nothing is pinned
+    const leak = (md?.flags ?? ev.flags).some((f) => /^(LEAK|PRE-DRIFT)/i.test(f.label));
+    if (md) {
+      return {
+        ...base, isDay: false, ev, title: ev.title, sub: ev.sub, kind: ev.kind, desc: ev.kind_note, typeKey: ev.type, typeLabel: ty.label, color: ty.c,
+        date: ev.date, flags, exec: md.exec ?? ev.exec ?? null, execNote: md.exec ?? ev.exec ? null : "no execution figures for the move day", m: md.metrics ?? ev.metrics,
+        metricsNote: "the API returned no value for this metric", drift, leak,
+      };
+    }
     return {
       ...base, isDay: false, ev, title: ev.title, sub: ev.sub, kind: ev.kind, desc: ev.kind_note, typeKey: ev.type, typeLabel: ty.label, color: ty.c,
       date: ev.date, flags, exec: ev.exec ?? null, execNote: ev.exec ? null : "no execution figures for this event", m: ev.metrics,
       metricsNote: "not available for this event", drift, leak,
+    };
+  }
+  const md = detail.move_day;
+  if (md) {
+    const flags = (md.flags ?? []).map((x) => ({ label: x.label, tone: tone(x.tone), dim: x.verdict === "DECORATION" }));
+    const leak = (md.flags ?? []).some((x) => /^(LEAK|PRE-DRIFT)/i.test(x.label));
+    return {
+      ...base, isDay: true, ev: null, title: "Move day", sub: "No filing is logged on this session", kind: "NO FILING LOGGED", desc: "No exchange disclosure is logged on the move day.",
+      typeKey: "day", typeLabel: "MOVE DAY", color: "ink-2", date: bars[idx]?.t ?? detail.session, flags, exec: md.exec ?? null,
+      execNote: md.exec ? null : "the API returned no execution figures for the move day (next session not traded yet)", m: md.metrics ?? null,
+      metricsNote: "the API returned no value for this metric", drift, leak,
     };
   }
   const d = idx >= 0 ? deriveFromBars(bars, idx, H, cost) : { exec: null, execNote: "move day not in the price window", m: null as MoverEventMetrics | null };

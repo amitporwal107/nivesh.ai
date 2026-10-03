@@ -208,6 +208,8 @@ const DetailC = z.object({
   }),
   regression: RegressionC,
   rolling_beta: RollingBetaC,
+  // the move day computed from the full history (volume ratios need 25 prior sessions the plotted slice lacks)
+  move_day: z.object({ metrics: EventMetricsC.nullable().optional(), exec: ExecC.nullable().optional(), flags: z.array(FlagC).optional() }).optional(),
   windows: z.array(WindowC),
   lanes: z.array(LaneC),
   insider_lane: z.object({

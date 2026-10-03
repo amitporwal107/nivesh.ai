@@ -1453,6 +1453,12 @@ async def mover_detail(
                 "insider_lane": {k: v for k, v in ins.items() if k != "events"},
                 "events": sorted(events, key=lambda e: (e["date"], e["type"])),
                 "model": await _odds_badge(conn, symbol, session),
+                # The move day itself, computed from the FULL history (not the plotted slice): the Copilot card needs
+                # the volume ratios (25 prior sessions) and the executable return for the day even when no filing
+                # sits on it. None-valued, never zeroed, when the bars cannot support a figure.
+                "move_day": {"metrics": _event_metrics(bars, ti), "exec": _exec_of(bars, ti, H),
+                             "flags": _flags_of(_event_metrics(bars, ti) or {})
+                                      + ([{"label": "LEAK", "tone": "amber"}] if _leak(bars, ti) else [])},
                 "bar_index_of_session": ti - (lo if lo is not None else 0),
             }
         _cache_set(ck, res)
