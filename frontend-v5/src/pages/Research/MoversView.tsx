@@ -203,28 +203,47 @@ export function MoversView({ onNoAccess, modelVersion = null, backToFeed }: {
   // endpoint, which only ever returns the names it judged material for ONE session; the filing clicked
   // may be neither (any category, any day in the feed's own window). The chart/timeline still come
   // from the real `/api/movers/{symbol}` detail fetch below, same as every other candidate row.
+  //
+  // The filing's own date can be NEWER than the latest EQ session the price feed has (confirmed on
+  // staging: filings land same-day, prices_eod lags a day) — `mover_detail` centres the chart on
+  // `session` and 404s if no bar exists at or after it, so passing the filing's raw date verbatim can
+  // turn "open this stock's chart" into "no price history", which is wrong: there IS history, just not
+  // for a day that hasn't closed in the feed yet. Clamp to the real latest session first, the same
+  // value /api/movers/candidates and /forward already anchor on, via one cheap (TTL-cached) call.
   useEffect(() => {
     if (mode !== "CANDIDATES") return;
     if (pinned) {
-      setCnd({
-        kind: "ok",
-        data: {
-          session: pinned.session, count: 1,
-          candidates: [{
-            symbol: pinned.symbol, name: pinned.name, session: pinned.session,
-            close: null, prev_close: null, pct: null,
-            signals: [{
-              id: "pinned", type: pinned.kind === "dealB" || pinned.kind === "dealS" ? pinned.kind : "fil",
-              kind: "FILING", kind_note: "Opened from the Research feed.",
-              title: pinned.title || "Filing", sub: "",
+      let live = true;
+      const settle = (chartSession: string) => {
+        if (!live) return;
+        setCnd({
+          kind: "ok",
+          data: {
+            session: chartSession, count: 1,
+            candidates: [{
+              symbol: pinned.symbol, name: pinned.name, session: chartSession,
+              close: null, prev_close: null, pct: null,
+              signals: [{
+                id: "pinned", type: pinned.kind === "dealB" || pinned.kind === "dealS" ? pinned.kind : "fil",
+                kind: "FILING", kind_note: "Opened from the Research feed.",
+                title: pinned.title || "Filing", sub: "",
+              }],
             }],
-          }],
-          rule: "Opened from one filing on the Research feed.",
-          disclaimer: "Not a prediction: this shows that filing's chart and event history, nothing more.",
-        },
+            rule: "Opened from one filing on the Research feed.",
+            disclaimer: "Not a prediction: this shows that filing's chart and event history, nothing more.",
+          },
+        });
+        setSel({ symbol: pinned.symbol, session: chartSession });
+      };
+      fetchMoverCandidates({ limit: 1 }).then((r) => {
+        if (!live) return;
+        if (r.kind === "no_access") { onNoAccess(); return; }
+        const latest = r.kind === "ok" ? r.data.session : null;
+        // Only ever pulls the anchor EARLIER (never later than the filing's own date) — a filing from
+        // before the latest session is left exactly where it was filed.
+        settle(latest && latest < pinned.session ? latest : pinned.session);
       });
-      setSel({ symbol: pinned.symbol, session: pinned.session });
-      return;
+      return () => { live = false; };
     }
     let live = true;
     setCnd(null);

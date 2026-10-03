@@ -169,6 +169,13 @@ async function setupFeed(page: Page) {
   await page.route("**/api/movers/AAA?**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(detailFor("AAA")) }));
 }
 
+// The real bug this reproduces (2026-10-03, live on staging): a filing dated 2026-10-02 clicked while
+// the price feed's latest EQ session is still 2026-10-01 — mover_detail has no bar at/after the filing's
+// own date and 404s "no price history", even though the stock has 61 real sessions on record. The pinned
+// flow must clamp to the real latest session (learned from one cheap /api/movers/candidates call) rather
+// than passing the filing's raw date straight through.
+const PRIOR_SESSION = "2026-10-01"; // the day before SESSION — the real "latest EQ session" in this scenario
+
 test.describe("Filing row → stock chart (pinned to one filing)", () => {
   test("clicking a filing's company name opens its chart, pinned to that filing", async ({ page }) => {
     await setupFeed(page);
@@ -182,6 +189,26 @@ test.describe("Filing row → stock chart (pinned to one filing)", () => {
     await expect(page.getByTestId("mv-chart")).toBeVisible();
     await expect(page.getByTestId("mv-log")).toBeVisible();
     await expect(page.getByTestId("mv-cand-disclaimer")).toContainText("Opened from one filing on the Research feed.");
+  });
+
+  test("a filing newer than the latest priced session clamps to that session, not a 404", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
+    await page.route("**/api/filings/feed**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(FEED) }));
+    await page.route("**/api/movers/candidates**", (r) => r.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({ session: PRIOR_SESSION, count: 0, candidates: [], rule: "r", disclaimer: "d" }),
+    }));
+    let requestedSession: string | null = null;
+    await page.route("**/api/movers/AAA?**", (r) => {
+      requestedSession = new URL(r.request().url()).searchParams.get("session");
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(detailFor("AAA")) });
+    });
+    await page.goto("/v5/research");
+    await page.getByTestId("filing-row-open-stock").click();
+    await expect(page.getByTestId("mv-chart")).toBeVisible();
+    expect(requestedSession).toBe(PRIOR_SESSION); // clamped — never the filing's own (unpriced) date
+    expect(requestedSession).not.toBe(SESSION);
+    await expect(page.getByTestId("mv-detail-error")).toHaveCount(0); // no "no price history" state
   });
 
   test("the pinned detail fetch defaults to a 1M window, not T7", async ({ page }) => {
