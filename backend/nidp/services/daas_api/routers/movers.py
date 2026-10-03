@@ -774,6 +774,266 @@ async def _deal_days_and_coverage(conn, symbol: str, d0: date, d1: date) -> dict
             "coverage": ({"mapped": int(row["mapped"] or 0), "total": total} if total else None)}
 
 
+# ── Top Movers v5: technical state + round trips ─────────────────────────────────────────────────────
+# Everything below is arithmetic over the real adjusted bars, the real delivery table and the real
+# bulk/block tape. A figure the history cannot support is None, never a default.
+RT_WINDOW = 5          # a round trip = same client buys then sells within five sessions
+RT_FLAG_SESSIONS = 5   # the round-trip flag stays on for five sessions, the sell day included
+TECH_MIN_BAR = 50      # EMA50, the 50-session high and the 5-session slopes need this much history
+
+
+def _ema(src: list[float], p: int) -> list[float]:
+    a, out = 2 / (p + 1), []
+    for k, v in enumerate(src):
+        out.append(v * a + out[k - 1] * (1 - a) if k else v)
+    return out
+
+
+def _tech_series(bars: list[dict]) -> dict[str, list[Optional[float]]]:
+    """EMA20/50, SMA50, MACD, RSI14, +DI/-DI, ADX14 over the full history. A value is None until the
+    indicator has the sessions it needs, because an EMA seeded on bar 0 is wrong for a while."""
+    n = len(bars)
+    c: list[float] = []
+    for b in bars:
+        c.append(b["c"] if b["c"] is not None else (c[-1] if c else 0.0))
+    e20, e50, e12, e26 = _ema(c, 20), _ema(c, 50), _ema(c, 12), _ema(c, 26)
+    macd = [a - b for a, b in zip(e12, e26)]
+    sig = _ema(macd, 9)
+    sma50 = [sum(c[max(0, k - 49):k + 1]) / (k - max(0, k - 49) + 1) for k in range(n)]
+    rsi, pdi, mdi, adx = [50.0], [0.0], [0.0], [15.0]
+    ag = al = tr14 = p14 = m14 = 0.0
+    for k in range(1, n):
+        ch = c[k] - c[k - 1]
+        g, l = max(ch, 0), max(-ch, 0)
+        ag = ag + g / 14 if k <= 14 else (ag * 13 + g) / 14
+        al = al + l / 14 if k <= 14 else (al * 13 + l) / 14
+        rsi.append(100.0 if al == 0 else 100 - 100 / (1 + ag / al))
+        b, pb = bars[k], bars[k - 1]
+        hh, ll, pc = (b["h"] or c[k]), (b["l"] or c[k]), (pb["c"] or c[k - 1])
+        phh, pll = (pb["h"] or pc), (pb["l"] or pc)
+        tr = max(hh - ll, abs(hh - pc), abs(ll - pc))
+        um, dm = hh - phh, pll - ll
+        tr14 = tr14 - tr14 / 14 + tr
+        p14 = p14 - p14 / 14 + (um if um > dm and um > 0 else 0)
+        m14 = m14 - m14 / 14 + (dm if dm > um and dm > 0 else 0)
+        pd_, md_ = (100 * p14 / tr14, 100 * m14 / tr14) if tr14 else (0.0, 0.0)
+        dx = 100 * abs(pd_ - md_) / (pd_ + md_) if pd_ + md_ else 0.0
+        pdi.append(pd_); mdi.append(md_); adx.append((adx[k - 1] * 13 + dx) / 14)
+
+    def warm(a: list[float], need: int) -> list[Optional[float]]:
+        return [v if k >= need else None for k, v in enumerate(a)]
+    return {"ema20": warm(e20, 20), "ema50": warm(e50, 50), "sma50": warm(sma50, 50),
+            "macd": warm(macd, 26), "sig": warm(sig, 34), "rsi": warm(rsi, 14),
+            "pdi": warm(pdi, 14), "mdi": warm(mdi, 14), "adx": warm(adx, 28)}
+
+
+def _inr(v: float, d: int = 2) -> str:
+    s = f"{abs(v):.{d}f}"
+    whole, _, frac = s.partition(".")
+    if len(whole) > 3:
+        head, tail = whole[:-3], whole[-3:]
+        parts = []
+        while len(head) > 2:
+            parts.insert(0, head[-2:]); head = head[:-2]
+        if head:
+            parts.insert(0, head)
+        whole = ",".join(parts + [tail])
+    return ("-" if v < 0 else "") + whole + (f".{frac}" if d else "")
+
+
+def _pc(v: Optional[float]) -> str:
+    if v is None:
+        return "—"
+    v = 0.0 if abs(v) < 0.0005 else v
+    return f"{'+' if v >= 0 else ''}{v * 100:.1f}%"
+
+
+def _tech_at(bars: list[dict], ts: dict, mk: list[Optional[float]], dl: list[Optional[float]],
+             i: int, lite: bool = False) -> Optional[dict]:
+    """Bullish technical score 0-10 (+ the six indicator groups unless lite) as of the close of bar i.
+    None when i has fewer than TECH_MIN_BAR sessions behind it."""
+    n = len(bars)
+    if i < TECH_MIN_BAR or i >= n or any(ts[k][i] is None for k in ("ema20", "ema50", "rsi", "adx")):
+        return None
+    if ts["ema20"][i - 5] is None or ts["ema50"][i - 5] is None:
+        return None
+    b = bars
+    c = b[i]["c"]
+    if not c:
+        return None
+
+    def seg(f: int, t: int, key: str) -> list[float]:
+        return [b[k][key] for k in range(max(0, f), t + 1) if b[k][key] is not None]
+    mean = lambda a: sum(a) / len(a) if a else 0.0
+    hi20, lo20 = max(seg(i - 19, i, "h")), min(seg(i - 19, i, "l"))
+    p_hi20, p_hi50 = max(seg(i - 20, i - 1, "h")), max(seg(i - 50, i - 1, "h"))
+    hi14, lo14 = max(seg(i - 13, i, "h")), min(seg(i - 13, i, "l"))
+    stk = (c - lo14) / (hi14 - lo14) * 100 if hi14 > lo14 else 50.0
+    roc = lambda m: c / b[max(0, i - m)]["c"] - 1
+    mroc = lambda m: (mk[i] / mk[max(0, i - m)] - 1) if mk[i] and mk[max(0, i - m)] else None
+    vs = [float(x) for x in seg(i - 20, i - 1, "v")]
+    mu = mean(vs)
+    sd = (mean([(v - mu) ** 2 for v in vs]) ** 0.5) or 1.0
+    rvol = b[i]["v"] / mu if mu else None
+    vz = (b[i]["v"] - mu) / sd if mu else None
+    rg = lambda k: (b[k]["h"] or 0) - (b[k]["l"] or 0)
+    atr = mean([rg(k) for k in range(i - 14, i)])
+    e20, e50 = ts["ema20"][i], ts["ema50"][i]
+    s20, s50 = e20 / ts["ema20"][i - 5] - 1, e50 / ts["ema50"][i - 5] - 1
+    rsi, adx, pdi, mdi = ts["rsi"][i], ts["adx"][i], ts["pdi"][i], ts["mdi"][i]
+    pos = (c - b[i]["l"]) / rg(i) if rg(i) else 0.5
+    mr20 = mroc(20)
+    rs20 = roc(20) - mr20 if mr20 is not None else None
+    pts = [("CLOSE > EMA20", c > e20), ("EMA20 > EMA50", e20 > e50), ("EMA20 SLOPE > 0", s20 > 0),
+           ("RSI14 > 55", rsi > 55), ("ROC20 > 0", roc(20) > 0),
+           ("RVOL20 > 1.5", None if rvol is None else rvol > 1.5),
+           ("≤ 5% FROM 20D HIGH", c >= hi20 * 0.95), ("ADX > 20 · +DI > −DI", adx > 20 and pdi > mdi),
+           ("20D RS > NIFTY", None if rs20 is None else rs20 > 0), ("CLOSE IN TOP 20% OF RANGE", pos >= 0.8)]
+    score = sum(1 for _, on in pts if on)
+    out = {"i": i, "score": score, "max": sum(1 for _, on in pts if on is not None),
+           "rvol": rvol, "rsi": rsi, "adx": adx, "pts": [{"k": k, "on": on} for k, on in pts]}
+    if lite:
+        return out
+    hist = ts["macd"][i], ts["sig"][i]
+    macd, sg = hist
+    d20 = c / e20 - 1
+    adx5 = ts["adx"][i - 5]
+    v5 = mean([float(x) for x in seg(i - 4, i, "v")])
+    to5 = mean([b[k]["v"] * b[k]["c"] for k in range(i - 4, i + 1) if b[k]["c"]])
+    to20 = mean([b[k]["v"] * b[k]["c"] for k in range(i - 19, i + 1) if b[k]["c"]])
+    nr7 = all(rg(k) >= rg(i - 1) for k in range(i - 7, i))
+    nr7x = nr7 and rg(i) > rg(i - 1) * 1.3
+    hh = max(seg(i - 4, i, "h")) > max(seg(i - 9, i - 5, "h")) and min(seg(i - 4, i, "l")) > min(seg(i - 9, i - 5, "l"))
+    dli, dla = dl[i], [x for x in dl[max(0, i - 20):i] if x is not None]
+    rs5 = roc(5) - mroc(5) if mroc(5) is not None else None
+    rs10 = roc(10) - mroc(10) if mroc(10) is not None else None
+    f2, f1, f0 = (lambda v: f"{v:.2f}"), (lambda v: f"{v:.1f}"), (lambda v: f"{v:.0f}")
+
+    def R(k: str, v: str, on: Optional[bool]) -> dict:
+        return {"k": k, "v": v, "on": on}
+    na = lambda v, fn: "—" if v is None else fn(v)
+    bucket = ("— (no index series)" if rs20 is None else "< −5%" if rs20 < -.05 else "−5% … 0%" if rs20 < 0
+              else "0 … 5%" if rs20 < .05 else "5 … 10%" if rs20 < .10 else "> 10%")
+    delivery_row = (R("DELIVERY % > 20D AVG", "NOT IN THE DELIVERY FEED FOR THIS SESSION", None)
+                    if dli is None or len(dla) < 10 else R("DELIVERY % > 20D AVG", f"{f0(dli)}% / {f0(mean(dla))}%", dli > mean(dla)))
+    out["families"] = [
+        {"name": "1 · TREND STRUCTURE", "rows": [
+            R("CLOSE > EMA20", f"{_inr(c)} / {_inr(e20)}", c > e20), R("EMA20 > EMA50", f"{_inr(e20)} / {_inr(e50)}", e20 > e50),
+            R("EMA20 SLOPE · 5D", _pc(s20), s20 > 0), R("EMA50 SLOPE · 5D", _pc(s50), s50 > 0),
+            R("DIST FROM EMA20 · +1 … +5%", _pc(d20), 0.01 <= d20 <= 0.05), R("CLOSE > SMA50", _inr(ts["sma50"][i]), c > ts["sma50"][i])]},
+        {"name": "2 · MOMENTUM", "rows": [
+            R("RSI14 > 55", f1(rsi), rsi > 55), R("RSI14 > 60", f1(rsi), rsi > 60), R("ROC5 > 0", _pc(roc(5)), roc(5) > 0),
+            R("ROC10 > 0", _pc(roc(10)), roc(10) > 0), R("ROC20 > 0", _pc(roc(20)), roc(20) > 0),
+            R("MACD > SIGNAL", f"{f2(macd)} / {f2(sg)}" if macd is not None and sg is not None else "—", None if macd is None or sg is None else macd > sg),
+            R("MACD HISTOGRAM > 0", na(None if macd is None or sg is None else macd - sg, f2), None if macd is None or sg is None else macd - sg > 0),
+            R("STOCHASTIC %K > 60", f0(stk), stk > 60)]},
+        {"name": "3 · VOLUME / PARTICIPATION", "rows": [
+            R("RVOL20 > 1.5", na(rvol, lambda v: f2(v) + "×"), None if rvol is None else rvol > 1.5),
+            R("RVOL20 > 2.0", na(rvol, lambda v: f2(v) + "×"), None if rvol is None else rvol > 2),
+            R("VOLUME Z > 1.5", na(vz, f2), None if vz is None else vz > 1.5), R("VOLUME Z > 2", na(vz, f2), None if vz is None else vz > 2),
+            R("VOLUME TREND · 5D VS 20D", na(mu and v5 / mu, lambda v: f2(v) + "×"), None if not mu else v5 > mu),
+            R("PRICE × VOLUME · 5D VS 20D", na(to20 and to5 / to20, lambda v: f2(v) + "×"), None if not to20 else to5 > to20),
+            delivery_row]},
+        {"name": "4 · BREAKOUT / PRICE STRUCTURE", "rows": [
+            R("WITHIN 2% OF 20D HIGH", _pc(c / hi20 - 1), c >= hi20 * 0.98), R("WITHIN 5% OF 20D HIGH", _pc(c / hi20 - 1), c >= hi20 * 0.95),
+            R("CLOSE > PRIOR 20D HIGH", _inr(p_hi20), c > p_hi20), R("CLOSE > PRIOR 50D HIGH", _inr(p_hi50), c > p_hi50),
+            R("DIST FROM 20D LOW", _pc(c / lo20 - 1), None), R("HIGHER HIGH / HIGHER LOW", "YES" if hh else "NO", hh),
+            R("RANGE EXPANSION · > 1.5× ATR", na(atr and rg(i) / atr, lambda v: f2(v) + "×"), None if not atr else rg(i) > 1.5 * atr),
+            R("NR7 → EXPANSION", "YES" if nr7x else "NR7 ONLY" if nr7 else "NO", nr7x),
+            R("CLOSE IN TOP 20% OF RANGE", f"{pos * 100:.0f}%", pos >= 0.8)]},
+        {"name": "5 · RELATIVE STRENGTH · VS NIFTY", "rows": [
+            R("5D EXCESS RETURN", na(rs5, _pc), None if rs5 is None else rs5 > 0), R("10D EXCESS RETURN", na(rs10, _pc), None if rs10 is None else rs10 > 0),
+            R("20D EXCESS RETURN", na(rs20, _pc), None if rs20 is None else rs20 > 0), R("20D BUCKET", bucket, None)]},
+        {"name": "6 · DIRECTIONAL TREND", "rows": [
+            R("ADX14", f1(adx), None), R("+DI > −DI", f"{f1(pdi)} / {f1(mdi)}", pdi > mdi), R("ADX > 20", f1(adx), adx > 20),
+            R("ADX > 25", f1(adx), adx > 25), R("ADX SLOPE · 5D", f"{adx - adx5:+.1f}" if adx5 is not None else "—", None if adx5 is None else adx - adx5 > 0)]},
+    ]
+    return out
+
+
+async def _delivery_series(conn, symbol: str, bars: list[dict]) -> list[Optional[float]]:
+    """deliverable_pct per bar from nidp.delivery_data (EQ). None where the feed has no row."""
+    if not bars:
+        return []
+    rows = await conn.fetch(
+        """SELECT as_of_date, max(deliverable_pct) AS p FROM nidp.delivery_data
+            WHERE symbol = $1 AND series = 'EQ' AND as_of_date BETWEEN $2::date AND $3::date GROUP BY 1""",
+        symbol, date.fromisoformat(bars[0]["t"]), date.fromisoformat(bars[-1]["t"]))
+    m = {r["as_of_date"].isoformat(): _f(r["p"]) for r in rows}
+    return [m.get(b["t"]) for b in bars]
+
+
+async def _round_trips(conn, symbol: str, bars: list[dict]) -> list[dict]:
+    """Same client bought then sold (bulk or block tape) within RT_WINDOW sessions. Absolute bar indices."""
+    if not bars:
+        return []
+    rows = await conn.fetch(
+        """SELECT as_of_date, client_name, deal_type, quantity FROM nidp.bulk_deals
+            WHERE symbol = $1 AND as_of_date BETWEEN $2::date AND $3::date
+           UNION ALL
+           SELECT as_of_date, client_name, deal_type, quantity FROM nidp.block_deals
+            WHERE symbol = $1 AND as_of_date BETWEEN $2::date AND $3::date""",
+        symbol, date.fromisoformat(bars[0]["t"]), date.fromisoformat(bars[-1]["t"]))
+    idx = {b["t"]: k for k, b in enumerate(bars)}
+    by: dict[str, dict[str, list[tuple[int, int]]]] = {}
+    for r in rows:
+        name = (r["client_name"] or "").strip().upper()
+        k = idx.get(r["as_of_date"].isoformat())
+        if not name or k is None:
+            continue
+        side = (r["deal_type"] or "").upper()
+        buy = side.startswith("B") and "SELL" not in side
+        by.setdefault(name, {"b": [], "s": []})["b" if buy else "s"].append((k, int(r["quantity"] or 0)))
+    out: list[dict] = []
+    for name, d in by.items():
+        used: set[int] = set()
+        for bk, bq in sorted(d["b"]):
+            sell = next(((sk, sq) for sk, sq in sorted(d["s"]) if bk < sk <= bk + RT_WINDOW and sk not in used), None)
+            if sell:
+                used.add(sell[0])
+                out.append({"b": bk, "s": sell[0], "days": sell[0] - bk, "cp": name.title(), "qty_b": bq, "qty_s": sell[1]})
+    return sorted(out, key=lambda x: (x["b"], x["s"]))
+
+
+def _rt_on(rts: list[dict], n: int) -> list[bool]:
+    on = [False] * n
+    for r in rts:
+        for k in range(r["s"], min(n, r["s"] + RT_FLAG_SESSIONS)):
+            on[k] = True
+    return on
+
+
+def _tech_bucket(score: int) -> str:
+    return "WEAK" if score <= 2 else "MODERATE" if score <= 4 else "STRONG" if score <= 6 else "VERY STRONG" if score <= 8 else "EXTREME"
+
+
+def _tech_payload(bars: list[dict], ts: dict, mk: list, dl: list, rts: list[dict], lo: Optional[int], hi: Optional[int]) -> dict:
+    """Detail-view bundle: indicator lines, per-bar score for the hover card, round trips, all aligned to the plotted slice."""
+    if lo is None or hi is None:
+        return {"available": False, "reason": "NO_BARS"}
+    on = _rt_on(rts, len(bars))
+    per = []
+    for k in range(lo, hi + 1):
+        t = _tech_at(bars, ts, mk, dl, k, lite=True)
+        per.append({"score": t["score"], "max": t["max"], "rvol": t["rvol"], "rsi": t["rsi"], "adx": t["adx"], "rt": on[k]} if t
+                   else {"score": None, "max": None, "rvol": None, "rsi": ts["rsi"][k], "adx": ts["adx"][k], "rt": on[k]})
+    cp = lambda a: a[lo:hi + 1]
+    return {"available": True, "series": {k: cp(ts[k]) for k in ("ema20", "ema50", "rsi", "adx", "pdi", "mdi")}, "per_bar": per,
+            "round_trips": [{**r, "b": r["b"] - lo, "s": r["s"] - lo} for r in rts if r["s"] >= lo and r["b"] <= hi],
+            "delivery_coverage": {"sessions": sum(1 for x in cp(dl) if x is not None), "total": hi - lo + 1}}
+
+
+def _tech_state(bars: list[dict], ts: dict, mk: list, dl: list, rts: list[dict], i: int) -> dict:
+    t = _tech_at(bars, ts, mk, dl, i)
+    if t is None:
+        return {"available": False, "reason": "NEEDS_50_SESSIONS_OF_HISTORY", "anchor": bars[i]["t"] if 0 <= i < len(bars) else None}
+    on = _rt_on(rts, len(bars))
+    rt = next((r for r in reversed(rts) if r["s"] <= i <= r["s"] + RT_FLAG_SESSIONS - 1), None)
+    return {"available": True, "anchor": bars[i]["t"], "score": t["score"], "max": t["max"], "bucket": _tech_bucket(t["score"]),
+            "pts": t["pts"], "families": t["families"], "round_trip": on[i],
+            "round_trip_detail": ({"cp": rt["cp"], "days": rt["days"], "sold": bars[rt["s"]]["t"]} if rt else None)}
+
+
 # ── endpoints ──────────────────────────────────────────────────────────────
 @router.get("")
 async def list_movers(
@@ -1373,6 +1633,9 @@ async def mover_detail(
             events = await _events_for(conn, symbol, d0, d1)
             ins = await _insider_for(conn, symbol, d0, d1)
             events += ins["events"]
+            ts = _tech_series(bars)
+            dl = await _delivery_series(conn, symbol, bars)
+            rts = await _round_trips(conn, symbol, bars)
 
             aux = await _deal_days_and_coverage(conn, symbol, d0, d1)
             deal_days = aux["deal_days"]
@@ -1449,7 +1712,9 @@ async def mover_detail(
                     {"key": "AFTER", "label": "E+1 → E+7",
                      "decomp": _decomp(bars, mk, sx, reg["beta"], reg["sbeta"], ti + 1, ti + 8)},
                 ],
-                "lanes": LANES,
+                "lanes": LANES + [{"key": "rt", "label": "ROUND TRIP"}],
+                "tech": _tech_payload(bars, ts, mk, dl, rts, lo, hi),
+                "tech_state": _tech_state(bars, ts, mk, dl, rts, ti),
                 "insider_lane": {k: v for k, v in ins.items() if k != "events"},
                 "events": sorted(events, key=lambda e: (e["date"], e["type"])),
                 "model": await _odds_badge(conn, symbol, session),
@@ -1520,12 +1785,16 @@ async def mover_analysis(
 
             ei = pinned.get("bar_index") if pinned else ti
             ei = ti if ei is None else ei
+            ts = _tech_series(bars)
+            dl = await _delivery_series(conn, symbol, bars)
+            rts = await _round_trips(conn, symbol, bars)
             res = {
                 "symbol": symbol, "session": session.isoformat(),
                 "market_index": MARKET_INDEX, "sector_index": sector_idx,
                 "regression": reg,
                 "pinned_event": pinned,
                 "anchor": {"bar": bars[ei]["t"], "is_pinned_event": bool(pinned)},
+                "tech_state": _tech_state(bars, ts, mk, dl, rts, ei),
                 "windows": [
                     {"key": k, "label": lab,
                      "decomp": _decomp(bars, mk, sx, reg["beta"], reg["sbeta"], a, b)}

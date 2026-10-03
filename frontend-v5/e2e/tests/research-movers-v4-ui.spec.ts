@@ -104,6 +104,7 @@ type Opts = {
   market?: Json; sector?: Json; regression?: Json; insider?: Json;
   cal?: () => { status: number; body: unknown }; lift?: () => { status: number; body: unknown };
   analysisFor?: (symbol: string, eventId: string | null) => Json;
+  tech?: Json; techState?: (eventId: string | null) => Json;      // v5: omit both to get a v4-shaped API
 };
 type Calls = { analysis: URL[]; cal: number; lift: number; detail: URL[] };
 
@@ -121,7 +122,7 @@ async function setup(page: Page, o: Opts = {}): Promise<Calls> {
     const pinned = eventId ? events.find((e) => e.id === eventId) ?? null : null;
     return { symbol, session: SESSION, market_index: "Nifty 50", sector_index: "Nifty Energy", regression, pinned_event: pinned,
       anchor: { bar: pinned ? pinned.date : SESSION, is_pinned_event: !!pinned }, windows: windows(pinned ? 0.2 : 0.084), rolling_beta: ROLL,
-      model: modelOf(symbol), disclaimer: "Attribution of realised return, not a causal claim: direction around events is not predictable in this dataset." };
+      ...(o.techState ? { tech_state: o.techState(eventId) } : {}), model: modelOf(symbol), disclaimer: "Attribution of realised return, not a causal claim: direction around events is not predictable in this dataset." };
   });
 
   await mockAuthAs(page, "user-profile-move-odds.json");
@@ -147,7 +148,8 @@ async function setup(page: Page, o: Opts = {}): Promise<Calls> {
     return send(route, 200, {
       symbol, session: SESSION, range: "T7", from: DATES[0], to: DATES[N - 1], horizon: H,
       header: { pct: 8.42, open: 104.1, high: 113, low: 103.9, close: 112.4, prev_close: 103.7, volume: 9e6, turnover: 9.9e8 },
-      bars, market, sector, regression, rolling_beta: ROLL, windows: windows(0.084), lanes: LANES,
+      bars, market, sector, regression, rolling_beta: ROLL, windows: windows(0.084), lanes: o.tech ? [...LANES, { key: "rt", label: "ROUND TRIP" }] : LANES,
+      ...(o.tech ? { tech: o.tech } : {}), ...(o.techState ? { tech_state: o.techState(null) } : {}),
       insider_lane: o.insider ?? { available: false, reason: "NOT_BACKFILLED", note: "nidp.insider_sast not present", source: null },
       events, model: modelOf(symbol), bar_index_of_session: T,
     });
@@ -430,5 +432,84 @@ test.describe("Move odds — Movers v4 UI behaviour", () => {
     await expect.poll(() => calls.lift).toBeGreaterThan(n);
     await expect(page.getByTestId("mv-lift-gap2")).toContainText("1.62");
     await expect(page.getByTestId("mv-lift-na-ins")).toContainText(/insider/i);
+  });
+});
+
+
+// ── v5: technical state ──────────────────────────────────────────────────────────────────────────────────────────────
+// MOCK - not real data: indicator values are fixtures shaped like the real API (null until the indicator has its sessions).
+const ser = (f: (i: number) => number, nulls = 0) => bars.map((_, i) => (i < nulls ? null : f(i)));
+const TECH: Json = {
+  available: true,
+  series: { ema20: ser((i) => 100 + i * 0.6, 3), ema50: ser((i) => 99 + i * 0.5, 6), rsi: ser((i) => 45 + i, 2), adx: ser((i) => 15 + i * 0.5, 5), pdi: ser(() => 30, 2), mdi: ser(() => 15, 2) },
+  per_bar: bars.map((_, i) => ({ score: i < 5 ? null : i % 11, max: i < 5 ? null : 10, rvol: 1.2, rsi: 45 + i, adx: 15 + i * 0.5, rt: i >= 13 && i <= 19 })),
+  // two overlapping round trips by different counterparties: the lane merges them into one span and says so
+  round_trips: [{ b: 10, s: 13, days: 3, cp: "Alpha Fincap Limited", qty_b: 1000, qty_s: 1000 }, { b: 12, s: 15, days: 3, cp: "Beta Securities", qty_b: 500, qty_s: 500 }],
+  delivery_coverage: { sessions: 27, total: 30 },
+};
+const row = (k: string, v: string, on: boolean | null) => ({ k, v, on });
+const STATE = (score: number, anchor = SESSION, rt = false): Json => ({
+  available: true, anchor, score, max: 9, bucket: score >= 7 ? "VERY STRONG" : "MODERATE", round_trip: rt,
+  round_trip_detail: rt ? { cp: "Alpha Fincap Limited", days: 3, sold: anchor } : null,
+  pts: [row("CLOSE > EMA20", "", true), row("RSI14 > 55", "", true), row("20D RS > NIFTY", "", null), row("RVOL20 > 1.5", "", false)].map(({ k, on }) => ({ k, on })),
+  families: [
+    { name: "1 · TREND STRUCTURE", rows: [row("CLOSE > EMA20", "112.40 / 108.20", true), row("EMA20 > EMA50", "108.20 / 105.00", true)] },
+    { name: "3 · VOLUME / PARTICIPATION", rows: [row("RVOL20 > 1.5", "1.20×", false), row("DELIVERY % > 20D AVG", "NOT IN THE DELIVERY FEED FOR THIS SESSION", null)] },
+    { name: "5 · RELATIVE STRENGTH · VS NIFTY", rows: [row("20D EXCESS RETURN", "—", null)] },
+  ],
+});
+
+test.describe("Move odds — Movers v5 technical state", () => {
+  test("TC-T01 EMA lines, RSI/ADX panel, merged round-trip lane and the hover tech line", async ({ page }) => {
+    await setup(page, { tech: TECH, techState: (id) => (id ? STATE(8, DATES[12]) : STATE(5)) });
+    await openMovers(page);
+    await expect(page.getByTestId("mv-tech-overlay")).toBeVisible();
+    for (const id of ["mv-ema20", "mv-ema50", "mv-rsi", "mv-adx"]) await expect(page.getByTestId(id)).toHaveAttribute("d", /^M/);
+    await expect(page.getByTestId("mv-tech-panel")).toContainText("RSI14");
+    if (process.env.V5_SHOT) { await page.getByTestId("mv-chart").screenshot({ path: process.env.V5_SHOT + "-chart.png" }); await page.getByTestId("mv-tech").screenshot({ path: process.env.V5_SHOT + "-tech.png" }); }
+    // two overlapping round trips -> ONE span, labelled with the count, never two stacked boxes
+    await expect(page.getByTestId("mv-rt-span")).toHaveCount(1);
+    await expect(page.getByTestId("mv-rt-span")).toHaveAttribute("title", /2 round trips merged/);
+    await page.getByTestId("mv-chart-scroll").scrollIntoViewIfNeeded();
+    const box = await page.getByTestId("mv-chart-scroll").boundingBox();
+    await page.mouse.move(box!.x + ((box!.width - 84) / N) * 14.5, box!.y + 120);
+    await expect(page.getByTestId("mv-chart-header-tech")).toContainText(/TECH (\d+\/10|—) · RSI \d+ · ADX \d+ · ROUND TRIP/);
+  });
+
+  test("TC-T02 score, ten points, six-group rows; an unevaluable condition is informational and uncounted; pinning re-anchors", async ({ page }) => {
+    const calls = await setup(page, { tech: TECH, techState: (id) => (id ? STATE(8, DATES[12], true) : STATE(5)) });
+    await openMovers(page);
+    await expect(page.getByTestId("mv-tech-score")).toContainText("5/9");
+    await expect(page.getByTestId("mv-tech")).toContainText("MOVE DAY");
+    await expect(page.getByTestId("mv-tech-pt")).toHaveCount(4);
+    await expect(page.getByTestId("mv-tech-pt").nth(2)).toHaveAttribute("data-on", "null");        // RS vs Nifty: not evaluable, not "failed"
+    await expect(page.getByTestId("mv-tech")).toContainText("1 condition could not be evaluated and is not counted");
+    await expect(page.getByTestId("mv-tech")).toContainText("NOT IN THE DELIVERY FEED FOR THIS SESSION");
+    await expect(page.getByTestId("mv-tech-family")).toHaveCount(3);
+    await expect(page.getByTestId("mv-tech-rt")).toContainText("NO ROUND TRIP");
+    await expect(page.getByTestId("mv-tech-delivery-note")).toContainText("27 OF 30");
+
+    await page.getByTestId("mv-evt-ann:1").click();
+    await expect.poll(() => calls.analysis.map((u) => u.searchParams.get("event_id"))).toContain("ann:1");
+    await expect(page.getByTestId("mv-tech-score")).toContainText("8/9");
+    await expect(page.getByTestId("mv-tech")).toContainText("PINNED EVENT");
+    await expect(page.getByTestId("mv-tech-rt")).toContainText("ROUND TRIP · ALPHA FINCAP LIMITED · 3D");
+  });
+
+  test("TC-T03 not enough history: no score is invented, and the chart says the indicators are unavailable", async ({ page }) => {
+    await setup(page, { tech: { available: false, reason: "NO_BARS" }, techState: () => ({ available: false, reason: "NEEDS_50_SESSIONS_OF_HISTORY", anchor: SESSION }) });
+    await openMovers(page);
+    await expect(page.getByTestId("mv-tech-unavailable")).toBeVisible();
+    await expect(page.getByTestId("mv-tech-unavailable-card")).toContainText("THE SCORE NEEDS 50 SESSIONS");
+    await expect(page.getByTestId("mv-tech-score")).toHaveCount(0);
+    await expect(page.getByTestId("mv-ema20")).toHaveCount(0);
+    await expect(page.getByTestId("mv-lane-rt")).toContainText("ROUND-TRIP DETECTION UNAVAILABLE");
+  });
+
+  test("TC-T04 a v4-shaped API (no tech fields) still renders and shows no technical card", async ({ page }) => {
+    await setup(page);
+    await openMovers(page);
+    await expect(page.getByTestId("mv-chart")).toBeVisible();
+    await expect(page.getByTestId("mv-tech")).toHaveCount(0);
   });
 });

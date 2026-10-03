@@ -18,7 +18,7 @@
  *   pinnedEventId, onPinEvent  click a marker to pin / click again to clear
  */
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import type { MoverBar, MoverEvent, MoverOdds, MoverDetail } from "@/services/adapters/movers.adapter";
+import type { MoverBar, MoverEvent, MoverOdds, MoverDetail, MoverTech } from "@/services/adapters/movers.adapter";
 import "./moversV4Chart.css";
 
 export type MoversChartProps = {
@@ -31,6 +31,7 @@ export type MoversChartProps = {
   sessionIndex: number;
   model?: MoverOdds | null;
   insiderLane?: MoverDetail["insider_lane"] | null;
+  tech?: MoverTech | null;                         // det.tech: EMA20/50, RSI14, ADX14, per-bar score, round trips
   horizon: 3 | 20;
   onHorizonChange?: (h: 3 | 20) => void;
   range: string;
@@ -45,9 +46,9 @@ export type MoversChartProps = {
   onPinEvent?: (id: string | null) => void;
 };
 
-const AX = 84, TOP = 20, VOL_H = 64, REL_H = 96, BOT = 30;
+const AX = 84, TOP = 20, VOL_H = 64, REL_H = 96, TECH_H = 84, BOT = 30;
 const MIN_W = 560; // narrower than this the plot scrolls inside the card instead of squeezing candles or widening the page
-const CHART_H = 476; // design: relOn ? 476 : 380
+const CHART_H = 476 + TECH_H; // design v5: (relOn ? 476 : 380) + techH
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const utc = (t: string) => new Date(t.length <= 10 ? `${t}T00:00:00Z` : t);
 const fd = (t: string) => { const d = utc(t); return `${String(d.getUTCDate()).padStart(2, "0")} ${MON[d.getUTCMonth()]}`; };
@@ -88,6 +89,7 @@ const trackStyle: CSSProperties = { display: "flex", gap: 2, padding: 3, border:
 
 export function MoversChart(props: MoversChartProps) {
   const { symbol, bars, market, sector, events, lanes, sessionIndex, model, insiderLane, horizon, range, pinnedEventId } = props;
+  const tech = props.tech && props.tech.available && props.tech.series && props.tech.series.ema20.length === bars.length ? props.tech : null;
   const ranges = props.ranges ?? ["T7", "1D", "1M", "3M", "1Y"];
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [localPin, setLocalPin] = useState<string | null>(null);
@@ -160,7 +162,7 @@ export function MoversChart(props: MoversChartProps) {
   }
 
   // ── geometry (design draw()) ────────────────────────────────────────────────────────────────────────────────────
-  const pw = W - AX, ph = CHART_H - VOL_H - REL_H - BOT - TOP;       // 266
+  const pw = W - AX, ph = CHART_H - VOL_H - REL_H - TECH_H - BOT - TOP;       // 266
   let lo = Math.min(...drawable.map((b) => b.l as number)), hi = Math.max(...drawable.map((b) => b.h as number));
   const padP = (hi - lo) * 0.08; lo -= padP; hi += padP;
   if (hi === lo) { hi += 1; lo -= 1; }
@@ -169,7 +171,21 @@ export function MoversChart(props: MoversChartProps) {
   const slot = pw / n, x = (i: number) => (i + 0.5) * slot;
   const vmax = Math.max(1, ...bars.map((b) => b.v || 0)), vb = CHART_H - BOT;
   const cw = Math.max(1, Math.min(14, slot * 0.62));
-  const rt = TOP + ph + 14, rb = CHART_H - BOT - VOL_H - 8;
+  const tt = TOP + ph + 14, tb = tt + TECH_H - 14;                      // technical panel (design v5)
+  const rt = TOP + ph + 14 + TECH_H, rb = CHART_H - BOT - VOL_H - 8;
+  const yt = (v: number) => tb - (Math.max(0, Math.min(100, v)) / 100) * (tb - tt);
+  const tpath = (vals: Array<number | null | undefined>, f: (v: number) => number) => {
+    let d = "", pen = false;
+    vals.forEach((v, k) => { if (!fin(v)) { pen = false; return; } d += `${pen ? "L" : "M"}${x(k).toFixed(1)} ${f(v).toFixed(1)} `; pen = true; });
+    return d;
+  };
+  // overlapping round trips merge into one span with a count: a churning counterparty prints one every few sessions
+  const rtSpans = ((tech?.round_trips ?? []).filter((r) => r.s >= 0 && r.b < n).map((r) => ({ a: Math.max(0, r.b), z: Math.min(n - 1, r.s), cp: r.cp, k: 1, days: r.days }))
+    .sort((p, q) => p.a - q.a)).reduce<Array<{ a: number; z: number; cp: string; k: number; days: number }>>((o, r) => {
+    const l = o[o.length - 1];
+    if (l && r.a <= l.z) { l.z = Math.max(l.z, r.z); l.k += 1; l.cp = l.cp === r.cp ? l.cp : `${l.k} counterparties`; l.days = Math.max(l.days, r.days); } else o.push({ ...r });
+    return o;
+  }, []);
 
   // REL. PERF: each series is indexed to its own first value in the window; a missing value breaks the line.
   const relOf = (vals: Array<number | null | undefined>): Array<number | null> => {
@@ -316,6 +332,38 @@ export function MoversChart(props: MoversChartProps) {
               );
             })}
             <text x={pw + 10} y={vb - VOL_H / 2} fontSize={11} fill={cv("ink-3")} dominantBaseline="central">VOL</text>
+            {tech && (
+              <g data-testid="mv-tech-overlay">
+                <path data-testid="mv-ema20" d={tpath(tech.series!.ema20, y)} fill="none" stroke={cv("amber")} strokeWidth={1.2}><title>EMA20</title></path>
+                <path data-testid="mv-ema50" d={tpath(tech.series!.ema50, y)} fill="none" stroke={cv("indigo")} strokeWidth={1.2}><title>EMA50</title></path>
+                <text x={pw - 62} y={TOP + 4} fontSize={10} fill={cv("amber")} textAnchor="end" dominantBaseline="central">EMA20</text>
+                <text x={pw - 10} y={TOP + 4} fontSize={10} fill={cv("indigo")} textAnchor="end" dominantBaseline="central">EMA50</text>
+              </g>
+            )}
+            <line x1={0} x2={W} y1={tt - 7.5} y2={tt - 7.5} stroke={cv("line-2")} />
+            {tech ? (
+              <g data-testid="mv-tech-panel">
+                {tech.per_bar!.map((p, k) => p.rt && <rect key={k} x={x(k) - slot / 2} y={tt} width={slot} height={tb - tt} fill={cv("rose")} opacity={0.14} />)}
+                {([[55, "mint"], [70, "ink-4"]] as const).map(([lv, c]) => (
+                  <g key={lv}>
+                    <line x1={0} x2={pw} y1={yt(lv)} y2={yt(lv)} stroke={cv(c)} strokeDasharray="2 3" />
+                    <text x={pw + 10} y={yt(lv)} fontSize={11} fill={cv("ink-3")} dominantBaseline="central">{lv}</text>
+                  </g>
+                ))}
+                <path data-testid="mv-rsi" d={tpath(tech.series!.rsi, yt)} fill="none" stroke={cv("ink")} strokeWidth={1.4}><title>RSI14</title></path>
+                <path data-testid="mv-adx" d={tpath(tech.series!.adx, yt)} fill="none" stroke={cv("rose")} strokeWidth={1.4}><title>ADX14</title></path>
+                {(() => {
+                  const lastOf = (a: Array<number | null | undefined>) => { const k = a.map(fin).lastIndexOf(true); return k < 0 ? "—" : (a[k] as number).toFixed(0); };
+                  let lx2 = 10;
+                  return ([["TECH", cv("ink-3")], [`■ RSI14 ${lastOf(tech.series!.rsi)}`, cv("ink")], [`■ ADX14 ${lastOf(tech.series!.adx)}`, cv("rose")], ["▒ ROUND-TRIP WINDOW", cv("rose")]] as const).map(([t, c]) => {
+                    const at = lx2; lx2 += t.length * 6 + 14;
+                    return <text key={t} x={at} y={tt + 2} fontSize={10} fill={c} dominantBaseline="central">{t}</text>;
+                  });
+                })()}
+              </g>
+            ) : (
+              <text x={10} y={tt + 2} fontSize={10} fill={cv("ink-4")} dominantBaseline="central" data-testid="mv-tech-unavailable">TECH · INDICATORS UNAVAILABLE FOR THIS WINDOW</text>
+            )}
             <line x1={0} x2={W} y1={rt - 7.5} y2={rt - 7.5} stroke={cv("line-2")} />
             <line x1={0} x2={pw} y1={yr(0)} y2={yr(0)} stroke={cv("ink-4")} strokeDasharray="2 3" />
             {series.map((s) => (
@@ -360,6 +408,14 @@ export function MoversChart(props: MoversChartProps) {
               <span>{mktName} <span style={{ color: mktOn ? "var(--indigo)" : "var(--ink-4)" }}>{mktOn ? pct(mktChg) : "—"}</span></span>
               <span>{secName} <span style={{ color: secOn ? "var(--amber)" : "var(--ink-4)" }}>{secOn ? pct(secChg) : "—"}</span></span>
             </div>
+            {tech?.per_bar?.[hi_] && (
+              <div data-testid="mv-chart-header-tech" style={{ color: "var(--ink-3)", fontSize: 11 }}>
+                {tech.per_bar[hi_].score != null ? `TECH ${tech.per_bar[hi_].score}/${tech.per_bar[hi_].max ?? 10}` : "TECH —"}
+                {fin(tech.per_bar[hi_].rsi) ? ` · RSI ${(tech.per_bar[hi_].rsi as number).toFixed(0)}` : ""}
+                {fin(tech.per_bar[hi_].adx) ? ` · ADX ${(tech.per_bar[hi_].adx as number).toFixed(0)}` : ""}
+                {tech.per_bar[hi_].rt ? " · ROUND TRIP" : ""}
+              </div>
+            )}
             {hoverEvents.map((e) => (
               <div key={e.id} data-testid="mv-chart-header-evt" style={{ display: "flex", gap: 8, alignItems: "center", fontFamily: "var(--sans)", fontSize: 12, color: "var(--ink)", minWidth: 0 }}>
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: cv(tone(e)), flex: "none" }} />
@@ -384,6 +440,7 @@ export function MoversChart(props: MoversChartProps) {
             const byIdx = new Map<number, number>();
             let empty = "", insNote = false;
             if (ln.key === "mdl") empty = mdl.empty ?? "";
+            else if (ln.key === "rt") empty = rtSpans.length ? "" : tech ? "NO ROUND TRIPS IN WINDOW" : "ROUND-TRIP DETECTION UNAVAILABLE FOR THIS WINDOW";
             else if (!evs.length) {
               empty = "—";
               if (ln.key === "ins" && insiderLane && insiderLane.available === false) {
@@ -402,6 +459,17 @@ export function MoversChart(props: MoversChartProps) {
                       {mdl.span.label}
                     </div>
                   )}
+                  {ln.key === "rt" && rtSpans.map((r, k) => {
+                    const w = (r.z - r.a + 1) * slotPx;
+                    return (
+                      <div key={k} data-testid="mv-rt-span" title={`${r.cp} bought then sold within ${r.days} session${r.days > 1 ? "s" : ""}${r.k > 1 ? ` · ${r.k} round trips merged` : ""}`} style={{
+                        position: "absolute", top: 8, height: 18, left: `${(r.a / n) * 100}%`, width: `${((r.z - r.a + 1) / n) * 100}%`, borderRadius: 6,
+                        background: "var(--rose-soft)", border: "1px solid var(--rose-line)", color: "var(--rose)", fontFamily: "var(--mono)", fontSize: 10,
+                        letterSpacing: ".08em", display: "flex", alignItems: "center", padding: "0 8px", boxSizing: "border-box", whiteSpace: "nowrap", overflow: "hidden" }}>
+                        {w > 150 ? `${clip(r.cp.toUpperCase(), 28)} · ${r.k > 1 ? `${r.k}×` : `${r.days}D`}` : w > 46 ? (r.k > 1 ? `RT ×${r.k}` : `RT · ${r.days}D`) : ""}
+                      </div>
+                    );
+                  })}
                   {evs.map((e) => {
                     const i = e.bar_index as number, c = tone(e), on = pinned === e.id || hoverIdx === i;
                     const k = byIdx.get(i) ?? 0; byIdx.set(i, k + 1);

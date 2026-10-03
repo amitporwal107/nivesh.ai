@@ -177,6 +177,33 @@ export type MoverRegression = z.infer<typeof RegressionC>;
 const WindowC = z.object({ key: z.string(), label: z.string(), decomp: DecompC.nullable() });
 export type MoverWindow = z.infer<typeof WindowC>;
 
+// v5 technical state. `on` null = the condition could not be evaluated (missing feed), never "not met".
+const TechRowC = z.object({ k: z.string(), v: z.string(), on: z.boolean().nullable() });
+const TechStateC = z.object({
+  available: z.boolean(),
+  reason: z.string().optional(),
+  anchor: z.string().nullable().optional(),
+  score: z.number().optional(),
+  max: z.number().optional(),
+  bucket: z.string().optional(),
+  pts: z.array(z.object({ k: z.string(), on: z.boolean().nullable() })).optional(),
+  families: z.array(z.object({ name: z.string(), rows: z.array(TechRowC) })).optional(),
+  round_trip: z.boolean().optional(),
+  round_trip_detail: z.object({ cp: z.string(), days: z.number(), sold: z.string() }).nullable().optional(),
+});
+export type MoverTechState = z.infer<typeof TechStateC>;
+const TechC = z.object({
+  available: z.boolean(),
+  reason: z.string().optional(),
+  series: z.object({
+    ema20: z.array(Num), ema50: z.array(Num), rsi: z.array(Num), adx: z.array(Num), pdi: z.array(Num), mdi: z.array(Num),
+  }).optional(),
+  per_bar: z.array(z.object({ score: Num, max: Num, rvol: Num, rsi: Num, adx: Num, rt: z.boolean() })).optional(),
+  round_trips: z.array(z.object({ b: z.number(), s: z.number(), days: z.number(), cp: z.string(), qty_b: z.number(), qty_s: z.number() })).optional(),
+  delivery_coverage: z.object({ sessions: z.number(), total: z.number() }).optional(),
+});
+export type MoverTech = z.infer<typeof TechC>;
+
 const RollingC = z.object({ beta: Num, corr: Num, sessions: z.number().optional(), se: NumOpt }).nullable();
 const RollingBetaC = z.object({ before: RollingC, after: RollingC, available: z.boolean().optional(), reason: z.string().nullable().optional() });
 
@@ -212,6 +239,8 @@ const DetailC = z.object({
   move_day: z.object({ metrics: EventMetricsC.nullable().optional(), exec: ExecC.nullable().optional(), flags: z.array(FlagC).optional() }).optional(),
   windows: z.array(WindowC),
   lanes: z.array(LaneC),
+  tech: TechC.optional(),
+  tech_state: TechStateC.optional(),
   insider_lane: z.object({
     available: z.boolean(),
     reason: z.string().nullable().optional(),
@@ -235,6 +264,7 @@ const AnalysisC = z.object({
   anchor: z.object({ bar: z.string(), is_pinned_event: z.boolean() }),
   windows: z.array(WindowC),
   rolling_beta: RollingBetaC.optional(),
+  tech_state: TechStateC.optional(),
   model: OddsC.optional(),
   disclaimer: z.string().optional(),
 });

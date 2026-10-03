@@ -31,6 +31,7 @@ import {
   type FlaggedSummary, type MoversDirection, type MoversMode, type RailRow,
 } from "./MoversShell";
 import { MoversChart } from "./MoversChart";
+import { MoversTech } from "./MoversTech";
 import { MoversSensitivity } from "./MoversSensitivity";
 import { MoversCopilot } from "./MoversCopilot";
 import { MoversFlagLift as FlagLiftCard } from "./MoversFlagLift";
@@ -269,7 +270,7 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
               <MoversChart
                 symbol={det.symbol} bars={det.bars} market={det.market} sector={det.sector}
                 events={det.events} lanes={det.lanes} sessionIndex={det.bar_index_of_session}
-                model={det.model} insiderLane={det.insider_lane}
+                model={det.model} insiderLane={det.insider_lane} tech={det.tech}
                 horizon={horizon} onHorizonChange={(h) => setHorizon(h)}
                 range={range} ranges={RANGES}
                 onRangeChange={(r) => {
@@ -284,6 +285,11 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
               />
               <MoversSensitivity detail={det} analysis={analysis} />
               <MoversCopilot detail={det} analysis={analysis} pinnedEventId={evtId} analysisLoading={analysisLoading} />
+              <MoversTech
+                state={evtId ? analysis?.tech_state : (analysis?.tech_state ?? det.tech_state)}
+                eventLabel={evtId ? det.events.find((e) => e.id === evtId)?.title : "Move day"}
+                pinned={!!evtId} deliveryCoverage={det.tech?.delivery_coverage}
+              />
             </>
           )}
 

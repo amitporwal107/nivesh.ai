@@ -316,3 +316,85 @@ def test_chart_span_handles_a_window_edge_that_is_not_a_session(mv):
     assert mv._chart_span(bars, date(2026, 9, 5), date(2026, 9, 8)) == (1, 2)    # edge on a non-session
     assert mv._chart_span(bars, date(2026, 10, 1), date(2026, 10, 9)) == (None, None)
     assert mv._chart_index(1, None, None) is None
+
+
+# ── v5: technical state, round trips ─────────────────────────────────────────────────────────────────────
+def _synth(n=120, drift=0.004, vol=1000):
+    """MOCK — synthetic bars for arithmetic checks only: a steady uptrend with a constant range."""
+    bars, c = [], 100.0
+    for k in range(n):
+        o, c = c, c * (1 + drift)
+        bars.append({"t": f"2026-01-{(k % 28) + 1:02d}", "o": o, "h": c * 1.01, "l": o * 0.99, "c": c, "prev_c": o, "v": vol + k})
+    return bars
+
+
+def test_tech_series_warmup_is_none_not_zero(mv):
+    ts = mv._tech_series(_synth())
+    assert ts["ema20"][19] is None and ts["ema20"][20] is not None
+    assert ts["ema50"][49] is None and ts["ema50"][50] is not None
+    assert ts["adx"][27] is None and ts["adx"][28] is not None
+
+
+def test_tech_uptrend_scores_bullish_and_rsi_saturates(mv):
+    bars = _synth()
+    ts = mv._tech_series(bars)
+    mk = [100.0 * (1 + 0.001) ** k for k in range(len(bars))]
+    t = mv._tech_at(bars, ts, mk, [None] * len(bars), 100)
+    assert t["score"] >= 7 and t["rsi"] > 95
+    # a steady drift beats a flatter index, so relative strength passes; RVOL ~1 does not
+    pts = {p["k"]: p["on"] for p in t["pts"]}
+    assert pts["20D RS > NIFTY"] is True and pts["RVOL20 > 1.5"] is False
+    assert len(t["families"]) == 6
+
+
+def test_tech_needs_history_and_missing_index_is_not_counted(mv):
+    bars = _synth()
+    ts = mv._tech_series(bars)
+    assert mv._tech_at(bars, ts, [None] * len(bars), [None] * len(bars), 30) is None
+    t = mv._tech_at(bars, ts, [None] * len(bars), [None] * len(bars), 100)
+    assert {p["k"]: p["on"] for p in t["pts"]}["20D RS > NIFTY"] is None
+    assert t["max"] == 9                      # an unevaluable point leaves the denominator, it is not a failure
+
+
+def test_delivery_row_unevaluable_without_feed(mv):
+    bars = _synth()
+    ts = mv._tech_series(bars)
+    t = mv._tech_at(bars, ts, [None] * len(bars), [None] * len(bars), 100)
+    row = next(r for f in t["families"] for r in f["rows"] if r["k"].startswith("DELIVERY"))
+    assert row["on"] is None and "NOT IN THE DELIVERY FEED" in row["v"]
+    dl = [40.0] * 80 + [60.0] * 20 + [90.0] + [60.0] * 19
+    t2 = mv._tech_at(bars, ts, [None] * len(bars), dl, 100)
+    row2 = next(r for f in t2["families"] for r in f["rows"] if r["k"].startswith("DELIVERY"))
+    assert row2["on"] is True and row2["v"] == "90% / 60%"
+
+
+def test_round_trip_flag_window_and_bucket(mv):
+    on = mv._rt_on([{"b": 3, "s": 6}], 20)
+    assert [k for k, v in enumerate(on) if v] == [6, 7, 8, 9, 10]      # sell day + 4 more = 5 sessions
+    assert [mv._tech_bucket(s) for s in (0, 2, 3, 4, 5, 6, 7, 8, 9, 10)] == ["WEAK", "WEAK", "MODERATE", "MODERATE", "STRONG", "STRONG", "VERY STRONG", "VERY STRONG", "EXTREME", "EXTREME"]
+
+
+def test_inr_indian_grouping(mv):
+    assert mv._inr(1234567.891) == "12,34,567.89" and mv._inr(-950.5) == "-950.50" and mv._inr(99.5) == "99.50"
+
+
+class _FakeConn:
+    def __init__(self, rows):
+        self.rows = rows
+
+    async def fetch(self, *a, **k):
+        return self.rows
+
+
+def test_round_trips_pairs_same_client_within_five_sessions(mv):
+    import asyncio
+    from datetime import date
+    bars = [{"t": f"2026-09-{d:02d}"} for d in range(1, 15)]
+    D = lambda d, c, s, q: {"as_of_date": date(2026, 9, d), "client_name": c, "deal_type": s, "quantity": q}
+    rows = [D(2, "alpha fincap", "BUY", 10), D(5, "alpha fincap", "SELL", 10),     # 3 sessions -> round trip
+            D(2, "beta", "BUY", 5), D(12, "beta", "SELL", 5),                       # 10 sessions -> not one
+            D(8, "gamma", "SELL", 7), D(9, "gamma", "BUY", 7),                      # sell first -> not one
+            D(6, "delta", "BUY", 1), D(6, "delta", "SELL", 1),                      # same day -> not one
+            D(7, "", "BUY", 1), D(8, "", "SELL", 1)]                                # no client name -> ignored
+    out = asyncio.run(mv._round_trips(_FakeConn(rows), "X", bars))
+    assert len(out) == 1 and out[0]["cp"] == "Alpha Fincap" and out[0]["days"] == 3 and (out[0]["b"], out[0]["s"]) == (1, 4)
