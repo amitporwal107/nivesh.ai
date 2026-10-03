@@ -387,6 +387,10 @@ async def _insider_for(conn, symbol: str, d0: date, d1: date) -> dict:
 # leads with phantom crashes. We flag them two ways and let the caller decide.
 _CA_RATIOS = (2.0, 2.5, 3.0, 4.0, 5.0, 10.0)
 _CA_TOL = 0.08
+# The widest NSE circuit band is 20%; allow a little slack for rounding in the feed.
+_BAND_MAX_PCT = 20.5
+# The smallest rise worth testing: below the smallest matchable ratio nothing can ever match.
+_CONSOLIDATION_MIN_RATIO = min(_CA_RATIOS) * (1 - _CA_TOL)
 
 
 def _ca_suspect(close: float, prev: float) -> Optional[str]:
@@ -396,18 +400,44 @@ def _ca_suspect(close: float, prev: float) -> Optional[str]:
     session: TAALTECH 2026-09-22 printed 5714.60 -> 1185.40, a ratio of 4.82 — a 1:5 split with a
     genuine ~4% fall on top. A 2% tolerance missed it.
 
-    This is a suspicion, not a determination, and it is one-sided by design: a true -50% crash has
-    a ratio of 2.0 and will be flagged too. That is the acceptable error, because the caller can
-    ask for these rows with include_ca=true, whereas an unflagged phantom crash silently becomes
-    the dashboard's top mover. Only consulted when nidp.corporate_actions has nothing to say.
+    This is a suspicion, not a determination: a true -50% crash has a ratio of 2.0 and will be
+    flagged too. That is the acceptable error, because the caller can ask for these rows with
+    include_ca=true, whereas an unflagged phantom crash silently becomes the dashboard's top mover.
+    Only consulted when nidp.corporate_actions has nothing to say.
+
+    It covers BOTH directions. The first version only looked at falls, which missed the mirror case:
+    an unadjusted consolidation multiplies the price and shows up as an enormous RISE.
     """
-    if not close or not prev or prev <= 0 or close / prev > 0.62:
+    if not close or not prev or prev <= 0:
         return None
-    r = prev / close
-    for k in _CA_RATIOS:
-        if abs(r - k) / k <= _CA_TOL:
-            return (f"price ratio {r:.2f} is within {_CA_TOL:.0%} of {k:g}:1 — suspected "
-                    f"unadjusted split/bonus; no matching row in nidp.corporate_actions")
+    pct = (close / prev - 1) * 100
+
+    # A move beyond the circuit band is not possible in an ordinary banded session. NSE bands are
+    # 2/5/10/20%, so anything past ~20% means the session was unbanded — a listing or relisting day —
+    # or the feed is comparing two prices that are not comparable. Either way it is not a mover.
+    # Found 2026-09: ESDS +111.75%, SSRETAIL +76.60%, KARAMTARA +38.58%, LUMINO +34.54%,
+    # RENTOMOJO +32.24%, STEAMHOUSE +26.60%, POLICYBZR -36.00%.
+    if abs(pct) > _BAND_MAX_PCT:
+        return (f"{pct:+.1f}% exceeds the widest circuit band ({_BAND_MAX_PCT:.0f}%) — an ordinary "
+                f"session cannot print this, so it is a listing/relisting day or an unadjusted "
+                f"corporate action, not a move")
+
+    # Falls: an unadjusted split or bonus. prev/close lands near the ratio.
+    if close / prev <= 0.62:
+        r = prev / close
+        for k in _CA_RATIOS:
+            if abs(r - k) / k <= _CA_TOL:
+                return (f"price ratio {r:.2f} is within {_CA_TOL:.0%} of {k:g}:1 — suspected "
+                        f"unadjusted split/bonus; no matching row in nidp.corporate_actions")
+    # Rises: the mirror case, which the first version missed entirely. A reverse split or
+    # consolidation multiplies the price, so close/prev lands near the ratio instead.
+    if close / prev >= _CONSOLIDATION_MIN_RATIO:
+        r = close / prev
+        for k in _CA_RATIOS:
+            if abs(r - k) / k <= _CA_TOL:
+                return (f"price ratio {r:.2f} is within {_CA_TOL:.0%} of 1:{k:g} — suspected "
+                        f"unadjusted consolidation/reverse split; no matching row in "
+                        f"nidp.corporate_actions")
     return None
 
 

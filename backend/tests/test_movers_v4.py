@@ -285,7 +285,8 @@ def test_no_v4_sample_lift_constants_assigned():
     for v in V4_SAMPLE_LIFTS:
         num = re.escape(v)
         # assigned: `x = 2.1`, `"un": 2.1`, `un=2.1`, `(…, 2.1)` after a key, or `un:2.1`
-        if re.search(rf"(?:=|:)\s*{num}(?![\d.])", code):
+        # (?<![<>=!]) so a COMPARISON like `ratio >= 1.6` is not read as an assignment.
+        if re.search(rf"(?<![<>=!])(?:=|:)\s*{num}(?![\d.])", code):
             hits.append(v)
     assert not hits, f"v4 SAMPLE lift values appear as assigned constants in routes/movers.py: {hits}. " \
                      f"Shipping them presents mock data as real; compute from nidp instead."
