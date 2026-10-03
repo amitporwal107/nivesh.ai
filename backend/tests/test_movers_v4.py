@@ -1,6 +1,7 @@
-"""Top Movers v4 — pure-function and route-wiring tests for routes/movers.py (TC-V01..V04, V09, V20 in
-test_reports/TESTCASES_movers_v4.md). No database, no app: `deps` and `feature_gate` are stubbed in sys.modules
-for the import only, so these tests prove the maths and the routing, not auth or data."""
+"""Top Movers v4 — pure-function and route-wiring tests for the movers logic (TC-V01..V04, V09, V20 in
+test_reports/TESTCASES_movers_v4.md), which lives in the DaaS router nidp/services/daas_api/routers/movers.py.
+No database, no app: the pg pool and the internal-plan dependency are stubbed in sys.modules for the import only,
+so these tests prove the maths and the routing, not auth or data. The app-side proxy is tested in test_movers_proxy.py."""
 import importlib.util
 import re
 import sys
@@ -9,31 +10,28 @@ from pathlib import Path
 
 import pytest
 
-MOVERS_PATH = Path(__file__).resolve().parent.parent / "routes" / "movers.py"
+MOVERS_PATH = Path(__file__).resolve().parent.parent / "nidp" / "services" / "daas_api" / "routers" / "movers.py"
 COST = 0.00628
 
 
 @pytest.fixture(scope="module")
 def mv():
-    """Import routes/movers.py with its two heavy imports stubbed. MOCK — not real data: the stubs exist only
-    so the module can load; nothing here exercises auth or the feature gate."""
+    """Import the DaaS movers router with its two nidp imports stubbed. MOCK — not real data: the stubs exist only
+    so the module can load; nothing here exercises auth or a database."""
     mp = pytest.MonkeyPatch()
-    deps = types.ModuleType("deps")
 
-    async def get_current_user(request=None):
-        return {"id": "test", "email": "test@local"}
-    deps.get_current_user = get_current_user
+    def _mod(name):
+        m = types.ModuleType(name)
+        mp.setitem(sys.modules, name, m)
+        return m
 
-    gate = types.ModuleType("feature_gate")
-
-    def require_feature(flag):
-        async def _dep():
-            return {"email": "harness@local", "features": {flag: True}}
-        return _dep
-    gate.require_feature = require_feature
-
-    mp.setitem(sys.modules, "deps", deps)
-    mp.setitem(sys.modules, "feature_gate", gate)
+    for pkg in ("nidp", "nidp.shared", "nidp.shared.storage", "nidp.services", "nidp.services.daas_api",
+                "nidp.services.daas_api.routers"):
+        _mod(pkg)
+    pg = _mod("nidp.shared.storage.pg")
+    sys.modules["nidp.shared.storage"].pg = pg
+    mo = _mod("nidp.services.daas_api.routers.move_odds")
+    mo.require_internal_plan = lambda: None
     spec = importlib.util.spec_from_file_location("movers_v4_under_test", MOVERS_PATH)
     mod = importlib.util.module_from_spec(spec)
     try:
@@ -260,9 +258,9 @@ def test_atr_value_is_real_when_history_exists(mv):
 # ── 8. route order ──────────────────────────────────────────────────────────
 def test_analytics_routes_registered_before_symbol_catchall(mv):
     paths = [r.path for r in mv.router.routes]
-    sym = "/api/movers/{symbol}"
+    sym = "/movers/{symbol}"
     assert sym in paths, f"{sym} not registered; routes: {paths}"
-    for p in ("/api/movers/calibration", "/api/movers/flag-lift", "/api/movers/flagged"):
+    for p in ("/movers/calibration", "/movers/flag-lift", "/movers/flagged"):
         assert p in paths, f"{p} is not registered; routes: {paths}"
         assert paths.index(p) < paths.index(sym), (
             f"{p} is registered AFTER {sym}: GET {p} would resolve as a stock named "
@@ -288,7 +286,7 @@ def test_no_v4_sample_lift_constants_assigned():
         # (?<![<>=!]) so a COMPARISON like `ratio >= 1.6` is not read as an assignment.
         if re.search(rf"(?<![<>=!])(?:=|:)\s*{num}(?![\d.])", code):
             hits.append(v)
-    assert not hits, f"v4 SAMPLE lift values appear as assigned constants in routes/movers.py: {hits}. " \
+    assert not hits, f"v4 SAMPLE lift values appear as assigned constants in the DaaS movers router: {hits}. " \
                      f"Shipping them presents mock data as real; compute from nidp instead."
     for key in ("'un'", '"un"', "'in':", "liftAt", "LIFT ="):
-        assert key not in code, f"v4 sample-table marker {key!r} present in routes/movers.py"
+        assert key not in code, f"v4 sample-table marker {key!r} present in the DaaS movers router"

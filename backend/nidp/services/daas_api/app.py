@@ -58,6 +58,7 @@ from nidp.services.daas_api.routers import (
     indices,
     intelligence,
     move_odds,
+    movers,
     paper_trades,
     macro,
     market_pulse,
@@ -147,6 +148,7 @@ _TAGS = [
     {"name": "announcements",    "description": "NSE + BSE corporate filings and exchange announcements."},
     {"name": "macro",            "description": "RBI G-Sec yields and global macro series from FRED."},
     {"name": "snapshots",        "description": "Pre-computed market-wide and per-stock daily snapshots."},
+    {"name": "movers",          "description": "Top Movers dashboard: ranked movers, calibration, flag lift (internal keys only)."},
     {"name": "move_odds",        "description": "Published Ten-Percent Days estimates for the Research page (internal keys only)."},
     {"name": "paper_trades",     "description": "Ten-Percent Days paper trade simulation: frozen selections, paths and evaluations (internal keys only)."},
     {"name": "features",         "description": "Engineered features from the Nivesh S4/S5 strategy pipeline."},
@@ -327,6 +329,7 @@ app.include_router(documents.router, prefix=v1_prefix)
 app.include_router(macro.router, prefix=v1_prefix)
 app.include_router(snapshots.router, prefix=v1_prefix)
 app.include_router(move_odds.router, prefix=v1_prefix)
+app.include_router(movers.router, prefix=v1_prefix)
 app.include_router(paper_trades.router, prefix=v1_prefix)
 app.include_router(features.router, prefix=v1_prefix)
 app.include_router(events.router, prefix=v1_prefix)
