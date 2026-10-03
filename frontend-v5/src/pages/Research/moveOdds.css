@@ -651,3 +651,84 @@
   .research-screen .mv-dir { margin-left: 0; }
   .research-screen .mv-attr-legs li { grid-template-columns: 64px 1fr 52px; }
 }
+
+/* ── Movers v4: the model's own report card ──────────────────────────────────────────────────────── */
+.research-screen .mv-view { --mv-pred: var(--c-ink-3); --mv-real: var(--mint); }
+.research-screen .mv-sr-only, .research-screen .mv-lift-sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.research-screen .mv-btn, .research-screen .mv-cal-retry, .research-screen .mv-lift-retry {
+  border: 1px solid var(--c-line); background: var(--bg-2); color: var(--c-ink-2); cursor: pointer;
+  border-radius: 8px; padding: 5px 11px; font-size: 12px;
+}
+.research-screen .mv-muted { color: var(--c-ink-3); }
+
+.research-screen .mv-modeswitch { display: flex; gap: 3px; margin-bottom: 8px; }
+.research-screen .mv-modeswitch button {
+  flex: 1 1 0; border: 1px solid var(--c-line); background: var(--bg-2); color: var(--c-ink-3);
+  cursor: pointer; border-radius: 9px; padding: 7px 8px; font-size: 11.5px; line-height: 1.3;
+}
+.research-screen .mv-modeswitch button[aria-pressed="true"] {
+  color: var(--c-ink); border-color: var(--mint); background: var(--mint-soft);
+}
+.research-screen .mv-modeswitch button:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+
+/* v4's four returns. The close-to-close figure is kept but dimmed: it is mostly the overnight gap,
+   which nobody could have traded. `net` is the one in ink. */
+.research-screen .mv-exec { border-top: 1px solid var(--c-line); margin-top: 7px; padding-top: 8px; display: grid; gap: 6px; }
+.research-screen .mv-exec-out { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 9px; }
+.research-screen .mv-outpill {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .09em; padding: 2px 7px; border-radius: 4px;
+  border: 1px solid var(--c-line-strong); color: var(--c-ink-2);
+}
+.research-screen .mv-outpill.up { border-color: var(--mint-line); background: var(--mint-soft); color: var(--c-ink); }
+.research-screen .mv-outpill.down { border-color: var(--danger-line); background: var(--danger-soft); color: var(--c-ink); }
+.research-screen .mv-outpill.both { border-color: var(--amber-line); background: var(--amber-soft); color: var(--c-ink); }
+/* NONE and PENDING are states, not failures: neutral, and never the look of a zero. */
+.research-screen .mv-outpill.none { border-style: dashed; color: var(--c-ink-3); }
+.research-screen .mv-outpill.pending { border-style: dotted; color: var(--c-ink-4); }
+.research-screen .mv-exec-nums { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.research-screen .mv-exec-nums li {
+  display: grid; grid-template-columns: 112px 86px 1fr; align-items: baseline; gap: 8px; font-size: 12px; color: var(--c-ink-2);
+}
+.research-screen .mv-exec-nums b { font-family: var(--mono); font-size: 13.5px; color: var(--c-ink); text-align: right; }
+.research-screen .mv-exec-dim { color: var(--c-ink-4); }
+.research-screen .mv-exec-dim b { color: var(--c-ink-4); text-decoration: line-through; }
+.research-screen .mv-exec-net b { font-size: 15px; }
+
+.research-screen .mv-cal, .research-screen .mv-lift {
+  border: 1px solid var(--c-line); border-radius: 12px; padding: 14px; background: var(--bg-1);
+  display: grid; gap: 9px; margin-top: 12px;
+}
+.research-screen .mv-cal-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.research-screen .mv-cal-over { margin: 0; font-size: 13.5px; color: var(--c-ink); }
+.research-screen .mv-cal-foot, .research-screen .mv-lift-explain { margin: 0; font-size: 11.5px; color: var(--c-ink-3); line-height: 1.5; }
+.research-screen .mv-cal-table, .research-screen .mv-lift-table { width: 100%; border-collapse: collapse; }
+.research-screen .mv-cal-table th, .research-screen .mv-cal-table td,
+.research-screen .mv-lift-table th, .research-screen .mv-lift-table td {
+  text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--c-line); font-size: 11.5px; color: var(--c-ink-2);
+}
+.research-screen .mv-cal-table th, .research-screen .mv-lift-table th { color: var(--c-ink-3); font-weight: 500; font-family: var(--mono); font-size: 10px; letter-spacing: .07em; }
+.research-screen .mv-cal-unavailable, .research-screen .mv-lift-row-na td { color: var(--c-ink-3); font-size: 12.5px; }
+.research-screen .mv-cal-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 11.5px; color: var(--c-ink-3); }
+
+/* the struck-through number is the misleading one: lift across ALL stocks, before volatility is
+   controlled for. The within-decile figure beside it is the honest one. */
+.research-screen .mv-lift-struck, .research-screen .mv-lift-uncond s { color: var(--c-ink-4); }
+.research-screen .mv-lift-within, .research-screen .mv-lift-num { font-family: var(--mono); color: var(--c-ink); }
+.research-screen .mv-lift-chip {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .07em; padding: 2px 6px; border-radius: 4px;
+  border: 1px solid var(--c-line-strong); color: var(--c-ink-2); white-space: nowrap;
+}
+.research-screen .mv-lift-chip-survives { border-color: var(--mint-line); background: var(--mint-soft); color: var(--c-ink); }
+.research-screen .mv-lift-chip-weak { color: var(--c-ink-3); }
+.research-screen .mv-lift-chip-decoration { border-style: dashed; color: var(--c-ink-4); }
+.research-screen .mv-lift-chip-pre-priced { border-color: var(--amber-line); background: var(--amber-soft); color: var(--amber); }
+.research-screen .mv-lift-row-decoration { opacity: .62; }
+.research-screen .mv-lift-missing, .research-screen .mv-lift-na { color: var(--c-ink-3); font-style: normal; }
+
+@media (max-width: 560px) {
+  .research-screen .mv-exec-nums li { grid-template-columns: 96px 72px; }
+  .research-screen .mv-exec-nums li .mo-mini { grid-column: 1 / -1; }
+}

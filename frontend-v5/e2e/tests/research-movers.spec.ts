@@ -168,6 +168,20 @@ async function mockMovers(page: Page, o: MoversOpts = {}) {
       calls.list.push(url);
       return send(route, o.list ? o.list(url) : ok(LIST));
     }
+    // v4 added three STATIC endpoints under the same prefix. They are not symbols, and counting them
+    // as detail calls is what made TC-M11 see a first call with no `range`. Serve them as
+    // "unavailable" here: these v1 cases are not about them, and an unavailable panel is a real state.
+    const V4 = new Set(["calibration", "flag-lift", "flagged"]);
+    if (V4.has(parts[2])) {
+      const base = { from: "2026-09-01", to: "2026-09-30", available: false, reason: "NO_FINAL_RUN_IN_WINDOW" };
+      const body = parts[2] === "calibration"
+        ? { ...base, head: "p_up5_1d", population: 0, pending_excluded: 0, over_prediction: null, bands: [] }
+        : parts[2] === "flag-lift"
+          ? { ...base, population: 0, deciles: 10, flags: [] }
+          : { ...base, horizon: 3, cutoff: 0.4, count: 0, flagged_total: 0, moved_late: 0,
+              outcomes: { UP: 0, DOWN: 0, BOTH: 0, NONE: 0, PENDING: 0 }, rows: [] };
+      return send(route, ok(body));
+    }
     const symbol = decodeURIComponent(parts[2]).toUpperCase();
     if (parts[3] === "analysis") {
       calls.analysis.push(url);

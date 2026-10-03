@@ -4,6 +4,9 @@
  *   GET /api/movers?from&to&min_abs_pct&direction&limit&include_ca → ranked movers in a window, each with its Move-odds badge
  *   GET /api/movers/{symbol}?session&range&from&to                 → chart bars, index series, event lanes, regression, windows
  *   GET /api/movers/{symbol}/analysis?session&event_id             → market / sector / stock attribution around a pinned event
+ *   GET /api/movers/flagged?from&to&horizon                        → v4 mirror list: flagged by the model but did not move
+ *   GET /api/movers/calibration?from&to&head                       → v4 predicted-vs-realised bands + over-prediction ratio
+ *   GET /api/movers/flag-lift?from&to                              → v4 per-flag lift (unconditional vs within volatility decile) + verdict
  *
  * Unlike the move-odds routes (DaaS proxy, `{data: …}` envelope) these return the payload at the TOP LEVEL, so the body is
  * parsed with the payload schema directly.
@@ -16,6 +19,12 @@
  *
  * A missing number is null, never 0. Blocks the backend cannot source (insider lane, beta, sector index) arrive with
  * `available: false` and a `reason`; they are passed through, never filled in.
+ *
+ * v4 additions (exec, flag lift/verdict, calibration, mirror list, beta ±1 SE, benchmark label, sector coverage) are all optional
+ * so an older backend response still parses. v4's own LIFT constants are sample data, not measurements: nothing here carries
+ * them. These fields carry computed values only, and a figure the backend declined to compute (`available: false` + `reason`,
+ * or null) stays null — the adapter never defaults it to 0 and never derives a replacement client-side. An outcome of NONE
+ * means "reached neither +5% nor -5%", not a zero return.
  */
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
@@ -92,6 +101,28 @@ export type MoverBar = z.infer<typeof BarC>;
 const EventMetricsC = z.object({ re: Num, gap: Num, vol_pre: Num, vol_post: Num, flip: z.boolean() });
 export type MoverEventMetrics = z.infer<typeof EventMetricsC>;
 
+// v4 execution outcome for an event: next-session gap / open-to-close / close-to-close (reference) / net of cost, plus the +/-5% race.
+const ExecC = z.object({
+  gap: Num,
+  intra: Num,
+  re: Num,
+  net: Num,
+  out: z.enum(["UP", "DOWN", "BOTH", "NONE", "PENDING"]),
+  el: z.number(),
+  H: z.number(),
+  cost: z.number(),
+});
+export type MoverExec = z.infer<typeof ExecC>;
+
+const FlagC = z.object({
+  label: z.string(),
+  tone: z.string(),
+  verdict: z.enum(["SURVIVES", "WEAK", "DECORATION", "PRE-PRICED"]).optional(),
+  lift: NumOpt,
+  lift_uncond: NumOpt,
+  decile: NumOpt,
+});
+
 const EventC = z.object({
   id: z.string(),
   date: z.string(),
@@ -108,8 +139,9 @@ const EventC = z.object({
   lane: z.string(),
   type_label: z.string(),
   glyph: z.string(),
-  flags: z.array(z.object({ label: z.string(), tone: z.string() })),
+  flags: z.array(FlagC),
   metrics: EventMetricsC.nullable(),
+  exec: ExecC.nullable().optional(),
 });
 export type MoverEvent = z.infer<typeof EventC>;
 
@@ -144,7 +176,7 @@ export type MoverRegression = z.infer<typeof RegressionC>;
 const WindowC = z.object({ key: z.string(), label: z.string(), decomp: DecompC.nullable() });
 export type MoverWindow = z.infer<typeof WindowC>;
 
-const RollingC = z.object({ beta: Num, corr: Num, sessions: z.number().optional() }).nullable();
+const RollingC = z.object({ beta: Num, corr: Num, sessions: z.number().optional(), se: NumOpt }).nullable();
 const RollingBetaC = z.object({ before: RollingC, after: RollingC });
 
 const DetailC = z.object({
@@ -157,8 +189,21 @@ const DetailC = z.object({
     pct: Num, open: Num, high: Num, low: Num, close: Num, prev_close: Num, volume: Num, turnover: Num,
   }),
   bars: z.array(BarC),
-  market: z.object({ name: z.string(), series: z.array(Num), available: z.boolean() }),
-  sector: z.object({ name: z.string().nullable(), series: z.array(Num), available: z.boolean(), reason: z.string().nullable() }),
+  horizon: z.number().optional(),
+  market: z.object({
+    name: z.string(),
+    series: z.array(Num),
+    available: z.boolean(),
+    label: z.string().nullable().optional(),
+    is_proxy: z.boolean().optional(),
+  }),
+  sector: z.object({
+    name: z.string().nullable(),
+    series: z.array(Num),
+    available: z.boolean(),
+    reason: z.string().nullable(),
+    coverage: z.object({ mapped: z.number(), total: z.number() }).nullable().optional(),
+  }),
   regression: RegressionC,
   rolling_beta: RollingBetaC,
   windows: z.array(WindowC),
@@ -191,6 +236,77 @@ const AnalysisC = z.object({
 });
 export type MoverAnalysis = z.infer<typeof AnalysisC>;
 
+// ── Flagged, no move (GET /api/movers/flagged) ───────────────────────────────────────────────────────────────────────
+const FlaggedRowC = RowC.extend({
+  exec: ExecC.nullable().optional(),
+  model_p: NumOpt,
+  model_head: z.string().nullable().optional(),
+  model_lead: NumOpt,
+});
+export type MoverFlaggedRow = z.infer<typeof FlaggedRowC>;
+
+const FlaggedC = z.object({
+  from: z.string(),
+  to: z.string(),
+  horizon: z.number(),
+  count: z.number(),
+  moved_late: z.number(),
+  outcomes: z.object({ UP: z.number(), DOWN: z.number(), BOTH: z.number(), NONE: z.number(), PENDING: z.number() }),
+  rows: z.array(FlaggedRowC),
+  // how many names cleared the cut-off at all. On real September data only 7 of 8,972 estimates
+  // reach 0.40, so the screen has to be able to say "almost nothing was flagged" rather than just
+  // render an empty list.
+  flagged_total: z.number().optional().default(0),
+  cutoff: Num,
+  head: z.string().optional(),
+  available: z.boolean().optional().default(true),
+  reason: z.string().nullable().optional(),
+});
+export type MoversFlagged = z.infer<typeof FlaggedC>;
+
+// ── Calibration (GET /api/movers/calibration) — realised is null for an empty band, never 0 ─────────────────────────────
+const CalibrationC = z.object({
+  from: z.string(),
+  to: z.string(),
+  head: z.string(),
+  population: z.number(),
+  pending_excluded: z.number(),
+  available: z.boolean(),
+  reason: z.string().nullable().optional(),
+  over_prediction: Num,
+  bands: z.array(z.object({ lo: z.number(), hi: Num, n: z.number(), predicted: z.number(), realised: Num })),
+  resolved: z.number().optional(),
+  min_band_n: z.number().optional(),
+  horizon: z.number().optional(),
+  scored_as: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+});
+export type MoversCalibration = z.infer<typeof CalibrationC>;
+
+// ── Flag lift (GET /api/movers/flag-lift) ────────────────────────────────────────────────────────────────────────────
+const FlagLiftC = z.object({
+  from: z.string(),
+  to: z.string(),
+  population: z.number(),
+  deciles: z.number(),
+  flags: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      available: z.boolean(),
+      reason: z.string().nullable().optional(),
+      lift_uncond: Num,
+      lift_within: Num,
+      n: z.number(),
+      verdict: z.enum(["SURVIVES", "WEAK", "DECORATION", "PRE-PRICED"]).nullable(),
+    }),
+  ),
+  base_rate: Num.optional(),
+  head: z.string().optional(),
+  horizon: z.number().optional(),
+});
+export type MoversFlagLift = z.infer<typeof FlagLiftC>;
+
 // ── Results ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 export type MoversListResult =
   | { kind: "ok"; data: MoversList }
@@ -207,6 +323,21 @@ export type MoverAnalysisResult =
   | { kind: "ok"; data: MoverAnalysis }
   | { kind: "no_access" }
   | { kind: "not_found" }
+  | { kind: "error"; message: string };
+
+export type MoversFlaggedResult =
+  | { kind: "ok"; data: MoversFlagged }
+  | { kind: "no_access" }
+  | { kind: "error"; message: string };
+
+export type MoversCalibrationResult =
+  | { kind: "ok"; data: MoversCalibration }
+  | { kind: "no_access" }
+  | { kind: "error"; message: string };
+
+export type MoversFlagLiftResult =
+  | { kind: "ok"; data: MoversFlagLift }
+  | { kind: "no_access" }
   | { kind: "error"; message: string };
 
 function fromError(e: unknown): { kind: "no_access" } | { kind: "not_found" } | { kind: "error"; message: string } {
@@ -271,5 +402,53 @@ export async function fetchMoverAnalysis(symbol: string, p: { session: string; e
     return parsed.success ? { kind: "ok", data: parsed.data } : { kind: "error", message: "unexpected response shape" };
   } catch (e) {
     return fromError(e);
+  }
+}
+
+export async function fetchFlaggedNoMove(p: { from: string; to: string; horizon: number }): Promise<MoversFlaggedResult> {
+  try {
+    const res = await http<unknown>({
+      path: "/api/movers/flagged",
+      query: { from: p.from, to: p.to, horizon: p.horizon },
+      noRetry: true,
+      timeoutMs: 30_000,
+    });
+    const parsed = FlaggedC.safeParse(res.data);
+    return parsed.success ? { kind: "ok", data: parsed.data } : { kind: "error", message: "unexpected response shape" };
+  } catch (e) {
+    const f = fromError(e);
+    return f.kind === "not_found" ? { kind: "error", message: "HTTP 404" } : f;
+  }
+}
+
+export async function fetchCalibration(p: { from: string; to: string; head?: string }): Promise<MoversCalibrationResult> {
+  try {
+    const res = await http<unknown>({
+      path: "/api/movers/calibration",
+      query: { from: p.from, to: p.to, head: p.head },
+      noRetry: true,
+      timeoutMs: 30_000,
+    });
+    const parsed = CalibrationC.safeParse(res.data);
+    return parsed.success ? { kind: "ok", data: parsed.data } : { kind: "error", message: "unexpected response shape" };
+  } catch (e) {
+    const f = fromError(e);
+    return f.kind === "not_found" ? { kind: "error", message: "HTTP 404" } : f;
+  }
+}
+
+export async function fetchFlagLift(p: { from: string; to: string }): Promise<MoversFlagLiftResult> {
+  try {
+    const res = await http<unknown>({
+      path: "/api/movers/flag-lift",
+      query: { from: p.from, to: p.to },
+      noRetry: true,
+      timeoutMs: 30_000,
+    });
+    const parsed = FlagLiftC.safeParse(res.data);
+    return parsed.success ? { kind: "ok", data: parsed.data } : { kind: "error", message: "unexpected response shape" };
+  } catch (e) {
+    const f = fromError(e);
+    return f.kind === "not_found" ? { kind: "error", message: "HTTP 404" } : f;
   }
 }

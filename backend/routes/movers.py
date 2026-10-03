@@ -120,10 +120,44 @@ LANES = [
 ]
 RANGE_DAYS = {"1D": 1, "T7": 7, "1M": 30, "3M": 91, "1Y": 365}
 
+# ── Top Movers v4 ────────────────────────────────────────────────────────────────────────────────
+# Round-trip friction. The design uses 0.628%, which is this repo's own measured figure, not a guess:
+# the paper-engine loss diagnosis put real friction at 0.628% against the 0.25% originally assumed.
+COST = 0.00628
+# Tolerance for threshold tests. A touch of exactly +5.000% is a touch; binary floating point
+# should not be what decides it.
+_EPS = 1e-9
+HORIZONS = (3, 20)              # the design's on-screen grade switch
+CAL_BAND = 0.05                 # calibration band width
+# The design bands from 0.40 up. Measured on staging 2026-10-03, only 7 of September's 8,972
+# p_up5_1d estimates reach 0.40 at all, so those bands would every one of them be noise and the chart
+# would come out empty. Band across the observed range instead and let the high bands show their own
+# emptiness — that is the finding, not a defect to hide.
+CAL_FROM = 0.00
+CAL_MIN_N = 30                  # below this a band is noise and its realised rate is withheld
+DECILES = 10
+
+# v4 ships a LIFT table of SAMPLE constants and jitters them with a sine hash; its own README says
+# "Flag lift constants remain sample values; all data is synthetic". Nothing from that table is used
+# here. Every lift below is computed from nidp or returned as available=false with a reason.
+FLAG_DEFS = [
+    ("gap2", "GAP ≥2%"), ("gap3", "GAP ≥3%"),
+    ("vol2", "VOL 2×+"), ("vol3", "VOL 3×+"),
+    ("flip", "COIN FLIP"), ("leak", "PRE-DRIFT LEAK"),
+    ("d1", "BULK DEAL D-1"), ("ins", "INSIDER / SAST ±3D"),
+]
+
 # ── TTL cache (same idiom as routes/market_events.py) ───────────────────────
 _cache: dict[str, tuple[float, Any]] = {}
 _locks: dict[str, asyncio.Lock] = {}
 _TTL = 300  # EOD data — only changes once a day after the bhavcopy lands
+# The calibration and flag-lift endpoints sweep a whole month of estimates and bars. Timed on
+# staging 2026-10-03 the equivalent single query took 16.5 s, so the first caller pays a lot and a
+# 5-minute TTL would make that happen twelve times an hour. The inputs only change when a new
+# session resolves, so hold them for the day. This is a mitigation, not a fix: the real answer is a
+# nightly job writing (flag, fired, lift_uncond, lift_within, computed_at) to a table and an
+# endpoint that just reads it. Noted in the report as outstanding.
+_TTL_HEAVY = 6 * 3600
 
 
 def _cache_get(key: str) -> Any | None:
@@ -424,6 +458,56 @@ def _avg(bars: list[dict], a: int, b: int, key: str = "v") -> Optional[float]:
     return sum(w) / len(w) if w else None
 
 
+def _exec_of(bars: list[dict], i: int, H: int = 3) -> dict:
+    """v4's execOf(), verbatim.
+
+    The point of it: the old headline (close the day before an event to close the day after) is mostly
+    the overnight gap, which nobody could have traded. So each event now carries four figures and the
+    one that matters is `net` — buy at the next open, sell at that close, minus costs.
+
+    `out` is the outcome within H sessions of the next open, and NONE is its own state. It is never a
+    zero return: "it reached neither +5% nor -5%" and "it returned 0%" are different facts.
+    """
+    n = len(bars) - 1
+    if i + 1 > n:
+        return {"gap": None, "intra": None, "re": None, "net": None,
+                "out": "PENDING", "el": 0, "H": H, "cost": COST}
+    nb, d = bars[i + 1], bars[i]
+    o, end = nb["o"], min(n, i + H)
+    prev_c = bars[max(0, i - 1)]["c"]
+    gap = (o / d["c"] - 1) if (o and d["c"]) else None
+    intra = (nb["c"] / o - 1) if (o and nb["c"]) else None
+    re = (nb["c"] / prev_c - 1) if (prev_c and nb["c"]) else None
+    up = dn = False
+    if o:
+        for k in range(i + 1, end + 1):
+            # same ratio comparison as _head_hit, for the same floating-point reason
+            if bars[k]["h"] and bars[k]["h"] / o - 1 >= 0.05 - _EPS:
+                up = True
+            if bars[k]["l"] and bars[k]["l"] / o - 1 <= -0.05 + _EPS:
+                dn = True
+    out = ("BOTH" if (up and dn) else "UP" if up else "DOWN" if dn
+           else ("PENDING" if i + H > n else "NONE"))
+    return {"gap": gap, "intra": intra, "re": re,
+            "net": (intra - COST) if intra is not None else None,
+            "out": out, "el": end - i, "H": H, "cost": COST}
+
+
+def _leak(bars: list[dict], i: int) -> bool:
+    """v4's `leak`: the price already drifted the move's way before the news landed.
+
+    Measured as the 5 sessions ending at i-1 moving >=1.5% in the same direction as the event day's own
+    close-to-close. Computed from bars only, so it is available wherever prices are.
+    """
+    if not 5 < i < len(bars):
+        return False
+    a, b, d = bars[i - 6]["c"], bars[i - 1]["c"], bars[i]
+    if not (a and b and d["c"] and d["prev_c"]):
+        return False
+    drift, move = b / a - 1, d["c"] / d["prev_c"] - 1
+    return abs(drift) >= 0.015 and (drift > 0) == (move > 0)
+
+
 def _event_metrics(bars: list[dict], i: int) -> dict:
     """design lines 477-534: re, gap, volPre, volPost, flip — all indexed off the event bar i."""
     out: dict[str, Any] = {"re": None, "gap": None, "vol_pre": None, "vol_post": None,
@@ -533,9 +617,9 @@ def _rbeta(bars: list[dict], mk: list[Optional[float]], a: int, b: int) -> Optio
     ys = [(y, m) for y, m in zip(rs, rm) if y is not None and m is not None]
     if len(ys) < 10:          # a 20-session window with <10 usable pairs is not a beta
         return None
-    r = _reg([y for y, _ in ys], [m for _, m in ys])
+    y_, x_ = [y for y, _ in ys], [m for _, m in ys]
+    r = _reg(y_, x_)
     if r is None:             # _reg's own REG_MIN_SESSIONS floor is 30; relax it for the 20D window
-        y_, x_ = [y for y, _ in ys], [m for _, m in ys]
         n = len(y_)
         my, mx = sum(y_) / n, sum(x_) / n
         c = vx = vy = 0.0
@@ -547,7 +631,60 @@ def _rbeta(bars: list[dict], mk: list[Optional[float]], a: int, b: int) -> Optio
         if vx <= 0 or vy <= 0:
             return None
         r = {"beta": c / vx, "corr": c / math.sqrt(vx * vy), "sessions": n}
+    r = dict(r)
+    r["se"] = _slope_se(y_, x_, r["beta"])
     return r
+
+
+def _slope_se(y: list[float], x: list[float], beta: float) -> Optional[float]:
+    """Standard error of an OLS slope: sqrt( (1/(n-2)) * sum(resid^2) / sum((x-xbar)^2) ).
+
+    None, not 0, when it cannot be computed (n<=2 or no spread in x): a zero SE would claim the beta is
+    exact, which is the opposite of "we could not estimate its uncertainty"."""
+    n = len(y)
+    if n <= 2 or n != len(x):
+        return None
+    my, mx = sum(y) / n, sum(x) / n
+    sxx = sum((v - mx) ** 2 for v in x)
+    if sxx <= 0:
+        return None
+    sse = sum((yy - (my + beta * (xx - mx))) ** 2 for yy, xx in zip(y, x))
+    return math.sqrt((sse / (n - 2)) / sxx)
+
+
+def _rolling_pair(bars: list[dict], mk: list[Optional[float]], ti: int) -> dict:
+    """Before/after 20D beta +/- 1 SE. The pair is published only when BOTH sides exist (v4 review-3 fix):
+    a lone side invites reading a change in beta that was never measured. Withheld, not half-filled."""
+    before, after = _rbeta(bars, mk, ti - 20, ti - 1), _rbeta(bars, mk, ti + 1, ti + 20)
+    if before is None or after is None:
+        return {"before": None, "after": None, "available": False,
+                "reason": "ONE_SIDED" if (before or after) else "NO_BETA_EITHER_SIDE"}
+    return {"before": before, "after": after, "available": True, "reason": None}
+
+
+async def _deal_days_and_coverage(conn, symbol: str, d0: date, d1: date) -> dict:
+    """ONE round trip for both lookups the detail view needs beyond the base queries.
+
+    deal_days: every session a bulk or block deal printed on, for BULK D-1. Reaches 10 calendar days
+    before the chart so an event on the first visible bar can still see the session before it.
+    coverage: distinct symbols with a sector_master row vs distinct EQ symbols that traded in the window."""
+    row = await conn.fetchrow(
+        """
+        WITH uni AS (SELECT DISTINCT symbol FROM nidp.prices_eod
+                      WHERE series = 'EQ' AND as_of_date BETWEEN $2 AND $3)
+        SELECT (SELECT count(*) FROM uni) AS total,
+               (SELECT count(DISTINCT s.symbol) FROM nidp.sector_master s
+                  JOIN uni u ON u.symbol = s.symbol) AS mapped,
+               (SELECT array_agg(DISTINCT d) FROM (
+                    SELECT as_of_date AS d FROM nidp.bulk_deals
+                     WHERE symbol = $1 AND as_of_date BETWEEN $4 AND $3
+                    UNION
+                    SELECT as_of_date FROM nidp.block_deals
+                     WHERE symbol = $1 AND as_of_date BETWEEN $4 AND $3) x) AS deal_days
+        """, symbol, d0, d1, d0 - timedelta(days=10))
+    total = int(row["total"] or 0)
+    return {"deal_days": {d.isoformat() for d in (row["deal_days"] or [])},
+            "coverage": ({"mapped": int(row["mapped"] or 0), "total": total} if total else None)}
 
 
 # ── endpoints ──────────────────────────────────────────────────────────────
@@ -629,8 +766,432 @@ async def list_movers(
                         "min_turnover": MIN_TURNOVER, "include_ca": include_ca},
             "movers": out,
         }
-        _cache_set(ck, res)
+        _cache_set(ck, res, _TTL_HEAVY)
         return res
+
+
+# NOTE ON ORDER: these three sit ABOVE @router.get("/{symbol}") deliberately. FastAPI matches in
+# registration order, so with /{symbol} first a request for /api/movers/calibration is matched as a
+# stock named CALIBRATION and the analytics endpoints become unreachable. Keep them here.
+# ── v4 analytics: one population, every number computed ──────────────────────────────────────────
+async def _population(conn, d0: date, d1: date, head: str) -> dict:
+    """The design's "one population": every session x name the model actually scored in the window.
+
+    Calibration, the flag-lift card and the mirror list all read from this same set, which is the whole
+    point of v4's review-3 fix — three panels that disagreed about their denominator are three panels
+    that cannot be reconciled.
+    """
+    runs = await conn.fetch(
+        """
+        SELECT run_id, target_session FROM nidp.tpd_runs
+         WHERE status = 'final' AND target_session BETWEEN $1 AND $2
+         ORDER BY target_session
+        """, d0, d1)
+    if not runs:
+        return {"rows": [], "sessions": 0, "reason": "NO_FINAL_RUN_IN_WINDOW"}
+    by_run = {r["run_id"]: r["target_session"] for r in runs}
+    est = await conn.fetch(
+        """
+        SELECT run_id, symbol, p, p_base_rate FROM nidp.tpd_run_estimates
+         WHERE run_id = ANY($1::bigint[]) AND head = $2 AND p IS NOT NULL
+        """, list(by_run), head)
+    if not est:
+        return {"rows": [], "sessions": len(runs), "reason": "NO_ESTIMATES_FOR_HEAD"}
+    rows = [{"symbol": e["symbol"], "session": by_run[e["run_id"]],
+             "p": _f(e["p"]), "base": _f(e["p_base_rate"])} for e in est]
+    return {"rows": rows, "sessions": len(runs), "reason": None}
+
+
+async def _bars_for(conn, symbols: list[str], d0: date, d1: date) -> dict[str, list[dict]]:
+    """EQ bars for a set of symbols in one round trip, keyed by symbol and ordered by date."""
+    out: dict[str, list[dict]] = {}
+    if not symbols:
+        return out
+    for r in await conn.fetch(
+        """
+        SELECT symbol, as_of_date, open_price, high_price, low_price, close_price,
+               prev_close, volume, turnover
+          FROM nidp.prices_eod
+         WHERE symbol = ANY($1::text[]) AND series = 'EQ' AND as_of_date BETWEEN $2 AND $3
+         ORDER BY symbol, as_of_date
+        """, symbols, d0, d1):
+        out.setdefault(r["symbol"], []).append({
+            "t": r["as_of_date"].isoformat(),
+            "o": _f(r["open_price"]), "h": _f(r["high_price"]), "l": _f(r["low_price"]),
+            "c": _f(r["close_price"]), "prev_c": _f(r["prev_close"]),
+            "v": int(r["volume"] or 0), "turnover": _f(r["turnover"]),
+        })
+    return out
+
+
+def _idx_of(bars: list[dict], session: date) -> Optional[int]:
+    t = session.isoformat()
+    for k, b in enumerate(bars):
+        if b["t"] == t:
+            return k
+    return None
+
+
+def _atr_pct(bars: list[dict], i: int, n: int = 14) -> Optional[float]:
+    """Realised range as a % of close, over the n sessions ending at i. Used only to rank names into
+    volatility deciles — the control the flag-lift card exists to apply."""
+    a = max(1, i - n + 1)
+    if i < a:
+        return None
+    tr = []
+    for k in range(a, i + 1):
+        h, l, pc = bars[k]["h"], bars[k]["l"], bars[k - 1]["c"]
+        if h is None or l is None or not pc:
+            continue
+        tr.append(max(h - l, abs(h - pc), abs(l - pc)) / pc)
+    # Require most of the window. Averaging 5 bars and calling it a 14-session ATR produces a number
+    # that looks measured but is not, and these values rank names into the volatility deciles that
+    # the flag-lift card controls on — a thin ATR there quietly corrupts every verdict.
+    if len(tr) < max(3, (n * 2) // 3):
+        return None
+    return sum(tr) / len(tr)
+
+
+def _flags_fired(bars: list[dict], i: int) -> set[str]:
+    """Which of the design's price-derived flags fired on bar i. The two source-dependent ones
+    (BULK DEAL D-1, INSIDER +/-3D) are decided by the caller, which knows whether the source exists."""
+    out: set[str] = set()
+    m = _event_metrics(bars, i)
+    g = m["gap"]
+    if g is not None and abs(g) >= 0.02:
+        out.add("gap2")
+        if abs(g) >= 0.03:
+            out.add("gap3")
+    # Only PRE-event information may count as a signal here. vol_post is avg(vol[i..i+2]) / base,
+    # which overlaps the outcome window (the move is measured from the open of i+1), so a flag built
+    # on it is partly measuring the move it claims to predict. Measured on staging 2026-10-03 the
+    # look-ahead version scored vol>=2x at 1.687 and vol>=3x at 1.815 within volatility deciles —
+    # the strongest flags on the card, and partly tautological. The timeline still SHOWS vol_post,
+    # because describing what happened is a different job from claiming to have predicted it.
+    vp = m["vol_pre"]
+    if vp is not None:
+        if vp >= 2:
+            out.add("vol2")
+        if vp >= 3:
+            out.add("vol3")
+    if m["flip"]:
+        out.add("flip")
+    if _leak(bars, i):
+        out.add("leak")
+    return out
+
+
+def _head_hit(bar: dict, head: str) -> Optional[bool]:
+    """Did the head's OWN event happen on this bar?
+
+    This matters more than it looks. v4's calibration chart scores a flag against its outcome pill,
+    which asks "+/-5% from the NEXT OPEN within 3 sessions" — a different horizon, a different
+    reference price and two-sided instead of one-sided. Measured on staging 2026-10-03, scoring
+    p_up5_1d that way reports the model under-predicting by 6.3x (mean p 0.0557 vs a 0.3498 realised
+    rate), which says nothing about the model and everything about the mismatch.
+
+    p_up5_1d means: on the target session, high >= prev_close * 1.05. One session, upside only. Scored
+    that way the same population gives 0.0556 predicted against 0.0671 realised — a ratio of 0.83.
+    """
+    pc = bar.get("prev_c")
+    if not pc:
+        return None
+    up, mag = head.startswith("p_up"), (0.10 if "10" in head else 0.05)
+    v = bar["h"] if up else bar["l"]
+    if v is None:
+        return None
+    # Compare the ratio, not the product: 100 * 1.1 is 110.00000000000001 in binary floating point,
+    # so `high >= pc * 1.1` scored a high of exactly +10.000% as a MISS. That silently under-counts
+    # realised hits right at the threshold, which is exactly where calibration is read.
+    r = v / pc - 1
+    return r >= mag - _EPS if up else r <= -mag + _EPS
+
+
+def _verdict(lift: Optional[float], key: str) -> Optional[str]:
+    """The design's cut-offs, applied to the COMPUTED within-decile lift. v4 applies them to its own
+    sample constants; we never do."""
+    if lift is None:
+        return None
+    if lift >= 1.5:
+        return "PRE-PRICED" if key == "leak" else "SURVIVES"
+    return "WEAK" if lift >= 1.25 else "DECORATION"
+
+
+@router.get("/calibration")
+async def calibration(
+    request: Request,
+    user: dict = Depends(require_feature(FLAG)),
+    frm: date = Query(..., alias="from"),
+    to: date = Query(..., description="window end (inclusive)"),
+    head: str = Query("p_up5_1d", pattern="^p_(up|down)(5|10)_1d$"),
+    horizon: int = Query(3),
+) -> dict:
+    """Does a 70% flag move 70% of the time? Predicted vs realised per probability band.
+
+    PENDING is counted in the population but excluded from the bands: a name whose horizon has not
+    finished has not told us anything yet, and scoring it as "did not move" would flatter the model.
+    """
+    await get_current_user(request)
+    H = horizon if horizon in HORIZONS else 3
+    ck = f"cal:{frm}:{to}:{head}:{H}"
+    if (hit := _cache_get(ck)) is not None:
+        return hit
+    async with _lock(ck):
+        if (hit := _cache_get(ck)) is not None:
+            return hit
+        pool = await _pool()
+        async with pool.acquire() as conn:
+            pop = await _population(conn, frm, to, head)
+            base = {"from": frm.isoformat(), "to": to.isoformat(), "head": head, "horizon": H,
+                    "population": len(pop["rows"]), "pending_excluded": 0,
+                    "available": False, "reason": pop["reason"], "over_prediction": None,
+                    "bands": [], "min_band_n": CAL_MIN_N}
+            if not pop["rows"]:
+                _cache_set(ck, base, _TTL_HEAVY)
+                return base
+            syms = sorted({r["symbol"] for r in pop["rows"]})
+            bars = await _bars_for(conn, syms, frm - timedelta(days=40), to + timedelta(days=60))
+            resolved, pending = [], 0
+            for r in pop["rows"]:
+                bb = bars.get(r["symbol"]) or []
+                i = _idx_of(bb, r["session"])
+                if i is None:
+                    continue
+                hit = _head_hit(bb[i], head)
+                if hit is None:
+                    pending += 1
+                    continue
+                resolved.append((r["p"], hit))
+            base["pending_excluded"] = pending
+            if not resolved:
+                base["reason"] = "NO_RESOLVED_OUTCOMES"
+                _cache_set(ck, base, _TTL_HEAVY)
+                return base
+            edges = []
+            lo = CAL_FROM
+            while lo < 0.85:
+                edges.append(lo)
+                lo = round(lo + CAL_BAND, 10)
+            out_bands = []
+            for k, lo in enumerate(edges):
+                top = (k == len(edges) - 1)
+                hi = None if top else round(lo + CAL_BAND, 10)
+                xs = [m for p_, m in resolved if p_ is not None and p_ >= lo and (top or p_ < hi)]
+                n = len(xs)
+                out_bands.append({
+                    "lo": lo, "hi": hi, "n": n,
+                    "predicted": round(lo + CAL_BAND / 2, 4),
+                    # below CAL_MIN_N a rate is noise; null, never a number that looks measured
+                    "realised": (sum(xs) / n) if n >= CAL_MIN_N else None,
+                })
+            num = sum(b["predicted"] * b["n"] for b in out_bands if b["realised"] is not None)
+            den = sum(b["realised"] * b["n"] for b in out_bands if b["realised"] is not None)
+            base.update({
+                "available": True, "reason": None, "bands": out_bands,
+                "scored_as": f"the head's own event on the target session ({head})",
+                "note": ("Scored against what the head actually predicts — one session, one side, "
+                         "against the previous close. The outcome pills on events ask a different "
+                         "question (+/-5% from the next open within the horizon) and the two are not "
+                         "comparable."),
+                "over_prediction": (num / den) if den > 0 else None,
+                "resolved": len(resolved),
+            })
+            _cache_set(ck, base, _TTL_HEAVY)
+            return base
+
+
+@router.get("/flag-lift")
+async def flag_lift(
+    request: Request,
+    user: dict = Depends(require_feature(FLAG)),
+    frm: date = Query(..., alias="from"),
+    to: date = Query(..., description="window end (inclusive)"),
+    head: str = Query("p_up5_1d", pattern="^p_(up|down)(5|10)_1d$"),
+    horizon: int = Query(3),
+) -> dict:
+    """Which flags still add information once volatility is controlled for.
+
+    The volume and gap flags mostly fire because the stock is volatile, and the model already uses
+    volatility — so an unconditional lift flatters them. Each flag is therefore reported twice: across
+    the whole population, and within volatility deciles. Both numbers are computed here; v4's own LIFT
+    table is sample data and is never read.
+    """
+    await get_current_user(request)
+    H = horizon if horizon in HORIZONS else 3
+    ck = f"lift:{frm}:{to}:{head}:{H}"
+    if (hit := _cache_get(ck)) is not None:
+        return hit
+    async with _lock(ck):
+        if (hit := _cache_get(ck)) is not None:
+            return hit
+        pool = await _pool()
+        async with pool.acquire() as conn:
+            pop = await _population(conn, frm, to, head)
+            res = {"from": frm.isoformat(), "to": to.isoformat(), "head": head, "horizon": H,
+                   "population": 0, "deciles": DECILES, "flags": []}
+            has_ins = await conn.fetchval("SELECT to_regclass('nidp.insider_sast') IS NOT NULL")
+            deal_tbl = await conn.fetchval(
+                "SELECT to_regclass('nidp.bulk_deals') IS NOT NULL"
+                "   AND to_regclass('nidp.block_deals') IS NOT NULL")
+            if not pop["rows"]:
+                res["flags"] = [{"key": k, "label": lab, "available": False,
+                                 "reason": pop["reason"], "lift_uncond": None,
+                                 "lift_within": None, "n": 0, "verdict": None}
+                                for k, lab in FLAG_DEFS]
+                _cache_set(ck, res, _TTL_HEAVY)
+                return res
+            syms = sorted({r["symbol"] for r in pop["rows"]})
+            bars = await _bars_for(conn, syms, frm - timedelta(days=60), to + timedelta(days=60))
+            # BULK DEAL D-1: a bulk or block deal printed on the session before the flag day.
+            deal_days: set[tuple[str, str]] = set()
+            if deal_tbl:
+                for r in await conn.fetch(
+                    """
+                    SELECT symbol, as_of_date FROM nidp.bulk_deals
+                     WHERE symbol = ANY($1::text[]) AND as_of_date BETWEEN $2 AND $3
+                    UNION
+                    SELECT symbol, as_of_date FROM nidp.block_deals
+                     WHERE symbol = ANY($1::text[]) AND as_of_date BETWEEN $2 AND $3
+                    """, syms, frm - timedelta(days=60), to):
+                    deal_days.add((r["symbol"], r["as_of_date"].isoformat()))
+            obs = []
+            for r in pop["rows"]:
+                bb = bars.get(r["symbol"]) or []
+                i = _idx_of(bb, r["session"])
+                if i is None:
+                    continue
+                e = _exec_of(bb, i, H)
+                if e["out"] == "PENDING":
+                    continue
+                vol = _atr_pct(bb, i)
+                if vol is None:
+                    continue
+                ff = _flags_fired(bb, i)
+                if deal_tbl and i > 0 and (r["symbol"], bb[i - 1]["t"]) in deal_days:
+                    ff.add("d1")
+                obs.append({"flags": ff, "moved": e["out"] != "NONE", "vol": vol})
+            res["population"] = len(obs)
+            if len(obs) < CAL_MIN_N:
+                res["flags"] = [{"key": k, "label": lab, "available": False,
+                                 "reason": "POPULATION_TOO_SMALL", "lift_uncond": None,
+                                 "lift_within": None, "n": len(obs), "verdict": None}
+                                for k, lab in FLAG_DEFS]
+                _cache_set(ck, res, _TTL_HEAVY)
+                return res
+            obs.sort(key=lambda x: x["vol"])
+            for d, x in enumerate(obs):
+                x["dec"] = min(DECILES - 1, (d * DECILES) // len(obs))
+            base_rate = sum(1 for x in obs if x["moved"]) / len(obs)
+            out = []
+            for key, label in FLAG_DEFS:
+                if key == "d1" and not deal_tbl:
+                    out.append({"key": key, "label": label, "available": False,
+                                "reason": "NO_BULK_DEAL_TABLE", "lift_uncond": None,
+                                "lift_within": None, "n": 0, "verdict": None})
+                    continue
+                if key == "ins" and not has_ins:
+                    out.append({"key": key, "label": label, "available": False,
+                                "reason": "NIDP_INSIDER_SAST_NOT_BACKFILLED", "lift_uncond": None,
+                                "lift_within": None, "n": 0, "verdict": None})
+                    continue
+                hit_rows = [x for x in obs if key in x["flags"]]
+                n = len(hit_rows)
+                if n < CAL_MIN_N or base_rate <= 0:
+                    out.append({"key": key, "label": label, "available": False,
+                                "reason": "TOO_FEW_FIRINGS", "lift_uncond": None,
+                                "lift_within": None, "n": n, "verdict": None})
+                    continue
+                unc = (sum(1 for x in hit_rows if x["moved"]) / n) / base_rate
+                # within-decile: compare like with like, then weight by how many firings each decile held
+                num = den = 0.0
+                for d in range(DECILES):
+                    dd = [x for x in obs if x["dec"] == d]
+                    ff = [x for x in dd if key in x["flags"]]
+                    if not ff or not dd:
+                        continue
+                    br = sum(1 for x in dd if x["moved"]) / len(dd)
+                    if br <= 0:
+                        continue
+                    num += (sum(1 for x in ff if x["moved"]) / len(ff)) / br * len(ff)
+                    den += len(ff)
+                within = (num / den) if den > 0 else None
+                out.append({"key": key, "label": label, "available": True, "reason": None,
+                            "lift_uncond": unc, "lift_within": within, "n": n,
+                            "verdict": _verdict(within, key)})
+            res["flags"] = out
+            res["base_rate"] = base_rate
+            _cache_set(ck, res, _TTL_HEAVY)
+            return res
+
+
+@router.get("/flagged")
+async def flagged_no_move(
+    request: Request,
+    user: dict = Depends(require_feature(FLAG)),
+    frm: date = Query(..., alias="from"),
+    to: date = Query(..., description="window end (inclusive)"),
+    head: str = Query("p_up5_1d", pattern="^p_(up|down)(5|10)_1d$"),
+    horizon: int = Query(3),
+    limit: int = Query(100, ge=1, le=500),
+) -> dict:
+    """The other side of the model: names it flagged that did NOT move.
+
+    v1 could only show how many movers the model caught, so it could never show how often its flags were
+    wrong. The list keeps NONE first and PENDING after, exactly as the design re-derives it when the
+    horizon changes; a name that reached +/-5% leaves the list.
+    """
+    await get_current_user(request)
+    H = horizon if horizon in HORIZONS else 3
+    ck = f"flagged:{frm}:{to}:{head}:{H}:{limit}"
+    if (hit := _cache_get(ck)) is not None:
+        return hit
+    async with _lock(ck):
+        if (hit := _cache_get(ck)) is not None:
+            return hit
+        pool = await _pool()
+        async with pool.acquire() as conn:
+            pop = await _population(conn, frm, to, head)
+            res = {"from": frm.isoformat(), "to": to.isoformat(), "head": head, "horizon": H,
+                   "cutoff": ODDS_CUTOFF, "count": 0, "flagged_total": 0, "moved_late": 0,
+                   "outcomes": {k: 0 for k in ("UP", "DOWN", "BOTH", "NONE", "PENDING")},
+                   "available": False, "reason": pop["reason"], "rows": []}
+            flagged = [r for r in pop["rows"] if r["p"] is not None and r["p"] >= ODDS_CUTOFF]
+            res["flagged_total"] = len(flagged)
+            if not flagged:
+                if res["reason"] is None:
+                    res["reason"] = "NO_NAME_ABOVE_CUTOFF"
+                _cache_set(ck, res, _TTL_HEAVY)
+                return res
+            syms = sorted({r["symbol"] for r in flagged})
+            bars = await _bars_for(conn, syms, frm - timedelta(days=40), to + timedelta(days=60))
+            none_rows, pend_rows = [], []
+            for r in sorted(flagged, key=lambda x: -(x["p"] or 0)):
+                bb = bars.get(r["symbol"]) or []
+                i = _idx_of(bb, r["session"])
+                if i is None:
+                    continue
+                e = _exec_of(bb, i, H)
+                res["outcomes"][e["out"]] += 1
+                if e["out"] not in ("NONE", "PENDING"):
+                    continue
+                row = {"symbol": r["symbol"], "session": r["session"].isoformat(),
+                       "model_p": r["p"], "model_head": head, "base_rate": r["base"],
+                       "pct": ((bb[i]["c"] / bb[i]["prev_c"] - 1) * 100
+                               if (bb[i]["prev_c"] and bb[i]["c"]) else None),
+                       "close": bb[i]["c"], "prev_close": bb[i]["prev_c"],
+                       "open": bb[i]["o"], "high": bb[i]["h"], "low": bb[i]["l"],
+                       "volume": bb[i]["v"], "turnover": bb[i]["turnover"],
+                       "ca_flag": None, "ca_suspect": None, "exec": e,
+                       "odds": {"state": "CAUGHT", "score": r["p"], "base_rate": r["base"],
+                                "head": head, "run_session": r["session"].isoformat(),
+                                "runs_in_window": pop["sessions"], "cutoff": ODDS_CUTOFF}}
+                (none_rows if e["out"] == "NONE" else pend_rows).append(row)
+            rows = (none_rows + pend_rows)[:limit]
+            res.update({"available": True, "reason": None, "rows": rows, "count": len(rows),
+                        "moved_late": len(flagged) - len(none_rows) - len(pend_rows)})
+            _cache_set(ck, res, _TTL_HEAVY)
+            return res
+
 
 
 @router.get("/{symbol}")
@@ -642,12 +1203,14 @@ async def mover_detail(
     range_: str = Query("T7", alias="range", pattern="^(1D|T7|1M|3M|1Y|custom)$"),
     frm: Optional[date] = Query(None, alias="from"),
     to: Optional[date] = Query(None),
+    horizon: int = Query(3),
 ) -> dict:
     """Chart + event lanes for one mover, centred on T. `range` matches the design's chart legend;
     `custom` takes from/to. The regression window always extends further back than the chart so
     beta is estimated on history, not on the window being explained."""
     await get_current_user(request)
     symbol = symbol.strip().upper()
+    H = horizon if horizon in HORIZONS else 3
     if range_ == "custom":
         if not frm or not to or to < frm:
             raise HTTPException(400, "range=custom needs from<=to")
@@ -655,7 +1218,7 @@ async def mover_detail(
     else:
         n = RANGE_DAYS[range_]
         d0, d1 = session - timedelta(days=n), session + timedelta(days=n)
-    ck = f"detail:{symbol}:{session}:{range_}:{d0}:{d1}"
+    ck = f"detail:{symbol}:{session}:{range_}:{d0}:{d1}:{H}"
     if (hit := _cache_get(ck)) is not None:
         return hit
     async with _lock(ck):
@@ -684,7 +1247,18 @@ async def mover_detail(
             ins = await _insider_for(conn, symbol, d0, d1)
             events += ins["events"]
 
+            aux = await _deal_days_and_coverage(conn, symbol, d0, d1)
+            deal_days = aux["deal_days"]
             idx = {b["t"]: k for k, b in enumerate(bars)}
+            # insider/SAST rows -> the bar each one lands on; empty when nidp.insider_sast is absent,
+            # in which case INSIDER +/-3D is simply never raised (no source != no activity).
+            ins_bars: list[tuple[str, int]] = []
+            for ie in ins["events"]:
+                ik = idx.get(ie["date"])
+                if ik is None:
+                    ik = next((j for j, b in enumerate(bars) if b["t"] >= ie["date"]), None)
+                if ik is not None:
+                    ins_bars.append((ie["id"], ik))
             for e in events:
                 k = idx.get(e["date"])
                 if k is None:                      # a holiday-dated filing: attach to the next session
@@ -699,12 +1273,22 @@ async def mover_detail(
                 # silently returned [] for every event on the timeline.
                 e["metrics"] = _event_metrics(bars, k) if k is not None else None
                 e["flags"] = _flags_of(e["metrics"] or {})
+                # `exec` is None, not a zeroed dict, when the event has no bar to trade against.
+                e["exec"] = _exec_of(bars, k, H) if k is not None else None
+                if k is not None:
+                    if _leak(bars, k):
+                        e["flags"].append({"label": "LEAK", "tone": "amber"})
+                    if k > 0 and bars[k - 1]["t"] in deal_days:
+                        e["flags"].append({"label": "BULK D-1", "tone": "amber"})
+                    # an insider row is not "near" itself, so it is excluded from its own flag
+                    if any(abs(ik - k) <= 3 for iid, ik in ins_bars if iid != e["id"]):
+                        e["flags"].append({"label": "INSIDER ±3D", "tone": "amber"})
 
             lo, hi = idx.get(d0.isoformat()), idx.get(d1.isoformat())
             chart = [b for b in bars if d0.isoformat() <= b["t"] <= d1.isoformat()]
             tb = bars[ti]
             res = {
-                "symbol": symbol, "session": session.isoformat(), "range": range_,
+                "symbol": symbol, "session": session.isoformat(), "range": range_, "horizon": H,
                 "from": d0.isoformat(), "to": d1.isoformat(),
                 "header": {
                     "pct": ((tb["c"] / tb["prev_c"] - 1) * 100
@@ -713,18 +1297,22 @@ async def mover_detail(
                     "prev_close": tb["prev_c"], "volume": tb["v"], "turnover": tb["turnover"],
                 },
                 "bars": chart,
-                "market": {"name": MARKET_INDEX,
+                # The label says what the series IS. nidp.index_eod holds the configured index itself
+                # (verified: Nifty 50, 144 rows from 2026-02-06), so it is not a proxy. If it is ever
+                # missing the leg is withheld with a reason; an ETF is never quietly swapped in and
+                # then called "Nifty 50".
+                "market": {"name": MARKET_INDEX, "label": MARKET_INDEX, "is_proxy": False,
                            "series": [mkt.get(b["t"]) for b in chart],
-                           "available": bool(mkt)},
+                           "available": bool(mkt),
+                           "reason": None if mkt else "MARKET_INDEX_NOT_IN_INDEX_EOD"},
                 "sector": {"name": sector_idx,
                            "series": [sct.get(b["t"]) for b in chart],
                            "available": bool(sct),
-                           "reason": None if sector_idx else "SYMBOL_NOT_IN_SECTOR_MASTER"},
+                           "reason": None if sector_idx else "SYMBOL_NOT_IN_SECTOR_MASTER",
+                           # computed per request, never hardcoded; None when no EQ symbol traded
+                           "coverage": aux["coverage"]},
                 "regression": reg,
-                "rolling_beta": {
-                    "before": _rbeta(bars, mk, ti - 20, ti - 1),
-                    "after": _rbeta(bars, mk, ti + 1, ti + 20),
-                },
+                "rolling_beta": _rolling_pair(bars, mk, ti),
                 "windows": [
                     {"key": "BEFORE", "label": "E-7 → E-1",
                      "decomp": _decomp(bars, mk, sx, reg["beta"], reg["sbeta"], ti - 8, ti - 1)},
@@ -815,8 +1403,7 @@ async def mover_analysis(
                         ("AFTER", "E+1 → E+7", ei + 1, ei + 8),
                     )
                 ],
-                "rolling_beta": {"before": _rbeta(bars, mk, ei - 20, ei - 1),
-                                 "after": _rbeta(bars, mk, ei + 1, ei + 20)},
+                "rolling_beta": _rolling_pair(bars, mk, ei),
                 "model": await _odds_badge(conn, symbol, session),
                 "disclaimer": ("Attribution of realised return, not a causal claim: direction "
                                "around events is not predictable in this dataset."),
