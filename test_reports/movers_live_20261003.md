@@ -30,3 +30,34 @@ Screenshot: `movers_live_20261003.png`. Mocked suites: 24 passed. pytest: 52 pas
   is a table not the per-decile strip. Calibration x-axis labels overlap. The insider note exposes an internal script path.
 - Full TC-M01..M08 / TC-V01..V13 matrix was not re-walked case by case against live; the above is a spot-check of the same behaviours.
 - Data only: ranking against the owner's real top-movers list is still outstanding.
+
+---
+
+# Addendum: the v4 design port, verified live (commit `4e73bb15` on dev, staging)
+
+The Movers view was rebuilt region by region to the owner's v4 design (`Top Movers Dashboard - All Versions (1).html`; its v4 is byte-identical
+to the zip's v4, SHA `ff19f87033c0`): top bar, rail, hero, chart, market & sector sensitivity, Copilot event analysis, flag lift, event & deal log,
+odds-model panel. Screenshot of the live page: `movers_v4_live_20261003.png`.
+
+## Live evidence (staging, real cookie, window 2026-09-01..30)
+- Live Playwright (`movers.live.spec.ts`, temporary, not committed): **1 passed**. 100 rail rows (91 with company names), all `/api/movers*` responses 200
+  (list, detail, analysis, calibration, flag-lift, flagged), **0 page errors, 0 console errors**, 0 detail errors. Pinning an event works live
+  (`aria-pressed=true`, `/analysis` refetch); switching to Flagged mode works (1 row: RATNAVEER).
+- API additions verified over HTTP: flag-lift returns `by_decile` x10 per flag + `decile_base`; list/detail/flagged carry `name` (sector_master; null for ETFs);
+  detail carries `move_day` (ATALREAL: vol_pre 1.25, vol_post 0.24, DOWN, net -0.628%, flags GAP DN, LEAK) — the Copilot card shows VOL PRE 1.3x / VOL POST 0.2x, no 'needs 25 sessions'.
+- Local: tsc clean; Playwright 36 passed (mocked, real-shaped data: existing suites updated + 12 new TC-U01..U12); pytest 52 passed; real-DB run of the DaaS router.
+
+## Defects found by the QA agents and fixed (each invisible to the earlier static renders)
+chart header card covering candles; pin did not drive the header; Escape did not unpin; markers spilled over the lane label; sub-rupee axis labels repeated;
+edge pills clipped; internal script path shown in the insider lane; calibration error had no retry (TC-U11); top bar 62px vs 58px; rail heading wrapped;
+unicode minus vs hyphen; unpadded date; chart collapsed to 14px at 390px (layout now stacks below 900px; sensitivity card scrolls inside itself).
+
+## Still NOT verified / known differences (so there is no PASS verdict)
+- 403 for a non-allowlisted user on the live path (no second account). Mocked TC-M20 only.
+- Not compared pixel-for-pixel on the live page: the fidelity diff was done at 1440px on an in-app render with the design's own fonts, with real-shaped mocks.
+- Rail: 9 of 100 movers have no company name (ETFs etc. are not in nidp.sector_master); they show turnover instead.
+- Flag lift: no focus-event chip / ring (our card is window-wide). Thin cells (<5 firings) are faded, which the design does not do.
+- Chart is ~30px taller than the design (extra `<details>` event table) and is SVG, not canvas. The default header card still sits over the left-most candles, as in the design.
+- The host page caps the view at 1272px, so the main column is 972px at a 1440px window (design: 1092px).
+- The date-window controls strip is not in the design (the design is fixed to one month).
+- Owner's real top-movers list comparison still outstanding.
