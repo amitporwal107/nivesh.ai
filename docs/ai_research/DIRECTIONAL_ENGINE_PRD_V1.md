@@ -142,14 +142,46 @@ Measured from the research cost engine (`nse-equity-statutory-v1@1`) over 8,759 
 `"slippage": 0.0`, and slippage alone is larger than its entire cost allowance. §25 must use the
 real cost engine, and every EV calculation in this PRD must carry 0.628%.
 
-### D. No power calculation — the most likely way this effort is wasted
+### D. Power — RESOLVED, and the experiment is feasible
 
-The replay window is **165 sessions**. Trades cluster within a session, so the effective sample is
-165 regardless of whether 10 or 100 names are taken per day. Prior arithmetic: at 5 names/day,
-separating +0.50%/trade from zero needs ~550 sessions ≈ 2.2 years.
+*Supersedes an earlier figure in this document. A previous draft quoted ~550 sessions (2.2 years).
+That was computed for the **+10%/−8%** geometry, whose per-trade SD is 9.0%. It does not apply to
+the tight barriers this PRD proposes, and it understated feasibility badly.*
 
-**Amendment:** compute the required session count *before building*. An underpowered sealed test
-returns "not established" and will be misread as a null.
+Trades cluster within a session, so the unit of inference is the **session**, not the trade —
+taking 100 names a day instead of 10 does not multiply the sample. But the payoff here is
+near-binary (+target / −stop), so per-trade SD is `sqrt(p(1−p)) × (target + stop)`, and required
+sample falls with the **square** of the payoff spread. Tight barriers are far more tractable:
+
+| cell | breakeven p | SD/trade | SD/session (10/day, ρ=0.3) | sessions for +0.5%/trade | for +1.0% |
+|---|---|---|---|---|---|
+| +5% / −2% | 37.5% | 3.39% | 2.06% | **65** | 16 |
+| +5% / −3% | 45.4% | 3.98% | 2.42% | 90 | 23 |
+| +5% / −5% | 56.3% | 4.96% | 3.02% | 140 | 35 |
+| +10% / −2% | 21.9% | 4.96% | 3.02% | 140 | 35 |
+| +10% / −3% | 27.9% | 5.83% | 3.55% | 193 | 48 |
+| +10% / −5% | 37.5% | 7.26% | 4.42% | 300 | 75 |
+
+Available history:
+
+| dataset | sessions |
+|---|---|
+| paper replay window (2024-12-31 → 2025-08-28) | ~165 |
+| post-sealed charting (2024-08 → 2026-09) | ~500 |
+| **SEALED block 2023-01 → 2024-07 (untouched)** | **~390** |
+
+**Verdict: feasible.** The sealed block alone carries the confirmatory test for the primary cells
+at +0.5%/trade, and for every cell at +1.0%. The +5%/−2% cell — the PRD's primary target — needs
+only ~65 sessions.
+
+Two conditions attach to that:
+
+1. **ρ = 0.3 is assumed, not measured.** Within-session correlation among same-day picks should be
+   estimated from the replay record before the sealed run; if it is materially higher, every number
+   above rises.
+2. **The sealed block must stay sealed** until the directional model and its thresholds are final.
+   A1, the stop-width curve and the stop/target matrix have all consumed post-sealed data, so
+   post-sealed is no longer a clean confirmatory set.
 
 ### E. Event features (§21) are largely unavailable over the research window
 
@@ -261,8 +293,12 @@ universe is the better regime measure regardless, being the population actually 
 
 ## Status
 
-Not approved. Amendments **A–J** are prerequisites, not suggestions. The §45 MVP is correctly
-scoped once B (numeric GO thresholds), C (real friction) and D (power) are settled.
+Not approved. Amendments **A–J** are prerequisites, not suggestions.
+
+**D is now settled** — the experiment is feasible, needing ~65 sessions for the primary
++5%/−2% cell against ~390 untouched sealed sessions. B (numeric GO thresholds) and C (real
+friction) are stated and need only acceptance. That leaves **no open blocker of the "we don't
+know if this can work" kind**; the remaining prerequisites are decisions, not unknowns.
 
 H is the one that can invalidate a positive result after the fact: an LLM-scored feature can pass
 every timestamp check and still be contaminated. Its placebo test is not optional.
