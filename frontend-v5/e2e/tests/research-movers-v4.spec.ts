@@ -32,7 +32,7 @@ const LANES = [{ key: "fil", label: "RESULTS / FILINGS" }, { key: "ca", label: "
 const ev = (id: string, date: string, bi: number | null, exec: unknown) => ({
   id, date, type: "res", lane: "fil", type_label: "RESULTS", glyph: "R", kind: "EARNINGS",
   kind_note: "Quarterly financial results approved by the board.", title: "Quarterly results approved",
-  sub: "", sentiment: null, impact_score: null, bar_index: bi, flags: [], exec,
+  sub: "", sentiment: null, impact_score: "medium", bar_index: bi, flags: [], exec,
   metrics: { re: 0.07, gap: 0.0311, vol_pre: 1.5, vol_post: 2.05, flip: false },
 });
 

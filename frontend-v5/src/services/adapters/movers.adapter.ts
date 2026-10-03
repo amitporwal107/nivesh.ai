@@ -130,7 +130,7 @@ const EventC = z.object({
   title: z.string(),
   sub: z.string(),
   sentiment: z.union([z.string(), z.number()]).nullable().optional(),
-  impact_score: NumOpt,
+  impact_score: z.union([z.string(), z.number()]).nullable().optional(),   // the feed stores a label: low | medium | high
   action: z.string().nullable().optional(),
   bar_index: Num,
   session_shifted: z.boolean().optional(),
