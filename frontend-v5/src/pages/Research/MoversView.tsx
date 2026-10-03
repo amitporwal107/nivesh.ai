@@ -109,7 +109,12 @@ export function MoversView({ onNoAccess, modelVersion = null, backToFeed }: {
   const [fwdErr, setFwdErr] = useState<string | null>(null);
 
   const [sel, setSel] = useState<{ symbol: string; session: string; src?: "OFFICIAL" | "PREVIEW" } | null>(null);
-  const [range, setRange] = useState<string>(DEFAULT_RANGE);
+  // Pinned from one filing: default to a wider window than T7. The event log filters by
+  // COALESCE(broadcast_at, filed_at) (backend/.../movers.py _events_for), but the Research feed dates
+  // a filing by filed_at alone (backend/routes/markets.py _row) — when an announcement's broadcast_at
+  // lands more than ~7 days from its filed_at, a T7 window centred on the feed's own date can miss the
+  // very filing the reader clicked. 1M gives real headroom without the chart reading as a different range.
+  const [range, setRange] = useState<string>(() => (pinned ? "1M" : DEFAULT_RANGE));
   const [customFrom, setCustomFrom] = useState<string | null>(null);
   const [customTo, setCustomTo] = useState<string | null>(null);
   const [detail, setDetail] = useState<MoverDetailResult | null>(null);

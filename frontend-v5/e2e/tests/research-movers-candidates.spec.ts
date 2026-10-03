@@ -184,6 +184,21 @@ test.describe("Filing row → stock chart (pinned to one filing)", () => {
     await expect(page.getByTestId("mv-cand-disclaimer")).toContainText("Opened from one filing on the Research feed.");
   });
 
+  test("the pinned detail fetch defaults to a 1M window, not T7", async ({ page }) => {
+    // The event log filters by COALESCE(broadcast_at, filed_at), but the feed dates a filing by
+    // filed_at alone — a tight T7 window centred on the feed's date can miss the very filing clicked
+    // if broadcast lagged. 1M gives real headroom; see MoversView.tsx's `range` initializer.
+    await setupFeed(page);
+    const seen: string[] = [];
+    page.on("request", (r) => { if (r.url().includes("/api/movers/AAA?")) seen.push(r.url()); });
+    await page.goto("/v5/research");
+    await page.getByTestId("filing-row-open-stock").click();
+    await expect(page.getByTestId("mv-chart")).toBeVisible();
+    expect(seen.some((u) => new URL(u).searchParams.get("range") === "1M")).toBe(true);
+    expect(seen.some((u) => new URL(u).searchParams.get("range") === "T7")).toBe(false);
+    await expect(page.getByTestId("mv-range-1M")).toHaveAttribute("aria-pressed", "true");
+  });
+
   test("the back button returns to the filings feed", async ({ page }) => {
     await setupFeed(page);
     await page.goto("/v5/research");
