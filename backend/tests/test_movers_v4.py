@@ -290,3 +290,29 @@ def test_no_v4_sample_lift_constants_assigned():
                      f"Shipping them presents mock data as real; compute from nidp instead."
     for key in ("'un'", '"un"', "'in':", "liftAt", "LIFT ="):
         assert key not in code, f"v4 sample-table marker {key!r} present in the DaaS movers router"
+
+
+# ── 10. event indices are relative to the plotted slice (live bug: markers at 234.. on a 10-bar chart) ──
+def _bars_on(dates):
+    return [{"t": d} for d in dates]
+
+
+def test_chart_index_is_relative_to_the_plotted_slice(mv):
+    from datetime import date
+    bars = _bars_on([f"2026-08-{d:02d}" for d in range(1, 29)] + [f"2026-09-{d:02d}" for d in (1, 2, 3, 4, 5, 8, 9, 10)])
+    lo, hi = mv._chart_span(bars, date(2026, 9, 2), date(2026, 9, 9))
+    assert (lo, hi) == (29, 34)
+    assert bars[lo]["t"] == "2026-09-02" and bars[hi]["t"] == "2026-09-09"
+    assert mv._chart_index(29, lo, hi) == 0          # first plotted candle
+    assert mv._chart_index(34, lo, hi) == 5          # last plotted candle
+    assert mv._chart_index(28, lo, hi) is None       # before the window: not plotted
+    assert mv._chart_index(35, lo, hi) is None       # after the window
+    assert mv._chart_index(None, lo, hi) is None
+
+
+def test_chart_span_handles_a_window_edge_that_is_not_a_session(mv):
+    from datetime import date
+    bars = _bars_on(["2026-09-04", "2026-09-07", "2026-09-08", "2026-09-09"])   # 5-6 Sep is a weekend
+    assert mv._chart_span(bars, date(2026, 9, 5), date(2026, 9, 8)) == (1, 2)    # edge on a non-session
+    assert mv._chart_span(bars, date(2026, 10, 1), date(2026, 10, 9)) == (None, None)
+    assert mv._chart_index(1, None, None) is None

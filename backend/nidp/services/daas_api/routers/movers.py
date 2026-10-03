@@ -510,6 +510,24 @@ async def _odds_badge(conn, symbol: str, session: date) -> dict:
     }
 
 
+def _chart_span(bars: list[dict], d0: date, d1: date) -> tuple[Optional[int], Optional[int]]:
+    """First and last index of `bars` that fall inside [d0, d1]; (None, None) when none do.
+
+    `bars` is the long series the regression needs; the chart plots only this slice, so every index the
+    client receives must be relative to `lo`. An index into the long series (e.g. 234) addresses no
+    candle in a 10-bar chart and every marker silently vanishes into 'outside the plotted window'."""
+    a, b = d0.isoformat(), d1.isoformat()
+    inside = [j for j, x in enumerate(bars) if a <= x["t"] <= b]
+    return (inside[0], inside[-1]) if inside else (None, None)
+
+
+def _chart_index(k: Optional[int], lo: Optional[int], hi: Optional[int]) -> Optional[int]:
+    """Absolute bar index -> index within the plotted slice; None if there is no bar or it is off-chart."""
+    if k is None or lo is None or hi is None or k < lo or k > hi:
+        return None
+    return k - lo
+
+
 # ── design's derived metrics ───────────────────────────────────────────────
 def _avg(bars: list[dict], a: int, b: int, key: str = "v") -> Optional[float]:
     w = [bars[k][key] for k in range(max(0, a), min(len(bars), b + 1)) if bars[k].get(key)]
@@ -1332,6 +1350,7 @@ async def mover_detail(
             aux = await _deal_days_and_coverage(conn, symbol, d0, d1)
             deal_days = aux["deal_days"]
             idx = {b["t"]: k for k, b in enumerate(bars)}
+            lo, hi = _chart_span(bars, d0, d1)
             # insider/SAST rows -> the bar each one lands on; empty when nidp.insider_sast is absent,
             # in which case INSIDER +/-3D is simply never raised (no source != no activity).
             ins_bars: list[tuple[str, int]] = []
@@ -1346,7 +1365,7 @@ async def mover_detail(
                 if k is None:                      # a holiday-dated filing: attach to the next session
                     k = next((j for j, b in enumerate(bars) if b["t"] >= e["date"]), None)
                     e["session_shifted"] = k is not None
-                e["bar_index"] = k
+                e["bar_index"] = _chart_index(k, lo, hi)   # relative to the plotted slice; k stays absolute below
                 e["kind"], e["kind_note"] = _kind_of(e.get("title", ""), e.get("sub", ""))
                 ty = _TYPE.get(e["type"], _TYPE["news"])
                 e["lane"], e["type_label"], e["glyph"] = ty["lane"], ty["label"], ty["glyph"]
@@ -1366,8 +1385,7 @@ async def mover_detail(
                     if any(abs(ik - k) <= 3 for iid, ik in ins_bars if iid != e["id"]):
                         e["flags"].append({"label": "INSIDER ±3D", "tone": "amber"})
 
-            lo, hi = idx.get(d0.isoformat()), idx.get(d1.isoformat())
-            chart = [b for b in bars if d0.isoformat() <= b["t"] <= d1.isoformat()]
+            chart = bars[lo:hi + 1] if lo is not None else []
             tb = bars[ti]
             res = {
                 "symbol": symbol, "session": session.isoformat(), "range": range_, "horizon": H,
