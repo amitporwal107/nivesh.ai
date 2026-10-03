@@ -41,13 +41,17 @@ import time
 from datetime import date, timedelta
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from deps import get_current_user
+from feature_gate import require_feature
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/movers", tags=["movers"])
+# These endpoints render inside the Move odds screen, so they carry that screen's gate on
+# top of the session check: everyone off the allowlist gets 403, admins included.
+FLAG = "move_odds"
 
 # ── tunables ───────────────────────────────────────────────────────────────
 MARKET_INDEX = "Nifty 50"
@@ -103,8 +107,8 @@ _TYPE = {
     "res":   {"lane": "fil",  "label": "RESULTS",      "color": "indigo", "glyph": "R"},
     "news":  {"lane": "fil",  "label": "FILING",       "color": "indigo", "glyph": "F"},
     "ca":    {"lane": "ca",   "label": "CORP ACTION",  "color": "amber",  "glyph": "C"},
-    "dealB": {"lane": "deal", "label": "DEAL · BUY",   "color": "mint",   "glyph": "▲"},
-    "dealS": {"lane": "deal", "label": "DEAL · SELL",  "color": "danger", "glyph": "▼"},
+    "dealB": {"lane": "deal", "label": "DEAL · BOUGHT", "color": "mint",   "glyph": "▲"},
+    "dealS": {"lane": "deal", "label": "DEAL · SOLD",   "color": "danger", "glyph": "▼"},
     "ins":   {"lane": "ins",  "label": "INSIDER",      "color": "rose",   "glyph": "I"},
 }
 LANES = [
@@ -550,6 +554,7 @@ def _rbeta(bars: list[dict], mk: list[Optional[float]], a: int, b: int) -> Optio
 @router.get("")
 async def list_movers(
     request: Request,
+    user: dict = Depends(require_feature(FLAG)),
     frm: date = Query(..., alias="from", description="window start (inclusive)"),
     to: date = Query(..., description="window end (inclusive)"),
     min_abs_pct: float = Query(5.0, ge=0, le=100),
@@ -632,6 +637,7 @@ async def list_movers(
 async def mover_detail(
     request: Request,
     symbol: str,
+    user: dict = Depends(require_feature(FLAG)),
     session: date = Query(..., description="the move session T the timeline centres on"),
     range_: str = Query("T7", alias="range", pattern="^(1D|T7|1M|3M|1Y|custom)$"),
     frm: Optional[date] = Query(None, alias="from"),
@@ -685,9 +691,14 @@ async def mover_detail(
                     k = next((j for j, b in enumerate(bars) if b["t"] >= e["date"]), None)
                     e["session_shifted"] = k is not None
                 e["bar_index"] = k
-                e["kind"], e["lane"] = _kind_of(e.get("title", ""), e.get("sub", ""))
-                e["flags"] = _flags_of(e)
+                e["kind"], e["kind_note"] = _kind_of(e.get("title", ""), e.get("sub", ""))
+                ty = _TYPE.get(e["type"], _TYPE["news"])
+                e["lane"], e["type_label"], e["glyph"] = ty["lane"], ty["label"], ty["glyph"]
+                # metrics BEFORE flags: _flags_of reads gap/vol_pre/vol_post, which are
+                # _event_metrics keys. Fed the bare event it saw None for all three and
+                # silently returned [] for every event on the timeline.
                 e["metrics"] = _event_metrics(bars, k) if k is not None else None
+                e["flags"] = _flags_of(e["metrics"] or {})
 
             lo, hi = idx.get(d0.isoformat()), idx.get(d1.isoformat())
             chart = [b for b in bars if d0.isoformat() <= b["t"] <= d1.isoformat()]
@@ -736,6 +747,7 @@ async def mover_detail(
 async def mover_analysis(
     request: Request,
     symbol: str,
+    user: dict = Depends(require_feature(FLAG)),
     session: date = Query(...),
     event_id: Optional[str] = Query(None, description="pin the decomposition to one event"),
 ) -> dict:
@@ -780,7 +792,11 @@ async def mover_analysis(
                     raise HTTPException(404, f"event {event_id} not found for {symbol}")
                 k = next((j for j, b in enumerate(bars) if b["t"] >= pinned["date"]), None)
                 pinned["bar_index"] = k
+                pinned["kind"], pinned["kind_note"] = _kind_of(pinned.get("title", ""), pinned.get("sub", ""))
+                ty = _TYPE.get(pinned["type"], _TYPE["news"])
+                pinned["lane"], pinned["type_label"], pinned["glyph"] = ty["lane"], ty["label"], ty["glyph"]
                 pinned["metrics"] = _event_metrics(bars, k) if k is not None else None
+                pinned["flags"] = _flags_of(pinned["metrics"] or {})
 
             ei = pinned.get("bar_index") if pinned else ti
             ei = ti if ei is None else ei

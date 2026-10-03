@@ -1,0 +1,275 @@
+/**
+ * Movers adapter — the Top Movers dashboard (backend/routes/movers.py, read from nidp; same `move_odds` gate as the Research page).
+ *
+ *   GET /api/movers?from&to&min_abs_pct&direction&limit&include_ca → ranked movers in a window, each with its Move-odds badge
+ *   GET /api/movers/{symbol}?session&range&from&to                 → chart bars, index series, event lanes, regression, windows
+ *   GET /api/movers/{symbol}/analysis?session&event_id             → market / sector / stock attribution around a pinned event
+ *
+ * Unlike the move-odds routes (DaaS proxy, `{data: …}` envelope) these return the payload at the TOP LEVEL, so the body is
+ * parsed with the payload schema directly.
+ *
+ * Every state is explicit so the screen can never show numbers it should not:
+ *   ok         → payload
+ *   no_access  → 403: the account is not on the move_odds allowlist
+ *   not_found  → 404: no price history / session / pinned event (detail and analysis only)
+ *   error      → anything else (retry offered; no cached numbers)
+ *
+ * A missing number is null, never 0. Blocks the backend cannot source (insider lane, beta, sector index) arrive with
+ * `available: false` and a `reason`; they are passed through, never filled in.
+ */
+import { http } from "@/services/api/http";
+import { ApiError } from "@/services/api/errors";
+import { z } from "zod";
+
+const Num = z.number().nullable();
+const NumOpt = z.number().nullable().optional();
+
+// ── Move-odds badge (CAUGHT / MISSED / NO_MODEL_RUN — three states, never two) ─────────────────────────────────────────
+const OddsC = z.object({
+  state: z.enum(["CAUGHT", "MISSED", "NO_MODEL_RUN"]),
+  score: Num,
+  base_rate: NumOpt,
+  head: z.string().nullable(),
+  run_session: z.string().nullable(),
+  runs_in_window: z.number(),
+  reason: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+  cutoff: NumOpt,
+  heads: z.record(z.number().nullable()).optional(),
+});
+export type MoverOdds = z.infer<typeof OddsC>;
+
+// ── List (GET /api/movers) ───────────────────────────────────────────────────────────────────────────────────────────
+const RowC = z.object({
+  symbol: z.string(),
+  session: z.string(),
+  pct: Num,
+  close: Num,
+  prev_close: Num,
+  open: Num,
+  high: Num,
+  low: Num,
+  volume: Num,
+  turnover: Num,
+  ca_flag: z.object({ type: z.string().nullable(), ratio: z.union([z.string(), z.number()]).nullable().optional() }).nullable(),
+  ca_suspect: z.string().nullable(),
+  odds: OddsC,
+});
+export type MoverRow = z.infer<typeof RowC>;
+
+const LaneC = z.object({ key: z.string(), label: z.string() });
+
+const ListC = z.object({
+  from: z.string(),
+  to: z.string(),
+  count: z.number(),
+  withheld_ca_suspect: z.number(),
+  lanes: z.array(LaneC),
+  ranges: z.array(z.string()),
+  filters: z.object({
+    min_abs_pct: NumOpt,
+    direction: z.string().optional(),
+    min_turnover: NumOpt,
+    include_ca: z.boolean().optional(),
+  }),
+  movers: z.array(RowC),
+});
+export type MoversList = z.infer<typeof ListC>;
+
+// ── Detail (GET /api/movers/{symbol}) ────────────────────────────────────────────────────────────────────────────────
+const BarC = z.object({
+  t: z.string(),
+  o: Num,
+  h: Num,
+  l: Num,
+  c: Num,
+  prev_c: Num,
+  v: z.number(),
+  turnover: Num,
+});
+export type MoverBar = z.infer<typeof BarC>;
+
+const EventMetricsC = z.object({ re: Num, gap: Num, vol_pre: Num, vol_post: Num, flip: z.boolean() });
+export type MoverEventMetrics = z.infer<typeof EventMetricsC>;
+
+const EventC = z.object({
+  id: z.string(),
+  date: z.string(),
+  type: z.string(),
+  title: z.string(),
+  sub: z.string(),
+  sentiment: z.union([z.string(), z.number()]).nullable().optional(),
+  impact_score: NumOpt,
+  action: z.string().nullable().optional(),
+  bar_index: Num,
+  session_shifted: z.boolean().optional(),
+  kind: z.string(),
+  kind_note: z.string(),
+  lane: z.string(),
+  type_label: z.string(),
+  glyph: z.string(),
+  flags: z.array(z.object({ label: z.string(), tone: z.string() })),
+  metrics: EventMetricsC.nullable(),
+});
+export type MoverEvent = z.infer<typeof EventC>;
+
+const DecompC = z.object({
+  R: Num,
+  M: Num,
+  S: Num,
+  m_part: Num,
+  s_part: Num,
+  spec: Num,
+  available: z.boolean(),
+  reason: z.string().optional(),
+  sector_leg: z.boolean().optional(),
+});
+export type MoverDecomp = z.infer<typeof DecompC>;
+
+const RegressionC = z.object({
+  beta: Num,
+  corr: Num,
+  sbeta: Num,
+  scorr: Num,
+  sessions: z.number(),
+  requested_sessions: z.number(),
+  sector_sessions: z.number().optional(),
+  window: z.array(z.string()).optional(),
+  available: z.boolean(),
+  degraded: z.boolean().optional(),
+  reason: z.string().optional(),
+});
+export type MoverRegression = z.infer<typeof RegressionC>;
+
+const WindowC = z.object({ key: z.string(), label: z.string(), decomp: DecompC.nullable() });
+export type MoverWindow = z.infer<typeof WindowC>;
+
+const RollingC = z.object({ beta: Num, corr: Num, sessions: z.number().optional() }).nullable();
+const RollingBetaC = z.object({ before: RollingC, after: RollingC });
+
+const DetailC = z.object({
+  symbol: z.string(),
+  session: z.string(),
+  range: z.string(),
+  from: z.string(),
+  to: z.string(),
+  header: z.object({
+    pct: Num, open: Num, high: Num, low: Num, close: Num, prev_close: Num, volume: Num, turnover: Num,
+  }),
+  bars: z.array(BarC),
+  market: z.object({ name: z.string(), series: z.array(Num), available: z.boolean() }),
+  sector: z.object({ name: z.string().nullable(), series: z.array(Num), available: z.boolean(), reason: z.string().nullable() }),
+  regression: RegressionC,
+  rolling_beta: RollingBetaC,
+  windows: z.array(WindowC),
+  lanes: z.array(LaneC),
+  insider_lane: z.object({
+    available: z.boolean(),
+    reason: z.string().nullable().optional(),
+    note: z.string().optional(),
+    source: z.string().nullable().optional(),
+  }),
+  events: z.array(EventC),
+  model: OddsC,
+  bar_index_of_session: z.number(),
+});
+export type MoverDetail = z.infer<typeof DetailC>;
+
+// ── Analysis (GET /api/movers/{symbol}/analysis) ─────────────────────────────────────────────────────────────────────
+const AnalysisC = z.object({
+  symbol: z.string(),
+  session: z.string(),
+  market_index: z.string(),
+  sector_index: z.string().nullable(),
+  regression: RegressionC,
+  pinned_event: EventC.nullable(),
+  anchor: z.object({ bar: z.string(), is_pinned_event: z.boolean() }),
+  windows: z.array(WindowC),
+  rolling_beta: RollingBetaC.optional(),
+  model: OddsC.optional(),
+  disclaimer: z.string().optional(),
+});
+export type MoverAnalysis = z.infer<typeof AnalysisC>;
+
+// ── Results ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+export type MoversListResult =
+  | { kind: "ok"; data: MoversList }
+  | { kind: "no_access" }
+  | { kind: "error"; message: string };
+
+export type MoverDetailResult =
+  | { kind: "ok"; data: MoverDetail }
+  | { kind: "no_access" }
+  | { kind: "not_found" }
+  | { kind: "error"; message: string };
+
+export type MoverAnalysisResult =
+  | { kind: "ok"; data: MoverAnalysis }
+  | { kind: "no_access" }
+  | { kind: "not_found" }
+  | { kind: "error"; message: string };
+
+function fromError(e: unknown): { kind: "no_access" } | { kind: "not_found" } | { kind: "error"; message: string } {
+  if (e instanceof ApiError) {
+    if (e.status === 403) return { kind: "no_access" };
+    if (e.status === 404) return { kind: "not_found" };
+    return { kind: "error", message: e.status ? `HTTP ${e.status}` : e.message };
+  }
+  return { kind: "error", message: e instanceof Error ? e.message : "unexpected response" };
+}
+
+export async function fetchMovers(p: {
+  from: string;
+  to: string;
+  minAbsPct?: number;
+  direction?: "both" | "up" | "down";
+  limit?: number;
+  includeCa?: boolean;
+}): Promise<MoversListResult> {
+  try {
+    const res = await http<unknown>({
+      path: "/api/movers",
+      query: { from: p.from, to: p.to, min_abs_pct: p.minAbsPct, direction: p.direction, limit: p.limit, include_ca: p.includeCa },
+      noRetry: true,
+      timeoutMs: 30_000,
+    });
+    const parsed = ListC.safeParse(res.data);
+    return parsed.success ? { kind: "ok", data: parsed.data } : { kind: "error", message: "unexpected response shape" };
+  } catch (e) {
+    const f = fromError(e);
+    return f.kind === "not_found" ? { kind: "error", message: "HTTP 404" } : f;
+  }
+}
+
+export async function fetchMoverDetail(
+  symbol: string,
+  p: { session: string; range: string; from?: string; to?: string },
+): Promise<MoverDetailResult> {
+  try {
+    const res = await http<unknown>({
+      path: `/api/movers/${encodeURIComponent(symbol)}`,
+      query: { session: p.session, range: p.range, from: p.from, to: p.to },
+      noRetry: true,
+      timeoutMs: 30_000,
+    });
+    const parsed = DetailC.safeParse(res.data);
+    return parsed.success ? { kind: "ok", data: parsed.data } : { kind: "error", message: "unexpected response shape" };
+  } catch (e) {
+    return fromError(e);
+  }
+}
+
+export async function fetchMoverAnalysis(symbol: string, p: { session: string; eventId?: string }): Promise<MoverAnalysisResult> {
+  try {
+    const res = await http<unknown>({
+      path: `/api/movers/${encodeURIComponent(symbol)}/analysis`,
+      query: { session: p.session, event_id: p.eventId },
+      noRetry: true,
+      timeoutMs: 30_000,
+    });
+    const parsed = AnalysisC.safeParse(res.data);
+    return parsed.success ? { kind: "ok", data: parsed.data } : { kind: "error", message: "unexpected response shape" };
+  } catch (e) {
+    return fromError(e);
+  }
+}

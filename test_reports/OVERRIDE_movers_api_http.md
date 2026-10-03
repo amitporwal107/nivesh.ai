@@ -35,3 +35,22 @@ to decide:
    `research/trendlyne/ref/insider_sast.csv` into `nidp.insider_sast`.
 3. Confirm >=6 GB free on nivesh-app-vm, then deploy and supply a staging `session_token`.
 4. Run TC-03..07, TC-12 and TC-19 against `https://staging.niveshcopilot.com/api/movers`.
+
+
+---
+
+## Refreshed 2026-10-03 (Movers view session)
+
+`backend/routes/movers.py` was edited again today: the event-lane assignment and the event-flag defects were
+fixed, the bulk/block labels were changed to BOUGHT/SOLD for D2, and all three endpoints gained
+`require_feature("move_odds")` **on top of** the existing session check.
+
+REASON: the staging HTTP leg still cannot be exercised. Reaching the deployed API needs a push to `dev` — which
+is a live deploy of both staging and the live login UI, and needs >=6 GB free on nivesh-app-vm — plus a staging
+`session_token` that only the owner can issue. Neither is mine to do unprompted.
+
+VERIFIED WITHOUT IT (see `movers_screen_20261003.md`): the lane and flag fixes, proven against the real module by
+`scratchpad/lane_flags_check.py`; the D2 label rule; and the whole frontend contract, 63/63 Playwright cases.
+
+STILL OPEN: TC-M01 (the 403 gate over HTTP), TC-M02..TC-M08 (window, CA withholding, three-state badge,
+attribution identity and beta honesty against real staging rows).

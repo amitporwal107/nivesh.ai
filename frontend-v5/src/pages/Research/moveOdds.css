@@ -531,3 +531,123 @@
 .research-screen .mo-fband { font-weight: 600; }
 /* ink, not green/red: like the direction reading, a filing's impact band is not a buy or sell cue */
 .research-screen .mo-ffactors { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11.5px; color: var(--c-ink-2); }
+
+/* ── Movers view (the owner's Top Movers Dashboard v1, as a view of this screen) ──────────────────────
+ * Candles ARE colour-coded by direction, unlike the estimates table: a candle reports what the price did
+ * on a session that has already closed, which is a fact, not a reading of a forecast. The shape differs
+ * too (hollow up / solid down) so the chart survives colour-blindness and print. */
+.research-screen .mv-view { display: grid; gap: 14px; }
+.research-screen .mv-view {
+  --mv-up: var(--mint); --mv-down: var(--danger-hex); --mv-ink: var(--c-ink);
+  --mv-market: var(--indigo); --mv-rule: var(--c-line-strong); --mv-bg: var(--bg-1); --mv-grid: var(--c-line);
+}
+.research-screen .mv-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+  padding: 10px 12px; border: 1px solid var(--c-line); border-radius: 12px; background: var(--bg-1); }
+.research-screen .mv-controls label { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--c-ink-2); }
+.research-screen .mv-controls input, .research-screen .mv-controls select {
+  background: var(--bg-2); border: 1px solid var(--c-line); border-radius: 8px; padding: 5px 9px;
+  font-size: 12.5px; color: var(--c-ink); font-family: var(--mono); }
+.research-screen .mv-dir { display: inline-flex; gap: 3px; margin-left: auto; }
+.research-screen .mv-dir button, .research-screen .mv-rangebtn {
+  border: 1px solid var(--c-line); background: var(--bg-2); color: var(--c-ink-3); cursor: pointer;
+  border-radius: 999px; padding: 5px 12px; font-family: var(--mono); font-size: 11px; letter-spacing: .03em; }
+.research-screen .mv-dir button[aria-pressed="true"], .research-screen .mv-rangebtn[aria-pressed="true"] {
+  color: var(--c-ink); border-color: var(--mint); background: var(--mint-soft); }
+.research-screen .mv-dir button:focus-visible, .research-screen .mv-rangebtn:focus-visible,
+.research-screen .mv-railrow:focus-visible, .research-screen .mv-symbtn:focus-visible,
+.research-screen .mv-evt:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+
+.research-screen .mv-withheld { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0;
+  border: 1px solid var(--amber-line); background: var(--amber-soft); border-radius: 10px;
+  padding: 10px 12px; font-size: 12.5px; color: var(--c-ink-2); line-height: 1.5; }
+.research-screen .mv-withheld b { color: var(--c-ink); font-family: var(--mono); }
+
+.research-screen .mv-split { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 18px; align-items: start; }
+.research-screen .mv-rail { border: 1px solid var(--c-line); border-radius: 12px; padding: 10px; background: var(--bg-1);
+  max-height: 760px; overflow-y: auto; }
+.research-screen .mv-raillist { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.research-screen .mv-railrow { width: 100%; text-align: left; cursor: pointer; background: none; border: 1px solid transparent;
+  border-radius: 9px; padding: 8px 9px; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; color: var(--c-ink-2); }
+.research-screen .mv-railrow:hover { background: var(--bg-2); }
+.research-screen .mv-railrow[aria-current] { border-color: var(--mint); background: var(--mint-soft); color: var(--c-ink); }
+.research-screen .mv-rsym { font-weight: 600; font-size: 13.5px; color: var(--c-ink); }
+.research-screen .mv-rpct { font-family: var(--mono); font-size: 13px; text-align: right; color: var(--c-ink); }
+.research-screen .mv-rday { font-family: var(--mono); font-size: 10.5px; color: var(--c-ink-3); }
+.research-screen .mv-rca { font-family: var(--mono); font-size: 10px; color: var(--amber); justify-self: end; }
+
+.research-screen .mv-badge { grid-column: 1 / -1; display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; margin-top: 3px; }
+.research-screen .mv-badge b { font-family: var(--mono); font-size: 10px; letter-spacing: .09em; font-weight: 500;
+  border: 1px solid var(--c-line-strong); border-radius: 4px; padding: 2px 6px; white-space: nowrap; }
+.research-screen .mv-badge.caught b { border-color: var(--mint-line); background: var(--mint-soft); color: var(--c-ink); }
+.research-screen .mv-badge.missed b { border-color: var(--c-line-strong); color: var(--c-ink-2); }
+/* "no model run" / "not scored" are coverage gaps, not results: neutral, never the miss treatment. */
+.research-screen .mv-badge.none b { border-style: dashed; color: var(--c-ink-3); }
+.research-screen .mv-badge-lab { font-size: 11px; color: var(--c-ink-3); }
+
+.research-screen .mv-main { display: grid; gap: 12px; min-width: 0; }
+.research-screen .mv-head { display: grid; gap: 4px; }
+.research-screen .mv-head h4 { margin: 0; font-size: 22px; font-weight: 400; display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.research-screen .mv-symbtn { border: 0; background: none; padding: 0; font: inherit; color: var(--c-ink);
+  cursor: pointer; border-bottom: 1px dashed var(--c-line-strong); }
+.research-screen .mv-headday { font-family: var(--mono); font-size: 11.5px; color: var(--c-ink-3); }
+.research-screen .mv-headnums { margin: 0; font-family: var(--mono); font-size: 12px; color: var(--c-ink-2); }
+.research-screen .mv-headnums b { color: var(--c-ink); font-size: 14px; }
+.research-screen .mv-ranges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+
+.research-screen .mv-chart { border: 1px solid var(--c-line); border-radius: 12px; background: var(--bg-1); padding: 6px; overflow-x: auto; }
+.research-screen .mv-chart-svg { min-width: 560px; }
+.research-screen .mv-chart-svg { display: block; width: 100%; height: auto; }
+.research-screen .mv-chart-empty { padding: 28px 14px; text-align: center; color: var(--c-ink-3); font-size: 13px; }
+.research-screen .mv-evt { cursor: pointer; }
+.research-screen .mv-evt-overflow { list-style: none; margin: 6px 0 0; padding: 0 0 0 2px; display: grid; gap: 3px;
+  font-size: 11.5px; color: var(--c-ink-3); }
+.research-screen .mv-note { font-size: 11.5px; color: var(--c-ink-3); }
+
+.research-screen .mv-evtcard { border: 1px solid var(--c-line); border-left: 2px solid var(--indigo); border-radius: 10px;
+  padding: 11px 13px; background: var(--bg-1); display: grid; gap: 5px; }
+.research-screen .mv-evtcard h5 { margin: 0; font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em;
+  font-weight: 500; color: var(--c-ink-3); }
+.research-screen .mv-evttitle { margin: 0; font-size: 14px; color: var(--c-ink); }
+.research-screen .mv-evtmetrics { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 20px;
+  font-size: 12px; color: var(--c-ink-2); }
+.research-screen .mv-evtmetrics b { font-family: var(--mono); color: var(--c-ink); }
+.research-screen .mv-evtflags { margin: 2px 0 0; display: flex; flex-wrap: wrap; gap: 5px; }
+.research-screen .mv-flag { font-family: var(--mono); font-size: 9.5px; letter-spacing: .07em; padding: 2px 6px;
+  border-radius: 4px; border: 1px solid var(--c-line-strong); color: var(--c-ink-2); }
+.research-screen .mv-flag.mint { border-color: var(--mint-line); background: var(--mint-soft); }
+.research-screen .mv-flag.danger { border-color: var(--danger-line); background: var(--danger-soft); }
+.research-screen .mv-flag.amber { border-color: var(--amber-line); background: var(--amber-soft); }
+.research-screen .mv-flag.indigo { border-color: var(--indigo-line); background: var(--indigo-soft); }
+
+.research-screen .mv-attr { border: 1px solid var(--c-line); border-radius: 12px; padding: 14px; background: var(--bg-1); display: grid; gap: 10px; }
+.research-screen .mv-attr h4 { margin: 0; font-size: 17px; font-weight: 400; }
+.research-screen .mv-attr-wins { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.research-screen .mv-attr-win { border: 1px solid var(--c-line); border-radius: 10px; padding: 10px 11px; background: var(--bg-2); }
+.research-screen .mv-attr-win h5 { margin: 0 0 6px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em;
+  font-weight: 500; display: flex; justify-content: space-between; gap: 8px; color: var(--c-ink); }
+.research-screen .mv-attr-win h5 span { color: var(--c-ink-3); letter-spacing: 0; }
+.research-screen .mv-attr-tot { margin: 0 0 7px; font-size: 12px; color: var(--c-ink-2); }
+.research-screen .mv-attr-tot b { font-family: var(--mono); font-size: 15px; color: var(--c-ink); }
+.research-screen .mv-attr-legs { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.research-screen .mv-attr-legs li { display: grid; grid-template-columns: 76px 1fr 58px; align-items: center; gap: 7px; font-size: 11.5px; }
+.research-screen .mv-attr-name { color: var(--c-ink-3); }
+.research-screen .mv-attr-bar { height: 7px; background: var(--bg-3); border-radius: 4px; overflow: hidden; }
+/* 2px surface gap at the data end, per the house chart spec */
+.research-screen .mv-attr-bar i { display: block; height: 100%; border-radius: 4px; background: var(--c-ink-4); }
+.research-screen .mv-attr-bar i[data-neg] { background: var(--c-ink-3); }
+.research-screen .mv-attr-val { font-family: var(--mono); text-align: right; color: var(--c-ink); }
+.research-screen .mv-na { margin: 0; font-size: 12px; color: var(--c-ink-3); }
+.research-screen .mv-reg { margin: 0; font-size: 12px; color: var(--c-ink-2); line-height: 1.55; }
+.research-screen .mv-reg b { font-family: var(--mono); color: var(--c-ink); }
+.research-screen .mv-degraded { color: var(--amber); }
+.research-screen .mv-mini { margin: 4px 0 0; font-size: 11.5px; color: var(--c-ink-3); }
+
+@media (max-width: 1040px) {
+  .research-screen .mv-split { grid-template-columns: minmax(0, 1fr); }
+  .research-screen .mv-rail { max-height: 320px; }
+}
+@media (max-width: 560px) {
+  .research-screen .mv-controls { gap: 7px 10px; }
+  .research-screen .mv-dir { margin-left: 0; }
+  .research-screen .mv-attr-legs li { grid-template-columns: 64px 1fr 52px; }
+}

@@ -29,6 +29,7 @@ import {
 } from "@/services/adapters/moveOdds.adapter";
 import { ChatWidget } from "@/components/chat/ChatWidget";
 import { EventBar, FilterBar, RatioPanel } from "./MoveOddsFilters";
+import { MoversView } from "./MoversView";
 import { SHORT, answers, checkConds, condActive, fmtRatio, fundBand, gradeTone, peerMedian, qualityLabel, ratioIndex, techBand, valueOf, type Cap, type Cond } from "./moveOddsProfile";
 import "./moveOdds.css";
 
@@ -172,7 +173,7 @@ export default function MoveOddsScreen() {
   const [liveError, setLiveError] = useState<string | null>(null);
   const [diag, setDiag] = useState<DiagnosticsResult | null>(null);
   const [diagReload, setDiagReload] = useState(0);
-  const [view, setView] = useState<"estimates" | "history">("estimates");
+  const [view, setView] = useState<"estimates" | "history" | "movers">("estimates");
   const [hist, setHist] = useState<HistoryResult | null>(null);
   const [histSession, setHistSession] = useState<string | null>(null);
   const [histSort, setHistSort] = useState<{ key: "est" | "sym" | "rating" | "move"; dir: "asc" | "desc" }>({ key: "est", dir: "desc" });
@@ -543,9 +544,9 @@ export default function MoveOddsScreen() {
 
       <div className="mo-viewrow mo-controlrow">
         <div className="mo-viewtoggle" role="group" aria-label="View">
-          {(["estimates", "history"] as const).map((v) => (
+          {(["estimates", "history", "movers"] as const).map((v) => (
             <button key={v} type="button" className="mo-viewbtn" aria-pressed={view === v} data-testid={`mo-view-${v}`} onClick={() => setView(v)}>
-              {v === "estimates" ? "Estimates" : "History"}
+              {v === "estimates" ? "Estimates" : v === "history" ? "History" : "Movers"}
             </button>
           ))}
         </div>
@@ -610,6 +611,10 @@ export default function MoveOddsScreen() {
       )}
 
       <div id="mo-panel" role="tabpanel" aria-labelledby={`mo-tab-${size}`}>
+        {/* Movers: the owner's Top Movers Dashboard v1, as a view of THIS screen rather than a second
+            dashboard. It brings its own window controls; the size tabs above do not apply to it. */}
+        {view === "movers" && <MoversView onNoAccess={denyAll} onOpenStock={openStock} />}
+
         {view === "history" && (
           <>
             <div className="mo-viewrow mo-histrow">
