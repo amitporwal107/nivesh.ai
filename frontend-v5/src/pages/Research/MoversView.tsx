@@ -57,13 +57,25 @@ function day(s: string): string {
   return y && m && d ? `${d} ${MON[m - 1]} ${y}` : s;
 }
 
-export function MoversView({ onNoAccess, modelVersion = null }: {
+export function MoversView({ onNoAccess, modelVersion = null, backToFeed }: {
   onNoAccess: () => void;
   /** e.g. the run's model label ("v4"); shown in the top-bar chip. null renders the chip without a version. */
   modelVersion?: string | null;
   /** kept for the host's call site: the design has no "open stock" affordance, so this view does not use it. */
   onOpenStock?: (symbol: string, el: HTMLElement) => void;
+  /** set only when this view was reached from one filing on the Research feed (?symbol=&session=); renders
+   * a "back to filings" button and, combined with that same URL pair, pins the Candidates rail to that one
+   * name instead of fetching the day's list. */
+  backToFeed?: () => void;
 }) {
+  // A single filing's "open the chart" link: ?symbol=&session=[&name=&title=&kind=]. Read once at mount,
+  // same idiom as mode/view above. Present only when the Research feed linked in on one specific filing.
+  const pinned = useMemo(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const symbol = sp.get("symbol"), session = sp.get("session");
+    if (!symbol || !session) return null;
+    return { symbol: symbol.toUpperCase(), session, name: sp.get("name"), title: sp.get("title"), kind: sp.get("kind") };
+  }, []);
   const today = useMemo(() => iso(new Date()), []);
   const [to, setTo] = useState(today);
   const [from, setFrom] = useState(() => shift(today, -WINDOW_DAYS));
@@ -180,8 +192,35 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
   // the candidates list: material filing or bulk/block deal, last session — independent of the odds
   // model and of whether the stock has already moved. Not re-windowed by from/to: always the newest
   // session on record, same as /forward.
+  //
+  // `pinned`: reached from one filing on the Research feed, not the day's list — build the one-row
+  // "list" from what the feed already told us (symbol/session/title) instead of calling the list
+  // endpoint, which only ever returns the names it judged material for ONE session; the filing clicked
+  // may be neither (any category, any day in the feed's own window). The chart/timeline still come
+  // from the real `/api/movers/{symbol}` detail fetch below, same as every other candidate row.
   useEffect(() => {
     if (mode !== "CANDIDATES") return;
+    if (pinned) {
+      setCnd({
+        kind: "ok",
+        data: {
+          session: pinned.session, count: 1,
+          candidates: [{
+            symbol: pinned.symbol, name: pinned.name, session: pinned.session,
+            close: null, prev_close: null, pct: null,
+            signals: [{
+              id: "pinned", type: pinned.kind === "dealB" || pinned.kind === "dealS" ? pinned.kind : "fil",
+              kind: "FILING", kind_note: "Opened from the Research feed.",
+              title: pinned.title || "Filing", sub: "",
+            }],
+          }],
+          rule: "Opened from one filing on the Research feed.",
+          disclaimer: "Not a prediction: this shows that filing's chart and event history, nothing more.",
+        },
+      });
+      setSel({ symbol: pinned.symbol, session: pinned.session });
+      return;
+    }
     let live = true;
     setCnd(null);
     fetchMoverCandidates({ limit: 40 }).then((r) => {
@@ -197,7 +236,27 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
       }
     });
     return () => { live = false; };
-  }, [mode, cndReload, onNoAccess]);
+  }, [mode, pinned, cndReload, onNoAccess]);
+
+  // Once the real detail loads for the pinned filing, backfill its close/prev_close/pct (and name, if the
+  // feed didn't have one) from the real header — never invented, just filled in once it is known.
+  // (Reads `detail`, not the later-declared `det` const, so this effect can sit beside the others above.)
+  useEffect(() => {
+    const d = detail?.kind === "ok" ? detail.data : null;
+    if (!pinned || mode !== "CANDIDATES" || !d || d.symbol !== pinned.symbol) return;
+    setCnd((cur) => {
+      if (cur?.kind !== "ok" || cur.data.candidates.length !== 1 || cur.data.candidates[0].symbol !== d.symbol) return cur;
+      const row = cur.data.candidates[0];
+      if (row.close != null) return cur; // already backfilled
+      return {
+        kind: "ok",
+        data: { ...cur.data, candidates: [{
+          ...row, name: row.name ?? d.name ?? null,
+          close: d.header.close, prev_close: d.header.prev_close, pct: d.header.pct,
+        }] },
+      };
+    });
+  }, [detail, pinned, mode]);
 
   useEffect(() => {
     // Not shown in Candidates mode (no odds-model card there), and both queries are heavy
@@ -286,6 +345,16 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
            color: "var(--ink)", fontFamily: "var(--sans)", fontSize: 14, display: "flex", flexDirection: "column",
            borderRadius: 14, overflow: "hidden",
          }}>
+      {pinned && backToFeed && (
+        <button type="button" onClick={backToFeed} data-testid="mv-back-to-feed"
+          style={{
+            display: "flex", alignItems: "center", gap: 6, alignSelf: "flex-start", margin: "10px 16px 0",
+            border: 0, background: "none", cursor: "pointer", padding: "4px 2px",
+            fontFamily: "var(--mono)", fontSize: 11, letterSpacing: ".08em", color: "var(--ink-3)",
+          }}>
+          ← Back to filings
+        </button>
+      )}
       <MoversTopBar asOf={asOf} modelVersion={modelVersion} />
       <div className="mv4-grid">
         {/* The design's rail holds 10 rows and simply runs the page's height. Ours holds up to 100 (every ≥5% move in

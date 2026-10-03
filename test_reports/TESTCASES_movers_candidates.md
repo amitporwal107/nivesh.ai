@@ -40,6 +40,9 @@ last session", UI = "wire up the existing [unmounted] dashboard", branch = "new 
 | TC-C20 | app | staging HTTP: `GET /api/movers/candidates` is live and correctly routed/gated on the deployed app | api | real HTTP response, not 404/500 | PASS (401 unauthenticated — route confirmed live; an authenticated response is TC-C21) |
 | TC-C21 | app | staging UI: the feed link, live login, real `move_odds` flag state for the test account | e2e (live) | link visible/working against the real deployed app | **BLOCKED** — needs a human session (owner or a session token), not a credential/deploy blocker any more |
 | TC-C22 | data | staging DB: the SQL in `candidates()` executes against real `nidp.corporate_announcements` / `nidp.bulk_deals` / `nidp.block_deals` / `nidp.prices_eod` without error, real row counts in a sane band | data | real counts, no SQL errors | PASS |
+| TC-F1 | frontend | clicking a filing's company name on the feed opens Candidates mode pinned to that symbol/session (no new backend call — built from the feed row the UI already has) | e2e (mocked) | PASS — see `movers_filing_row_link_20261003.md` |
+| TC-F2 | frontend | a "← Back to filings" button, shown only on this pinned path, returns to the feed | e2e (mocked) | PASS |
+| TC-F3 | frontend | without `features.move_odds`, a filing row carries no stock link at all | e2e (mocked) | PASS |
 
 TC-C01–C20 and TC-C22: all PASS, with real command output in the dated report below. TC-C21 is the one
 thing still **BLOCKED** — see `OVERRIDE_movers_candidates.md`. The branch is merged (with a concurrent

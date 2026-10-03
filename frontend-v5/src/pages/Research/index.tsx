@@ -125,6 +125,28 @@ export default function ResearchPage() {
     window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
     setScreen("odds");
   }, []);
+  // One filing's "open the chart" link: same deep-link, pinned to that filing's symbol/session so
+  // Candidates mode shows it alone instead of the day's list (MoversView reads these once at mount).
+  const goToStockCandidate = useCallback((row: FilingRow) => {
+    const symbol = (row.ticker || row.code || "").trim().toUpperCase();
+    const session = (row.date || "").slice(0, 10);
+    if (!symbol || !session) return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("screen", "odds"); params.set("view", "movers"); params.set("mode", "candidates");
+    params.set("symbol", symbol); params.set("session", session);
+    if (row.name) params.set("name", row.name);
+    const title = row.one || row.docLabel;
+    if (title) params.set("title", title);
+    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+    setScreen("odds");
+  }, []);
+  // Reverses goToCandidates/goToStockCandidate: drops the Movers-specific params and returns to the feed.
+  const backToFeed = useCallback(() => {
+    const params = new URLSearchParams(window.location.search);
+    for (const k of ["screen", "view", "mode", "symbol", "session", "name", "title", "kind"]) params.delete(k);
+    window.history.replaceState(null, "", params.toString() ? `${window.location.pathname}?${params}` : window.location.pathname);
+    setScreen("feed");
+  }, []);
 
   // ── feed state ──────────────────────────────────────────────────────────
   const [rows, setRows] = useState<FilingRow[]>([]);
@@ -538,11 +560,11 @@ export default function ResearchPage() {
                 insightLoading, tab, setTab, toggleExpand, page, pageCount, flashed, rowRefs,
                 company, clearCompany, docs, docsLoading,
                 held, todayOnly, setTodayOnly,
-                oddsEnabled, goToCandidates,
+                oddsEnabled, goToCandidates, goToStockCandidate,
               }}
             />
           ) : screen === "odds" && oddsEnabled ? (
-            <MoveOddsScreen />
+            <MoveOddsScreen backToFeed={backToFeed} />
           ) : screen === "paper" && oddsEnabled ? (
             <PaperTradesScreen />
           ) : screen === "lab" && labEnabled ? (
@@ -618,6 +640,7 @@ interface FeedProps {
   docsLoading: boolean;
   oddsEnabled: boolean;
   goToCandidates: () => void;
+  goToStockCandidate: (row: FilingRow) => void;
 }
 
 function FeedScreen(p: FeedProps) {
@@ -957,6 +980,7 @@ function FeedScreen(p: FeedProps) {
               onTab={(t) => p.setTab((m) => ({ ...m, [r.id]: t }))}
               onToggle={() => p.toggleExpand(r.id)}
               rowRef={(el) => { p.rowRefs.current[r.id] = el; }}
+              onOpenStock={p.oddsEnabled && (r.ticker || r.code) ? () => p.goToStockCandidate(r) : undefined}
             />
           ))}
           {!p.rows.length && !p.feedError && (
@@ -1151,12 +1175,14 @@ function DocumentsPanel({
    ══════════════════════════════════════════════════════════════════════════ */
 
 function FilingRowItem({
-  row: r, isOpen, flashed, insight: ins, loading, activeTab, onTab, onToggle, rowRef,
+  row: r, isOpen, flashed, insight: ins, loading, activeTab, onTab, onToggle, rowRef, onOpenStock,
 }: {
   row: FilingRow; isOpen: boolean; flashed: boolean;
   insight: Insight | null | undefined; loading: boolean;
   activeTab?: string; onTab: (t: string) => void; onToggle: () => void;
   rowRef: (el: HTMLDivElement | null) => void;
+  /** set only when the account can reach Movers (features.move_odds) and the row has a symbol to chart */
+  onOpenStock?: () => void;
 }) {
   const s = sig(r.sentiment);
   // Tabs come from the response — a filing only shows tabs its document could
@@ -1173,10 +1199,19 @@ function FilingRowItem({
         <span style={{ width: 8, height: 8, borderRadius: "50%", flex: "none", marginTop: 6 }} className={s.dot} />
         <FileText size={16} style={{ flex: "none", marginTop: 3, color: "var(--c-ink-4)" }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, color: "var(--c-ink)", fontWeight: 500 }}>
-            {r.name || r.ticker || "—"}{" "}
-            <span className="nv-mono" style={{ fontSize: 11, color: "var(--c-ink-3)", fontWeight: 400 }}>{r.code || r.ticker}</span>
-          </div>
+          {onOpenStock ? (
+            <button type="button" onClick={onOpenStock} data-testid="filing-row-open-stock"
+              title="Open this stock's chart and event history"
+              style={{ background: "none", border: 0, padding: 0, cursor: "pointer", textAlign: "left", fontSize: 14, color: "var(--c-ink)", fontWeight: 500 }}>
+              <span style={{ textDecoration: "underline", textDecorationColor: "var(--c-line)", textUnderlineOffset: 3 }}>{r.name || r.ticker || "—"}</span>{" "}
+              <span className="nv-mono" style={{ fontSize: 11, color: "var(--c-ink-3)", fontWeight: 400 }}>{r.code || r.ticker}</span>
+            </button>
+          ) : (
+            <div style={{ fontSize: 14, color: "var(--c-ink)", fontWeight: 500 }}>
+              {r.name || r.ticker || "—"}{" "}
+              <span className="nv-mono" style={{ fontSize: 11, color: "var(--c-ink-3)", fontWeight: 400 }}>{r.code || r.ticker}</span>
+            </div>
+          )}
           <div style={{ fontSize: 12.5, color: "var(--c-ink-2)", lineHeight: 1.45, marginTop: 2 }}>
             {r.one || r.docLabel || titleCase(r.category)}
           </div>

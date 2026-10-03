@@ -149,3 +149,56 @@ test.describe("Research feed → Candidates link → Movers Candidates mode", ()
     await expect(page.getByTestId("mv-cand-empty")).toContainText("No material filing or bulk/block deal on record");
   });
 });
+
+// ── Filing row → stock chart: click a company name on the feed itself, no "Candidates for the next
+// session" link involved. Pins Candidates mode to that one filing (any day, any category — not only
+// the ones the /candidates list would judge material for the latest session) and offers a way back. ──
+const FEED = {
+  ok: true, total: 1, facets: {},
+  rows: [{
+    id: "ANN-AAA-1", ticker: "AAA", code: "AAA", name: "Aaa Industries",
+    date: `${SESSION}T09:30:00Z`, category: "orders", impact: "high", sentiment: "positive",
+    docLabel: "Press Release", url: "https://example.test/aaa.pdf",
+    one: "AAA bags Rs500cr order", period: null, metric: null, hasInsights: true,
+  }],
+};
+
+async function setupFeed(page: Page) {
+  await mockAuthAs(page, "user-profile-move-odds.json");
+  await page.route("**/api/filings/feed**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(FEED) }));
+  await page.route("**/api/movers/AAA?**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(detailFor("AAA")) }));
+}
+
+test.describe("Filing row → stock chart (pinned to one filing)", () => {
+  test("clicking a filing's company name opens its chart, pinned to that filing", async ({ page }) => {
+    await setupFeed(page);
+    await page.goto("/v5/research");
+    await page.getByTestId("filing-row-open-stock").click();
+    await expect(page.getByTestId("mv-view")).toBeVisible();
+    await expect(page.getByTestId("mv-mode-candidates")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("mv-rail-row-AAA")).toBeVisible();
+    await expect(page.getByTestId("mv-hero-name")).toContainText("Aaa Industries");
+    await expect(page.getByTestId("mv-hero-synthesis")).toContainText("AAA bags Rs500cr order");
+    await expect(page.getByTestId("mv-chart")).toBeVisible();
+    await expect(page.getByTestId("mv-log")).toBeVisible();
+    await expect(page.getByTestId("mv-cand-disclaimer")).toContainText("Opened from one filing on the Research feed.");
+  });
+
+  test("the back button returns to the filings feed", async ({ page }) => {
+    await setupFeed(page);
+    await page.goto("/v5/research");
+    await page.getByTestId("filing-row-open-stock").click();
+    await expect(page.getByTestId("mv-view")).toBeVisible();
+    await page.getByTestId("mv-back-to-feed").click();
+    await expect(page.getByTestId("filings-list")).toBeVisible();
+    await expect(page.getByTestId("mv-view")).toHaveCount(0);
+  });
+
+  test("without move_odds, a filing row has no stock link", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-research-only.json");
+    await page.route("**/api/filings/feed**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(FEED) }));
+    await page.goto("/v5/research");
+    await expect(page.getByTestId("filing-row")).toBeVisible();
+    await expect(page.getByTestId("filing-row-open-stock")).toHaveCount(0);
+  });
+});
