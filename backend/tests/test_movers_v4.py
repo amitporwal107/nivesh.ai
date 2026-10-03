@@ -386,6 +386,72 @@ class _FakeConn:
         return self.rows
 
 
+class _EvtConn:
+    """MOCK — canned rows keyed by SQL shape, args recorded per call. _events_for now issues a names-
+    resolution query before the main announcements query (the NSE/BSE identity bridge); this lets a test
+    assert the bridge actually wires through (ticker -> resolved names -> passed as the 4th positional
+    bind) without needing a real database."""
+    def __init__(self, names_rows, ann_rows):
+        self.calls: list[tuple[str, tuple]] = []
+        self._names = names_rows
+        self._ann = ann_rows
+
+    async def fetch(self, q, *a):
+        self.calls.append((q, a))
+        if "AS nn FROM" in q:
+            return self._names
+        if "FROM nidp.corporate_announcements" in q:
+            return self._ann
+        return []
+
+
+def test_events_for_resolves_company_names_before_the_bridge_query(mv):
+    """The names lookup runs first, scoped to the ticker (not the date window — a company's own
+    ticker-tagged history may fall outside d0..d1 even when a same-company BSE row is inside it), and its
+    result is threaded into the main query as the 4th bind so `ticker_symbol IS NULL AND norm(...) = ANY($4)`
+    can match. Row shaping (ticker-tagged or bridged, the SELECT list is identical either way) is
+    unaffected — already covered by the shape of every other event-producing test in this file."""
+    import asyncio
+    from datetime import date
+    conn = _EvtConn(names_rows=[{"nn": "knack packaging"}], ann_rows=[])
+    out = asyncio.run(mv._events_for(conn, "KNACK", date(2026, 9, 1), date(2026, 10, 31)))
+    assert out == []
+    # _events_for queries every lane (announcements x2 for the bridge, corporate_actions, bulk/block
+    # deals); isolate the two announcements calls by their distinguishing "AS nn" marker, not position.
+    ann_calls = [(q, a) for q, a in conn.calls if "nidp.corporate_announcements" in q]
+    assert len(ann_calls) == 2
+    names_call, names_args = next((q, a) for q, a in ann_calls if "AS nn" in q)
+    assert "ticker_symbol = $1" in names_call and "LIMIT 25" in names_call
+    assert names_args == ("KNACK",)  # scoped by ticker only, no date params
+    main_call, main_args = next((q, a) for q, a in ann_calls if "AS nn" not in q)
+    assert "ticker_symbol = $1" in main_call and "ticker_symbol IS NULL" in main_call and "= ANY($4" in main_call
+    assert main_args == ("KNACK", date(2026, 9, 1), date(2026, 10, 31), ["knack packaging"])
+
+
+def test_events_for_handles_no_resolved_names_without_crashing(mv):
+    """A symbol with no ticker-tagged announcement at all (e.g. a brand-new listing whose only filings so
+    far are BSE-sourced) resolves zero names; `= ANY($4)` over an empty list matches nothing extra, same
+    as behaviour before this bridge existed — not a crash, not a spurious match-everything."""
+    import asyncio
+    from datetime import date
+    conn = _EvtConn(names_rows=[], ann_rows=[])
+    out = asyncio.run(mv._events_for(conn, "NEWCO", date(2026, 9, 1), date(2026, 10, 31)))
+    assert out == []
+    _, main_args = next((q, a) for q, a in conn.calls if "nidp.corporate_announcements" in q and "AS nn" not in q)
+    assert main_args == ("NEWCO", date(2026, 9, 1), date(2026, 10, 31), [])
+
+
+def test_norm_company_matches_documents_py_bridge_exactly(mv):
+    """Same expression as documents.py::_norm() (both strip the identical legal-suffix set and
+    punctuation) — the two bridges must agree, or a symbol could resolve different sibling sets for
+    document search vs the movers event log."""
+    assert mv._norm_company("x") == (
+        "btrim(regexp_replace(regexp_replace(regexp_replace("
+        "lower(x),'[^a-z0-9]+',' ','g'),'\\s+',' ','g'),"
+        "'(\\s+(limited|ltd|pvt|private|the|company))+\\s*$','','g'))"
+    )
+
+
 def test_round_trips_pairs_same_client_within_five_sessions(mv):
     import asyncio
     from datetime import date

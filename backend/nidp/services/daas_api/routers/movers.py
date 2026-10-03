@@ -184,6 +184,22 @@ def _f(v: Any) -> Optional[float]:
     return None if v is None else float(v)
 
 
+def _norm_company(col: str) -> str:
+    """SQL expr for the NSE/BSE identity bridge — same normalization as
+    documents.py::_norm() (that module's STOPGAP comment has the full story):
+    a company's BSE-sourced corporate_announcements rows carry company_name but
+    ticker_symbol NULL, and no populated key (security_master.bse_code, ISIN)
+    links them back to the NSE ticker. Bridge on normalized company name instead.
+    Duplicated rather than imported — different router, a tiny self-contained
+    expression — and applied here only inside an already date-windowed query, so
+    the lack of documents.py's functional index does not matter."""
+    return (
+        "btrim(regexp_replace(regexp_replace(regexp_replace("
+        f"lower({col}),'[^a-z0-9]+',' ','g'),'\\s+',' ','g'),"
+        "'(\\s+(limited|ltd|pvt|private|the|company))+\\s*$','','g'))"
+    )
+
+
 def _reg(y: list[float], x: list[float]) -> Optional[dict[str, float]]:
     """design: reg(y,x) -> {beta, corr}. None when the sample is too small/degenerate."""
     n = len(y)
@@ -309,15 +325,26 @@ async def _events_for(conn, symbol: str, d0: date, d1: date) -> list[dict]:
     _insider_for(): nidp has no such table, so it is reported unavailable rather than empty."""
     out: list[dict] = []
 
+    # NSE/BSE identity bridge: resolve this ticker's own normalized company name(s) first — almost
+    # always exactly one — so the filings query below can also catch that company's BSE-sourced
+    # siblings (ticker_symbol NULL). Unscoped by date on purpose: the company's name is a stable
+    # fact, and a ticker-tagged row for it may not fall inside this particular d0..d1 window even
+    # when a same-company BSE row does. LIMIT bounds a pathological fan-out; empty -> filings query
+    # falls back to ticker-only, unchanged from before this bridge existed.
+    names = [r["nn"] for r in await conn.fetch(
+        f"SELECT DISTINCT {_norm_company('company_name')} AS nn FROM nidp.corporate_announcements "
+        "WHERE ticker_symbol = $1 LIMIT 25", symbol) if r["nn"]]
+
     for r in await conn.fetch(
-        """
+        f"""
         SELECT announcement_id, COALESCE(broadcast_at, filed_at) AS at, subject, description,
                event_category, sentiment, impact_score
           FROM nidp.corporate_announcements
-         WHERE ticker_symbol = $1
-           AND COALESCE(broadcast_at, filed_at)::date BETWEEN $2 AND $3
+         WHERE COALESCE(broadcast_at, filed_at)::date BETWEEN $2 AND $3
+           AND (ticker_symbol = $1
+                OR (ticker_symbol IS NULL AND {_norm_company('company_name')} = ANY($4::text[])))
          ORDER BY 2
-        """, symbol, d0, d1):
+        """, symbol, d0, d1, names):
         subject = (r["subject"] or "").strip()
         cat = (r["event_category"] or "").lower()
         is_res = any(k in cat or k in subject.lower() for k in ("result", "financial", "earnings"))
