@@ -48,7 +48,7 @@ const fdyy = (iso: string | null | undefined) => { const p = parts(iso); return 
 function sp(v: number | null | undefined): string {
   if (v == null || !isFinite(v)) return "—";
   const a = Math.abs(v) < 0.05 ? 0 : v;
-  return `${a > 0 ? "+" : a < 0 ? "−" : ""}${Math.abs(a).toFixed(1)}%`;
+  return `${a > 0 ? "+" : a < 0 ? "-" : ""}${Math.abs(a).toFixed(1)}%`;
 }
 const sentDate = (iso: string) => { const p = parts(iso); return p ? `${p[0]} ${p[1][0]}${p[1].slice(1).toLowerCase()} ${p[2]}` : "—"; };
 const p0 = (v: number | null | undefined) => (v == null || !isFinite(v) ? "—" : `${(v * 100).toFixed(0)}%`);
@@ -171,7 +171,8 @@ export function MoversRail(p: RailProps) {
     ["FLAGGED", `FLAGGED · NONE / PENDING${p.flaggedCount != null ? ` · ${p.flaggedCount}` : ""}`],
   ];
   const emptyBox = !p.loading && !p.error && p.rows.length === 0;
-  const win = `${fd(p.from)} – ${fdy(p.to)}`;
+  // one line in the 267px rail like the design's "SEPT 2026": the year is shown only when the window crosses a year boundary
+  const win = p.from.slice(0, 4) === p.to.slice(0, 4) ? `${fd(p.from)} – ${fd(p.to)}` : `${fdy(p.from)} – ${fdy(p.to)}`;
 
   return (
     <aside data-testid="mv-rail" aria-label="Movers list" style={{ borderRight: "1px solid var(--line)", padding: "20px 16px", display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
@@ -295,7 +296,7 @@ function synthesis(row: RailRow, mode: MoversMode, evCount: string): string {
   const o = row.odds;
   if (mode === "FLAGGED") {
     const out = row.exec?.out;
-    return `Flagged by the odds model at P ${p2(row.model_p ?? o.score)} for ${fdy(row.session)}; ${out === "NONE" ? "it resolved NONE: it reached neither +5% nor −5% in the window" : out === "PENDING" ? "the window has not finished, so the outcome is still pending" : `it went on to reach ${out === "BOTH" ? "both +5% and −5%" : out === "UP" ? "+5%" : "−5%"}`}.${tail}`;
+    return `Flagged by the odds model at P ${p2(row.model_p ?? o.score)} for ${fdy(row.session)}; ${out === "NONE" ? "it resolved NONE: it reached neither +5% nor -5% in the window" : out === "PENDING" ? "the window has not finished, so the outcome is still pending" : `it went on to reach ${out === "BOTH" ? "both +5% and -5%" : out === "UP" ? "+5%" : "-5%"}`}.${tail}`;
   }
   const c = coverOf(row);
   if (c === "CAUGHT") return `${mv} The odds model flagged it ahead of the move: its estimate was ${p0(o.score)} on ${o.run_session ? sentDate(o.run_session) : "—"}${o.cutoff != null ? `, at or above the ${p0(o.cutoff)} cut-off` : ""}.${tail}`;

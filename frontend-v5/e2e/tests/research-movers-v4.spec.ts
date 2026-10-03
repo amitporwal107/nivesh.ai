@@ -55,13 +55,21 @@ const CAL = {
     { lo: 0.40, hi: null, n: 7,    predicted: 0.425, realised: null },
   ],
 };
+// Real shape (fixtures/flaglift_v2.json): each flag carries by_decile x10 {decile,firings,moved,base_rate,lift}; response carries decile_base.
+const byDecile = (lifts: Array<number | null>, firings: number[]) =>
+  lifts.map((lift, i) => ({ decile: i + 1, firings: firings[i], moved: lift == null ? 0 : Math.round(firings[i] * 0.2),
+                            base_rate: 0.04 + i * 0.03, lift }));
+const DECILE_BASE = Array.from({ length: 10 }, (_, i) => ({ decile: i + 1, n: 700, base_rate: 0.04 + i * 0.03 }));
 const LIFT = {
   from: DATES[0], to: DATES[N - 1], head: "p_up5_1d", horizon: 3,
-  population: 6975, deciles: 10, base_rate: 0.0671,
+  population: 6975, deciles: 10, base_rate: 0.0671, decile_base: DECILE_BASE,
   flags: [
-    { key: "gap2", label: "GAP ≥2%", available: true, reason: null, lift_uncond: 2.37, lift_within: 1.62, n: 912, verdict: "SURVIVES" },
-    { key: "vol2", label: "VOL 2×+", available: true, reason: null, lift_uncond: 2.08, lift_within: 1.07, n: 744, verdict: "DECORATION" },
-    { key: "leak", label: "PRE-DRIFT LEAK", available: true, reason: null, lift_uncond: 1.93, lift_within: 1.71, n: 388, verdict: "PRE-PRICED" },
+    { key: "gap2", label: "GAP ≥2%", available: true, reason: null, lift_uncond: 2.37, lift_within: 1.62, n: 912, verdict: "SURVIVES",
+      by_decile: byDecile([1.1, 1.3, 1.4, 1.6, 1.7, 1.8, 2.1, 2.2, 1.9, 1.6], [90, 90, 90, 90, 90, 90, 90, 90, 90, 90]) },
+    { key: "vol2", label: "VOL 2×+", available: true, reason: null, lift_uncond: 2.08, lift_within: 1.07, n: 744, verdict: "DECORATION",
+      by_decile: byDecile([1.0, 1.1, 1.0, 1.2, 1.1, 1.0, 1.1, 1.0, 1.1, 1.0], [74, 74, 74, 74, 74, 74, 74, 74, 74, 76]) },
+    { key: "leak", label: "PRE-DRIFT LEAK", available: true, reason: null, lift_uncond: 1.93, lift_within: 1.71, n: 388, verdict: "PRE-PRICED",
+      by_decile: byDecile([1.5, 1.6, 1.7, 1.8, 1.7, 1.9, 1.8, 1.7, 1.6, 1.7], [38, 38, 38, 38, 39, 39, 39, 39, 39, 41]) },
     { key: "ins", label: "INSIDER / SAST ±3D", available: false, reason: "NIDP_INSIDER_SAST_NOT_BACKFILLED", lift_uncond: null, lift_within: null, n: 0, verdict: null },
     { key: "d1", label: "BULK DEAL D-1", available: false, reason: "TOO_FEW_FIRINGS", lift_uncond: null, lift_within: null, n: 12, verdict: null },
   ],
@@ -111,7 +119,7 @@ async function setup(page: Page, o: { cal?: unknown; lift?: unknown; status?: nu
                 coverage: { mapped: 1011, total: 1011 } },
       regression: { beta: 1.2, corr: 0.61, sbeta: 0.8, scorr: 0.5, sessions: 120, requested_sessions: 250,
                     window: [DATES[0], DATES[19]], available: true, degraded: true, reason: "SHORT_INDEX_HISTORY" },
-      rolling_beta: { before: { beta: 1.1, corr: 0.6, sessions: 19, se: 0.18 }, after: { beta: 1.3, corr: 0.58, sessions: 19, se: 0.21 } },
+      rolling_beta: { before: { beta: 1.1, corr: 0.6, sessions: 19, se: 0.18 }, after: { beta: 1.3, corr: 0.58, sessions: 19, se: 0.21 }, available: true, reason: null },
       windows: [{ key: "BEFORE", label: "E-7 → E-1", decomp: { R: 0.021, M: 0.0083, S: 0.011, m_part: 0.010, s_part: 0.002, spec: 0.009, available: true, sector_leg: true } },
                 { key: "EVENT", label: "E-1 → E+1", decomp: { R: 0.084, M: 0.0042, S: 0.009, m_part: 0.005, s_part: 0.004, spec: 0.075, available: true, sector_leg: true } },
                 { key: "AFTER", label: "E+1 → E+7", decomp: { R: -0.012, M: -0.0058, S: -0.007, m_part: -0.007, s_part: -0.001, spec: -0.004, available: true, sector_leg: true } }],
@@ -144,26 +152,33 @@ async function openMovers(page: Page) {
 test.use({ viewport: { width: 1420, height: 1100 } });
 
 test.describe("Move odds — Movers v4", () => {
-  test("TC-V14 an event shows four returns, with net after costs in ink and close-to-close dimmed", async ({ page }) => {
+  // REMOVED ON PURPOSE by the v4 port: the standalone mv-exec card (mv-exec-re/gap/intra/net). The same four returns now
+  // live in the Copilot card's EXECUTABLE RETURN block (SPAN / GAP / INTRADAY / NET OF cost) + the OUTCOME pill.
+  test("TC-V14 an event shows four returns in the Copilot card, net after the stated cost", async ({ page }) => {
     await setup(page); await openMovers(page);
     await page.getByTestId("mv-evt-ann:1").click();
-    const ex = page.getByTestId("mv-exec");
-    await expect(ex).toBeVisible();
-    for (const id of ["mv-exec-re", "mv-exec-gap", "mv-exec-intra", "mv-exec-net"])
-      await expect(page.getByTestId(id)).toBeVisible();
-    // net == open-to-close minus the stated cost
-    await expect(page.getByTestId("mv-exec-net")).toContainText("1.4%");
-    await expect(page.getByTestId("mv-exec-re")).toContainText(/reference/i);
-    await expect(ex).toContainText(/0\.628/);                        // TC-V21: costs are named
+    const cop = page.getByTestId("mv-copilot");
+    await expect(cop).toBeVisible();
+    await expect(cop).toContainText("SPAN C E-1");                  // close-to-close reference
+    await expect(cop).toContainText("GAP · C E");
+    await expect(cop).toContainText("INTRADAY · O");
+    await expect(cop).toContainText(/NET OF 0\.628% COST/);         // TC-V21: costs are named
+    // net == open-to-close (2.05%) minus 0.628% = 1.42% -> +1.4%
+    const netCard = cop.locator("div", { has: page.locator("span", { hasText: /^NET OF 0\.628% COST$/ }) }).last();
+    await expect(netCard).toContainText("+1.4%");
+    await expect(cop).toContainText("+3.1%");                         // gap
+    await expect(cop).toContainText(/\+2\.[01]%/);                       // intraday 0.0205 (1dp; float rounding may give 2.0 or 2.1)
   });
 
   test("TC-V15 the outcome is a state, and NONE never reads as a zero return", async ({ page }) => {
     await setup(page); await openMovers(page);
     await page.getByTestId("mv-evt-ann:1").click();
-    const pill = page.getByTestId("mv-exec-out");
-    await expect(pill).toHaveText("NONE");
-    await expect(page.getByTestId("mv-exec")).toContainText(/reached neither/i);
-    await expect(page.getByTestId("mv-exec")).not.toContainText(/outcome.*0\.0%/i);
+    const pill = page.getByTestId("mv-copilot-outcome");
+    await expect(pill).toContainText("NONE");
+    await expect(pill).toContainText("3S");
+    await expect(page.getByTestId("mv-copilot-prose")).toContainText(/neither ±5% from the open within 3 sessions/);
+    await expect(pill).not.toContainText(/0\.0%/);
+    await expect(page.getByTestId("mv-copilot")).not.toContainText(/outcome.*0\.0%/i);
   });
 
   test("TC-V16 the mirror switch shows the flags that did not move, and how they turned out", async ({ page }) => {
@@ -186,15 +201,27 @@ test.describe("Move odds — Movers v4", () => {
     await expect.poll(() => seen.some((u) => u.includes("horizon=20"))).toBe(true);
   });
 
+  // REMOVED ON PURPOSE: the standalone 20-band table mv-cal-table. The compact calibration strip in the odds-model panel
+  // carries the same facts: a chip with the ratio (title), a sentence, and one titled column per band.
   test("TC-V18 calibration: predicted vs realised, and an empty band is not a zero bar", async ({ page }) => {
     await setup(page); await openMovers(page);
     await expect(page.getByTestId("mv-cal")).toBeVisible();
-    await expect(page.getByTestId("mv-cal-over")).toContainText(/0\.83/);
-    await expect(page.getByTestId("mv-cal-over")).toContainText(/under/i);      // 0.83 < 1 = under-states
-    await expect(page.getByTestId("mv-cal")).toContainText(/too few/i);         // the withheld bands say so
-    const table = page.getByTestId("mv-cal-table");
-    await expect(table).toBeVisible();
-    await expect(table).not.toContainText(/0\.0%\s*$/);
+    const chip = page.getByTestId("mv-cal-over");
+    await expect(chip).toContainText(/UNDER-PREDICTS/);                 // 0.83 < 1 = under-states
+    await expect(chip).toHaveAttribute("title", /0\.83/);               // the real ratio, not a rounded inverse only
+    await expect(page.getByTestId("mv-cal")).toContainText(/In the 0\.40\+ bucket too few resolved names to measure/);   // this stock (p 0.52) sits in a withheld band: said in words, no figure
+    await expect(page.getByTestId("mv-cal-foot")).toContainText(/the head's own event on the target session/);
+    await expect(page.getByTestId("mv-cal-table")).toHaveCount(0);
+    // a withheld band says "too few to measure" and draws NO realised bar (1 child = predicted outline only)
+    for (const lo of ["0.3", "0.35", "0.4"]) {
+      const band = page.getByTestId(`mv-cal-band-${lo}`);
+      await expect(band, lo).toHaveAttribute("title", /realised too few to measure/);
+      await expect(band, lo).not.toHaveAttribute("title", /realised 0%/);
+      await expect(band.locator("> div"), lo).toHaveCount(1);
+    }
+    const measured = page.getByTestId("mv-cal-band-0.2");
+    await expect(measured).toHaveAttribute("title", /realised 26%/);
+    await expect(measured.locator("> div")).toHaveCount(2);
   });
 
   test("TC-V18b calibration unavailable renders a reason, never an empty chart", async ({ page }) => {
@@ -211,7 +238,7 @@ test.describe("Move odds — Movers v4", () => {
     await expect(page.getByTestId("mv-lift-gap2")).toContainText("SURVIVES");
     await expect(page.getByTestId("mv-lift-vol2")).toContainText("DECORATION");
     await expect(page.getByTestId("mv-lift-leak")).toContainText("PRE-PRICED");
-    await expect(page.getByTestId("mv-lift")).toContainText(/similar volatility/i);
+    await expect(page.getByTestId("mv-lift")).toContainText(/same ATR decile/i);
   });
 
   test("TC-V19b a flag with no source shows its reason, not a number", async ({ page }) => {

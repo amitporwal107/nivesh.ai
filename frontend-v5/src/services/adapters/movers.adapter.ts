@@ -51,6 +51,7 @@ export type MoverOdds = z.infer<typeof OddsC>;
 // ── List (GET /api/movers) ───────────────────────────────────────────────────────────────────────────────────────────
 const RowC = z.object({
   symbol: z.string(),
+  name: z.string().nullable().optional(),     // company name from nidp.sector_master; null for ETFs etc. — never invented
   session: z.string(),
   pct: Num,
   close: Num,
@@ -181,6 +182,7 @@ const RollingBetaC = z.object({ before: RollingC, after: RollingC, available: z.
 
 const DetailC = z.object({
   symbol: z.string(),
+  name: z.string().nullable().optional(),
   session: z.string(),
   range: z.string(),
   from: z.string(),

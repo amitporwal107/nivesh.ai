@@ -528,6 +528,17 @@ def _chart_index(k: Optional[int], lo: Optional[int], hi: Optional[int]) -> Opti
     return k - lo
 
 
+async def _names(conn, symbols: list[str]) -> dict[str, str]:
+    """Company names from nidp.sector_master (2,628 symbols). A symbol with no row (an ETF, say) simply has no name:
+    the client shows the symbol and never an invented name."""
+    syms = sorted({x for x in symbols if x})
+    if not syms:
+        return {}
+    rows = await conn.fetch(
+        "SELECT symbol, company_name FROM nidp.sector_master WHERE symbol = ANY($1::text[]) AND company_name IS NOT NULL", syms)
+    return {r["symbol"]: r["company_name"].strip() for r in rows if r["company_name"] and r["company_name"].strip()}
+
+
 # ── design's derived metrics ───────────────────────────────────────────────
 def _avg(bars: list[dict], a: int, b: int, key: str = "v") -> Optional[float]:
     w = [bars[k][key] for k in range(max(0, a), min(len(bars), b + 1)) if bars[k].get(key)]
@@ -867,6 +878,9 @@ async def list_movers(
                     "adjusted": _f(r["cumulative_adj_factor"]) not in (None, 1.0),
                     "odds": await _odds_badge(conn, r["symbol"], sess),
                 })
+            nm = await _names(conn, [x["symbol"] for x in out])
+            for x in out:
+                x["name"] = nm.get(x["symbol"])
         res = {
             "from": frm.isoformat(), "to": to.isoformat(), "count": len(out),
             "withheld_ca_suspect": withheld, "lanes": LANES, "ranges": list(RANGE_DAYS),
@@ -1279,6 +1293,7 @@ async def flagged_no_move(
             syms = sorted({r["symbol"] for r in flagged})
             bars = await _bars_for(conn, syms, frm - timedelta(days=40), to + timedelta(days=60))
             none_rows, pend_rows = [], []
+            nm = await _names(conn, syms)
             for r in sorted(flagged, key=lambda x: -(x["p"] or 0)):
                 bb = bars.get(r["symbol"]) or []
                 i = _idx_of(bb, r["session"])
@@ -1288,7 +1303,7 @@ async def flagged_no_move(
                 res["outcomes"][e["out"]] += 1
                 if e["out"] not in ("NONE", "PENDING"):
                     continue
-                row = {"symbol": r["symbol"], "session": r["session"].isoformat(),
+                row = {"symbol": r["symbol"], "name": nm.get(r["symbol"]), "session": r["session"].isoformat(),
                        "model_p": r["p"], "model_head": head, "base_rate": r["base"],
                        "pct": ((bb[i]["c"] / bb[i]["prev_c"] - 1) * 100
                                if (bb[i]["prev_c"] and bb[i]["c"]) else None),
@@ -1400,7 +1415,8 @@ async def mover_detail(
             chart = bars[lo:hi + 1] if lo is not None else []
             tb = bars[ti]
             res = {
-                "symbol": symbol, "session": session.isoformat(), "range": range_, "horizon": H,
+                "symbol": symbol, "name": (await _names(conn, [symbol])).get(symbol),
+                "session": session.isoformat(), "range": range_, "horizon": H,
                 "from": d0.isoformat(), "to": d1.isoformat(),
                 "header": {
                     "pct": ((tb["c"] / tb["prev_c"] - 1) * 100

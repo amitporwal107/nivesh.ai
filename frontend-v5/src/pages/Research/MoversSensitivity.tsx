@@ -33,7 +33,7 @@ const pct = (v: number | null | undefined) => {
 };
 const fdy = (iso: string) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} '${m[1].slice(2)}` : iso;
+  return m ? `${m[3]} ${MONTHS[Number(m[2]) - 1]} '${m[1].slice(2)}` : iso;
 };
 const sgnColor = (v: number | null | undefined) => (!fin(v) ? "var(--ink-4)" : v >= 0 ? "var(--mint)" : "var(--danger)");
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -143,7 +143,7 @@ export function MoversSensitivity({ detail, analysis }: MoversSensitivityProps) 
   const fmtSE = (o: { beta: number | null; se?: number | null }) => `${(o.beta as number).toFixed(2)} ± ${(o.se as number).toFixed(2)}`;
   const nB = rb?.b.sessions, nA = rb?.a.sessions;
   const rbLabel = rb ? `ROLLING β · ${mktUp} (${nB != null && nA != null ? (nB === nA ? `${nB}S` : `${nB}S / ${nA}S`) : "rolling"}, ±1 SE)` : "";
-  const rollReason = (rolling as { reason?: string | null } | null)?.reason ?? null; // the adapter schema strips this key today, so usually null
+  const rollReason = rolling?.reason ?? null;
   const rbWhy = rollReason ? (REASON[rollReason] ?? rollReason) : null;
   const baNote =
     (baPre && baPost && fin(baPre.R) && fin(baPre.M) && fin(baPost.R) && fin(baPost.M)
@@ -168,7 +168,7 @@ export function MoversSensitivity({ detail, analysis }: MoversSensitivityProps) 
   const prov = `MARKET = ${mktUp}${mkt.is_proxy ? " (PROXY)" : ""}${regOk ? ` · β ON ${reg.sessions} SESSIONS PRE-T` : " · β NOT ESTIMATED"}`;
   const secNote = !sec.available ? (sec.reason ? (REASON[sec.reason] ?? sec.reason) : "no sector index series available") : null;
 
-  const sectionStyle: CSSProperties = { borderRadius: 14, background: "var(--bg-1)", border: "1px solid var(--line)", boxShadow: "var(--shadow-card)", padding: "18px 20px", display: "flex", flexDirection: "column", gap: 16 };
+  const sectionStyle: CSSProperties = { borderRadius: 14, background: "var(--bg-1)", border: "1px solid var(--line)", boxShadow: "var(--shadow-card)", padding: "18px 20px", display: "flex", flexDirection: "column", gap: 16, overflowX: "auto" };
   const sub = lbl(10.5, ".12em", "var(--ink-3)");
   const cellL = lbl(10.5, ".06em", "var(--ink-2)");
   const cellV = (color: string): CSSProperties => ({ fontFamily: mono, fontSize: 12.5, fontWeight: 500, color });

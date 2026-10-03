@@ -46,12 +46,13 @@ export type MoversChartProps = {
 };
 
 const AX = 84, TOP = 20, VOL_H = 64, REL_H = 96, BOT = 30;
+const MIN_W = 560; // narrower than this the plot scrolls inside the card instead of squeezing candles or widening the page
 const CHART_H = 476; // design: relOn ? 476 : 380
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const utc = (t: string) => new Date(t.length <= 10 ? `${t}T00:00:00Z` : t);
 const fd = (t: string) => { const d = utc(t); return `${String(d.getUTCDate()).padStart(2, "0")} ${MON[d.getUTCMonth()]}`; };
 const fdy = (t: string) => `${fd(t)} '${String(utc(t).getUTCFullYear()).slice(2)}`;
-const inr = (v: number) => v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const inr = (v: number, d = 2) => v.toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
 const pct = (v: number | null | undefined) => {
   if (v == null || Number.isNaN(v)) return "—";
   if (Math.abs(v) < 0.0005) v = 0;
@@ -74,6 +75,9 @@ function tone(e: MoverEvent): string {
   if (e.lane === "deal") return "mint";
   return "indigo";
 }
+/** Plain-language reason for an unavailable insider lane. The API note names an internal script; never show that. */
+const insiderWhy = (reason?: string | null) =>
+  reason === "NOT_BACKFILLED" ? "INSIDER / SAST DISCLOSURES ARE NOT LOADED YET" : "INSIDER / SAST DISCLOSURES ARE NOT AVAILABLE RIGHT NOW";
 const outText = (x: NonNullable<MoverEvent["exec"]>) => (x.out === "PENDING" ? `PEND ${x.el}/${x.H}` : x.out);
 
 const seg = (on: boolean, c: string): CSSProperties => ({
@@ -160,6 +164,7 @@ export function MoversChart(props: MoversChartProps) {
   let lo = Math.min(...drawable.map((b) => b.l as number)), hi = Math.max(...drawable.map((b) => b.h as number));
   const padP = (hi - lo) * 0.08; lo -= padP; hi += padP;
   if (hi === lo) { hi += 1; lo -= 1; }
+  const axD = (hi - lo) / 5 < 0.01 ? 4 : (hi - lo) / 5 < 0.1 ? 3 : 2;   // sub-rupee stocks: more decimals so neighbouring ticks differ
   const y = (p: number) => TOP + ((hi - p) / (hi - lo)) * ph;
   const slot = pw / n, x = (i: number) => (i + 0.5) * slot;
   const vmax = Math.max(1, ...bars.map((b) => b.v || 0)), vb = CHART_H - BOT;
@@ -248,14 +253,23 @@ export function MoversChart(props: MoversChartProps) {
   }
 
   // ── hover header (design `lg`) ─────────────────────────────────────────────────────────────────────────────────
-  const hi_ = hoverIdx != null && hoverIdx >= 0 && hoverIdx < n ? hoverIdx : n - 1;
+  const hovered = hoverIdx != null && hoverIdx >= 0 && hoverIdx < n;
+  const hi_ = hovered ? (hoverIdx as number) : pinnedEv?.bar_index != null ? pinnedEv.bar_index : n - 1;
   const hb = bars[hi_], prevC = hb.prev_c ?? (hi_ > 0 ? bars[hi_ - 1].c : null);
   const chg = fin(hb.c) && fin(prevC) ? hb.c - prevC : null;
   const chgC = chg != null && chg < 0 ? cv("danger") : cv("mint");
   const dayChg = (vals: Array<number | null | undefined>, k: number) => (fin(vals[k]) && fin(vals[k - 1]) && k > 0 ? (vals[k] as number) / (vals[k - 1] as number) - 1 : null);
   const mktChg = mktOn ? dayChg(market.series, hi_) : null, secChg = secOn ? dayChg(sector.series, hi_) : null;
   const tOff = sess < 0 ? null : hi_ - sess;
-  const hoverEvents = events.filter((e) => e.bar_index === hi_ && laneKeys.has(e.lane));
+  // The design lists every event of the bar; real sessions can carry many (six bulk deals on one day), so the card
+  // lists at most EV_ROWS (pinned first) and says how many more. At rest (no hover, no pin) it lists none: the card sits
+  // over the plot and must not hide candles. The full list is always in the event list below the chart and the log.
+  const EV_ROWS = 3;
+  const barEvents = events.filter((e) => e.bar_index === hi_ && laneKeys.has(e.lane))
+    .sort((a, b) => Number(b.id === pinned) - Number(a.id === pinned));
+  const atRest = !hovered && !pinnedEv;
+  const hoverEvents = atRest ? [] : barEvents.slice(0, EV_ROWS);
+  const moreEvents = atRest ? 0 : barEvents.length - hoverEvents.length;
 
   const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect(), px = e.clientX - r.left, w = r.width - AX;
@@ -266,11 +280,15 @@ export function MoversChart(props: MoversChartProps) {
   const pill: CSSProperties = { position: "absolute", left: 0, transform: "translateX(-50%)", padding: "2px 8px", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".08em", whiteSpace: "nowrap" };
   const dot = (c: string) => <span style={{ width: 8, height: 8, borderRadius: "50%", background: cv(c) }} />;
   const slotPx = pw / n;
+  // a pill is centred on its line; near either edge of the plot it would be clipped, so it hangs inward instead
+  const pillX = (i: number): CSSProperties => { const c = (i + 0.5) * slotPx; return c < 48 ? { transform: "translateX(-10px)" } : c > pw - 48 ? { transform: "translateX(calc(-100% + 10px))" } : {}; };
 
   return (
-    <section data-testid="mv-chart" style={sectionStyle}>
+    <section data-testid="mv-chart" style={sectionStyle}
+             onKeyDown={(e) => { if (e.key === "Escape" && pinned) { e.stopPropagation(); pin(null); } }}>
       {toolbar}
-      <div style={{ position: "relative" }} onMouseMove={onMove} onMouseLeave={() => setHoverIdx(null)}>
+      <div style={{ overflowX: "auto" }} data-testid="mv-chart-scroll">
+      <div style={{ position: "relative", minWidth: MIN_W }} onMouseMove={onMove} onMouseLeave={() => setHoverIdx(null)}>
         <div ref={wrapRef} style={{ height: CHART_H, position: "relative" }}>
           <svg width={W} height={CHART_H} role="img" style={{ display: "block", width: "100%", height: "100%", fontFamily: "var(--mono)" }}
                aria-label={`Daily candles for ${symbol}, ${fd(bars[0].t)} to ${fd(bars[n - 1].t)}, ${n} sessions, with relative performance and volume`}>
@@ -279,7 +297,7 @@ export function MoversChart(props: MoversChartProps) {
               return (
                 <g key={k}>
                   <line x1={0} x2={pw} y1={yy + 0.5} y2={yy + 0.5} stroke={cv("line")} />
-                  <text x={pw + 10} y={yy} fontSize={11} fill={cv("ink-3")} dominantBaseline="central">{inr(p)}</text>
+                  <text x={pw + 10} y={yy} fontSize={11} fill={cv("ink-3")} dominantBaseline="central">{inr(p, axD)}</text>
                 </g>
               );
             })}
@@ -313,7 +331,7 @@ export function MoversChart(props: MoversChartProps) {
             ))}
             <line x1={0} x2={pw} y1={ly} y2={ly} stroke={cv("mint")} strokeDasharray="2 3" />
             <rect x={pw + 2} y={ly - 10} width={AX - 4} height={20} fill={cv("mint")} />
-            <text x={pw + 8} y={ly} fontSize={11} fill={cv("bg-0")} dominantBaseline="central">{inr(lastBar.c as number)}</text>
+            <text x={pw + 8} y={ly} fontSize={11} fill={cv("bg-0")} dominantBaseline="central">{inr(lastBar.c as number, axD)}</text>
             {xl.map((i) => (
               <text key={i} x={x(i)} y={CHART_H - 14} fontSize={11} fill={cv("ink-3")} textAnchor="middle" dominantBaseline="central">
                 {n > 70 ? `${MON[utc(bars[i].t).getUTCMonth()]} '${String(utc(bars[i].t).getUTCFullYear()).slice(2)}` : fd(bars[i].t)}
@@ -343,12 +361,20 @@ export function MoversChart(props: MoversChartProps) {
               <span>{secName} <span style={{ color: secOn ? "var(--amber)" : "var(--ink-4)" }}>{secOn ? pct(secChg) : "—"}</span></span>
             </div>
             {hoverEvents.map((e) => (
-              <div key={e.id} style={{ display: "flex", gap: 8, alignItems: "center", fontFamily: "var(--sans)", fontSize: 12, color: "var(--ink)" }}>
+              <div key={e.id} data-testid="mv-chart-header-evt" style={{ display: "flex", gap: 8, alignItems: "center", fontFamily: "var(--sans)", fontSize: 12, color: "var(--ink)", minWidth: 0 }}>
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: cv(tone(e)), flex: "none" }} />
-                {clip(e.title, 70)}
-                <span style={{ color: "var(--ink-3)" }}>{clip(e.sub, 90)}{e.exec ? ` · ${outText(e.exec)} · NET ${pct(e.exec.net)}` : ""}</span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                  {e.title}
+                  <span style={{ color: "var(--ink-3)" }}> {e.sub}{e.exec ? ` · ${outText(e.exec)} · NET ${pct(e.exec.net)}` : ""}</span>
+                </span>
               </div>
             ))}
+            {moreEvents > 0 && (
+              <div data-testid="mv-chart-header-more" style={{ color: "var(--ink-3)", fontSize: 11 }}>{`+${moreEvents} MORE ON THIS SESSION · SEE THE EVENT LIST BELOW`}</div>
+            )}
+            {atRest && barEvents.length > 0 && (
+              <div data-testid="mv-chart-header-more" style={{ color: "var(--ink-3)", fontSize: 11 }}>{`${barEvents.length} EVENT${barEvents.length > 1 ? "S" : ""} THIS SESSION · HOVER A SESSION OR CLICK A MARKER`}</div>
+            )}
           </div>
         </div>
 
@@ -361,7 +387,7 @@ export function MoversChart(props: MoversChartProps) {
             else if (!evs.length) {
               empty = "—";
               if (ln.key === "ins" && insiderLane && insiderLane.available === false) {
-                empty = `INSIDER / SAST FEED NOT LOADED${insiderLane.reason ? ` (${insiderLane.reason})` : ""} · AN EMPTY LANE DOES NOT MEAN NOTHING WAS FILED`;
+                empty = `${insiderWhy(insiderLane.reason)} · AN EMPTY LANE DOES NOT MEAN NOTHING WAS FILED`;
                 insNote = true;
               }
             }
@@ -380,13 +406,16 @@ export function MoversChart(props: MoversChartProps) {
                     const i = e.bar_index as number, c = tone(e), on = pinned === e.id || hoverIdx === i;
                     const k = byIdx.get(i) ?? 0; byIdx.set(i, k + 1);
                     const m = evs.filter((q) => q.bar_index === i).length;
-                    const dx = slotPx >= 30 && m > 1 ? (k - (m - 1) / 2) * 22 : 0;   // fan same-session markers apart only when a slot is wide enough
+                    const fan = slotPx >= 30 && m > 1;   // fan same-session markers apart only when a slot is wide enough
+                    const span = (m - 1) * 22, cx = (i + 0.5) * slotPx;
+                    const shift = fan ? Math.max(0, 12 - (cx - span / 2)) - Math.max(0, cx + span / 2 - (pw - 12)) : 0;   // keep the whole fan inside the plot, off the lane label
+                    const dx = fan ? (k - (m - 1) / 2) * 22 + shift : 0;
                     return (
                       <button key={e.id} type="button" className="mvc-evt" data-testid={`mv-evt-${e.id}`}
                               aria-label={`${e.type_label}: ${e.title}`} aria-pressed={pinned === e.id}
                               title={`${fdy(e.date)} · ${e.kind} · ${e.title} · ${e.sub}${e.flags.map((f) => ` · ${f.label}`).join("")}${e.exec ? ` · ${outText(e.exec)} · NET ${pct(e.exec.net)}` : ""}`}
                               onClick={() => pin(pinned === e.id ? null : e.id)}
-                              onFocus={() => setHoverIdx(i)}
+                              onFocus={() => setHoverIdx(i)} onBlur={() => setHoverIdx(null)}
                               style={{ position: "absolute", top: 7, left: dx ? `calc(${L(i)} + ${dx}px)` : L(i), transform: "translateX(-50%)", width: 20, height: 20, borderRadius: "50%",
                                 cursor: "pointer", padding: 0, border: `1px solid ${cv(c)}`, background: on ? cv(c) : cv(`${c}-soft`), color: on ? cv("bg-0") : cv(c),
                                 fontFamily: "var(--mono)", fontSize: 10, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center",
@@ -394,7 +423,7 @@ export function MoversChart(props: MoversChartProps) {
                     );
                   })}
                   {empty && (
-                    <span data-testid={insNote ? "mv-lane-ins-note" : undefined} title={insNote ? insiderLane?.note : undefined}
+                    <span data-testid={insNote ? "mv-lane-ins-note" : undefined} title={insNote ? "Insider / SAST disclosures are not available for this stock yet, so this lane cannot show them." : undefined}
                           style={{ position: "absolute", top: 10, left: 12, right: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".08em", color: "var(--ink-4)" }}>{empty}</span>
                   )}
                 </div>
@@ -410,12 +439,12 @@ export function MoversChart(props: MoversChartProps) {
           )}
           {sess >= 0 && (
             <div data-testid="mv-session-marker" style={{ position: "absolute", top: 0, bottom: 0, left: L(sess), borderLeft: "1px dashed var(--ink-3)" }}>
-              <span style={{ ...pill, top: CHART_H - 30, borderRadius: 999, background: "var(--ink)", color: "var(--bg-0)" }}>T · {fd(bars[sess].t).toUpperCase()}</span>
+              <span style={{ ...pill, ...pillX(sess), top: CHART_H - 30, borderRadius: 999, background: "var(--ink)", color: "var(--bg-0)" }}>T · {fd(bars[sess].t).toUpperCase()}</span>
             </div>
           )}
           {flagShow && (
             <div data-testid="mv-flag-line" style={{ position: "absolute", top: 0, bottom: 0, left: L(flagIdx), borderLeft: "1px dashed var(--mint)" }}>
-              <span style={{ ...pill, top: CHART_H - 54, borderRadius: 999, background: "var(--mint-soft)", border: "1px solid var(--mint-line)", color: "var(--mint)" }}>FLAG · T-{sess - flagIdx}</span>
+              <span style={{ ...pill, ...pillX(flagIdx), top: CHART_H - 54, borderRadius: 999, background: "var(--mint-soft)", border: "1px solid var(--mint-line)", color: "var(--mint)" }}>FLAG · T-{sess - flagIdx}</span>
             </div>
           )}
           {pinnedEv && (
@@ -423,10 +452,11 @@ export function MoversChart(props: MoversChartProps) {
           )}
           {hoverIdx != null && (
             <div style={{ position: "absolute", top: 0, bottom: 0, left: L(hoverIdx), borderLeft: "1px dashed var(--ink-2)" }}>
-              <span style={{ ...pill, top: CHART_H - 22, borderRadius: 6, background: "var(--bg-4)", color: "var(--ink)", fontSize: 10.5, letterSpacing: 0 }}>{fdy(bars[hoverIdx].t)}</span>
+              <span style={{ ...pill, ...pillX(hoverIdx), top: CHART_H - 22, borderRadius: 6, background: "var(--bg-4)", color: "var(--ink)", fontSize: 10.5, letterSpacing: 0 }}>{fdy(bars[hoverIdx].t)}</span>
             </div>
           )}
         </div>
+      </div>
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16, padding: "10px 16px", fontFamily: "var(--mono)", fontSize: 10.5, letterSpacing: ".08em", color: "var(--ink-3)" }}>

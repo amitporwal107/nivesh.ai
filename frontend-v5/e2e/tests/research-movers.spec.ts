@@ -76,10 +76,10 @@ const REGRESSION: Json = {
 
 // Five events across fil/ca/deal/ins; one with bar_index null; one with metrics.gap 0.031 carrying a GAP flag.
 function events(symbol: string): Json[] {
-  const base = { sentiment: null, impact_score: null, session_shifted: false };
+  const base = { sentiment: null, impact_score: null as string | null, session_shifted: false };   // impact_score is a label (low|medium|high) or null
   const noMetrics = { re: null, gap: null, vol_pre: null, vol_post: null, flip: false };
   return [
-    { ...base, id: `ann:${symbol}:1001`, date: DATES[12], type: "res", lane: "fil", type_label: "RESULTS", glyph: "R", kind: "EARNINGS",
+    { ...base, impact_score: "medium", id: `ann:${symbol}:1001`, date: DATES[12], type: "res", lane: "fil", type_label: "RESULTS", glyph: "R", kind: "EARNINGS",
       kind_note: "Quarterly financial results approved by the board.", title: "Quarterly results approved by the board", sub: "Q1 FY27 results",
       bar_index: 12, metrics: { ...noMetrics, re: 0.012, gap: 0.004 }, flags: [] },
     { ...base, id: `ca:${symbol}:${DATES[15]}:DIVIDEND`, date: DATES[15], type: "ca", lane: "ca", type_label: "CORP ACTION", glyph: "C", kind: "DIVIDEND",
@@ -115,7 +115,7 @@ function detail(symbol: string, range = "T7"): Json {
     market: { name: "Nifty 50", series, available: true },
     sector: { name: "Nifty Energy", series: sectorSeries, available: true, reason: null },
     regression: REGRESSION,
-    rolling_beta: { before: { beta: 1.1, corr: 0.5, sessions: 19 }, after: { beta: 1.3, corr: 0.55, sessions: 7 } },
+    rolling_beta: { before: { beta: 1.1, corr: 0.5, sessions: 19, se: 0.2 }, after: { beta: 1.3, corr: 0.55, sessions: 7, se: 0.3 }, available: true, reason: null },
     windows: WINDOWS,
     lanes: LANES,
     insider_lane: { available: true, reason: null, source: "trendlyne" },
@@ -128,7 +128,7 @@ function analysis(symbol: string, eventId: string | null): Json {
   const pinned = eventId ? events(symbol).find((e) => e.id === eventId) ?? null : null;
   return {
     symbol, session: SESSION, market_index: "Nifty 50", sector_index: "Nifty Energy", regression: REGRESSION, pinned_event: pinned,
-    anchor: { bar: SESSION, is_pinned_event: !!pinned }, windows: WINDOWS, rolling_beta: { before: null, after: null }, model: ODDS[symbol],
+    anchor: { bar: SESSION, is_pinned_event: !!pinned }, windows: WINDOWS, rolling_beta: { before: null, after: null, available: false, reason: "ONE_SIDED" }, model: ODDS[symbol],
     disclaimer: "Attribution of realised return, not a causal claim: direction around events is not predictable in this dataset.",
   };
 }
@@ -330,10 +330,16 @@ test.describe("Move odds — Movers view", () => {
     for (const k of ["BEFORE", "EVENT", "AFTER"]) {
       const w = page.getByTestId(`mv-attr-${k}`);
       await expect(w, k).toBeVisible();
-      await expect(w).toContainText(/market/i);
-      await expect(w).toContainText(/sector/i);
-      await expect(w).toContainText(/stock itself|stock[- ]specific/i);
+      await expect(w).toContainText(k);                                                  // the column header names its window
     }
+    // v4 port: mv-attr-<WINDOW> is now a COLUMN of the BEFORE vs AFTER table; the market / sector / stock-specific split
+    // lives in its rows and in the event-day decomposition, so assert those on the card itself.
+    const attr = page.getByTestId("mv-attr");
+    await expect(attr).toContainText(/MARKET/);
+    await expect(attr).toContainText(/SECTOR/);
+    await expect(attr).toContainText(/STOCK-SPECIFIC/);
+    // the EVENT column carries the fixture's numbers: R = +8.4%
+    await expect(attr).toContainText("+8.4%");
     await expect(page.getByTestId("mv-attr-na")).toHaveCount(0);                           // every decomp present: no "not available"
     await expect(page.getByTestId("mv-attr")).toContainText(/not a causal claim|attribution/i);
 

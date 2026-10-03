@@ -16,6 +16,7 @@
  * peak score only from a real run; the 5%/10% universe boxes only state what heads/head allow, else a dash with the reason;
  * the compact calibration uses the real ratio and the real scored_as definition (ratio < 1 = under-states).
  */
+import "./moversV4FlagLift.css";
 import type { CSSProperties } from "react";
 import type { MoverBar, MoverEvent, MoverOdds, MoversCalibration } from "@/services/adapters/movers.adapter";
 import { MoversLog, type MoversLogProps } from "./MoversLog";
@@ -28,6 +29,8 @@ export type MoversModelPanelProps = {
   sessionIndex: number;
   calibration: MoversCalibration | null;
   calibrationError?: string | null;
+  /** when given, the calibration error state shows a Try again button */
+  onRetryCalibration?: () => void;
   horizon?: number | null;
 };
 export type MoversBottomRowProps = MoversLogProps & MoversModelPanelProps;
@@ -140,9 +143,9 @@ function derive(props: MoversModelPanelProps) {
 
 const cap: CSSProperties = { fontFamily: mono, fontSize: 10.5, letterSpacing: ".1em", color: "var(--ink-3)" };
 
-function Calibration({ cal, error, calScore }: { cal: MoversCalibration | null; error?: string | null; calScore: number | null }) {
+function Calibration({ cal, error, calScore, onRetry }: { cal: MoversCalibration | null; error?: string | null; calScore: number | null; onRetry?: () => void }) {
   const box: CSSProperties = { display: "flex", flexDirection: "column", gap: 8, paddingTop: 12, borderTop: "1px solid var(--line)" };
-  if (error) return <div style={box} role="alert" data-testid="mv-cal-error"><span style={cap}>CALIBRATION</span><span style={{ fontSize: 13.5, color: "var(--ink-2)" }}>Calibration could not be loaded: {error}</span></div>;
+  if (error) return <div style={box} role="alert" data-testid="mv-cal-error"><span style={cap}>CALIBRATION</span><span style={{ fontSize: 13.5, color: "var(--ink-2)" }}>Calibration could not be loaded: {error}</span>{onRetry && <button type="button" data-testid="mv-cal-retry" onClick={onRetry} className="mv4-lift-retry" style={{ alignSelf: "flex-start" }}>Try again</button>}</div>;
   if (!cal) return <div style={box} aria-busy="true" data-testid="mv-cal-loading"><span style={cap}>CALIBRATION</span><span style={{ fontSize: 13.5, color: "var(--ink-3)" }}>Loading calibration…</span></div>;
   const pend = cal.pending_excluded, resolved = cal.resolved ?? Math.max(0, cal.population - pend);
   const headTxt = cal.head.toUpperCase();
@@ -234,7 +237,7 @@ export function MoversModelPanel(props: MoversModelPanelProps) {
           ))}
         </div>
       </div>
-      <Calibration cal={props.calibration} error={props.calibrationError} calScore={d.calScore} />
+      <Calibration cal={props.calibration} error={props.calibrationError} calScore={d.calScore} onRetry={props.onRetryCalibration} />
     </section>
   );
 }
@@ -244,7 +247,7 @@ export function MoversBottomRow(p: MoversBottomRowProps) {
   return (
     <div data-testid="mv-bottom-row" style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       <MoversLog events={p.events} bars={p.bars} sessionIndex={p.sessionIndex} market={p.market} horizon={p.horizon} selectedId={p.selectedId} onSelect={p.onSelect} hoverBarIndex={p.hoverBarIndex} />
-      <MoversModelPanel symbol={p.symbol} model={p.model} bars={p.bars} events={p.events} sessionIndex={p.sessionIndex} calibration={p.calibration} calibrationError={p.calibrationError} horizon={p.horizon} />
+      <MoversModelPanel symbol={p.symbol} model={p.model} bars={p.bars} events={p.events} sessionIndex={p.sessionIndex} calibration={p.calibration} calibrationError={p.calibrationError} onRetryCalibration={p.onRetryCalibration} horizon={p.horizon} />
     </div>
   );
 }

@@ -25,6 +25,7 @@ import {
   type MoversFlagLift, type MoversFlagged, type MoversList, type MoversListResult,
 } from "@/services/adapters/movers.adapter";
 import "./moversV4Tokens.css";
+import "./moversV4View.css";
 import {
   MoversControls, MoversHero, MoversRail, MoversTopBar,
   type FlaggedSummary, type MoversDirection, type MoversMode, type RailRow,
@@ -35,7 +36,7 @@ import { MoversCopilot } from "./MoversCopilot";
 import { MoversFlagLift as FlagLiftCard } from "./MoversFlagLift";
 import { MoversBottomRow } from "./MoversModelPanel";
 
-const RANGES = ["T7", "1D", "1M", "3M", "1Y"];
+const RANGES = ["T7", "1D", "1M", "3M", "1Y", "C"];   // "C" = the design's CUSTOM tab (from/to)
 const DEFAULT_RANGE = "T7";
 const WINDOW_DAYS = 30;
 const HORIZONS = [3, 20] as const;
@@ -84,6 +85,8 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
 
   const [sel, setSel] = useState<{ symbol: string; session: string } | null>(null);
   const [range, setRange] = useState<string>(DEFAULT_RANGE);
+  const [customFrom, setCustomFrom] = useState<string | null>(null);
+  const [customTo, setCustomTo] = useState<string | null>(null);
   const [detail, setDetail] = useState<MoverDetailResult | null>(null);
   const [detailReload, setDetailReload] = useState(0);
   const [evtId, setEvtId] = useState<string | null>(null);
@@ -115,13 +118,16 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
     let live = true;
     setDetail(null);
     setEvtId(null);
-    fetchMoverDetail(sel.symbol, { session: sel.session, range }).then((r) => {
+    const custom = range === "C" && customFrom && customTo && customFrom <= customTo;
+    fetchMoverDetail(sel.symbol, custom
+      ? { session: sel.session, range: "custom", from: customFrom!, to: customTo! }
+      : { session: sel.session, range: range === "C" ? DEFAULT_RANGE : range }).then((r) => {
       if (!live) return;
       if (r.kind === "no_access") { onNoAccess(); return; }
       setDetail(r);
     });
     return () => { live = false; };
-  }, [sel, range, detailReload, onNoAccess]);
+  }, [sel, range, customFrom, customTo, detailReload, onNoAccess]);
 
   // ── the Copilot card + pinned-event attribution: the move day, or the pinned event ───────────────
   useEffect(() => {
@@ -178,6 +184,11 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
   const det: MoverDetail | null = detail?.kind === "ok" ? detail.data : null;
   const fl: MoversFlagged | null = flagged && flagged.kind === "ok" ? flagged.data : null;
   const railRows: RailRow[] = mode === "FLAGGED" ? ((fl?.rows ?? []) as RailRow[]) : (data?.movers ?? []);
+  const railNames = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const r of railRows) if (r.name) m[r.symbol] = r.name;
+    return m;
+  }, [railRows]);
   const selRow: RailRow | null = useMemo(
     () => (sel ? railRows.find((m) => m.symbol === sel.symbol && m.session === sel.session) ?? null : null),
     [sel, railRows]);
@@ -205,18 +216,17 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
            borderRadius: 14, overflow: "hidden",
          }}>
       <MoversTopBar asOf={asOf} modelVersion={modelVersion} />
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(240px,300px) minmax(0,1fr)", flex: 1, minHeight: 0 }}>
+      <div className="mv4-grid">
         {/* The design's rail holds 10 rows and simply runs the page's height. Ours holds up to 100 (every ≥5% move in
             the window), so the rail scrolls inside its own sticky column and the page stays the chart's height. */}
-        <div style={{ position: "sticky", top: 0, alignSelf: "start", maxHeight: "100vh", overflowY: "auto", minWidth: 0 }}
-             data-testid="mv-rail-scroll">
+        <div className="mv4-railcol" data-testid="mv-rail-scroll">
         <MoversRail
           mode={mode} onMode={changeMode}
           rows={railRows}
           moversCount={data ? data.count : null} flaggedCount={fl ? fl.count : null}
           from={from} to={to}
           flagged={flaggedSummary}
-          selected={sel} onSelect={pick}
+          selected={sel} onSelect={pick} names={railNames}
           filter={filter} onFilter={setFilter}
           loading={mode === "FLAGGED" ? flagged === null : list === null}
           error={mode === "MOVERS" && list?.kind === "error" ? list.message
@@ -235,7 +245,7 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
             onFrom={(v) => setFrom(v || from)} onTo={(v) => setTo(v || to)}
             onMinAbsPct={setMinAbsPct} onDirection={setDirection} onToggleCa={() => setIncludeCa((v) => !v)}
           />
-          <MoversHero row={selRow} detail={det} mode={mode} />
+          <MoversHero row={selRow} detail={det} mode={mode} name={det?.name ?? selRow?.name ?? null} />
 
           {sel && detail === null && (
             <p style={{ margin: 0, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".1em", color: "var(--ink-3)" }}
@@ -261,7 +271,15 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
                 events={det.events} lanes={det.lanes} sessionIndex={det.bar_index_of_session}
                 model={det.model} insiderLane={det.insider_lane}
                 horizon={horizon} onHorizonChange={(h) => setHorizon(h)}
-                range={range} ranges={RANGES} onRangeChange={setRange}
+                range={range} ranges={RANGES}
+                onRangeChange={(r) => {
+                  // first time on CUSTOM: start from the two weeks either side of the move, which the reader then edits
+                  if (r === "C" && sel && !customFrom) { setCustomFrom(shift(sel.session, -14)); setCustomTo(shift(sel.session, 14)); }
+                  setRange(r);
+                }}
+                customFrom={customFrom ?? undefined} customTo={customTo ?? undefined}
+                onCustomChange={(f, t) => { setCustomFrom(f); setCustomTo(t); }}
+                dateMax={today}
                 pinnedEventId={evtId} onPinEvent={setEvtId}
               />
               <MoversSensitivity detail={det} analysis={analysis} />
@@ -280,6 +298,7 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
               selectedId={evtId} onSelect={setEvtId}
               symbol={det.symbol} model={det.model}
               calibration={cal} calibrationError={calErr}
+              onRetryCalibration={() => setAnalyticsReload((n) => n + 1)}
             />
           )}
         </main>
