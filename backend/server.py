@@ -85,6 +85,7 @@ from routes.broker_native import router as broker_native_router  # Native broker
 from routes.work import router as work_router                    # Work issues dashboard (/api/work/) — error triage + diagnostics
 from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reverse-proxy for the Nivesh-hosted OpenAlgo dashboard
 from routes.market_events import router as market_events_router  # Market Event Intelligence — corporate events, AI signals, breakout feed
+from routes.movers import router as movers_router  # Top Movers dashboard — movers, event lanes, return attribution
 from routes.markets import router as markets_router              # Markets home dashboard aggregator (/api/markets/home)
 from routes.filings import router as filings_router              # Filings Home — feed + signals (/api/filings/*)
 from routes.move_odds import router as move_odds_router          # Research → Move odds (/api/move-odds/*, allowlist flag)
@@ -110,6 +111,7 @@ from routes.admin_nidp_stock_primitives import router as admin_nidp_stock_primit
 from routes.copilot_agents import router as copilot_agents_router  # Copilot agent + model picker (Intelligence Layer Phase A/B)
 from routes.flow_ledger import router as flow_ledger_router  # FLOW LEDGER auto-fill
 from routes.copilot_widgets import router as copilot_widgets_router  # Copilot embedded-widget producers (Fund card, Market brief, ...)
+from routes.flow_ledger import router as flow_ledger_router  # FLOW LEDGER auto-fill (proxies NIDP DaaS)
 from routes.admin_swagger import router as admin_swagger_router  # Admin-only Swagger UI (/api/admin/swagger)
 from routes.grafana_alerts import router as grafana_alerts_router  # Grafana webhook receiver + active alerts query
 from routes.monitoring_actions import router as monitoring_actions_router  # Operator actions webhook + audit log
@@ -203,6 +205,7 @@ app.include_router(broker_connect_router)          # Secure Portfolio Connect �
 app.include_router(broker_native_router)           # Native broker connect (no OpenAlgo) — preferred path for SPC retail
 app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://127.0.0.1:5000/api/openalgo/* (reverse proxy)
 app.include_router(market_events_router)           # Market Event Intelligence feed (/api/market/events, /signals)
+app.include_router(movers_router)                   # Top Movers dashboard (/api/movers, /{symbol}, /{symbol}/analysis)
 app.include_router(markets_router)                 # Markets home dashboard aggregator (/api/markets/home)
 app.include_router(filings_router)                # Filings Home — feed + signals (/api/filings/*)
 app.include_router(move_odds_router)              # Research → Move odds (/api/move-odds/*, allowlist flag)
@@ -226,6 +229,7 @@ app.include_router(admin_nidp_stock_primitives_router)  # NIDP stock primitives 
 app.include_router(copilot_agents_router)          # Copilot agent + model picker
 app.include_router(flow_ledger_router)              # FLOW LEDGER evidence-stream auto-fill
 app.include_router(copilot_widgets_router)         # Copilot widget envelopes (fund_card, market_brief, ...)
+app.include_router(flow_ledger_router)              # FLOW LEDGER evidence-stream auto-fill
 app.include_router(admin_swagger_router)           # Admin-only Swagger UI + OpenAPI YAML serving
 
 # CAS ingestion routers — same domain as V2 backend, no separate container.
