@@ -1208,22 +1208,34 @@ async def flag_lift(
                 unc = (sum(1 for x in hit_rows if x["moved"]) / n) / base_rate
                 # within-decile: compare like with like, then weight by how many firings each decile held
                 num = den = 0.0
+                by_decile = []          # the design's D1..D10 strip: one entry per volatility decile, real numbers only
                 for d in range(DECILES):
                     dd = [x for x in obs if x["dec"] == d]
                     ff = [x for x in dd if key in x["flags"]]
+                    br = (sum(1 for x in dd if x["moved"]) / len(dd)) if dd else None
+                    hit = (sum(1 for x in ff if x["moved"]) / len(ff)) if ff else None
+                    # A lift needs firings AND a non-zero base rate in that decile; otherwise it is None, never 0.
+                    cell = (hit / br) if (hit is not None and br) else None
+                    by_decile.append({"decile": d + 1, "firings": len(ff), "moved": sum(1 for x in ff if x["moved"]),
+                                      "base_rate": br, "lift": cell})
                     if not ff or not dd:
                         continue
-                    br = sum(1 for x in dd if x["moved"]) / len(dd)
-                    if br <= 0:
+                    if not br or br <= 0:
                         continue
                     num += (sum(1 for x in ff if x["moved"]) / len(ff)) / br * len(ff)
                     den += len(ff)
                 within = (num / den) if den > 0 else None
                 out.append({"key": key, "label": label, "available": True, "reason": None,
                             "lift_uncond": unc, "lift_within": within, "n": n,
-                            "verdict": _verdict(within, key)})
+                            "verdict": _verdict(within, key), "by_decile": by_decile})
             res["flags"] = out
             res["base_rate"] = base_rate
+            # the BASE row of the strip: how often a name in each volatility decile moved at all
+            res["decile_base"] = [
+                {"decile": d + 1, "n": sum(1 for x in obs if x["dec"] == d),
+                 "base_rate": (sum(1 for x in obs if x["dec"] == d and x["moved"])
+                               / max(1, sum(1 for x in obs if x["dec"] == d)))}
+                for d in range(DECILES)]
             _cache_set(ck, res, _TTL_HEAVY)
             return res
 

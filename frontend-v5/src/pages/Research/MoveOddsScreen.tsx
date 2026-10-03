@@ -613,7 +613,7 @@ export default function MoveOddsScreen() {
       <div id="mo-panel" role="tabpanel" aria-labelledby={`mo-tab-${size}`}>
         {/* Movers: the owner's Top Movers Dashboard v1, as a view of THIS screen rather than a second
             dashboard. It brings its own window controls; the size tabs above do not apply to it. */}
-        {view === "movers" && <MoversView onNoAccess={denyAll} onOpenStock={openStock} />}
+        {view === "movers" && <MoversView onNoAccess={denyAll} onOpenStock={openStock} modelVersion={run?.model ?? null} />}
 
         {view === "history" && (
           <>

@@ -1,0 +1,48 @@
+/* The Top Movers v4 design's own dark palette, scoped so the view matches the design exactly.
+   Copied from the design package's colors_and_type.css (:root, dark). Not a new theme: nothing outside .mv4 changes. */
+.mv4 {
+  color-scheme: dark;
+  --bg-0: #06080F;
+  --bg-1: #0A0E1A;
+  --bg-2: #10162A;
+  --bg-3: #181F38;
+  --bg-4: #232B48;
+  --bg-glass: rgba(18, 26, 50, 0.55);
+  --bg-spot-a: rgba(106, 240, 168, 0.06);
+  --bg-spot-b: rgba(255, 181, 71, 0.05);
+  --line: rgba(255, 255, 255, 0.06);
+  --line-2: rgba(255, 255, 255, 0.10);
+  --line-3: rgba(255, 255, 255, 0.18);
+  --ink: #F5F7FF;
+  --ink-2: #BCC4DC;
+  --ink-3: #7A839C;
+  --ink-4: #4A526A;
+  --ink-5: #2E3550;
+  --mint: #6AF0A8;
+  --mint-2: #36C57E;
+  --mint-soft: rgba(106,240,168,.12);
+  --mint-line: rgba(106,240,168,.28);
+  --amber: #FFB547;
+  --amber-2: #E68E1A;
+  --amber-soft: rgba(255,181,71,.12);
+  --amber-line: rgba(255,181,71,.30);
+  --indigo: #8E97FF;
+  --indigo-2: #5B66E8;
+  --indigo-soft: rgba(142,151,255,.13);
+  --indigo-line: rgba(142,151,255,.30);
+  --danger: #FF6B7A;
+  --danger-2: #D43B4D;
+  --danger-soft: rgba(255,107,122,.12);
+  --danger-line: rgba(255,107,122,.30);
+  --rose: #FF8DC7;
+  --display: "Instrument Serif", "Fraunces", Georgia, serif;
+  --sans: "Inter Tight", "Inter", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+  --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 24px 48px -24px rgba(0,0,0,0.6);
+  --shadow-pop: 0 1px 0 rgba(255,255,255,0.06) inset, 0 40px 80px -32px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04);
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+}

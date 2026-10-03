@@ -1,239 +1,462 @@
 /**
- * Daily candlestick chart for the Top movers view: price panel, volume strip and one row per event lane, all
- * drawn on ONE x-scale. Bars are spaced by INDEX, not by calendar date, so a weekend never opens a gap that
- * the lanes would then disagree with: an event whose bar_index is k is centred on exactly the x of bars[k].
- * `barX` below is the single function every layer calls; there is deliberately no second x computation.
+ * Top Movers v4 chart card (design lines 95-207): toolbar, pinned OHLC header, candles, REL. PERF, VOL, five event
+ * lanes, legend/footnote. The design draws the price area on a canvas; here it is one SVG with the same geometry
+ * (84px right axis, 20px top, 96px REL. PERF, 64px VOL, 30px date axis) so lanes and overlays share one x-scale:
+ * the centre of slot i is (i + .5) / n of the plot width, for candles, lanes, T line, band and hover line alike.
  *
- * Plain SVG, no charting library. Up/down candles differ by fill (up = hollow body, down = solid body) as well
- * as colour, and each carries a <title>, so the direction survives colour-blindness and print. Colours come
- * from --mv-* custom properties (the stylesheet owns the palette); the literals are only fallbacks.
+ * Props (wiring from MoversView; `det` = MoverDetail):
+ *   symbol           det.symbol
+ *   bars             det.bars                       (already the plotted window; bar_index values are relative to it)
+ *   market, sector   det.market, det.sector        (an unavailable series is named in the legend and never drawn)
+ *   events, lanes    det.events, det.lanes
+ *   sessionIndex     det.bar_index_of_session
+ *   model            det.model                     (CAUGHT draws the flag span; MISSED / NO_MODEL_RUN say so in the lane)
+ *   insiderLane      det.insider_lane              (optional; explains an empty INSIDER / SAST lane)
+ *   horizon, onHorizonChange   3 | 20 grade switch
+ *   range, onRangeChange       "T7" | "1D" | "1M" | "3M" | "1Y" | "C"; `ranges` lists the buttons (default T7,1D,1M,3M,1Y).
+ *                              Include "C" in `ranges` to show CUSTOM; then pass customFrom/customTo/onCustomChange.
+ *   pinnedEventId, onPinEvent  click a marker to pin / click again to clear
  */
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import type { MoverBar, MoverEvent, MoverOdds, MoverDetail } from "@/services/adapters/movers.adapter";
+import "./moversV4Chart.css";
 
-export type ChartBar = { t: string; o: number|null; h: number|null; l: number|null; c: number|null; v: number };
-export type ChartEvent = {
-  id: string; date: string; title: string; sub?: string|null; lane: string; glyph: string;
-  type_label: string; kind: string; kind_note?: string|null; bar_index: number|null;
-  flags: Array<{label: string; tone: string}>;
-  metrics: { re: number|null; gap: number|null; vol_pre: number|null; vol_post: number|null; flip: boolean } | null;
-};
-type Props = {
-  bars: ChartBar[];
-  market: Array<number|null>;
-  marketName: string;
-  marketAvailable: boolean;
-  events: ChartEvent[];
+export type MoversChartProps = {
+  symbol: string;
+  bars: MoverBar[];
+  market: MoverDetail["market"];
+  sector: MoverDetail["sector"];
+  events: MoverEvent[];
   lanes: Array<{ key: string; label: string }>;
   sessionIndex: number;
-  modelMarker?: { state: string; label: string } | null;
-  selectedEventId: string|null;
-  onSelectEvent: (id: string|null) => void;
+  model?: MoverOdds | null;
+  insiderLane?: MoverDetail["insider_lane"] | null;
+  horizon: 3 | 20;
+  onHorizonChange?: (h: 3 | 20) => void;
+  range: string;
+  ranges?: string[];
+  onRangeChange?: (r: string) => void;
+  customFrom?: string;
+  customTo?: string;
+  onCustomChange?: (from: string, to: string) => void;
+  dateMin?: string;
+  dateMax?: string;
+  pinnedEventId?: string | null;
+  onPinEvent?: (id: string | null) => void;
 };
-type Hover = { kind: "bar"; i: number } | { kind: "evt"; id: string; x: number; y: number } | null;
 
-const W = 720, PAD_L = 100, PAD_R = 10, PRICE_T = 10, PRICE_H = 190, VOL_T = 206, VOL_H = 38;
-const LANE_T = 252, LANE_H = 26, TIP_W = 210;
-const UP = "var(--mv-up, #2f9e6e)", DOWN = "var(--mv-down, #d1495b)", INK = "var(--mv-ink, #5b6472)";
-const MKT = "var(--mv-market, #4c6ef5)", RULE = "var(--mv-rule, #e1a21b)", BG = "var(--mv-bg, #ffffff)";
-const GRID = "var(--mv-grid, rgba(128,128,128,0.25))";
+const AX = 84, TOP = 20, VOL_H = 64, REL_H = 96, BOT = 30;
+const CHART_H = 476; // design: relOn ? 476 : 380
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const utc = (t: string) => new Date(t.length <= 10 ? `${t}T00:00:00Z` : t);
+const fd = (t: string) => { const d = utc(t); return `${String(d.getUTCDate()).padStart(2, "0")} ${MON[d.getUTCMonth()]}`; };
+const fdy = (t: string) => `${fd(t)} '${String(utc(t).getUTCFullYear()).slice(2)}`;
+const inr = (v: number) => v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pct = (v: number | null | undefined) => {
+  if (v == null || Number.isNaN(v)) return "—";
+  if (Math.abs(v) < 0.0005) v = 0;
+  return `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
+};
+const vol = (v: number) => (v >= 1e7 ? `${(v / 1e7).toFixed(2)} Cr` : `${(v / 1e5).toFixed(1)} L`);
+const fin = (v: number | null | undefined): v is number => v != null && Number.isFinite(v);
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
-const pct = (v: number|null|undefined, d = 2) => (v == null ? "n/a" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(d)}%`);
-const mult = (v: number|null|undefined) => (v == null ? "n/a" : `${v.toFixed(2)}x`);
-const px = (v: number|null|undefined) => (v == null ? "n/a" : v.toFixed(2));
-const fin = (v: number|null): v is number => v != null && Number.isFinite(v);
+const RANGE_LABEL: Record<string, string> = { T7: "T±7D", "1D": "1D", "1M": "1M", "3M": "3M", "1Y": "1Y", C: "CUSTOM" };
+const OUTC: Record<string, string> = { UP: "mint", DOWN: "danger", BOTH: "amber", NONE: "ink-3", PENDING: "ink-4" };
+const cv = (k: string) => `var(--${k})`;
 
-export function MoversChart(props: Props) {
-  const { bars, market, marketName, marketAvailable, events, lanes, sessionIndex, modelMarker,
-          selectedEventId, onSelectEvent } = props;
-  const [hover, setHover] = useState<Hover>(null);
+/** Marker colour/glyph by event type, as the design's TYPE table; lane is the fallback for types we have not seen. */
+function tone(e: MoverEvent): string {
+  if (e.type === "dealS" || e.glyph === "▼") return "danger";
+  if (e.type === "dealB" || e.glyph === "▲") return "mint";
+  if (e.type === "ins" || e.lane === "ins") return "rose";
+  if (e.type === "ca" || e.lane === "ca") return "amber";
+  if (e.lane === "deal") return "mint";
+  return "indigo";
+}
+const outText = (x: NonNullable<MoverEvent["exec"]>) => (x.out === "PENDING" ? `PEND ${x.el}/${x.H}` : x.out);
+
+const seg = (on: boolean, c: string): CSSProperties => ({
+  border: 0, cursor: "pointer", borderRadius: 7, fontFamily: "var(--mono)", letterSpacing: ".08em", transition: "all .15s ease",
+  background: on ? cv(c) : "transparent", color: on ? cv("bg-0") : cv("ink-2"),
+});
+const trackStyle: CSSProperties = { display: "flex", gap: 2, padding: 3, border: "1px solid var(--line-2)", borderRadius: 10, background: "var(--bg-0)" };
+
+export function MoversChart(props: MoversChartProps) {
+  const { symbol, bars, market, sector, events, lanes, sessionIndex, model, insiderLane, horizon, range, pinnedEventId } = props;
+  const ranges = props.ranges ?? ["T7", "1D", "1M", "3M", "1Y"];
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [localPin, setLocalPin] = useState<string | null>(null);
+  const pinned = pinnedEventId !== undefined ? pinnedEventId : localPin;
+  const pin = (id: string | null) => { if (props.onPinEvent) props.onPinEvent(id); else setLocalPin(id); };
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [W, setW] = useState(1090);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => { const w = el.clientWidth; if (w > 0) setW(w); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const n = bars.length;
-  const plotW = W - PAD_L - PAD_R;
-  // The ONE x-scale: centre of slot i. Candles, overlay, volume, session rule and event markers all use it.
-  const barX = (i: number) => PAD_L + ((i + 0.5) / Math.max(1, n)) * plotW;
-  const slot = plotW / Math.max(1, n);
+  const H = horizon === 20 ? 20 : 3;
+  const cost = events.find((e) => e.exec?.cost != null)?.exec?.cost;
 
-  const geom = useMemo(() => {
-    const highs = bars.map((b) => b.h).filter(fin), lows = bars.map((b) => b.l).filter(fin);
-    if (!highs.length || !lows.length) return null;
-    const hi = Math.max(...highs), lo = Math.min(...lows), span = hi - lo || 1;
-    const y = (v: number) => PRICE_T + PRICE_H - ((v - lo) / span) * PRICE_H;
-    const maxV = Math.max(1, ...bars.map((b) => b.v || 0));
-    // Market overlay: indexed to its own first non-null value, mapped onto the price range. Null runs break the path.
-    let d = "";
-    const base = market.find(fin);
-    const anchor = bars.map((b) => b.c).find(fin) ?? (hi + lo) / 2; // index 100 sits at the first close
-    if (marketAvailable && base) {
-      let pen = false;
-      market.slice(0, n).forEach((m, i) => {
-        if (!fin(m)) { pen = false; return; }
-        const v = anchor * (m / base);
-        d += `${pen ? "L" : "M"}${barX(i).toFixed(1)} ${y(Math.min(hi, Math.max(lo, v))).toFixed(1)} `;
-        pen = true;
-      });
-    }
-    return { hi, lo, y, maxV, d };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bars, market, marketAvailable]);
+  const toolbar = (
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+      <div style={trackStyle} role="group" aria-label="Chart range">
+        {ranges.map((r) => (
+          <button key={r} type="button" className="mvc-btn" data-testid={`mv-range-${r}`} aria-pressed={range === r}
+                  onClick={() => props.onRangeChange?.(r)}
+                  style={{ ...seg(range === r, "mint"), padding: "6px 12px", fontSize: 11 }}>{RANGE_LABEL[r] ?? r}</button>
+        ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".12em", color: "var(--ink-3)", whiteSpace: "nowrap" }}>GRADE ±5% IN</span>
+        <div style={trackStyle} role="group" aria-label="Outcome horizon">
+          {([[3, "3 SESSIONS"], [20, "20 · MODEL LABEL"]] as const).map(([k, l]) => (
+            <button key={k} type="button" className="mvc-btn" data-testid={`mv-hz-${k}`} aria-pressed={H === k}
+                    onClick={() => props.onHorizonChange?.(k)}
+                    style={{ ...seg(H === k, "indigo"), padding: "6px 10px", fontSize: 10.5 }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      {range === "C" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--mono)", fontSize: 11, color: "var(--ink-3)" }}>
+          {([["from", props.customFrom ?? ""], ["to", props.customTo ?? ""]] as const).map(([k, v], i) => (
+            <span key={k} style={{ display: "contents" }}>
+              {i === 1 && <span>→</span>}
+              <input type="date" aria-label={k === "from" ? "Chart from date" : "Chart to date"} data-testid={`mv-chart-${k}`}
+                     value={v} min={props.dateMin} max={props.dateMax}
+                     onChange={(e) => props.onCustomChange?.(k === "from" ? e.target.value : props.customFrom ?? "", k === "to" ? e.target.value : props.customTo ?? "")}
+                     style={{ background: "var(--bg-0)", border: "1px solid var(--line-2)", borderRadius: 8, color: "var(--ink)", fontFamily: "var(--mono)", fontSize: 12, padding: "5px 8px" }} />
+            </span>
+          ))}
+        </div>
+      )}
+      <div style={{ flex: 1 }} />
+      <span data-testid="mv-chart-window" style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: ".08em", color: "var(--ink-3)" }}>
+        {n ? `${fdy(bars[0].t).toUpperCase()} → ${fdy(bars[n - 1].t).toUpperCase()} · ${n} SESSIONS` : "NO SESSIONS"}
+      </span>
+    </div>
+  );
+  const sectionStyle: CSSProperties = { borderRadius: 14, background: "var(--bg-1)", border: "1px solid var(--line)", boxShadow: "var(--shadow-card)", overflow: "hidden" };
 
-  if (!n || !geom) {
-    return <div className="mv-chart-empty" data-testid="mv-chart" role="img" aria-label="No price history">No price history for this stock.</div>;
+  const drawable = bars.filter((b) => fin(b.h) && fin(b.l) && fin(b.o) && fin(b.c));
+  if (!n || !drawable.length) {
+    return (
+      <section data-testid="mv-chart" style={sectionStyle}>
+        {toolbar}
+        <p role="status" style={{ margin: 0, padding: "40px 16px", fontFamily: "var(--mono)", fontSize: 11, letterSpacing: ".08em", color: "var(--ink-3)" }}>
+          NO PRICE HISTORY FOR THIS STOCK IN THIS WINDOW
+        </p>
+      </section>
+    );
   }
-  const { y, maxV, d: mktPath } = geom;
 
-  const laneKeys = new Set(lanes.map((l) => l.key));
-  const placed = events.filter((e) => e.bar_index != null && e.bar_index >= 0 && e.bar_index < n && laneKeys.has(e.lane));
-  const overflow = events.filter((e) => !placed.includes(e));
-  const whyOff = (e: ChartEvent) =>
+  // ── geometry (design draw()) ────────────────────────────────────────────────────────────────────────────────────
+  const pw = W - AX, ph = CHART_H - VOL_H - REL_H - BOT - TOP;       // 266
+  let lo = Math.min(...drawable.map((b) => b.l as number)), hi = Math.max(...drawable.map((b) => b.h as number));
+  const padP = (hi - lo) * 0.08; lo -= padP; hi += padP;
+  if (hi === lo) { hi += 1; lo -= 1; }
+  const y = (p: number) => TOP + ((hi - p) / (hi - lo)) * ph;
+  const slot = pw / n, x = (i: number) => (i + 0.5) * slot;
+  const vmax = Math.max(1, ...bars.map((b) => b.v || 0)), vb = CHART_H - BOT;
+  const cw = Math.max(1, Math.min(14, slot * 0.62));
+  const rt = TOP + ph + 14, rb = CHART_H - BOT - VOL_H - 8;
+
+  // REL. PERF: each series is indexed to its own first value in the window; a missing value breaks the line.
+  const relOf = (vals: Array<number | null | undefined>): Array<number | null> => {
+    const base = vals.slice(0, n).find(fin);
+    return Array.from({ length: n }, (_, k) => (base && fin(vals[k]) ? (vals[k] as number) / base - 1 : null));
+  };
+  const stockRel = relOf(bars.map((b) => b.c));
+  const mktOn = market.available && market.series.some(fin), secOn = sector.available && sector.series.some(fin);
+  const mktRel = mktOn ? relOf(market.series) : null, secRel = secOn ? relOf(sector.series) : null;
+  const series: Array<{ key: string; vals: Array<number | null>; c: string; tid?: string }> = [
+    { key: "stock", vals: stockRel, c: "ink" },
+    ...(mktRel ? [{ key: "mkt", vals: mktRel, c: "indigo", tid: "mv-overlay-market" }] : []),
+    ...(secRel ? [{ key: "sec", vals: secRel, c: "amber", tid: "mv-overlay-sector" }] : []),
+  ];
+  let mn = 0, mx = 0;
+  series.forEach((s) => s.vals.forEach((v) => { if (v != null) { if (v < mn) mn = v; if (v > mx) mx = v; } }));
+  const pd = (mx - mn) * 0.12 || 0.01; mn -= pd; mx += pd;
+  const yr = (v: number) => rt + ((mx - v) / (mx - mn)) * (rb - rt);
+  const path = (vals: Array<number | null>) => {
+    let d = "", pen = false;
+    vals.forEach((v, k) => { if (v == null) { pen = false; return; } d += `${pen ? "L" : "M"}${x(k).toFixed(1)} ${yr(v).toFixed(1)} `; pen = true; });
+    return d;
+  };
+  const mktName = (market.label ?? market.name ?? "NIFTY 50").toUpperCase();
+  const secName = (sector.name ?? "SECTOR INDEX").toUpperCase();
+  const legendItems: Array<[string, string]> = [
+    ["REL. PERF", cv("ink-3")], [`■ ${symbol}`, cv("ink")],
+    [mktOn ? `■ ${mktName}` : `■ ${mktName} · UNAVAILABLE`, mktOn ? cv("indigo") : cv("ink-4")],
+    [secOn ? `■ ${secName}` : `■ ${sector.name ? secName : "SECTOR"} · ${sector.name ? "UNAVAILABLE" : "NOT MAPPED"}`, secOn ? cv("amber") : cv("ink-4")],
+  ];
+  let lx = 10;
+  const legendXs = legendItems.map(([t]) => { const at = lx; lx += t.length * 6 + 14; return at; });  // 10px mono = 6px/char
+  const tags = series.map((s) => { const k = s.vals.map(fin).lastIndexOf(true); return k < 0 ? null : { y: yr(s.vals[k] as number), c: s.c, v: s.vals[k] as number }; })
+    .filter((t): t is { y: number; c: string; v: number } => t != null).sort((a, b) => a.y - b.y);
+  for (let k = 1; k < tags.length; k++) if (tags[k].y - tags[k - 1].y < 12) tags[k].y = tags[k - 1].y + 12;
+  const lastBar = [...bars].reverse().find((b) => fin(b.c)) as MoverBar, ly = y(lastBar.c as number);
+  const step = Math.max(1, Math.ceil(n / 8));
+  const xl: number[] = []; for (let i = 0; i < n; i += step) xl.push(i);
+
+  // ── lanes ──────────────────────────────────────────────────────────────────────────────────────────────────────
+  const L = (i: number) => `${((i + 0.5) / n) * 100}%`;
+  const laneKeys = new Set(lanes.map((l) => l.key).filter((k) => k !== "mdl"));
+  const idxOk = (e: MoverEvent) => e.bar_index != null && e.bar_index >= 0 && e.bar_index < n && laneKeys.has(e.lane);
+  const placed = events.filter(idxOk);
+  const whyOff = (e: MoverEvent) =>
     e.bar_index == null ? "no matching trading day in this window"
       : e.bar_index < 0 || e.bar_index >= n ? "outside the plotted price window"
       : `lane "${e.lane}" is not shown`;
-  const H = LANE_T + lanes.length * LANE_H + 18;
-  const first = bars[0].t, last = bars[n - 1].t;
-  const label = `Daily candles ${first} to ${last}, ${n} sessions, ${events.length} event${events.length === 1 ? "" : "s"}`;
+  const unplotted = events.length - placed.length;
+  const pinnedEv = pinned ? placed.find((e) => e.id === pinned) : undefined;
 
-  const pick = (id: string) => onSelectEvent(selectedEventId === id ? null : id);
-  const evById = (id: string) => events.find((e) => e.id === id);
-
-  const tipLines = (): { x: number; y: number; lines: string[] } | null => {
-    if (!hover) return null;
-    if (hover.kind === "bar") {
-      const b = bars[hover.i], prev = hover.i > 0 ? bars[hover.i - 1].c : null;
-      const chg = fin(b.c) && fin(prev) && prev !== 0 ? b.c / prev - 1 : null;
-      return { x: barX(hover.i), y: PRICE_T + 4, lines: [
-        b.t, `O ${px(b.o)}  H ${px(b.h)}`, `L ${px(b.l)}  C ${px(b.c)}`,
-        `Volume ${b.v.toLocaleString("en-IN")}`, `${pct(chg)} vs previous close`] };
+  // model span: flag session -> move session + 1 (design), only for CAUGHT
+  const sess = sessionIndex >= 0 && sessionIndex < n ? sessionIndex : -1;
+  let flagIdx = -1, flagBefore = false;
+  if (model?.state === "CAUGHT" && model.run_session) {
+    const rs = model.run_session.slice(0, 10);
+    flagIdx = bars.findIndex((b) => b.t.slice(0, 10) >= rs);
+    if (flagIdx === 0 && bars[0].t.slice(0, 10) > rs) { flagBefore = true; }
+    if (flagIdx < 0 && bars[n - 1].t.slice(0, 10) < rs) flagIdx = -1;
+  }
+  const mdl = ((): { span?: { a: number; b: number; label: string }; empty?: string } => {
+    if (!model) return { empty: "NO MODEL INFORMATION FOR THIS SESSION" };
+    if (model.state === "NO_MODEL_RUN") return { empty: "NO MODEL RUN COVERED THIS WINDOW · COVERAGE GAP, NOT A MISS" };
+    if (model.state === "CAUGHT") {
+      const a = Math.max(flagIdx, 0), b = Math.min((sess < 0 ? n - 2 : sess) + 1, n - 1);
+      if (flagIdx < 0 || a > b) return { empty: "FLAG OUTSIDE WINDOW" };
+      return { span: { a, b, label: `${(model.head ?? "FLAGGED").toUpperCase()}${fin(model.score) ? ` · P ${model.score.toFixed(2)}` : ""}` } };
     }
-    const e = evById(hover.id);
-    if (!e) return null;
-    const m = e.metrics;
-    const lines = [e.kind, e.title, ...(e.kind_note ? [e.kind_note] : []),
-      ...(e.flags.length ? [e.flags.map((f) => f.label).join(" / ")] : []),
-      ...(m ? [`Reaction ${pct(m.re)}  Gap ${pct(m.gap)}`,
-               `Volume before ${mult(m.vol_pre)}  after ${mult(m.vol_post)}`,
-               `Reversed direction: ${m.flip ? "yes" : "no"}`] : [])];
-    return { x: hover.x, y: hover.y, lines: lines.map((l) => (l.length > 38 ? `${l.slice(0, 37)}…` : l)) };
+    if (model.reason === "NOT_IN_SCORED_UNIVERSE") return { empty: "NOT SCORED · OUTSIDE THE SCORED UNIVERSE" };
+    return { empty: fin(model.score) ? `NOT FLAGGED · PEAK SCORE ${model.score.toFixed(2)}${fin(model.cutoff) ? ` < ${model.cutoff.toFixed(2)}` : " BELOW THE CUT-OFF"}` : "NOT FLAGGED" };
+  })();
+  const flagShow = !!mdl.span && !flagBefore && flagIdx >= 0 && sess >= 0 && flagIdx <= sess;
+
+  // band: ±7 calendar days around T, only when the window is wider than that (design)
+  let band: { a: number; b: number } | null = null;
+  if (sess >= 0 && range !== "T7" && range !== "1D") {
+    const T = utc(bars[sess].t).getTime(), DAY = 864e5;
+    const a = bars.findIndex((b) => utc(b.t).getTime() >= T - 7 * DAY);
+    let b = n - 1; while (b > 0 && utc(bars[b].t).getTime() > T + 7 * DAY) b--;
+    if (a >= 0 && a <= b) band = { a, b };
+  }
+
+  // ── hover header (design `lg`) ─────────────────────────────────────────────────────────────────────────────────
+  const hi_ = hoverIdx != null && hoverIdx >= 0 && hoverIdx < n ? hoverIdx : n - 1;
+  const hb = bars[hi_], prevC = hb.prev_c ?? (hi_ > 0 ? bars[hi_ - 1].c : null);
+  const chg = fin(hb.c) && fin(prevC) ? hb.c - prevC : null;
+  const chgC = chg != null && chg < 0 ? cv("danger") : cv("mint");
+  const dayChg = (vals: Array<number | null | undefined>, k: number) => (fin(vals[k]) && fin(vals[k - 1]) && k > 0 ? (vals[k] as number) / (vals[k - 1] as number) - 1 : null);
+  const mktChg = mktOn ? dayChg(market.series, hi_) : null, secChg = secOn ? dayChg(sector.series, hi_) : null;
+  const tOff = sess < 0 ? null : hi_ - sess;
+  const hoverEvents = events.filter((e) => e.bar_index === hi_ && laneKeys.has(e.lane));
+
+  const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect(), px = e.clientX - r.left, w = r.width - AX;
+    const h = px < 0 || px > w ? null : Math.min(n - 1, Math.floor((px / w) * n));
+    if (h !== hoverIdx) setHoverIdx(h);
   };
-  const tip = tipLines();
+  const sc = (v: number | null | undefined) => (v == null ? cv("ink-4") : v >= 0 ? cv("mint") : cv("danger"));
+  const pill: CSSProperties = { position: "absolute", left: 0, transform: "translateX(-50%)", padding: "2px 8px", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".08em", whiteSpace: "nowrap" };
+  const dot = (c: string) => <span style={{ width: 8, height: 8, borderRadius: "50%", background: cv(c) }} />;
+  const slotPx = pw / n;
 
   return (
-    <div className="mv-chart" data-testid="mv-chart" role="img" aria-label={label}>
-      <svg className="mv-chart-svg" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet"
-           width="100%" style={{ display: "block", maxWidth: "100%", height: "auto" }}
-           onMouseLeave={() => setHover(null)}>
-        {[0, 0.5, 1].map((f) => {
-          const v = geom.lo + (geom.hi - geom.lo) * f;
-          return (
-            <g key={f}>
-              <line x1={PAD_L} x2={W - PAD_R} y1={y(v)} y2={y(v)} stroke={GRID} strokeWidth="0.6" />
-              <text x={PAD_L - 6} y={y(v) + 3} fontSize="9" textAnchor="end" fill={INK} fontFamily="var(--mono, monospace)">{px(v)}</text>
-            </g>
-          );
-        })}
-        {bars.map((b, i) => {
-          const x = barX(i), bw = Math.max(1.5, slot * 0.62);
-          const volH = ((b.v || 0) / maxV) * VOL_H;
-          const dirn = fin(b.o) && fin(b.c) ? (b.c >= b.o ? "up" : "down") : "n/a";
-          const col = dirn === "down" ? DOWN : UP;
-          return (
-            <g key={`${b.t}-${i}`} data-testid={`mv-candle-${i}`} data-dir={dirn} aria-label={`${b.t} ${dirn} candle`}
-               onMouseEnter={() => setHover({ kind: "bar", i })}>
-              <title>{`${b.t}: ${dirn === "up" ? "up (close at or above open)" : dirn === "down" ? "down (close below open)" : "no price"}`}</title>
-              <rect x={x - slot / 2} y={PRICE_T} width={slot} height={PRICE_H} fill="transparent" />
-              {fin(b.h) && fin(b.l) && <line x1={x} x2={x} y1={y(b.h)} y2={y(b.l)} stroke={col} strokeWidth="1" />}
-              {fin(b.o) && fin(b.c) && (
-                <rect x={x - bw / 2} y={Math.min(y(b.o), y(b.c))} width={bw}
-                      height={Math.max(1, Math.abs(y(b.c) - y(b.o)))}
-                      fill={dirn === "up" ? BG : col} stroke={col} strokeWidth="1" />
-              )}
-              <rect x={x - Math.max(1, slot * 0.3)} y={VOL_T + VOL_H - volH} width={Math.max(1, slot * 0.6)}
-                    height={volH} fill={col} opacity="0.55" />
-            </g>
-          );
-        })}
-        {marketAvailable && mktPath && (
-          <g>
-            <path data-testid="mv-overlay-market" d={mktPath} fill="none" stroke={MKT} strokeWidth="2"
-                  strokeLinejoin="round" pointerEvents="none"><title>{marketName}</title></path>
-            <text x={W - PAD_R} y={PRICE_T + 9} fontSize="9" textAnchor="end" fill={MKT}>{marketName} (rescaled)</text>
-          </g>
-        )}
-        <text x={PAD_L - 6} y={VOL_T + 12} fontSize="9" textAnchor="end" fill={INK}>Volume</text>
-        {sessionIndex >= 0 && sessionIndex < n && (
-          <rect data-testid="mv-session-marker" x={barX(sessionIndex) - 0.75} width="1.5" y={PRICE_T}
-                height={LANE_T + lanes.length * LANE_H - PRICE_T} fill={RULE} opacity="0.85"
-                pointerEvents="none"><title>Move session</title></rect>
-        )}
-        {lanes.map((ln, li) => {
-          const top = LANE_T + li * LANE_H, cy = top + LANE_H / 2;
-          return (
-            <g key={ln.key} data-testid={`mv-lane-${ln.key}`}>
-              <line x1={PAD_L} x2={W - PAD_R} y1={top + LANE_H} y2={top + LANE_H} stroke={GRID} strokeWidth="0.5" />
-              <text x={PAD_L - 6} y={cy + 3} fontSize="9" textAnchor="end" fill={INK}>{ln.label}</text>
-              {ln.key === "mdl" && modelMarker && sessionIndex >= 0 && sessionIndex < n && (
-                <g data-testid="mv-model-marker" data-state={modelMarker.state}>
-                  <title>{modelMarker.label}</title>
-                  <circle cx={barX(sessionIndex)} cy={cy} r="6" fill={BG} stroke={RULE} strokeWidth="1.5" />
-                  <text x={barX(sessionIndex) + 10} y={cy + 3} fontSize="9" fill={INK}>{modelMarker.label}</text>
-                </g>
-              )}
-              {placed.filter((e) => e.lane === ln.key).map((e) => {
-                const ex = barX(e.bar_index as number);
-                return (
-                  <foreignObject key={e.id} x={ex - 11} y={cy - 11} width="22" height="22" style={{ overflow: "visible" }}>
-                    <button type="button" data-testid={`mv-evt-${e.id}`} className="mv-evt"
-                            aria-label={`${e.type_label}: ${e.title}`}
-                            aria-pressed={selectedEventId === e.id ? true : undefined}
-                            onClick={() => pick(e.id)}
-                            onMouseEnter={() => setHover({ kind: "evt", id: e.id, x: ex, y: cy - 6 })}
-                            onFocus={() => setHover({ kind: "evt", id: e.id, x: ex, y: cy - 6 })}
-                            onBlur={() => setHover(null)}
-                            style={{ width: 22, height: 22, padding: 0, lineHeight: "20px", fontSize: 11, textAlign: "center",
-                                     cursor: "pointer", borderRadius: 11, color: INK, background: BG,
-                                     border: `${selectedEventId === e.id ? 2 : 1}px solid ${selectedEventId === e.id ? RULE : INK}` }}>
-                      {e.glyph}
-                    </button>
-                  </foreignObject>
-                );
-              })}
-            </g>
-          );
-        })}
-        <text x={PAD_L} y={H - 4} fontSize="9" fill={INK}>{first}</text>
-        <text x={W - PAD_R} y={H - 4} fontSize="9" textAnchor="end" fill={INK}>{last}</text>
-        {tip && (() => {
-          const h = tip.lines.length * 13 + 10;
-          const tx = tip.x + 12 + TIP_W > W - 2 ? tip.x - 12 - TIP_W : tip.x + 12;
-          const ty = Math.min(Math.max(2, tip.y - h / 2), H - h - 2);
-          return (
-            <g data-testid="mv-tooltip" pointerEvents="none">
-              <rect x={Math.max(2, tx)} y={ty} width={TIP_W} height={h} rx="4" fill={BG} stroke={INK} strokeWidth="0.8" />
-              {tip.lines.map((l, k) => (
-                <text key={k} x={Math.max(2, tx) + 8} y={ty + 15 + k * 13} fontSize="10" fill={INK}
-                      fontWeight={k === 0 ? 700 : 400}>{l}</text>
-              ))}
-            </g>
-          );
-        })()}
-      </svg>
-      {events.length > 0 && (
-        <div className="mv-evt-overflow">
-          <p className="mv-note">
-            Every event in this window ({events.length}){overflow.length > 0 ? `, ${overflow.length} of them not on the timeline` : ""}:
-          </p>
-          <ul data-testid="mv-evt-list">
-            {events.map((e) => {
-              const off = overflow.some((x) => x.id === e.id);
+    <section data-testid="mv-chart" style={sectionStyle}>
+      {toolbar}
+      <div style={{ position: "relative" }} onMouseMove={onMove} onMouseLeave={() => setHoverIdx(null)}>
+        <div ref={wrapRef} style={{ height: CHART_H, position: "relative" }}>
+          <svg width={W} height={CHART_H} role="img" style={{ display: "block", width: "100%", height: "100%", fontFamily: "var(--mono)" }}
+               aria-label={`Daily candles for ${symbol}, ${fd(bars[0].t)} to ${fd(bars[n - 1].t)}, ${n} sessions, with relative performance and volume`}>
+            {[0, 1, 2, 3, 4, 5].map((k) => {
+              const p = lo + ((hi - lo) * k) / 5, yy = y(p);
               return (
-                <li key={e.id}>
-                  {e.date} · {e.type_label}: {e.title}
-                  {off ? ` — not plotted: ${whyOff(e)}` : ""}
-                </li>
+                <g key={k}>
+                  <line x1={0} x2={pw} y1={yy + 0.5} y2={yy + 0.5} stroke={cv("line")} />
+                  <text x={pw + 10} y={yy} fontSize={11} fill={cv("ink-3")} dominantBaseline="central">{inr(p)}</text>
+                </g>
               );
             })}
-          </ul>
+            <line x1={pw + 0.5} x2={pw + 0.5} y1={0} y2={CHART_H} stroke={cv("line")} />
+            {bars.map((b, i) => {
+              const xx = x(i), ok = fin(b.o) && fin(b.c) && fin(b.h) && fin(b.l);
+              const dirn = !ok ? "n/a" : (b.c as number) >= (b.o as number) ? "up" : "down", col = dirn === "down" ? cv("danger") : cv("mint");
+              const vh = ((b.v || 0) / vmax) * (VOL_H - 8);
+              return (
+                <g key={`${b.t}-${i}`} data-testid={`mv-candle-${i}`} data-dir={dirn} aria-label={`${b.t} ${dirn === "n/a" ? "no price" : `${dirn} candle`}`}>
+                  <title>{`${b.t}: ${dirn === "up" ? "up (close at or above open)" : dirn === "down" ? "down (close below open)" : "no price"}`}</title>
+                  <rect x={xx - cw / 2} y={vb - vh} width={cw} height={vh} fill={col} opacity={0.35} />
+                  {ok && <line x1={Math.round(xx) + 0.5} x2={Math.round(xx) + 0.5} y1={y(b.h as number)} y2={y(b.l as number)} stroke={col} />}
+                  {ok && <rect x={xx - cw / 2} y={Math.min(y(b.o as number), y(b.c as number))} width={cw} height={Math.max(1, Math.abs(y(b.c as number) - y(b.o as number)))} fill={col} />}
+                </g>
+              );
+            })}
+            <text x={pw + 10} y={vb - VOL_H / 2} fontSize={11} fill={cv("ink-3")} dominantBaseline="central">VOL</text>
+            <line x1={0} x2={W} y1={rt - 7.5} y2={rt - 7.5} stroke={cv("line-2")} />
+            <line x1={0} x2={pw} y1={yr(0)} y2={yr(0)} stroke={cv("ink-4")} strokeDasharray="2 3" />
+            {series.map((s) => (
+              <path key={s.key} data-testid={s.tid} d={path(s.vals)} fill="none" stroke={cv(s.c)} strokeWidth={1.5}>
+                {s.tid && <title>{s.key === "mkt" ? mktName : secName}</title>}
+              </path>
+            ))}
+            {legendItems.map(([t, c], k) => (
+              <text key={k} x={legendXs[k]} y={rt + 2} fontSize={10} fill={c} dominantBaseline="central" data-testid={k === 0 ? undefined : `mv-relperf-${["", "stock", "mkt", "sec"][k]}`}>{t}</text>
+            ))}
+            {tags.map((t, k) => (
+              <text key={k} x={pw + 10} y={t.y} fontSize={10} fill={cv(t.c)} dominantBaseline="central">{`${t.v >= 0 ? "+" : ""}${(t.v * 100).toFixed(1)}%`}</text>
+            ))}
+            <line x1={0} x2={pw} y1={ly} y2={ly} stroke={cv("mint")} strokeDasharray="2 3" />
+            <rect x={pw + 2} y={ly - 10} width={AX - 4} height={20} fill={cv("mint")} />
+            <text x={pw + 8} y={ly} fontSize={11} fill={cv("bg-0")} dominantBaseline="central">{inr(lastBar.c as number)}</text>
+            {xl.map((i) => (
+              <text key={i} x={x(i)} y={CHART_H - 14} fontSize={11} fill={cv("ink-3")} textAnchor="middle" dominantBaseline="central">
+                {n > 70 ? `${MON[utc(bars[i].t).getUTCMonth()]} '${String(utc(bars[i].t).getUTCFullYear()).slice(2)}` : fd(bars[i].t)}
+              </text>
+            ))}
+          </svg>
+
+          <div data-testid="mv-chart-header" style={{
+            position: "absolute", top: 12, left: 14, padding: "10px 14px", borderRadius: 12, background: "var(--bg-glass)",
+            backdropFilter: "blur(20px) saturate(140%)", WebkitBackdropFilter: "blur(20px) saturate(140%)", border: "1px solid var(--line-2)",
+            fontFamily: "var(--mono)", fontSize: 12, display: "flex", flexDirection: "column", gap: 6, pointerEvents: "none", maxWidth: "min(60%,520px)" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+              <span style={{ fontWeight: 500, fontSize: 13 }}>{symbol}</span>
+              <span style={{ color: "var(--ink-3)" }}>1D · NSE · EQ</span>
+              <span style={{ color: "var(--ink-3)" }}>{fdy(hb.t)}</span>
+              <span style={{ color: "var(--ink-2)" }}>{tOff == null ? "" : tOff === 0 ? "T" : `${tOff > 0 ? "T+" : "T"}${tOff}`}</span>
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", color: "var(--ink-3)" }}>
+              {([["O", hb.o], ["H", hb.h], ["L", hb.l], ["C", hb.c]] as const).map(([k, v]) => (
+                <span key={k}>{k} <span style={{ color: chgC }}>{fin(v) ? inr(v) : "—"}</span></span>
+              ))}
+              <span style={{ color: chgC }}>{chg == null || !fin(prevC) ? "—" : `${chg >= 0 ? "+" : ""}${inr(chg)} (${pct(chg / prevC)})`}</span>
+              <span>Vol <span style={{ color: "var(--ink-2)" }}>{vol(hb.v || 0)}</span></span>
+            </div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", color: "var(--ink-3)", fontSize: 11 }}>
+              <span>{mktName} <span style={{ color: mktOn ? "var(--indigo)" : "var(--ink-4)" }}>{mktOn ? pct(mktChg) : "—"}</span></span>
+              <span>{secName} <span style={{ color: secOn ? "var(--amber)" : "var(--ink-4)" }}>{secOn ? pct(secChg) : "—"}</span></span>
+            </div>
+            {hoverEvents.map((e) => (
+              <div key={e.id} style={{ display: "flex", gap: 8, alignItems: "center", fontFamily: "var(--sans)", fontSize: 12, color: "var(--ink)" }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: cv(tone(e)), flex: "none" }} />
+                {clip(e.title, 70)}
+                <span style={{ color: "var(--ink-3)" }}>{clip(e.sub, 90)}{e.exec ? ` · ${outText(e.exec)} · NET ${pct(e.exec.net)}` : ""}</span>
+              </div>
+            ))}
+          </div>
         </div>
+
+        <div style={{ borderTop: "1px solid var(--line-2)" }}>
+          {lanes.map((ln) => {
+            const evs = placed.filter((e) => e.lane === ln.key);
+            const byIdx = new Map<number, number>();
+            let empty = "", insNote = false;
+            if (ln.key === "mdl") empty = mdl.empty ?? "";
+            else if (!evs.length) {
+              empty = "—";
+              if (ln.key === "ins" && insiderLane && insiderLane.available === false) {
+                empty = `INSIDER / SAST FEED NOT LOADED${insiderLane.reason ? ` (${insiderLane.reason})` : ""} · AN EMPTY LANE DOES NOT MEAN NOTHING WAS FILED`;
+                insNote = true;
+              }
+            }
+            return (
+              <div key={ln.key} data-testid={`mv-lane-${ln.key}`} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 84px", height: 34, borderBottom: "1px solid var(--line)" }}>
+                <div style={{ position: "relative" }}>
+                  {ln.key === "mdl" && mdl.span && (
+                    <div data-testid="mv-model-marker" data-state={model?.state} title={model?.note ?? undefined} style={{
+                      position: "absolute", top: 8, height: 18, left: `${(mdl.span.a / n) * 100}%`, width: `${((mdl.span.b - mdl.span.a + 1) / n) * 100}%`,
+                      borderRadius: 6, background: "var(--mint-soft)", border: "1px solid var(--mint-line)", color: "var(--mint)", fontFamily: "var(--mono)", fontSize: 10,
+                      letterSpacing: ".08em", display: "flex", alignItems: "center", padding: "0 8px", boxSizing: "border-box", whiteSpace: "nowrap", overflow: "hidden" }}>
+                      {mdl.span.label}
+                    </div>
+                  )}
+                  {evs.map((e) => {
+                    const i = e.bar_index as number, c = tone(e), on = pinned === e.id || hoverIdx === i;
+                    const k = byIdx.get(i) ?? 0; byIdx.set(i, k + 1);
+                    const m = evs.filter((q) => q.bar_index === i).length;
+                    const dx = slotPx >= 30 && m > 1 ? (k - (m - 1) / 2) * 22 : 0;   // fan same-session markers apart only when a slot is wide enough
+                    return (
+                      <button key={e.id} type="button" className="mvc-evt" data-testid={`mv-evt-${e.id}`}
+                              aria-label={`${e.type_label}: ${e.title}`} aria-pressed={pinned === e.id}
+                              title={`${fdy(e.date)} · ${e.kind} · ${e.title} · ${e.sub}${e.flags.map((f) => ` · ${f.label}`).join("")}${e.exec ? ` · ${outText(e.exec)} · NET ${pct(e.exec.net)}` : ""}`}
+                              onClick={() => pin(pinned === e.id ? null : e.id)}
+                              onFocus={() => setHoverIdx(i)}
+                              style={{ position: "absolute", top: 7, left: dx ? `calc(${L(i)} + ${dx}px)` : L(i), transform: "translateX(-50%)", width: 20, height: 20, borderRadius: "50%",
+                                cursor: "pointer", padding: 0, border: `1px solid ${cv(c)}`, background: on ? cv(c) : cv(`${c}-soft`), color: on ? cv("bg-0") : cv(c),
+                                fontFamily: "var(--mono)", fontSize: 10, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center",
+                                boxShadow: on ? `0 0 0 3px var(--${c}-soft)` : "none", transition: "all .15s ease" }}>{e.glyph}</button>
+                    );
+                  })}
+                  {empty && (
+                    <span data-testid={insNote ? "mv-lane-ins-note" : undefined} title={insNote ? insiderLane?.note : undefined}
+                          style={{ position: "absolute", top: 10, left: 12, right: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".08em", color: "var(--ink-4)" }}>{empty}</span>
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", padding: "0 10px", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".1em", color: "var(--ink-3)", borderLeft: "1px solid var(--line)" }}>{ln.label}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 84, pointerEvents: "none" }}>
+          {band && (
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(band.a / n) * 100}%`, width: `${((band.b - band.a + 1) / n) * 100}%`, background: "var(--mint-soft)", opacity: 0.45, borderLeft: "1px dashed var(--mint-line)", borderRight: "1px dashed var(--mint-line)" }} />
+          )}
+          {sess >= 0 && (
+            <div data-testid="mv-session-marker" style={{ position: "absolute", top: 0, bottom: 0, left: L(sess), borderLeft: "1px dashed var(--ink-3)" }}>
+              <span style={{ ...pill, top: CHART_H - 30, borderRadius: 999, background: "var(--ink)", color: "var(--bg-0)" }}>T · {fd(bars[sess].t).toUpperCase()}</span>
+            </div>
+          )}
+          {flagShow && (
+            <div data-testid="mv-flag-line" style={{ position: "absolute", top: 0, bottom: 0, left: L(flagIdx), borderLeft: "1px dashed var(--mint)" }}>
+              <span style={{ ...pill, top: CHART_H - 54, borderRadius: 999, background: "var(--mint-soft)", border: "1px solid var(--mint-line)", color: "var(--mint)" }}>FLAG · T-{sess - flagIdx}</span>
+            </div>
+          )}
+          {pinnedEv && (
+            <div data-testid="mv-pin-line" style={{ position: "absolute", top: 0, bottom: 0, left: L(pinnedEv.bar_index as number), borderLeft: `1px solid ${cv(tone(pinnedEv))}`, opacity: 0.8 }} />
+          )}
+          {hoverIdx != null && (
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: L(hoverIdx), borderLeft: "1px dashed var(--ink-2)" }}>
+              <span style={{ ...pill, top: CHART_H - 22, borderRadius: 6, background: "var(--bg-4)", color: "var(--ink)", fontSize: 10.5, letterSpacing: 0 }}>{fdy(bars[hoverIdx].t)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, padding: "10px 16px", fontFamily: "var(--mono)", fontSize: 10.5, letterSpacing: ".08em", color: "var(--ink-3)" }}>
+        {([["indigo", "RESULTS / FILINGS"], ["amber", "CORPORATE ACTION"], ["mint", "DEAL · BOUGHT"], ["danger", "DEAL · SOLD"], ["rose", "INSIDER / SAST"]] as const).map(([c, t]) => (
+          <span key={t} style={{ display: "flex", alignItems: "center", gap: 6 }}>{dot(c)}{t}</span>
+        ))}
+        <span style={{ color: "var(--ink-4)" }}>|</span>
+        <span data-testid="mv-outcome-def">{`OUTCOME = ±5% FROM E+1 OPEN WITHIN ${H} SESSIONS (MODEL LABEL: 20) · PENDING UNTIL ${H} SESSIONS EXIST`}</span>
+        <span>{`NET = E+1 OPEN → CLOSE − ${fin(cost) ? `${(cost * 100).toFixed(3)}%` : "COSTS"}`}</span>
+        <span>FLAG LIFT SHOWN INSIDE ATR DECILE</span>
+        <span style={{ flex: 1 }} />
+        <span>HOVER TO SYNC · CLICK A MARKER TO PIN</span>
+      </div>
+
+      {events.length > 0 && (
+        <details className="mvc-evlist" open={unplotted > 0} style={{ borderTop: "1px solid var(--line)", padding: "10px 16px", fontFamily: "var(--mono)", fontSize: 10.5, letterSpacing: ".08em", color: "var(--ink-3)" }}>
+          <summary style={{ color: unplotted > 0 ? "var(--amber)" : "var(--ink-3)" }}>
+            {`EVERY EVENT IN THIS WINDOW (${events.length})${unplotted > 0 ? ` · ${unplotted} NOT ON THE CHART` : ""}`}
+          </summary>
+          <ul data-testid="mv-evt-list" style={{ margin: "8px 0 0", padding: "0 0 0 16px", display: "grid", gap: 3, fontFamily: "var(--sans)", fontSize: 12, letterSpacing: 0, color: "var(--ink-2)" }}>
+            {events.map((e) => (
+              <li key={e.id}>
+                {e.date} · {e.type_label}: {e.title}
+                {idxOk(e) ? "" : ` — not plotted: ${whyOff(e)}`}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
-    </div>
+    </section>
   );
 }
 

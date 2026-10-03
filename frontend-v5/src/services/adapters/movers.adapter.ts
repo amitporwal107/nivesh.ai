@@ -177,7 +177,7 @@ const WindowC = z.object({ key: z.string(), label: z.string(), decomp: DecompC.n
 export type MoverWindow = z.infer<typeof WindowC>;
 
 const RollingC = z.object({ beta: Num, corr: Num, sessions: z.number().optional(), se: NumOpt }).nullable();
-const RollingBetaC = z.object({ before: RollingC, after: RollingC });
+const RollingBetaC = z.object({ before: RollingC, after: RollingC, available: z.boolean().optional(), reason: z.string().nullable().optional() });
 
 const DetailC = z.object({
   symbol: z.string(),
@@ -299,9 +299,14 @@ const FlagLiftC = z.object({
       lift_within: Num,
       n: z.number(),
       verdict: z.enum(["SURVIVES", "WEAK", "DECORATION", "PRE-PRICED"]).nullable(),
+      // the design's D1..D10 strip: one cell per volatility decile (lift is null when the decile has no firings or no base rate)
+      by_decile: z.array(z.object({
+        decile: z.number(), firings: z.number(), moved: z.number(), base_rate: NumOpt, lift: NumOpt,
+      })).optional(),
     }),
   ),
   base_rate: Num.optional(),
+  decile_base: z.array(z.object({ decile: z.number(), n: z.number(), base_rate: NumOpt })).optional(),
   head: z.string().optional(),
   horizon: z.number().optional(),
 });
