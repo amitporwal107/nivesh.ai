@@ -23,10 +23,10 @@
  */
 import "./moversV4Shell.css";
 import type { CSSProperties } from "react";
-import type { MoverDetail, MoverFlaggedRow, MoverRow } from "@/services/adapters/movers.adapter";
+import type { MoverCandidateRow, MoverDetail, MoverFlaggedRow, MoverRow } from "@/services/adapters/movers.adapter";
 
 export type RailRow = MoverRow & Partial<Pick<MoverFlaggedRow, "exec" | "model_p" | "model_head">>;
-export type MoversMode = "MOVERS" | "FLAGGED";
+export type MoversMode = "MOVERS" | "FLAGGED" | "CANDIDATES";
 export type MoversDirection = "both" | "up" | "down";
 export type FlaggedSummary = {
   total: number; cutoff: number | null; horizon: number; available: boolean;
@@ -115,8 +115,10 @@ export function MoversTopBar({ asOf, modelVersion }: { asOf: string | null; mode
 type RailProps = {
   mode: MoversMode; onMode: (m: MoversMode) => void;
   rows: RailRow[]; moversCount: number | null; flaggedCount: number | null;
+  candidateRows: MoverCandidateRow[]; candidatesCount: number | null; candSession: string | null;
   from: string; to: string; flagged: FlaggedSummary | null;
-  selected: { symbol: string; session: string } | null; onSelect: (r: RailRow) => void;
+  selected: { symbol: string; session: string } | null;
+  onSelect: (r: { symbol: string; session: string }) => void;
   filter: string; onFilter: (f: string) => void;
   loading?: boolean; error?: string | null; onRetry?: () => void; emptyText?: string | null;
   names?: Record<string, string>;
@@ -127,8 +129,9 @@ const segWrap: CSSProperties = { display: "flex", gap: 4, padding: 3, border: "1
 
 export function MoversRail(p: RailProps) {
   const isMir = p.mode === "FLAGGED";
+  const isCand = p.mode === "CANDIDATES";
   const H = p.flagged?.horizon ?? 3;
-  const filters = isMir ? ["ALL", "NONE", "PENDING"] : ["ALL", "UP", "DOWN", "MISSED"];
+  const filters = isCand ? ["ALL", "FILING", "DEAL"] : isMir ? ["ALL", "NONE", "PENDING"] : ["ALL", "UP", "DOWN", "MISSED"];
   const ft = filters.includes(p.filter) ? p.filter : "ALL";
   const shown = p.rows.filter((r) => {
     if (ft === "ALL") return true;
@@ -137,13 +140,28 @@ export function MoversRail(p: RailProps) {
     if (ft === "DOWN") return (r.pct ?? 0) < 0;
     return coverOf(r) === "MISSED";
   });
+  const shownCandidates = p.candidateRows.filter((c) => {
+    if (ft === "ALL") return true;
+    const hasFiling = c.signals.some((s) => s.type === "fil");
+    const hasDeal = c.signals.some((s) => s.type !== "fil");
+    return ft === "FILING" ? hasFiling : ft === "DEAL" ? hasDeal : true;
+  });
 
   // headline, computed from the rows (design wording; honest about coverage)
   const nCaught = p.rows.filter((r) => coverOf(r) === "CAUGHT").length;
   const nCovered = p.rows.filter((r) => covered(coverOf(r))).length;
   const nUncovered = p.rows.length - nCovered;
   let headA = "", headB = "", headC = "", color = "var(--mint)", note = "";
-  if (isMir) {
+  if (isCand) {
+    color = "var(--indigo)";
+    if (p.candidateRows.length > 0) {
+      headA = "Candidates for the next session"; headB = ""; headC = "";
+      note = `${p.candidateRows.length} NAMES · MATERIAL FILINGS & BULK/BLOCK DEALS${p.candSession ? ` · ${fdyy(p.candSession)}` : ""} · NOT A PREDICTION`;
+    } else {
+      headA = "No candidates"; headC = " for the last session"; color = "var(--ink-3)";
+      note = "NO MATERIAL FILING OR BULK/BLOCK DEAL ON RECORD";
+    }
+  } else if (isMir) {
     const f = p.flagged;
     color = "var(--amber)";
     if (f && f.total > 0) {
@@ -163,16 +181,22 @@ export function MoversRail(p: RailProps) {
   } else {
     headA = "No movers"; headC = " in this window"; color = "var(--ink-3)"; note = "0 MOVERS SHOWN";
   }
-  const foot = isMir
+  const foot = isCand
+    ? "Material filings (impact = high) and bulk/block deals from the last session, nothing more. Not a prediction: whether a name reacts next session is for the chart and event log to show, not this list."
+    : isMir
     ? `Membership is re-derived at the selected horizon: a name that reaches ±5% leaves the list, and one still inside its window shows PENDING.`
     : "Ranked by absolute return in the window. Every row already moved, so this view measures recall. Switch to Flagged · no move for the other side.";
   const modes: [MoversMode, string][] = [
     ["MOVERS", `MOVERS · RECALL${p.moversCount != null ? ` · ${p.moversCount}` : ""}`],
     ["FLAGGED", `FLAGGED · NONE / PENDING${p.flaggedCount != null ? ` · ${p.flaggedCount}` : ""}`],
+    ["CANDIDATES", `CANDIDATES${p.candidatesCount != null ? ` · ${p.candidatesCount}` : ""}`],
   ];
-  const emptyBox = !p.loading && !p.error && p.rows.length === 0;
+  const emptyBox = isCand
+    ? !p.loading && !p.error && p.candidateRows.length === 0
+    : !p.loading && !p.error && p.rows.length === 0;
   // one line in the 267px rail like the design's "SEPT 2026": the year is shown only when the window crosses a year boundary
   const win = p.from.slice(0, 4) === p.to.slice(0, 4) ? `${fd(p.from)} – ${fd(p.to)}` : `${fdy(p.from)} – ${fdy(p.to)}`;
+  const candTone = toneStyle("indigo");
 
   return (
     <aside data-testid="mv-rail" aria-label="Movers list" style={{ borderRight: "1px solid var(--line)", padding: "20px 16px", display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
@@ -180,18 +204,18 @@ export function MoversRail(p: RailProps) {
         {modes.map(([k, l]) => {
           const on = p.mode === k;
           return (
-            <button key={k} type="button" className="mv4-seg" aria-pressed={on} data-testid={k === "MOVERS" ? "mv-mode-movers" : "mv-mode-flagged"}
+            <button key={k} type="button" className="mv4-seg" aria-pressed={on} data-testid={`mv-mode-${k.toLowerCase()}`}
               onClick={() => p.onMode(k)}
               style={{ border: 0, cursor: "pointer", padding: "8px 10px", borderRadius: 9, textAlign: "left", fontFamily: MONO, fontSize: 11, letterSpacing: ".1em", background: on ? "var(--bg-3)" : "transparent", color: on ? "var(--ink)" : "var(--ink-3)", transition: "all .15s ease" }}>{l}</button>
           );
         })}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <span style={eyebrow}>{isMir ? `FLAGGED, DIDN'T MOVE · ${win}` : `TOP MOVERS · ${win}`}</span>
+        <span style={eyebrow}>{isCand ? `CANDIDATES · NOT A PREDICTION` : isMir ? `FLAGGED, DIDN'T MOVE · ${win}` : `TOP MOVERS · ${win}`}</span>
         <span data-testid="mv-rail-headline" style={{ fontFamily: "var(--display)", fontSize: 24, lineHeight: 1.2 }}>
           {headA}<span style={{ color }}>{headB}</span>{headC}
         </span>
-        <span data-testid={isMir ? "mv-flagged-shares" : "mv-rail-meta"} style={{ fontFamily: MONO, fontSize: 10, letterSpacing: ".08em", color: "var(--ink-3)", lineHeight: 1.5 }}>
+        <span data-testid={isCand ? "mv-cand-meta" : isMir ? "mv-flagged-shares" : "mv-rail-meta"} style={{ fontFamily: MONO, fontSize: 10, letterSpacing: ".08em", color: "var(--ink-3)", lineHeight: 1.5 }}>
           {p.loading ? "LOADING…" : note}
         </span>
       </div>
@@ -206,12 +230,38 @@ export function MoversRail(p: RailProps) {
       </div>
       {p.error && (
         <div role="alert" data-testid="mv-rail-error" style={{ padding: 12, borderRadius: 12, border: "1px solid var(--danger-line)", background: "var(--danger-soft)", fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-2)", display: "flex", flexDirection: "column", gap: 8 }}>
-          <span>The movers list could not be loaded ({p.error}).</span>
+          <span>The {isCand ? "candidates" : "movers"} list could not be loaded ({p.error}).</span>
           {p.onRetry && <button type="button" className="mv4-link" onClick={p.onRetry} style={{ alignSelf: "flex-start" }}>Try again</button>}
         </div>
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {shown.map((m, i) => {
+        {isCand ? shownCandidates.map((c, i) => {
+          const on = !!p.selected && p.selected.symbol === c.symbol && p.selected.session === c.session;
+          const hasFiling = c.signals.some((s) => s.type === "fil");
+          const hasDeal = c.signals.some((s) => s.type !== "fil");
+          const badgeText = hasFiling && hasDeal ? "FILING + DEAL"
+            : hasFiling ? `FILING${c.signals.length > 1 ? ` ×${c.signals.length}` : ""}`
+            : `DEAL${c.signals.length > 1 ? ` ×${c.signals.length}` : ""}`;
+          const pctColor = c.pct == null ? "var(--ink-4)" : c.pct >= 0 ? "var(--mint)" : "var(--danger)";
+          return (
+            <button key={`${c.symbol}:${c.session}`} type="button" className="mv4-row" aria-current={on ? "true" : undefined}
+              data-testid={`mv-rail-row-${c.symbol}`} onClick={() => p.onSelect(c)}
+              style={{ textAlign: "left", cursor: "pointer", display: "grid", gridTemplateColumns: "22px minmax(0,1fr) auto", gap: "4px 10px", alignItems: "center", padding: "10px 12px", borderRadius: 12, color: "var(--ink)", fontFamily: "var(--sans)", transition: "all .15s ease" }}>
+              <span style={{ fontFamily: MONO, fontSize: 11, color: "var(--ink-4)" }}>{String(i + 1).padStart(2, "0")}</span>
+              <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500 }}>{c.symbol}</span>
+                <span style={{ fontSize: 12, color: "var(--ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name ?? c.signals[0]?.title ?? ""}</span>
+              </span>
+              <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 500, color: pctColor, textAlign: "right" }}>{sp(c.pct)}</span>
+              <span />
+              <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--ink-4)", letterSpacing: ".06em" }}>{fd(c.session)}</span>
+              <span data-testid="mv-badge" title={c.signals.map((s) => s.title).join(" · ")}
+                style={{ justifySelf: "end", padding: "2px 7px", borderRadius: 999, border: `1px solid ${candTone.line}`, background: candTone.bg, color: candTone.color, fontFamily: MONO, fontSize: 10, letterSpacing: ".08em", whiteSpace: "nowrap" }}>
+                <b data-testid="mv-badge-state" style={{ fontWeight: "inherit" }}>{badgeText}</b>
+              </span>
+            </button>
+          );
+        }) : shown.map((m, i) => {
           const on = !!p.selected && p.selected.symbol === m.symbol && p.selected.session === m.session;
           const b = badgeOf(m, p.mode, H);
           const ts = toneStyle(b.tone);
@@ -241,11 +291,11 @@ export function MoversRail(p: RailProps) {
         })}
       </div>
       {emptyBox && (
-        <div data-testid={isMir ? "mv-flagged-unavailable" : "mv-rail-empty"} style={{ padding: 12, borderRadius: 12, border: "1px dashed var(--line-3)", fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-2)" }}>
-          {p.emptyText ?? (isMir ? "No flagged name is still showing no move in this window." : "No stock moved this much in this window on the liquidity floor this view uses.")}
+        <div data-testid={isCand ? "mv-cand-empty" : isMir ? "mv-flagged-unavailable" : "mv-rail-empty"} style={{ padding: 12, borderRadius: 12, border: "1px dashed var(--line-3)", fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-2)" }}>
+          {p.emptyText ?? (isCand ? "No material filing or bulk/block deal on record for the last session." : isMir ? "No flagged name is still showing no move in this window." : "No stock moved this much in this window on the liquidity floor this view uses.")}
         </div>
       )}
-      {!emptyBox && !p.loading && !p.error && shown.length === 0 && (
+      {!emptyBox && !p.loading && !p.error && (isCand ? shownCandidates.length === 0 : shown.length === 0) && (
         <div data-testid="mv-rail-filter-empty" style={{ padding: 12, borderRadius: 12, border: "1px dashed var(--line-3)", fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-2)" }}>
           No row matches the {ft} filter.
         </div>
@@ -307,7 +357,45 @@ function synthesis(row: RailRow, mode: MoversMode, evCount: string): string {
 
 const tile: CSSProperties = { display: "flex", flexDirection: "column", gap: 4, padding: "10px 14px", borderRadius: 14 };
 
-export function MoversHero({ row, detail, mode, name }: { row: RailRow | null; detail: MoverDetail | null; mode: MoversMode; name?: string | null }) {
+export function MoversHero({ row, detail, mode, name, candidateRow }: {
+  row: RailRow | null; detail: MoverDetail | null; mode: MoversMode; name?: string | null;
+  /** only read when mode === "CANDIDATES"; `row` stays null for that mode */
+  candidateRow?: MoverCandidateRow | null;
+}) {
+  if (mode === "CANDIDATES") {
+    if (!candidateRow) {
+      return (
+        <section data-testid="mv-hero" style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: "16px 32px" }}>
+          <span style={{ fontSize: 15, color: "var(--ink-2)" }}>Pick a name on the left to see its chart and what was filed or traded around it.</span>
+        </section>
+      );
+    }
+    const c = candidateRow;
+    const moveColor = c.pct == null ? "var(--ink-3)" : c.pct >= 0 ? "var(--mint)" : "var(--danger)";
+    const sector = detail?.sector?.name ? ` · ${detail.sector.name.toUpperCase()}` : "";
+    const titles = c.signals.map((s) => s.title);
+    const synthesisText = titles.length <= 1
+      ? (titles[0] ?? "No disclosure detail available.")
+      : `${titles.length} disclosures on ${sentDate(c.session)}: ${titles.slice(0, 2).join("; ")}${titles.length > 2 ? "…" : ""}`;
+    return (
+      <section data-testid="mv-hero" style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: "16px 32px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 320 }}>
+          <span style={eyebrow}>{c.symbol} · NSE{sector} · {fdy(c.session)}</span>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap" }}>
+            <span data-testid="mv-hero-name" style={{ fontFamily: "var(--display)", fontSize: 40, lineHeight: 1 }}>{name || c.name || c.symbol}</span>
+            <span data-testid="mv-hero-move" style={{ fontFamily: "var(--display)", fontSize: 40, lineHeight: 1, color: moveColor }}>{sp(c.pct)}</span>
+          </div>
+          <span data-testid="mv-hero-synthesis" style={{ fontSize: 15, color: "var(--ink-2)", textWrap: "pretty", maxWidth: 760 } as CSSProperties}>{synthesisText}</span>
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ ...tile, background: "var(--bg-1)", border: "1px solid var(--line)", boxShadow: "var(--shadow-card)" }}>
+            <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: ".12em", color: "var(--ink-3)" }}>SIGNALS</span>
+            <span data-testid="mv-hero-signals" style={{ fontFamily: "var(--display)", fontSize: 24 }}>{c.signals.length}</span>
+          </div>
+        </div>
+      </section>
+    );
+  }
   if (!row) {
     return (
       <section data-testid="mv-hero" style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: "16px 32px" }}>

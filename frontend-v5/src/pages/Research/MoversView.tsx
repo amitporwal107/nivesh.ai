@@ -20,9 +20,9 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  fetchCalibration, fetchFlagLift, fetchFlaggedNoMove, fetchMoverForward, fetchMoverAnalysis, fetchMoverDetail, fetchMovers,
-  type MoverAnalysis, type MoverDetail, type MoverForward, type MoverDetailResult, type MoverRow, type MoversCalibration,
-  type MoversFlagLift, type MoversFlagged, type MoversList, type MoversListResult,
+  fetchCalibration, fetchFlagLift, fetchFlaggedNoMove, fetchMoverCandidates, fetchMoverForward, fetchMoverAnalysis, fetchMoverDetail, fetchMovers,
+  type MoverAnalysis, type MoverCandidateRow, type MoverDetail, type MoverForward, type MoverDetailResult, type MoverRow, type MoversCalibration,
+  type MoversCandidates, type MoversFlagLift, type MoversFlagged, type MoversList, type MoversListResult,
 } from "@/services/adapters/movers.adapter";
 import "./moversV4Tokens.css";
 import "./moversV4View.css";
@@ -31,6 +31,7 @@ import {
   type FlaggedSummary, type MoversDirection, type MoversMode, type RailRow,
 } from "./MoversShell";
 import { MoversChart } from "./MoversChart";
+import { MoversLog } from "./MoversLog";
 import { MoversTech } from "./MoversTech";
 import { MoversForward } from "./MoversForward";
 import { MoversSensitivity } from "./MoversSensitivity";
@@ -74,11 +75,19 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
 
   // v4: the mirror side of the model — names it flagged that did not move — and the horizon the outcome is
   // judged over. Both re-derive the list (the review-3 fix).
-  const [mode, setMode] = useState<MoversMode>("MOVERS");
+  // mode also reads the URL once at mount (?mode=candidates|flagged), so the Research feed screen can
+  // deep-link straight into one without this component needing a prop from its host.
+  const [mode, setMode] = useState<MoversMode>(() => {
+    const want = new URLSearchParams(window.location.search).get("mode")?.toUpperCase();
+    return want === "FLAGGED" || want === "CANDIDATES" ? want : "MOVERS";
+  });
   const [filter, setFilter] = useState("ALL");
   const [horizon, setHorizon] = useState<Horizon>(3);
   type FlaggedState = { kind: "ok"; data: MoversFlagged } | { kind: "error"; message: string } | null;
   const [flagged, setFlagged] = useState<FlaggedState>(null);
+  type CandidatesState = { kind: "ok"; data: MoversCandidates } | { kind: "error"; message: string } | null;
+  const [cnd, setCnd] = useState<CandidatesState>(null);
+  const [cndReload, setCndReload] = useState(0);
   const [cal, setCal] = useState<MoversCalibration | null>(null);
   const [calErr, setCalErr] = useState<string | null>(null);
   const [lift, setLift] = useState<MoversFlagLift | null>(null);
@@ -168,7 +177,32 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
     return () => { live = false; };
   }, [mode, from, to, horizon, onNoAccess]);
 
+  // the candidates list: material filing or bulk/block deal, last session — independent of the odds
+  // model and of whether the stock has already moved. Not re-windowed by from/to: always the newest
+  // session on record, same as /forward.
   useEffect(() => {
+    if (mode !== "CANDIDATES") return;
+    let live = true;
+    setCnd(null);
+    fetchMoverCandidates({ limit: 40 }).then((r) => {
+      if (!live) return;
+      if (r.kind === "no_access") { onNoAccess(); return; }
+      setCnd(r.kind === "ok" ? { kind: "ok", data: r.data } : { kind: "error", message: r.message });
+      if (r.kind === "ok") {
+        setSel((cur) => {
+          if (cur && r.data.candidates.some((c) => c.symbol === cur.symbol && c.session === cur.session)) return cur;
+          const first = r.data.candidates[0];
+          return first ? { symbol: first.symbol, session: first.session } : null;
+        });
+      }
+    });
+    return () => { live = false; };
+  }, [mode, cndReload, onNoAccess]);
+
+  useEffect(() => {
+    // Not shown in Candidates mode (no odds-model card there), and both queries are heavy
+    // (a month-wide sweep of runs/bars) — skip the fetch, not just the render.
+    if (mode === "CANDIDATES") { setCal(null); setCalErr(null); setLift(null); setLiftErr(null); return; }
     let live = true;
     setCal(null); setCalErr(null); setLift(null); setLiftErr(null);
     fetchCalibration({ from, to }).then((r) => {
@@ -182,7 +216,7 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
       if (r.kind === "ok") setLift(r.data); else setLiftErr(r.message);
     });
     return () => { live = false; };
-  }, [from, to, analyticsReload, onNoAccess]);
+  }, [from, to, analyticsReload, mode, onNoAccess]);
 
   // the next session's forward lists (official run beside the labelled preview); not tied to the from/to window
   useEffect(() => {
@@ -197,7 +231,8 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
   const data: MoversList | null = list?.kind === "ok" ? list.data : null;
   const det: MoverDetail | null = detail?.kind === "ok" ? detail.data : null;
   const fl: MoversFlagged | null = flagged && flagged.kind === "ok" ? flagged.data : null;
-  const railRows: RailRow[] = mode === "FLAGGED" ? ((fl?.rows ?? []) as RailRow[]) : (data?.movers ?? []);
+  const cd: MoversCandidates | null = cnd?.kind === "ok" ? cnd.data : null;
+  const railRows: RailRow[] = mode === "FLAGGED" ? ((fl?.rows ?? []) as RailRow[]) : mode === "CANDIDATES" ? [] : (data?.movers ?? []);
   const railNames = useMemo(() => {
     const m: Record<string, string> = {};
     for (const r of railRows) if (r.name) m[r.symbol] = r.name;
@@ -206,6 +241,9 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
   const selRow: RailRow | null = useMemo(
     () => (sel ? railRows.find((m) => m.symbol === sel.symbol && m.session === sel.session) ?? null : null),
     [sel, railRows]);
+  const selCandidate: MoverCandidateRow | null = useMemo(
+    () => (sel && cd ? cd.candidates.find((c) => c.symbol === sel.symbol && c.session === sel.session) ?? null : null),
+    [sel, cd]);
   const flaggedSummary: FlaggedSummary | null = fl
     ? { total: fl.flagged_total, cutoff: fl.cutoff, horizon: fl.horizon, available: fl.available, outcomes: fl.outcomes }
     : null;
@@ -214,7 +252,7 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
     return s.length ? s[s.length - 1] : data?.to ?? null;
   }, [data]);
 
-  const pick = useCallback((m: RailRow) => setSel({ symbol: m.symbol, session: m.session }), []);
+  const pick = useCallback((m: { symbol: string; session: string }) => setSel({ symbol: m.symbol, session: m.session }), []);
   const changeMode = useCallback((m: MoversMode) => { setMode(m); setFilter("ALL"); setSel(null); }, []);
   const flaggedUnavailable = mode === "FLAGGED" && flagged?.kind === "ok" && fl && !fl.available
     ? (fl.reason === "NO_NAME_ABOVE_CUTOFF"
@@ -238,14 +276,16 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
           mode={mode} onMode={changeMode}
           rows={railRows}
           moversCount={data ? data.count : null} flaggedCount={fl ? fl.count : null}
+          candidateRows={cd?.candidates ?? []} candidatesCount={cd ? cd.count : null} candSession={cd?.session ?? null}
           from={from} to={to}
           flagged={flaggedSummary}
           selected={sel} onSelect={pick} names={railNames}
           filter={filter} onFilter={setFilter}
-          loading={mode === "FLAGGED" ? flagged === null : list === null}
+          loading={mode === "FLAGGED" ? flagged === null : mode === "CANDIDATES" ? cnd === null : list === null}
           error={mode === "MOVERS" && list?.kind === "error" ? list.message
-               : mode === "FLAGGED" && flagged?.kind === "error" ? flagged.message : null}
-          onRetry={() => (mode === "MOVERS" ? setReload((n) => n + 1) : setFlagged(null))}
+               : mode === "FLAGGED" && flagged?.kind === "error" ? flagged.message
+               : mode === "CANDIDATES" && cnd?.kind === "error" ? cnd.message : null}
+          onRetry={() => (mode === "MOVERS" ? setReload((n) => n + 1) : mode === "FLAGGED" ? setFlagged(null) : setCndReload((n) => n + 1))}
           emptyText={mode === "MOVERS" && data && data.movers.length === 0
             ? `No stock moved ${minAbsPct}% or more between ${day(from)} and ${day(to)} on the liquidity floor this view uses.`
             : flaggedUnavailable}
@@ -253,14 +293,21 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
         </div>
 
         <main style={{ padding: "20px 24px 32px", display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
-          <MoversControls
-            from={from} to={to} minAbsPct={minAbsPct} direction={direction} includeCa={includeCa}
-            withheld={data ? data.withheld_ca_suspect : null}
-            onFrom={(v) => setFrom(v || from)} onTo={(v) => setTo(v || to)}
-            onMinAbsPct={setMinAbsPct} onDirection={setDirection} onToggleCa={() => setIncludeCa((v) => !v)}
-          />
-          <MoversForward data={fwd} error={fwdErr} />
-          <MoversHero row={selRow} detail={det} mode={mode} name={det?.name ?? selRow?.name ?? null} />
+          {mode !== "CANDIDATES" && (
+            <MoversControls
+              from={from} to={to} minAbsPct={minAbsPct} direction={direction} includeCa={includeCa}
+              withheld={data ? data.withheld_ca_suspect : null}
+              onFrom={(v) => setFrom(v || from)} onTo={(v) => setTo(v || to)}
+              onMinAbsPct={setMinAbsPct} onDirection={setDirection} onToggleCa={() => setIncludeCa((v) => !v)}
+            />
+          )}
+          {mode !== "CANDIDATES" && <MoversForward data={fwd} error={fwdErr} />}
+          <MoversHero row={selRow} detail={det} mode={mode} name={det?.name ?? selRow?.name ?? selCandidate?.name ?? null} candidateRow={selCandidate} />
+          {mode === "CANDIDATES" && cd && (
+            <p data-testid="mv-cand-disclaimer" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-3)", padding: "10px 14px", borderRadius: 10, background: "var(--bg-1)", border: "1px solid var(--line)" }}>
+              <b style={{ color: "var(--ink-2)" }}>{cd.rule}</b> {cd.disclaimer}
+            </p>
+          )}
 
           {sel && detail === null && (
             <p style={{ margin: 0, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".1em", color: "var(--ink-3)" }}
@@ -297,21 +344,33 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
                 dateMax={today}
                 pinnedEventId={evtId} onPinEvent={setEvtId}
               />
-              <MoversSensitivity detail={det} analysis={analysis} />
-              <MoversCopilot detail={det} analysis={analysis} pinnedEventId={evtId} analysisLoading={analysisLoading} />
-              <MoversTech
-                state={evtId ? analysis?.tech_state : (analysis?.tech_state ?? det.tech_state)}
-                eventLabel={evtId ? det.events.find((e) => e.id === evtId)?.title : "Move day"}
-                pinned={!!evtId} deliveryCoverage={det.tech?.delivery_coverage}
-              />
+              {mode === "CANDIDATES" ? (
+                // Candidates stay purely events-and-deals: the timeline, nothing framed as the odds model's
+                // call (no sensitivity decomposition, Copilot attribution card, technical score, or model panel).
+                <MoversLog
+                  events={det.events} bars={det.bars} sessionIndex={det.bar_index_of_session}
+                  market={det.market} horizon={horizon} selectedId={evtId} onSelect={setEvtId}
+                />
+              ) : (
+                <>
+                  <MoversSensitivity detail={det} analysis={analysis} />
+                  <MoversCopilot detail={det} analysis={analysis} pinnedEventId={evtId} analysisLoading={analysisLoading} />
+                  <MoversTech
+                    state={evtId ? analysis?.tech_state : (analysis?.tech_state ?? det.tech_state)}
+                    eventLabel={evtId ? det.events.find((e) => e.id === evtId)?.title : "Move day"}
+                    pinned={!!evtId} deliveryCoverage={det.tech?.delivery_coverage}
+                  />
+                </>
+              )}
             </>
           )}
 
           {/* v4: the model's own report card. Computed from nidp — v4 ships sample constants for these and its
-              README says so; sample constants are not shippable. */}
-          <FlagLiftCard data={lift} error={liftErr} onRetry={() => setAnalyticsReload((n) => n + 1)} />
+              README says so; sample constants are not shippable. Not shown for Candidates: that mode carries
+              no odds-model claim to report a card on. */}
+          {mode !== "CANDIDATES" && <FlagLiftCard data={lift} error={liftErr} onRetry={() => setAnalyticsReload((n) => n + 1)} />}
 
-          {det && (
+          {det && mode !== "CANDIDATES" && (
             <MoversBottomRow
               events={det.events} bars={det.bars} sessionIndex={det.bar_index_of_session}
               market={det.market} horizon={horizon}

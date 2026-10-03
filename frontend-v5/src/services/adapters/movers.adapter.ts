@@ -517,3 +517,56 @@ export async function fetchMoverForward(p: { session?: string; limit?: number } 
     return f.kind === "not_found" ? { kind: "none" } : f;
   }
 }
+
+// ── Candidates (GET /api/movers/candidates): a material filing or a bulk/block deal dated one
+// session — no price-move filter, no odds-model score. Not a forecast; see the API's own `rule` /
+// `disclaimer` strings, which the screen must show verbatim rather than paraphrase. ───────────────
+const CandidateSignalC = z.object({
+  id: z.string(),
+  type: z.enum(["fil", "dealB", "dealS"]),
+  kind: z.string(),
+  kind_note: z.string(),
+  title: z.string(),
+  sub: z.string(),
+});
+export type MoverCandidateSignal = z.infer<typeof CandidateSignalC>;
+
+const CandidateRowC = z.object({
+  symbol: z.string(),
+  name: z.string().nullable().optional(),
+  session: z.string(),
+  close: Num,
+  prev_close: Num,
+  pct: Num,
+  signals: z.array(CandidateSignalC),
+});
+export type MoverCandidateRow = z.infer<typeof CandidateRowC>;
+
+const CandidatesC = z.object({
+  session: z.string(),
+  count: z.number(),
+  candidates: z.array(CandidateRowC),
+  rule: z.string(),
+  disclaimer: z.string(),
+});
+export type MoversCandidates = z.infer<typeof CandidatesC>;
+export type MoversCandidatesResult =
+  | { kind: "ok"; data: MoversCandidates }
+  | { kind: "no_access" }
+  | { kind: "error"; message: string };
+
+export async function fetchMoverCandidates(p: { session?: string; limit?: number } = {}): Promise<MoversCandidatesResult> {
+  try {
+    const res = await http<unknown>({
+      path: "/api/movers/candidates",
+      query: { session: p.session, limit: p.limit },
+      noRetry: true,
+      timeoutMs: 30_000,
+    });
+    const parsed = CandidatesC.safeParse(res.data);
+    return parsed.success ? { kind: "ok", data: parsed.data } : { kind: "error", message: "unexpected response shape" };
+  } catch (e) {
+    const f = fromError(e);
+    return f.kind === "not_found" ? { kind: "error", message: "HTTP 404" } : f;
+  }
+}

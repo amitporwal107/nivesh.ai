@@ -9,8 +9,8 @@ This module keeps only what belongs to the app: the login session and the Move-o
 verbatim, and the DaaS answer is passed through — a 400/404 stays a 400/404, anything else from
 upstream is a 502, never a made-up empty result.
 
-Route order matters: the static paths (/calibration, /flag-lift, /flagged) must be registered
-before /{symbol}, or FastAPI matches them as a symbol.
+Route order matters: the static paths (/calibration, /flag-lift, /flagged, /forward, /candidates)
+must be registered before /{symbol}, or FastAPI matches them as a symbol.
 """
 from __future__ import annotations
 
@@ -121,6 +121,17 @@ async def forward_list(
 ) -> Any:
     await get_current_user(request)
     return await _forward("/movers/forward", {"session": session, "limit": limit})
+
+
+@router.get("/candidates")
+async def candidates(
+    request: Request,
+    user: dict = Depends(require_feature(FLAG)),
+    session: Optional[date] = Query(None, description="session to scan; default = newest EQ session on record"),
+    limit: int = Query(40, ge=1, le=100),
+) -> Any:
+    await get_current_user(request)
+    return await _forward("/movers/candidates", {"session": session, "limit": limit})
 
 
 @router.get("/{symbol}")

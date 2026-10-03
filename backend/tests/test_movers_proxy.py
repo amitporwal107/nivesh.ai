@@ -59,10 +59,27 @@ def run(c):
 def test_static_routes_before_symbol_catchall(px):
     paths = [r.path for r in px.router.routes]
     sym = "/api/movers/{symbol}"
-    for p in ("/api/movers/calibration", "/api/movers/flag-lift", "/api/movers/flagged"):
+    for p in ("/api/movers/calibration", "/api/movers/flag-lift", "/api/movers/flagged",
+              "/api/movers/forward", "/api/movers/candidates"):
         assert paths.index(p) < paths.index(sym)
         first = next(r for r in px.router.routes if r.path_regex.match(p))
         assert first.path == p
+
+
+def test_candidates_forwards_session_and_limit(px):
+    from datetime import date
+    px._dc.reply = (200, {"session": "2026-10-02", "count": 0, "candidates": [], "rule": "r", "disclaimer": "d"})
+    out = run(px.candidates(request=None, user={}, session=date(2026, 10, 2), limit=40))
+    assert out == {"session": "2026-10-02", "count": 0, "candidates": [], "rule": "r", "disclaimer": "d"}
+    path, params, _ = px._dc.calls[-1]
+    assert path == "/movers/candidates" and params == {"session": "2026-10-02", "limit": 40}
+
+
+def test_candidates_omits_session_when_not_given(px):
+    px._dc.reply = (200, {"session": "2026-10-02", "count": 0, "candidates": [], "rule": "r", "disclaimer": "d"})
+    run(px.candidates(request=None, user={}, session=None, limit=40))
+    path, params, _ = px._dc.calls[-1]
+    assert path == "/movers/candidates" and params == {"limit": 40}  # None values are dropped, not sent as null
 
 
 def test_forward_serialises_dates_and_drops_none(px):

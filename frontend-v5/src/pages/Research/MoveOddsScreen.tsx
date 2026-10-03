@@ -173,7 +173,12 @@ export default function MoveOddsScreen() {
   const [liveError, setLiveError] = useState<string | null>(null);
   const [diag, setDiag] = useState<DiagnosticsResult | null>(null);
   const [diagReload, setDiagReload] = useState(0);
-  const [view, setView] = useState<"estimates" | "history" | "movers">("estimates");
+  // Reads ?view= once at mount so the Research feed screen (and its Candidates link) can deep-link
+  // straight into the Movers view instead of always landing on Estimates.
+  const [view, setView] = useState<"estimates" | "history" | "movers">(() => {
+    const want = new URLSearchParams(window.location.search).get("view");
+    return want === "history" || want === "movers" ? want : "estimates";
+  });
   const [hist, setHist] = useState<HistoryResult | null>(null);
   const [histSession, setHistSession] = useState<string | null>(null);
   const [histSort, setHistSort] = useState<{ key: "est" | "sym" | "rating" | "move"; dir: "asc" | "desc" }>({ key: "est", dir: "desc" });

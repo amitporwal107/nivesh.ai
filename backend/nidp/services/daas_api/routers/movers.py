@@ -1673,6 +1673,114 @@ async def forward_list(
     return res
 
 
+@router.get("/candidates")
+async def candidates(
+    request: Request,
+    session: Optional[date] = Query(None, description="session to scan; default = the newest EQ session on record"),
+    limit: int = Query(40, ge=1, le=100),
+) -> dict:
+    """Stocks with a material filing or a bulk/block deal dated `session`.
+
+    This is a plain surfacing of what was disclosed, not a forecast: no odds-model score, no
+    price-move filter (a candidate can be flat on `session` itself). Whether a stock reacts on the
+    NEXT session is exactly what the reader judges from the chart and event log this feeds into —
+    nothing here claims to know that in advance. "Material" means impact_score = 'high' on the
+    filing (the same label the Research feed's MATERIAL sort reads); a bulk/block deal is material
+    by definition (a single party traded >0.5% of equity in one session)."""
+    ck = f"candidates:{session}:{limit}"
+    if (hit := _cache_get(ck)) is not None:
+        return hit
+    pool = await _pool()
+    async with pool.acquire() as conn:
+        if session is None:
+            session = await conn.fetchval(
+                "SELECT max(as_of_date) FROM nidp.prices_eod WHERE series = 'EQ'")
+            if session is None:
+                raise HTTPException(404, "no EQ session on record")
+
+        sig: dict[str, list[dict]] = {}
+
+        for r in await conn.fetch(
+            """
+            SELECT ticker_symbol AS symbol, announcement_id, subject, description, event_category
+              FROM nidp.corporate_announcements
+             WHERE COALESCE(broadcast_at, filed_at)::date = $1 AND impact_score = 'high'
+            """, session):
+            subject = (r["subject"] or "").strip()
+            kind, kind_note = _kind_of(subject, r["description"] or "")
+            sig.setdefault(r["symbol"], []).append({
+                "id": f"ann:{r['announcement_id']}", "type": "fil", "kind": kind, "kind_note": kind_note,
+                "title": subject or "Exchange filing",
+                "sub": (r["description"] or "").strip()[:180] or (r["event_category"] or ""),
+            })
+
+        for r in await conn.fetch(
+            """
+            SELECT 'BULK' AS src, symbol, client_name, deal_type, quantity, avg_price
+              FROM nidp.bulk_deals  WHERE as_of_date = $1
+            UNION ALL
+            SELECT 'BLOCK', symbol, client_name, deal_type, quantity, avg_price
+              FROM nidp.block_deals WHERE as_of_date = $1
+            """, session):
+            side = (r["deal_type"] or "").upper()
+            buy = side.startswith("B") and "SELL" not in side
+            qty = int(r["quantity"] or 0)
+            px = _f(r["avg_price"])
+            sig.setdefault(r["symbol"], []).append({
+                "id": f"deal:{r['src']}:{r['symbol']}:{(r['client_name'] or '')[:24]}:{qty}",
+                "type": "dealB" if buy else "dealS",
+                "kind": f"{r['src'].title()} deal",
+                "kind_note": "Single party traded >0.5% of equity in one session." if r["src"] == "BULK"
+                             else "Pre-agreed trade on the block window; shows institutional conviction.",
+                "title": f"{r['src'].title()} deal",
+                "sub": f"{(r['client_name'] or 'Unknown').title()} · {qty:,} sh"
+                       + (f" @ ₹{px:,.2f}" if px else ""),
+                "_value": (px * qty) if px else 0.0,
+            })
+
+        rule = "Material filing (impact = high) or bulk/block deal dated this session."
+        disclaimer = ("Not a prediction: this surfaces what was disclosed, not what will happen next. "
+                      "Open a candidate to see its chart and event log — including how similar "
+                      "disclosures played out before.")
+        if not sig:
+            res = {"session": session.isoformat(), "count": 0, "candidates": [],
+                   "rule": rule, "disclaimer": disclaimer}
+            _cache_set(ck, res, _TTL)
+            return res
+
+        syms = list(sig)
+        px_rows = await conn.fetch(
+            "SELECT symbol, close_price, prev_close, turnover FROM nidp.prices_eod "
+            "WHERE series = 'EQ' AND as_of_date = $1 AND symbol = ANY($2::text[])", session, syms)
+        px = {r["symbol"]: r for r in px_rows}
+        # Only the EQ universe with a verifiable liquidity floor — same bar as the ranked list — so
+        # a symbol with no EQ row on `session` (suspended, BE/BZ, or simply untraded) is left out
+        # rather than shown as a candidate with an unknown price.
+        liquid = [s for s in syms if px.get(s) is not None
+                  and (_f(px[s]["turnover"]) or 0) >= MIN_TURNOVER]
+        names = await _names(conn, liquid)
+
+        def rank(s: str) -> tuple:
+            signals = sig[s]
+            deal_val = max((e["_value"] for e in signals if e["type"] in ("dealB", "dealS")), default=0.0)
+            return (-deal_val, -len(signals), s)
+
+        out = []
+        for s in sorted(liquid, key=rank)[:limit]:
+            r = px[s]
+            close, prev = _f(r["close_price"]), _f(r["prev_close"])
+            out.append({
+                "symbol": s, "name": names.get(s), "session": session.isoformat(),
+                "close": close, "prev_close": prev,
+                "pct": (100 * (close / prev - 1)) if close and prev else None,
+                "signals": [{k: v for k, v in e.items() if k != "_value"} for e in sig[s]],
+            })
+        res = {"session": session.isoformat(), "count": len(out), "candidates": out,
+               "rule": rule, "disclaimer": disclaimer}
+    _cache_set(ck, res, _TTL)
+    return res
+
+
 @router.get("/{symbol}")
 async def mover_detail(
     request: Request,

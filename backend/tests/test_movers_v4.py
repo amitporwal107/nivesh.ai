@@ -465,6 +465,135 @@ def test_forward_route_registered_before_symbol(mv):
     assert "/movers/forward" in paths and paths.index("/movers/forward") < paths.index("/movers/{symbol}")
 
 
+def test_candidates_route_registered_before_symbol(mv):
+    paths = [r.path for r in mv.router.routes]
+    assert "/movers/candidates" in paths and paths.index("/movers/candidates") < paths.index("/movers/{symbol}")
+
+
+# ── candidates: material filing or bulk/block deal, no price-move filter, no odds-model score ───────────────
+class _CandConn:
+    """MOCK — canned rows keyed by what the query reads; records every SQL so the test can prove what was (not)
+    touched. Mirrors _FwdConn's idiom for the sibling /forward endpoint."""
+    def __init__(self, session, anns=None, deals=None, prices=None):
+        self.sql = []
+        self._session = session
+        self._anns = anns or []
+        self._deals = deals or []
+        self._prices = prices or []
+
+    async def fetchval(self, q, *a):
+        self.sql.append(q)
+        return self._session
+
+    async def fetch(self, q, *a):
+        self.sql.append(q)
+        if "corporate_announcements" in q:
+            return self._anns
+        if "bulk_deals" in q:
+            return self._deals
+        if "nidp.prices_eod" in q:
+            return self._prices
+        return []
+
+
+def test_candidates_merges_signals_and_ranks_by_deal_value(mv, monkeypatch):
+    import asyncio
+    from datetime import date
+    anns = [
+        {"symbol": "AAA", "announcement_id": 1, "subject": "AAA bags new order worth 500cr",
+         "description": "Order from a US client", "event_category": "orders"},
+        {"symbol": "BBB", "announcement_id": 2, "subject": "BBB board meeting",
+         "description": "Approves results", "event_category": "earnings"},
+    ]
+    deals = [
+        {"src": "BULK", "symbol": "AAA", "client_name": "big fund", "deal_type": "BUY", "quantity": 10000, "avg_price": 150.0},
+        {"src": "BLOCK", "symbol": "CCC", "client_name": "promoter trust", "deal_type": "SELL", "quantity": 500000, "avg_price": 20.0},
+    ]
+    prices = [
+        {"symbol": "AAA", "close_price": 152.0, "prev_close": 148.0, "turnover": 6e6},
+        {"symbol": "BBB", "close_price": 80.0, "prev_close": 80.5, "turnover": 6e6},
+        {"symbol": "CCC", "close_price": 21.0, "prev_close": 20.0, "turnover": 6e6},
+    ]
+    conn = _CandConn(date(2026, 10, 2), anns=anns, deals=deals, prices=prices)
+    pool = types.SimpleNamespace(acquire=lambda: _Acq(conn))
+
+    async def _pool():
+        return pool
+    async def _names(c, syms):
+        return {s: f"{s} Ltd" for s in syms}
+    monkeypatch.setattr(mv, "_pool", _pool)
+    monkeypatch.setattr(mv, "_names", _names)
+    mv._cache.clear()
+
+    r = asyncio.run(mv.candidates(request=None, session=None, limit=40))
+    assert r["session"] == "2026-10-02"
+    syms = [c["symbol"] for c in r["candidates"]]
+    # CCC's deal value (5,00,000 x 20 = 1,00,00,000) outranks AAA's (10,000 x 150 = 15,00,000) outranks
+    # BBB, which has no deal at all (filing-only names rank last on this axis).
+    assert syms == ["CCC", "AAA", "BBB"]
+    aaa = r["candidates"][syms.index("AAA")]
+    assert {s["type"] for s in aaa["signals"]} == {"fil", "dealB"}
+    assert aaa["pct"] == pytest.approx(100 * (152.0 / 148.0 - 1), abs=1e-9)
+    ccc = r["candidates"][syms.index("CCC")]
+    assert [s["type"] for s in ccc["signals"]] == ["dealS"]
+    assert all("_value" not in s for c in r["candidates"] for s in c["signals"])
+    assert r["rule"] and r["disclaimer"] and "not a prediction" in r["disclaimer"].lower()
+    # no write anywhere
+    assert not any(w in q.upper() for q in conn.sql for w in ("INSERT", "UPDATE", "DELETE"))
+
+
+def test_candidates_drops_illiquid_and_priceless_symbols(mv, monkeypatch):
+    import asyncio
+    from datetime import date
+    anns = [
+        {"symbol": "THIN", "announcement_id": 9, "subject": "THIN wins order", "description": "d", "event_category": "orders"},
+        {"symbol": "NOPX", "announcement_id": 10, "subject": "NOPX bags order", "description": "d", "event_category": "orders"},
+    ]
+    prices = [{"symbol": "THIN", "close_price": 10.0, "prev_close": 10.0, "turnover": 1e6}]  # below MIN_TURNOVER
+    # NOPX has no EQ price row at all on this session (suspended / BE-BZ / untraded) -> excluded, not a dash
+    conn = _CandConn(date(2026, 10, 2), anns=anns, deals=[], prices=prices)
+    pool = types.SimpleNamespace(acquire=lambda: _Acq(conn))
+
+    async def _pool():
+        return pool
+    monkeypatch.setattr(mv, "_pool", _pool)
+    mv._cache.clear()
+
+    r = asyncio.run(mv.candidates(request=None, session=None, limit=40))
+    assert r["candidates"] == [] and r["count"] == 0
+
+
+def test_candidates_empty_day_still_carries_rule_and_disclaimer(mv, monkeypatch):
+    import asyncio
+    from datetime import date
+    conn = _CandConn(date(2026, 10, 2), anns=[], deals=[], prices=[])
+    pool = types.SimpleNamespace(acquire=lambda: _Acq(conn))
+
+    async def _pool():
+        return pool
+    monkeypatch.setattr(mv, "_pool", _pool)
+    mv._cache.clear()
+
+    r = asyncio.run(mv.candidates(request=None, session=None, limit=40))
+    assert r == {"session": "2026-10-02", "count": 0, "candidates": [], "rule": r["rule"], "disclaimer": r["disclaimer"]}
+    assert "high" in r["rule"] and "not a prediction" in r["disclaimer"].lower()
+
+
+def test_candidates_404_when_no_session_on_record(mv, monkeypatch):
+    import asyncio
+    from fastapi import HTTPException
+    conn = _CandConn(None)
+    pool = types.SimpleNamespace(acquire=lambda: _Acq(conn))
+
+    async def _pool():
+        return pool
+    monkeypatch.setattr(mv, "_pool", _pool)
+    mv._cache.clear()
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(mv.candidates(request=None, session=None, limit=40))
+    assert e.value.status_code == 404
+
+
 def test_preview_loader_refuses_a_counted_snapshot(tmp_path):
     """The loader must be incapable of writing a counted-looking run: it takes only preview snapshots that do not count."""
     import json as _json

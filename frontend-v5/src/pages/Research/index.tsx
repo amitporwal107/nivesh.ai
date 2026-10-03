@@ -116,6 +116,15 @@ export default function ResearchPage() {
   // 403 to anyone not on the list, independent of this client-side check.
   const chartsEnabled = !!me?.features?.charting;
   useEffect(() => { if (screen === "charts" && !chartsEnabled) setScreen("feed"); }, [screen, chartsEnabled]);
+  // Deep-links straight into Movers → Candidates (material filings & bulk/block deals, no price-move
+  // filter, no odds-model score). MoveOddsScreen/MoversView each read their own URL param once at
+  // mount, so the params must land before the screen switch mounts them.
+  const goToCandidates = useCallback(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("screen", "odds"); params.set("view", "movers"); params.set("mode", "candidates");
+    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+    setScreen("odds");
+  }, []);
 
   // ── feed state ──────────────────────────────────────────────────────────
   const [rows, setRows] = useState<FilingRow[]>([]);
@@ -529,6 +538,7 @@ export default function ResearchPage() {
                 insightLoading, tab, setTab, toggleExpand, page, pageCount, flashed, rowRefs,
                 company, clearCompany, docs, docsLoading,
                 held, todayOnly, setTodayOnly,
+                oddsEnabled, goToCandidates,
               }}
             />
           ) : screen === "odds" && oddsEnabled ? (
@@ -606,6 +616,8 @@ interface FeedProps {
   clearCompany: () => void;
   docs: CompanyDocs | null;
   docsLoading: boolean;
+  oddsEnabled: boolean;
+  goToCandidates: () => void;
 }
 
 function FeedScreen(p: FeedProps) {
@@ -811,6 +823,16 @@ function FeedScreen(p: FeedProps) {
               <span className="nv-mono" style={{ fontSize: 10, color: "var(--c-ink-4)", letterSpacing: ".08em" }}>RANKED BY MATERIALITY</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {p.oddsEnabled && (
+                <button
+                  onClick={p.goToCandidates}
+                  data-testid="feed-candidates-link"
+                  title="Stocks with a material filing or a bulk/block deal since the last close — not a prediction"
+                  style={{ background: "var(--mint-soft)", border: "1px solid var(--mint-line)", borderRadius: 999, padding: "4px 11px", fontSize: 11, fontWeight: 600, color: "var(--mint)", cursor: "pointer" }}
+                >
+                  Candidates for the next session →
+                </button>
+              )}
               <button
                 onClick={() => p.setTodayOnly(!p.todayOnly)}
                 data-testid="today-toggle"
