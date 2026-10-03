@@ -26,3 +26,6 @@ Still open: pixel check of v5 against the design on the live page; the experimen
 Owner asked for a new-model Monday list. tpd_model.publish refuses preview/non-counting snapshots by design, so it is NOT published as official:
 migration 158 (nidp.tpd_preview_*) + tpd_preview_loader + GET /movers/forward + a "NEW-UNIVERSE PREVIEW · NOT GRADED" card beside run 13.
 nidp.tpd_runs untouched (11 rows before and after). Verified: 61 pytest, 43 mocked Playwright, endpoint against staging PG. Live HTTP/UI: see next section once deployed.
+
+Live (deploy 83783215, all 3 workflows success): GET /api/movers/forward -> official run 13 (997) + preview (1418, graded False, counts False); tpd_runs still 11 rows.
+Live Playwright: forward card visible, badge "NEW-UNIVERSE PREVIEW · NOT GRADED", 15 + 15 rows, no page errors.
