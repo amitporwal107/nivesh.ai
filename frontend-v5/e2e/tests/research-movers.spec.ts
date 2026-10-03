@@ -171,6 +171,7 @@ async function mockMovers(page: Page, o: MoversOpts = {}) {
     // v4 added three STATIC endpoints under the same prefix. They are not symbols, and counting them
     // as detail calls is what made TC-M11 see a first call with no `range`. Serve them as
     // "unavailable" here: these v1 cases are not about them, and an unavailable panel is a real state.
+    if (parts[2] === "forward") return route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "no forward run on record" }) });
     const V4 = new Set(["calibration", "flag-lift", "flagged"]);
     if (V4.has(parts[2])) {
       const base = { from: "2026-09-01", to: "2026-09-30", available: false, reason: "NO_FINAL_RUN_IN_WINDOW" };

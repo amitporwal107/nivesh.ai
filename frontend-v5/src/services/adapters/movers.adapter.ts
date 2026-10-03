@@ -491,3 +491,29 @@ export async function fetchFlagLift(p: { from: string; to: string }): Promise<Mo
     return f.kind === "not_found" ? { kind: "error", message: "HTTP 404" } : f;
   }
 }
+
+// ── Forward lists (GET /api/movers/forward): the official frozen run BESIDE a labelled, never-graded preview ────────────
+const FwdRowC = z.object({ symbol: z.string(), name: z.string().nullable().optional(), up: Num, down: Num, either: Num, in_official_universe: z.boolean().nullable().optional() });
+export type MoverForwardRow = z.infer<typeof FwdRowC>;
+const ForwardC = z.object({
+  session: z.string(),
+  official: z.object({ available: z.boolean(), run_id: z.number().nullable(), data_as_of: z.string().nullable(), scored: z.number(), label: z.string().nullable(), avg_either: Num, rows: z.array(FwdRowC) }),
+  preview: z.object({
+    available: z.boolean(), label: z.string().nullable(), data_as_of: z.string().nullable(), git_sha: z.string().nullable(), universe_size: z.number().nullable(),
+    scored: z.number(), note: z.string().nullable(), graded: z.boolean(), counts_toward_verdict: z.boolean(), avg_either: Num, top_overlap: z.number(), rows: z.array(FwdRowC),
+  }),
+  disclaimer: z.string(),
+});
+export type MoverForward = z.infer<typeof ForwardC>;
+export type MoverForwardResult = { kind: "ok"; data: MoverForward } | { kind: "none" } | { kind: "error"; message: string } | { kind: "no_access" };
+
+export async function fetchMoverForward(p: { session?: string; limit?: number } = {}): Promise<MoverForwardResult> {
+  try {
+    const res = await http<unknown>({ path: "/api/movers/forward", query: { session: p.session, limit: p.limit }, noRetry: true, timeoutMs: 30_000 });
+    const parsed = ForwardC.safeParse(res.data);
+    return parsed.success ? { kind: "ok", data: parsed.data } : { kind: "error", message: "unexpected response shape" };
+  } catch (e) {
+    const f = fromError(e);
+    return f.kind === "not_found" ? { kind: "none" } : f;
+  }
+}

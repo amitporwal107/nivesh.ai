@@ -470,12 +470,19 @@ def _ca_suspect(close: float, prev: float) -> Optional[str]:
 
 
 # ── Move-odds badge (three states, never two) ──────────────────────────────
-async def _odds_badge(conn, symbol: str, session: date) -> dict:
+async def _odds_badge(conn, symbol: str, session: date, realized_pct: Optional[float] = None) -> dict:
     """design: CAUGHT / MISSED / NO MODEL RUN.
 
     Move-odds ran on 9 of September 2026's 21 sessions. Collapsing "the model did not run" into
     "the model missed it" would read as a model failure when it is a coverage gap, so the absence
     of a run is its own state and carries the window we looked in.
+
+    `realized_pct` is the symbol's actual signed move for `session` (None when the caller doesn't
+    know it). Each run scores p_up5_1d/p_up10_1d/p_down5_1d/p_down10_1d independently, and the old
+    code picked whichever head had the single highest p across ALL four with no direction check —
+    a down-head clearing the cutoff on a stock that ROSE was badged "CAUGHT". Found 2026-10-03 via
+    a live audit: 23 of 29 CAUGHT badges in a 10-session cohort (79%) were exactly this. When
+    `realized_pct` is known, CAUGHT now requires the matching-direction head specifically.
     """
     runs = await conn.fetch(
         """
@@ -499,15 +506,33 @@ async def _odds_badge(conn, symbol: str, session: date) -> dict:
         return {"state": "MISSED", "score": None, "head": None, "run_session": None,
                 "runs_in_window": len(runs), "reason": "NOT_IN_SCORED_UNIVERSE",
                 "note": f"{len(runs)} run(s) covered this window but {symbol} was not scored"}
+
     top = est[0]
-    caught = _f(top["p"]) is not None and _f(top["p"]) >= ODDS_CUTOFF
-    return {
+    wrong_direction_only = False
+    if realized_pct is not None and realized_pct != 0:
+        want = "up" if realized_pct > 0 else "down"
+        matching = [r for r in est if want in r["head"]]
+        if matching:
+            top = matching[0]
+        else:
+            # scored, but only in the direction opposite the realised move: this must never be
+            # badged CAUGHT off the wrong-direction head's score, which is the bug being fixed here.
+            wrong_direction_only = True
+
+    caught = (not wrong_direction_only
+              and _f(top["p"]) is not None and _f(top["p"]) >= ODDS_CUTOFF)
+    out = {
         "state": "CAUGHT" if caught else "MISSED",
         "score": _f(top["p"]), "base_rate": _f(top["p_base_rate"]), "head": top["head"],
         "run_session": top["target_session"].isoformat(), "runs_in_window": len(runs),
         "cutoff": ODDS_CUTOFF,
         "heads": {r["head"]: _f(r["p"]) for r in est},
     }
+    if wrong_direction_only:
+        out["reason"] = "SCORED_WRONG_DIRECTION_ONLY"
+        out["note"] = (f"{len(runs)} run(s) scored {symbol} but only in the direction opposite "
+                        f"the realised move; no matching-direction head was scored")
+    return out
 
 
 def _chart_span(bars: list[dict], d0: date, d1: date) -> tuple[Optional[int], Optional[int]]:
@@ -1136,7 +1161,7 @@ async def list_movers(
                                 if r["ca_type"] else None),
                     "ca_suspect": suspect,
                     "adjusted": _f(r["cumulative_adj_factor"]) not in (None, 1.0),
-                    "odds": await _odds_badge(conn, r["symbol"], sess),
+                    "odds": await _odds_badge(conn, r["symbol"], sess, realized_pct=_f(r["pct"])),
                 })
             nm = await _names(conn, [x["symbol"] for x in out])
             for x in out:
@@ -1583,6 +1608,71 @@ async def flagged_no_move(
 
 
 
+@router.get("/forward")
+async def forward_list(
+    request: Request,
+    session: Optional[date] = Query(None, description="target session; default = the newest session a preview or official run exists for"),
+    limit: int = Query(15, ge=1, le=100),
+) -> dict:
+    """The official frozen Move-odds run for `session` BESIDE any labelled preview for it.
+
+    The preview is a snapshot scored with newer model code (nidp.tpd_preview_*, migration 158). It is read from its own
+    tables, never from nidp.tpd_runs, never graded and never counted; the response says so and carries both provenance
+    records. Both lists are volatility odds; direction is not predictable."""
+    ck = f"forward:{session}:{limit}"
+    if (hit := _cache_get(ck)) is not None:
+        return hit
+    pool = await _pool()
+    async with pool.acquire() as conn:
+        if session is None:
+            session = await conn.fetchval("SELECT max(t) FROM (SELECT max(target_session) t FROM nidp.tpd_preview_runs UNION ALL "
+                                          "SELECT max(target_session) FROM nidp.tpd_runs WHERE model = 'v4' AND status = 'final' AND counts_toward_verdict) x")
+            if session is None:
+                raise HTTPException(404, "no forward run on record")
+        run = await conn.fetchrow(
+            "SELECT run_id, model, data_as_of, target_session, frozen_at, input_count, counts_toward_verdict FROM nidp.tpd_runs "
+            "WHERE model = 'v4' AND status = 'final' AND counts_toward_verdict AND target_session = $1 ORDER BY run_id DESC LIMIT 1", session)
+        prev = await conn.fetchrow(
+            "SELECT preview_id, label, data_as_of, git_sha, universe_size, scored, note, created_at FROM nidp.tpd_preview_runs "
+            "WHERE target_session = $1 ORDER BY preview_id DESC LIMIT 1", session)
+
+        async def rows(q: str, key: Any) -> list[dict]:
+            recs = await conn.fetch(q, key)
+            by: dict[str, dict] = {}
+            for r in recs:
+                by.setdefault(r["symbol"], {})[r["head"]] = _f(r["p"])
+            out = [{"symbol": s_, "up": h.get("p_up5_1d"), "down": h.get("p_down5_1d"),
+                    "either": (h["p_up5_1d"] + h["p_down5_1d"]) if h.get("p_up5_1d") is not None and h.get("p_down5_1d") is not None else None}
+                   for s_, h in by.items()]
+            return sorted([x for x in out if x["either"] is not None], key=lambda x: -x["either"])
+
+        off_rows = await rows("SELECT symbol, head, p FROM nidp.tpd_run_estimates WHERE run_id = $1 AND head IN ('p_up5_1d','p_down5_1d')", run["run_id"]) if run else []
+        prv_rows = await rows("SELECT symbol, head, p FROM nidp.tpd_preview_estimates WHERE preview_id = $1 AND head IN ('p_up5_1d','p_down5_1d')", prev["preview_id"]) if prev else []
+        off_set = {r["symbol"] for r in off_rows}
+        top_p, top_o = prv_rows[:limit], off_rows[:limit]
+        names = await _names(conn, list({r["symbol"] for r in top_p + top_o}))
+        for r in top_p + top_o:
+            r["name"] = names.get(r["symbol"])
+        for r in top_p:
+            r["in_official_universe"] = r["symbol"] in off_set if off_rows else None
+        res = {
+            "session": session.isoformat(),
+            "official": {"available": run is not None, "run_id": run["run_id"] if run else None,
+                         "data_as_of": run["data_as_of"].isoformat() if run else None, "scored": len(off_rows),
+                         "label": "OFFICIAL · FROZEN · COUNTS TOWARD THE VERDICT" if run else None,
+                         "avg_either": (sum(r["either"] for r in off_rows) / len(off_rows)) if off_rows else None, "rows": top_o},
+            "preview": {"available": prev is not None, "label": prev["label"] if prev else None,
+                        "data_as_of": prev["data_as_of"].isoformat() if prev else None, "git_sha": prev["git_sha"][:8] if prev else None,
+                        "universe_size": prev["universe_size"] if prev else None, "scored": len(prv_rows), "note": prev["note"] if prev else None,
+                        "graded": False, "counts_toward_verdict": False,
+                        "avg_either": (sum(r["either"] for r in prv_rows) / len(prv_rows)) if prv_rows else None,
+                        "top_overlap": len({r["symbol"] for r in top_p} & {r["symbol"] for r in top_o}), "rows": top_p},
+            "disclaimer": "Volatility odds only: direction is not predictable in this dataset.",
+        }
+    _cache_set(ck, res, 300)
+    return res
+
+
 @router.get("/{symbol}")
 async def mover_detail(
     request: Request,
@@ -1717,7 +1807,9 @@ async def mover_detail(
                 "tech_state": _tech_state(bars, ts, mk, dl, rts, ti),
                 "insider_lane": {k: v for k, v in ins.items() if k != "events"},
                 "events": sorted(events, key=lambda e: (e["date"], e["type"])),
-                "model": await _odds_badge(conn, symbol, session),
+                "model": await _odds_badge(
+                    conn, symbol, session,
+                    realized_pct=(tb["c"] / tb["prev_c"] - 1) if tb["prev_c"] else None),
                 # The move day itself, computed from the FULL history (not the plotted slice): the Copilot card needs
                 # the volume ratios (25 prior sessions) and the executable return for the day even when no filing
                 # sits on it. None-valued, never zeroed, when the bars cannot support a figure.
@@ -1805,7 +1897,10 @@ async def mover_analysis(
                     )
                 ],
                 "rolling_beta": _rolling_pair(bars, mk, ei),
-                "model": await _odds_badge(conn, symbol, session),
+                "model": await _odds_badge(
+                    conn, symbol, session,
+                    realized_pct=((bars[ti]["c"] / bars[ti]["prev_c"] - 1)
+                                   if bars[ti]["prev_c"] else None)),
                 "disclaimer": ("Attribution of realised return, not a causal claim: direction "
                                "around events is not predictable in this dataset."),
             }

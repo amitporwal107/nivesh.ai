@@ -132,6 +132,7 @@ async function setup(page: Page, o: { cal?: unknown; lift?: unknown; status?: nu
 
   // registered LAST on purpose: Playwright prefers the most recently added matching route, and
   // the generic "/api/movers/*?" above matches /api/movers/calibration too.
+  await page.route("**/api/movers/forward**", (r) => r.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "no forward run on record" }) }));
   await page.route("**/api/movers/calibration**", (r) =>
     r.fulfill({ status: o.status ?? 200, contentType: "application/json", body: JSON.stringify(o.cal ?? CAL) }));
   await page.route("**/api/movers/flag-lift**", (r) =>

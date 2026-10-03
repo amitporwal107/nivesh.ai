@@ -112,6 +112,17 @@ async def flagged_no_move(
                                               "limit": limit}, _HEAVY_TIMEOUT)
 
 
+@router.get("/forward")
+async def forward_list(
+    request: Request,
+    user: dict = Depends(require_feature(FLAG)),
+    session: Optional[date] = Query(None, description="target session; default = the newest one on record"),
+    limit: int = Query(15, ge=1, le=100),
+) -> Any:
+    await get_current_user(request)
+    return await _forward("/movers/forward", {"session": session, "limit": limit})
+
+
 @router.get("/{symbol}")
 async def mover_detail(
     request: Request,

@@ -20,8 +20,8 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  fetchCalibration, fetchFlagLift, fetchFlaggedNoMove, fetchMoverAnalysis, fetchMoverDetail, fetchMovers,
-  type MoverAnalysis, type MoverDetail, type MoverDetailResult, type MoverRow, type MoversCalibration,
+  fetchCalibration, fetchFlagLift, fetchFlaggedNoMove, fetchMoverForward, fetchMoverAnalysis, fetchMoverDetail, fetchMovers,
+  type MoverAnalysis, type MoverDetail, type MoverForward, type MoverDetailResult, type MoverRow, type MoversCalibration,
   type MoversFlagLift, type MoversFlagged, type MoversList, type MoversListResult,
 } from "@/services/adapters/movers.adapter";
 import "./moversV4Tokens.css";
@@ -32,6 +32,7 @@ import {
 } from "./MoversShell";
 import { MoversChart } from "./MoversChart";
 import { MoversTech } from "./MoversTech";
+import { MoversForward } from "./MoversForward";
 import { MoversSensitivity } from "./MoversSensitivity";
 import { MoversCopilot } from "./MoversCopilot";
 import { MoversFlagLift as FlagLiftCard } from "./MoversFlagLift";
@@ -83,6 +84,8 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
   const [lift, setLift] = useState<MoversFlagLift | null>(null);
   const [liftErr, setLiftErr] = useState<string | null>(null);
   const [analyticsReload, setAnalyticsReload] = useState(0);
+  const [fwd, setFwd] = useState<MoverForward | null>(null);
+  const [fwdErr, setFwdErr] = useState<string | null>(null);
 
   const [sel, setSel] = useState<{ symbol: string; session: string } | null>(null);
   const [range, setRange] = useState<string>(DEFAULT_RANGE);
@@ -181,6 +184,16 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
     return () => { live = false; };
   }, [from, to, analyticsReload, onNoAccess]);
 
+  // the next session's forward lists (official run beside the labelled preview); not tied to the from/to window
+  useEffect(() => {
+    let live = true;
+    fetchMoverForward({ limit: 15 }).then((r) => {
+      if (!live) return;
+      if (r.kind === "ok") setFwd(r.data); else if (r.kind === "error") setFwdErr(r.message);
+    });
+    return () => { live = false; };
+  }, []);
+
   const data: MoversList | null = list?.kind === "ok" ? list.data : null;
   const det: MoverDetail | null = detail?.kind === "ok" ? detail.data : null;
   const fl: MoversFlagged | null = flagged && flagged.kind === "ok" ? flagged.data : null;
@@ -246,6 +259,7 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
             onFrom={(v) => setFrom(v || from)} onTo={(v) => setTo(v || to)}
             onMinAbsPct={setMinAbsPct} onDirection={setDirection} onToggleCa={() => setIncludeCa((v) => !v)}
           />
+          <MoversForward data={fwd} error={fwdErr} />
           <MoversHero row={selRow} detail={det} mode={mode} name={det?.name ?? selRow?.name ?? null} />
 
           {sel && detail === null && (

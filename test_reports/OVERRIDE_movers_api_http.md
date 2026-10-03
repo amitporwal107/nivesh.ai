@@ -21,3 +21,8 @@ Real-data facts: delivery_data has 581 sessions (2024-05-31..2026-10-01), ~2,650
 Staging HTTP: /api/movers/CUBEXTUB (tech True, score 10/10 EXTREME, round trip True, 1 RT, delivery 67/67), ATALREAL (101 RTs, 0/10 WEAK, delivery 81/81),
 /analysis tech_state anchored 2026-09-23 with 6 groups. Live Playwright on :8443: PASS, no non-200, no page errors; mv-ema20/50, mv-rsi/adx, mv-lane-rt, mv-tech* present.
 Still open: pixel check of v5 against the design on the live page; the experiment card (not built).
+
+## Forward lists + labelled preview (2026-10-03)
+Owner asked for a new-model Monday list. tpd_model.publish refuses preview/non-counting snapshots by design, so it is NOT published as official:
+migration 158 (nidp.tpd_preview_*) + tpd_preview_loader + GET /movers/forward + a "NEW-UNIVERSE PREVIEW · NOT GRADED" card beside run 13.
+nidp.tpd_runs untouched (11 rows before and after). Verified: 61 pytest, 43 mocked Playwright, endpoint against staging PG. Live HTTP/UI: see next section once deployed.

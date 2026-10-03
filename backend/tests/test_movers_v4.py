@@ -398,3 +398,82 @@ def test_round_trips_pairs_same_client_within_five_sessions(mv):
             D(7, "", "BUY", 1), D(8, "", "SELL", 1)]                                # no client name -> ignored
     out = asyncio.run(mv._round_trips(_FakeConn(rows), "X", bars))
     assert len(out) == 1 and out[0]["cp"] == "Alpha Fincap" and out[0]["days"] == 3 and (out[0]["b"], out[0]["s"]) == (1, 4)
+
+
+# ── forward lists: official run beside a labelled preview ────────────────────────────────────────────────────
+class _FwdConn:
+    """MOCK — canned rows keyed by what the query reads; records every SQL so the test can prove what was (not) touched."""
+    def __init__(self):
+        self.sql = []
+
+    async def fetchval(self, q, *a):
+        self.sql.append(q)
+        from datetime import date
+        return date(2026, 10, 5)
+
+    async def fetchrow(self, q, *a):
+        self.sql.append(q)
+        from datetime import date, datetime
+        if "FROM nidp.tpd_runs" in q:
+            return {"run_id": 13, "model": "v4", "data_as_of": date(2026, 10, 1), "target_session": date(2026, 10, 5), "frozen_at": datetime(2026, 10, 1), "input_count": 1000, "counts_toward_verdict": True}
+        return {"preview_id": 1, "label": "NEW-UNIVERSE PREVIEW", "data_as_of": date(2026, 10, 1), "git_sha": "2ef4ecb8052c", "universe_size": 1449, "scored": 3, "note": "n", "created_at": None}
+
+    async def fetch(self, q, key=None):
+        self.sql.append(q)
+        if "sector_master" in q or "company_name" in q.lower() and "tpd_run_estimates" not in q and "tpd_preview" not in q:
+            return []
+        R = lambda s, h, p: {"symbol": s, "head": h, "p": p}
+        if "tpd_run_estimates" in q:
+            return [R("AAA", "p_up5_1d", .3), R("AAA", "p_down5_1d", .2), R("BBB", "p_up5_1d", .1), R("BBB", "p_down5_1d", .1)]
+        return [R("AAA", "p_up5_1d", .35), R("AAA", "p_down5_1d", .25), R("NEWCO", "p_up5_1d", .4), R("NEWCO", "p_down5_1d", .4), R("ONLYUP", "p_up5_1d", .9)]
+
+
+class _Acq:
+    def __init__(self, c): self.c = c
+    async def __aenter__(self): return self.c
+    async def __aexit__(self, *a): return False
+
+
+def test_forward_list_beside_preview_never_counted(mv, monkeypatch):
+    import asyncio
+    conn = _FwdConn()
+    pool = types.SimpleNamespace(acquire=lambda: _Acq(conn))
+
+    async def _pool():
+        return pool
+    async def _names(c, syms):
+        return {s: f"{s} Ltd" for s in syms}
+    monkeypatch.setattr(mv, "_pool", _pool)
+    monkeypatch.setattr(mv, "_names", _names)
+    mv._CACHE.clear() if hasattr(mv, "_CACHE") else None
+    r = asyncio.run(mv.forward_list(request=None, session=None, limit=10))
+    assert r["session"] == "2026-10-05"                                  # default = newest session on record
+    assert r["official"]["run_id"] == 13 and [x["symbol"] for x in r["official"]["rows"]] == ["AAA", "BBB"]
+    pv = r["preview"]
+    assert pv["graded"] is False and pv["counts_toward_verdict"] is False and pv["git_sha"] == "2ef4ecb8"
+    # either = up + down; a name with only one head has no 'either' and is not ranked
+    assert [x["symbol"] for x in pv["rows"]] == ["NEWCO", "AAA"] and abs(pv["rows"][0]["either"] - 0.8) < 1e-9
+    assert {x["symbol"]: x["in_official_universe"] for x in pv["rows"]} == {"NEWCO": False, "AAA": True}
+    assert pv["top_overlap"] == 1 and "recommend" not in r["disclaimer"].lower()
+    # the preview is read from its own tables; nothing writes anywhere
+    assert not any(w in q.upper() for q in conn.sql for w in ("INSERT", "UPDATE", "DELETE"))
+    assert any("tpd_preview_estimates" in q for q in conn.sql)
+
+
+def test_forward_route_registered_before_symbol(mv):
+    paths = [r.path for r in mv.router.routes]
+    assert "/movers/forward" in paths and paths.index("/movers/forward") < paths.index("/movers/{symbol}")
+
+
+def test_preview_loader_refuses_a_counted_snapshot(tmp_path):
+    """The loader must be incapable of writing a counted-looking run: it takes only preview snapshots that do not count."""
+    import json as _json
+    spec = importlib.util.spec_from_file_location("tpd_preview_loader_t", MOVERS_PATH.parent.parent / "tpd_preview_loader.py")
+    ld = importlib.util.module_from_spec(spec); spec.loader.exec_module(ld)
+    (tmp_path / "manifest.json").write_text(_json.dumps({"preview": False, "counts_toward_verdict": True, "target_session": "2026-10-05", "data_as_of": "2026-10-01", "git_sha": "x", "universe_size": 1}))
+    (tmp_path / "tpd3_predictions.csv").write_text("symbol,head,p_tpd3\nAAA,p_up5_1d,0.1\n")
+    with pytest.raises(SystemExit):
+        ld.build_sql(tmp_path, "L", "n")
+    (tmp_path / "manifest.json").write_text(_json.dumps({"preview": True, "counts_toward_verdict": False, "target_session": "2026-10-05", "data_as_of": "2026-10-01", "git_sha": "x", "universe_size": 1}))
+    sql = ld.build_sql(tmp_path, "L", "n")
+    assert "tpd_preview_runs" in sql and "tpd_runs " not in sql.replace("tpd_preview_runs", "")

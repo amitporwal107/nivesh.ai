@@ -104,6 +104,7 @@ type Opts = {
   market?: Json; sector?: Json; regression?: Json; insider?: Json;
   cal?: () => { status: number; body: unknown }; lift?: () => { status: number; body: unknown };
   analysisFor?: (symbol: string, eventId: string | null) => Json;
+  forward?: Json;                                                   // GET /api/movers/forward; omitted = 404 (no forward run)
   tech?: Json; techState?: (eventId: string | null) => Json;      // v5: omit both to get a v4-shaped API
 };
 type Calls = { analysis: URL[]; cal: number; lift: number; detail: URL[] };
@@ -142,6 +143,7 @@ async function setup(page: Page, o: Opts = {}): Promise<Calls> {
     if (parts[2] === "calibration") { calls.cal++; const r = o.cal?.() ?? { status: 200, body: CAL() }; return send(route, r.status, r.body); }
     if (parts[2] === "flag-lift") { calls.lift++; const r = o.lift?.() ?? { status: 200, body: LIFT }; return send(route, r.status, r.body); }
     if (parts[2] === "flagged") return send(route, 200, FLAGGED);
+    if (parts[2] === "forward") return o.forward ? send(route, 200, o.forward) : send(route, 404, { detail: "no forward run on record" });
     const symbol = decodeURIComponent(parts[2]);
     if (parts[3] === "analysis") { calls.analysis.push(url); return send(route, 200, analysisFor(symbol, url.searchParams.get("event_id"))); }
     calls.detail.push(url);
@@ -511,5 +513,52 @@ test.describe("Move odds — Movers v5 technical state", () => {
     await openMovers(page);
     await expect(page.getByTestId("mv-chart")).toBeVisible();
     await expect(page.getByTestId("mv-tech")).toHaveCount(0);
+  });
+});
+
+
+// ── forward lists: official run beside the labelled preview ─────────────────────────────────────────────────────────────
+// MOCK - not real data: shaped like GET /api/movers/forward.
+const fr = (symbol: string, up: number, down: number, inOff?: boolean) => ({ symbol, name: `${symbol} Limited`, up, down, either: up + down, ...(inOff === undefined ? {} : { in_official_universe: inOff }) });
+const FWD: Json = {
+  session: "2026-10-05",
+  official: { available: true, run_id: 13, data_as_of: "2026-10-01", scored: 997, label: "OFFICIAL · FROZEN · COUNTS TOWARD THE VERDICT", avg_either: 0.091, rows: [fr("DELTACORP", 0.313, 0.341), fr("RATNAVEER", 0.252, 0.283)] },
+  preview: { available: true, label: "NEW-UNIVERSE PREVIEW", data_as_of: "2026-10-01", git_sha: "2ef4ecb8", universe_size: 1449, scored: 1418,
+    note: "Scored with newer model code than the frozen nightly. Not graded, never counts toward the verdict.", graded: false, counts_toward_verdict: false, avg_either: 0.103, top_overlap: 1,
+    rows: [fr("THOMASCOTT", 0.42, 0.384, false), fr("DELTACORP", 0.326, 0.303, true)] },
+  disclaimer: "Volatility odds only: direction is not predictable in this dataset.",
+};
+
+test.describe("Move odds — Movers forward lists", () => {
+  test("TC-F01 the official run and the preview sit side by side; the preview is labelled, dashed and never presented as graded", async ({ page }) => {
+    await setup(page, { forward: FWD });
+    await openMovers(page);
+    await expect(page.getByTestId("mv-forward")).toContainText("SESSION 05 OCT 2026");
+    await expect(page.getByTestId("mv-fwd-official")).toContainText("OFFICIAL · FROZEN · COUNTS TOWARD THE VERDICT");
+    await expect(page.getByTestId("mv-fwd-official")).toContainText("RUN 13");
+    await expect(page.getByTestId("mv-fwd-preview-badge")).toHaveText("NEW-UNIVERSE PREVIEW · NOT GRADED");
+    await expect(page.getByTestId("mv-fwd-preview")).toContainText("Not graded, never counts toward the verdict");
+    await expect(page.getByTestId("mv-fwd-preview")).toContainText("1 OF THE TOP 2 ALSO IN THE OFFICIAL TOP 2");
+    await expect(page.getByTestId("mv-fwd-official-row")).toHaveCount(2);
+    await expect(page.getByTestId("mv-fwd-preview-row")).toHaveCount(2);
+    await expect(page.getByTestId("mv-fwd-preview-row").first()).toContainText("NEWLY SCORED");   // THOMASCOTT is outside the official universe
+    await expect(page.getByTestId("mv-fwd-preview-row").first()).toContainText("80%");           // 0.42 + 0.384 = 0.804, rounded
+    await expect(page.getByTestId("mv-fwd-preview-row").nth(1)).not.toContainText("NEWLY SCORED");
+    await expect(page.getByTestId("mv-fwd-official")).not.toContainText("NEWLY SCORED");
+  });
+
+  test("TC-F02 no preview on record: the preview column says so and shows no rows", async ({ page }) => {
+    await setup(page, { forward: { ...FWD, preview: { ...FWD.preview, available: false, label: null, rows: [], scored: 0, top_overlap: 0 } } });
+    await openMovers(page);
+    await expect(page.getByTestId("mv-fwd-preview")).toContainText("No preview is on record for this session");
+    await expect(page.getByTestId("mv-fwd-preview-row")).toHaveCount(0);
+    await expect(page.getByTestId("mv-fwd-official-row")).toHaveCount(2);
+  });
+
+  test("TC-F03 no forward run at all (404): no card and no error text, the page is unchanged", async ({ page }) => {
+    await setup(page);
+    await openMovers(page);
+    await expect(page.getByTestId("mv-forward")).toHaveCount(0);
+    await expect(page.getByTestId("mv-fwd-error")).toHaveCount(0);
   });
 });
