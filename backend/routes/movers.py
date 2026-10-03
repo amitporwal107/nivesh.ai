@@ -233,22 +233,51 @@ def _flags_of(ev: dict) -> list[dict]:
 
 # ── data loaders ───────────────────────────────────────────────────────────
 async def _sessions(conn, symbol: str, d0: date, d1: date) -> list[dict]:
-    """Daily EQ bars for one symbol. Series is pinned to EQ: a BE/BZ stint is circuit-capped
-    at 2%/5% and can never be a 5-10% mover, so mixing them would corrupt the ranking."""
+    """Daily EQ bars for one symbol, on the CORPORATE-ACTION-ADJUSTED series.
+
+    Series is pinned to EQ: a BE/BZ stint is circuit-capped at 2%/5% and can never be a 5-10%
+    mover, so mixing them would corrupt the ranking.
+
+    Prices come from nidp.prices_eod_adjusted, which covers the whole universe (2,747 of 2,747
+    September EQ symbols) and is identical to the raw feed wherever there is no event — checked
+    2026-10-03 over 55,630 September rows with a unit factor: zero differed, max |diff| 0.0000.
+    Where there IS an event it is the only correct series: AASTHA's 1:1 bonus prints as -45.96% raw
+    and +8.09% adjusted.
+
+    `prev_c` is the previous ADJUSTED close, not the feed's prev_close column, because the two
+    disagree exactly on the sessions that matter. The window is widened by a few sessions so the
+    first bar still has a predecessor.
+
+    This does NOT remove the need for the circuit-band check. The adjusted table is derived from
+    nidp.corporate_actions, which holds 8 SPLIT and 9 BONUS symbols in total, so TAALTECH, PGIL,
+    TCC, ESDS and the rest carry a unit factor and stay unadjusted.
+    """
     rows = await conn.fetch(
         """
-        SELECT as_of_date, open_price, high_price, low_price, close_price,
-               prev_close, volume, turnover
-          FROM nidp.prices_eod
-         WHERE symbol = $1 AND series = 'EQ' AND as_of_date BETWEEN $2 AND $3
-         ORDER BY as_of_date
+        WITH a AS (
+            SELECT as_of_date, adj_open, adj_high, adj_low, adj_close, adj_volume,
+                   cumulative_adj_factor,
+                   lag(adj_close)  OVER (ORDER BY as_of_date) AS prev_adj,
+                   lag(as_of_date) OVER (ORDER BY as_of_date) AS prev_dt,
+                   bool_or(cumulative_adj_factor <> 1) OVER () AS has_event
+              FROM nidp.prices_eod_adjusted
+             WHERE symbol = $1 AND as_of_date BETWEEN $2 - 10 AND $3)
+        SELECT a.as_of_date, a.adj_open, a.adj_high, a.adj_low, a.adj_close,
+               CASE WHEN a.has_event AND a.prev_adj > 0 AND a.prev_dt >= a.as_of_date - 7
+                    THEN a.prev_adj ELSE p.prev_close END AS prev_adj,
+               a.cumulative_adj_factor, p.volume, p.turnover
+          FROM a JOIN nidp.prices_eod p
+            ON p.symbol = $1 AND p.series = 'EQ' AND p.as_of_date = a.as_of_date
+         WHERE a.as_of_date BETWEEN $2 AND $3
+         ORDER BY a.as_of_date
         """, symbol, d0, d1)
     return [{
         "t": r["as_of_date"].isoformat(),
-        "o": _f(r["open_price"]), "h": _f(r["high_price"]),
-        "l": _f(r["low_price"]),  "c": _f(r["close_price"]),
-        "prev_c": _f(r["prev_close"]), "v": int(r["volume"] or 0),
+        "o": _f(r["adj_open"]), "h": _f(r["adj_high"]),
+        "l": _f(r["adj_low"]),  "c": _f(r["adj_close"]),
+        "prev_c": _f(r["prev_adj"]), "v": int(r["volume"] or 0),
         "turnover": _f(r["turnover"]),
+        "adj_factor": _f(r["cumulative_adj_factor"]),
     } for r in rows]
 
 
@@ -752,19 +781,52 @@ async def list_movers(
             sign = 1 if direction == "up" else -1 if direction == "down" else 0
             rows = await conn.fetch(
                 f"""
-                SELECT p.symbol, p.as_of_date, p.open_price, p.high_price, p.low_price,
-                       p.close_price, p.prev_close, p.volume, p.turnover,
-                       100 * (p.close_price / p.prev_close - 1) AS pct,
+                -- Rank on the CORPORATE-ACTION-ADJUSTED series. It covers the whole universe and
+                -- is identical to the raw feed where there is no event, so this only ever changes
+                -- the rows an event touched — which is exactly the set the raw ranking gets wrong.
+                WITH a AS (
+                    SELECT symbol, as_of_date, adj_open, adj_high, adj_low, adj_close,
+                           cumulative_adj_factor,
+                           lag(adj_close)   OVER w AS prev_adj,
+                           lag(as_of_date)  OVER w AS prev_dt,
+                           -- does this symbol have a corporate action anywhere in the window?
+                           bool_or(cumulative_adj_factor <> 1)
+                               OVER (PARTITION BY symbol) AS has_event
+                      FROM nidp.prices_eod_adjusted
+                     -- widened so the first session in the window still has a predecessor
+                     WHERE as_of_date BETWEEN $1 - 10 AND $2
+                    WINDOW w AS (PARTITION BY symbol ORDER BY as_of_date)),
+                b AS (
+                    SELECT a.symbol, a.as_of_date, a.adj_open, a.adj_high, a.adj_low,
+                           a.adj_close, a.cumulative_adj_factor, p.volume, p.turnover,
+                           -- Use the adjusted lag ONLY for a symbol that actually has an event and
+                           -- whose previous adjusted row is the session right before this one.
+                           -- prices_eod_adjusted holds EQ rows only, so a BE/BZ stint leaves a hole
+                           -- in it: INDIAGLYCO went EQ->BE on 2026-09-02 and back on 09-17, and a
+                           -- bare lag() jumped the hole and printed -77.63% where the move was
+                           -- -6.57%. Everywhere else the feed's own prev_close is right, and
+                           -- adjusted equals raw anyway (55,630 September rows checked, 0 differ).
+                           CASE WHEN a.has_event AND a.prev_adj > 0
+                                     AND a.prev_dt >= a.as_of_date - 7
+                                THEN 100 * (a.adj_close / a.prev_adj - 1)
+                                ELSE 100 * (p.close_price / p.prev_close - 1) END AS pct,
+                           CASE WHEN a.has_event AND a.prev_adj > 0
+                                     AND a.prev_dt >= a.as_of_date - 7
+                                THEN a.prev_adj ELSE p.prev_close END AS prev_adj
+                      FROM a JOIN nidp.prices_eod p
+                        ON p.symbol = a.symbol AND p.series = 'EQ'
+                       AND p.as_of_date = a.as_of_date
+                     WHERE a.as_of_date BETWEEN $1 AND $2
+                       AND p.prev_close > 0 AND p.turnover >= $3)
+                SELECT b.symbol, b.as_of_date, b.adj_open, b.adj_high, b.adj_low, b.adj_close,
+                       b.prev_adj, b.volume, b.turnover, b.pct, b.cumulative_adj_factor,
                        c.action_type AS ca_type, c.ratio AS ca_ratio
-                  FROM nidp.prices_eod p
+                  FROM b
                   LEFT JOIN nidp.corporate_actions c
-                         ON c.symbol = p.symbol AND c.ex_date BETWEEN p.as_of_date - 1
-                                                                 AND p.as_of_date + 1
-                 WHERE p.series = 'EQ' AND p.as_of_date BETWEEN $1 AND $2
-                   AND p.prev_close > 0 AND p.turnover >= $3
-                   AND abs(100 * (p.close_price / p.prev_close - 1)) >= $4
-                   AND ($5 = 0 OR sign(p.close_price / p.prev_close - 1) {op} 0)
-                 ORDER BY abs(p.close_price / p.prev_close - 1) DESC
+                         ON c.symbol = b.symbol AND c.ex_date BETWEEN b.as_of_date - 1
+                                                                 AND b.as_of_date + 1
+                 WHERE abs(b.pct) >= $4 AND ($5 = 0 OR sign(b.pct) {op} 0)
+                 ORDER BY abs(b.pct) DESC
                  LIMIT $6
                 """, frm, to, MIN_TURNOVER, min_abs_pct, sign, limit * 3)
 
@@ -772,7 +834,7 @@ async def list_movers(
             for r in rows:
                 if len(out) >= limit:
                     break
-                close, prev = _f(r["close_price"]), _f(r["prev_close"])
+                close, prev = _f(r["adj_close"]), _f(r["prev_adj"])
                 suspect = None if r["ca_type"] else _ca_suspect(close, prev)
                 if suspect and not include_ca:
                     withheld += 1
@@ -781,12 +843,13 @@ async def list_movers(
                 out.append({
                     "symbol": r["symbol"], "session": sess.isoformat(),
                     "pct": _f(r["pct"]), "close": close, "prev_close": prev,
-                    "open": _f(r["open_price"]), "high": _f(r["high_price"]),
-                    "low": _f(r["low_price"]),
+                    "open": _f(r["adj_open"]), "high": _f(r["adj_high"]),
+                    "low": _f(r["adj_low"]),
                     "volume": int(r["volume"] or 0), "turnover": _f(r["turnover"]),
                     "ca_flag": ({"type": r["ca_type"], "ratio": r["ca_ratio"]}
                                 if r["ca_type"] else None),
                     "ca_suspect": suspect,
+                    "adjusted": _f(r["cumulative_adj_factor"]) not in (None, 1.0),
                     "odds": await _odds_badge(conn, r["symbol"], sess),
                 })
         res = {
