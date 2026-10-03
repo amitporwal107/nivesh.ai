@@ -87,7 +87,7 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
   const [fwd, setFwd] = useState<MoverForward | null>(null);
   const [fwdErr, setFwdErr] = useState<string | null>(null);
 
-  const [sel, setSel] = useState<{ symbol: string; session: string } | null>(null);
+  const [sel, setSel] = useState<{ symbol: string; session: string; src?: "OFFICIAL" | "PREVIEW" } | null>(null);
   const [range, setRange] = useState<string>(DEFAULT_RANGE);
   const [customFrom, setCustomFrom] = useState<string | null>(null);
   const [customTo, setCustomTo] = useState<string | null>(null);
@@ -197,14 +197,30 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
   const data: MoversList | null = list?.kind === "ok" ? list.data : null;
   const det: MoverDetail | null = detail?.kind === "ok" ? detail.data : null;
   const fl: MoversFlagged | null = flagged && flagged.kind === "ok" ? flagged.data : null;
-  const railRows: RailRow[] = mode === "FLAGGED" ? ((fl?.rows ?? []) as RailRow[]) : (data?.movers ?? []);
+  // FORWARD tab: nothing has traded on the target session, so each candidate is pinned to the list's last traded session
+  // (data_as_of) for its chart and detail. Price fields stay null — never invented — and odds are NO_MODEL_RUN placeholders.
+  const fwdRows: RailRow[] = useMemo(() => {
+    if (!fwd) return [];
+    const mk = (src: "OFFICIAL" | "PREVIEW", asOf: string | null, rows: MoverForward["official"]["rows"]): RailRow[] =>
+      asOf ? rows.map((r) => ({
+        symbol: r.symbol, name: r.name ?? null, session: asOf.slice(0, 10), pct: null, close: null, prev_close: null, open: null,
+        high: null, low: null, volume: null, turnover: null, ca_flag: null, ca_suspect: null,
+        odds: { state: "NO_MODEL_RUN" as const, score: null, head: null, run_session: null, runs_in_window: 0 },
+        fwd: { src, either: r.either, up: r.up, down: r.down, target: fwd.session, newlyScored: src === "PREVIEW" && r.in_official_universe === false },
+      })) : [];
+    return [
+      ...(fwd.official.available ? mk("OFFICIAL", fwd.official.data_as_of, fwd.official.rows) : []),
+      ...(fwd.preview.available ? mk("PREVIEW", fwd.preview.data_as_of, fwd.preview.rows) : []),
+    ];
+  }, [fwd]);
+  const railRows: RailRow[] = mode === "FLAGGED" ? ((fl?.rows ?? []) as RailRow[]) : mode === "FORWARD" ? fwdRows : (data?.movers ?? []);
   const railNames = useMemo(() => {
     const m: Record<string, string> = {};
     for (const r of railRows) if (r.name) m[r.symbol] = r.name;
     return m;
   }, [railRows]);
   const selRow: RailRow | null = useMemo(
-    () => (sel ? railRows.find((m) => m.symbol === sel.symbol && m.session === sel.session) ?? null : null),
+    () => (sel ? railRows.find((m) => m.symbol === sel.symbol && m.session === sel.session && (!m.fwd || m.fwd.src === sel.src)) ?? null : null),
     [sel, railRows]);
   const flaggedSummary: FlaggedSummary | null = fl
     ? { total: fl.flagged_total, cutoff: fl.cutoff, horizon: fl.horizon, available: fl.available, outcomes: fl.outcomes }
@@ -214,8 +230,8 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
     return s.length ? s[s.length - 1] : data?.to ?? null;
   }, [data]);
 
-  const pick = useCallback((m: RailRow) => setSel({ symbol: m.symbol, session: m.session }), []);
-  const changeMode = useCallback((m: MoversMode) => { setMode(m); setFilter("ALL"); setSel(null); }, []);
+  const pick = useCallback((m: RailRow) => setSel({ symbol: m.symbol, session: m.session, src: m.fwd?.src }), []);
+  const changeMode = useCallback((m: MoversMode) => { setMode(m); setFilter(m === "FORWARD" ? "OFFICIAL" : "ALL"); setSel(null); }, []);
   const flaggedUnavailable = mode === "FLAGGED" && flagged?.kind === "ok" && fl && !fl.available
     ? (fl.reason === "NO_NAME_ABOVE_CUTOFF"
         ? `No name reached the ${fl.cutoff != null ? `${(fl.cutoff * 100).toFixed(0)}%` : ""} cut-off in this window, so there is nothing the model got wrong to show.`
@@ -242,11 +258,12 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
           flagged={flaggedSummary}
           selected={sel} onSelect={pick} names={railNames}
           filter={filter} onFilter={setFilter}
-          loading={mode === "FLAGGED" ? flagged === null : list === null}
+          loading={mode === "FLAGGED" ? flagged === null : mode === "FORWARD" ? fwd === null && !fwdErr : list === null}
+          forwardLabel={fwd ? day(fwd.session) : null}
           error={mode === "MOVERS" && list?.kind === "error" ? list.message
                : mode === "FLAGGED" && flagged?.kind === "error" ? flagged.message : null}
           onRetry={() => (mode === "MOVERS" ? setReload((n) => n + 1) : setFlagged(null))}
-          emptyText={mode === "MOVERS" && data && data.movers.length === 0
+          emptyText={mode === "FORWARD" ? (fwdErr ?? "No forward list is on record for the next session.") : mode === "MOVERS" && data && data.movers.length === 0
             ? `No stock moved ${minAbsPct}% or more between ${day(from)} and ${day(to)} on the liquidity floor this view uses.`
             : flaggedUnavailable}
         />
@@ -259,7 +276,7 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
             onFrom={(v) => setFrom(v || from)} onTo={(v) => setTo(v || to)}
             onMinAbsPct={setMinAbsPct} onDirection={setDirection} onToggleCa={() => setIncludeCa((v) => !v)}
           />
-          <MoversForward data={fwd} error={fwdErr} />
+          {mode === "FORWARD" && <MoversForward data={fwd} error={fwdErr} />}
           <MoversHero row={selRow} detail={det} mode={mode} name={det?.name ?? selRow?.name ?? null} />
 
           {sel && detail === null && (

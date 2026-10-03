@@ -533,6 +533,7 @@ test.describe("Move odds — Movers forward lists", () => {
   test("TC-F01 the official run and the preview sit side by side; the preview is labelled, dashed and never presented as graded", async ({ page }) => {
     await setup(page, { forward: FWD });
     await openMovers(page);
+    await page.getByTestId("mv-mode-forward").click();
     await expect(page.getByTestId("mv-forward")).toContainText("SESSION 05 OCT 2026");
     await expect(page.getByTestId("mv-fwd-official")).toContainText("OFFICIAL · FROZEN · COUNTS TOWARD THE VERDICT");
     await expect(page.getByTestId("mv-fwd-official")).toContainText("RUN 13");
@@ -550,6 +551,7 @@ test.describe("Move odds — Movers forward lists", () => {
   test("TC-F02 no preview on record: the preview column says so and shows no rows", async ({ page }) => {
     await setup(page, { forward: { ...FWD, preview: { ...FWD.preview, available: false, label: null, rows: [], scored: 0, top_overlap: 0 } } });
     await openMovers(page);
+    await page.getByTestId("mv-mode-forward").click();
     await expect(page.getByTestId("mv-fwd-preview")).toContainText("No preview is on record for this session");
     await expect(page.getByTestId("mv-fwd-preview-row")).toHaveCount(0);
     await expect(page.getByTestId("mv-fwd-official-row")).toHaveCount(2);
@@ -558,7 +560,26 @@ test.describe("Move odds — Movers forward lists", () => {
   test("TC-F03 no forward run at all (404): no card and no error text, the page is unchanged", async ({ page }) => {
     await setup(page);
     await openMovers(page);
+    await page.getByTestId("mv-mode-forward").click();
     await expect(page.getByTestId("mv-forward")).toHaveCount(0);
     await expect(page.getByTestId("mv-fwd-error")).toHaveCount(0);
+  });
+
+  test("TC-F04 three tabs; a forward candidate opens the same detail view as a mover", async ({ page }) => {
+    await setup(page, { forward: FWD, tech: TECH, techState: () => STATE });
+    await openMovers(page);
+    for (const id of ["mv-mode-movers", "mv-mode-flagged", "mv-mode-forward"]) await expect(page.getByTestId(id)).toBeVisible();
+    await expect(page.getByTestId("mv-mode-forward")).toContainText("FORWARD · NEXT SESSION · 5 Oct 2026");
+    await expect(page.getByTestId("mv-forward")).toHaveCount(0);   // the comparison card belongs to the forward tab only
+    await page.getByTestId("mv-mode-forward").click();
+    await expect(page.getByTestId("mv-forward")).toBeVisible();
+    await expect(rows(page)).toHaveCount(2);        // OFFICIAL filter by default
+    await expect(rows(page).first()).toContainText("OFFICIAL");
+    await rows(page).first().click();
+    await expect(page.getByTestId("mv-hero-synthesis")).toContainText("frozen official run");
+    await expect(page.getByTestId("mv-hero-synthesis")).toContainText("It has not moved yet");
+    await expect(page.getByTestId("mv-chart")).toBeVisible();
+    await expect(page.getByTestId("mv-tech-panel")).toBeVisible();
+    await expect(page.getByTestId("mv-hero-synthesis")).not.toContainText(/buy|sell|recommend|hold/i);
   });
 });

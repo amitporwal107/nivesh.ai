@@ -25,8 +25,10 @@ import "./moversV4Shell.css";
 import type { CSSProperties } from "react";
 import type { MoverDetail, MoverFlaggedRow, MoverRow } from "@/services/adapters/movers.adapter";
 
-export type RailRow = MoverRow & Partial<Pick<MoverFlaggedRow, "exec" | "model_p" | "model_head">>;
-export type MoversMode = "MOVERS" | "FLAGGED";
+/** A forward-list candidate (third tab): nothing has moved yet, so the rail shows the odds instead of a return. `src` says which list it is from. */
+export type FwdInfo = { src: "OFFICIAL" | "PREVIEW"; either: number | null; up: number | null; down: number | null; target: string; newlyScored: boolean };
+export type RailRow = MoverRow & Partial<Pick<MoverFlaggedRow, "exec" | "model_p" | "model_head">> & { fwd?: FwdInfo };
+export type MoversMode = "MOVERS" | "FLAGGED" | "FORWARD";
 export type MoversDirection = "both" | "up" | "down";
 export type FlaggedSummary = {
   total: number; cutoff: number | null; horizon: number; available: boolean;
@@ -75,6 +77,12 @@ function coverOf(r: RailRow): Cover {
 const covered = (c: Cover) => c === "CAUGHT" || c === "MISSED";
 
 function badgeOf(r: RailRow, mode: MoversMode, H: number): { state: string; extra: string; tone: Tone; note: string } {
+  if (mode === "FORWARD" && r.fwd) {
+    const f = r.fwd;
+    return f.src === "OFFICIAL"
+      ? { state: "OFFICIAL", extra: "", tone: "mint", note: "From the frozen official run; it counts toward the verdict." }
+      : { state: f.newlyScored ? "PREVIEW · NEW" : "PREVIEW", extra: "", tone: "amber", note: f.newlyScored ? "New-universe preview, not graded. Not scored in the official run." : "New-universe preview, not graded." };
+  }
   if (mode === "FLAGGED") {
     const out = r.exec?.out ?? null;
     const state = out == null ? "FLAGGED" : out === "PENDING" ? `PEND ${r.exec?.el ?? 0}/${r.exec?.H ?? H}` : out;
@@ -116,10 +124,11 @@ type RailProps = {
   mode: MoversMode; onMode: (m: MoversMode) => void;
   rows: RailRow[]; moversCount: number | null; flaggedCount: number | null;
   from: string; to: string; flagged: FlaggedSummary | null;
-  selected: { symbol: string; session: string } | null; onSelect: (r: RailRow) => void;
+  selected: { symbol: string; session: string; src?: string } | null; onSelect: (r: RailRow) => void;
   filter: string; onFilter: (f: string) => void;
   loading?: boolean; error?: string | null; onRetry?: () => void; emptyText?: string | null;
   names?: Record<string, string>;
+  forwardLabel?: string | null;
 };
 
 const eyebrow: CSSProperties = { fontFamily: MONO, fontSize: 11, letterSpacing: ".14em", color: "var(--ink-3)" };
@@ -127,10 +136,12 @@ const segWrap: CSSProperties = { display: "flex", gap: 4, padding: 3, border: "1
 
 export function MoversRail(p: RailProps) {
   const isMir = p.mode === "FLAGGED";
+  const isFwd = p.mode === "FORWARD";
   const H = p.flagged?.horizon ?? 3;
-  const filters = isMir ? ["ALL", "NONE", "PENDING"] : ["ALL", "UP", "DOWN", "MISSED"];
-  const ft = filters.includes(p.filter) ? p.filter : "ALL";
+  const filters = isFwd ? ["OFFICIAL", "PREVIEW"] : isMir ? ["ALL", "NONE", "PENDING"] : ["ALL", "UP", "DOWN", "MISSED"];
+  const ft = filters.includes(p.filter) ? p.filter : filters[0];
   const shown = p.rows.filter((r) => {
+    if (isFwd) return r.fwd?.src === ft;
     if (ft === "ALL") return true;
     if (isMir) return (r.exec?.out ?? "") === ft;
     if (ft === "UP") return (r.pct ?? 0) > 0;
@@ -143,7 +154,14 @@ export function MoversRail(p: RailProps) {
   const nCovered = p.rows.filter((r) => covered(coverOf(r))).length;
   const nUncovered = p.rows.length - nCovered;
   let headA = "", headB = "", headC = "", color = "var(--mint)", note = "";
-  if (isMir) {
+  const fwdTop = isFwd ? shown[0] : undefined;
+  if (isFwd) {
+    if (fwdTop?.fwd) {
+      headA = "Highest odds of a ±5% move: "; headB = p0(fwdTop.fwd.either); headC = ` · ${fwdTop.symbol}`;
+      color = ft === "PREVIEW" ? "var(--amber)" : "var(--mint)";
+      note = `${shown.length} CANDIDATES · ${ft === "OFFICIAL" ? "FROZEN OFFICIAL RUN · COUNTS TOWARD THE VERDICT" : "NEW-UNIVERSE PREVIEW · NOT GRADED"} · VOLATILITY ODDS, NOT DIRECTION`;
+    } else { headA = "No forward list"; headC = " on record"; color = "var(--ink-3)"; note = p.loading ? "LOADING…" : "NOTHING TO SHOW"; }
+  } else if (isMir) {
     const f = p.flagged;
     color = "var(--amber)";
     if (f && f.total > 0) {
@@ -163,12 +181,15 @@ export function MoversRail(p: RailProps) {
   } else {
     headA = "No movers"; headC = " in this window"; color = "var(--ink-3)"; note = "0 MOVERS SHOWN";
   }
-  const foot = isMir
+  const foot = isFwd
+    ? "These names have not moved yet. Each figure is the chance of a +5% move plus the chance of a -5% move on the target session; which way it goes is not predictable. The preview is scored with newer model code and is never graded."
+    : isMir
     ? `Membership is re-derived at the selected horizon: a name that reaches ±5% leaves the list, and one still inside its window shows PENDING.`
     : "Ranked by absolute return in the window. Every row already moved, so this view measures recall. Switch to Flagged · no move for the other side.";
   const modes: [MoversMode, string][] = [
     ["MOVERS", `MOVERS · RECALL${p.moversCount != null ? ` · ${p.moversCount}` : ""}`],
     ["FLAGGED", `FLAGGED · NONE / PENDING${p.flaggedCount != null ? ` · ${p.flaggedCount}` : ""}`],
+    ["FORWARD", `FORWARD · NEXT SESSION${p.forwardLabel ? ` · ${p.forwardLabel}` : ""}`],
   ];
   const emptyBox = !p.loading && !p.error && p.rows.length === 0;
   // one line in the 267px rail like the design's "SEPT 2026": the year is shown only when the window crosses a year boundary
@@ -180,14 +201,14 @@ export function MoversRail(p: RailProps) {
         {modes.map(([k, l]) => {
           const on = p.mode === k;
           return (
-            <button key={k} type="button" className="mv4-seg" aria-pressed={on} data-testid={k === "MOVERS" ? "mv-mode-movers" : "mv-mode-flagged"}
+            <button key={k} type="button" className="mv4-seg" aria-pressed={on} data-testid={k === "MOVERS" ? "mv-mode-movers" : k === "FLAGGED" ? "mv-mode-flagged" : "mv-mode-forward"}
               onClick={() => p.onMode(k)}
               style={{ border: 0, cursor: "pointer", padding: "8px 10px", borderRadius: 9, textAlign: "left", fontFamily: MONO, fontSize: 11, letterSpacing: ".1em", background: on ? "var(--bg-3)" : "transparent", color: on ? "var(--ink)" : "var(--ink-3)", transition: "all .15s ease" }}>{l}</button>
           );
         })}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <span style={eyebrow}>{isMir ? `FLAGGED, DIDN'T MOVE · ${win}` : `TOP MOVERS · ${win}`}</span>
+        <span style={eyebrow}>{isFwd ? `FORWARD LISTS · ${p.forwardLabel ?? "NEXT SESSION"}` : isMir ? `FLAGGED, DIDN'T MOVE · ${win}` : `TOP MOVERS · ${win}`}</span>
         <span data-testid="mv-rail-headline" style={{ fontFamily: "var(--display)", fontSize: 24, lineHeight: 1.2 }}>
           {headA}<span style={{ color }}>{headB}</span>{headC}
         </span>
@@ -212,12 +233,12 @@ export function MoversRail(p: RailProps) {
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {shown.map((m, i) => {
-          const on = !!p.selected && p.selected.symbol === m.symbol && p.selected.session === m.session;
+          const on = !!p.selected && p.selected.symbol === m.symbol && p.selected.session === m.session && (!m.fwd || p.selected.src === m.fwd.src);
           const b = badgeOf(m, p.mode, H);
           const ts = toneStyle(b.tone);
-          const rank = String(p.rows.indexOf(m) + 1).padStart(2, "0");
+          const rank = String((isFwd ? shown : p.rows).indexOf(m) + 1).padStart(2, "0");
           const nm = p.names?.[m.symbol];
-          const pctColor = isMir ? "var(--ink-2)" : (m.pct ?? 0) >= 0 ? "var(--mint)" : "var(--danger)";
+          const pctColor = isMir || isFwd ? "var(--ink-2)" : (m.pct ?? 0) >= 0 ? "var(--mint)" : "var(--danger)";
           return (
             <button key={`${m.symbol}:${m.session}:${i}`} type="button" className="mv4-row" aria-current={on ? "true" : undefined}
               data-testid={`mv-rail-row-${m.symbol}`} onClick={() => p.onSelect(m)}
@@ -227,10 +248,10 @@ export function MoversRail(p: RailProps) {
                 <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500 }}>{m.symbol}</span>
                 <span style={{ fontSize: 12, color: "var(--ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nm ?? cr(m.turnover)}</span>
               </span>
-              <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 500, color: pctColor, textAlign: "right" }}>{sp(m.pct)}</span>
+              <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 500, color: pctColor, textAlign: "right" }} title={m.fwd ? `Up ${p0(m.fwd.up)} · down ${p0(m.fwd.down)}` : undefined}>{m.fwd ? p0(m.fwd.either) : sp(m.pct)}</span>
               <span />
               <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--ink-4)", letterSpacing: ".06em" }}>
-                T · {isMir ? "TARGET " : ""}{fd(m.session)}{m.ca_suspect ? " · SPLIT?" : ""}
+                {m.fwd ? `TARGET ${fd(m.fwd.target)} · UP ${p0(m.fwd.up)} DN ${p0(m.fwd.down)}` : `T · ${isMir ? "TARGET " : ""}${fd(m.session)}${m.ca_suspect ? " · SPLIT?" : ""}`}
               </span>
               <span data-testid="mv-badge" title={b.note}
                 style={{ justifySelf: "end", padding: "2px 7px", borderRadius: 999, border: `1px solid ${ts.line}`, background: ts.bg, color: ts.color, fontFamily: MONO, fontSize: 10, letterSpacing: ".08em", whiteSpace: "nowrap" }}>
@@ -280,6 +301,7 @@ function heroStats(row: RailRow, detail: MoverDetail | null) {
 }
 
 function heroModel(row: RailRow, mode: MoversMode, H: number): { short: string; tone: Tone } {
+  if (mode === "FORWARD" && row.fwd) return { short: `${row.fwd.src === "OFFICIAL" ? "Official" : "Preview"} · ${p0(row.fwd.either)}`, tone: row.fwd.src === "OFFICIAL" ? "mint" : "amber" };
   if (mode === "FLAGGED") {
     const o = row.exec?.out;
     return { short: o == null ? "Flagged" : o === "NONE" ? "FP · NONE" : o === "PENDING" ? `PENDING ${row.exec?.el ?? 0}/${row.exec?.H ?? H}` : "Moved", tone: "amber" };
@@ -291,6 +313,10 @@ function heroModel(row: RailRow, mode: MoversMode, H: number): { short: string; 
 }
 
 function synthesis(row: RailRow, mode: MoversMode, evCount: string): string {
+  if (mode === "FORWARD" && row.fwd) {
+    const f = row.fwd, tail = evCount !== "—" ? ` ${evCount} event${evCount === "1" ? "" : "s"} and deals landed in the 7 days around the last session.` : "";
+    return `${f.src === "OFFICIAL" ? "The frozen official run" : "The new-universe preview (not graded)"} puts the chance of a ±5% move on ${sentDate(f.target)} at ${p0(f.either)}: ${p0(f.up)} up and ${p0(f.down)} down. It has not moved yet; the chart is centred on the last traded session, ${sentDate(row.session)}.${f.newlyScored ? " This stock was not scored in the official run, which only covers the top 1,000 by turnover." : ""}${tail}`;
+  }
   const mv = `Moved ${sp(row.pct)} on ${sentDate(row.session)}.`;
   const tail = evCount !== "—" ? ` ${evCount} event${evCount === "1" ? "" : "s"} and deals landed inside T±7.` : "";
   const o = row.odds;
@@ -316,24 +342,25 @@ export function MoversHero({ row, detail, mode, name }: { row: RailRow | null; d
     );
   }
   const isMir = mode === "FLAGGED";
+  const isFwd = mode === "FORWARD" && !!row.fwd;
   const st = heroStats(row, detail);
   const mdl = heroModel(row, mode, row.exec?.H ?? 3);
   const ts = toneStyle(mdl.tone);
   const sector = detail?.sector?.name ? ` · ${detail.sector.name.toUpperCase()}` : "";
-  const moveColor = isMir ? "var(--ink-2)" : (row.pct ?? 0) >= 0 ? "var(--mint)" : "var(--danger)";
+  const moveColor = isMir || isFwd ? "var(--ink-2)" : (row.pct ?? 0) >= 0 ? "var(--mint)" : "var(--danger)";
   return (
     <section data-testid="mv-hero" style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: "16px 32px" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 320 }}>
-        <span style={eyebrow}>{row.symbol} · NSE{sector} · {isMir ? "TARGET DAY" : "MOVE DAY"} {fdy(row.session)}</span>
+        <span style={eyebrow}>{row.symbol} · NSE{sector} · {isFwd ? `FORWARD CANDIDATE · TARGET ${fdy(row.fwd!.target)} · LAST SESSION` : isMir ? "TARGET DAY" : "MOVE DAY"} {fdy(row.session)}</span>
         <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap" }}>
           <span data-testid="mv-hero-name" style={{ fontFamily: "var(--display)", fontSize: 40, lineHeight: 1 }}>{name || row.symbol}</span>
-          <span data-testid="mv-hero-move" style={{ fontFamily: "var(--display)", fontSize: 40, lineHeight: 1, color: moveColor }}>{sp(row.pct)}</span>
+          <span data-testid="mv-hero-move" style={{ fontFamily: "var(--display)", fontSize: 40, lineHeight: 1, color: moveColor }}>{isFwd ? p0(row.fwd!.either) : sp(row.pct)}</span>
         </div>
         <span data-testid="mv-hero-synthesis" style={{ fontSize: 15, color: "var(--ink-2)", textWrap: "pretty", maxWidth: 760 } as CSSProperties}>{synthesis(row, mode, st.ev)}</span>
       </div>
       <div style={{ display: "flex", gap: 10 }}>
         <div title={st.volNote} style={{ ...tile, background: "var(--bg-1)", border: "1px solid var(--line)", boxShadow: "var(--shadow-card)" }}>
-          <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: ".12em", color: "var(--ink-3)" }}>MOVE-DAY VOL</span>
+          <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: ".12em", color: "var(--ink-3)" }}>{isFwd ? "LAST-SESSION VOL" : "MOVE-DAY VOL"}</span>
           <span data-testid="mv-hero-vol" style={{ fontFamily: "var(--display)", fontSize: 24 }}>{st.volX}</span>
         </div>
         <div title={st.evNote} style={{ ...tile, background: "var(--bg-1)", border: "1px solid var(--line)", boxShadow: "var(--shadow-card)" }}>

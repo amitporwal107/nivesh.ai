@@ -29,3 +29,9 @@ nidp.tpd_runs untouched (11 rows before and after). Verified: 61 pytest, 43 mock
 
 Live (deploy 83783215, all 3 workflows success): GET /api/movers/forward -> official run 13 (997) + preview (1418, graded False, counts False); tpd_runs still 11 rows.
 Live Playwright: forward card visible, badge "NEW-UNIVERSE PREVIEW · NOT GRADED", 15 + 15 rows, no page errors.
+
+## Three-tab rail (FORWARD tab) — local verification only
+REASON: no PASS verdict claimed; verified with mocked Playwright (desktop-chrome, workers=1): v4-ui + v4 + movers specs, 43 passed before TC-F04, TC-F04 then passed alone; tsc clean. NOT yet deployed or verified live on staging.
+- Rail now has MOVERS · FLAGGED · FORWARD (testid mv-mode-forward) with OFFICIAL / PREVIEW sub-filters.
+- A forward candidate is pinned to the list's data_as_of session, so the same detail view (hero, chart + tech panel, Copilot, technical state) loads as for any mover. Price fields are null, not invented.
+- The comparison card shows only in the FORWARD tab. The preview stays labelled "not graded".
