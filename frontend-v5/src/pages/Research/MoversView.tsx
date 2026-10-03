@@ -28,7 +28,7 @@ import "./moversV4Tokens.css";
 import "./moversV4View.css";
 import {
   MoversControls, MoversHero, MoversRail, MoversTopBar,
-  type FlaggedSummary, type MoversDirection, type MoversMode, type RailRow,
+  type FlaggedSummary, type FwdInfo, type MoversDirection, type MoversMode, type RailRow,
 } from "./MoversShell";
 import { MoversChart } from "./MoversChart";
 import { MoversLog } from "./MoversLog";
@@ -75,11 +75,11 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
 
   // v4: the mirror side of the model — names it flagged that did not move — and the horizon the outcome is
   // judged over. Both re-derive the list (the review-3 fix).
-  // mode also reads the URL once at mount (?mode=candidates|flagged), so the Research feed screen can
-  // deep-link straight into one without this component needing a prop from its host.
+  // mode also reads the URL once at mount (?mode=candidates|flagged|forward), so the Research feed screen
+  // can deep-link straight into one without this component needing a prop from its host.
   const [mode, setMode] = useState<MoversMode>(() => {
     const want = new URLSearchParams(window.location.search).get("mode")?.toUpperCase();
-    return want === "FLAGGED" || want === "CANDIDATES" ? want : "MOVERS";
+    return want === "FLAGGED" || want === "FORWARD" || want === "CANDIDATES" ? want : "MOVERS";
   });
   const [filter, setFilter] = useState("ALL");
   const [horizon, setHorizon] = useState<Horizon>(3);
@@ -96,7 +96,7 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
   const [fwd, setFwd] = useState<MoverForward | null>(null);
   const [fwdErr, setFwdErr] = useState<string | null>(null);
 
-  const [sel, setSel] = useState<{ symbol: string; session: string } | null>(null);
+  const [sel, setSel] = useState<{ symbol: string; session: string; src?: "OFFICIAL" | "PREVIEW" } | null>(null);
   const [range, setRange] = useState<string>(DEFAULT_RANGE);
   const [customFrom, setCustomFrom] = useState<string | null>(null);
   const [customTo, setCustomTo] = useState<string | null>(null);
@@ -232,14 +232,33 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
   const det: MoverDetail | null = detail?.kind === "ok" ? detail.data : null;
   const fl: MoversFlagged | null = flagged && flagged.kind === "ok" ? flagged.data : null;
   const cd: MoversCandidates | null = cnd?.kind === "ok" ? cnd.data : null;
-  const railRows: RailRow[] = mode === "FLAGGED" ? ((fl?.rows ?? []) as RailRow[]) : mode === "CANDIDATES" ? [] : (data?.movers ?? []);
+  // FORWARD tab: nothing has traded on the target session, so each candidate is pinned to the list's last traded session
+  // (data_as_of) for its chart and detail. Price fields stay null — never invented — and odds are NO_MODEL_RUN placeholders.
+  const fwdRows: RailRow[] = useMemo(() => {
+    if (!fwd) return [];
+    const mk = (src: "OFFICIAL" | "PREVIEW", asOf: string | null, rows: MoverForward["official"]["rows"]): RailRow[] =>
+      asOf ? rows.map((r) => ({
+        symbol: r.symbol, name: r.name ?? null, session: asOf.slice(0, 10), pct: null, close: null, prev_close: null, open: null,
+        high: null, low: null, volume: null, turnover: null, ca_flag: null, ca_suspect: null,
+        odds: { state: "NO_MODEL_RUN" as const, score: null, head: null, run_session: null, runs_in_window: 0 },
+        fwd: { src, either: r.either, up: r.up, down: r.down, target: fwd.session, newlyScored: src === "PREVIEW" && r.in_official_universe === false },
+      })) : [];
+    return [
+      ...(fwd.official.available ? mk("OFFICIAL", fwd.official.data_as_of, fwd.official.rows) : []),
+      ...(fwd.preview.available ? mk("PREVIEW", fwd.preview.data_as_of, fwd.preview.rows) : []),
+    ];
+  }, [fwd]);
+  const railRows: RailRow[] = mode === "FLAGGED" ? ((fl?.rows ?? []) as RailRow[])
+    : mode === "FORWARD" ? fwdRows
+    : mode === "CANDIDATES" ? []
+    : (data?.movers ?? []);
   const railNames = useMemo(() => {
     const m: Record<string, string> = {};
     for (const r of railRows) if (r.name) m[r.symbol] = r.name;
     return m;
   }, [railRows]);
   const selRow: RailRow | null = useMemo(
-    () => (sel ? railRows.find((m) => m.symbol === sel.symbol && m.session === sel.session) ?? null : null),
+    () => (sel ? railRows.find((m) => m.symbol === sel.symbol && m.session === sel.session && (!m.fwd || m.fwd.src === sel.src)) ?? null : null),
     [sel, railRows]);
   const selCandidate: MoverCandidateRow | null = useMemo(
     () => (sel && cd ? cd.candidates.find((c) => c.symbol === sel.symbol && c.session === sel.session) ?? null : null),
@@ -252,8 +271,8 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
     return s.length ? s[s.length - 1] : data?.to ?? null;
   }, [data]);
 
-  const pick = useCallback((m: { symbol: string; session: string }) => setSel({ symbol: m.symbol, session: m.session }), []);
-  const changeMode = useCallback((m: MoversMode) => { setMode(m); setFilter("ALL"); setSel(null); }, []);
+  const pick = useCallback((m: { symbol: string; session: string; fwd?: FwdInfo }) => setSel({ symbol: m.symbol, session: m.session, src: m.fwd?.src }), []);
+  const changeMode = useCallback((m: MoversMode) => { setMode(m); setFilter(m === "FORWARD" ? "OFFICIAL" : "ALL"); setSel(null); }, []);
   const flaggedUnavailable = mode === "FLAGGED" && flagged?.kind === "ok" && fl && !fl.available
     ? (fl.reason === "NO_NAME_ABOVE_CUTOFF"
         ? `No name reached the ${fl.cutoff != null ? `${(fl.cutoff * 100).toFixed(0)}%` : ""} cut-off in this window, so there is nothing the model got wrong to show.`
@@ -281,12 +300,16 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
           flagged={flaggedSummary}
           selected={sel} onSelect={pick} names={railNames}
           filter={filter} onFilter={setFilter}
-          loading={mode === "FLAGGED" ? flagged === null : mode === "CANDIDATES" ? cnd === null : list === null}
+          loading={mode === "FLAGGED" ? flagged === null
+                 : mode === "FORWARD" ? fwd === null && !fwdErr
+                 : mode === "CANDIDATES" ? cnd === null
+                 : list === null}
+          forwardLabel={fwd ? day(fwd.session) : null}
           error={mode === "MOVERS" && list?.kind === "error" ? list.message
                : mode === "FLAGGED" && flagged?.kind === "error" ? flagged.message
                : mode === "CANDIDATES" && cnd?.kind === "error" ? cnd.message : null}
-          onRetry={() => (mode === "MOVERS" ? setReload((n) => n + 1) : mode === "FLAGGED" ? setFlagged(null) : setCndReload((n) => n + 1))}
-          emptyText={mode === "MOVERS" && data && data.movers.length === 0
+          onRetry={() => (mode === "MOVERS" ? setReload((n) => n + 1) : mode === "CANDIDATES" ? setCndReload((n) => n + 1) : setFlagged(null))}
+          emptyText={mode === "FORWARD" ? (fwdErr ?? "No forward list is on record for the next session.") : mode === "MOVERS" && data && data.movers.length === 0
             ? `No stock moved ${minAbsPct}% or more between ${day(from)} and ${day(to)} on the liquidity floor this view uses.`
             : flaggedUnavailable}
         />
@@ -301,7 +324,7 @@ export function MoversView({ onNoAccess, modelVersion = null }: {
               onMinAbsPct={setMinAbsPct} onDirection={setDirection} onToggleCa={() => setIncludeCa((v) => !v)}
             />
           )}
-          {mode !== "CANDIDATES" && <MoversForward data={fwd} error={fwdErr} />}
+          {mode === "FORWARD" && <MoversForward data={fwd} error={fwdErr} />}
           <MoversHero row={selRow} detail={det} mode={mode} name={det?.name ?? selRow?.name ?? selCandidate?.name ?? null} candidateRow={selCandidate} />
           {mode === "CANDIDATES" && cd && (
             <p data-testid="mv-cand-disclaimer" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-3)", padding: "10px 14px", borderRadius: 10, background: "var(--bg-1)", border: "1px solid var(--line)" }}>
