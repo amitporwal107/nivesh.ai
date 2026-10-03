@@ -16,3 +16,8 @@ REASON: v5 (EMA/RSI/ADX overlay, round-trip lane, technical-state card) is built
 through the real DaaS handlers (59 pytest, 39 mocked Playwright), but NOT deployed: a dev push is a live deploy and was not requested.
 Not yet verified over HTTP on staging or in the live UI. Not built by choice: the round trip x score experiment card (needs a population endpoint).
 Real-data facts: delivery_data has 581 sessions (2024-05-31..2026-10-01), ~2,650 EQ symbols/day, so delivery % is real, not Kite/Trendlyne.
+
+## v5 live result (2026-10-03, after dev deploy 7f7a7dde; all 3 workflows succeeded)
+Staging HTTP: /api/movers/CUBEXTUB (tech True, score 10/10 EXTREME, round trip True, 1 RT, delivery 67/67), ATALREAL (101 RTs, 0/10 WEAK, delivery 81/81),
+/analysis tech_state anchored 2026-09-23 with 6 groups. Live Playwright on :8443: PASS, no non-200, no page errors; mv-ema20/50, mv-rsi/adx, mv-lane-rt, mv-tech* present.
+Still open: pixel check of v5 against the design on the live page; the experiment card (not built).
