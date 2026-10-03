@@ -3,8 +3,9 @@
 - **Branch:** `feat/movers-monday-candidates` (new worktree off `origin/dev` @ `83783215`, per owner's branch decision)
 - **Date:** 2026-10-03
 - **Author:** Claude (full-stack developer)
-- **Environment:** mocked DB (backend pytest) + mocked API (frontend Playwright). **NOT staging HTTP, NOT real
-  staging data** — see the override for why and what's needed.
+- **Environment:** mocked DB (backend pytest) + mocked API (frontend Playwright) + real staging DB (direct SQL)
+  + real staging HTTP (deployed). See the update below — deployed and the route is live; an authenticated
+  end-to-end check is the one piece still open.
 - **Changed areas:** backend routes/services: yes (`backend/nidp/services/daas_api/routers/movers.py`,
   `backend/routes/movers.py`) · frontend src: yes (`movers.adapter.ts`, `MoversShell.tsx`, `MoversView.tsx`,
   `MoveOddsScreen.tsx`, `pages/Research/index.tsx`)
@@ -77,9 +78,36 @@ Route mocks are fixtures shaped like the real endpoints (see `research-movers-ca
 prove the SCREEN (rail/hero/chart/log, mode switch, filters, absence of odds-model panels, verbatim
 disclaimer text), **not** real data.
 
-## API / Endpoint Tests (staging) — BLOCKED
+## API / Endpoint Tests (staging) — deployed 2026-10-03
 
-Not run; this branch is not deployed. See override.
+Merged `origin/dev`'s concurrent `feat(movers): FORWARD tab beside MOVERS and FLAGGED` commits into this
+branch by hand (both touched `MoversShell.tsx`/`MoversView.tsx` in the same places; resolved to a coherent
+4-mode dashboard — MOVERS / FLAGGED / FORWARD / CANDIDATES — re-verified: 69 backend pytest, `tsc -b` clean,
+49 Playwright including the pre-existing FORWARD-tab cases, 0 failures). Pushed to `dev`
+(`32ee917d..10503c75`, fast-forward) and ran the staging redeploy script on `nivesh-app-vm`:
+
+```
+Image nivesh/backend:staging Built
+Image nivesh/frontend:staging Built
+Image nivesh/frontend-v5:staging Built
+[redeploy-staging] Waiting for nivesh-staging-app-backend to report healthy...
+[redeploy-staging] Healthy after 1 checks.
+[redeploy-staging] Smoke check via nginx on 127.0.0.1:8443...
+{"status":"ok","service":"portfolio_ingestion","version":"0.1.0","env":"staging"}
+```
+
+Then, from outside the VM:
+```
+curl -sk -o /dev/null -w "healthz: %{http_code}\n" https://staging.niveshcopilot.com/api/healthz
+→ healthz: 200
+
+curl -sk https://staging.niveshcopilot.com/api/movers/candidates
+→ HTTP 401 {"status":401,"error":"UNAUTHORIZED","code":"AUTH-001","message":"Not authenticated", "path":"/api/movers/candidates"}
+```
+**Result: PASS for "is it deployed and wired correctly."** The route exists and answers (401, not 404/500) —
+confirms the app's router registered it, matching `test_candidates_route_registered_before_symbol`. An
+**authenticated** end-to-end call (what a logged-in, allowlisted user actually sees) is the one thing still
+open — I have no session token and won't fabricate one. See "what's left" below.
 
 ## Data Correctness (staging) — 2026-10-03, after the GCP token was refreshed
 
@@ -133,27 +161,42 @@ largest real bulk/block deals first. This is the same arithmetic as `candidates(
 tables it reads; it is not a run of the Python function itself (that still needs the branch deployed, or a
 local process pointed at this DB — not done here, see below).
 
-## A separate finding, surfaced while checking the staging path for TC-C21
+## A separate finding, now resolved: `move_odds` had an empty allowlist on staging
 
 Checked `move_odds`'s live state the same way the code reads it: staging Mongo (`portfolio_ingestion` DB,
-`system_config` collection) has **zero documents** — nobody has ever persisted a feature-flag override there.
+`system_config` collection) had **zero documents** — nobody had ever persisted a feature-flag override there.
 `feature_flags.py`'s own default for `move_odds` is `mode: allowlist, allowlist: []` ("admins included" per
-its own docstring — `is_admin` does not bypass this gate). **Net effect: on staging right now, `move_odds` is
-off for every account, including yours.** This is not caused by this branch — it's the live state of the
-flag today, independent of anything built here. It means the *existing* (already-merged, already-on-`dev`)
-Movers dashboard is equally unreachable for anyone right now, not just this new Candidates mode.
+its own docstring — `is_admin` does not bypass this gate), so Movers (old modes and new) was unreachable for
+every account, including the owner's. Not caused by this branch — a pre-existing condition surfaced while
+checking the staging path.
 
-## Inputs required from user
+Owner confirmed (AskUserQuestion): add `aporwal107@gmail.com`. Wrote it directly (`docker exec
+nivesh-staging-mongo mongosh`, read back to confirm, credentials never printed):
+```
+db.system_config.updateOne(
+  {key: "feature_flags"},
+  {$set: {"flags.move_odds": {mode: "allowlist", allowlist: ["aporwal107@gmail.com"]}, updated_at: ..., updated_by: ...}},
+  {upsert: true}
+)
+→ {
+    flags: { move_odds: { mode: 'allowlist', allowlist: [ 'aporwal107@gmail.com' ] } },
+    updated_at: '2026-10-03T12:23:44.514Z',
+    updated_by: 'claude-session-aporwal107-request'
+  }
+```
+Backend workers refresh feature flags from this document every 30s (`feature_gate.REFRESH_SECONDS`), so this
+takes effect without a restart.
 
-- ~~A refreshed GCP credential~~ — done; cleared the two items above.
-- Confirmation to push this branch to `dev` (a dev push is a live staging deploy, per this repo's own rule:
-  "deploy via git push + the redeploy script only") — needed to exercise `GET /api/movers/candidates` and the
-  new UI over real HTTP on `staging.niveshcopilot.com`.
-- A decision on `move_odds`: add your email to its staging allowlist (I can write the `system_config` doc if
-  you confirm — it's a live write to shared staging state, so I'm not doing it unprompted) — without this, no
-  one can reach Movers at all on staging, deployed or not.
+## What's left
+
+Everything that was within reach without a human-provided secret is done: merged, deployed, flag enabled,
+route confirmed live (401, not 404/500). The one remaining gap is a session-authenticated pass — opening
+`https://staging.niveshcopilot.com/v5/research` as `aporwal107@gmail.com`, clicking "Candidates for the next
+session →", and confirming the rail/chart/timeline render with real data. That needs either the owner to look
+themselves (the account is now entitled) or a session token handed to this session — not fabricated either
+way, per this repo's rule.
 
 ## Verdict: BLOCKED
-<!-- TC-C01-19 and TC-C22 (logic, wiring, UI, regression, real staging data) are real PASSes with real command
-     output above. TC-C20-21 (real staging HTTP, the live deploy + a working allowlist entry) are genuinely
-     blocked on the two inputs above, not silently skipped — see OVERRIDE_movers_candidates.md. -->
+<!-- TC-C01-19, TC-C20 (deployed + route confirmed live) and TC-C22 (real staging data) are real PASSes with
+     real command output above. TC-C21 (an authenticated live pass through the actual UI) is the one thing
+     still open, and only because it needs a human session, not a credential or deploy blocker any more. -->

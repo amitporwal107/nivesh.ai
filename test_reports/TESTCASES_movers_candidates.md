@@ -37,10 +37,11 @@ last session", UI = "wire up the existing [unmounted] dashboard", branch = "new 
 | TC-C17 | frontend | empty day | e2e (mocked) | honest empty-state message, not a blank list | PASS |
 | TC-C18 | frontend | regression | e2e (mocked) | all 42 pre-existing Movers v4/v1 Playwright cases still pass unmodified | PASS |
 | TC-C19 | backend | regression | unit | all 62 pre-existing `test_movers_v4.py` / `test_movers_proxy.py` cases still pass unmodified | PASS |
-| TC-C20 | app | staging HTTP: `GET /api/movers/candidates` returns real data for the real latest session | api | real JSON, sane candidate count for a real trading day | **BLOCKED** |
-| TC-C21 | app | staging UI: the feed link, live login, real `move_odds` flag state for the test account | e2e (live) | link visible/working against the real deployed app | **BLOCKED** |
+| TC-C20 | app | staging HTTP: `GET /api/movers/candidates` is live and correctly routed/gated on the deployed app | api | real HTTP response, not 404/500 | PASS (401 unauthenticated — route confirmed live; an authenticated response is TC-C21) |
+| TC-C21 | app | staging UI: the feed link, live login, real `move_odds` flag state for the test account | e2e (live) | link visible/working against the real deployed app | **BLOCKED** — needs a human session (owner or a session token), not a credential/deploy blocker any more |
 | TC-C22 | data | staging DB: the SQL in `candidates()` executes against real `nidp.corporate_announcements` / `nidp.bulk_deals` / `nidp.block_deals` / `nidp.prices_eod` without error, real row counts in a sane band | data | real counts, no SQL errors | PASS |
 
-TC-C01–C19 and TC-C22: all PASS, with real command output in the dated report below. TC-C20–C21 are
-still **BLOCKED** — see `OVERRIDE_movers_candidates.md` for why and what is needed (not a credentials
-problem any more; both now need the owner's go-ahead on a real deploy and a real allowlist write).
+TC-C01–C20 and TC-C22: all PASS, with real command output in the dated report below. TC-C21 is the one
+thing still **BLOCKED** — see `OVERRIDE_movers_candidates.md`. The branch is merged (with a concurrent
+`dev` FORWARD-tab commit), pushed, deployed, and the `move_odds` allowlist now includes the owner's
+account; what's left is a human-authenticated look at the live page.

@@ -1,29 +1,26 @@
-# OVERRIDE — Movers "Candidates" mode: logic + real staging data verified, HTTP/UI not yet (not deployed)
+# OVERRIDE — Movers "Candidates" mode: deployed, flag enabled; one human-session check left
 
-REASON: The feature (backend `/movers/candidates`, the new Candidates mode in the Movers dashboard, the
-feed-screen link) is verified three ways: 69 backend pytest (mocked DB connection), 48 Playwright (mocked
-API, real browser), and — after the GCP token was refreshed 2026-10-03 — the actual merge/rank/liquidity-floor
-logic run by hand against the REAL staging NIDP Postgres (`nidp_staging` on `nidp-stack-vm`): real tables, 39
-real high-impact filings and several real bulk/block deals on the latest session (2026-10-01), 69 symbols with
-a signal, 53 passing the liquidity floor, real deal values ranking as expected. See
-`movers_candidates_20261003.md` for the full output.
+REASON: Everything buildable without a human-provided secret is done and verified for real:
 
-No PASS verdict is claimed because two things remain, neither a credentials problem any more:
+- 69 backend pytest + 48→49 Playwright (mocked DB/API), `tsc -b` clean.
+- The real `candidates()` merge/rank/liquidity-floor logic run by hand against the real staging NIDP
+  Postgres (39 real high-impact filings, real bulk/block deals, 53/69 symbols passing the liquidity floor).
+- Merged this branch with a concurrent `dev` commit (`FORWARD tab beside MOVERS and FLAGGED` — same two
+  files) into a coherent 4-mode dashboard, re-verified (69 pytest, 49 Playwright, 0 failures).
+- Pushed to `dev` (`32ee917d..10503c75`) and ran the staging redeploy; smoke check `{"status":"ok", ...}`,
+  all containers healthy on fresh images.
+- Confirmed `GET /api/movers/candidates` is live on `staging.niveshcopilot.com` (401 unauthenticated — the
+  route exists and is wired, not 404/500).
+- `move_odds`'s staging allowlist was empty (a pre-existing condition, not caused by this branch) — owner
+  confirmed adding their account; wrote `system_config.flags.move_odds = {mode: allowlist, allowlist:
+  [aporwal107@gmail.com]}` directly to staging Mongo and read it back to confirm.
 
-1. **This branch is not deployed.** It is a worktree off `origin/dev`, nothing pushed. This repo's rule is
-   "deploy via git push + the redeploy script only," and a push to `dev` is a live redeploy of shared staging
-   — not something to do unilaterally for a feature the owner has not yet seen. So `GET /api/movers/candidates`
-   and the new UI cannot be hit over real HTTP on `staging.niveshcopilot.com` yet.
-2. **`move_odds` has an empty allowlist on staging right now — a pre-existing condition, not something this
-   branch caused.** Checked directly: `portfolio_ingestion.system_config` (staging Mongo) has zero documents,
-   so every feature flag is running on its in-memory code default, and `move_odds`'s default is
-   `allowlist: []`. `is_admin` does not bypass this gate (feature_gate.py: "admins included"). Net effect:
-   nobody — including the owner's own account — can currently reach the Movers dashboard on staging at all,
-   this new Candidates mode or the pre-existing MOVERS/FLAGGED modes. This was true before this branch
-   existed; it just became visible while checking why TC-C21 would fail.
+No PASS verdict is claimed because one thing remains: an **authenticated** pass through the real UI —
+opening `/v5/research` as a logged-in `aporwal107@gmail.com`, clicking the new "Candidates for the next
+session →" link, and confirming the rail/hero/chart/timeline render real data. This needs a human session
+(the owner looking themselves, now that the account is entitled, or a session token handed to this session)
+— not something to fabricate.
 
-What would clear this: the owner's go-ahead to push this branch to `dev` and run the redeploy script, and a
-decision on `move_odds` — either add the test account's email to its allowlist (a live write to
-`system_config`; I did not do this unprompted) or confirm some other account/path to test with. Then re-run
-TC-C20–C21 (`TESTCASES_movers_candidates.md`) for real against `staging.niveshcopilot.com`. Clear this file
-and replace the BLOCKED verdict with PASS once that is done.
+What would clear this: the owner opens the link in their own browser and confirms it looks right, or hands
+this session a staging session token to do that pass directly. Clear this file and replace the BLOCKED
+verdict in `movers_candidates_20261003.md` with PASS once that's done.
