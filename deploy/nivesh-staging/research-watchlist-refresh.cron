@@ -14,4 +14,4 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 CRON_TZ=Asia/Kolkata
 MAILTO=""
 
-15 20 * * 1-5  nivesh-staging  /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.refresh_research_watchlist_prices >> /opt/nivesh-staging/logs/research-watchlist-refresh.log 2>&1
+15 20 * * 1-5  root  /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.refresh_research_watchlist_prices >> /opt/nivesh-staging/logs/research-watchlist-refresh.log 2>&1
