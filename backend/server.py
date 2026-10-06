@@ -116,6 +116,7 @@ from routes.admin_swagger import router as admin_swagger_router  # Admin-only Sw
 from routes.grafana_alerts import router as grafana_alerts_router  # Grafana webhook receiver + active alerts query
 from routes.monitoring_actions import router as monitoring_actions_router  # Operator actions webhook + audit log
 from routes.release_docs import router as release_docs_router  # Settings → Release Management (versioned release docs in Mongo)
+from routes.research_watchlist import router as research_watchlist_router  # Public, no-auth /watchlist page (personal research, price-tracked)
 
 # ── CAS ingestion module ──────────────────────────────────────────────
 # Used to be a standalone FastAPI service in its own container; now mounted
@@ -194,6 +195,7 @@ app.include_router(client_logs_router)           # Mobile app → Cloud Logging 
 app.include_router(event_ai_ingest_router)        # NIDP jobs → event AI analyses (Mongo)
 app.include_router(session_logs_router)          # Settings → Logs & Diagnostics (per-session server logs)
 app.include_router(release_docs_router)          # Settings → Release Management (admin: versioned release docs in Mongo)
+app.include_router(research_watchlist_router)    # Public, no-auth /api/public/research-watchlist
 app.include_router(cas_transactions_router)      # SIP detection + txn history
 app.include_router(cas_snapshots_router)          # CAS Time-Machine endpoints
 app.include_router(benchmarks_router)             # Benchmark Index Data Service

@@ -25,6 +25,7 @@ import { realPositionalAdapter } from "./adapters/positional.adapter";
 import { realMarketsAdapter } from "./adapters/markets.adapter";
 import { realLogsAdapter } from "./adapters/logs.adapter";
 import { realReleaseDocsAdapter } from "./adapters/release-docs.adapter";
+import { realResearchWatchlistAdapter } from "./adapters/research-watchlist.adapter";
 import { mockAuthAdapter } from "./mock/auth.mock";
 import { mockPortfolioAdapter } from "./mock/portfolio.mock";
 import { mockPlansAdapter } from "./mock/plans.mock";
@@ -64,6 +65,8 @@ export const marketsService = realMarketsAdapter;
 export const logsService = realLogsAdapter;
 // Release Management (admin) — always real backend
 export const releaseDocsService = realReleaseDocsAdapter;
+// Research Watchlist (public, no auth) — always real backend
+export const researchWatchlistService = realResearchWatchlistAdapter;
 
 // Re-export the adapter interfaces so consumers can import types.
 export type { AuthAdapter }        from "./adapters/auth.adapter";

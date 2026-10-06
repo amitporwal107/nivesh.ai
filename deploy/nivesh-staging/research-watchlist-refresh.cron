@@ -1,0 +1,17 @@
+# /etc/cron.d/nivesh-staging-research-watchlist — daily price refresh for
+# the public /watchlist research page [staging].
+#
+# Schedule (Asia/Kolkata): 20:15 IST Mon-Fri. NSE bhavcopy/EOD data is
+# published 18:00-19:30 IST (see positional-engine.cron), so by 20:15 a
+# fresh close is available; runs after the 20:00 positional-engine slot to
+# avoid contending for the same container.
+#
+# Install (one-off, not CI-managed — see deploy/nivesh-staging/install-research-watchlist-refresh.sh):
+#   sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/install-research-watchlist-refresh.sh
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+15 20 * * 1-5  nivesh-staging  /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.refresh_research_watchlist_prices >> /opt/nivesh-staging/logs/research-watchlist-refresh.log 2>&1
