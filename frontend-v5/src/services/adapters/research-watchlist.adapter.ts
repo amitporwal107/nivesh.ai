@@ -48,10 +48,15 @@ export interface WatchlistPick {
   current_price_date: string | null;
   change_since_published_pct: number | null;
   price_updated_at: string | null;
+  /** Today's move vs previous close — from the live Yahoo Finance quote, not the published-date baseline. */
+  day_change: number | null;
+  day_change_pct: number | null;
+  /** True when `current_price` came from this request's live quote fetch; false when it fell back to the last stored price. */
+  is_live: boolean;
 }
 
 export interface WatchlistResponse {
-  meta: { count: number; disclaimer: string };
+  meta: { count: number; disclaimer: string; live_quotes_source?: string };
   items: WatchlistPick[];
 }
 
