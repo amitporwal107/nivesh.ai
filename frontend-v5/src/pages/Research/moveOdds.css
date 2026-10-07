@@ -732,3 +732,40 @@
   .research-screen .mv-exec-nums li { grid-template-columns: 96px 72px; }
   .research-screen .mv-exec-nums li .mo-mini { grid-column: 1 / -1; }
 }
+
+/* Live Watch — the one place on this screen that IS colour-coded (owner request, 2026-10-07), kept to its own
+ * tab precisely because the rest of the page is not: see the file header note on direction never being
+ * colour-coded. Uses the same chip convention as .mv-lift-chip-survives/-pre-priced above. */
+.research-screen .mo-livewatch { display: grid; gap: 18px; margin-top: 4px; }
+.research-screen .mo-livewatch-section { display: grid; gap: 8px; }
+.research-screen .mo-livewatch-h { margin: 0; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-weight: 500; color: var(--c-ink-3); }
+.research-screen .mo-livewatch-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.research-screen .mo-livewatch-row {
+  display: grid; grid-template-columns: 96px 76px 96px 76px 1fr; align-items: center; gap: 10px;
+  padding: 7px 10px; border-radius: 8px; border: 1px solid var(--c-line); font-variant-numeric: tabular-nums;
+}
+.research-screen .mo-livewatch-sym { font-weight: 600; font-size: 13px; color: var(--c-ink); }
+.research-screen .mo-livewatch-est { font-family: var(--mono); font-size: 11.5px; color: var(--c-ink-3); }
+.research-screen .mo-livewatch-px { font-family: var(--mono); font-size: 12.5px; color: var(--c-ink); }
+.research-screen .mo-livewatch-chg { font-family: var(--mono); font-size: 12.5px; color: var(--c-ink-2); }
+.research-screen .mo-livewatch-badge {
+  justify-self: start; font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; padding: 2px 9px;
+  border-radius: 999px; border: 1px solid var(--c-line-strong); color: var(--c-ink-2); white-space: nowrap;
+}
+.research-screen .mo-band-reached { border-color: var(--mint-line); background: var(--mint-soft); }
+.research-screen .mo-band-reached .mo-livewatch-badge { border-color: var(--mint-line); background: var(--mint-soft); color: var(--mint); }
+.research-screen .mo-band-rising { border-color: var(--amber-line); background: var(--amber-soft); }
+.research-screen .mo-band-rising .mo-livewatch-badge { border-color: var(--amber-line); background: var(--amber-soft); color: var(--amber); }
+.research-screen .mo-band-flat { border-color: var(--danger-line); background: var(--danger-soft); }
+.research-screen .mo-band-flat .mo-livewatch-badge { border-color: var(--danger-line); background: var(--danger-soft); color: var(--danger-hex); }
+.research-screen .mo-band-nodata { opacity: .6; }
+.research-screen .mo-band-nodata .mo-livewatch-badge { color: var(--c-ink-4); }
+
+@media (max-width: 640px) {
+  .research-screen .mo-livewatch-row { grid-template-columns: 1fr 1fr; grid-template-areas: "sym badge" "est px" "chg chg"; row-gap: 3px; }
+  .research-screen .mo-livewatch-sym { grid-area: sym; }
+  .research-screen .mo-livewatch-badge { grid-area: badge; justify-self: end; }
+  .research-screen .mo-livewatch-est { grid-area: est; }
+  .research-screen .mo-livewatch-px { grid-area: px; justify-self: end; }
+  .research-screen .mo-livewatch-chg { grid-area: chg; }
+}

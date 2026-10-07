@@ -30,11 +30,12 @@ import {
 import { ChatWidget } from "@/components/chat/ChatWidget";
 import { EventBar, FilterBar, RatioPanel } from "./MoveOddsFilters";
 import { MoversView } from "./MoversView";
+import { LiveWatchPanel } from "./LiveWatchPanel";
 import { SHORT, answers, checkConds, condActive, fmtRatio, fundBand, gradeTone, peerMedian, qualityLabel, ratioIndex, techBand, valueOf, type Cap, type Cond } from "./moveOddsProfile";
 import "./moveOdds.css";
 
 const PAGE = 50;
-const LIVE_REFRESH_MS = 60_000;
+const LIVE_REFRESH_MS = 30_000;
 const CHECKS: Array<{ key: keyof Pick<NonNullable<LiveConditions["latest"]>, "above_prev_close" | "above_opening_range" | "above_vwap" | "room_to_level" | "volume_pace">; label: string }> = [
   { key: "above_prev_close", label: "Close above the previous close" },
   { key: "above_opening_range", label: "Close above the first hour's high" },
@@ -175,9 +176,9 @@ export default function MoveOddsScreen({ backToFeed }: { backToFeed?: () => void
   const [diagReload, setDiagReload] = useState(0);
   // Reads ?view= once at mount so the Research feed screen (and its Candidates link) can deep-link
   // straight into the Movers view instead of always landing on Estimates.
-  const [view, setView] = useState<"estimates" | "history" | "movers">(() => {
+  const [view, setView] = useState<"estimates" | "history" | "movers" | "livewatch">(() => {
     const want = new URLSearchParams(window.location.search).get("view");
-    return want === "history" || want === "movers" ? want : "estimates";
+    return want === "history" || want === "movers" || want === "livewatch" ? want : "estimates";
   });
   const [hist, setHist] = useState<HistoryResult | null>(null);
   const [histSession, setHistSession] = useState<string | null>(null);
@@ -549,9 +550,9 @@ export default function MoveOddsScreen({ backToFeed }: { backToFeed?: () => void
 
       <div className="mo-viewrow mo-controlrow">
         <div className="mo-viewtoggle" role="group" aria-label="View">
-          {(["estimates", "history", "movers"] as const).map((v) => (
+          {(["estimates", "history", "movers", "livewatch"] as const).map((v) => (
             <button key={v} type="button" className="mo-viewbtn" aria-pressed={view === v} data-testid={`mo-view-${v}`} onClick={() => setView(v)}>
-              {v === "estimates" ? "Estimates" : v === "history" ? "History" : "Movers"}
+              {v === "estimates" ? "Estimates" : v === "history" ? "History" : v === "movers" ? "Movers" : "Live Watch"}
             </button>
           ))}
         </div>
@@ -619,6 +620,8 @@ export default function MoveOddsScreen({ backToFeed }: { backToFeed?: () => void
         {/* Movers: the owner's Top Movers Dashboard v1, as a view of THIS screen rather than a second
             dashboard. It brings its own window controls; the size tabs above do not apply to it. */}
         {view === "movers" && <MoversView onNoAccess={denyAll} onOpenStock={openStock} modelVersion={run?.model ?? null} backToFeed={backToFeed} />}
+
+        {view === "livewatch" && <LiveWatchPanel results={results} onNoAccess={denyAll} />}
 
         {view === "history" && (
           <>
