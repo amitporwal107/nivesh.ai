@@ -9,13 +9,25 @@ import { test, expect } from "@playwright/test";
 const UI = "https://staging.niveshcopilot.com/v5/watchlist";
 
 test.describe("Research Watchlist public page", () => {
-  // TC-5 — reachable with no session, no redirect to /login, all 41 cards render.
+  // TC-5 — reachable with no session, no redirect to /login, all 41 rows render.
   test("TC-5 renders unauthenticated with all picks", async ({ page }) => {
     await page.goto(UI);
     await expect(page).not.toHaveURL(/\/login/);
     await expect(page.getByText(/Loading watchlist/i)).toHaveCount(0, { timeout: 15_000 });
     await expect(page.getByText(/41 of 41 picks shown/i)).toBeVisible();
     await expect(page.getByText("CUMMINSIND")).toBeVisible();
+  });
+
+  // TC-8 — live quote overlay: the LIVE badge shows, a row's price is a real
+  // number, and expanding a row reveals the fundamental/technical deep-dive.
+  test("TC-8 shows the LIVE badge and a row expands into the deep-dive", async ({ page }) => {
+    await page.goto(UI);
+    await expect(page.getByText(/41 of 41 picks shown/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("LIVE", { exact: true })).toBeVisible();
+    const row = page.getByText("CUMMINSIND").locator("xpath=ancestor::button[1]");
+    await expect(row).toContainText(/₹[\d,]+\.\d{2}/);
+    await row.click();
+    await expect(page.getByText(/Balance sheet/i)).toBeVisible();
   });
 
   // TC-6 — tier filter chips change the visible card count.
