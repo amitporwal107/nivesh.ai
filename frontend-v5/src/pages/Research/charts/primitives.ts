@@ -28,6 +28,8 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
   draw(target: Parameters<IPrimitivePaneRenderer["draw"]>[0]): void {
     const p = this._p;
     if (!p.chart || !p.series) return;
+    // §38.6 "hide all": the segments stay in `p.segments` (and on the server) — only the drawing is skipped.
+    if (p.hidden) return;
     const ts = p.chart.timeScale();
     const toXY = (pt: DrawingPoint): { x: number; y: number } | null => {
       const x = ts.timeToCoordinate(pt.time);
@@ -105,6 +107,8 @@ export class DrawingsPrimitive implements ISeriesPrimitiveBase<SeriesAttachedPar
   segments: DrawingSegment[] = [];
   selectedId: string | null = null;
   pending: { type: "TRENDLINE" | "HORIZONTAL_LINE"; points: DrawingPoint[] } | null = null;
+  /** §38.6 "hide all" — drawn output is suppressed and nothing is hit-testable; nothing is deleted. */
+  hidden = false;
   theme = { ink: "rgb(200,200,200)", mint: "rgb(110,240,168)" };
 
   private readonly _paneView: DrawingsPaneView;
@@ -126,11 +130,12 @@ export class DrawingsPrimitive implements ISeriesPrimitiveBase<SeriesAttachedPar
   setSegments(segs: DrawingSegment[]): void { this.segments = segs; this.requestUpdate(); }
   setSelected(id: string | null): void { this.selectedId = id; this.requestUpdate(); }
   setPending(pending: DrawingsPrimitive["pending"]): void { this.pending = pending; this.requestUpdate(); }
+  setHidden(hidden: boolean): void { this.hidden = hidden; this.requestUpdate(); }
   requestUpdate(): void { this._requestUpdate?.(); }
 
   /** Nearest segment within HIT_PX of (x, y) in canvas/media coordinates, or null. */
   hitTestDrawing(x: number, y: number): string | null {
-    if (!this.chart || !this.series) return null;
+    if (!this.chart || !this.series || this.hidden) return null;
     const ts = this.chart.timeScale();
     const toXY = (pt: DrawingPoint) => {
       const px = ts.timeToCoordinate(pt.time);

@@ -1,0 +1,26 @@
+{
+  "_note": "MOCK — not real data. Shaped like GET /api/move-odds/stocks/{symbol}/filing-analysis (backend/services/move_odds_filing_analysis.py). Row 1's reading fields (band, scores, certainty, factors) are copied from the real staging analysis NSE_ANN:079eabedacec… (SAPPHIRE, 2026-09-22); symbol, ids and summaries are invented for the PNCINFRA stock view.",
+  "data": {
+    "symbol": "PNCINFRA",
+    "window_days": 30,
+    "rows": [
+      {
+        "announcement_id": "mock-pnc-litigation", "exchange": "NSE", "filed_at": "2026-09-22T10:32:21+00:00",
+        "exchange_category": "Action(s) taken or orders passed", "event_type": "LITIGATION", "event_subtype": "GST SCN Tamil Nadu ITC availment",
+        "certainty": "proposed", "summary": "Mock summary: the company received a GST show cause notice alleging ~Rs516.8cr liability; the company calls the claim non-maintainable.",
+        "impact_band": "slightly_negative", "net_impact_score": -25, "materiality_score": 35, "confidence_score": 55, "importance_score": 62,
+        "evidence_status": "CONFIRMED", "positive_factors": [], "negative_factors": ["GST SCN alleging ~Rs516.8cr ITC/tax issues", "Not yet adjudicated, show-cause stage"],
+        "unknowns": ["Final adjudication outcome"], "model": "sonnet-5", "analyzed_at": "2026-09-29T23:46:04.585000+00:00"
+      },
+      {
+        "announcement_id": "mock-pnc-order", "exchange": "BSE", "filed_at": "2026-09-15T13:05:00+00:00",
+        "exchange_category": "Bagging/Receiving of orders/contracts", "event_type": "ORDER / CONTRACT", "event_subtype": "highway EPC letter of award",
+        "certainty": "LOI", "summary": "Mock summary: letter of award for a highway EPC project; value and execution period stated in the filing.",
+        "impact_band": "moderately_positive", "net_impact_score": 40, "materiality_score": 55, "confidence_score": 70, "importance_score": 74,
+        "evidence_status": "PENDING_RESOLUTION", "positive_factors": ["Award adds to the order book"], "negative_factors": ["Letter of award, contract not signed"],
+        "unknowns": [], "model": "sonnet-5", "analyzed_at": "2026-09-29T21:00:00+00:00"
+      }
+    ],
+    "more": 1
+  }
+}

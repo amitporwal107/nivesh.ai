@@ -94,19 +94,32 @@ async def _feed(days: int, category: Optional[str], impact: Optional[str],
 
 
 async def _insights_for(ids: List[str]) -> Dict[str, Any]:
-    """Batch-fetch generated insights for a set of announcement ids (DaaS primary,
-    app PG fallback). Returns {id: insight-dict}; a missing id means "no insight
-    yet". Never raises — insights are additive, so a lookup failure just degrades
-    the feed to filing rows without a one-liner."""
+    """Batch-fetch insights for a set of announcement ids. Returns {id: insight-dict};
+    a missing id means "no insight yet". Never raises — insights are additive, so a
+    lookup failure just degrades the feed to filing rows without a one-liner.
+
+    Source order (owner 2026-10-01: no dependency on gpt-4o-mini):
+      1. the corporate-event AI analysis in Mongo (services/event_ai_insight.py,
+         claude-sonnet-5, tools off) — the live generator;
+      2. insights stage 7 already stored (DaaS, app-PG fallback) for filings the new
+         pipeline has not covered. Stage 7's gpt-4o-mini job is switched off; this only
+         reads what it wrote before.
+    """
     ids = [i for i in (ids or []) if i]
     if not ids:
         return {}
-    data = await _daas_first(
-        "get_filing_insights", {"ids": ids},
-        lambda pool: _filing_insights_pg(pool, ids),
-        {"insights": {}},
-    )
-    return (data or {}).get("insights") or {}
+    from services.event_ai_insight import insights_for as _event_ai_insights
+    found = dict(await _event_ai_insights(db, ids))
+    legacy_ids = [i for i in ids if i not in found]
+    if legacy_ids:
+        data = await _daas_first(
+            "get_filing_insights", {"ids": legacy_ids},
+            lambda pool: _filing_insights_pg(pool, legacy_ids),
+            {"insights": {}},
+        )
+        for k, v in ((data or {}).get("insights") or {}).items():
+            found.setdefault(k, v)
+    return found
 
 
 # Placeholder strings a model returns instead of a real JSON null. The generator
@@ -251,6 +264,8 @@ async def filings_signals(request: Request, days: int = 1, today_only: bool = Tr
             "type":      a.get("category"),
             "one":       _clean(ins.get("one")),
             "metric":    _fmt_metric(ins.get("metric")),
+            # The exchange's own label, for the card to show when no insight exists (never a summary).
+            "docLabel":  a.get("title"),
             "date":      a.get("when"),
             "sentiment": a.get("sentiment"),
         })

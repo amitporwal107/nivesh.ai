@@ -50,6 +50,13 @@ None (the default — and the only mode this module actually exercises today), e
 `patterns: []`. `research.charting.patterns` (the detector engine) is being built in parallel by
 another agent and is deliberately never imported here; once it lands, re-export by passing its
 entry point as `pattern_provider` — no other change needed.
+
+Weekly/monthly display timeframes (docs/charting.md §38.7, §38.12 row W2): each symbol payload
+also carries `timeframes.1W` / `timeframes.1M`, built by `research.charting.resample` from the
+SAME daily `df` this function already loaded, then run through the SAME `_INDICATOR_SPECS` /
+`_compute_indicator_payload` used for the daily series -- no separate calculation path. Pattern
+detection stays daily-only (§38.7: "a 120-bar maximum pattern cannot fit in 69 monthly bars") --
+`timeframes.*` never gets a `patterns` key.
 """
 from __future__ import annotations
 
@@ -76,7 +83,7 @@ if str(_REPO_ROOT) not in sys.path:
 import numpy as np
 import pandas as pd
 
-from research.charting import bars, config, series, universe, validate
+from research.charting import bars, config, indicator_catalogue, resample, series, universe, validate
 from research.charting.tests import synth
 
 logger = logging.getLogger(__name__)
@@ -98,7 +105,6 @@ PatternProvider = Callable[[str, pd.DataFrame], list]
 # Overlay indicators share the "price" pane (drawn on the candles); everything else gets its own
 # pane, named after its own indicator id (SNAPSHOT_SCHEMA.md: "price" overlays candles; else its
 # own pane -- it doesn't name the non-price panes, so each indicator names its own).
-_PRICE_PANE_IDS = frozenset({"sma_20", "sma_50", "ema_20", "bollinger"})
 
 
 # ---------------------------------------------------------------------------
@@ -134,37 +140,11 @@ def _finding_dict(f: validate.Finding) -> dict:
 # column-construction order for bollinger/macd; single-output indicators are trivially aligned).
 
 # SNAPSHOT_SCHEMA.md `plot_fields`: outputs the chart should draw, in order (absent = all outputs).
-_PLOT_FIELDS: dict[str, tuple[str, ...]] = {
-    "bollinger": ("bb_mid", "bb_upper", "bb_lower"),
-    "macd": ("macd", "signal", "hist"),
-}
 
-_INDICATOR_SPECS: tuple[dict, ...] = (
-    {"id": "sma_20", "registry_key": "sma", "pane": "price",
-     "parameters": {"period": 20}, "warmup_period": 20,
-     "compute": lambda df: series.sma(df, 20).to_frame("sma_20")},
-    {"id": "sma_50", "registry_key": "sma", "pane": "price",
-     "parameters": {"period": 50}, "warmup_period": 50,
-     "compute": lambda df: series.sma(df, 50).to_frame("sma_50")},
-    {"id": "ema_20", "registry_key": "ema", "pane": "price",
-     "parameters": {"period": 20}, "warmup_period": 20,
-     "compute": lambda df: series.ema(df, 20).to_frame("ema_20")},
-    {"id": "bollinger", "registry_key": "bollinger", "pane": "price",
-     "parameters": {"period": 20, "n_std": 2.0}, "warmup_period": None,
-     "compute": lambda df: series.bollinger(df)},
-    {"id": "rsi_14", "registry_key": "rsi", "pane": "rsi_14",
-     "parameters": {"period": 14}, "warmup_period": None,
-     "compute": lambda df: series.rsi(df, 14).to_frame("rsi")},
-    {"id": "macd", "registry_key": "macd", "pane": "macd",
-     "parameters": {"fast": 12, "slow": 26, "signal": 9}, "warmup_period": None,
-     "compute": lambda df: series.macd(df)},
-    {"id": "atr_14", "registry_key": "atr", "pane": "atr_14",
-     "parameters": {"period": 14}, "warmup_period": None,
-     "compute": lambda df: series.atr(df, 14).to_frame("atr")},
-    {"id": "relative_volume", "registry_key": "relative_volume", "pane": "relative_volume",
-     "parameters": {"n": 20}, "warmup_period": None,
-     "compute": lambda df: series.relative_volume(df, 20).to_frame("relative_volume_20")},
-)
+# The specs come from the controlled preset catalogue (§38.5, D-3), which is the single source of
+# truth for what a chart can draw. They were written out by hand here until the catalogue existed;
+# the eight ids that predate it are unchanged, so no stored layout or citation needs migrating.
+_INDICATOR_SPECS: tuple[dict, ...] = indicator_catalogue.export_specs()
 
 
 def _compute_indicator_payload(spec: dict, df: pd.DataFrame, dates: pd.Series) -> dict:
@@ -185,15 +165,48 @@ def _compute_indicator_payload(spec: dict, df: pd.DataFrame, dates: pd.Series) -
         "calculation_version": registry_entry["calculation_version"],
         "missing_data_policy": registry_entry["missing_data_policy"],
         "output_fields": list(registry_entry["output_fields"]),   # additive -- see module docstring
+        # Which catalogue entry produced this series (§38.5 "a chart view or research run cites
+        # preset ids and the catalogue version, so it can be reproduced exactly").
+        "preset_id": spec["preset_id"],
+        "catalogue_version": indicator_catalogue.CATALOGUE_VERSION,
     }
-    pane = "price" if spec["id"] in _PRICE_PANE_IDS else spec["id"]
+    pane = spec["pane"]
     payload = {"contract": contract, "pane": pane, "values": rows}
     # Which outputs the chart draws. Bollinger's width/pos live on a different scale from price and must
     # not be drawn on the price pane; everything else draws all of its outputs.
-    plot = _PLOT_FIELDS.get(spec["id"])
+    plot = indicator_catalogue.PLOT_FIELDS.get(spec["id"])
     if plot is not None:
         payload["plot_fields"] = list(plot)
     return payload
+
+
+# ---------------------------------------------------------------------------
+# Weekly / monthly display timeframes -- docs/charting.md §38.7, §38.12 row W2
+# ---------------------------------------------------------------------------
+
+def _build_timeframe_payload(rdf: pd.DataFrame) -> dict:
+    """One `timeframes.{1W,1M}` entry from an already-resampled frame (research.charting.resample
+    output: BARS_COLUMNS + `incomplete`). `bars` rows are 7-wide -- `[date, o, h, l, c, v,
+    incomplete]` -- deliberately one element longer than the daily `bars` rows (6-wide), so the
+    two shapes are never confused with each other; `indicators` reuses the exact same
+    `_INDICATOR_SPECS` / `_compute_indicator_payload` the daily series uses, run against this
+    resampled frame (§38.7: "same series code", never a separate calculation path).
+    """
+    dates = rdf["date"].dt.strftime("%Y-%m-%d")
+    bars_rows = [
+        [dates.iloc[i], float(rdf["open"].iloc[i]), float(rdf["high"].iloc[i]),
+         float(rdf["low"].iloc[i]), float(rdf["close"].iloc[i]), float(rdf["volume"].iloc[i]),
+         bool(rdf["incomplete"].iloc[i])]
+        for i in range(len(rdf))
+    ]
+    indicators = {spec["id"]: _compute_indicator_payload(spec, rdf, dates) for spec in _INDICATOR_SPECS}
+    return {"bars": bars_rows, "indicators": indicators}
+
+
+def _build_timeframes(df: pd.DataFrame) -> dict:
+    """`{"1W": {...}, "1M": {...}}` for one symbol's daily `df` -- resample.RESAMPLERS is the
+    single place that knows how each timeframe is derived from daily bars."""
+    return {tf: _build_timeframe_payload(resampler(df)) for tf, resampler in resample.RESAMPLERS.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +235,7 @@ def _build_symbol_payload(
     ]
     indicators = {spec["id"]: _compute_indicator_payload(spec, df, dates) for spec in _INDICATOR_SPECS}
     patterns = list(pattern_provider(symbol, df)) if pattern_provider is not None else []
+    timeframes = _build_timeframes(df)
 
     return {
         "symbol": symbol,
@@ -231,6 +245,7 @@ def _build_symbol_payload(
         "findings": [_finding_dict(f) for f in findings],
         "indicators": indicators,
         "patterns": patterns,
+        "timeframes": timeframes,
     }
 
 
@@ -297,6 +312,7 @@ def build_snapshot(
     source_dir: Optional[str] = None,
     out_dir=DEFAULT_OUT_DIR,
     pattern_provider: Optional[PatternProvider] = None,
+    include_ni3: bool = False,
     now: Optional[datetime] = None,
 ) -> dict:
     """Build and write the snapshot to `out_dir`. Returns the manifest dict actually written.
@@ -379,10 +395,57 @@ def build_snapshot(
         "config_hash": config.config_hash(),
         "source": source,
         "universe_rule": universe_rule,
+        # §38.5: "the catalogue is versioned and hashed with the snapshot". The whole catalogue is
+        # written here, not just its version, so the API can serve the dialog straight from the
+        # snapshot and never describe a preset the series in this snapshot were not built from.
+        "indicator_catalogue": indicator_catalogue.serialisable(),
+        "indicator_catalogue_hash": indicator_catalogue.catalogue_hash(),
+        # Which detector specification produced the pattern records in this snapshot. Without this a
+        # reader can prove WHEN a snapshot was generated but not WHICH frozen table generated it.
+        "export_mode": "ni3_experimental" if include_ni3 else "p0_certified",
+        "include_ni3": bool(include_ni3),
+        "detector_families": _detector_families(include_ni3),
+        "ni3_version": _ni3_version() if include_ni3 else None,
+        "ni3_fingerprint": _ni3_fingerprint() if include_ni3 else None,
+        "pattern_registry_version": _registry_version(),
+        "pattern_registry_hash": _registry_hash(),
         "symbols": symbol_entries,
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
     return manifest
+
+
+def _detector_families(include_ni3: bool) -> list[str]:
+    """The families whose detectors were actually RUN for this snapshot. Distinct from the registry's
+    enabled set: a family can be exported for research while remaining disabled for production."""
+    p0 = ["SUPPORT_RESISTANCE", "RECTANGLE", "HH_HL"]
+    if not include_ni3:
+        return p0
+    from research.charting import pattern_registry
+    return p0 + [f.pattern_type for f in pattern_registry.disabled_families()]
+
+
+def _registry_version() -> str:
+    from research.charting import pattern_registry
+    return pattern_registry.REGISTRY_VERSION
+
+
+def _registry_hash() -> str:
+    from research.charting import pattern_registry
+    return pattern_registry.registry_hash()
+
+
+def _ni3_version() -> Optional[str]:
+    from research.charting import ni3_config
+    return ni3_config.load().get("ni3_version")
+
+
+def _ni3_fingerprint() -> Optional[str]:
+    """The frozen NI-3 fingerprint, verified on load — so a snapshot can never claim NI-3
+    provenance it did not actually run under."""
+    from research.charting import ni3_config
+    ni3_config.load()
+    return ni3_config.NI3_FINGERPRINT
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +463,33 @@ def detector_pattern_provider() -> PatternProvider:
     return provider
 
 
+def ni3_pattern_provider() -> PatternProvider:
+    """The P0 detectors PLUS the sixteen NI-3 families, at each symbol's last bar.
+
+    EXPORT SELECTION ONLY. This is not a second implementation of anything: it calls the same
+    `detect_*_as_of` entry points the unit tests and fixtures exercise, and it does not consult or
+    change `pattern_registry`. A family stays DISABLED in the registry whether or not its records
+    appear in an experimental snapshot — registry enablement is a certification decision, export
+    inclusion is a research switch, and conflating them is exactly what this flag exists to avoid.
+
+    Ordering is fixed (P0, then NI-3 own-rule families, then P-1, then P-2) so two runs over the
+    same bars produce byte-identical files.
+    """
+    from research.charting.patterns import detect_as_of
+    from research.charting.patterns_ni3 import detect_ni3_as_of
+    from research.charting.patterns_p1 import detect_p1_as_of
+    from research.charting.patterns_p2 import detect_p2_as_of
+
+    def provider(symbol: str, df: pd.DataFrame) -> list[dict]:
+        t = len(df) - 1
+        out: list[dict] = []
+        for fn in (detect_as_of, detect_ni3_as_of, detect_p1_as_of, detect_p2_as_of):
+            out.extend(p.to_dict() for p in fn(df, t, symbol=symbol))
+        return out
+
+    return provider
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(description="Export the research chart snapshot.")
     parser.add_argument("--fixture", action="store_true",
@@ -411,12 +501,21 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR), help="Snapshot output directory.")
     parser.add_argument("--with-patterns", action="store_true",
                         help="Run the P0 detectors (research.charting.patterns) at each symbol's last bar.")
+    parser.add_argument("--include-ni3", action="store_true",
+                        help="EXPERIMENTAL, research only. Additionally run the sixteen NI-3 detectors. This is an "
+                             "EXPORT-SELECTION switch: it does not enable any family in pattern_registry and must "
+                             "not be used to produce a snapshot that ships.")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    provider = detector_pattern_provider() if args.with_patterns else None
+    if args.include_ni3:
+        provider = ni3_pattern_provider()
+    elif args.with_patterns:
+        provider = detector_pattern_provider()
+    else:
+        provider = None
     manifest = build_snapshot(fixture=args.fixture, top_n=args.top_n, source_dir=args.source_dir, out_dir=args.out_dir,
-                              pattern_provider=provider)
+                              pattern_provider=provider, include_ni3=bool(args.include_ni3))
 
     out_dir = Path(args.out_dir)
     total_bytes = sum(p.stat().st_size for p in out_dir.rglob("*") if p.is_file())

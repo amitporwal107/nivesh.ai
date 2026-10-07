@@ -522,3 +522,250 @@
 .research-screen .mo-card > * { margin-top: 0; }
 .research-screen .mo-card-loading { display: grid; gap: 10px; border: 1px solid var(--c-line); border-radius: 12px; padding: 18px; }
 .research-screen .mo-card-off { border: 1px dashed var(--c-line-strong); border-radius: 10px; padding: 10px 12px; }
+
+/* Filing analysis block (stock view) */
+.research-screen .mo-filingsec { margin-top: 16px; }
+.research-screen .mo-filingsec h4 { margin: 0 0 8px; }
+.research-screen .mo-fsum { color: var(--c-ink); }
+.research-screen .mo-fread { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--c-ink-2); }
+.research-screen .mo-fband { font-weight: 600; }
+/* ink, not green/red: like the direction reading, a filing's impact band is not a buy or sell cue */
+.research-screen .mo-ffactors { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11.5px; color: var(--c-ink-2); }
+
+/* ── Movers view (the owner's Top Movers Dashboard v1, as a view of this screen) ──────────────────────
+ * Candles ARE colour-coded by direction, unlike the estimates table: a candle reports what the price did
+ * on a session that has already closed, which is a fact, not a reading of a forecast. The shape differs
+ * too (hollow up / solid down) so the chart survives colour-blindness and print. */
+.research-screen .mv-view { display: grid; gap: 14px; }
+.research-screen .mv-view {
+  --mv-up: var(--mint); --mv-down: var(--danger-hex); --mv-ink: var(--c-ink);
+  --mv-market: var(--indigo); --mv-rule: var(--c-line-strong); --mv-bg: var(--bg-1); --mv-grid: var(--c-line);
+}
+.research-screen .mv-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+  padding: 10px 12px; border: 1px solid var(--c-line); border-radius: 12px; background: var(--bg-1); }
+.research-screen .mv-controls label { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--c-ink-2); }
+.research-screen .mv-controls input, .research-screen .mv-controls select {
+  background: var(--bg-2); border: 1px solid var(--c-line); border-radius: 8px; padding: 5px 9px;
+  font-size: 12.5px; color: var(--c-ink); font-family: var(--mono); }
+.research-screen .mv-dir { display: inline-flex; gap: 3px; margin-left: auto; }
+.research-screen .mv-dir button, .research-screen .mv-rangebtn {
+  border: 1px solid var(--c-line); background: var(--bg-2); color: var(--c-ink-3); cursor: pointer;
+  border-radius: 999px; padding: 5px 12px; font-family: var(--mono); font-size: 11px; letter-spacing: .03em; }
+.research-screen .mv-dir button[aria-pressed="true"], .research-screen .mv-rangebtn[aria-pressed="true"] {
+  color: var(--c-ink); border-color: var(--mint); background: var(--mint-soft); }
+.research-screen .mv-dir button:focus-visible, .research-screen .mv-rangebtn:focus-visible,
+.research-screen .mv-railrow:focus-visible, .research-screen .mv-symbtn:focus-visible,
+.research-screen .mv-evt:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+
+.research-screen .mv-withheld { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0;
+  border: 1px solid var(--amber-line); background: var(--amber-soft); border-radius: 10px;
+  padding: 10px 12px; font-size: 12.5px; color: var(--c-ink-2); line-height: 1.5; }
+.research-screen .mv-withheld b { color: var(--c-ink); font-family: var(--mono); }
+
+.research-screen .mv-split { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 18px; align-items: start; }
+.research-screen .mv-rail { border: 1px solid var(--c-line); border-radius: 12px; padding: 10px; background: var(--bg-1);
+  max-height: 760px; overflow-y: auto; }
+.research-screen .mv-raillist { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.research-screen .mv-railrow { width: 100%; text-align: left; cursor: pointer; background: none; border: 1px solid transparent;
+  border-radius: 9px; padding: 8px 9px; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; color: var(--c-ink-2); }
+.research-screen .mv-railrow:hover { background: var(--bg-2); }
+.research-screen .mv-railrow[aria-current] { border-color: var(--mint); background: var(--mint-soft); color: var(--c-ink); }
+.research-screen .mv-rsym { font-weight: 600; font-size: 13.5px; color: var(--c-ink); }
+.research-screen .mv-rpct { font-family: var(--mono); font-size: 13px; text-align: right; color: var(--c-ink); }
+.research-screen .mv-rday { font-family: var(--mono); font-size: 10.5px; color: var(--c-ink-3); }
+.research-screen .mv-rca { font-family: var(--mono); font-size: 10px; color: var(--amber); justify-self: end; }
+
+.research-screen .mv-badge { grid-column: 1 / -1; display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; margin-top: 3px; }
+.research-screen .mv-badge b { font-family: var(--mono); font-size: 10px; letter-spacing: .09em; font-weight: 500;
+  border: 1px solid var(--c-line-strong); border-radius: 4px; padding: 2px 6px; white-space: nowrap; }
+.research-screen .mv-badge.caught b { border-color: var(--mint-line); background: var(--mint-soft); color: var(--c-ink); }
+.research-screen .mv-badge.missed b { border-color: var(--c-line-strong); color: var(--c-ink-2); }
+/* "no model run" / "not scored" are coverage gaps, not results: neutral, never the miss treatment. */
+.research-screen .mv-badge.none b { border-style: dashed; color: var(--c-ink-3); }
+.research-screen .mv-badge-lab { font-size: 11px; color: var(--c-ink-3); }
+
+.research-screen .mv-main { display: grid; gap: 12px; min-width: 0; }
+.research-screen .mv-head { display: grid; gap: 4px; }
+.research-screen .mv-head h4 { margin: 0; font-size: 22px; font-weight: 400; display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.research-screen .mv-symbtn { border: 0; background: none; padding: 0; font: inherit; color: var(--c-ink);
+  cursor: pointer; border-bottom: 1px dashed var(--c-line-strong); }
+.research-screen .mv-headday { font-family: var(--mono); font-size: 11.5px; color: var(--c-ink-3); }
+.research-screen .mv-headnums { margin: 0; font-family: var(--mono); font-size: 12px; color: var(--c-ink-2); }
+.research-screen .mv-headnums b { color: var(--c-ink); font-size: 14px; }
+.research-screen .mv-ranges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+
+.research-screen .mv-chart { border: 1px solid var(--c-line); border-radius: 12px; background: var(--bg-1); padding: 6px; overflow-x: auto; }
+.research-screen .mv-chart-svg { min-width: 560px; }
+.research-screen .mv-chart-svg { display: block; width: 100%; height: auto; }
+.research-screen .mv-chart-empty { padding: 28px 14px; text-align: center; color: var(--c-ink-3); font-size: 13px; }
+.research-screen .mv-evt { cursor: pointer; }
+.research-screen .mv-evt-overflow { list-style: none; margin: 6px 0 0; padding: 0 0 0 2px; display: grid; gap: 3px;
+  font-size: 11.5px; color: var(--c-ink-3); }
+.research-screen .mv-note { font-size: 11.5px; color: var(--c-ink-3); }
+
+.research-screen .mv-evtcard { border: 1px solid var(--c-line); border-left: 2px solid var(--indigo); border-radius: 10px;
+  padding: 11px 13px; background: var(--bg-1); display: grid; gap: 5px; }
+.research-screen .mv-evtcard h5 { margin: 0; font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em;
+  font-weight: 500; color: var(--c-ink-3); }
+.research-screen .mv-evttitle { margin: 0; font-size: 14px; color: var(--c-ink); }
+.research-screen .mv-evtmetrics { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 20px;
+  font-size: 12px; color: var(--c-ink-2); }
+.research-screen .mv-evtmetrics b { font-family: var(--mono); color: var(--c-ink); }
+.research-screen .mv-evtflags { margin: 2px 0 0; display: flex; flex-wrap: wrap; gap: 5px; }
+.research-screen .mv-flag { font-family: var(--mono); font-size: 9.5px; letter-spacing: .07em; padding: 2px 6px;
+  border-radius: 4px; border: 1px solid var(--c-line-strong); color: var(--c-ink-2); }
+.research-screen .mv-flag.mint { border-color: var(--mint-line); background: var(--mint-soft); }
+.research-screen .mv-flag.danger { border-color: var(--danger-line); background: var(--danger-soft); }
+.research-screen .mv-flag.amber { border-color: var(--amber-line); background: var(--amber-soft); }
+.research-screen .mv-flag.indigo { border-color: var(--indigo-line); background: var(--indigo-soft); }
+
+.research-screen .mv-attr { border: 1px solid var(--c-line); border-radius: 12px; padding: 14px; background: var(--bg-1); display: grid; gap: 10px; }
+.research-screen .mv-attr h4 { margin: 0; font-size: 17px; font-weight: 400; }
+.research-screen .mv-attr-wins { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.research-screen .mv-attr-win { border: 1px solid var(--c-line); border-radius: 10px; padding: 10px 11px; background: var(--bg-2); }
+.research-screen .mv-attr-win h5 { margin: 0 0 6px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em;
+  font-weight: 500; display: flex; justify-content: space-between; gap: 8px; color: var(--c-ink); }
+.research-screen .mv-attr-win h5 span { color: var(--c-ink-3); letter-spacing: 0; }
+.research-screen .mv-attr-tot { margin: 0 0 7px; font-size: 12px; color: var(--c-ink-2); }
+.research-screen .mv-attr-tot b { font-family: var(--mono); font-size: 15px; color: var(--c-ink); }
+.research-screen .mv-attr-legs { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.research-screen .mv-attr-legs li { display: grid; grid-template-columns: 76px 1fr 58px; align-items: center; gap: 7px; font-size: 11.5px; }
+.research-screen .mv-attr-name { color: var(--c-ink-3); }
+.research-screen .mv-attr-bar { height: 7px; background: var(--bg-3); border-radius: 4px; overflow: hidden; }
+/* 2px surface gap at the data end, per the house chart spec */
+.research-screen .mv-attr-bar i { display: block; height: 100%; border-radius: 4px; background: var(--c-ink-4); }
+.research-screen .mv-attr-bar i[data-neg] { background: var(--c-ink-3); }
+.research-screen .mv-attr-val { font-family: var(--mono); text-align: right; color: var(--c-ink); }
+.research-screen .mv-na { margin: 0; font-size: 12px; color: var(--c-ink-3); }
+.research-screen .mv-reg { margin: 0; font-size: 12px; color: var(--c-ink-2); line-height: 1.55; }
+.research-screen .mv-reg b { font-family: var(--mono); color: var(--c-ink); }
+.research-screen .mv-degraded { color: var(--amber); }
+.research-screen .mv-mini { margin: 4px 0 0; font-size: 11.5px; color: var(--c-ink-3); }
+
+@media (max-width: 1040px) {
+  .research-screen .mv-split { grid-template-columns: minmax(0, 1fr); }
+  .research-screen .mv-rail { max-height: 320px; }
+}
+@media (max-width: 560px) {
+  .research-screen .mv-controls { gap: 7px 10px; }
+  .research-screen .mv-dir { margin-left: 0; }
+  .research-screen .mv-attr-legs li { grid-template-columns: 64px 1fr 52px; }
+}
+
+/* ── Movers v4: the model's own report card ──────────────────────────────────────────────────────── */
+.research-screen .mv-view { --mv-pred: var(--c-ink-3); --mv-real: var(--mint); }
+.research-screen .mv-sr-only, .research-screen .mv-lift-sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.research-screen .mv-btn, .research-screen .mv-cal-retry, .research-screen .mv-lift-retry {
+  border: 1px solid var(--c-line); background: var(--bg-2); color: var(--c-ink-2); cursor: pointer;
+  border-radius: 8px; padding: 5px 11px; font-size: 12px;
+}
+.research-screen .mv-muted { color: var(--c-ink-3); }
+
+.research-screen .mv-modeswitch { display: flex; gap: 3px; margin-bottom: 8px; }
+.research-screen .mv-modeswitch button {
+  flex: 1 1 0; border: 1px solid var(--c-line); background: var(--bg-2); color: var(--c-ink-3);
+  cursor: pointer; border-radius: 9px; padding: 7px 8px; font-size: 11.5px; line-height: 1.3;
+}
+.research-screen .mv-modeswitch button[aria-pressed="true"] {
+  color: var(--c-ink); border-color: var(--mint); background: var(--mint-soft);
+}
+.research-screen .mv-modeswitch button:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+
+/* v4's four returns. The close-to-close figure is kept but dimmed: it is mostly the overnight gap,
+   which nobody could have traded. `net` is the one in ink. */
+.research-screen .mv-exec { border-top: 1px solid var(--c-line); margin-top: 7px; padding-top: 8px; display: grid; gap: 6px; }
+.research-screen .mv-exec-out { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 9px; }
+.research-screen .mv-outpill {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .09em; padding: 2px 7px; border-radius: 4px;
+  border: 1px solid var(--c-line-strong); color: var(--c-ink-2);
+}
+.research-screen .mv-outpill.up { border-color: var(--mint-line); background: var(--mint-soft); color: var(--c-ink); }
+.research-screen .mv-outpill.down { border-color: var(--danger-line); background: var(--danger-soft); color: var(--c-ink); }
+.research-screen .mv-outpill.both { border-color: var(--amber-line); background: var(--amber-soft); color: var(--c-ink); }
+/* NONE and PENDING are states, not failures: neutral, and never the look of a zero. */
+.research-screen .mv-outpill.none { border-style: dashed; color: var(--c-ink-3); }
+.research-screen .mv-outpill.pending { border-style: dotted; color: var(--c-ink-4); }
+.research-screen .mv-exec-nums { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.research-screen .mv-exec-nums li {
+  display: grid; grid-template-columns: 112px 86px 1fr; align-items: baseline; gap: 8px; font-size: 12px; color: var(--c-ink-2);
+}
+.research-screen .mv-exec-nums b { font-family: var(--mono); font-size: 13.5px; color: var(--c-ink); text-align: right; }
+.research-screen .mv-exec-dim { color: var(--c-ink-4); }
+.research-screen .mv-exec-dim b { color: var(--c-ink-4); text-decoration: line-through; }
+.research-screen .mv-exec-net b { font-size: 15px; }
+
+.research-screen .mv-cal, .research-screen .mv-lift {
+  border: 1px solid var(--c-line); border-radius: 12px; padding: 14px; background: var(--bg-1);
+  display: grid; gap: 9px; margin-top: 12px;
+}
+.research-screen .mv-cal-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.research-screen .mv-cal-over { margin: 0; font-size: 13.5px; color: var(--c-ink); }
+.research-screen .mv-cal-foot, .research-screen .mv-lift-explain { margin: 0; font-size: 11.5px; color: var(--c-ink-3); line-height: 1.5; }
+.research-screen .mv-cal-table, .research-screen .mv-lift-table { width: 100%; border-collapse: collapse; }
+.research-screen .mv-cal-table th, .research-screen .mv-cal-table td,
+.research-screen .mv-lift-table th, .research-screen .mv-lift-table td {
+  text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--c-line); font-size: 11.5px; color: var(--c-ink-2);
+}
+.research-screen .mv-cal-table th, .research-screen .mv-lift-table th { color: var(--c-ink-3); font-weight: 500; font-family: var(--mono); font-size: 10px; letter-spacing: .07em; }
+.research-screen .mv-cal-unavailable, .research-screen .mv-lift-row-na td { color: var(--c-ink-3); font-size: 12.5px; }
+.research-screen .mv-cal-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 11.5px; color: var(--c-ink-3); }
+
+/* the struck-through number is the misleading one: lift across ALL stocks, before volatility is
+   controlled for. The within-decile figure beside it is the honest one. */
+.research-screen .mv-lift-struck, .research-screen .mv-lift-uncond s { color: var(--c-ink-4); }
+.research-screen .mv-lift-within, .research-screen .mv-lift-num { font-family: var(--mono); color: var(--c-ink); }
+.research-screen .mv-lift-chip {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .07em; padding: 2px 6px; border-radius: 4px;
+  border: 1px solid var(--c-line-strong); color: var(--c-ink-2); white-space: nowrap;
+}
+.research-screen .mv-lift-chip-survives { border-color: var(--mint-line); background: var(--mint-soft); color: var(--c-ink); }
+.research-screen .mv-lift-chip-weak { color: var(--c-ink-3); }
+.research-screen .mv-lift-chip-decoration { border-style: dashed; color: var(--c-ink-4); }
+.research-screen .mv-lift-chip-pre-priced { border-color: var(--amber-line); background: var(--amber-soft); color: var(--amber); }
+.research-screen .mv-lift-row-decoration { opacity: .62; }
+.research-screen .mv-lift-missing, .research-screen .mv-lift-na { color: var(--c-ink-3); font-style: normal; }
+
+@media (max-width: 560px) {
+  .research-screen .mv-exec-nums li { grid-template-columns: 96px 72px; }
+  .research-screen .mv-exec-nums li .mo-mini { grid-column: 1 / -1; }
+}
+
+/* Live Watch — the one place on this screen that IS colour-coded (owner request, 2026-10-07), kept to its own
+ * tab precisely because the rest of the page is not: see the file header note on direction never being
+ * colour-coded. Uses the same chip convention as .mv-lift-chip-survives/-pre-priced above. */
+.research-screen .mo-livewatch { display: grid; gap: 18px; margin-top: 4px; }
+.research-screen .mo-livewatch-section { display: grid; gap: 8px; }
+.research-screen .mo-livewatch-h { margin: 0; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-weight: 500; color: var(--c-ink-3); }
+.research-screen .mo-livewatch-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.research-screen .mo-livewatch-row {
+  display: grid; grid-template-columns: 96px 76px 96px 76px 1fr; align-items: center; gap: 10px;
+  padding: 7px 10px; border-radius: 8px; border: 1px solid var(--c-line); font-variant-numeric: tabular-nums;
+}
+.research-screen .mo-livewatch-sym { font-weight: 600; font-size: 13px; color: var(--c-ink); }
+.research-screen .mo-livewatch-est { font-family: var(--mono); font-size: 11.5px; color: var(--c-ink-3); }
+.research-screen .mo-livewatch-px { font-family: var(--mono); font-size: 12.5px; color: var(--c-ink); }
+.research-screen .mo-livewatch-chg { font-family: var(--mono); font-size: 12.5px; color: var(--c-ink-2); }
+.research-screen .mo-livewatch-badge {
+  justify-self: start; font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; padding: 2px 9px;
+  border-radius: 999px; border: 1px solid var(--c-line-strong); color: var(--c-ink-2); white-space: nowrap;
+}
+.research-screen .mo-band-reached { border-color: var(--mint-line); background: var(--mint-soft); }
+.research-screen .mo-band-reached .mo-livewatch-badge { border-color: var(--mint-line); background: var(--mint-soft); color: var(--mint); }
+.research-screen .mo-band-rising { border-color: var(--amber-line); background: var(--amber-soft); }
+.research-screen .mo-band-rising .mo-livewatch-badge { border-color: var(--amber-line); background: var(--amber-soft); color: var(--amber); }
+.research-screen .mo-band-flat { border-color: var(--danger-line); background: var(--danger-soft); }
+.research-screen .mo-band-flat .mo-livewatch-badge { border-color: var(--danger-line); background: var(--danger-soft); color: var(--danger-hex); }
+.research-screen .mo-band-nodata { opacity: .6; }
+.research-screen .mo-band-nodata .mo-livewatch-badge { color: var(--c-ink-4); }
+
+@media (max-width: 640px) {
+  .research-screen .mo-livewatch-row { grid-template-columns: 1fr 1fr; grid-template-areas: "sym badge" "est px" "chg chg"; row-gap: 3px; }
+  .research-screen .mo-livewatch-sym { grid-area: sym; }
+  .research-screen .mo-livewatch-badge { grid-area: badge; justify-self: end; }
+  .research-screen .mo-livewatch-est { grid-area: est; }
+  .research-screen .mo-livewatch-px { grid-area: px; justify-self: end; }
+  .research-screen .mo-livewatch-chg { grid-area: chg; }
+}

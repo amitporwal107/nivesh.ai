@@ -281,9 +281,13 @@ def test_tc8_indicators_filters_by_ids_and_rejects_unknown(monkeypatch, real_sna
 
     r = _get(c, "/api/research/chart/SYN2/indicators")
     assert r.status_code == 200
-    assert set(r.json()["indicators"].keys()) == {
-        "sma_20", "sma_50", "ema_20", "bollinger", "rsi_14", "macd", "atr_14", "relative_volume",
-    }
+    # The full set is whatever the controlled catalogue defines (§38.5, D-3) — asserting a
+
+    # hand-written list here would just re-fail every time a preset is added.
+
+    from research.charting import indicator_catalogue as _cat
+
+    assert set(r.json()["indicators"].keys()) == {p["series_id"] for _, p in _cat.iter_presets()}
 
     r = _get(c, "/api/research/chart/SYN2/indicators?ids=sma_20,not_a_real_one")
     assert r.status_code == 400 and "not_a_real_one" in r.json()["detail"]
@@ -343,6 +347,121 @@ def test_tc10_patterns_is_empty_list_for_v1(monkeypatch, real_snapshot):
 
 
 # ---------------------------------------------------------------------------
+# TC-132..TC-137 (W2, §38.7/§38.11) -- weekly/monthly `timeframe=1D|1W|1M`. TC-120..TC-131
+# (resample.py's own OHLCV math + export.py wiring) live in research/charting/tests/
+# test_resample.py and test_export_timeframes.py -- this file only re-verifies the API layer
+# (route -> service -> served JSON) on top of that already-proven resampling.
+# ---------------------------------------------------------------------------
+
+def test_tc132_ohlcv_timeframe_1w_1m_match_resample_module_applied_to_the_served_daily_bars(monkeypatch, real_snapshot):
+    import pandas as pd
+
+    from research.charting import resample as resample_mod
+
+    c = _client(monkeypatch, real_snapshot)
+    daily = _get(c, "/api/research/chart/SYN2/ohlcv").json()["bars"]
+    ddf = pd.DataFrame(daily, columns=["date", "open", "high", "low", "close", "volume"])
+    ddf["date"] = pd.to_datetime(ddf["date"])
+
+    for tf, resampler in resample_mod.RESAMPLERS.items():
+        expected = resampler(ddf)
+        body = _get(c, f"/api/research/chart/SYN2/ohlcv?timeframe={tf}").json()
+        assert body["timeframe"] == tf
+        got = body["bars"]
+        assert len(got) == len(expected)
+        for row, (_, erow) in zip(got, expected.iterrows()):
+            assert row[0] == erow["date"].strftime("%Y-%m-%d")
+            assert row[1:6] == [float(erow["open"]), float(erow["high"]), float(erow["low"]),
+                                float(erow["close"]), float(erow["volume"])]
+            assert row[6] == bool(erow["incomplete"])
+        assert body["findings"] == []                     # §9.1 findings are daily-indexed only
+        assert body["data_quality_status"] == "VALID"      # unchanged by timeframe
+
+
+def test_tc133_default_timeframe_is_1d_and_unaffected_by_this_change(monkeypatch, real_snapshot):
+    c = _client(monkeypatch, real_snapshot)
+    explicit = _get(c, "/api/research/chart/SYN2/ohlcv?timeframe=1D").json()
+    implicit = _get(c, "/api/research/chart/SYN2/ohlcv").json()
+    assert implicit["timeframe"] == "1D"
+    assert implicit == explicit
+
+    explicit_ind = _get(c, "/api/research/chart/SYN2/indicators?timeframe=1D").json()
+    implicit_ind = _get(c, "/api/research/chart/SYN2/indicators").json()
+    assert implicit_ind["timeframe"] == "1D"
+    assert implicit_ind == explicit_ind
+
+
+def test_tc134_unknown_timeframe_is_400_with_a_reason_code_on_both_endpoints(monkeypatch, real_snapshot):
+    c = _client(monkeypatch, real_snapshot)
+    for path in ("/api/research/chart/SYN2/ohlcv?timeframe=5Y",
+                "/api/research/chart/SYN2/indicators?timeframe=5Y"):
+        r = _get(c, path)
+        assert r.status_code == 400 and r.json()["detail"] == "unknown_timeframe: 5Y", path
+
+
+def test_tc135_weekly_indicators_match_independent_recomputation_from_served_weekly_bars(monkeypatch, real_snapshot):
+    import pandas as pd
+
+    from research.charting import series as series_mod
+
+    c = _client(monkeypatch, real_snapshot)
+    weekly_bars = _get(c, "/api/research/chart/SYN2/ohlcv?timeframe=1W").json()["bars"]
+    wdf = pd.DataFrame(weekly_bars, columns=["date", "open", "high", "low", "close", "volume", "incomplete"])
+    wdf["date"] = pd.to_datetime(wdf["date"])
+
+    body = _get(c, "/api/research/chart/SYN2/indicators?timeframe=1W").json()
+    assert body["timeframe"] == "1W"
+    served = {row[0]: row[1] for row in body["indicators"]["sma_20"]["values"]}
+    expected = series_mod.sma(wdf, 20)
+    recomputed = {d.strftime("%Y-%m-%d"): v for d, v in zip(wdf["date"], expected) if not math.isnan(v)}
+    assert served.keys() == recomputed.keys()
+    for d in served:
+        assert abs(served[d] - recomputed[d]) < 1e-9
+
+    # ids filter still works per-timeframe, and an unknown id is still rejected per-timeframe.
+    r = _get(c, "/api/research/chart/SYN2/indicators?timeframe=1W&ids=sma_20,rsi_14")
+    assert r.status_code == 200 and set(r.json()["indicators"]) == {"sma_20", "rsi_14"}
+    r = _get(c, "/api/research/chart/SYN2/indicators?timeframe=1W&ids=not_a_real_one")
+    assert r.status_code == 400 and "not_a_real_one" in r.json()["detail"]
+
+
+def test_tc136_snapshot_hash_covers_the_new_series_tampered_weekly_bar_is_503(monkeypatch, real_snapshot, tmp_path):
+    """Changing a weekly bar changes the per-symbol file's bytes, hence its sha256, hence a
+    tampered copy (manifest sha256 left untouched) is rejected exactly like a tampered daily bar
+    (TC-7) -- the manifest's per-file hash already covers `timeframes`, since it hashes the whole
+    gzip file, not just the `bars` key."""
+    import shutil
+    broken = tmp_path / "tampered_weekly_snapshot"
+    shutil.copytree(real_snapshot, broken)
+    p = broken / "symbols" / "SYN2.json.gz"
+    tampered = json.loads(gzip.decompress(p.read_bytes()))
+    tampered["timeframes"]["1W"]["bars"][0][1] = 999999.0     # mutate a weekly bar's open
+    p.write_bytes(gzip.compress(json.dumps(tampered).encode(), mtime=0))
+
+    c = _client(monkeypatch, broken)
+    r = _get(c, "/api/research/chart/SYN2/ohlcv?timeframe=1W")
+    assert r.status_code == 503 and r.json()["detail"] == "snapshot_unavailable"
+
+
+def test_tc137_symbol_payload_missing_timeframes_key_fails_validation(monkeypatch, real_snapshot, tmp_path):
+    """Unit-level, mirrors TC-7's style: `timeframes` is a required key (every symbol this module
+    ever serves goes through export.py, which always writes both `1W` and `1M`) -- a payload
+    missing it (or missing one of the two required sub-keys) is a snapshot-integrity problem, the
+    same 503 class as a missing/corrupt daily field, never a partial response."""
+    import shutil
+    broken = tmp_path / "no_timeframes_snapshot"
+    shutil.copytree(real_snapshot, broken)
+    p = broken / "symbols" / "SYN2.json.gz"
+    tampered = json.loads(gzip.decompress(p.read_bytes()))
+    del tampered["timeframes"]["1M"]                            # only 1W left -- not {"1W", "1M"}
+    p.write_bytes(gzip.compress(json.dumps(tampered).encode(), mtime=0))
+
+    c = _client(monkeypatch, broken)
+    r = _get(c, "/api/research/chart/SYN2/ohlcv")
+    assert r.status_code == 503 and r.json()["detail"] == "snapshot_unavailable"
+
+
+# ---------------------------------------------------------------------------
 # TC-24 (data) -- covered against real Kite data separately (see the export report); this is the
 # offline analogue: the fixture's bars must match synth.py's own generator bit for bit.
 # ---------------------------------------------------------------------------
@@ -397,3 +516,95 @@ def test_ui_fixtures_have_the_real_api_top_level_shape(monkeypatch, real_snapsho
     if isinstance(real, dict):
         invented = set(mock) - set(real)
         assert not invented, f"{fixture} carries keys the API never sends: {sorted(invented)}"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# The indicator preset catalogue — docs/charting.md §38.5, decision D-3.
+# TC-209..TC-211 from test_reports/charting_w2_indicator_catalogue.md.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_tc209_catalogue_is_served_behind_the_charting_flag(monkeypatch, real_snapshot):
+    c = _client(monkeypatch, real_snapshot)
+
+    r = _get(c, "/api/research/chart/catalogue")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["version"]
+    assert len(body["hash"]) == 64
+    assert body["categories"] == ["trend", "momentum", "volatility", "volume"]
+
+    ids = [i["indicator_id"] for i in body["indicators"]]
+    assert ids == ["sma", "ema", "rsi", "macd", "bollinger", "adx", "atr", "relative_volume"]
+    assert sum(len(i["presets"]) for i in body["indicators"]) == 18
+
+    # Every preset says enough for the dialog to render and for a citation to be reproducible.
+    for ind in body["indicators"]:
+        assert ind["category"] in ("trend", "momentum", "volatility", "volume")
+        assert ind["output_fields"] and ind["calculation_version"]
+        for p in ind["presets"]:
+            assert p["preset_id"] and p["name"] and p["series_id"] and p["parameters"]
+            assert p["pane"]
+
+    # RSI carries its reference bands (§38.5) rather than the browser inventing 30/70.
+    rsi = next(i for i in body["indicators"] if i["indicator_id"] == "rsi")
+    assert [b["value"] for b in rsi["reference_bands"]] == [30.0, 70.0]
+    assert rsi["band_fill"] == {"from": 30.0, "to": 70.0}
+
+    # ADX carries §37.1's own regime thresholds, so the chart draws the lines the trend
+    # classifier uses rather than a textbook default. It is a context indicator only (class C):
+    # nothing in the catalogue promotes it to a pattern gate.
+    adx = next(i for i in body["indicators"] if i["indicator_id"] == "adx")
+    assert [b["value"] for b in adx["reference_bands"]] == [20.0, 25.0]
+    assert adx["default_pane"] == "own"
+    assert [p["series_id"] for p in adx["presets"]] == ["adx_14"]
+
+    # and the gate applies: an uninvited user never sees it
+    denied = _get(c, "/api/research/chart/catalogue", who="other")
+    assert denied.status_code == 403 and denied.json()["detail"] == "feature_not_enabled"
+
+
+def test_tc210_unknown_indicator_id_still_carries_its_reason_code(monkeypatch, real_snapshot):
+    c = _client(monkeypatch, real_snapshot)
+    r = _get(c, "/api/research/chart/SYN1/indicators?ids=not_a_real_indicator")
+    assert r.status_code == 400
+    assert r.json()["detail"] == "unknown_indicator: not_a_real_indicator"
+
+
+def test_tc211_served_catalogue_matches_the_one_the_snapshot_was_built_with(monkeypatch, real_snapshot):
+    """The dialog must never describe a preset differently from the series actually written: the
+    hash the API serves is the hash the exporter recorded, and every preset's series_id is a key in
+    a real symbol payload."""
+    from research.charting import indicator_catalogue as cat
+
+    c = _client(monkeypatch, real_snapshot)
+    served = _get(c, "/api/research/chart/catalogue").json()
+    manifest = json.loads((real_snapshot / "manifest.json").read_text())
+    assert served["hash"] == manifest["indicator_catalogue_hash"] == cat.catalogue_hash()
+
+    payload = json.loads(gzip.open(real_snapshot / "symbols" / "SYN1.json.gz").read())
+    written = set(payload["indicators"])
+    catalogued = {p["series_id"] for ind in served["indicators"] for p in ind["presets"]}
+    assert catalogued == written
+
+    # the same set on every display timeframe (§38.7 runs one spec list against all three)
+    for tf in ("1W", "1M"):
+        assert set(payload["timeframes"][tf]["indicators"]) == catalogued
+
+
+def test_tc211b_a_snapshot_without_a_catalogue_answers_with_a_reason_code(monkeypatch, real_snapshot, tmp_path):
+    """A snapshot exported before the catalogue existed must produce a reason code, not an empty
+    dialog that looks like 'this chart has no indicators'."""
+    import shutil
+    older = tmp_path / "older_snapshot"
+    shutil.copytree(real_snapshot, older)
+    manifest = json.loads((older / "manifest.json").read_text())
+    manifest.pop("indicator_catalogue", None)
+    manifest.pop("indicator_catalogue_hash", None)
+    (older / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
+
+    c = _client(monkeypatch, older)
+    r = _get(c, "/api/research/chart/catalogue")
+    assert r.status_code == 503
+    assert r.json()["detail"] == "catalogue_unavailable"
+    # the rest of the chart still works — a missing catalogue is not a broken snapshot
+    assert _get(c, "/api/research/chart/run").status_code == 200

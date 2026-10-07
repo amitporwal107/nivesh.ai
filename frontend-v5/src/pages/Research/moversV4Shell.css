@@ -1,0 +1,21 @@
+/* Top Movers v4 shell: hover / focus / selected states the inline styles cannot carry. */
+/* the host app sets body letter-spacing/line-height; the design runs on browser defaults. Reset at the root so every region measures like the design. */
+.mv4 { letter-spacing: normal; line-height: normal; }
+.mv4 .mv4-row { background: transparent; border: 1px solid transparent; }
+.mv4 .mv4-row:hover { background: var(--bg-2); }
+.mv4 .mv4-row[aria-current]:not([aria-current="false"]) { background: var(--bg-3); border-color: var(--line-3); }
+.mv4 .mv4-row:focus-visible, .mv4 .mv4-seg:focus-visible, .mv4 .mv4-ctl:focus-visible {
+  outline: 2px solid var(--mint); outline-offset: 2px;
+}
+.mv4 .mv4-seg:not([aria-pressed="true"]):hover { color: var(--ink-2); }
+.mv4 input[type=date] { color-scheme: dark; }
+.mv4 .mv4-ctl { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; color: var(--ink); background: var(--bg-0);
+  border: 1px solid var(--line-2); border-radius: 8px; padding: 4px 8px; }
+.mv4 .mv4-link { cursor: pointer; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--mint); background: var(--mint-soft); border: 1px solid var(--mint-line); border-radius: 999px; padding: 3px 10px; }
+.mv4 .mv4-link:hover { color: var(--ink); }
+/* the rail scrolls inside its sticky column (up to 100 rows): thin dark scrollbar so it does not read as app chrome */
+.mv4 [data-testid="mv-rail-scroll"] { scrollbar-width: thin; scrollbar-color: var(--line-3) transparent; }
+.mv4 [data-testid="mv-rail-scroll"]::-webkit-scrollbar { width: 8px; }
+.mv4 [data-testid="mv-rail-scroll"]::-webkit-scrollbar-thumb { background: var(--line-3); border-radius: 8px; }
+.mv4 [data-testid="mv-rail-scroll"]::-webkit-scrollbar-track { background: transparent; }

@@ -4,9 +4,11 @@ ABOUT that pipeline's own reproducibility/correctness); the sealed-window check 
 both against clean rows and a deliberately poisoned one."""
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
-from research.charting.events import extraction
+from research.charting.events import extraction, writer
 from research.charting.research_window import SealedWindowError
 from research.charting.study import integrity
 from research.charting.tests._events_helpers import confirmed_rectangle_with_runway
@@ -131,3 +133,101 @@ def test_recompute_sample_respects_sample_size_and_is_deterministic_for_the_same
     b = integrity.recompute_sample({"SYN1": bars}, rows, horizon=5, sample_size=100, seed=3)
     assert a["n_rows"] == b["n_rows"] == len(rows)  # capped at population size, same as random_control_rows
     assert a["mismatched_event_ids"] == b["mismatched_event_ids"]
+
+
+# ── RunDigest: §8 evidence without holding the dataset twice ────────────────────────────────────
+
+
+def _digest_universe():
+    """Real multi-symbol pattern rows, grouped by symbol in run order — the order a streaming
+    digest would actually see them."""
+    from research.charting.events import extraction
+    from research.charting.tests._events_helpers import confirmed_rectangle_with_runway
+
+    base = confirmed_rectangle_with_runway(tail_len=40)
+    by_symbol = {}
+    for i in range(5):
+        scaled = base.copy()
+        for c in ("open", "high", "low", "close"):
+            scaled[c] = scaled[c] * (1.0 + 0.05 * i)
+        sym = f"SYM{i:02d}"
+        by_symbol[sym] = extraction.extract_events(scaled, sym)
+    assert sum(len(v) for v in by_symbol.values()) > 1, "need >1 row for chunking to mean anything"
+    return by_symbol
+
+
+def test_a_chunked_digest_equals_the_whole_list_hash():
+    """The claim the streaming path rests on: `_dump_jsonl` emits `"\\n".join(lines) + "\\n"`, so a
+    whole list's bytes are exactly its chunks' bytes concatenated."""
+    by_symbol = _digest_universe()
+    rows = [r for sym in sorted(by_symbol) for r in by_symbol[sym]]
+
+    d = integrity.RunDigest()
+    for sym in sorted(by_symbol):
+        d.update(by_symbol[sym])
+
+    whole = hashlib.sha256(writer._dump_jsonl(rows)).hexdigest()
+    assert d.hexdigest() == whole
+    assert d.n_rows == len(rows)
+    assert d.pattern_ids == {r["pattern_id"] for r in rows}
+
+
+def test_the_streamed_verdict_is_identical_to_the_row_based_one():
+    by_symbol = _digest_universe()
+    rows = [r for sym in sorted(by_symbol) for r in by_symbol[sym]]
+
+    def digest():
+        d = integrity.RunDigest()
+        for sym in sorted(by_symbol):
+            d.update(by_symbol[sym])
+        return d
+
+    assert integrity.kill_switch_check_digests(digest(), digest()) == \
+        integrity.kill_switch_check(rows, rows)
+
+
+def test_an_empty_chunk_changes_nothing():
+    """A symbol that produced no events is normal, and must not perturb the hash — `_dump_jsonl([])`
+    is `b""`, so skipping it and feeding it must agree."""
+    by_symbol = _digest_universe()
+    a, b = integrity.RunDigest(), integrity.RunDigest()
+    for sym in sorted(by_symbol):
+        a.update(by_symbol[sym])
+        b.update([])
+        b.update(by_symbol[sym])
+    assert a.hexdigest() == b.hexdigest() and a.n_rows == b.n_rows
+
+
+def test_a_reordered_stream_is_reported_as_a_mismatch_not_silently_accepted():
+    """Order is part of §8's claim — "identical event files" is about bytes `write_run` would
+    produce. Feeding chunks out of order must read as a FAILED reproducibility check, which is
+    exactly what it would mean if a real run's order had drifted."""
+    by_symbol = _digest_universe()
+    syms = sorted(by_symbol)
+    assert len(syms) > 1
+
+    fwd, rev = integrity.RunDigest(), integrity.RunDigest()
+    for sym in syms:
+        fwd.update(by_symbol[sym])
+    for sym in reversed(syms):
+        rev.update(by_symbol[sym])
+
+    verdict = integrity.kill_switch_check_digests(fwd, rev)
+    assert verdict["passed"] is False
+    assert verdict["event_file_sha256_match"] is False
+    assert verdict["pattern_id_sets_match"] is True, "same rows, so only the ORDER differs"
+
+
+def test_a_genuinely_different_dataset_fails_and_names_the_difference():
+    by_symbol = _digest_universe()
+    syms = sorted(by_symbol)
+    full, short = integrity.RunDigest(), integrity.RunDigest()
+    for sym in syms:
+        full.update(by_symbol[sym])
+    for sym in syms[:-1]:
+        short.update(by_symbol[sym])
+
+    verdict = integrity.kill_switch_check_digests(full, short)
+    assert verdict["passed"] is False
+    assert verdict["pattern_id_set_symmetric_difference"], "the differing ids must be named"
+    assert verdict["n_rows_a"] > verdict["n_rows_b"]

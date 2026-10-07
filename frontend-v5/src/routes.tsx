@@ -64,6 +64,7 @@ import SectorAnalysisDetailPage from "./pages/Markets/SectorAnalysisDetail";
 import AdvisorDashboardPage from "./pages/AdvisorDashboard";
 import Client360Page from "./pages/Client360";
 import DebugLogsPage from "./pages/DebugLogs";
+import WatchlistPage from "./pages/Watchlist";
 
 export function AppRoutes() {
   return (
@@ -112,6 +113,10 @@ export function AppRoutes() {
       <Route path="/testSelfDiagnosticTool" element={<TestDiagnosticToolPage />} />
       {/* On-device debug log viewer — no auth, for diagnosing native app errors */}
       <Route path="/debug-logs" element={<DebugLogsPage />} />
+
+      {/* Research Watchlist — standalone, no auth required (personal research,
+          not linked from any in-app nav; reachable only by direct URL). */}
+      <Route path="/watchlist" element={<RouteErrorBoundary pageName="Watchlist"><WatchlistPage /></RouteErrorBoundary>} />
 
       {/* Lite surface — ONLY the Copilot chat, no dashboard chrome.
           URL-pattern gated (/lite): same auth, minimal layout, self-contained

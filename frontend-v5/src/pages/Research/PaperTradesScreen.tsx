@@ -21,6 +21,7 @@ import {
 } from "@/services/adapters/paperTrades.adapter";
 import { MODE_SESSION, clock, day, dayYear, inr, levels, modeResult, pct, price, prob, sizeBasket, type Path, type Sizing } from "./paperMath";
 import PaperIntradayChart from "./PaperIntradayChart";
+import PaperTradeChart from "./PaperTradeChart";
 import "./moveOdds.css";
 import "./paperTrades.css";
 
@@ -557,6 +558,24 @@ function LivePanel({ live }: { live: LiveResult | null }) {
 }
 
 // ── Trade path ──────────────────────────────────────────────────────────────────────────────────────────────────
+/** Deep link into Research -> Charts carrying the trade's frozen levels.
+ *  A real href, not a state change: the charts workspace reads these params when it MOUNTS, so it
+ *  has to be a fresh navigation rather than an in-place screen swap. Only levels that exist are
+ *  sent -- an absent target must not arrive as a 0 and get drawn at the bottom of the axis. */
+function chartHref(t: { symbol: string; trade_id: number; entry_price: number | null;
+                        stop_loss_price: number | null; target_1_price: number | null;
+                        target_2_price: number | null }): string {
+  const q = new URLSearchParams({ screen: "charts", symbol: t.symbol, trade: String(t.trade_id) });
+  const put = (k: string, v: number | null) => {
+    if (v != null && Number.isFinite(v) && v > 0) q.set(k, String(v));
+  };
+  put("entry", t.entry_price);
+  put("stop", t.stop_loss_price);
+  put("t1", t.target_1_price);
+  put("t2", t.target_2_price);
+  return `/v5/research?${q.toString()}`;
+}
+
 function TradeView({ data, tradeId, onPick }: { data: PaperPortfolioData; tradeId: number | null; onPick: (id: number) => void }) {
   const [res, setRes] = useState<TradeResult | null>(null);
   useEffect(() => {
@@ -600,6 +619,15 @@ function TradeView({ data, tradeId, onPick }: { data: PaperPortfolioData; tradeI
             <div className="pt-stat"><span className="pt-stat-l">Levels</span><span className="pt-stat-v" style={{ fontSize: 13 }}>{target != null ? `${price(target)} / ${price(t.stop_loss_price)}` : "—"}</span>
               <span className="pt-stat-s">{t.stop_method ? `${t.stop_method === "CAP_8PCT" ? "stop capped at 8%" : t.stop_method === "SUPPORT" ? "stop at support" : `${cfg.atr_multiplier}× ATR14`} · R:R ${t.risk_reward_ratio != null ? t.risk_reward_ratio.toFixed(2) : "—"}` : "set at entry"}</span></div>
           </div>
+
+          <p className="pt-note pt-chartlink">
+            <a data-testid="pt-open-chart" href={chartHref(t)}>
+              Open {t.symbol} in Charts with these levels &rsaquo;
+            </a>
+            {" "}— the full workspace: years of history, indicators and drawings, with entry, stop
+            and both targets drawn on it.
+          </p>
+          <PaperTradeChart t={t} />
 
           <div className="mo-tablewrap" tabIndex={0}>
             <table className="mo-table pt-table" data-testid="pt-path" style={{ minWidth: 760 }}>

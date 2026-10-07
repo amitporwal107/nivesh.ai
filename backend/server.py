@@ -71,6 +71,7 @@ from routes.portfolio_export import router as portfolio_export_router  # CSV/XLS
 from routes.client_cas_invite import mfd_router as cas_invite_mfd_router, public_router as cas_invite_public_router
 from routes.data_health import router as data_health_router  # Global stale-data banner
 from routes.client_logs import router as client_logs_router  # Mobile app → Cloud Logging ingest
+from routes.event_ai_ingest import router as event_ai_ingest_router  # NIDP jobs → event AI analyses (Mongo)
 from routes.session_logs import router as session_logs_router  # Settings → Logs & Diagnostics (per-session server logs)
 from routes.cas_transactions import router as cas_transactions_router  # SIP detection + txn history
 from routes.cas_snapshots import router as cas_snapshots_router  # CAS Time-Machine endpoints
@@ -84,13 +85,16 @@ from routes.broker_native import router as broker_native_router  # Native broker
 from routes.work import router as work_router                    # Work issues dashboard (/api/work/) — error triage + diagnostics
 from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reverse-proxy for the Nivesh-hosted OpenAlgo dashboard
 from routes.market_events import router as market_events_router  # Market Event Intelligence — corporate events, AI signals, breakout feed
+from routes.movers import router as movers_router  # Top Movers dashboard — movers, event lanes, return attribution
 from routes.markets import router as markets_router              # Markets home dashboard aggregator (/api/markets/home)
 from routes.filings import router as filings_router              # Filings Home — feed + signals (/api/filings/*)
 from routes.move_odds import router as move_odds_router          # Research → Move odds (/api/move-odds/*, allowlist flag)
 from routes.paper_trades import router as paper_trades_router    # Research → Paper (/api/paper-trades/*, move_odds allowlist)
 from routes.sim_lab import router as sim_lab_router            # Research → Simulation Lab (/api/sim-lab/*, allowlist flag)
 from routes.research_chart import router as research_chart_router        # Research → Charts (/api/research/chart/*, allowlist flag)
+from routes.research_chart_live import router as research_chart_live_router  # Research → Charts LIVE bars (/api/research/chart-live/*)
 from routes.research_drawings import router as research_drawings_router  # Research → Charts drawings (/api/research/drawings, allowlist flag)
+from routes.research_chart_layouts import router as research_chart_layouts_router  # Research → Charts saved layouts (/api/research/chart-layouts, allowlist flag)
 from routes.portfolio_exposure import router as portfolio_exposure_router  # Diversification & Concentration analytics — AMC / Sector / Company exposure
 from routes.portfolio_risk_analytics import router as portfolio_risk_analytics_router  # V3 risk analytics — beta/sharpe/volatility from DAAS
 from routes.portfolio_composition import router as portfolio_composition_router  # v5 Composition Explorer — asset_class/sector/fund/group breakdown
@@ -107,10 +111,12 @@ from routes.admin_nidp_stock_primitives import router as admin_nidp_stock_primit
 from routes.copilot_agents import router as copilot_agents_router  # Copilot agent + model picker (Intelligence Layer Phase A/B)
 from routes.flow_ledger import router as flow_ledger_router  # FLOW LEDGER auto-fill
 from routes.copilot_widgets import router as copilot_widgets_router  # Copilot embedded-widget producers (Fund card, Market brief, ...)
+from routes.flow_ledger import router as flow_ledger_router  # FLOW LEDGER auto-fill (proxies NIDP DaaS)
 from routes.admin_swagger import router as admin_swagger_router  # Admin-only Swagger UI (/api/admin/swagger)
 from routes.grafana_alerts import router as grafana_alerts_router  # Grafana webhook receiver + active alerts query
 from routes.monitoring_actions import router as monitoring_actions_router  # Operator actions webhook + audit log
 from routes.release_docs import router as release_docs_router  # Settings → Release Management (versioned release docs in Mongo)
+from routes.research_watchlist import router as research_watchlist_router  # Public, no-auth /watchlist page (personal research, price-tracked)
 
 # ── CAS ingestion module ──────────────────────────────────────────────
 # Used to be a standalone FastAPI service in its own container; now mounted
@@ -186,8 +192,10 @@ app.include_router(cas_invite_mfd_router)       # Client CAS invite (MFD side)
 app.include_router(cas_invite_public_router)    # Client CAS invite (public, no auth)
 app.include_router(data_health_router)           # Global stale-data banner
 app.include_router(client_logs_router)           # Mobile app → Cloud Logging ingest
+app.include_router(event_ai_ingest_router)        # NIDP jobs → event AI analyses (Mongo)
 app.include_router(session_logs_router)          # Settings → Logs & Diagnostics (per-session server logs)
 app.include_router(release_docs_router)          # Settings → Release Management (admin: versioned release docs in Mongo)
+app.include_router(research_watchlist_router)    # Public, no-auth /api/public/research-watchlist
 app.include_router(cas_transactions_router)      # SIP detection + txn history
 app.include_router(cas_snapshots_router)          # CAS Time-Machine endpoints
 app.include_router(benchmarks_router)             # Benchmark Index Data Service
@@ -199,13 +207,16 @@ app.include_router(broker_connect_router)          # Secure Portfolio Connect �
 app.include_router(broker_native_router)           # Native broker connect (no OpenAlgo) — preferred path for SPC retail
 app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://127.0.0.1:5000/api/openalgo/* (reverse proxy)
 app.include_router(market_events_router)           # Market Event Intelligence feed (/api/market/events, /signals)
+app.include_router(movers_router)                   # Top Movers dashboard (/api/movers, /{symbol}, /{symbol}/analysis)
 app.include_router(markets_router)                 # Markets home dashboard aggregator (/api/markets/home)
 app.include_router(filings_router)                # Filings Home — feed + signals (/api/filings/*)
 app.include_router(move_odds_router)              # Research → Move odds (/api/move-odds/*, allowlist flag)
 app.include_router(paper_trades_router)           # Research → Paper (/api/paper-trades/*, move_odds allowlist)
 app.include_router(sim_lab_router)                # Research → Simulation Lab (/api/sim-lab/*, allowlist flag)
 app.include_router(research_chart_router)         # Research → Charts (/api/research/chart/*, allowlist flag)
+app.include_router(research_chart_live_router)    # Research → Charts LIVE bars (/api/research/chart-live/*, allowlist flag)
 app.include_router(research_drawings_router)      # Research → Charts drawings (/api/research/drawings, allowlist flag)
+app.include_router(research_chart_layouts_router)  # Research → Charts saved layouts (/api/research/chart-layouts, allowlist flag)
 app.include_router(portfolio_exposure_router)      # Diversification & Concentration analytics (/api/portfolio/exposure/concentration)
 app.include_router(portfolio_risk_analytics_router) # V3 risk analytics (/api/portfolio/risk-analytics) — beta/sharpe/vol from DAAS
 app.include_router(portfolio_composition_router)   # v5 Composition Explorer (/api/portfolio/composition)
@@ -220,6 +231,7 @@ app.include_router(admin_nidp_stock_primitives_router)  # NIDP stock primitives 
 app.include_router(copilot_agents_router)          # Copilot agent + model picker
 app.include_router(flow_ledger_router)              # FLOW LEDGER evidence-stream auto-fill
 app.include_router(copilot_widgets_router)         # Copilot widget envelopes (fund_card, market_brief, ...)
+app.include_router(flow_ledger_router)              # FLOW LEDGER evidence-stream auto-fill
 app.include_router(admin_swagger_router)           # Admin-only Swagger UI + OpenAPI YAML serving
 
 # CAS ingestion routers — same domain as V2 backend, no separate container.

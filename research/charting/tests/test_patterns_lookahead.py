@@ -12,6 +12,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from research.charting import enrich
 from research.charting.patterns import detect_as_of
 from research.charting.tests import synth
 
@@ -258,12 +259,20 @@ def test_hh_hl_breakout_buffer_boundary_unaffected_by_poisoning_the_future():
 
 
 # ── §35.2 amendment additions: breakout candle quality (N§8) / retest quality (N§13) ──────
-# The whole-object probes above (`_serialize` -> `p.to_dict()`) already cover the new
-# `retest_quality` block and the candle-quality keys inside PRICE_CONFIRMED's
-# `observed_values` incidentally (they are just more keys in the same dict being compared
-# byte-for-byte) -- these two tests make that coverage EXPLICIT and add a negative control
-# aimed specifically at the new fields, per task requirement, rather than relying on the
-# generic sweep alone.
+# CANDLE-MOVE (2026-09-22, docs/charting.md §38.18 decisions-log #93/#110): these two fields
+# no longer live on `detect_as_of`'s own output at all -- `research.charting.enrich
+# .enrich_pattern` computes them separately, from a production pattern dict + bars, so the
+# whole-object probes above (`_serialize` -> `p.to_dict()`) no longer cover them even
+# incidentally. These two tests keep the SAME poisoned-future probe + negative control, only
+# now aimed at the enrichment layer -- repo standard: every field this detector pipeline
+# reports point-in-time gets its own leak probe, wherever it is actually computed.
+
+
+def _synthetic_benchmark(n: int = 300, start_date: str = "2019-01-02") -> pd.DataFrame:
+    """A long, clean benchmark frame so `enrich_pattern`'s trend-classification calls never
+    raise -- these tests assert on `candle_quality`/`retest_quality` only."""
+    closes = [200 + 0.2 * i + (i % 5) * 0.3 for i in range(n)]
+    return synth.bars_from_closes(closes, start_date=start_date, wick=0.5)
 
 
 def _retest_multi_attempt_bars() -> pd.DataFrame:
@@ -285,13 +294,16 @@ def _retest_multi_attempt_bars() -> pd.DataFrame:
 
 
 def test_new_descriptive_fields_unaffected_by_poisoning_the_future():
-    """Breakout candle quality (body_pct/close_location, inside PRICE_CONFIRMED's
-    observed_values) and retest quality (the pattern-level retest_quality block) must be
-    unaffected by anything dated after `t` -- checked across t values before, during and
-    after the retest actually resolves (t=21 mid-retest, t=22 same attempt count, t=23 the
-    second attempt just occurred, t=24 the resolution bar itself), each swept against both
-    poison shapes."""
+    """Breakout candle quality (`enrich_pattern`'s `candle_quality`) and retest quality
+    (`enrich_pattern`'s `retest_quality`) must be unaffected by anything dated after `t` --
+    checked across t values before, during and after the retest actually resolves (t=21
+    mid-retest, t=22 same attempt count, t=23 the second attempt just occurred, t=24 the
+    resolution bar itself), each swept against both poison shapes. Both the production
+    pattern dict AND the bars handed to `enrich_pattern` come from the SAME (clean/poisoned)
+    source, so this also proves the enrichment layer's own bar-truncation (`bars <= t`) does
+    the job -- not just that it was handed an already-safe pattern dict."""
     base = _retest_multi_attempt_bars()
+    benchmark = _synthetic_benchmark()
     checked = 0
     for t in (21, 22, 23, 24, 25):
         for poison_fn in _POISON_FNS:
@@ -302,11 +314,14 @@ def test_new_descriptive_fields_unaffected_by_poisoning_the_future():
             clean = [p.to_dict() for p in detect_as_of(base, t, symbol="SYN1") if p.pattern_type == "RECTANGLE"]
             dirty = [p.to_dict() for p in detect_as_of(poisoned, t, symbol="SYN1") if p.pattern_type == "RECTANGLE"]
             assert len(clean) == 1 and len(dirty) == 1
-            assert clean[0]["retest_quality"] == dirty[0]["retest_quality"], f"retest_quality leaked future data at t={t} via {poison_fn.__name__}"
-            clean_confirmed = [e for e in clean[0]["events"] if e["event_type"] == "PRICE_CONFIRMED"][0]
-            dirty_confirmed = [e for e in dirty[0]["events"] if e["event_type"] == "PRICE_CONFIRMED"][0]
+
+            ts = base["date"].iloc[t]  # byte-identical to poisoned["date"].iloc[t] (asserted above)
+            clean_enriched = enrich.enrich_pattern(clean[0], base, t=ts, benchmark_df=benchmark)
+            dirty_enriched = enrich.enrich_pattern(dirty[0], poisoned, t=ts, benchmark_df=benchmark)
+
+            assert clean_enriched["retest_quality"] == dirty_enriched["retest_quality"], f"retest_quality leaked future data at t={t} via {poison_fn.__name__}"
             for key in ("body_pct", "close_location"):
-                assert clean_confirmed["observed_values"][key] == dirty_confirmed["observed_values"][key], (
+                assert clean_enriched["candle_quality"][key] == dirty_enriched["candle_quality"][key], (
                     f"candle quality '{key}' leaked future data at t={t} via {poison_fn.__name__}"
                 )
             checked += 1
@@ -349,10 +364,12 @@ def test_negative_control_peeking_attempts_count_is_detected_by_the_same_probe()
         "broken attempts-counter proves nothing"
     )
 
-    # And the real detector, run at t=22, agrees with the correctly-sliced count -- it does
-    # NOT peek, even though the naive counter above shows peeking would have changed the answer.
+    # And the real detector + enrichment, run at t=22, agrees with the correctly-sliced count
+    # -- it does NOT peek, even though the naive counter above shows peeking would have
+    # changed the answer.
     real = [p.to_dict() for p in detect_as_of(base, t, symbol="SYN1") if p.pattern_type == "RECTANGLE"][0]
-    assert real["retest_quality"]["attempts"] == correctly_sliced == 1
+    real_enriched = enrich.enrich_pattern(real, base, t=base["date"].iloc[t], benchmark_df=_synthetic_benchmark())
+    assert real_enriched["retest_quality"]["attempts"] == correctly_sliced == 1
 
 
 def test_negative_control_peeking_past_t_is_caught_for_the_hh_hl_buffer_boundary():

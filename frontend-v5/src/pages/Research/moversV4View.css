@@ -1,0 +1,8 @@
+/* Layout of the Movers view: the design's two-column grid (rail | main). The design is desktop-first; below 900px the rail
+   stacks above the main column (capped height, scrolls inside) so the chart keeps its width instead of collapsing. */
+.mv4 .mv4-grid { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); flex: 1; min-height: 0; }
+.mv4 .mv4-railcol { position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; min-width: 0; }
+@media (max-width: 900px) {
+  .mv4 .mv4-grid { grid-template-columns: minmax(0, 1fr); }
+  .mv4 .mv4-railcol { position: static; max-height: 420px; border-bottom: 1px solid var(--line); }
+}

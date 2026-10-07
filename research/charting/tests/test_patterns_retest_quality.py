@@ -3,22 +3,32 @@ quality) and N§13 (retest quality), adopted as DESCRIPTIVE fields only (never c
 gates -- §35.1's conflict-resolution table: "The percentage distance is stored as a
 descriptive field only" sets the same precedent this amendment follows).
 
+CANDLE-MOVE (2026-09-22, docs/charting.md §38.18 decisions-log #93/#110, "Candle/retest
+metrics -- ACCEPT. They move from the production pattern record into the research
+record."): these fields no longer appear in `research.charting.patterns`' own output
+(`PatternSnapshot.to_dict()` / the PRICE_CONFIRMED event's `observed_values`) -- they are
+computed by `research.charting.enrich.enrich_pattern` instead, from the production pattern
+dict + bars, point-in-time. This file therefore builds a pattern via `detect_as_of` (proving
+the production record no longer carries these keys at all -- see
+`test_production_pattern_no_longer_carries_the_moved_fields` below) and then asserts the
+hand-computed numbers against `enrich_pattern`'s `candle_quality`/`retest_quality` output —
+the exact same fixtures, the exact same expected numbers, only the assertion target moved.
+
 Field definitions implemented (all computed from bars <= the event bar only):
 
-  Breakout candle quality (N§8), on the PRICE_CONFIRMED event's own `observed_values`,
-  computed from the CONFIRMING bar's OHLC:
+  Breakout candle quality (N§8), `enrich_pattern`'s `candle_quality` dict, computed from the
+  CONFIRMING bar's OHLC:
     body_pct       = |close - open| / (high - low)
     close_location = (close - low) / (high - low)          # 0 = at the low, 1 = at the high
   A zero-range bar (`high == low`) makes both undefined -> None (never NaN/inf/a
   ZeroDivisionError -- see test_zero_range_candle_returns_none_not_nan_or_error below).
 
-  Retest quality (N§13), one `retest_quality` dict on the pattern (`PatternSnapshot`),
-  populated once the pattern reaches PRICE_CONFIRMED (None before that):
+  Retest quality (N§13), `enrich_pattern`'s `retest_quality` dict, populated once the
+  pattern reaches PRICE_CONFIRMED (None before that):
     attempts                     = count of distinct dips into the broken level's zone
                                     (transitions from out-of-zone to in-zone), counted only
                                     once the FIRST dip has legitimately opened a retest (i.e.
-                                    piggybacked on `_walk_retest_and_failure`'s own
-                                    `retest_pending` flag -- see that function's docstring)
+                                    piggybacked on the walk's own `retest_pending` flag)
     penetration_atr / _pct       = the DEEPEST intrabar penetration beyond the broken level
                                     seen during the retest episode (bullish: broken_level -
                                     low; bearish: high - broken_level), in ATR units and as a
@@ -34,13 +44,14 @@ Field definitions implemented (all computed from bars <= the event bar only):
 This file hand-verifies each formula against fixtures whose OHLC (and therefore the exact
 expected penetration/body/close-location numbers) are stated in each test's own comment.
 ATR and relative-volume readings are pulled through the SAME `series.atr` /
-`series.relative_volume` functions patterns.py itself uses (matching this package's existing
-`_measured_atr_at` convention in test_patterns.py) -- this file is testing patterns.py's OWN
+`series.relative_volume` functions `enrich.py` itself uses (matching this package's existing
+`_measured_atr_at` convention in test_patterns.py) -- this file is testing that module's OWN
 arithmetic that combines those readings with penetration/broken_level, not re-deriving
 Wilder's ATR formula by hand.
 """
 from __future__ import annotations
 
+import copy
 import json
 import math
 
@@ -48,8 +59,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from research.charting import enrich
 from research.charting.config import CONFIG
-from research.charting.patterns import _candle_quality, detect_as_of
+from research.charting.enrich import _candle_quality
+from research.charting.patterns import detect_as_of
 from research.charting.series import atr as atr_series_fn
 from research.charting.series import relative_volume as relvol_series_fn
 from research.charting.tests import synth
@@ -57,6 +70,22 @@ from research.charting.tests import synth
 # ── Local fixture builders (this package's convention: small, self-contained per-file
 # builders rather than growing synth.py's shared surface -- see test_patterns_lookahead.py's
 # _zigzag_bars/_range_then_breakout_bars/_staircase_bars for precedent). ──────────────────
+
+
+def _synthetic_benchmark(n: int = 300, start_date: str = "2019-01-02") -> pd.DataFrame:
+    """A long, clean benchmark frame so `enrich_pattern`'s trend-classification calls never
+    raise -- this file asserts on `candle_quality`/`retest_quality` only, so the exact trend
+    numbers don't matter (see test_enrich.py for dedicated trend-class coverage)."""
+    closes = [200 + 0.2 * i + (i % 5) * 0.3 for i in range(n)]
+    return synth.bars_from_closes(closes, start_date=start_date, wick=0.5)
+
+
+def _enrich(pattern_dict: dict, bars: pd.DataFrame) -> dict:
+    """Enrich as of the LAST bar of `bars` -- the same date `detect_as_of(bars, len(bars)-1,
+    ...)` used to build `pattern_dict` -- so `candle_quality`/`retest_quality` see every bar
+    production saw. Matches the pre-move contract byte-for-byte (module docstring)."""
+    t = bars["date"].iloc[-1]
+    return enrich.enrich_pattern(pattern_dict, bars, t=t, benchmark_df=_synthetic_benchmark())
 
 
 def _zigzag_bars(turns: list[float], bars_per_leg: int = 5, wick: float = 0.05) -> pd.DataFrame:
@@ -129,6 +158,21 @@ def _confirmed_event(d: dict) -> dict:
     return matches[0]
 
 
+# ── Production record no longer carries these fields (CANDLE-MOVE) ────────────────────────
+
+
+def test_production_pattern_no_longer_carries_the_moved_fields():
+    """The whole point of CANDLE-MOVE: `detect_as_of`'s own dict has no `retest_quality` key
+    at all, and its PRICE_CONFIRMED event's `observed_values` has neither `body_pct` nor
+    `close_location` -- these now live ONLY in the research enrichment record."""
+    bars = _rectangle_multi_attempt_success_bars()
+    d = _rect_snapshot(bars)
+    assert "retest_quality" not in d
+    confirmed = _confirmed_event(d)
+    assert "body_pct" not in confirmed["observed_values"]
+    assert "close_location" not in confirmed["observed_values"]
+
+
 # ── Breakout candle quality (N§8) -- direct unit tests on the helper ──────────────────────
 
 
@@ -161,18 +205,18 @@ def test_zero_range_candle_returns_none_not_nan_or_error():
     assert q == {"body_pct": None, "close_location": None}
 
 
-def test_zero_range_breakout_bar_end_to_end_via_detect_as_of():
-    """Same zero-range edge case, but through the REAL detector: a flat bar at 111.0 still
-    closes above RECT-1's breakout level (~110.6-110.7) and legitimately confirms the
-    breakout -- the PRICE_CONFIRMED event must record None/None, not crash or fabricate a
-    value, and the pattern's status must still be PRICE_CONFIRMED (the new fields never gate
-    anything)."""
+def test_zero_range_breakout_bar_end_to_end_via_detect_as_of_and_enrich():
+    """Same zero-range edge case, but through the REAL detector + enrichment: a flat bar at
+    111.0 still closes above RECT-1's breakout level (~110.6-110.7) and legitimately confirms
+    the breakout -- `enrich_pattern`'s `candle_quality` must record None/None, not crash or
+    fabricate a value, and the production pattern's status must still be PRICE_CONFIRMED (the
+    new fields never gate anything, and never crash the detector that no longer computes
+    them)."""
     bars = synth._append(synth.rect1(), [(111.0, 111.0, 111.0, 111.0, 120_000.0)])
     d = _rect_snapshot(bars)
     assert d["status"] == "PRICE_CONFIRMED"
-    confirmed = _confirmed_event(d)
-    assert confirmed["observed_values"]["body_pct"] is None
-    assert confirmed["observed_values"]["close_location"] is None
+    result = _enrich(d, bars)
+    assert result["candle_quality"] == {"body_pct": None, "close_location": None}
 
 
 # ── Retest quality (N§13) -- no retest observed ────────────────────────────────────────────
@@ -185,7 +229,7 @@ def test_no_retest_fields_are_none_with_a_reason_not_nan_or_error():
     field None, with `note` explaining why -- never NaN, never absent by accident."""
     bars = synth.fixture_03_close_back_inside(synth.rect1())
     d = _rect_snapshot(bars)
-    rq = d["retest_quality"]
+    rq = _enrich(d, bars)["retest_quality"]
     assert rq == {
         "attempts": 0, "penetration_atr": None, "penetration_pct": None,
         "retest_relative_volume": None, "bars_confirmation_to_retest": None,
@@ -202,18 +246,22 @@ def test_no_retest_yet_because_the_walk_has_not_had_time():
     bars = synth.fixture_02_low_volume_breakout(synth.rect1())
     d = _rect_snapshot(bars)
     assert d["status"] == "PRICE_CONFIRMED"
-    assert d["retest_quality"]["attempts"] == 0
-    assert d["retest_quality"]["note"] is not None
+    result = _enrich(d, bars)
+    assert result["retest_quality"]["attempts"] == 0
+    assert result["retest_quality"]["note"] is not None
 
 
 def test_pattern_never_confirmed_has_no_retest_quality_block_at_all():
     """fixture_01_wick_only_breakout: a wick-only touch never reaches PRICE_CONFIRMED at all
-    -- retest is not yet applicable, so the pattern-level `retest_quality` is None (distinct
-    from "confirmed but no retest happened yet", which is a dict with attempts=0)."""
+    -- retest is not yet applicable, so the enrichment's `retest_quality` (and
+    `candle_quality`) are None (distinct from "confirmed but no retest happened yet", which
+    is a dict with attempts=0)."""
     bars = synth.fixture_01_wick_only_breakout(synth.rect1())
     d = _rect_snapshot(bars)
     assert d["status"] == "BREAKOUT_ATTEMPT"
-    assert d["retest_quality"] is None
+    result = _enrich(d, bars)
+    assert result["retest_quality"] is None
+    assert result["candle_quality"] is None
 
 
 # ── Retest quality (N§13) -- a real (failed) retest, hand-verified ────────────────────────
@@ -229,7 +277,7 @@ def test_failed_retest_quality_hand_computed():
     walk's final (deepest) reading; FAILED_RETEST fires here so there is no continuation."""
     bars = synth.fixture_04_false_retest(synth.rect1())
     d = _rect_snapshot(bars)
-    rq = d["retest_quality"]
+    rq = _enrich(d, bars)["retest_quality"]
 
     confirm_idx, first_entry_idx, deepest_idx = 20, 21, 23
     broken_level = 110.0
@@ -261,7 +309,7 @@ def test_successful_retest_with_two_attempts_hand_computed():
     idx24 (close 113.0)."""
     bars = _rectangle_multi_attempt_success_bars()
     d = _rect_snapshot(bars)
-    rq = d["retest_quality"]
+    rq = _enrich(d, bars)["retest_quality"]
 
     confirm_idx, first_entry_idx, deepest_idx, resolve_idx = 20, 21, 23, 24
     broken_level = 110.0
@@ -290,7 +338,7 @@ def test_attempt_count_is_not_simply_bars_spent_in_the_zone():
     idx22 is OUTSIDE the zone, breaking the run) but only 2 attempts."""
     bars = _rectangle_multi_attempt_success_bars()
     d = _rect_snapshot(bars)
-    assert d["retest_quality"]["attempts"] == 2
+    assert _enrich(d, bars)["retest_quality"]["attempts"] == 2
 
 
 # ── Retest quality (N§13) -- SUPPORT_RESISTANCE and HH_HL families ────────────────────────
@@ -312,7 +360,8 @@ def test_sr_level_successful_retest_quality_hand_computed():
     sr = [p for p in detect_as_of(bars, t, symbol="SYN2") if p.pattern_type == "SUPPORT_RESISTANCE" and p.direction == "BULLISH"]
     assert len(sr) == 1
     d = sr[0].to_dict()
-    rq = d["retest_quality"]
+    result = _enrich(d, bars)
+    rq = result["retest_quality"]
 
     confirm_idx, first_entry_idx, resolve_idx = 21, 22, 23
     broken_level = 110.15
@@ -328,9 +377,9 @@ def test_sr_level_successful_retest_quality_hand_computed():
     assert rq["penetration_atr"] == pytest.approx(deepest_pen / float(a.iloc[first_entry_idx]))
     assert rq["retest_relative_volume"] == pytest.approx(float(rv.iloc[first_entry_idx]))
 
-    confirmed = _confirmed_event(d)
-    assert confirmed["observed_values"]["body_pct"] is not None
-    assert confirmed["observed_values"]["close_location"] is not None
+    assert result["candle_quality"] is not None
+    assert result["candle_quality"]["body_pct"] is not None
+    assert result["candle_quality"]["close_location"] is not None
 
 
 def test_hh_hl_failed_retest_quality_hand_computed():
@@ -351,7 +400,7 @@ def test_hh_hl_failed_retest_quality_hand_computed():
     hh = [p for p in detect_as_of(bars, t, symbol="ZZ") if p.pattern_type == "HH_HL"]
     assert len(hh) == 1
     d = hh[0].to_dict()
-    rq = d["retest_quality"]
+    rq = _enrich(d, bars)["retest_quality"]
 
     first_entry_idx = confirm_idx + 1
     broken_level = 35.05
@@ -371,6 +420,30 @@ def test_hh_hl_failed_retest_quality_hand_computed():
     assert rq["retest_relative_volume"] == pytest.approx(float(rv.iloc[deepest_idx]))
 
 
+# ── Non-mutation contract (owner's §37.6 course-correction, scoped to these two fields) ────
+
+
+def test_enrich_does_not_mutate_pattern_dict_when_computing_candle_and_retest_quality():
+    """Computing `candle_quality`/`retest_quality` reads `pattern_dict["levels"]`/
+    `["direction"]`/`["pattern_type"]`/`["events"]` but must never write into them -- proven
+    with a fixture that actually exercises the retest walk (not just the trivial "never
+    confirmed" case), matching test_enrich.py's own byte-identical-before/after style."""
+    bars = _rectangle_multi_attempt_success_bars()
+    d = _rect_snapshot(bars)
+    before = json.dumps(d, sort_keys=True, default=str)
+    snapshot = copy.deepcopy(d)
+
+    result = _enrich(d, bars)
+
+    after = json.dumps(d, sort_keys=True, default=str)
+    assert before == after
+    assert d == snapshot
+    # Sanity: the enrichment actually computed something non-trivial from `d`, so the
+    # non-mutation check above is not vacuously true against an unused input.
+    assert result["retest_quality"]["attempts"] == 2
+    assert result["candle_quality"] is not None
+
+
 # ── JSON safety (rule 5: the backend serves strict JSON, no NaN/Infinity) ─────────────────
 
 
@@ -388,13 +461,14 @@ def test_hh_hl_failed_retest_quality_hand_computed():
 def test_new_fields_are_json_safe_no_nan_or_infinity(bars_fn):
     bars = bars_fn()
     d = _rect_snapshot(bars)
+    result = _enrich(d, bars)
     # allow_nan=False raises ValueError on any NaN/Infinity float anywhere in the structure --
     # the strictest possible check, matching "the backend serves strict JSON".
-    raw = json.dumps(d, allow_nan=False)
+    raw = json.dumps({"candle_quality": result["candle_quality"], "retest_quality": result["retest_quality"]}, allow_nan=False)
     reloaded = json.loads(raw)
-    assert reloaded["retest_quality"] == d["retest_quality"]
-    for e in d["events"]:
-        if e["event_type"] == "PRICE_CONFIRMED":
-            for key in ("body_pct", "close_location"):
-                v = e["observed_values"][key]
-                assert v is None or (isinstance(v, (int, float)) and math.isfinite(v))
+    assert reloaded["retest_quality"] == result["retest_quality"]
+    assert reloaded["candle_quality"] == result["candle_quality"]
+    if result["candle_quality"] is not None:
+        for key in ("body_pct", "close_location"):
+            v = result["candle_quality"][key]
+            assert v is None or (isinstance(v, (int, float)) and math.isfinite(v))

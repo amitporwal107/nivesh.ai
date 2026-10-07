@@ -17,6 +17,7 @@ fails says *which* clause failed" — nothing here collapses into an opaque scor
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal, Sequence
 
@@ -24,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from research.charting.config import CONFIG
+from research.charting import ni3_config
 from research.charting.swings import Pivot
 
 PivotKind = Literal["HIGH", "LOW"]
@@ -32,7 +34,12 @@ BoundaryDirection = Literal["FLAT", "RISING", "FALLING", "INDETERMINATE"]
 
 
 def _atr_valid(atr: float | None) -> bool:
-    return atr is not None and np.isfinite(atr) and atr > 0
+    # PERF-DETECT (2026-09-22): `math.isfinite` on a scalar (plain float or numpy float64) is
+    # the same finiteness test as `np.isfinite` -- excludes NaN and +/-inf, identically -- but
+    # avoids numpy's ufunc-dispatch overhead, which dominates when called this often (this is
+    # the single most-called predicate in the hot per-bar walk loops: ~1M+ calls in a full
+    # replay). `atr is not None` still short-circuits before either finiteness check runs.
+    return atr is not None and math.isfinite(atr) and atr > 0
 
 
 # ── 1. Boundary drift — flat / rising / falling (§30.1 #1) ──────────────────
@@ -173,6 +180,37 @@ def touch_from_pivot(pivot: Pivot, bars: pd.DataFrame) -> Touch:
     )
 
 
+def _touch_from_arrays(
+    pivot: Pivot, opens: np.ndarray, highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, volumes: np.ndarray
+) -> Touch:
+    """Perf-only twin of `touch_from_pivot` (PERF-DETECT): identical value-for-value (same
+    float64 reads, same `_rejection_fraction` call with the same four floats in the same
+    order), but reads the pivot's own bar from pre-extracted numpy column arrays instead of
+    `bars.iloc[pivot.pivot_index]` — a full-row Series fetch is measurably more expensive per
+    call than one scalar read from each of five already-built numpy arrays, and
+    `cluster_pivots_into_levels` below calls this once per pivot, every `detect_as_of` call.
+    `touch_from_pivot` itself is kept byte-for-byte unchanged (it is imported directly by
+    test_geometry.py) — this is purely an internal fast path used by this module's own hot
+    loop. IEEE-754 double subtraction/arithmetic on the same bit pattern is bit-exact
+    regardless of whether the value arrived via `Series.iloc` or a numpy array, so `rng` and
+    `rejection` come out identical to `touch_from_pivot`'s own computation."""
+    i = pivot.pivot_index
+    o, h, l, c, v = float(opens[i]), float(highs[i]), float(lows[i]), float(closes[i]), float(volumes[i])
+    rng = h - l
+    rejection = _rejection_fraction(o, h, l, c, pivot.kind)
+    return Touch(
+        pivot_index=pivot.pivot_index,
+        pivot_date=pivot.pivot_date,
+        confirmed_index=pivot.confirmed_index,
+        confirmed_date=pivot.confirmed_date,
+        kind=pivot.kind,
+        price=pivot.price,
+        volume=v,
+        bar_range=rng,
+        rejection=rejection,
+    )
+
+
 def _weighted_mean(touches: Sequence[Touch]) -> float:
     total_w = sum(t.volume for t in touches)
     if total_w <= 0:
@@ -212,7 +250,20 @@ def cluster_pivots_into_levels(
     same_kind = [p for p in pivots if p.kind == kind]
     if not same_kind or not _atr_valid(atr):
         return []
-    touches = sorted((touch_from_pivot(p, bars) for p in same_kind), key=lambda t: t.price)
+    # PERF-DETECT: extract the five OHLCV columns to numpy ONCE for this call, then read each
+    # pivot's own row via `_touch_from_arrays` (plain array indexing) instead of
+    # `touch_from_pivot`'s per-pivot `bars.iloc[...]` (a full-row Series fetch, with pandas'
+    # own type/bounds-checking overhead on every call) -- value-for-value identical, see
+    # `_touch_from_arrays`'s own docstring.
+    opens = bars["open"].to_numpy(dtype=float)
+    highs_arr = bars["high"].to_numpy(dtype=float)
+    lows_arr = bars["low"].to_numpy(dtype=float)
+    closes_arr = bars["close"].to_numpy(dtype=float)
+    volumes_arr = bars["volume"].to_numpy(dtype=float)
+    touches = sorted(
+        (_touch_from_arrays(p, opens, highs_arr, lows_arr, closes_arr, volumes_arr) for p in same_kind),
+        key=lambda t: t.price,
+    )
     width = cfg["level_cluster_width_atr"] * atr
 
     price_clusters: list[list[Touch]] = [[touches[0]]]
@@ -288,10 +339,15 @@ def level_strength(
 
     rejection_c = float(np.mean([t.rejection for t in touches])) if n else 0.0
 
+    # PERF-DETECT: `np.asarray` on a pd.Series/ndarray is a cheap one-time conversion (a view,
+    # not a copy, for an already-numpy-backed Series); reading `rel_arr[i]` in the loop below is
+    # then a plain array index instead of `Series.iloc[i]`'s per-call overhead. Same float64
+    # values either way -- accepts a Series (every existing caller) or an ndarray unchanged.
+    rel_arr = np.asarray(relative_volume, dtype=float)
     rel_vols: list[float] = []
     for t in touches:
-        if 0 <= t.pivot_index < len(relative_volume):
-            v = relative_volume.iloc[t.pivot_index]
+        if 0 <= t.pivot_index < len(rel_arr):
+            v = rel_arr[t.pivot_index]
             if np.isfinite(v):
                 rel_vols.append(float(v))
     volume_c = min((float(np.mean(rel_vols)) / cfg["relative_volume_strong"]), 1.0) if rel_vols else 0.0
@@ -377,3 +433,126 @@ def boundary_stability(
         full_level=full_level, truncated_level=truncated_level, shift_atr=shift_atr,
         residual_std_atr=residual_std_atr, stable=stable, insufficient_data=False,
     )
+
+
+# ── Wave A: fitted lines for the P-1 geometry engine (NI-3 §2) ───────────────
+#
+# These are the primitives the sixteen new families were blocked on. `ols_slope` above fits a slope
+# and nothing else, which is why today's boundaries can only be horizontal; a P-1 shape needs the
+# line itself, so it needs an intercept.
+#
+# Scope discipline (owner, 2026-09-23): these implement exactly what the NI-3 detector contracts
+# require and are not generalised beyond it. Every threshold is read from the frozen NI-3
+# configuration (`ni3_config.py`, fingerprint de86626c…), never from `CONFIG` — CONFIG's ATR rules
+# govern the three live families and must not reach the new ones (§37.7).
+
+
+@dataclass(frozen=True)
+class Line:
+    """A fitted straight line in (bar index, price) space. `slope` is price per bar."""
+    slope: float
+    intercept: float
+
+
+def fit_line(xs: Sequence[float], ys: Sequence[float]) -> Line:
+    """Least-squares fit through the given pivots, WITH the intercept `ols_slope` discards.
+
+    The slope is computed by the identical arithmetic to `ols_slope`, and a test pins the two to
+    the same value so they cannot drift apart. A degenerate input (fewer than two distinct x)
+    yields slope 0 and the mean of `ys` as the intercept -- a flat line through the data, which is
+    the same honest default `ols_slope` takes rather than raising.
+    """
+    x = np.asarray(xs, dtype=float)
+    y = np.asarray(ys, dtype=float)
+    if len(x) == 0:
+        return Line(slope=0.0, intercept=float("nan"))
+    slope = ols_slope(xs, ys)
+    return Line(slope=slope, intercept=float(y.mean() - slope * x.mean()))
+
+
+def trendline_value_at(line: Line, x: float) -> float:
+    """The line's projected value at bar `x`.
+
+    NI-3 names this as the prerequisite that "must exist before any P-1, P-2 or sloped-neckline
+    detector" -- the sloped neckline of a head & shoulders reads its breakout level from here, and
+    so does every P-1 width measurement.
+    """
+    return float(line.slope) * float(x) + float(line.intercept)
+
+
+#: NI-3 §2 line directions, decided by the G4 PERCENTAGE rule -- never by `boundary_drift`, which is
+#: the ATR test belonging to the three frozen families (§37.7, §39.8).
+FLAT = "FLAT"
+RISING = "RISING"
+FALLING = "FALLING"
+
+
+def line_direction(line: Line, first_x: float, last_x: float, cfg: dict | None = None) -> str:
+    """FLAT / RISING / FALLING per NI-3 §2: "A line is FLAT if its fitted value changes by <= G4
+    (1.5%) of its starting value across the formation. Otherwise it is RISING or FALLING by the sign
+    of the change. One threshold, so there is no gap and no second number."
+
+    Deliberately NOT `boundary_drift`: that is the ATR-normalised test for the P0 families, and
+    using it here would produce a detector that cannot reproduce fingerprint de86626c… (§39.16 C-1).
+    """
+    p1 = cfg if cfg is not None else ni3_config.p1()
+    start = trendline_value_at(line, first_x)
+    end = trendline_value_at(line, last_x)
+    if not np.isfinite(start) or not np.isfinite(end) or start == 0.0:
+        return FLAT
+    change_pct = (end - start) / abs(start) * 100.0
+    if abs(change_pct) <= float(p1["flat_max_drift_pct"]):
+        return FLAT
+    return RISING if change_pct > 0 else FALLING
+
+
+def width_ratio(upper_line: Line, lower_line: Line, first_pivot_x: float, last_pivot_x: float) -> float:
+    """NI-3 §2: `w = width at the last pivot / width at the first pivot`, width = upper - lower.
+
+    Measured at the first and last PIVOT, not the first and last bar of the formation. The existing
+    `convergence_ratio` docstring says "bar", which is the older NI-2 reading; NI-3 governs the new
+    families and a bar-based width will not reproduce the frozen fixtures (§39.16 C-2).
+
+    A non-positive width at the first pivot (the lines already crossed) returns NaN, which
+    `classify_pair` reports as SHAPE_UNCLASSIFIED -- such a structure is rejected by the no-crossing
+    check anyway.
+    """
+    first = trendline_value_at(upper_line, first_pivot_x) - trendline_value_at(lower_line, first_pivot_x)
+    last = trendline_value_at(upper_line, last_pivot_x) - trendline_value_at(lower_line, last_pivot_x)
+    if not np.isfinite(first) or first <= 0:
+        return float("nan")
+    return float(last) / float(first)
+
+
+#: NI-3 §2 pair classes. EXPANDING is classified honestly even though `expanding_in_scope` is false
+#: -- whether to EMIT it is the detector's decision (SHAPE_EXPANDING_OUT_OF_SCOPE), not this
+#: function's. Classification and emission are different questions.
+CONVERGING = "CONVERGING"
+PARALLEL = "PARALLEL"
+EXPANDING = "EXPANDING"
+SHAPE_UNCLASSIFIED = "SHAPE_UNCLASSIFIED"
+
+
+def classify_pair(w: float, cfg: dict | None = None) -> str:
+    """Classify the width ratio into NI-3 §2's bands. The two gaps are real and deliberate:
+
+        w <= 0.70          CONVERGING          (G5)
+        0.70 < w < 0.85    SHAPE_UNCLASSIFIED
+        0.85 <= w <= 1.15  PARALLEL            (G7)
+        1.15 < w < 1.43    SHAPE_UNCLASSIFIED
+        w >= 1.43          EXPANDING           (G6)
+
+    A structure landing in a gap is rejected rather than rounded into the nearer band -- "anything
+    else: unclassified, rejected" (NI-3 §2). Convergence and parallelism are two readings of this
+    one number, not two measurements.
+    """
+    p1 = cfg if cfg is not None else ni3_config.p1()
+    if w is None or not np.isfinite(w):
+        return SHAPE_UNCLASSIFIED
+    if w <= float(p1["convergence_max_ratio"]):
+        return CONVERGING
+    if float(p1["parallel_ratio_min"]) <= w <= float(p1["parallel_ratio_max"]):
+        return PARALLEL
+    if w >= float(p1["expanding_min_ratio"]):
+        return EXPANDING
+    return SHAPE_UNCLASSIFIED

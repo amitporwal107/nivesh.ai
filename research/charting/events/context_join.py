@@ -48,7 +48,10 @@ own return shape (and its ~30 passing tests) completely untouched.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+import gc
+import logging
+import multiprocessing
+from typing import Any, Mapping, Optional
 
 import pandas as pd
 
@@ -165,6 +168,147 @@ def attach_to_event_rows_for_symbol(
     `attach_to_rows` is called once for the whole batch."""
     triples = [(row, bars, pattern_dict_for_event(bars, row, cfg=cfg)) for row in rows]
     return attach_to_rows(triples, benchmark_df=benchmark_df, vix_df=vix_df, breadth_df=breadth_df)
+
+
+# ── PERF-PARALLEL: batching entry for many symbols at once ───────────────────────────────
+#
+# `study.run.build_segment`'s own `attach_context` step calls `attach_to_event_rows_for_symbol`
+# once per symbol that has any pattern-event rows -- for a real, multi-thousand-symbol universe
+# that is thousands of independent calls, each one (with no `benchmark_df`/`vix_df`/`breadth_df`
+# supplied, `build_segment`'s own call site never passes them) re-reading the same three real
+# CSVs off disk via `attach_to_rows`' own "load when not supplied" branch. Two symbols' own joins
+# never read or write each other's rows/bars, so joining many symbols is embarrassingly parallel
+# -- `attach_to_event_rows_by_symbol` below is the batched/parallel entry point: it loads
+# `benchmark_df`/`vix_df`/`breadth_df` ONCE (deterministic, pure reads of static committed
+# files -- reusing them across symbols changes no value) and then either loops in this process
+# (`max_workers <= 1`, the default, IDENTICAL to calling `attach_to_event_rows_for_symbol` once
+# per symbol with those three frames pinned) or dispatches one task per symbol across a forked
+# process pool (`max_workers > 1`) -- same `fork` + module-global-context pattern as
+# `events.pipeline`'s `_EXTRACT_CTX` / `events.controls`' `_PRICE_CTX`, so `bars_by_symbol` is
+# inherited via copy-on-write rather than pickled through the task queue.
+
+
+logger = logging.getLogger(__name__)
+
+_JOIN_CTX: dict = {}
+
+
+def _join_worker(symbol: str) -> tuple:
+    """Runs inside a forked worker process (see the block above): `attach_to_event_rows_for_symbol`
+    for one symbol, using the SAME already-loaded `benchmark_df`/`vix_df`/`breadth_df` (inherited
+    via fork, never re-read from disk in the worker) -- returns `(symbol, enriched_rows)`."""
+    ctx = _JOIN_CTX
+    rows = ctx["rows_by_symbol"][symbol]
+    bars = ctx["bars_by_symbol"][symbol]
+    enriched = attach_to_event_rows_for_symbol(
+        rows, bars, cfg=ctx["cfg"], benchmark_df=ctx["benchmark_df"], vix_df=ctx["vix_df"], breadth_df=ctx["breadth_df"],
+    )
+    return symbol, enriched
+
+
+def attach_to_event_rows_by_symbol(
+    rows_by_symbol: Mapping[str, list], bars_by_symbol: Mapping[str, pd.DataFrame], *, cfg: dict = CONFIG,
+    benchmark_df: Optional[pd.DataFrame] = None, vix_df: Optional[pd.DataFrame] = None,
+    breadth_df: Optional[pd.DataFrame] = None, max_workers: int = 1, consume: bool = False,
+    on_symbol=None,
+) -> dict:
+    """`{symbol: enriched_rows}` for every symbol in `rows_by_symbol` (only symbols that HAVE
+    rows -- a symbol absent from `rows_by_symbol` is never looked up in `bars_by_symbol` and
+    never contributes an entry, matching the "if symbol_rows" skip `study.run.build_segment`'s
+    own per-symbol loop used before this function existed). Each symbol's own rows are enriched
+    via `attach_to_event_rows_for_symbol`, byte-identical to calling that function once per
+    symbol directly -- see the "batching" block above for why sharing one already-loaded
+    `benchmark_df`/`vix_df`/`breadth_df` across every symbol never changes a value.
+
+    `max_workers` (PERFORMANCE ONLY, default 1 = serial): with `max_workers > 1`, symbols are
+    dispatched one-per-task across a forked process pool instead of looped over in this process
+    -- see the block above.
+
+    `on_symbol(symbol, rows)`: MEMORY, not performance. Given, each symbol is handed to the callback
+    as it completes and the parent retains NOTHING -- the returned dict is empty. Without it this
+    function materialises every enriched row before returning, so the originals and their
+    replacements coexist: measured 25.5 GB + 27.9 GB at 133,743 rows, which OOM-killed a run on a
+    62 GB host. Callbacks arrive in COMPLETION order, not sorted order, so a caller that needs
+    deterministic order must re-order downstream (`study.run.build_segment` streams to its
+    per-symbol join cache and then emits in sorted order from there).
+    """
+    if benchmark_df is None:
+        benchmark_df = regime.load_index_history(regime.FEATURE_CONFIG["market_benchmark"])
+    if vix_df is None:
+        vix_df = regime.load_index_history("INDIA VIX")
+    if breadth_df is None:
+        breadth_df = regime.load_breadth_universe()
+
+    symbols = sorted(rows_by_symbol)
+    if max_workers <= 1 or len(symbols) <= 1:
+        out: dict = {}
+        for symbol in symbols:
+            enriched = attach_to_event_rows_for_symbol(
+                rows_by_symbol[symbol], bars_by_symbol[symbol], cfg=cfg,
+                benchmark_df=benchmark_df, vix_df=vix_df, breadth_df=breadth_df,
+            )
+            if on_symbol is not None:
+                on_symbol(symbol, enriched)
+                if consume:
+                    rows_by_symbol.pop(symbol, None)
+                del enriched
+            else:
+                out[symbol] = enriched
+        return out
+
+    # MEMORY (measured 2026-09-25, after two OOM kills at a 50 GB peak on a 62 GB host):
+    #
+    # The previous shape held every original row alive for the whole join and then materialised
+    # every enriched row before returning, so both sets coexisted:
+    #   * `_JOIN_CTX` kept `rows_by_symbol` in a MODULE GLOBAL until the `finally` -- a reference no
+    #     caller could drop, which defeated dropping the caller's own references;
+    #   * `pool.map` collected all results before `dict()` ran.
+    #
+    # Now the parent hands ownership over symbol by symbol (`pop`) and consumes results as they
+    # arrive, so an original is freed once its enriched replacement exists. `consume=True` is opt-in
+    # because it EMPTIES `rows_by_symbol`; callers that still need it pass the default.
+    global _JOIN_CTX
+    source = rows_by_symbol if consume else dict(rows_by_symbol)
+    _JOIN_CTX = dict(
+        rows_by_symbol=source, bars_by_symbol=bars_by_symbol, cfg=cfg,
+        benchmark_df=benchmark_df, vix_df=vix_df, breadth_df=breadth_df,
+    )
+    results: dict = {}
+    try:
+        ctx = multiprocessing.get_context("fork")
+        # Inherited objects are never collected in the children, and a GC pass would write to their
+        # headers and copy-on-write the pages. Freezing before the fork keeps them shared.
+        gc.freeze()
+        try:
+            with ctx.Pool(processes=min(max_workers, len(symbols))) as pool:
+                done = 0
+                for symbol, enriched in pool.imap_unordered(_join_worker, symbols, chunksize=1):
+                    if on_symbol is not None:
+                        # STREAMING. The caller takes ownership immediately and the parent keeps
+                        # NOTHING, so the enriched set is never assembled. Without this the peak is
+                        # originals + enriched simultaneously -- 25.5 GB + 27.9 GB at 133,743 rows,
+                        # which is what OOM-killed the run on a 62 GB host. With it the peak is the
+                        # originals alone, and they DRAIN as their replacements are handed over.
+                        on_symbol(symbol, enriched)
+                    else:
+                        results[symbol] = enriched
+                    if consume:
+                        source.pop(symbol, None)     # the parent's copy of the originals goes here
+                    del enriched
+                    done += 1
+                    if done % 200 == 0:
+                        gc.collect()
+                        logger.debug("context join: %d/%d symbols enriched", done, len(symbols))
+        finally:
+            gc.unfreeze()
+    finally:
+        _JOIN_CTX = {}
+    if on_symbol is not None:
+        logger.info("context join: %d symbols enriched and streamed (nothing retained)", len(symbols))
+    else:
+        logger.info("context join: %d symbols enriched, %d rows",
+                    len(results), sum(len(v) for v in results.values()))
+    return results
 
 
 def attach_to_control_rows(

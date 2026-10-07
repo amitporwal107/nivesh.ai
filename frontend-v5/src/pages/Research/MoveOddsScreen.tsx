@@ -23,17 +23,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import {
-  MOVE_HEADS, fetchDiagnostics, fetchHistory, fetchLive, fetchProfile, fetchStockCard, moveOddsService,
+  MOVE_HEADS, fetchDiagnostics, fetchFilingAnalysis, fetchHistory, fetchLive, fetchProfile, fetchStockCard, moveOddsService,
   type DiagnosticsResult, type HistoryResult, type LiveConditions, type MoveHistorySession, type LivePayload, type LiveQuote, type PaperTrade, type MoveBand, type MoveFinal, type MoveHead, type MoveLatestResult, type MoveRow, type MoveStockResult,
-  type MoveProfile, type MoveQuality, type MoveSectorRating, type ProfileResult, type StockCardResult,
+  type MoveProfile, type MoveQuality, type MoveSectorRating, type ProfileResult, type StockCardResult, type FilingAnalysisResult,
 } from "@/services/adapters/moveOdds.adapter";
 import { ChatWidget } from "@/components/chat/ChatWidget";
 import { EventBar, FilterBar, RatioPanel } from "./MoveOddsFilters";
+import { MoversView } from "./MoversView";
+import { LiveWatchPanel } from "./LiveWatchPanel";
 import { SHORT, answers, checkConds, condActive, fmtRatio, fundBand, gradeTone, peerMedian, qualityLabel, ratioIndex, techBand, valueOf, type Cap, type Cond } from "./moveOddsProfile";
 import "./moveOdds.css";
 
 const PAGE = 50;
-const LIVE_REFRESH_MS = 60_000;
+const LIVE_REFRESH_MS = 30_000;
 const CHECKS: Array<{ key: keyof Pick<NonNullable<LiveConditions["latest"]>, "above_prev_close" | "above_opening_range" | "above_vwap" | "room_to_level" | "volume_pace">; label: string }> = [
   { key: "above_prev_close", label: "Close above the previous close" },
   { key: "above_opening_range", label: "Close above the first hour's high" },
@@ -153,7 +155,7 @@ function cmpNum(a: number | null | undefined, b: number | null | undefined, dir:
   return dir === "desc" ? (b as number) - (a as number) : (a as number) - (b as number);
 }
 
-export default function MoveOddsScreen() {
+export default function MoveOddsScreen({ backToFeed }: { backToFeed?: () => void } = {}) {
   const [size, setSize] = useState<SizeKey>("5");
   const [histDir, setHistDir] = useState<"up" | "down">("up");
   const [results, setResults] = useState<Loaded>({});
@@ -165,13 +167,19 @@ export default function MoveOddsScreen() {
   const [open, setOpen] = useState<string | null>(null);
   const [stocks, setStocks] = useState<Record<string, MoveStockResult | "loading">>({});
   const [cards, setCards] = useState<Record<string, StockCardResult | "loading">>({});
+  const [filings, setFilings] = useState<Record<string, FilingAnalysisResult | "loading">>({});
   const [noAccess, setNoAccess] = useState(false);
   const [reload, setReload] = useState(0);
   const [live, setLive] = useState<{ at: string; source: string; delay: string; record: LivePayload["signal_record"]; quotes: Record<string, LiveQuote> } | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [diag, setDiag] = useState<DiagnosticsResult | null>(null);
   const [diagReload, setDiagReload] = useState(0);
-  const [view, setView] = useState<"estimates" | "history">("estimates");
+  // Reads ?view= once at mount so the Research feed screen (and its Candidates link) can deep-link
+  // straight into the Movers view instead of always landing on Estimates.
+  const [view, setView] = useState<"estimates" | "history" | "movers" | "livewatch">(() => {
+    const want = new URLSearchParams(window.location.search).get("view");
+    return want === "history" || want === "movers" || want === "livewatch" ? want : "estimates";
+  });
   const [hist, setHist] = useState<HistoryResult | null>(null);
   const [histSession, setHistSession] = useState<string | null>(null);
   const [histSort, setHistSort] = useState<{ key: "est" | "sym" | "rating" | "move"; dir: "asc" | "desc" }>({ key: "est", dir: "desc" });
@@ -268,6 +276,17 @@ export default function MoveOddsScreen() {
       setCards((c) => ({ ...c, [open]: r }));
     });
   }, [open, cards, denyAll]);
+
+  // AI analysis of the open stock's own filings (last 30 days). Separate from the estimates: a failure only affects
+  // its own block.
+  useEffect(() => {
+    if (!open || filings[open]) return;
+    setFilings((f) => ({ ...f, [open]: "loading" }));
+    fetchFilingAnalysis(open).then((r) => {
+      if (r.kind === "no_access") { denyAll(); return; }
+      setFilings((f) => ({ ...f, [open]: r }));
+    });
+  }, [open, filings, denyAll]);
 
   const current = results[upHead];
   const final: MoveFinal | null = current?.kind === "final" ? current.data : null;
@@ -531,9 +550,9 @@ export default function MoveOddsScreen() {
 
       <div className="mo-viewrow mo-controlrow">
         <div className="mo-viewtoggle" role="group" aria-label="View">
-          {(["estimates", "history"] as const).map((v) => (
+          {(["estimates", "history", "movers", "livewatch"] as const).map((v) => (
             <button key={v} type="button" className="mo-viewbtn" aria-pressed={view === v} data-testid={`mo-view-${v}`} onClick={() => setView(v)}>
-              {v === "estimates" ? "Estimates" : "History"}
+              {v === "estimates" ? "Estimates" : v === "history" ? "History" : v === "movers" ? "Movers" : "Live Watch"}
             </button>
           ))}
         </div>
@@ -598,6 +617,12 @@ export default function MoveOddsScreen() {
       )}
 
       <div id="mo-panel" role="tabpanel" aria-labelledby={`mo-tab-${size}`}>
+        {/* Movers: the owner's Top Movers Dashboard v1, as a view of THIS screen rather than a second
+            dashboard. It brings its own window controls; the size tabs above do not apply to it. */}
+        {view === "movers" && <MoversView onNoAccess={denyAll} onOpenStock={openStock} modelVersion={run?.model ?? null} backToFeed={backToFeed} />}
+
+        {view === "livewatch" && <LiveWatchPanel results={results} onNoAccess={denyAll} />}
+
         {view === "history" && (
           <>
             <div className="mo-viewrow mo-histrow">
@@ -703,7 +728,7 @@ export default function MoveOddsScreen() {
       {open && (
         <StockModal
           symbol={open} row={openRow} name={openRow?.company_name ?? (hist?.kind === "ok" ? hist.data.sessions.flatMap((s) => s.rows).find((x) => x.symbol === open)?.company_name ?? null : null)}
-          profile={prof} idx={idx} stock={stocks[open]} card={cards[open]} quote={live?.quotes[open]} record={live?.record ?? null}
+          profile={prof} idx={idx} stock={stocks[open]} card={cards[open]} filings={filings[open]} quote={live?.quotes[open]} record={live?.record ?? null}
           estimates={estimatesFor(open)} baseRates={baseRates} evtLabel={evtLabel} onClose={closeStock}
         />
       )}
@@ -1057,9 +1082,10 @@ function standsOut(profile: MoveProfile, idx: Record<string, number>, sym: strin
   return out.slice(0, 5);
 }
 
-function StockModal({ symbol, row, name, profile, idx, stock, card, quote, record, estimates, baseRates, evtLabel, onClose }: {
+function StockModal({ symbol, row, name, profile, idx, stock, card, filings, quote, record, estimates, baseRates, evtLabel, onClose }: {
   symbol: string; row: MoveRow | null; name: string | null; profile: MoveProfile | null; idx: Record<string, number>;
   stock: MoveStockResult | "loading" | undefined; card: StockCardResult | "loading" | undefined;
+  filings: FilingAnalysisResult | "loading" | undefined;
   quote: LiveQuote | undefined; record: LivePayload["signal_record"];
   estimates: Partial<Record<MoveHead, number>>; baseRates: Partial<Record<MoveHead, number>>;
   evtLabel: (k: string) => string; onClose: () => void;
@@ -1164,6 +1190,7 @@ function StockModal({ symbol, row, name, profile, idx, stock, card, quote, recor
 
           <h4 className="mo-modal-sec">Move odds for the next session</h4>
           <Detail stock={stock} />
+          <FilingAnalysisBlock result={filings} symbol={symbol} />
           <Checks q={quote} record={record} symbol={symbol} />
           <p className="mo-mini mo-modal-src" data-testid="mo-modal-source">
             {cardOk ? "The card above is the copilot chat's stock card for this stock, as served there. " : ""}Rating: V3 stock score{profile ? ` as of ${day(profile.scores_as_of)}` : ""} (A ≥ 70, B 50–69.9, C below 50). Ratios{profile?.features_as_of ? ` as of ${day(profile.features_as_of)}` : ""}.
@@ -1223,6 +1250,59 @@ function Detail({ stock }: { stock: MoveStockResult | "loading" | undefined }) {
         ) : <p className="mo-mini">No classified filings or reports on record in the five days to the freeze.</p>}
         <p className="mo-dnote">From exchanges, regulators and news sources. Events are not model inputs.</p>
       </div>
+    </div>
+  );
+}
+
+// Band names come from the owner's section-8 table, applied in code from the net impact score.
+const BAND_TEXT: Record<string, string> = {
+  extremely_positive: "extremely positive", strongly_positive: "strongly positive", moderately_positive: "moderately positive",
+  slightly_positive: "slightly positive", neutral_mixed: "neutral or mixed", slightly_negative: "slightly negative",
+  moderately_negative: "moderately negative", strongly_negative: "strongly negative", extremely_negative: "extremely negative",
+};
+const EVIDENCE_TEXT: Record<string, string> = {
+  CONFIRMED: "confirmed by the filing", PARTIALLY_CONFIRMED: "partly confirmed", PENDING_RESOLUTION: "awaiting confirmation",
+  STILL_UNDECIDABLE: "could not be confirmed", NOT_CHECKED: "not checked",
+};
+
+/** The company's own filings in the last 30 days, as read by the corporate-event AI analysis. Shown beside the move odds
+ *  as context: it is an assessment of each filing, not a forecast of the price, and not an input to the estimates. */
+function FilingAnalysisBlock({ result, symbol }: { result: FilingAnalysisResult | "loading" | undefined; symbol: string }) {
+  let body: React.ReactNode;
+  if (!result || result === "loading") body = <p className="mo-mini">Loading filing analysis…</p>;
+  else if (result.kind !== "ok") body = <p className="mo-mini" data-testid="mo-filings-error">Filing analysis could not be loaded{result.kind === "error" ? ` (${result.message})` : ""}. The move odds are unaffected.</p>;
+  else if (!result.data.rows.length) body = <p className="mo-mini" data-testid="mo-filings-none">No analysed filings from {symbol} that passed the importance check in the last {result.data.window_days} days.</p>;
+  else body = (
+    <>
+      <ul className="mo-evlist mo-filings" data-testid="mo-filings">
+        {result.data.rows.map((f) => (
+          <li key={f.announcement_id} data-testid={`mo-filing-${f.announcement_id}`}>
+            <span className="mo-evtype">{[f.event_type?.toLowerCase(), f.event_subtype].filter(Boolean).join(" · ") || "filing"}</span>
+            {f.summary && <span className="mo-fsum">{f.summary}</span>}
+            <span className="mo-fread">
+              {f.impact_band && <span className="mo-fband" data-testid="mo-filing-band">Reads {BAND_TEXT[f.impact_band] ?? f.impact_band.replace(/_/g, " ")} for the company</span>}
+              {f.materiality_score != null && <span>materiality {Math.round(f.materiality_score)}/100</span>}
+              {f.certainty && f.certainty !== "unknown" && <span>certainty: {f.certainty.replace(/_/g, " ")}</span>}
+              <span data-testid="mo-filing-evidence">evidence {EVIDENCE_TEXT[f.evidence_status] ?? f.evidence_status.toLowerCase()}</span>
+            </span>
+            {(f.positive_factors.length > 0 || f.negative_factors.length > 0) && (
+              <span className="mo-ffactors">
+                {f.positive_factors.map((x, i) => <span key={`p${i}`} >+ {x}</span>)}
+                {f.negative_factors.map((x, i) => <span key={`n${i}`} >− {x}</span>)}
+              </span>
+            )}
+            <span className="mo-evmeta"><span>{f.exchange} filing</span><span>{istTime(f.filed_at)} IST</span>{f.exchange_category && <span>{f.exchange_category}</span>}</span>
+          </li>
+        ))}
+      </ul>
+      {result.data.more > 0 && <p className="mo-mini">{result.data.more} more analysed filing{result.data.more === 1 ? "" : "s"} in the window not shown.</p>}
+    </>
+  );
+  return (
+    <div className="mo-filingsec" data-testid="mo-filing-analysis">
+      <h4>Filing analysis · last 30 days</h4>
+      {body}
+      <p className="mo-dnote">An AI reading of the company's own exchange filings: what each filing says and how it bears on the business. It is not a price forecast and not an input to the move odds. Filings judged routine by the importance check are left out.</p>
     </div>
   );
 }

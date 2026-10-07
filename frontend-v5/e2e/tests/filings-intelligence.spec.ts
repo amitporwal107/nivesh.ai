@@ -435,3 +435,28 @@ test.describe("Filings Intelligence — company search & documents", () => {
     await expect(page.getByTestId("company-scope")).toContainText("INFIBEAM");
   });
 });
+
+// TC-R10 (test_reports/research_feed_ai_insight_20260930.md). MOCK — not real data: signal fixtures below.
+test.describe("Filings Intelligence — Read for you cards without an insight", () => {
+  test("TC-R10 · a card with no insight shows the filing's own label, never a promise of one", async ({ page }) => {
+    await mockFilings(page);
+    await page.route("**/api/filings/signals**", (r) => r.fulfill(json({
+      ok: true,
+      signals: [
+        { rank: 1, id: "ANN-9", ticker: "ARMANFIN", type: "markets", one: null, metric: null, docLabel: "Shareholders meeting",
+          date: "2026-09-30T10:39:00Z", sentiment: null },
+        { rank: 2, id: "ANN-8", ticker: "DELPHIFX", type: "markets", one: null, metric: null, date: "2026-09-30T10:39:00Z", sentiment: null },
+        { rank: 3, id: "ANN-7", ticker: "GANESHBE", type: "markets", date: "2026-09-29T09:15:00Z", sentiment: "neutral", docLabel: "Updates",
+          one: "Ganesh Benzoplast agreed to transfer its Liquid Storage Tank and Rail Logistics businesses for Rs1,154cr.", metric: "Consideration: 1,154 ₹ cr" },
+      ],
+    })));
+    await page.goto("/v5/research");
+    await page.waitForLoadState("networkidle");
+    const cards = page.getByTestId("signal-card");
+    await expect(cards).toHaveCount(3);
+    await expect(cards.nth(0)).toContainText("Shareholders meeting · no AI insight yet");
+    await expect(cards.nth(1)).toContainText("No AI insight for this filing yet");
+    await expect(cards.nth(2)).toContainText("Liquid Storage Tank");
+    await expect(page.getByText("open for the AI insight")).toHaveCount(0);
+  });
+});

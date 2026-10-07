@@ -1,0 +1,32 @@
+{
+  "version": "2.0",
+  "scope": [
+    "charting",
+    "indicators",
+    "pattern_detection",
+    "pattern_lifecycle",
+    "breakout_confirmation",
+    "signal_context",
+    "historical_replay"
+  ],
+  "excluded": [
+    "broker_execution",
+    "paper_trading",
+    "autonomous_trading",
+    "position_sizing"
+  ],
+  "registry": {
+    "enabled": 3,
+    "specified_disabled": 16,
+    "total": 19
+  },
+  "critical_blockers": [
+    "trendline fitted line with intercept",
+    "trendline_value_at",
+    "production convergence caller",
+    "parallelism metric",
+    "ADX chart service",
+    "stock_vs_sector_relative_strength"
+  ],
+  "source": "charting.md \u00a739 and related frozen/owner-approved sections"
+}

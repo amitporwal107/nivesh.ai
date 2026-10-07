@@ -1,0 +1,131 @@
+{
+  "symbol": "PATTERNQA",
+  "indicators": {
+    "sma_20": {
+      "contract": {
+        "indicator_id": "sma_20",
+        "parameters": {
+          "n": 20
+        },
+        "warmup_period": 20,
+        "calculation_version": "1",
+        "missing_data_policy": "omit_until_warmup"
+      },
+      "pane": "price",
+      "values": [
+        [
+          "2026-09-04",
+          500.1
+        ],
+        [
+          "2026-09-07",
+          500.4
+        ],
+        [
+          "2026-09-08",
+          500.8
+        ],
+        [
+          "2026-09-09",
+          501.0
+        ],
+        [
+          "2026-09-10",
+          501.3
+        ],
+        [
+          "2026-09-11",
+          501.6
+        ],
+        [
+          "2026-09-14",
+          501.9
+        ]
+      ]
+    },
+    "atr_14": {
+      "contract": {
+        "indicator_id": "atr_14",
+        "parameters": {
+          "period": 14
+        },
+        "warmup_period": 14,
+        "calculation_version": "1",
+        "missing_data_policy": "omit_until_warmup"
+      },
+      "pane": "atr_14",
+      "values": [
+        [
+          "2026-09-04",
+          7.2
+        ],
+        [
+          "2026-09-07",
+          7.4
+        ],
+        [
+          "2026-09-08",
+          7.6
+        ],
+        [
+          "2026-09-09",
+          7.8
+        ],
+        [
+          "2026-09-10",
+          7.9
+        ],
+        [
+          "2026-09-11",
+          8.1
+        ],
+        [
+          "2026-09-14",
+          8.0
+        ]
+      ]
+    },
+    "relative_volume": {
+      "contract": {
+        "indicator_id": "relative_volume",
+        "parameters": {
+          "n": 20
+        },
+        "warmup_period": 20,
+        "calculation_version": "1",
+        "missing_data_policy": "omit_until_warmup"
+      },
+      "pane": "relative_volume",
+      "values": [
+        [
+          "2026-09-04",
+          1.05
+        ],
+        [
+          "2026-09-07",
+          0.98
+        ],
+        [
+          "2026-09-08",
+          1.1
+        ],
+        [
+          "2026-09-09",
+          0.92
+        ],
+        [
+          "2026-09-10",
+          1.15
+        ],
+        [
+          "2026-09-11",
+          1.02
+        ],
+        [
+          "2026-09-14",
+          0.88
+        ]
+      ]
+    }
+  }
+}

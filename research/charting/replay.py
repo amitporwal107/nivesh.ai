@@ -33,13 +33,14 @@ rather than inventing a new one.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import pathlib
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 # Make `research.charting` importable whether this module is run as part of the package or
 # executed as a bare script -- mirrors research/charting/export.py and
@@ -171,6 +172,8 @@ def replay(
     start_index: int = 0,
     end_index: Optional[int] = None,
     incomplete_bar: Optional[dict] = None,
+    snapshot_sink: Optional[dict] = None,
+    detector: Optional[Callable[..., list]] = None,
 ) -> ReplayResult:
     """Chronological, point-in-time-safe replay over `bars[start_index..end_index]`.
 
@@ -200,6 +203,16 @@ def replay(
     `research_window.SealedWindowError` is raised if it overlaps at all. A post-sealed replay
     must therefore be handed bars that start after 2024-07-31 (its own fresh history): a sealed
     bar used only as lookback would still shape every level and swing the replay reports.
+
+    `snapshot_sink` (PERF-DETECT, 2026-09-22, optional -- default `None` changes nothing about
+    this function's return value or behaviour): when given a dict, this walk also records
+    `snapshot_sink[t] = snaps` -- the RAW `patterns.detect_as_of` output at every step `t` --
+    purely as a side channel. `events.extraction.extract_events` used to call
+    `patterns.detect_as_of` a SECOND time, at the exact same `(bars.iloc[:t+1], t, cfg, symbol)`
+    this walk already computed internally, just to recover the full `PatternSnapshot` for a
+    transition it already knows about; passing a dict here lets it look that snapshot up instead
+    (see extraction.py's own note). Nothing about `transitions`/`final_state`/the returned
+    `ReplayResult` depends on whether this was passed.
     """
     n = len(bars)
     if n == 0:
@@ -207,6 +220,23 @@ def replay(
     end = n - 1 if end_index is None else end_index
     if not (0 <= start_index <= end < n):
         raise ValueError(f"invalid replay range start_index={start_index} end_index={end} for {n} bars")
+
+    # `detector` (2026-09-23) lets a caller replay a DIFFERENT point-in-time detector under the
+    # identical walk -- the NI-3 families need the same look-ahead and lifecycle proof the P0 ones
+    # have, and re-implementing the walk for them would mean proving it twice. Default `None`
+    # reproduces every pre-existing call exactly: the same `patterns.detect_as_of`, same arguments.
+    # A detector that does not accept `incomplete_bar` (the NI-3 entry points do not) is called
+    # without it rather than being adapted, so nothing about its contract is assumed.
+    if detector is None:
+        def _detect(sub, t, *, cfg, symbol, incomplete_bar):
+            return patterns.detect_as_of(sub, t, cfg=cfg, symbol=symbol, incomplete_bar=incomplete_bar)
+    else:
+        _accepts_incomplete = "incomplete_bar" in inspect.signature(detector).parameters
+
+        def _detect(sub, t, *, cfg, symbol, incomplete_bar):
+            if _accepts_incomplete:
+                return detector(sub, t, symbol=symbol, incomplete_bar=incomplete_bar)
+            return detector(sub, t, symbol=symbol)
 
     research_bars(bars.iloc[: end + 1])  # lookback + window: every bar detect_as_of can read
 
@@ -220,7 +250,9 @@ def replay(
         sub = bars.iloc[: t + 1].reset_index(drop=True)  # PIT boundary #1: the walk's own loop bound
         date_t = _iso_date(bars["date"].iloc[t])
         ib = incomplete_bar if (incomplete_bar is not None and t == end) else None
-        snaps = patterns.detect_as_of(sub, t, cfg=cfg, symbol=symbol, incomplete_bar=ib)
+        snaps = _detect(sub, t, cfg=cfg, symbol=symbol, incomplete_bar=ib)
+        if snapshot_sink is not None:
+            snapshot_sink[t] = snaps
 
         for snap in sorted(snaps, key=lambda s: s.pattern_id):
             prior = last_status.get(snap.pattern_id)

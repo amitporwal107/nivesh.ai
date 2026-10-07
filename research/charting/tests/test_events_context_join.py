@@ -6,6 +6,7 @@ this file's poisoned-future-probe + peeking-control tests are the load-bearing o
 everything else is shape/wiring."""
 from __future__ import annotations
 
+import gc
 import math
 
 import pandas as pd
@@ -239,3 +240,126 @@ def test_context_join_peeking_control_a_later_date_genuinely_differs():
     ctx_t0 = context_join.context_block_at(bars, t0, symbol="SYN1", benchmark_df=benchmark, vix_df=vix, breadth_df=breadth)
     ctx_later = context_join.context_block_at(bars, later_date, symbol="SYN1", benchmark_df=benchmark, vix_df=vix, breadth_df=breadth)
     assert not _same(ctx_t0["trend_close"], ctx_later["trend_close"])
+
+
+# ── the join must not accumulate — the failure 1,441 correctness tests never caught ─────────────
+#
+# Every other test in this package checks that the OUTPUT is right. None checked that memory stays
+# BOUNDED, which is the only thing that has ever actually broken: the join built the whole enriched
+# set before returning, so originals and replacements coexisted (25.5 GB + 27.9 GB at 133,743 rows)
+# and the run was OOM-killed on a 62 GB host. A green suite told us nothing about that.
+
+
+def _join_universe(n=5):
+    from research.charting.events import extraction
+    from research.charting.tests._events_helpers import confirmed_rectangle_with_runway
+
+    base = confirmed_rectangle_with_runway(tail_len=40)
+    bars_by_symbol, rows_by_symbol = {}, {}
+    for i in range(n):
+        scaled = base.copy()
+        for c in ("open", "high", "low", "close"):
+            scaled[c] = scaled[c] * (1.0 + 0.05 * i)
+        sym = f"SYM{i:02d}"
+        bars_by_symbol[sym] = scaled
+        rows = extraction.extract_events(scaled, sym)
+        if rows:
+            rows_by_symbol[sym] = rows
+    assert len(rows_by_symbol) > 1, "need >1 symbol or 'accumulates nothing' is trivially true"
+    return bars_by_symbol, rows_by_symbol
+
+
+@pytest.mark.parametrize("workers", [1, 2])
+def test_the_streaming_join_retains_nothing(workers):
+    """The structural assertion: with `on_symbol`, the returned dict must be EMPTY and every symbol
+    must still have been delivered exactly once. If this ever returns a populated dict again, the
+    parent is holding the enriched set and the 62 GB host is back in play."""
+    bars_by_symbol, rows_by_symbol = _join_universe()
+    expected_syms = set(rows_by_symbol)
+
+    seen: list = []
+    returned = context_join.attach_to_event_rows_by_symbol(
+        dict(rows_by_symbol), bars_by_symbol, max_workers=workers, consume=True,
+        on_symbol=lambda s, r: seen.append((s, r)),
+    )
+
+    assert returned == {}, "the join retained rows despite a sink — this is the OOM"
+    assert {s for s, _ in seen} == expected_syms
+    assert len(seen) == len(expected_syms), "a symbol was delivered twice"
+
+
+@pytest.mark.parametrize("workers", [1, 2])
+def test_the_join_holds_no_reference_to_what_it_streamed(workers):
+    """Delivery alone is not enough. If the join kept its own reference, the rows would stay alive
+    after the caller let go and memory would still grow with the dataset — which is precisely the
+    bug: `results[symbol] = enriched` delivered nothing but retained everything.
+
+    `gc.get_referrers` is the direct question ("who is still holding this?"), rather than a proxy
+    like a size check, which would pass on an object the join was still pinning.
+    """
+    bars_by_symbol, rows_by_symbol = _join_universe()
+
+    held: dict = {}
+
+    def sink(symbol, rows):
+        held.setdefault("first", rows)        # one strong ref, ours and traceable
+
+    context_join.attach_to_event_rows_by_symbol(
+        dict(rows_by_symbol), bars_by_symbol, max_workers=workers, consume=True, on_symbol=sink,
+    )
+    gc.collect()
+
+    referrers = [r for r in gc.get_referrers(held["first"]) if r is not held]
+    assert not referrers, (
+        f"{len(referrers)} object(s) still reference a streamed symbol's rows — the join is "
+        f"retaining them: {[type(r).__name__ for r in referrers[:3]]}")
+
+
+def test_a_retaining_join_would_fail_this_gate():
+    """The gate has to be able to FAIL, or it is decoration. The batch path deliberately retains
+    (that is its contract), so it must trip exactly the check above."""
+    bars_by_symbol, rows_by_symbol = _join_universe()
+
+    batch = context_join.attach_to_event_rows_by_symbol(
+        dict(rows_by_symbol), bars_by_symbol, max_workers=2)
+    gc.collect()
+    sample = next(iter(batch.values()))
+
+    referrers = [r for r in gc.get_referrers(sample) if r is not batch]
+    assert batch is not None
+    assert any(r is batch for r in gc.get_referrers(sample)), (
+        "the batch path did not retain — then the streaming gate proves nothing by contrast")
+
+
+def test_streaming_and_non_streaming_produce_the_same_rows():
+    """Bounded memory is worthless if it changes the answer. Completion order differs from sorted
+    order, so this compares per symbol, which is the contract the caller relies on."""
+    bars_by_symbol, rows_by_symbol = _join_universe()
+
+    batch = context_join.attach_to_event_rows_by_symbol(
+        dict(rows_by_symbol), bars_by_symbol, max_workers=2)
+    streamed: dict = {}
+    context_join.attach_to_event_rows_by_symbol(
+        dict(rows_by_symbol), bars_by_symbol, max_workers=2,
+        on_symbol=lambda s, r: streamed.__setitem__(s, r))
+
+    assert set(streamed) == set(batch)
+    for symbol in batch:
+        assert streamed[symbol] == batch[symbol], symbol
+    assert any(batch.values()), "no enriched rows — vacuous"
+
+
+def test_the_consumed_originals_are_dropped_as_the_join_proceeds():
+    """`consume=True` is what lets the ORIGINALS drain while the join runs. If it stopped popping,
+    peak would be originals + everything already streamed."""
+    bars_by_symbol, rows_by_symbol = _join_universe()
+    source = dict(rows_by_symbol)
+
+    context_join.attach_to_event_rows_by_symbol(
+        source, bars_by_symbol, max_workers=2, consume=True, on_symbol=lambda s, r: None)
+    assert source == {}, "consume=True left the originals in place"
+
+    keep = dict(rows_by_symbol)
+    context_join.attach_to_event_rows_by_symbol(
+        keep, bars_by_symbol, max_workers=2, consume=False, on_symbol=lambda s, r: None)
+    assert set(keep) == set(rows_by_symbol), "consume=False must not mutate the caller's dict"

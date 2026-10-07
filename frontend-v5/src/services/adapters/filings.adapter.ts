@@ -47,6 +47,8 @@ export const SignalC = z.object({
   type: z.string().nullable().optional(),
   one: z.string().nullable().optional(),
   metric: z.string().nullable().optional(),
+  /** The exchange's own document label — shown when no AI insight exists yet. */
+  docLabel: z.string().nullable().optional(),
   date: z.string().nullable().optional(),
   sentiment: z.string().nullable().optional(),
 }).passthrough();

@@ -34,6 +34,12 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
         "test_fn": None,
         "category": "auth",
     },
+    "EVENT_AI_INGEST_KEY": {
+        "display_name": "Event AI Analysis Ingest Key",
+        "description": "Shared secret background jobs send in the X-Event-AI-Key header to upsert corporate-event AI analyses into Mongo (POST /api/internal/event-ai-analysis/bulk). Unset = endpoint disabled (503).",
+        "test_fn": None,
+        "category": "nidp",
+    },
     "CLIENT_LOG_KEY": {
         "display_name": "Client Log Ingest Key",
         "description": "Shared secret the mobile app sends in the X-Client-Log-Key header to push logs to Cloud Logging (POST /api/client-logs). Unset = endpoint disabled.",

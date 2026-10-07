@@ -208,3 +208,45 @@ export async function fetchPaperLive(portfolio: PaperPortfolio): Promise<LiveRes
     return fail(e);
   }
 }
+
+/* ── pre-entry context bars ─────────────────────────────────────────────────────────────
+ * A trade that has not entered yet has no observations, so its chart would otherwise be blank
+ * at exactly the moment a reader most wants to see where the levels sit. These are the sessions
+ * BEFORE the prediction date, read from the live chart route (corporate-action adjusted).
+ *
+ * They are context, never the trade's path: nothing here is part of the engine's record, and the
+ * caller must label them as such. Returning them under a distinct name rather than folding them
+ * into `observations` is deliberate — an observation is something the engine wrote down.
+ */
+export interface PreEntryBar { date: string; o: number; h: number; l: number; c: number }
+
+export async function fetchPreEntryBars(symbol: string, upTo: string, sessions = 5): Promise<PreEntryBar[]> {
+  // Calendar days, not sessions: weekends and holidays mean ~5 sessions needs a wider window.
+  // Over-fetch and trim, rather than risk coming back short.
+  const end = new Date(`${upTo}T00:00:00Z`);
+  if (Number.isNaN(end.getTime())) return [];
+  const start = new Date(end.getTime() - (sessions + 12) * 86_400_000);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  try {
+    const res = await http<{ bars?: unknown }>({
+      path: `/api/research/chart-live/${encodeURIComponent(symbol)}/ohlcv`,
+      query: { start: iso(start), end: iso(end) }, noRetry: true,
+    });
+    const raw = (res.data as { bars?: unknown })?.bars;
+    if (!Array.isArray(raw)) return [];
+    const bars = raw.flatMap((b): PreEntryBar[] => {
+      if (!Array.isArray(b) || b.length < 5) return [];
+      const [d, o, h, l, c] = b as [string, number, number, number, number];
+      if (typeof d !== "string" || ![o, h, l, c].every((x) => typeof x === "number" && x > 0)) return [];
+      return [{ date: d, o, h, l, c }];
+    });
+    // Up to and INCLUDING the prediction date. That session's close is the last information the
+    // model had before it froze, and entry is the NEXT session's open — so it is pre-entry and it
+    // is the single most relevant bar. Excluding it would hide exactly the one a reader wants.
+    return bars.filter((b) => b.date <= upTo).slice(-sessions);
+  } catch {
+    // The live route sits behind the `charting` flag while this page sits behind `move_odds`.
+    // An account with one and not the other must still get the page, just without the context.
+    return [];
+  }
+}

@@ -30,7 +30,13 @@ Assembles, in order:
 """
 from __future__ import annotations
 
+import gc
+import itertools
+import logging
+
+import gzip
 import hashlib
+import pickle
 import json
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Sequence
@@ -45,6 +51,9 @@ from research.charting.events import context_join, costs_bridge, pipeline, schem
 
 # §2: "If the detector config_hash at run time differs from the value above, the run is
 # invalid under this document."
+
+logger = logging.getLogger(__name__)
+
 FROZEN_CONFIG_HASH = "05167d3ae57f18602b8761ee21de311f5ffb96c428a16df5c119678a748514cf"
 
 PREREG_PATH = Path(__file__).resolve().parents[3] / "docs" / "ai_research" / "CHARTING_PREREGISTRATION_V1.md"
@@ -243,17 +252,53 @@ def data_quality_event_exclusions(
 # ── Segment build ─────────────────────────────────────────────────────────────────────────
 
 
+#: Bumped when the joined-row format changes, so a stale cache is skipped rather than reused.
+_JOIN_CACHE_VERSION = "join-v1"
+
+
+def _join_cache_key(symbol: str, segment: str, cfg: dict) -> str:
+    """A cached joined symbol is reusable only for the same segment AND config — the same rule the
+    extraction cache applies, for the same reason: reusing rows across a config change would
+    silently mix two engines' output into one dataset."""
+    digest = hashlib.sha256(
+        f"{_JOIN_CACHE_VERSION}|{segment}|{config_hash(cfg)}|{symbol}".encode()).hexdigest()[:16]
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in symbol)
+    return f"{safe}_{digest}.pkl.gz"
+
+
+def _load_joined(path: Path) -> list:
+    return pickle.loads(gzip.decompress(path.read_bytes()))
+
+
+def _store_joined(path: Path, rows: list) -> None:
+    """Atomic, for the same reason the extraction cache is: five runs have died mid-stage here, and
+    a half-written symbol resumed as if complete would corrupt the dataset rather than fail."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(gzip.compress(pickle.dumps(rows, protocol=pickle.HIGHEST_PROTOCOL), 6))
+    tmp.replace(path)
+
+
 def build_segment(
     bars_by_symbol: Mapping[str, pd.DataFrame], *, segment: str, cfg: dict = CONFIG,
     cost_cfg: Optional[costs_bridge.CostConfig] = None, etf_symbols=None, calendar=None,
     exclusion_mask: Callable = no_exclusions, segmenter: Callable = no_segments,
     calendars: Optional[Mapping[str, Sequence]] = None, exclusion_mask_is_default: Optional[bool] = None,
     attach_context: bool = False, out_dir=None, now=None,
-    input_file_hashes: Optional[Sequence[dict]] = None,
+    input_file_hashes: Optional[Sequence[dict]] = None, max_workers: int = 1,
+    compress_events: bool = False, extraction_cache_dir=None, progress=None,
+    join_max_workers: Optional[int] = None, row_sink=None, retain_selector=None,
+    join_cache_dir=None,
 ) -> dict:
     """One segment's full §3 pipeline: universe rule -> data-quality exclusion -> demerger
     hook -> `events.pipeline.build_event_dataset` (own segment-bound guard) -> optional
     context join -> hashed run-folder write with the extended §2 manifest.
+
+    `max_workers` (PERFORMANCE ONLY, default 1 = serial, byte-identical output for any value --
+    PERF-PARALLEL performance work): forwarded to `events.pipeline.build_event_dataset` (per-
+    symbol extraction) and, when `attach_context=True`, to `events.context_join
+    .attach_to_event_rows_by_symbol` (per-symbol context join) -- see each function's own
+    docstring. Universe/data-quality/demerger and the final manifest write stay single-process
+    (not this package's own perf target; see the PERF-PARALLEL task brief).
 
     `input_file_hashes`: pre-computed `[{"path":.., "sha256":.., "row_count":..}, ...]` (e.g.
     from `research.charting.bars.provenance().files`) -- accepted rather than computed
@@ -282,31 +327,153 @@ def build_segment(
         exclusion_mask is no_exclusions and segmenter is no_segments
     )
 
-    result = pipeline.build_event_dataset(filtered_bars, segment=segment, cfg=cfg, cost_cfg=cost_cfg)
+    result = pipeline.build_event_dataset(
+        filtered_bars, segment=segment, cfg=cfg, cost_cfg=cost_cfg, max_workers=max_workers,
+        cache_dir=extraction_cache_dir, progress=progress,
+    )
     findings = data_quality_findings(filtered_bars, calendar=calendar)
     rows, dq = data_quality_event_exclusions(
         result["rows"], filtered_bars, findings,
         lookback_bars=cfg["maximum_pattern_length"], forward_bars=1 + max(schema.HORIZONS),
     )
+    # `result["rows"]` is not needed again, and holding it doubles peak memory through the context
+    # join below: the join runs in forked workers that PICKLE ENRICHED COPIES BACK, so the original
+    # and enriched sets coexist. Measured 2026-09-25: the run peaked at 50 GB and was OOM-killed
+    # twice on a 62 GB host. Dropping the reference here lets the originals be collected as the
+    # enriched rows arrive. `rows` still holds everything that survived the exclusion filter.
+    result["rows"] = None
+    n_rows_in = len(rows)
+
     for row in rows:
         row["base_symbol"] = base_symbol(row["symbol"])
 
+    # `retain_selector` picks, from the FINAL event_id population (post data-quality exclusion, so
+    # this is the right place -- the join neither adds nor removes rows), the handful of rows a
+    # caller needs to keep whole. §8's `recompute_sample` re-derives a seeded sample of rows from
+    # bars, and it is the only consumer that still needs real nested rows once the report reads
+    # columns. Selecting on ids first means ~50 rows survive instead of the segment.
+    retain_ids: set = set()
+    if retain_selector is not None:
+        retain_ids = set(retain_selector([r["event_id"] for r in rows]))
+    retained_rows: list = []
+
+    # The artifact is written INCREMENTALLY. `write_run` serialises the whole dataset to bytes
+    # before writing one, so publishing a segment used to cost the rows plus a full serialised copy
+    # of them. `RunWriter` produces a byte-identical file and manifest (pinned in
+    # tests/test_events_writer.py, including `compressed_sha256`).
+    run_writer = writer.RunWriter(
+        out_dir, segment=segment, symbols=sorted(filtered_bars), cfg=cfg, now=now,
+        compress=compress_events,
+    ) if out_dir is not None else None
+    rows_kept: list = []
+
     if attach_context:
-        enriched: list = []
-        for symbol in sorted(filtered_bars):
-            symbol_rows = [r for r in rows if r["symbol"] == symbol]
-            if symbol_rows:
-                enriched.extend(context_join.attach_to_event_rows_for_symbol(symbol_rows, filtered_bars[symbol], cfg=cfg))
-        rows = enriched
+        logger.info("context join: %d rows across %d symbols, %d workers",
+                    n_rows_in, len({r["symbol"] for r in rows}), max_workers)
+        rows_by_symbol: dict = {}
+        for r in rows:
+            rows_by_symbol.setdefault(r["symbol"], []).append(r)
+        # `rows` and `rows_by_symbol` hold the SAME objects, so dropping the flat list alone frees
+        # nothing. `consume=True` makes the join pop each symbol as its enriched replacement
+        # arrives, which is the only point at which an original can actually be released.
+        del rows
+        # FEWER WORKERS THAN EXTRACTION, DELIBERATELY. Extraction is CPU-bound on small inputs and
+        # scales with cores; the context join carries the whole enriched row set through forked
+        # workers, whose private copy-on-write pages all count against the cgroup. Measured
+        # 2026-09-25: at 8 workers the unit climbed ~2 GB/min past 37 GB with no plateau, having
+        # already been OOM-killed twice at 50 GB. Memory here is bounded by worker count, not by
+        # core count, so this is capped independently.
+        join_workers = max(1, min(join_max_workers or max(1, max_workers // 3), max_workers))
+        logger.info("context join: %d symbols, %d workers (extraction used %d)",
+                    len(rows_by_symbol), join_workers, max_workers)
+        # JOIN CACHE. The join is the stage five runs died in, and until now nothing about it was
+        # resumable: a failure threw away every joined symbol and the next attempt redid all of
+        # them. Cached symbols are dropped from the work set BEFORE the join runs, so a restart
+        # pays only for what is left. Same per-symbol, atomic, config-keyed discipline as the
+        # extraction cache — and the cached rows re-enter the SAME emit path below, so the event
+        # file, its hash and the report are identical whether a symbol was joined or resumed.
+        join_cache = Path(join_cache_dir) if join_cache_dir is not None else None
+        cached_syms: dict = {}
+        if join_cache is not None:
+            join_cache.mkdir(parents=True, exist_ok=True)
+            for symbol in list(rows_by_symbol):
+                path = join_cache / _join_cache_key(symbol, segment, cfg)
+                if path.is_file():
+                    cached_syms[symbol] = path
+                    rows_by_symbol.pop(symbol)   # never re-joined, never re-held
+            if cached_syms:
+                logger.info("join cache: %d symbols resumed, %d to join",
+                            len(cached_syms), len(rows_by_symbol))
+
+        if join_cache is not None:
+            # STREAMING JOIN. Each symbol is written and dropped as it completes, so the parent
+            # never holds the enriched set at all -- the originals simply drain. Without this the
+            # two coexist (25.5 GB + 27.9 GB at 133,743 rows) and the run is OOM-killed on a 62 GB
+            # host, which is exactly what happened. It also makes the join resumable MID-STAGE: the
+            # earlier version wrote the cache only after the join returned, so a crash during the
+            # join -- the failure that actually keeps happening -- saved nothing.
+            def _sink_joined(symbol: str, sym_rows: list) -> None:
+                _store_joined(join_cache / _join_cache_key(symbol, segment, cfg), sym_rows)
+                cached_syms[symbol] = join_cache / _join_cache_key(symbol, segment, cfg)
+
+            if rows_by_symbol:
+                context_join.attach_to_event_rows_by_symbol(
+                    rows_by_symbol, filtered_bars, cfg=cfg, max_workers=join_workers,
+                    consume=True, on_symbol=_sink_joined,
+                )
+            enriched_by_symbol = {}             # deliberately empty: everything is on disk
+        else:
+            enriched_by_symbol = context_join.attach_to_event_rows_by_symbol(
+                rows_by_symbol, filtered_bars, cfg=cfg, max_workers=join_workers, consume=True,
+            ) if rows_by_symbol else {}
+        del rows_by_symbol                      # emptied by the join; this drops the husk
+        # Hand each symbol to the artifact writer and the sink, then drop it, so the enriched set is
+        # never assembled into one list. With `row_sink` given this is what lets the SS8 kill switch
+        # prove reproducibility without a second copy of the dataset -- the digest folds per symbol,
+        # in the same sorted order the list would have had, so the event file is byte-identical.
+        n_emitted = 0
+        # Sorted across BOTH sources: order is what the event-file hash is computed over, so a
+        # resumed run must interleave cached and freshly-joined symbols exactly as a fresh run
+        # would have ordered them.
+        for symbol in sorted(set(enriched_by_symbol) | set(cached_syms)):
+            sym_rows = (enriched_by_symbol.pop(symbol) if symbol in enriched_by_symbol
+                        else _load_joined(cached_syms[symbol]))
+            n_emitted += len(sym_rows)
+            if run_writer is not None:
+                run_writer.add(sym_rows)
+            if retain_ids:
+                retained_rows.extend(r for r in sym_rows if r["event_id"] in retain_ids)
+            if row_sink is not None:
+                row_sink(symbol, sym_rows)
+            else:
+                rows_kept.extend(sym_rows)
+            del sym_rows
+        del enriched_by_symbol
+        rows = rows_kept
+        gc.collect()
+        logger.info("context join complete: %d rows%s", n_emitted,
+                    " streamed to sink" if row_sink is not None else "")
+    elif run_writer is not None or row_sink is not None:
+        # attach_context=False: the rows are already assembled, so nothing is saved here -- but both
+        # contracts must hold either way, and in the SAME order `rows` carries (the pipeline
+        # assembles by sorted symbol and the exclusion filter preserves relative order), or the
+        # artifact and its hash would be of a differently-ordered file.
+        for symbol, group in itertools.groupby(rows, key=lambda r: r["symbol"]):
+            chunk = list(group)
+            if run_writer is not None:
+                run_writer.add(chunk)
+            if retain_ids:
+                retained_rows.extend(r for r in chunk if r["event_id"] in retain_ids)
+            if row_sink is not None:
+                row_sink(symbol, chunk)
+        if row_sink is not None:
+            rows = []
 
     manifest = None
-    if out_dir is not None:
-        cost_versions = {r["versioning"]["cost_rule_version"] for r in rows if r["versioning"].get("cost_rule_version")}
-        tax_versions = {r["versioning"]["tax_rule_version"] for r in rows if r["versioning"].get("tax_rule_version")}
-        manifest = writer.write_run(
-            rows, out_dir, segment=segment, symbols=sorted(filtered_bars), cfg=cfg,
-            cost_rule_versions=cost_versions, tax_rule_versions=tax_versions, now=now,
-        )
+    if run_writer is not None:
+        # Rule versions are harvested by the writer from the chunks it saw, so a streaming caller
+        # does not have to walk every row a second time to collect them.
+        manifest = run_writer.finish()
         manifest["feature_config_hash"] = regime.feature_config_hash()
         manifest["prereg_sha256"] = prereg_sha256()
         manifest["universe"] = {
@@ -320,7 +487,8 @@ def build_segment(
         (Path(out_dir) / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
 
     return {
-        "rows": rows, "segment": segment, "universe": universe, "data_quality_exclusions": dq,
+        "rows": rows, "retained_rows": retained_rows,
+        "segment": segment, "universe": universe, "data_quality_exclusions": dq,
         "demerger_regimes": demerger_report, "manifest": manifest,
         # The EXACT bars each row in `rows` was actually built from (post universe/data-quality/
         # demerger filtering, and -- via build_pre_sealed_segment/build_post_sealed_segment --

@@ -42,16 +42,19 @@ in a CONFIRMED-population `PatternSnapshot.status` string -- `research/charting/
     VOLUME_CONFIRMED   -> CONFIRMED_BREAKOUT
     FAILED             -> FAILED_BREAKOUT      -- section 17: a confirmed breakout that failed
     INVALIDATED,
-    EXPIRED,
+    EXPIRED            -> NOT_TRIGGERED        -- owner decision #110 (NI-3 section 1.2), wired
+                                                   2026-09-23, but ONLY when the caller supplies
+                                                   `ever_price_confirmed=False`. This function's
+                                                   scalar inputs cannot tell whether the instance
+                                                   ever reached BREAKOUT_CANDIDATE, so without that
+                                                   argument the row stays unmapped rather than
+                                                   assuming it. Invalidation AFTER a breakout is
+                                                   deliberately left unmapped: NI-3 does not decide
+                                                   it, and Amendment E forbids merging INVALIDATED
+                                                   with FAILED_BREAKOUT.
     DATA_BLOCKED,
-    UNRESOLVED         -> None (not mapped)    -- these never broke out (invalidated / expired
-                                                   before a breakout) or could not be assessed
-                                                   (data); calling them FAILED_BREAKOUT would
-                                                   say a breakout failed when none happened.
-                                                   Left unmapped pending an owner decision on
-                                                   two extra states (e.g. NOT_TRIGGERED,
-                                                   INCONCLUSIVE); the enrichment record keeps
-                                                   the source status as research_state_basis.
+    UNRESOLVED         -> INCONCLUSIVE         -- #110; no precondition, a data failure is a data
+                                                   failure whatever the price did.
 
     COMPLETED is never produced from the lifecycle: completion (the move played out, e.g. a
     target reached) is an outcome (section 35.1: TARGET_REACHED lives in the outcome record),
@@ -94,12 +97,17 @@ CONFIRMED_BREAKOUT = "CONFIRMED_BREAKOUT"
 FAILED_BREAKOUT = "FAILED_BREAKOUT"
 COMPLETED = "COMPLETED"
 
-RESEARCH_STATES = (FORMING, EARLY_SIGNAL, BREAKOUT_CANDIDATE, CONFIRMED_BREAKOUT, FAILED_BREAKOUT, COMPLETED)
+NOT_TRIGGERED = "NOT_TRIGGERED"
+INCONCLUSIVE = "INCONCLUSIVE"
+
+RESEARCH_STATES = (FORMING, EARLY_SIGNAL, BREAKOUT_CANDIDATE, CONFIRMED_BREAKOUT, FAILED_BREAKOUT, COMPLETED,
+                   NOT_TRIGGERED, INCONCLUSIVE)
 
 _DIRECTIONS = ("BULLISH", "BEARISH", "NEUTRAL")
 
 # section 11 status string -> research_state (see module docstring for the full table + reasoning)
 _VOLUME_DEPENDENT = object()  # resolved from the volume component in derive_research_state
+_BREAKOUT_HISTORY_DEPENDENT = object()  # resolved from `ever_price_confirmed` -- see owner decision #110
 
 _LIFECYCLE_STATE_MAP: dict[str, object] = {
     LifecycleState.CANDIDATE.value: FORMING,
@@ -111,10 +119,14 @@ _LIFECYCLE_STATE_MAP: dict[str, object] = {
     LifecycleState.CONTEXT_VALIDATED.value: _VOLUME_DEPENDENT,
     LifecycleState.RESEARCH_ELIGIBLE.value: _VOLUME_DEPENDENT,
     LifecycleState.FAILED.value: FAILED_BREAKOUT,
-    LifecycleState.INVALIDATED.value: None,
-    LifecycleState.EXPIRED.value: None,
-    LifecycleState.DATA_BLOCKED.value: None,
-    LifecycleState.UNRESOLVED.value: None,
+    # Owner decision #110 (NI-3 §1.2), wired 2026-09-23. INVALIDATED/EXPIRED depend on whether the
+    # instance ever reached BREAKOUT_CANDIDATE, which this function's scalar inputs cannot express --
+    # hence the sentinel and the `ever_price_confirmed` argument. DATA_BLOCKED/UNRESOLVED have no
+    # such precondition.
+    LifecycleState.INVALIDATED.value: _BREAKOUT_HISTORY_DEPENDENT,
+    LifecycleState.EXPIRED.value: _BREAKOUT_HISTORY_DEPENDENT,
+    LifecycleState.DATA_BLOCKED.value: INCONCLUSIVE,
+    LifecycleState.UNRESOLVED.value: INCONCLUSIVE,
 }
 
 # section 34 formation_stage string -> research_state (EARLY population; see module docstring)
@@ -139,6 +151,7 @@ _CONFIRMED_BREAKOUT_STATES = frozenset({
 
 def derive_research_state(
     lifecycle_state: str | None, early_stage: str | None, direction: str, volume_status: str | None = None,
+    ever_price_confirmed: bool | None = None,
 ) -> str | None:
     """Pure mapping (section 11 lifecycle state, section 34 early stage where present,
     direction) -> research_state. Exactly ONE of `lifecycle_state` / `early_stage` must be
@@ -174,6 +187,21 @@ def derive_research_state(
         research_state = _LIFECYCLE_STATE_MAP[lifecycle_state]
         if research_state is _VOLUME_DEPENDENT:
             research_state = CONFIRMED_BREAKOUT if volume_status in _VOLUME_CONFIRMED_VALUES else BREAKOUT_CANDIDATE
+        elif research_state is _BREAKOUT_HISTORY_DEPENDENT:
+            # #110: "INVALIDATED or EXPIRED before any BREAKOUT_CANDIDATE -> NOT_TRIGGERED".
+            #
+            # Three cases, and only one of them is decided by NI-3:
+            #   never broke out  -> NOT_TRIGGERED (the decided case)
+            #   broke out first  -> NI-3 does not say. Amendment E insists INVALIDATED and
+            #                       FAILED_BREAKOUT "must not be merged", so guessing either would
+            #                       merge them. Stays unmapped, with the basis recorded.
+            #   not supplied     -> the caller did not have the history. Unmapped, exactly as before
+            #                       this decision was wired -- never silently assumed to be False,
+            #                       which would turn "we do not know" into a research state.
+            if ever_price_confirmed is False:
+                research_state = NOT_TRIGGERED
+            else:
+                research_state = None
     else:
         if early_stage not in _EARLY_STAGE_MAP:
             raise ValueError(f"unknown section-34 early formation stage: {early_stage!r}")

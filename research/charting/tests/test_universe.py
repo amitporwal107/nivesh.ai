@@ -173,12 +173,20 @@ def test_real_data_universe_counts():
     # instructed) excludes them from the universe as "ETF" even though they are not one.
     # This is flagged as a data-quality issue in the sealed list itself, not "fixed" here
     # (the list is sealed / mandatory per the task).
+    # These two counts move whenever the corpus is refreshed forward -- the 2026-09-24 delta added
+    # ten newly listed symbols, four of which clear the 250-bar rule (2,926 -> 2,936, 2,132 ->
+    # 2,136). They are asserted as floors plus the invariant that actually matters (every loaded
+    # symbol is either included or excluded, exactly once), rather than as frozen figures that
+    # would have to be edited after every refresh. The ETF cross-checks below are NOT relaxed: the
+    # sealed list is fixed, so those figures are genuinely stable.
     prov = bars.provenance()
-    assert prov.symbol_count == 2926
+    assert prov.symbol_count >= 2926
 
     all_bars = dict(bars.load_all())
+    assert prov.symbol_count == len(all_bars)
     result = universe.build_universe(all_bars.items(), min_bars=250)
-    assert len(result.included) == 2132
+    assert len(result.included) >= 2132
+    assert len(result.included) + len({r.symbol for r in result.excluded}) == len(all_bars)
 
     # Same 291 figure via an independent path: sealed-list symbols that both appear in
     # the data AND clear the 250-bar bar, cross-checked directly against load_all() —

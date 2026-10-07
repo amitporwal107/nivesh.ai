@@ -8,6 +8,8 @@
                                                 event categories for the run the page shows)
     GET /api/move-odds/stocks/{symbol}/card   → the copilot chat's stock card for that symbol, unchanged (owner,
                                                 2026-09-18): instrument research + the research hub, no LLM call
+    GET /api/move-odds/stocks/{symbol}/filing-analysis → AI analyses of the company's own filings, last 30 days
+                                                (Mongo event_ai_analysis; context only, not a model input)
 
 Only accounts on the move_odds allowlist get past the gate (403 feature_not_enabled otherwise, admins included).
 The payload is passed through unchanged, so every number shown is the published, frozen one (spec C7). A DaaS
@@ -79,6 +81,21 @@ async def stock_card(symbol: str = Path(..., min_length=1, max_length=20, patter
     if not research.ok or not research.widget:
         raise HTTPException(status_code=404, detail="not_found")
     return {"data": {"widget_type": "instrument_detail", "data": build_research_hub("stock", research.widget)}}
+
+
+@router.get("/stocks/{symbol}/filing-analysis")
+async def stock_filing_analysis(symbol: str = Path(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9&\-]+$"),
+                                user: dict = Depends(require_feature(FLAG))):
+    """AI analyses of the company's own exchange filings in the last 30 days (Mongo event_ai_analysis, owner's master
+    prompt, run tool-less). Context beside the estimates, never an input to them. Filings the importance filter dropped
+    and analyses not run in isolation are left out (services/move_odds_filing_analysis.py)."""
+    from deps import db
+    from services.move_odds_filing_analysis import filing_analysis
+    try:
+        return {"data": await filing_analysis(db, symbol.upper())}
+    except Exception as e:  # Mongo unreachable or a malformed document: say so, never a partial list
+        logger.warning("move-odds filing analysis %s failed: %s", symbol, e)
+        raise HTTPException(status_code=502, detail="filing_analysis_unavailable")
 
 
 @router.get("/history")

@@ -1,0 +1,512 @@
+/**
+ * Research → Move odds → **Movers**: the third view of the existing screen, laid out EXACTLY as the owner's
+ * "Top Movers Dashboard" v4 design (docs/Top Movers Dashboard - All Versions (1).html, v4; markup lines 18-498).
+ *
+ * The design's own regions, in its own order, each a component of its own:
+ *   top bar · left rail · hero · chart · market & sector sensitivity · Copilot event analysis · flag lift ·
+ *   event & deal log + odds-model panel.
+ * The numbers are ours: every figure comes from the nidp-backed /api/movers endpoints, never the design's sample
+ * data. The one addition the design does not have is the window-controls strip (MoversControls) — the design is
+ * hard-wired to one month, ours has to let the reader pick the window.
+ *
+ * The view owns the data and the selection; the regions are presentational:
+ *   · `sel` (symbol + session) drives the detail fetch, `evtId` is the pinned event, `horizon` is the grade switch.
+ *   · the page disclaimer stays above every number (C4) — it is rendered by MoveOddsScreen, above this.
+ *   · direction stays a reading of what happened, never a forecast.
+ *
+ * Honesty rules carried from the API and visible on screen: the model badge is THREE-state ("No model run" is a
+ * coverage gap, not a miss), NONE is not 0%, PENDING is its own state, and a suspected unadjusted split/bonus is
+ * withheld from the ranking rather than ranked as a crash.
+ */
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  fetchCalibration, fetchFlagLift, fetchFlaggedNoMove, fetchMoverCandidates, fetchMoverForward, fetchMoverAnalysis, fetchMoverDetail, fetchMovers,
+  type MoverAnalysis, type MoverCandidateRow, type MoverDetail, type MoverForward, type MoverDetailResult, type MoverRow, type MoversCalibration,
+  type MoversCandidates, type MoversFlagLift, type MoversFlagged, type MoversList, type MoversListResult,
+} from "@/services/adapters/movers.adapter";
+import "./moversV4Tokens.css";
+import "./moversV4View.css";
+import {
+  MoversControls, MoversHero, MoversRail, MoversTopBar,
+  type FlaggedSummary, type FwdInfo, type MoversDirection, type MoversMode, type RailRow,
+} from "./MoversShell";
+import { MoversChart } from "./MoversChart";
+import { MoversLog } from "./MoversLog";
+import { MoversTech } from "./MoversTech";
+import { MoversForward } from "./MoversForward";
+import { MoversSensitivity } from "./MoversSensitivity";
+import { MoversCopilot } from "./MoversCopilot";
+import { MoversFlagLift as FlagLiftCard } from "./MoversFlagLift";
+import { MoversBottomRow } from "./MoversModelPanel";
+
+const RANGES = ["T7", "1D", "1M", "3M", "1Y", "C"];   // "C" = the design's CUSTOM tab (from/to)
+const DEFAULT_RANGE = "T7";
+const WINDOW_DAYS = 30;
+const HORIZONS = [3, 20] as const;
+type Horizon = (typeof HORIZONS)[number];
+
+// Fixed formats, not toLocale*: browsers disagree on short month names ("Sep" vs "Sept").
+function iso(d: Date): string { return d.toISOString().slice(0, 10); }
+function shift(isoDate: string, days: number): string {
+  const t = Date.parse(`${isoDate}T00:00:00Z`);
+  return isNaN(t) ? isoDate : iso(new Date(t + days * 86_400_000));
+}
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function day(s: string): string {
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+  return y && m && d ? `${d} ${MON[m - 1]} ${y}` : s;
+}
+
+export function MoversView({ onNoAccess, modelVersion = null, backToFeed }: {
+  onNoAccess: () => void;
+  /** e.g. the run's model label ("v4"); shown in the top-bar chip. null renders the chip without a version. */
+  modelVersion?: string | null;
+  /** kept for the host's call site: the design has no "open stock" affordance, so this view does not use it. */
+  onOpenStock?: (symbol: string, el: HTMLElement) => void;
+  /** set only when this view was reached from one filing on the Research feed (?symbol=&session=); renders
+   * a "back to filings" button and, combined with that same URL pair, pins the Candidates rail to that one
+   * name instead of fetching the day's list. */
+  backToFeed?: () => void;
+}) {
+  // A single filing's "open the chart" link: ?symbol=&session=[&name=&title=&kind=]. Read once at mount,
+  // same idiom as mode/view above. Present only when the Research feed linked in on one specific filing.
+  const pinned = useMemo(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const symbol = sp.get("symbol"), session = sp.get("session");
+    if (!symbol || !session) return null;
+    return { symbol: symbol.toUpperCase(), session, name: sp.get("name"), title: sp.get("title"), kind: sp.get("kind") };
+  }, []);
+  const today = useMemo(() => iso(new Date()), []);
+  const [to, setTo] = useState(today);
+  const [from, setFrom] = useState(() => shift(today, -WINDOW_DAYS));
+  const [minAbsPct, setMinAbsPct] = useState(5);
+  const [direction, setDirection] = useState<MoversDirection>("both");
+  const [includeCa, setIncludeCa] = useState(false);
+  const [list, setList] = useState<MoversListResult | null>(null);
+  const [reload, setReload] = useState(0);
+
+  // v4: the mirror side of the model — names it flagged that did not move — and the horizon the outcome is
+  // judged over. Both re-derive the list (the review-3 fix).
+  // mode also reads the URL once at mount (?mode=candidates|flagged|forward), so the Research feed screen
+  // can deep-link straight into one without this component needing a prop from its host.
+  const [mode, setMode] = useState<MoversMode>(() => {
+    const want = new URLSearchParams(window.location.search).get("mode")?.toUpperCase();
+    return want === "FLAGGED" || want === "FORWARD" || want === "CANDIDATES" ? want : "MOVERS";
+  });
+  const [filter, setFilter] = useState("ALL");
+  const [horizon, setHorizon] = useState<Horizon>(3);
+  type FlaggedState = { kind: "ok"; data: MoversFlagged } | { kind: "error"; message: string } | null;
+  const [flagged, setFlagged] = useState<FlaggedState>(null);
+  type CandidatesState = { kind: "ok"; data: MoversCandidates } | { kind: "error"; message: string } | null;
+  const [cnd, setCnd] = useState<CandidatesState>(null);
+  const [cndReload, setCndReload] = useState(0);
+  const [cal, setCal] = useState<MoversCalibration | null>(null);
+  const [calErr, setCalErr] = useState<string | null>(null);
+  const [lift, setLift] = useState<MoversFlagLift | null>(null);
+  const [liftErr, setLiftErr] = useState<string | null>(null);
+  const [analyticsReload, setAnalyticsReload] = useState(0);
+  const [fwd, setFwd] = useState<MoverForward | null>(null);
+  const [fwdErr, setFwdErr] = useState<string | null>(null);
+
+  const [sel, setSel] = useState<{ symbol: string; session: string; src?: "OFFICIAL" | "PREVIEW" } | null>(null);
+  // Pinned from one filing: default to a wider window than T7. The event log filters by
+  // COALESCE(broadcast_at, filed_at) (backend/.../movers.py _events_for), but the Research feed dates
+  // a filing by filed_at alone (backend/routes/markets.py _row) — when an announcement's broadcast_at
+  // lands more than ~7 days from its filed_at, a T7 window centred on the feed's own date can miss the
+  // very filing the reader clicked. 1M gives real headroom without the chart reading as a different range.
+  const [range, setRange] = useState<string>(() => (pinned ? "1M" : DEFAULT_RANGE));
+  const [customFrom, setCustomFrom] = useState<string | null>(null);
+  const [customTo, setCustomTo] = useState<string | null>(null);
+  const [detail, setDetail] = useState<MoverDetailResult | null>(null);
+  const [detailReload, setDetailReload] = useState(0);
+  const [evtId, setEvtId] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<MoverAnalysis | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+
+  // ── the window's movers ───────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    let live = true;
+    setList(null);
+    fetchMovers({ from, to, minAbsPct, direction, includeCa }).then((r) => {
+      if (!live) return;
+      if (r.kind === "no_access") { onNoAccess(); return; }
+      setList(r);
+      if (r.kind === "ok") {
+        setSel((cur) => {
+          if (cur && r.data.movers.some((m) => m.symbol === cur.symbol && m.session === cur.session)) return cur;
+          const first = r.data.movers[0];
+          return first ? { symbol: first.symbol, session: first.session } : null;
+        });
+      }
+    });
+    return () => { live = false; };
+  }, [from, to, minAbsPct, direction, includeCa, reload, onNoAccess]);
+
+  // ── the selected mover's chart, lanes and attribution ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!sel) { setDetail(null); return; }
+    let live = true;
+    setDetail(null);
+    setEvtId(null);
+    const custom = range === "C" && customFrom && customTo && customFrom <= customTo;
+    fetchMoverDetail(sel.symbol, custom
+      ? { session: sel.session, range: "custom", from: customFrom!, to: customTo! }
+      : { session: sel.session, range: range === "C" ? DEFAULT_RANGE : range }).then((r) => {
+      if (!live) return;
+      if (r.kind === "no_access") { onNoAccess(); return; }
+      setDetail(r);
+    });
+    return () => { live = false; };
+  }, [sel, range, customFrom, customTo, detailReload, onNoAccess]);
+
+  // ── the Copilot card + pinned-event attribution: the move day, or the pinned event ───────────────
+  useEffect(() => {
+    if (!sel) { setAnalysis(null); return; }
+    let live = true;
+    setAnalysis(null);
+    setAnalysisLoading(true);
+    fetchMoverAnalysis(sel.symbol, { session: sel.session, eventId: evtId ?? undefined }).then((r) => {
+      if (!live) return;
+      setAnalysisLoading(false);
+      if (r.kind === "no_access") { onNoAccess(); return; }
+      setAnalysis(r.kind === "ok" ? r.data : null);
+    });
+    return () => { live = false; };
+  }, [sel, evtId, onNoAccess]);
+
+  // the mirror list: flagged, did not move. Re-derived whenever the horizon changes, per v4 review 3.
+  useEffect(() => {
+    if (mode !== "FLAGGED") return;
+    let live = true;
+    setFlagged(null);
+    fetchFlaggedNoMove({ from, to, horizon }).then((r) => {
+      if (!live) return;
+      if (r.kind === "no_access") { onNoAccess(); return; }
+      setFlagged(r.kind === "ok" ? { kind: "ok", data: r.data } : { kind: "error", message: r.message });
+      if (r.kind === "ok") {
+        setSel((cur) => {
+          if (cur && r.data.rows.some((m) => m.symbol === cur.symbol && m.session === cur.session)) return cur;
+          const f = r.data.rows[0];
+          return f ? { symbol: f.symbol, session: f.session } : null;
+        });
+      }
+    });
+    return () => { live = false; };
+  }, [mode, from, to, horizon, onNoAccess]);
+
+  // the candidates list: material filing or bulk/block deal, last session — independent of the odds
+  // model and of whether the stock has already moved. Not re-windowed by from/to: always the newest
+  // session on record, same as /forward.
+  //
+  // `pinned`: reached from one filing on the Research feed, not the day's list — build the one-row
+  // "list" from what the feed already told us (symbol/session/title) instead of calling the list
+  // endpoint, which only ever returns the names it judged material for ONE session; the filing clicked
+  // may be neither (any category, any day in the feed's own window). The chart/timeline still come
+  // from the real `/api/movers/{symbol}` detail fetch below, same as every other candidate row.
+  //
+  // The filing's own date can be NEWER than the latest EQ session the price feed has (confirmed on
+  // staging: filings land same-day, prices_eod lags a day) — `mover_detail` centres the chart on
+  // `session` and 404s if no bar exists at or after it, so passing the filing's raw date verbatim can
+  // turn "open this stock's chart" into "no price history", which is wrong: there IS history, just not
+  // for a day that hasn't closed in the feed yet. Clamp to the real latest session first, the same
+  // value /api/movers/candidates and /forward already anchor on, via one cheap (TTL-cached) call.
+  useEffect(() => {
+    if (mode !== "CANDIDATES") return;
+    if (pinned) {
+      let live = true;
+      const settle = (chartSession: string) => {
+        if (!live) return;
+        setCnd({
+          kind: "ok",
+          data: {
+            session: chartSession, count: 1,
+            candidates: [{
+              symbol: pinned.symbol, name: pinned.name, session: chartSession,
+              close: null, prev_close: null, pct: null,
+              signals: [{
+                id: "pinned", type: pinned.kind === "dealB" || pinned.kind === "dealS" ? pinned.kind : "fil",
+                kind: "FILING", kind_note: "Opened from the Research feed.",
+                title: pinned.title || "Filing", sub: "",
+              }],
+            }],
+            rule: "Opened from one filing on the Research feed.",
+            disclaimer: "Not a prediction: this shows that filing's chart and event history, nothing more.",
+          },
+        });
+        setSel({ symbol: pinned.symbol, session: chartSession });
+      };
+      fetchMoverCandidates({ limit: 1 }).then((r) => {
+        if (!live) return;
+        if (r.kind === "no_access") { onNoAccess(); return; }
+        const latest = r.kind === "ok" ? r.data.session : null;
+        // Only ever pulls the anchor EARLIER (never later than the filing's own date) — a filing from
+        // before the latest session is left exactly where it was filed.
+        settle(latest && latest < pinned.session ? latest : pinned.session);
+      });
+      return () => { live = false; };
+    }
+    let live = true;
+    setCnd(null);
+    fetchMoverCandidates({ limit: 40 }).then((r) => {
+      if (!live) return;
+      if (r.kind === "no_access") { onNoAccess(); return; }
+      setCnd(r.kind === "ok" ? { kind: "ok", data: r.data } : { kind: "error", message: r.message });
+      if (r.kind === "ok") {
+        setSel((cur) => {
+          if (cur && r.data.candidates.some((c) => c.symbol === cur.symbol && c.session === cur.session)) return cur;
+          const first = r.data.candidates[0];
+          return first ? { symbol: first.symbol, session: first.session } : null;
+        });
+      }
+    });
+    return () => { live = false; };
+  }, [mode, pinned, cndReload, onNoAccess]);
+
+  // Once the real detail loads for the pinned filing, backfill its close/prev_close/pct (and name, if the
+  // feed didn't have one) from the real header — never invented, just filled in once it is known.
+  // (Reads `detail`, not the later-declared `det` const, so this effect can sit beside the others above.)
+  useEffect(() => {
+    const d = detail?.kind === "ok" ? detail.data : null;
+    if (!pinned || mode !== "CANDIDATES" || !d || d.symbol !== pinned.symbol) return;
+    setCnd((cur) => {
+      if (cur?.kind !== "ok" || cur.data.candidates.length !== 1 || cur.data.candidates[0].symbol !== d.symbol) return cur;
+      const row = cur.data.candidates[0];
+      if (row.close != null) return cur; // already backfilled
+      return {
+        kind: "ok",
+        data: { ...cur.data, candidates: [{
+          ...row, name: row.name ?? d.name ?? null,
+          close: d.header.close, prev_close: d.header.prev_close, pct: d.header.pct,
+        }] },
+      };
+    });
+  }, [detail, pinned, mode]);
+
+  useEffect(() => {
+    // Not shown in Candidates mode (no odds-model card there), and both queries are heavy
+    // (a month-wide sweep of runs/bars) — skip the fetch, not just the render.
+    if (mode === "CANDIDATES") { setCal(null); setCalErr(null); setLift(null); setLiftErr(null); return; }
+    let live = true;
+    setCal(null); setCalErr(null); setLift(null); setLiftErr(null);
+    fetchCalibration({ from, to }).then((r) => {
+      if (!live) return;
+      if (r.kind === "no_access") { onNoAccess(); return; }
+      if (r.kind === "ok") setCal(r.data); else setCalErr(r.message);
+    });
+    fetchFlagLift({ from, to }).then((r) => {
+      if (!live) return;
+      if (r.kind === "no_access") { onNoAccess(); return; }
+      if (r.kind === "ok") setLift(r.data); else setLiftErr(r.message);
+    });
+    return () => { live = false; };
+  }, [from, to, analyticsReload, mode, onNoAccess]);
+
+  // the next session's forward lists (official run beside the labelled preview); not tied to the from/to window
+  useEffect(() => {
+    let live = true;
+    fetchMoverForward({ limit: 15 }).then((r) => {
+      if (!live) return;
+      if (r.kind === "ok") setFwd(r.data); else if (r.kind === "error") setFwdErr(r.message);
+    });
+    return () => { live = false; };
+  }, []);
+
+  const data: MoversList | null = list?.kind === "ok" ? list.data : null;
+  const det: MoverDetail | null = detail?.kind === "ok" ? detail.data : null;
+  const fl: MoversFlagged | null = flagged && flagged.kind === "ok" ? flagged.data : null;
+  const cd: MoversCandidates | null = cnd?.kind === "ok" ? cnd.data : null;
+  // FORWARD tab: nothing has traded on the target session, so each candidate is pinned to the list's last traded session
+  // (data_as_of) for its chart and detail. Price fields stay null — never invented — and odds are NO_MODEL_RUN placeholders.
+  const fwdRows: RailRow[] = useMemo(() => {
+    if (!fwd) return [];
+    const mk = (src: "OFFICIAL" | "PREVIEW", asOf: string | null, rows: MoverForward["official"]["rows"]): RailRow[] =>
+      asOf ? rows.map((r) => ({
+        symbol: r.symbol, name: r.name ?? null, session: asOf.slice(0, 10), pct: null, close: null, prev_close: null, open: null,
+        high: null, low: null, volume: null, turnover: null, ca_flag: null, ca_suspect: null,
+        odds: { state: "NO_MODEL_RUN" as const, score: null, head: null, run_session: null, runs_in_window: 0 },
+        fwd: { src, either: r.either, up: r.up, down: r.down, target: fwd.session, newlyScored: src === "PREVIEW" && r.in_official_universe === false },
+      })) : [];
+    return [
+      ...(fwd.official.available ? mk("OFFICIAL", fwd.official.data_as_of, fwd.official.rows) : []),
+      ...(fwd.preview.available ? mk("PREVIEW", fwd.preview.data_as_of, fwd.preview.rows) : []),
+    ];
+  }, [fwd]);
+  const railRows: RailRow[] = mode === "FLAGGED" ? ((fl?.rows ?? []) as RailRow[])
+    : mode === "FORWARD" ? fwdRows
+    : mode === "CANDIDATES" ? []
+    : (data?.movers ?? []);
+  const railNames = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const r of railRows) if (r.name) m[r.symbol] = r.name;
+    return m;
+  }, [railRows]);
+  const selRow: RailRow | null = useMemo(
+    () => (sel ? railRows.find((m) => m.symbol === sel.symbol && m.session === sel.session && (!m.fwd || m.fwd.src === sel.src)) ?? null : null),
+    [sel, railRows]);
+  const selCandidate: MoverCandidateRow | null = useMemo(
+    () => (sel && cd ? cd.candidates.find((c) => c.symbol === sel.symbol && c.session === sel.session) ?? null : null),
+    [sel, cd]);
+  const flaggedSummary: FlaggedSummary | null = fl
+    ? { total: fl.flagged_total, cutoff: fl.cutoff, horizon: fl.horizon, available: fl.available, outcomes: fl.outcomes }
+    : null;
+  const asOf = useMemo(() => {
+    const s = (data?.movers ?? []).map((m) => m.session).sort();
+    return s.length ? s[s.length - 1] : data?.to ?? null;
+  }, [data]);
+
+  const pick = useCallback((m: { symbol: string; session: string; fwd?: FwdInfo }) => setSel({ symbol: m.symbol, session: m.session, src: m.fwd?.src }), []);
+  const changeMode = useCallback((m: MoversMode) => { setMode(m); setFilter(m === "FORWARD" ? "OFFICIAL" : "ALL"); setSel(null); }, []);
+  const flaggedUnavailable = mode === "FLAGGED" && flagged?.kind === "ok" && fl && !fl.available
+    ? (fl.reason === "NO_NAME_ABOVE_CUTOFF"
+        ? `No name reached the ${fl.cutoff != null ? `${(fl.cutoff * 100).toFixed(0)}%` : ""} cut-off in this window, so there is nothing the model got wrong to show.`
+        : `Not available (${fl.reason}).`)
+    : null;
+
+  return (
+    <div className="mv4" data-testid="mv-view"
+         style={{
+           background: "radial-gradient(900px 500px at 100% 0%, var(--bg-spot-a), transparent 60%), radial-gradient(800px 500px at 0% 100%, var(--bg-spot-b), transparent 60%), var(--bg-0)",
+           color: "var(--ink)", fontFamily: "var(--sans)", fontSize: 14, display: "flex", flexDirection: "column",
+           borderRadius: 14, overflow: "hidden",
+         }}>
+      {pinned && backToFeed && (
+        <button type="button" onClick={backToFeed} data-testid="mv-back-to-feed"
+          style={{
+            display: "flex", alignItems: "center", gap: 6, alignSelf: "flex-start", margin: "10px 16px 0",
+            border: 0, background: "none", cursor: "pointer", padding: "4px 2px",
+            fontFamily: "var(--mono)", fontSize: 11, letterSpacing: ".08em", color: "var(--ink-3)",
+          }}>
+          ← Back to filings
+        </button>
+      )}
+      <MoversTopBar asOf={asOf} modelVersion={modelVersion} />
+      <div className="mv4-grid">
+        {/* The design's rail holds 10 rows and simply runs the page's height. Ours holds up to 100 (every ≥5% move in
+            the window), so the rail scrolls inside its own sticky column and the page stays the chart's height. */}
+        <div className="mv4-railcol" data-testid="mv-rail-scroll">
+        <MoversRail
+          mode={mode} onMode={changeMode}
+          rows={railRows}
+          moversCount={data ? data.count : null} flaggedCount={fl ? fl.count : null}
+          candidateRows={cd?.candidates ?? []} candidatesCount={cd ? cd.count : null} candSession={cd?.session ?? null}
+          from={from} to={to}
+          flagged={flaggedSummary}
+          selected={sel} onSelect={pick} names={railNames}
+          filter={filter} onFilter={setFilter}
+          loading={mode === "FLAGGED" ? flagged === null
+                 : mode === "FORWARD" ? fwd === null && !fwdErr
+                 : mode === "CANDIDATES" ? cnd === null
+                 : list === null}
+          forwardLabel={fwd ? day(fwd.session) : null}
+          error={mode === "MOVERS" && list?.kind === "error" ? list.message
+               : mode === "FLAGGED" && flagged?.kind === "error" ? flagged.message
+               : mode === "CANDIDATES" && cnd?.kind === "error" ? cnd.message : null}
+          onRetry={() => (mode === "MOVERS" ? setReload((n) => n + 1) : mode === "CANDIDATES" ? setCndReload((n) => n + 1) : setFlagged(null))}
+          emptyText={mode === "FORWARD" ? (fwdErr ?? "No forward list is on record for the next session.") : mode === "MOVERS" && data && data.movers.length === 0
+            ? `No stock moved ${minAbsPct}% or more between ${day(from)} and ${day(to)} on the liquidity floor this view uses.`
+            : flaggedUnavailable}
+        />
+        </div>
+
+        <main style={{ padding: "20px 24px 32px", display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+          {mode !== "CANDIDATES" && (
+            <MoversControls
+              from={from} to={to} minAbsPct={minAbsPct} direction={direction} includeCa={includeCa}
+              withheld={data ? data.withheld_ca_suspect : null}
+              onFrom={(v) => setFrom(v || from)} onTo={(v) => setTo(v || to)}
+              onMinAbsPct={setMinAbsPct} onDirection={setDirection} onToggleCa={() => setIncludeCa((v) => !v)}
+            />
+          )}
+          {mode === "FORWARD" && <MoversForward data={fwd} error={fwdErr} />}
+          <MoversHero row={selRow} detail={det} mode={mode} name={det?.name ?? selRow?.name ?? selCandidate?.name ?? null} candidateRow={selCandidate} />
+          {mode === "CANDIDATES" && cd && (
+            <p data-testid="mv-cand-disclaimer" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-3)", padding: "10px 14px", borderRadius: 10, background: "var(--bg-1)", border: "1px solid var(--line)" }}>
+              <b style={{ color: "var(--ink-2)" }}>{cd.rule}</b> {cd.disclaimer}
+            </p>
+          )}
+
+          {sel && detail === null && (
+            <p style={{ margin: 0, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".1em", color: "var(--ink-3)" }}
+               aria-busy="true">LOADING THE CHART AND THE TIMELINE…</p>
+          )}
+          {sel && detail?.kind === "not_found" && (
+            <div role="status" data-testid="mv-detail-error" style={noticeBox}>
+              <p style={{ margin: 0 }}>No price history on record for {sel.symbol} on the EQ series.</p>
+            </div>
+          )}
+          {sel && detail?.kind === "error" && (
+            <div role="alert" data-testid="mv-detail-error" style={noticeBox}>
+              <p style={{ margin: 0 }}>The chart could not be loaded ({detail.message}).</p>
+              <button type="button" data-testid="mv-detail-retry" style={retryBtn}
+                      onClick={() => setDetailReload((n) => n + 1)}>Try again</button>
+            </div>
+          )}
+
+          {det && (
+            <>
+              <MoversChart
+                symbol={det.symbol} bars={det.bars} market={det.market} sector={det.sector}
+                events={det.events} lanes={det.lanes} sessionIndex={det.bar_index_of_session}
+                model={det.model} insiderLane={det.insider_lane} tech={det.tech}
+                horizon={horizon} onHorizonChange={(h) => setHorizon(h)}
+                range={range} ranges={RANGES}
+                onRangeChange={(r) => {
+                  // first time on CUSTOM: start from the two weeks either side of the move, which the reader then edits
+                  if (r === "C" && sel && !customFrom) { setCustomFrom(shift(sel.session, -14)); setCustomTo(shift(sel.session, 14)); }
+                  setRange(r);
+                }}
+                customFrom={customFrom ?? undefined} customTo={customTo ?? undefined}
+                onCustomChange={(f, t) => { setCustomFrom(f); setCustomTo(t); }}
+                dateMax={today}
+                pinnedEventId={evtId} onPinEvent={setEvtId}
+              />
+              {mode === "CANDIDATES" ? (
+                // Candidates stay purely events-and-deals: the timeline, nothing framed as the odds model's
+                // call (no sensitivity decomposition, Copilot attribution card, technical score, or model panel).
+                <MoversLog
+                  events={det.events} bars={det.bars} sessionIndex={det.bar_index_of_session}
+                  market={det.market} horizon={horizon} selectedId={evtId} onSelect={setEvtId}
+                />
+              ) : (
+                <>
+                  <MoversSensitivity detail={det} analysis={analysis} />
+                  <MoversCopilot detail={det} analysis={analysis} pinnedEventId={evtId} analysisLoading={analysisLoading} />
+                  <MoversTech
+                    state={evtId ? analysis?.tech_state : (analysis?.tech_state ?? det.tech_state)}
+                    eventLabel={evtId ? det.events.find((e) => e.id === evtId)?.title : "Move day"}
+                    pinned={!!evtId} deliveryCoverage={det.tech?.delivery_coverage}
+                  />
+                </>
+              )}
+            </>
+          )}
+
+          {/* v4: the model's own report card. Computed from nidp — v4 ships sample constants for these and its
+              README says so; sample constants are not shippable. Not shown for Candidates: that mode carries
+              no odds-model claim to report a card on. */}
+          {mode !== "CANDIDATES" && <FlagLiftCard data={lift} error={liftErr} onRetry={() => setAnalyticsReload((n) => n + 1)} />}
+
+          {det && mode !== "CANDIDATES" && (
+            <MoversBottomRow
+              events={det.events} bars={det.bars} sessionIndex={det.bar_index_of_session}
+              market={det.market} horizon={horizon}
+              selectedId={evtId} onSelect={setEvtId}
+              symbol={det.symbol} model={det.model}
+              calibration={cal} calibrationError={calErr}
+              onRetryCalibration={() => setAnalyticsReload((n) => n + 1)}
+            />
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+const noticeBox: React.CSSProperties = {
+  borderRadius: 14, background: "var(--bg-1)", border: "1px solid var(--line)", boxShadow: "var(--shadow-card)",
+  padding: "18px 20px", color: "var(--ink-2)", display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start",
+};
+const retryBtn: React.CSSProperties = {
+  fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--ink)",
+  background: "var(--bg-3)", border: "1px solid var(--line-2)", borderRadius: 8, padding: "6px 12px", cursor: "pointer",
+};

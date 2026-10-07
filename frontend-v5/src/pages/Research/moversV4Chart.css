@@ -1,0 +1,6 @@
+/* Top Movers v4 chart card: only what inline styles cannot express (hover / focus). Everything else is inline. */
+.mv4 .mvc-btn:hover { filter: brightness(1.15); }
+.mv4 .mvc-btn:focus-visible, .mv4 .mvc-evt:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+.mv4 .mvc-evt:hover { filter: brightness(1.2); }
+.mv4 .mvc-evlist summary { cursor: pointer; }
+.mv4 .mvc-evlist summary:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }

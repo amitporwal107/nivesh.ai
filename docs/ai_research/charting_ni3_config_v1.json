@@ -1,0 +1,243 @@
+{
+  "approved_by_owner": "2026-09-22",
+  "base_detector_config_hash_v1": "05167d3ae57f18602b8761ee21de311f5ffb96c428a16df5c119678a748514cf",
+  "cup_and_handle": {
+    "breakout_threshold_pct": 0.5,
+    "cup_early_complete_threshold_pct": 80,
+    "cup_low_position_max_frac": 0.67,
+    "cup_low_position_min_frac": 0.33,
+    "cup_max_bars": 260,
+    "cup_max_depth_pct": 50,
+    "cup_max_single_bar_range_atr": 3.0,
+    "cup_min_bars": 25,
+    "cup_min_depth_pct": 15,
+    "cup_resistance_proximity_pct": 2,
+    "cup_rim_tolerance_pct": 3,
+    "direction": "BULLISH",
+    "early_complete_measure": "live_maturity_s34_7_1",
+    "handle_max_bars": 25,
+    "handle_max_depth_pct_of_cup": 50,
+    "handle_max_depth_pct_price": 15,
+    "handle_max_pct_of_cup_duration": 25,
+    "handle_max_rel_volume": 1.0,
+    "handle_min_bars": 5,
+    "invalidation": "close_below_handle_low",
+    "layer1_stop": "below_handle_low",
+    "prior_trend_at_cup_start": [
+      "BULL",
+      "STRONG_BULL"
+    ]
+  },
+  "double_bottom": {
+    "breakout_threshold_pct": 0.5,
+    "direction": "BULLISH",
+    "invalidation": "close_below_second_trough",
+    "layer1_stop": "below_second_trough",
+    "neckline": "highest_reaction_high_between_troughs",
+    "recovery_min_pct": 5,
+    "trough_min_separation_bars": 10,
+    "trough_tolerance_pct": 3
+  },
+  "double_top": {
+    "breakdown_threshold_pct": 0.5,
+    "decline_min_pct": 5,
+    "direction": "BEARISH",
+    "invalidation": "close_above_second_peak",
+    "layer1_stop": "above_second_peak",
+    "neckline": "lowest_reaction_low_between_peaks",
+    "peak_min_separation_bars": 10,
+    "peak_tolerance_pct": 3
+  },
+  "head_and_shoulders": {
+    "breakdown_threshold_pct": 0.5,
+    "direction": "BEARISH",
+    "head_min_prominence_pct": 3,
+    "invalidation": "close_above_right_shoulder_high",
+    "neckline": "line_through_two_troughs_live_value",
+    "neckline_trough_min_separation_bars": 3,
+    "peak_min_separation_bars": 5,
+    "report_both_stops": true,
+    "shoulder_tolerance_pct": 5,
+    "stop_buffer_atr": 0.25,
+    "stop_primary": "right_shoulder_high_plus_buffer",
+    "stop_secondary_research": "neckline_value_at_breakdown_plus_buffer"
+  },
+  "implementation_prerequisite": "geometry.trendline_value_at(pivots, t) fitted on pivots confirmed by t",
+  "inverse_head_and_shoulders": {
+    "breakout_threshold_pct": 0.5,
+    "direction": "BULLISH",
+    "head_min_prominence_pct": 3,
+    "invalidation": "close_below_right_shoulder_low",
+    "neckline": "line_through_two_reaction_highs_live_value",
+    "neckline_peak_min_separation_bars": 3,
+    "peak_min_separation_bars": 5,
+    "report_both_stops": true,
+    "shoulder_tolerance_pct": 5,
+    "stop_buffer_atr": 0.25,
+    "stop_primary": "right_shoulder_low_minus_buffer",
+    "stop_secondary_research": "neckline_value_at_breakout_minus_buffer"
+  },
+  "large_scale": {
+    "applies_to": "all_new_types_and_live_SUPPORT_RESISTANCE_RECTANGLE_HH_HL",
+    "display": "chart_first_separate_layer",
+    "live_types_large_scale_config_hash": "9b81eae7725188cc3652b390666ce17d7db3d7afbd2a9486754fa036e54751c4",
+    "max_formation_bars": 260,
+    "min_formation_bars": 40,
+    "research": "study_v2_only",
+    "scale_link_min_overlap": 0.5,
+    "swing_left_bars": 8,
+    "swing_right_bars": 8
+  },
+  "ni3_version": "1.0",
+  "overlap_with_live_types": "report_separately_link_never_pool",
+  "p1_geometry": {
+    "apex_breakout_deadline_frac": 0.75,
+    "containment": "no_close_beyond_either_line_by_breakout_threshold_pct",
+    "convergence_max_ratio": 0.7,
+    "expanding_in_scope": false,
+    "expanding_min_ratio": 1.43,
+    "flat_drift_measure": "fitted_line_change_over_formation_pct_of_start",
+    "flat_flat_parallel_emitted": false,
+    "flat_max_drift_pct": 1.5,
+    "layer1_stop": "opposite_line_value_at_breakout_bar",
+    "line_fit": "least_squares_through_same_side_pivots",
+    "lines_may_cross_within_span": false,
+    "max_pivots_considered": 6,
+    "min_pivots": 4,
+    "parallel_expiry": "max_formation_bars",
+    "parallel_ratio_max": 1.15,
+    "parallel_ratio_min": 0.85,
+    "pivot_line_residual_max_atr": 0.25,
+    "pivot_selection": "largest_valid_k_from_6_to_4",
+    "shapes": {
+      "ascending_channel": {
+        "direction": "SIDE_BROKEN",
+        "lower": "RISING",
+        "opposite_close_before_breakout": "BREAKOUT",
+        "pair": "parallel",
+        "upper": "RISING"
+      },
+      "ascending_triangle": {
+        "direction": "BULLISH",
+        "lower": "RISING",
+        "opposite_close_before_breakout": "INVALIDATED",
+        "pair": "converging",
+        "upper": "FLAT"
+      },
+      "descending_channel": {
+        "direction": "SIDE_BROKEN",
+        "lower": "FALLING",
+        "opposite_close_before_breakout": "BREAKOUT",
+        "pair": "parallel",
+        "upper": "FALLING"
+      },
+      "descending_triangle": {
+        "direction": "BEARISH",
+        "lower": "FLAT",
+        "opposite_close_before_breakout": "INVALIDATED",
+        "pair": "converging",
+        "upper": "FALLING"
+      },
+      "falling_wedge": {
+        "direction": "BULLISH",
+        "lower": "FALLING",
+        "opposite_close_before_breakout": "INVALIDATED_COUNTERTREND_BREAKOUT",
+        "pair": "converging",
+        "upper": "FALLING"
+      },
+      "rising_wedge": {
+        "direction": "BEARISH",
+        "lower": "RISING",
+        "opposite_close_before_breakout": "INVALIDATED_COUNTERTREND_BREAKOUT",
+        "pair": "converging",
+        "upper": "RISING"
+      },
+      "symmetrical_triangle": {
+        "direction": "SIDE_BROKEN",
+        "lower": "RISING",
+        "opposite_close_before_breakout": "BREAKOUT",
+        "pair": "converging",
+        "upper": "FALLING"
+      }
+    },
+    "width_ratio": "width_at_last_pivot_over_width_at_first_pivot"
+  },
+  "p2_flags": {
+    "bear_flag_bodies": [
+      "ascending_channel",
+      "rising_wedge",
+      "flat_parallel"
+    ],
+    "body_duration_strictly_less_than_pole": true,
+    "body_max_bars": 20,
+    "body_max_rel_volume_descriptive": 1.0,
+    "body_max_retracement_pct_of_pole": 50,
+    "body_min_bars": 5,
+    "body_min_pivots": 4,
+    "bull_flag_bodies": [
+      "descending_channel",
+      "falling_wedge",
+      "flat_parallel"
+    ],
+    "layer1_stop": "opposite_body_line_value_at_breakout_bar",
+    "opposite_close_before_breakout": "INVALIDATED",
+    "other_body_after_pole": "report_as_own_p1_shape_with_linked_pattern_id",
+    "pennant_bodies": [
+      "symmetrical_triangle"
+    ],
+    "pole_max_bars": 15,
+    "pole_min_move_atr": 2.0
+  },
+  "research_metadata_fields": [
+    "breakout_threshold_atr",
+    "followthrough_rel_volume",
+    "persistence_break_3c",
+    "extreme_diff_pct_of_height",
+    "candle_quality",
+    "retest_quality",
+    "scale",
+    "linked_pattern_id"
+  ],
+  "shared": {
+    "allow_intrabar_confirmation": false,
+    "atr_period": 14,
+    "bearish_tradability": "INFORMATIONAL_AVOID_NEW_LONG",
+    "breakout_threshold_pct": 0.5,
+    "breakout_volume_bar": "breakout_bar",
+    "breakout_volume_ratio_min": 1.5,
+    "entry_alternative": "signal_bar_close",
+    "entry_primary": "next_session_open",
+    "failure_threshold_pct": 0.5,
+    "failure_window_bars": 5,
+    "gap_fill": "open",
+    "max_formation_bars": 120,
+    "min_formation_bars": 15,
+    "pivots": "confirmed_only_as_of_t",
+    "readiness_band_pct": 1.0,
+    "repaint": "never; type change ends pattern with SHAPE_CHANGED",
+    "research_state_additions": {
+      "DATA_BLOCKED_or_UNRESOLVED": "INCONCLUSIVE",
+      "INVALIDATED_or_EXPIRED_before_breakout": "NOT_TRIGGERED"
+    },
+    "same_bar_both_touched": "AMBIGUOUS",
+    "stop_min_distance_atr": 0.75,
+    "stop_rule": "farther_of_layer1_layer2",
+    "swing_left_bars": 3,
+    "swing_right_bars": 3,
+    "targets_pct": [
+      2,
+      3,
+      5,
+      10
+    ],
+    "targets_r": [
+      1,
+      1.5,
+      2,
+      3
+    ],
+    "volume_baseline_bars": 20
+  },
+  "source_table": "docs/ai_research/CHARTING_NI3_PREDICATES_V1.md",
+  "timeframe": "1D"
+}
