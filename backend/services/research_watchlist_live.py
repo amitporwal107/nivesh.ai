@@ -35,14 +35,18 @@ def _ttl() -> float:
 
 def _fetch_yf_batch(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
     """Synchronous yfinance call. Returns {symbol: {price, prev_close,
-    day_change, day_change_pct}}. period='2d' so we always have current +
-    previous trading day's close even right after a fresh open."""
+    day_change, day_change_pct}}. period='5d' (not '2d' — confirmed by a
+    real staging check right at market open: a 2-day window sometimes
+    drops yesterday's close for part of a 41-ticker batch, leaving
+    day_change null for every symbol. 5d gives enough buffer that we
+    always have the last two real closes; same TTL used by
+    live_price.py's _batch_fetch_prices for the same reason)."""
     import yfinance as yf
 
     tickers = [f"{s}.NS" for s in symbols]
     out: Dict[str, Dict[str, Any]] = {}
     try:
-        data = yf.download(" ".join(tickers), period="2d", interval="1d", progress=False, threads=True)
+        data = yf.download(" ".join(tickers), period="5d", interval="1d", progress=False, threads=True)
         if data.empty or "Close" not in data.columns:
             return out
         for ticker, sym in zip(tickers, symbols):
