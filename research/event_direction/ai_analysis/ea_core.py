@@ -119,9 +119,11 @@ def prompt_sha(text: str) -> str:
 
 
 def candidates(filings: Iterable[dict], done: set[str]) -> list[dict]:
-    """Filings worth a model call: not compliance paperwork, not already judged under this prompt."""
+    """Filings worth a model call: not compliance paperwork (any subject the rule files under
+    'regulatory'), not already judged under this prompt."""
     return [f for f in filings
-            if f.get("id") and f["id"] not in done and str(f.get("title") or "").strip().lower() not in ROUTINE_SUBJECTS]
+            if f.get("id") and f["id"] not in done
+            and SUBJECT_CATEGORY.get(str(f.get("title") or "").strip().lower()) != "regulatory"]
 
 
 def _score(v: Any, lo: int = 0, hi: int = 100) -> bool:

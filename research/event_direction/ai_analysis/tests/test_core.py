@@ -53,7 +53,8 @@ def _analysis(**kw):
 def test_routine_compliance_subjects_never_reach_the_model():
     """TC-E1: pure compliance filings are skipped without a model call; everything else is a candidate."""
     fs = [_filing("a", "Certificate under SEBI (Depositories and Participants) Regulations, 2018"),
-          _filing("b", "trading window"), _filing("c", "Acquisition"), _filing("d", "Outcome of Board Meeting")]
+          _filing("b", "trading window"), _filing("c", "Acquisition"), _filing("d", "Outcome of Board Meeting"),
+          _filing("e", "Shareholders meeting"), _filing("f", "Analysts/Institutional Investor Meet/Con. Call Updates")]
     assert [f["id"] for f in core.candidates(fs, done=set())] == ["c", "d"]
 
 

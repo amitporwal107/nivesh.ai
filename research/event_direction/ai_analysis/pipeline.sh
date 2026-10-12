@@ -31,3 +31,13 @@ echo "== ingest"
 KEY_FILE="${EVENT_AI_KEY_FILE:-$HOME/.config/nivesh/event-ai-ingest-key}"
 EVENT_AI_INGEST_KEY="${EVENT_AI_INGEST_KEY:-$(cat "$KEY_FILE" 2>/dev/null || true)}" \
   python3 "$HERE/ingest.py" --work "$WORK"
+
+# Category, impact and sentiment for the filings table (what the Research page's chips and
+# "material" order read). EVENT_AI_PSQL is a command that runs SQL from stdin against the NIDP
+# database; without it this stage is skipped and says so.
+if [ -n "${EVENT_AI_PSQL:-}" ]; then
+  echo "== scores"
+  python3 "$HERE/to_pg_scores.py" --work "$WORK" --days "${SCORE_DAYS:-35}" | "$EVENT_AI_PSQL" | tail -8
+else
+  echo "== scores: skipped (EVENT_AI_PSQL not set)"
+fi
