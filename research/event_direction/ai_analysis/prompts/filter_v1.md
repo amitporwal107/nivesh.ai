@@ -12,6 +12,20 @@ Scoring `importance` (0-100): how much this filing could change what the busines
 
 Size matters relative to the company. If the document gives no amount and no way to judge scale, do not score above 59.
 
+`category`: exactly one of these, by what the filing is about.
+- `orders`: order wins, contracts, letters of award or acceptance.
+- `mna`: acquisitions, mergers, demergers, stake purchases or sales, joint ventures, sale of a business or asset.
+- `earnings`: financial results, and business or operating updates that report figures.
+- `capex`: capacity additions, new plants or projects, commencement of production or operations.
+- `management`: appointments, resignations and other changes of directors, key managers or auditors.
+- `dividend`: dividends, bonus issues, stock splits, and their record dates.
+- `buyback`: share buybacks.
+- `qip`: raising money — QIP, preferential or rights issues, debentures, other debt or equity issuance.
+- `rating`: credit rating actions.
+- `litigation`: court cases, disputes, regulatory orders and penalties, insolvency proceedings.
+- `regulatory`: procedural compliance filings with no business content — certificates, meeting and postal-ballot notices, trading-window notices, newspaper advertisements, investor-meet schedules, ESOP allotments.
+- `other`: anything that fits none of the above.
+
 Other fields:
 - `positive` and `negative` (0-100 each): how strongly the filing bears favourably and unfavourably on the business. Both can be non-zero.
 - `confidence`: HIGH when the document text states the facts you relied on; MEDIUM when you relied on the subject and summary; LOW when the text is missing or unreadable and the subject is vague.

@@ -32,7 +32,7 @@ def _filing(aid="f1", title="Acquisition", **kw):
 
 
 def _verdict(aid="f1", importance=80, **kw):
-    v = {"id": aid, "importance": importance, "confidence": "HIGH", "positive": 40, "negative": 5,
+    v = {"id": aid, "importance": importance, "category": "mna", "confidence": "HIGH", "positive": 40, "negative": 5,
          "title": "Acme buys Beta for Rs 500 cr", "why": "Adds a second product line", "cats": ["new line"], "risks": ["integration"]}
     v.update(kw)
     return v
@@ -66,11 +66,12 @@ def test_already_judged_filings_are_not_sent_again():
 def test_filter_output_is_checked_against_the_batch():
     """TC-E3: out-of-range scores, an id that was not in the batch, and a missing id are all
     reported; only clean verdicts are kept."""
-    raw = {"verdicts": [_verdict("f1"), _verdict("f2", importance=140), _verdict("zz"), _verdict("f3", title="  ")]}
-    good, problems = core.clean_filter(raw, ["f1", "f2", "f3", "f4"])
-    assert list(good) == ["f1"]
+    raw = {"verdicts": [_verdict("f1"), _verdict("f2", importance=140), _verdict("zz"), _verdict("f3", title="  "),
+                        _verdict("f5", category="M&A")]}
+    good, problems = core.clean_filter(raw, ["f1", "f2", "f3", "f4", "f5"])
+    assert list(good) == ["f1"] and good["f1"]["category"] == "mna"
     text = " | ".join(problems)
-    assert "f2" in text and "zz" in text and "f3" in text and "f4" in text
+    assert "f2" in text and "zz" in text and "f3" in text and "f4" in text and "f5: unknown category" in text
 
 
 def test_analysis_output_is_validated():
@@ -168,3 +169,58 @@ def test_model_call_failures_raise(monkeypatch):
     monkeypatch.setattr(analyse.subprocess, "run", lambda *a, **k: _Proc({}, code=1))
     with pytest.raises(RuntimeError):
         analyse.run_claude("S", "U", {"type": "object"})
+
+
+# ── scores for the filings table (category chips, materiality order) ────────
+import to_pg_scores as pg  # noqa: E402
+
+AID = "a" * 40
+
+
+def test_scores_use_the_classifier_vocabulary():
+    """TC-E11: importance becomes high / medium / low, the net of the two impact scores becomes the
+    sentiment, and a full analysis's net score overrides the filter's when there is one."""
+    assert [core.impact_level(n) for n in (0, 29, 30, 59, 60, 100)] == ["low", "low", "medium", "medium", "high", "high"]
+    f = core.filter_doc(_filing(AID), _verdict(AID, 80, positive=40, negative=5), SHA, MODEL, NOW)
+    rows = pg.score_rows([f], SHA)
+    assert rows == [(AID, "NSE_ANN", "mna", "high", "positive", f"{MODEL}:filter_v1:{'a' * 12}")]
+    a = core.analysis_doc(_filing(AID), core.clean_analysis(_analysis(net_impact_score=-40)), "b" * 64, MODEL, NOW)
+    assert pg.score_rows([f, a], SHA)[0][4] == "negative"
+    flat = core.filter_doc(_filing(AID), _verdict(AID, 20, positive=5, negative=5), SHA, MODEL, NOW)
+    assert pg.score_rows([flat], SHA)[0][3:5] == ("low", "neutral")
+
+
+def test_only_current_prompt_verdicts_with_a_real_id_are_scored():
+    """TC-E12: a verdict from an older prompt, one without a category, and one whose id is not a
+    40-character hash are all left out — nothing but checked values reaches SQL."""
+    old = core.filter_doc(_filing(AID), _verdict(AID), "c" * 64, MODEL, NOW)
+    nocat = core.filter_doc(_filing("b" * 40), _verdict("b" * 40), SHA, MODEL, NOW); nocat.pop("category")
+    badid = core.filter_doc(_filing("x'; DROP"), _verdict("x'; DROP"), SHA, MODEL, NOW)
+    assert pg.score_rows([old, nocat, badid], SHA) == []
+
+
+def test_sql_updates_only_listed_filings_and_keeps_a_rollback():
+    """TC-E13: the script saves the previous values of every row it will touch, updates by
+    (announcement_id, source), and marks compliance subjects 'regulatory' only where no category
+    is set. Values travel as COPY data, not as SQL text."""
+    rows = [(AID, "NSE_ANN", "mna", "high", "positive", "tag")]
+    sql = pg.build_sql(rows, days=3)
+    assert f"{AID},NSE_ANN,mna,high,positive,tag\n\\.".replace("\\n", "\n") in sql.replace("\r", "")
+    assert "CREATE TABLE IF NOT EXISTS nidp.event_ai_score_rollback" in sql
+    assert sql.index("INSERT INTO nidp.event_ai_score_rollback") < sql.index("UPDATE nidp.corporate_announcements")
+    assert "c.announcement_id = t.announcement_id AND c.source = t.source" in sql
+    rule = sql[sql.index("-- subject rule"):]
+    assert "c.event_category IS NULL" in rule and "lower(btrim(c.subject)) = m.subject" in rule
+    assert "('certificate under sebi (depositories and participants) regulations, 2018', 'regulatory')" in rule
+    assert "('acquisition', 'mna')" in rule
+    assert AID not in sql.split("COPY")[0] and AID not in rule
+
+
+def test_subject_rule_only_covers_unambiguous_subjects():
+    """TC-E14: every mapped category is one the filings table knows; the subjects never sent to the
+    model are all 'regulatory'; and catch-all subjects are left for the model, not guessed."""
+    assert set(core.SUBJECT_CATEGORY.values()) <= set(core.EVENT_CATEGORIES)
+    assert all(core.SUBJECT_CATEGORY[s] == "regulatory" for s in core.ROUTINE_SUBJECTS)
+    for vague in ("general updates", "updates", "press release", "outcome of board meeting", "others", "record date"):
+        assert vague not in core.SUBJECT_CATEGORY
+    assert all(s == s.lower().strip() for s in core.SUBJECT_CATEGORY)

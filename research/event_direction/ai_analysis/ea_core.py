@@ -27,6 +27,58 @@ ROUTINE_SUBJECTS = frozenset(s.lower() for s in (
     "Trading Window",
 ))
 
+# The filings table's own vocabulary (backend/nidp/services/announcement_classifier/classifier.py).
+# The Research page builds its category chips and its "material" order from these columns.
+EVENT_CATEGORIES = ("orders", "mna", "earnings", "capex", "regulatory", "management",
+                    "dividend", "buyback", "qip", "rating", "litigation", "other")
+MEDIUM_IMPORTANCE = 30                   # impact: >= KEEP_IMPORTANCE high, >= this medium, else low
+
+# Category by the exchange's own subject line, for filings the model has not judged (the year of
+# history, and anything it has not reached yet). Only subjects whose category is unambiguous are
+# listed; "general updates", "press release", "outcome of board meeting" and the like can be about
+# anything, so they stay uncategorised until the model reads them. A model verdict always wins.
+_BY_CATEGORY = {
+    "orders": ("bagging/receiving of orders/contracts", "awarding of order(s)/contract(s)"),
+    "mna": ("acquisition", "amalgamation/merger", "scheme of arrangement", "sale or disposal", "demerger",
+            "public announcement-open offer", "open offer", "post offer public announcement",
+            "diversification/disinvestment", "other restructuring"),
+    "earnings": ("integrated filing- financial", "clarification - financial results",
+                 "reply to clarification- financial results", "monthly business updates",
+                 "reasons for delayed/non-submission of financial results",
+                 "voluntary revision of financial statements or report"),
+    "capex": ("capacity addition", "commencement of commercial production/operations",
+              "postponement of commercial production/operations", "adoption of new line(s) of business"),
+    "management": ("appointment", "change in management", "resignation", "resignation of director/kmp/smp",
+                   "change in director(s)", "cessation", "change in auditors",
+                   "change in company secretary/compliance officer", "retirement",
+                   "resignation of independent director", "resignation of statutory auditor", "demise"),
+    "dividend": ("dividend", "bonus", "stock split"),
+    "buyback": ("buyback", "public announcement - buyback of shares", "closure of buy back",
+                "post buyback public announcement"),
+    "qip": ("allotment of securities", "issue of securities", "rights issue", "preferential issue",
+            "qualified institutional placement", "fccbs"),
+    "rating": ("credit rating", "credit rating- revision", "credit rating- new", "credit rating- others"),
+    "litigation": ("action(s) taken or orders passed", "action(s) initiated or orders passed",
+                   "pendency of litigation(s)/dispute(s) or the outcome impacting the company",
+                   "corporate insolvency resolution process", "fraud/default/arrest",
+                   "frauds/default by employees", "defaults on payment of interest/principal",
+                   "delay/default in the payment of fines/penalties/dues etc. to authority",
+                   "initiation of forensic audit", "final  forensic  audit  report", "one time settlement",
+                   "corporate debt restructuring"),
+    "regulatory": tuple(sorted(ROUTINE_SUBJECTS)) + (
+        "analysts/institutional investor meet/con. call updates", "shareholders meeting", "esop/esos/esps",
+        "options to purchase securities", "spurt in volume", "price movement", "monitoring agency report",
+        "statement of deviation(s) or variation(s) under reg. 32", "amendment to aoa/moa",
+        "committee meeting updates", "address change", "loss of share certificates",
+        "issue of duplicate share certificate", "registrar & share transfer agent update",
+        "trading plan under pit", "integrated filing- governance",
+        "quarterly compliance report on corporate governance - within 21 days from the end of the quarter",
+        "name change", "name and symbol change", "symbol change of company", "increase in authorised capital",
+        "extension of annual general meeting", "extension  of financial year", "change in financial year",
+        "board meeting cancelled", "cancellation of book closure"),
+}
+SUBJECT_CATEGORY = {subject: cat for cat, subjects in _BY_CATEGORY.items() for subject in subjects}
+
 CONFIDENCE = ("HIGH", "MEDIUM", "LOW")
 CERTAINTY = ("final", "proposed", "conditional", "unknown")
 UNITS = ("cr", "usd_mn", "pct", "shares")
@@ -40,8 +92,9 @@ _FACTORS = {"type": "array", "maxItems": 4, "items": {
 FILTER_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["verdicts"], "properties": {
     "verdicts": {"type": "array", "items": {
         "type": "object", "additionalProperties": False,
-        "required": ["id", "importance", "confidence", "positive", "negative", "title", "why", "cats", "risks"],
-        "properties": {"id": _STR, "importance": _SCORE, "confidence": {"type": "string", "enum": list(CONFIDENCE)},
+        "required": ["id", "category", "importance", "confidence", "positive", "negative", "title", "why", "cats", "risks"],
+        "properties": {"id": _STR, "category": {"type": "string", "enum": list(EVENT_CATEGORIES)},
+                       "importance": _SCORE, "confidence": {"type": "string", "enum": list(CONFIDENCE)},
                        "positive": _SCORE, "negative": _SCORE, "title": _STR, "why": _STR,
                        "cats": {"type": "array", "maxItems": 3, "items": _STR},
                        "risks": {"type": "array", "maxItems": 3, "items": _STR}}}}}}
@@ -99,12 +152,15 @@ def clean_filter(raw: Any, batch_ids: list[str]) -> tuple[dict[str, dict], list[
             problems.append(f"{vid}: duplicate verdict")
         elif not all(_score(v.get(k)) for k in ("importance", "positive", "negative")):
             problems.append(f"{vid}: score outside 0-100")
+        elif v.get("category") not in EVENT_CATEGORIES:
+            problems.append(f"{vid}: unknown category")
         elif v.get("confidence") not in CONFIDENCE:
             problems.append(f"{vid}: unknown confidence")
         elif not _text(v.get("title")) or not _text(v.get("why")):
             problems.append(f"{vid}: empty title or why")
         else:
-            good[vid] = {"importance": v["importance"], "positive": v["positive"], "negative": v["negative"],
+            good[vid] = {"category": v["category"],
+                         "importance": v["importance"], "positive": v["positive"], "negative": v["negative"],
                          "confidence": v["confidence"], "title": _text(v["title"]), "why": _text(v["why"]),
                          "cats": _texts(v.get("cats"), 3), "risks": _texts(v.get("risks"), 3)}
     problems += [f"{i}: no verdict returned" for i in batch_ids if i not in good and not any(p.startswith(f"{i}:") for p in problems)]
@@ -145,6 +201,15 @@ def clean_analysis(raw: Any) -> dict:
             "unk": _texts(raw.get("unk"), 4)}
 
 
+def impact_level(importance: int) -> str:
+    return "high" if importance >= KEEP_IMPORTANCE else "medium" if importance >= MEDIUM_IMPORTANCE else "low"
+
+
+def sentiment(net: int) -> str:
+    """Same cut-offs the backend's reader uses for the insight card."""
+    return "positive" if net >= 10 else "negative" if net <= -10 else "neutral"
+
+
 def net_band(n: int) -> str:
     """Band from the net score. Derived here so the stored band can never disagree with the score."""
     size = abs(n)
@@ -165,7 +230,8 @@ def _base(filing: dict, mode: str, sha: str, model_tag: str, now: datetime) -> d
 
 def filter_doc(filing: dict, verdict: dict, sha: str, model_tag: str, now: datetime) -> dict:
     d = _base(filing, FILTER_MODE, sha, model_tag, now)
-    d.update(include=verdict["importance"] >= KEEP_IMPORTANCE, event_importance_score=verdict["importance"],
+    d.update(include=verdict["importance"] >= KEEP_IMPORTANCE, category=verdict["category"],
+             event_importance_score=verdict["importance"],
              evidence_confidence=verdict["confidence"], positive_impact_score=verdict["positive"],
              negative_impact_score=verdict["negative"],
              analysis={"title": verdict["title"], "why": verdict["why"], "cats": verdict["cats"], "risks": verdict["risks"]})
