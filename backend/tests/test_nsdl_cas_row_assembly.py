@@ -131,3 +131,16 @@ def test_folio_row_isin_alone_name_wrapped_around_it():
 def test_incomplete_row_does_not_borrow_from_a_total_another_row_or_a_section(neighbour):
     lines = [_clean_line(ln) for ln in ["INE000K01010", neighbour]]
     assert _assemble_row(lines, 0, "E") == "INE000K01010"
+
+
+def test_zero_balance_folio_does_not_take_units_from_the_fund_name():
+    # every figure is 0, so no column relation can identify the units; the
+    # "50" in the name and the folio number must not be read as holdings data
+    h = _row([
+        "INF000L01JN2",
+        "Lambda Nifty 50 Index Fund - Regular Plan 577334532673 0.000 0.00 0.00 0.00",
+        "100822",
+    ], 0, "F")
+    assert h.quantity == 0
+    assert h.buy_price == 0
+    assert h.value == 0

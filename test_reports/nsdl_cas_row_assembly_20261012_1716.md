@@ -68,4 +68,22 @@ GET https://staging.niveshcopilot.com/api/healthz → HTTP 200 {"status":"ok","s
 - Other NSDL statement vintages: only this one real statement was available. Rows that
   are already on a single line take the unchanged path.
 
+## Follow-up: zero-balance folio (found after the first real import)
+
+The first import through the app saved 117 holdings, but the portfolio snapshot recorded
+an absurd invested total. One zero-balance folio whose fund name contains "50" had been
+saved with quantity 50 and the folio number as its buy price: `_parse_folio_row`
+accepted its full-layout hypotheses on a row where every figure is 0, so the column
+relations held for any alignment. Both hypotheses now require a non-zero value.
+
+```
+..............                                                           [100%]
+14 passed in 0.06s
+holdings=117 malformed=0 reconciled=True grand_total_diff=0.0
+holdings with implausible buy_price: 0      (was 1)
+```
+
+The holdings and snapshot already saved for that account still carry the bad row until
+the statement is imported again.
+
 ## Verdict: PASS

@@ -183,15 +183,19 @@ def _parse_folio_row(nums: list[float], name: str, isin: str) -> Optional[Holdin
     # Accept the first whose internal relations hold:
     #   value ≈ units × nav   and (when cost columns exist)  pnl ≈ value − total
     # 1) full + trailing Return%: [.. Units Avg Total NAV Value PnL Return]
+    # Both full-layout hypotheses require a non-zero value: on a zero-balance
+    # folio every figure is 0, so the relations hold for ANY alignment and a
+    # digit from the fund name ("Nifty 50") was accepted as the units with the
+    # folio number as the average cost.
     if len(n) >= 7:
         units, avg, total, nav, value, pnl = n[-7], n[-6], n[-5], n[-4], n[-3], n[-2]
-        if approx(value, units * nav, value) and approx(pnl, value - total, value):
+        if value > 0 and approx(value, units * nav, value) and approx(pnl, value - total, value):
             return Holding(name, isin, "F", _refine_type("F", name),
                            units, nav, avg or nav, value, cost_basis=total)
     # 2) full, no Return%: [.. Units Avg Total NAV Value PnL]
     if len(n) >= 6:
         units, avg, total, nav, value, pnl = n[-6], n[-5], n[-4], n[-3], n[-2], n[-1]
-        if approx(value, units * nav, value) and approx(pnl, value - total, value):
+        if value > 0 and approx(value, units * nav, value) and approx(pnl, value - total, value):
             return Holding(name, isin, "F", _refine_type("F", name),
                            units, nav, avg or nav, value, cost_basis=total)
     # 3) simple legacy: [.. Units NAV Value]
