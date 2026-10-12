@@ -1,0 +1,51 @@
+[Unit]
+Description=NIDP Query API — STAGING (read-only HTTPS surface over nidp.* warehouse tables)
+After=network-online.target docker.service
+Wants=network-online.target
+
+# Staging counterpart of backend/nidp/deploy/vm/nidp-query-api.service. The
+# unit that runs on the GCP VM was never committed, so this one is rebuilt from
+# the prod unit with the staging user, paths and port. nidp/bootstrap.sh diffs
+# it against the live unit when the capture bundle contains one.
+
+[Service]
+Type=simple
+User=nidp-staging
+Group=nidp-staging
+WorkingDirectory=/opt/nidp/dev-repo/nivesh.ai/backend
+
+# Shared NIDP staging env (Postgres URL on localhost:5434, tokens, API keys)
+EnvironmentFile=/opt/nidp-staging/nidp.env
+# Service-specific env (bind port; may also carry the token)
+EnvironmentFile=/opt/nidp-staging/query_api.env
+
+Environment=PYTHONPATH=/opt/nidp/dev-repo/nivesh.ai/backend
+Environment=PYTHONUNBUFFERED=1
+
+# Loopback only — nginx on this VM proxies /query/* here (nginx.staging.conf → :8091).
+ExecStart=/opt/nidp-staging/venv/bin/python -m uvicorn \
+    nidp.services.query_api.app:app \
+    --host 127.0.0.1 \
+    --port ${NIDP_QUERY_API_PORT} \
+    --proxy-headers \
+    --forwarded-allow-ips=* \
+    --root-path /query
+
+Restart=on-failure
+RestartSec=5s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nidp-staging-query-api
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+# raw_archives: POST /feeds/{x}/execute forks run_service.sh from this unit,
+# and feeds archive what they fetch under NIDP_HOME/raw_archives.
+ReadWritePaths=/opt/nidp-staging/logs /opt/nidp-staging/run /opt/nidp-staging/raw_archives
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
