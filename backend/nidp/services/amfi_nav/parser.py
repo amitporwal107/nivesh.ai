@@ -1,6 +1,8 @@
 """AMFI NAVAll.txt parser.
 
-File shape (pipe-delimited, with section headers):
+File shape (semicolon-delimited, with section headers). Columns are located
+by header name, so both this original layout and the later eight-column one
+(Plan and Option split out of the scheme name) parse:
 
     Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Net Asset Value;Date
 
@@ -72,6 +74,50 @@ def _to_float(s: Optional[str]) -> Optional[float]:
         return None
 
 
+# Column positions of the original six-column NAVAll.txt, used when a body has
+# no header row to read them from.
+_LEGACY_COLUMNS = {"scheme_code": 0, "isin_growth": 1, "isin_idcw": 2,
+                   "scheme_name": 3, "nav": 4, "date": 5}
+
+
+def _column_index(header_line: str) -> dict[str, int]:
+    """Map the fields the parser needs to their positions in this file.
+
+    AMFI has changed the layout: by October 2026 the file carries eight
+    columns, with "Plan" and "Option" split out of the scheme name and placed
+    before "Net Asset Value". Reading by header name keeps both layouts
+    working; fixed positions read the plan as the NAV and dropped every row.
+    """
+    idx: dict[str, int] = {}
+    for pos, raw in enumerate(header_line.split(";")):
+        name = " ".join(raw.strip().lower().split())
+        if name == "scheme code":
+            idx["scheme_code"] = pos
+        elif name == "scheme name":
+            idx["scheme_name"] = pos
+        elif name == "net asset value":
+            idx["nav"] = pos
+        elif name == "date":
+            idx["date"] = pos
+        elif name == "plan":
+            idx["plan"] = pos
+        elif name == "option":
+            idx["option"] = pos
+        elif "isin" in name and "reinvest" in name:
+            idx["isin_idcw"] = pos
+        elif "isin" in name:
+            idx["isin_growth"] = pos
+    return idx
+
+
+def _cell(cols: list[str], idx: dict[str, int], key: str) -> Optional[str]:
+    pos = idx.get(key)
+    if pos is None or pos >= len(cols):
+        return None
+    val = cols[pos]
+    return val if val and val != "-" else None
+
+
 def parse_nav_all(body: bytes) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Parse AMFI NAVAll.txt bytes.
 
@@ -106,6 +152,11 @@ def parse_nav_all(body: bytes) -> tuple[list[dict[str, Any]], list[dict[str, Any
             header_line.split(";"), _AMFI_REQUIRED_COLS,
             feed="amfi_nav", source="AMFI NAVAll.txt",
         )
+        idx = _column_index(header_line)
+    else:
+        idx = dict(_LEGACY_COLUMNS)
+    for key, pos in _LEGACY_COLUMNS.items():
+        idx.setdefault(key, pos)        # a column the header did not name
 
     nav_rows: list[dict[str, Any]] = []
     scheme_seen: dict[str, dict[str, Any]] = {}
@@ -138,18 +189,23 @@ def parse_nav_all(body: bytes) -> tuple[list[dict[str, Any]], list[dict[str, Any
             continue
 
         cols = [c.strip() for c in line.split(";")]
-        # Expected 6 cols. Tolerate trailing-empty drift.
+        # Tolerate trailing-empty drift, but a row must reach the NAV column.
         if len(cols) < 5:
             continue
-        scheme_code = cols[0]
+        scheme_code = cols[idx["scheme_code"]] if idx["scheme_code"] < len(cols) else ""
         if not scheme_code or not scheme_code[0].isdigit():
             # Non-data row that happened to contain ';' — skip.
             continue
-        isin_growth = cols[1] or None
-        isin_idcw   = cols[2] or None
-        scheme_name = cols[3] or None
-        nav         = _to_float(cols[4])
-        nav_date    = _to_iso_date(cols[5]) if len(cols) > 5 else None
+        isin_growth = _cell(cols, idx, "isin_growth")
+        isin_idcw   = _cell(cols, idx, "isin_idcw")
+        scheme_name = _cell(cols, idx, "scheme_name")
+        # Where the file splits the name, rebuild the single descriptive name
+        # the rest of the platform keys on ("<fund> - <plan> - <option>").
+        if scheme_name:
+            scheme_name = " - ".join(
+                p for p in (scheme_name, _cell(cols, idx, "plan"), _cell(cols, idx, "option")) if p)
+        nav         = _to_float(_cell(cols, idx, "nav"))
+        nav_date    = _to_iso_date(_cell(cols, idx, "date") or "")
 
         if scheme_name is None or nav is None or nav_date is None:
             # NAV file occasionally publishes "N.A." NAVs — skip cleanly.
@@ -175,8 +231,8 @@ def parse_nav_all(body: bytes) -> tuple[list[dict[str, Any]], list[dict[str, Any
             "scheme_code":     scheme_code,
             "scheme_name":     scheme_name,
             "amc_name_raw":    amc_name_raw,
-            "isin_growth":     isin_growth if (isin_growth and isin_growth != "-") else None,
-            "isin_idcw":       isin_idcw   if (isin_idcw   and isin_idcw   != "-") else None,
+            "isin_growth":     isin_growth,
+            "isin_idcw":       isin_idcw,
             "scheme_type":     scheme_type,
             "scheme_category": scheme_category,
         }
