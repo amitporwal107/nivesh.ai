@@ -33,7 +33,7 @@ from deps import db, get_current_user
 
 # Reuse the single, verified articles implementation + the DaaS-first helper and
 # the app-PG insight fallback (see module docstring).
-from routes.markets import _aux_cached, _daas_first, _articles, _filing_insights_pg
+from routes.markets import _aux_cached, _daas_first
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +87,6 @@ async def _feed(days: int, category: Optional[str], impact: Optional[str],
         "get_market_pulse_articles",
         {"days": days, "category": category, "impact": impact, "sentiment": sentiment,
          "q": q, "limit": limit, "offset": offset, "sort": sort, "symbol": symbol},
-        lambda pool: _articles(pool, days, category, impact, sentiment, q, limit, offset,
-                               sort, symbol),
         {"articles": [], "total": 0, "categories": {}},
     ))
 
@@ -114,7 +112,6 @@ async def _insights_for(ids: List[str]) -> Dict[str, Any]:
     if legacy_ids:
         data = await _daas_first(
             "get_filing_insights", {"ids": legacy_ids},
-            lambda pool: _filing_insights_pg(pool, legacy_ids),
             {"insights": {}},
         )
         for k, v in ((data or {}).get("insights") or {}).items():
@@ -283,49 +280,6 @@ _DOC_LABELS: Dict[str, str] = {
 }
 
 
-async def _companies_pg(pool, q: str, limit: int) -> Dict[str, Any]:
-    """App-PG fallback for symbol type-ahead."""
-    like = f"%{q.strip().upper()}%"
-    try:
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT DISTINCT ON (ticker_symbol) ticker_symbol AS symbol, company_name
-                  FROM nidp.corporate_announcements
-                 WHERE ticker_symbol IS NOT NULL
-                   AND (UPPER(ticker_symbol) LIKE $1 OR UPPER(company_name) LIKE $1)
-                 ORDER BY ticker_symbol
-                 LIMIT $2
-                """,
-                like, limit,
-            )
-    except Exception as e:  # noqa: BLE001 — type-ahead must never 500 the screen
-        logger.warning("company search fallback failed: %s", e)
-        return {"data": []}
-    return {"data": [dict(r) for r in rows]}
-
-
-async def _documents_by_symbol_pg(pool, sym: str, limit: int) -> Dict[str, Any]:
-    """App-PG fallback for the company document library."""
-    try:
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT doc_id, doc_type, company_name, ticker_symbol, filed_at,
-                       source_url, page_count, parse_status, raw_size_bytes
-                  FROM nidp.documents
-                 WHERE UPPER(ticker_symbol) = $1 AND source_url IS NOT NULL
-                 ORDER BY filed_at DESC NULLS LAST
-                 LIMIT $2
-                """,
-                sym, limit,
-            )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("company documents fallback failed: %s", e)
-        return {"data": []}
-    return {"data": [dict(r) for r in rows]}
-
-
 @router.get("/companies/search")
 async def companies_search(request: Request, q: str = "", limit: int = 8):
     """Type-ahead over companies (design: the header search suggests as you type).
@@ -342,7 +296,6 @@ async def companies_search(request: Request, q: str = "", limit: int = 8):
 
     data = await _daas_first(
         "search_symbols", {"q": q, "limit": limit},
-        lambda pool: _companies_pg(pool, q, limit),
         {"data": []},
     )
     seen, out = set(), []
@@ -373,7 +326,6 @@ async def company_documents(request: Request, symbol: str, limit: int = 200):
 
     data = await _daas_first(
         "documents_by_symbol", {"symbol": sym, "limit": limit},
-        lambda pool: _documents_by_symbol_pg(pool, sym, limit),
         {"data": []},
     )
     rows = (data or {}).get("data") or []
