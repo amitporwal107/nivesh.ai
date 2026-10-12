@@ -2,13 +2,16 @@
  * research-watchlist.adapter — public Research Watchlist page (/watchlist).
  *
  * Talks to backend routes/research_watchlist.py (no auth — `/api/public/...`):
- *   GET /api/public/research-watchlist → { meta, items }
+ *   GET /api/public/research-watchlist          → the newest list { meta, items }
+ *   GET /api/public/research-watchlist?date=…   → an earlier list (404 if none was published that day)
  */
 import { http } from "@/services/api/http";
 
 export type WatchlistTier = "high" | "caveat" | "speculative";
 
 export interface WatchlistPick {
+  /** The dated list this pick belongs to (YYYY-MM-DD). */
+  list_date: string;
   symbol: string;
   company_name: string;
   sector: string | null;
@@ -56,17 +59,26 @@ export interface WatchlistPick {
 }
 
 export interface WatchlistResponse {
-  meta: { count: number; disclaimer: string; live_quotes_source?: string };
+  meta: {
+    count: number;
+    /** The list being shown; null only when nothing has been published yet. */
+    list_date: string | null;
+    /** Every published list, newest first. */
+    available_dates: { list_date: string; count: number }[];
+    disclaimer: string;
+    live_quotes_source?: string;
+  };
   items: WatchlistPick[];
 }
 
 export interface ResearchWatchlistAdapter {
-  list(): Promise<WatchlistResponse>;
+  /** `listDate` (YYYY-MM-DD) picks an earlier list; omit for the newest. */
+  list(listDate?: string): Promise<WatchlistResponse>;
 }
 
 export const realResearchWatchlistAdapter: ResearchWatchlistAdapter = {
-  async list() {
-    const res = await http<WatchlistResponse>({ path: "/api/public/research-watchlist" });
+  async list(listDate) {
+    const res = await http<WatchlistResponse>({ path: "/api/public/research-watchlist", query: { date: listDate } });
     return res.data;
   },
 };
