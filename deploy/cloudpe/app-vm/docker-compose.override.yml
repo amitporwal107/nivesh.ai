@@ -1,0 +1,35 @@
+# CloudPe override for deploy/nivesh-staging/docker-compose.staging.yml (app VM, cloudpe1).
+#
+# Always used together with the base file, base FIRST (relative paths resolve from it):
+#   docker compose --env-file /opt/nivesh-staging/.env.staging \
+#     -f deploy/nivesh-staging/docker-compose.staging.yml \
+#     -f deploy/cloudpe/app-vm/docker-compose.override.yml ...
+#
+# Only removes GCP-specific assumptions; the stack itself is unchanged.
+
+services:
+  # The base file caches builds in GCP Artifact Registry. There is no GCP access
+  # from CloudPe, so build without a registry cache.
+  app-backend:
+    build:
+      cache_from: !reset []
+      cache_to: !reset []
+    environment:
+      # NIDP lives on the NIDP VM (cloudpe2). Set these in .env.staging once its
+      # public hostname/TLS is in place; defaults keep the base file's values.
+      NIDP_DAAS_BASE_URL: ${CLOUDPE_NIDP_DAAS_URL:-https://staging-data.niveshcopilot.com/daas}
+      NIDP_QUERY_API_URL: ${CLOUDPE_NIDP_QUERY_URL:-https://staging-data.niveshcopilot.com/query}
+  app-frontend:
+    build:
+      cache_from: !reset []
+      cache_to: !reset []
+  app-frontend-v5:
+    build:
+      cache_from: !reset []
+      cache_to: !reset []
+
+networks:
+  nivesh-staging:
+    driver_opts:
+      # Base pins GCP's VPC MTU (1460). deploy.sh sets CLOUDPE_MTU from the host NIC.
+      com.docker.network.driver.mtu: "${CLOUDPE_MTU:-1500}"

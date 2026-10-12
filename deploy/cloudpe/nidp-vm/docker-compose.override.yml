@@ -1,0 +1,57 @@
+# CloudPe override for backend/nidp/deploy/vm/docker-compose.staging.yml (NIDP VM, cloudpe2).
+#
+# Always used together with the base file, base FIRST:
+#   docker compose --env-file /opt/nidp-staging/nidp.env \
+#     -f backend/nidp/deploy/vm/docker-compose.staging.yml \
+#     -f deploy/cloudpe/nidp-vm/docker-compose.override.yml ...
+#
+# Changes vs the GCP base:
+#   - postgres: loopback only (the base also binds the GCP VPC IP 10.160.0.3, which
+#     does not exist here and makes `up` fail).
+#   - daas-api: DB URL built from nidp.env instead of the base's hardcoded password.
+#   - query-api: added as a container (on GCP it was a hand-made systemd unit that is
+#     not in the repo). Same code, port and root path as on GCP (8091, /query).
+
+x-nidp-db-url: &nidp_db_url postgresql://${NIDP_PG_USER:-nidp_staging}:${NIDP_PG_PASSWORD}@nidp-postgres-staging:5432/${NIDP_PG_DB:-nidp_staging}
+
+services:
+  postgres:
+    ports: !override
+      - "127.0.0.1:5434:5432"
+
+  daas-api:
+    environment:
+      NIDP_POSTGRES_URL: *nidp_db_url
+
+  query-api:
+    image: python:3.11-slim
+    container_name: nidp-query-api-staging
+    restart: unless-stopped
+    working_dir: /app/backend
+    env_file: /opt/nidp-staging/nidp.env
+    environment:
+      PYTHONPATH: /app/backend:/opt/nidp-staging/venv/lib/python3.11/site-packages
+      PYTHONUNBUFFERED: "1"
+      LOG_LEVEL: info
+      NIDP_POSTGRES_URL: *nidp_db_url
+    ports:
+      - "127.0.0.1:8091:8091"
+    volumes:
+      - /opt/nidp/dev-repo/nivesh.ai/backend:/app/backend:ro
+      - /opt/nidp-staging/venv:/opt/nidp-staging/venv:ro
+    command: >
+      python3 -m uvicorn nidp.services.query_api.app:app
+      --host 0.0.0.0
+      --port 8091
+      --proxy-headers
+      --forwarded-allow-ips "*"
+      --root-path /query
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [nidp-staging-default, nidp-staging-bridge]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8091/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5

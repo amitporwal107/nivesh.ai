@@ -1,0 +1,99 @@
+name: Deploy app → CloudPe app VM [staging]
+
+# Deploys the Nivesh app (backend + v2/v5 frontends + Postgres/Mongo/Redis + nginx)
+# to the CloudPe app VM by running deploy/cloudpe/app-vm/deploy.sh over SSH.
+#
+# Off until enabled: set repository variable CLOUDPE_DEPLOY_ENABLED=true.
+# Secrets (Settings → Secrets and variables → Actions):
+#   CLOUDPE_SSH_KEY          private key of a CI-only keypair; its .pub is in the
+#                            deploy user's ~/.ssh/authorized_keys on the VM
+#   CLOUDPE_SSH_USER         deploy
+#   CLOUDPE_APP_HOST         45.64.105.88
+#   CLOUDPE_APP_FINGERPRINT  (optional) SHA256 host-key fingerprint of the VM
+# One-time VM setup: sudo bash deploy/cloudpe/app-vm/deploy.sh --setup
+"on":
+  push:
+    branches: [dev]
+    paths:
+      - 'backend/**'
+      - '!backend/nidp/**'
+      # copilot_agent lives under backend/nidp/ but runs inside the app backend.
+      - 'backend/nidp/services/copilot_agent/**'
+      - 'frontend/**'
+      - 'frontend-v5/**'
+      - 'deploy/nivesh-app/Dockerfile.*'
+      - 'deploy/nivesh-app/mongo-init.js'
+      - 'deploy/nivesh-staging/**'
+      - 'deploy/cloudpe/app-vm/**'
+      - '.github/workflows/deploy-cloudpe-app.yml'
+
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy'
+        type: string
+        default: dev
+      mode:
+        description: 'What to rebuild'
+        type: choice
+        options: [full, backend-only, frontend-only]
+        default: full
+      run_migrations:
+        description: 'Run Postgres migrations after deploy'
+        type: boolean
+        default: false
+
+concurrency:
+  group: cloudpe-app-vm
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy app [CloudPe staging]
+    if: vars.CLOUDPE_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Resolve options
+        id: cfg
+        env:
+          IN_BRANCH: ${{ github.event.inputs.branch }}
+          IN_MODE: ${{ github.event.inputs.mode }}
+          IN_MIGRATE: ${{ github.event.inputs.run_migrations }}
+        run: |
+          set -euo pipefail
+          BRANCH="${IN_BRANCH:-${GITHUB_REF_NAME}}"
+          [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::Invalid branch name"; exit 1; }
+          case "${IN_MODE:-auto}" in
+            full)          ARGS="" ;;
+            backend-only)  ARGS="--backend-only" ;;
+            frontend-only) ARGS="--frontend-only" ;;
+            *)             ARGS="--mode=auto" ;;
+          esac
+          [[ "${IN_MIGRATE:-false}" == "true" ]] && ARGS="$ARGS --migrate"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "args=$ARGS"     >> "$GITHUB_OUTPUT"
+
+      - name: SSH → deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:            ${{ secrets.CLOUDPE_APP_HOST }}
+          username:        ${{ secrets.CLOUDPE_SSH_USER }}
+          key:             ${{ secrets.CLOUDPE_SSH_KEY }}
+          fingerprint:     ${{ secrets.CLOUDPE_APP_FINGERPRINT }}
+          port:            22
+          timeout:         2m
+          command_timeout: 40m
+          script: |
+            set -euo pipefail
+            REPO=/opt/nivesh-staging/repo
+            BR="${{ steps.cfg.outputs.branch }}"
+            echo "=== CloudPe app deploy: $BR @ ${{ github.sha }} ==="
+            # Sync first so the deploy script that runs is the one from this commit.
+            PREV=$(git -C "$REPO" rev-parse HEAD)
+            git -C "$REPO" fetch --quiet origin "$BR"
+            git -C "$REPO" checkout --quiet "$BR"
+            git -C "$REPO" reset --hard --quiet "origin/$BR"
+            bash "$REPO/deploy/cloudpe/app-vm/deploy.sh" --no-sync --branch="$BR" \
+              --since="$PREV" ${{ steps.cfg.outputs.args }}

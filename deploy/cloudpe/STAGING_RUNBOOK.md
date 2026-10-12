@@ -1,5 +1,9 @@
 # CloudPe staging bring-up — runbook for Claude Code on `cloudpe1`
 
+> **Superseded for layout (2026-10-12):** NIDP now runs on **`cloudpe2`**, not `cloudpe1`.
+> Use `deploy/cloudpe/README.md` and the per-VM `deploy.sh` scripts; this runbook remains the
+> checklist of GCP assumptions and verification gates (apply Part B on `cloudpe2`).
+
 **Scope:** move the two GCP **staging** environments onto the single CloudPe VM `cloudpe1`
 (45.64.105.88, Ubuntu 24.04, 4 vCPU / 16 GiB / 100 GiB, user `deploy`), from the `dev` branch:
 

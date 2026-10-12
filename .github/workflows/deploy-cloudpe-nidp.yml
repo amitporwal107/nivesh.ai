@@ -1,0 +1,81 @@
+name: Deploy NIDP → CloudPe NIDP VM [staging]
+
+# Deploys NIDP (TimescaleDB + DaaS API + Query API, feeds on host cron) to the
+# CloudPe NIDP VM by running deploy/cloudpe/nidp-vm/deploy.sh over SSH.
+#
+# Off until enabled: set repository variable CLOUDPE_DEPLOY_ENABLED=true.
+# Secrets (Settings → Secrets and variables → Actions):
+#   CLOUDPE_SSH_KEY           private key of a CI-only keypair; its .pub is in the
+#                             deploy user's ~/.ssh/authorized_keys on the VM
+#   CLOUDPE_SSH_USER          deploy
+#   CLOUDPE_NIDP_HOST         45.64.105.224
+#   CLOUDPE_NIDP_FINGERPRINT  (optional) SHA256 host-key fingerprint of the VM
+# One-time VM setup: sudo bash deploy/cloudpe/nidp-vm/deploy.sh --setup
+"on":
+  push:
+    branches: [dev]
+    paths:
+      - 'backend/nidp/**'
+      # copilot_agent runs in the app backend, not on the NIDP VM.
+      - '!backend/nidp/services/copilot_agent/**'
+      - 'deploy/cloudpe/nidp-vm/**'
+      - '.github/workflows/deploy-cloudpe-nidp.yml'
+
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy'
+        type: string
+        default: dev
+      run_migrations:
+        description: 'Run NIDP DB migrations after deploy'
+        type: boolean
+        default: false
+
+concurrency:
+  group: cloudpe-nidp-vm
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy NIDP [CloudPe staging]
+    if: vars.CLOUDPE_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Resolve options
+        id: cfg
+        env:
+          IN_BRANCH: ${{ github.event.inputs.branch }}
+          IN_MIGRATE: ${{ github.event.inputs.run_migrations }}
+        run: |
+          set -euo pipefail
+          BRANCH="${IN_BRANCH:-${GITHUB_REF_NAME}}"
+          [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::Invalid branch name"; exit 1; }
+          ARGS=""
+          [[ "${IN_MIGRATE:-false}" == "true" ]] && ARGS="--migrate"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "args=$ARGS"     >> "$GITHUB_OUTPUT"
+
+      - name: SSH → deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:            ${{ secrets.CLOUDPE_NIDP_HOST }}
+          username:        ${{ secrets.CLOUDPE_SSH_USER }}
+          key:             ${{ secrets.CLOUDPE_SSH_KEY }}
+          fingerprint:     ${{ secrets.CLOUDPE_NIDP_FINGERPRINT }}
+          port:            22
+          timeout:         2m
+          command_timeout: 25m
+          script: |
+            set -euo pipefail
+            REPO=/opt/nidp/dev-repo/nivesh.ai
+            BR="${{ steps.cfg.outputs.branch }}"
+            echo "=== CloudPe NIDP deploy: $BR @ ${{ github.sha }} ==="
+            # Sync first so the deploy script that runs is the one from this commit.
+            git -C "$REPO" fetch --quiet origin "$BR"
+            git -C "$REPO" checkout --quiet "$BR"
+            git -C "$REPO" reset --hard --quiet "origin/$BR"
+            bash "$REPO/deploy/cloudpe/nidp-vm/deploy.sh" --no-sync --branch="$BR" \
+              ${{ steps.cfg.outputs.args }}
