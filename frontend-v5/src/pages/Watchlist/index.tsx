@@ -89,9 +89,11 @@ function WatchlistRow({ pick }: { pick: WatchlistPick }) {
   const [open, setOpen] = useState(false);
   const peRich = pick.pe_ttm != null && pick.sector_pe_median != null && pick.pe_ttm > pick.sector_pe_median;
   const sincePos = (pick.change_since_published_pct ?? 0) >= 0;
+  // Also in an earlier list: accent edge on the row + a badge naming the most recent one.
+  const carriedFrom = pick.earlier_list_dates?.[0];
 
   return (
-    <div className="border-b border-hairline last:border-b-0">
+    <div className={cn("border-b border-hairline last:border-b-0 border-l-2", carriedFrom ? "border-l-accent" : "border-l-transparent")}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -103,6 +105,15 @@ function WatchlistRow({ pick }: { pick: WatchlistPick }) {
             <span className="font-semibold text-[14.5px]">{pick.symbol}</span>
             <span className="rounded-[3px] bg-surface-2 border-hairline border px-1 py-px text-[9.5px] font-semibold text-ink-3">NSE</span>
             <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", TIER_DOT[pick.tier])} title={TIER_LABEL[pick.tier]} />
+            {carriedFrom && (
+              <span
+                data-testid="carried-over"
+                title={`Also in: ${pick.earlier_list_dates.map(fmtListDate).join(", ")}`}
+                className="rounded-[3px] bg-accent/15 text-accent px-1.5 py-px text-[9.5px] font-semibold"
+              >
+                also in {fmtListDate(carriedFrom)} list
+              </span>
+            )}
           </div>
           <div className="text-[11.5px] text-ink-2 truncate mt-0.5">{pick.company_name}</div>
           <div className="text-[10.5px] text-ink-3 mt-1">
@@ -191,6 +202,7 @@ export default function WatchlistPage() {
   };
 
   const items = data?.items ?? [];
+  const carriedOver = data?.meta.carried_over ?? 0;
   const anyLive = items.some((p) => p.is_live);
   const filtered = useMemo(() => {
     let rows = tier === "all" ? items : items.filter((p) => p.tier === tier);
@@ -295,6 +307,7 @@ export default function WatchlistPage() {
           <>
             <p className="text-[12px] text-ink-3 mb-2">
               {filtered.length} of {items.length} picks shown
+              {carriedOver > 0 ? ` · ${carriedOver} also in an earlier list` : ""}
               {dataUpdatedAt ? ` · updated ${new Date(dataUpdatedAt).toLocaleTimeString("en-IN")}` : ""}
             </p>
             <div className="rounded-lg bg-surface-0 border-hairline border divide-y divide-hairline overflow-hidden">

@@ -5,8 +5,9 @@
  *
  * Lists are dated snapshots. The 41-pick assertions are pinned to the list
  * first published on 2026-10-06 (`?list=`), so they hold whatever the newest
- * list is. Cases: test_reports/research_watchlist_functionality.md (TC-5/6/8)
- * and test_reports/research_watchlist_history_*.md (TC-11..TC-14).
+ * list is. Cases: test_reports/research_watchlist_functionality.md (TC-5/6/8),
+ * test_reports/research_watchlist_history_*.md (TC-11..TC-14) and
+ * test_reports/research_watchlist_list_20261012_carryover.md (carry-over badge).
  */
 import { test, expect } from "@playwright/test";
 
@@ -87,5 +88,30 @@ test.describe("Research Watchlist dated lists", () => {
     await picker.selectOption(meta.list_date);
     await expect(page).not.toHaveURL(/list=/);
     await expect(page.getByText(new RegExp(`${meta.count} of ${meta.count} picks shown`))).toBeVisible({ timeout: 15_000 });
+  });
+
+  // Carry-over — picks that were also in an earlier list are badged, and only those.
+  test("carry-over badge marks exactly the picks from an earlier list", async ({ page, request }) => {
+    const body = await (await request.get(API)).json();
+    const carried: { symbol: string }[] = body.items.filter((p: { earlier_list_dates: string[] }) => p.earlier_list_dates.length > 0);
+    test.skip(body.meta.available_dates.length < 2, "needs two published lists on staging");
+    expect(body.meta.carried_over).toBe(carried.length);
+    await page.goto(UI);
+    await expect(page.getByText(new RegExp(`${body.meta.count} of ${body.meta.count} picks shown`))).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("carried-over")).toHaveCount(carried.length);
+    for (const pick of carried) {
+      const row = page.getByText(pick.symbol, { exact: true }).locator("xpath=ancestor::button[1]");
+      await expect(row.getByTestId("carried-over")).toContainText(/also in .* list/);
+    }
+    if (carried.length > 0) {
+      await expect(page.getByText(new RegExp(`${carried.length} also in an earlier list`))).toBeVisible();
+    }
+  });
+
+  // Carry-over — the first list has nothing before it, so nothing is badged.
+  test("the first list shows no carry-over badge", async ({ page }) => {
+    await page.goto(FIRST_LIST_UI);
+    await expect(page.getByText(/41 of 41 picks shown/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("carried-over")).toHaveCount(0);
   });
 });

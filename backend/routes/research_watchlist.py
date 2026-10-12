@@ -8,7 +8,8 @@ in-app navigation.
 
 Lists are dated snapshots (`services/research_watchlist_store`): the default
 response is the newest list, `?date=YYYY-MM-DD` returns an earlier one, and
-`meta.available_dates` is what the page's list picker shows.
+`meta.available_dates` is what the page's list picker shows. Each item's
+`earlier_list_dates` names the earlier lists that stock was also in.
 """
 from __future__ import annotations
 
@@ -73,9 +74,14 @@ async def get_research_watchlist(
     # leave the other lists' stocks without a quote until the TTL lapsed.
     quotes = await live.get_live_quotes(await store.all_symbols()) if picks else {}
     items = [_overlay_live_quote(p, quotes.get(p["symbol"])) for p in picks]
+    # Mark the picks that were already in an earlier list (the page badges them).
+    earlier = await store.earlier_list_dates(selected) if picks else {}
+    for item in items:
+        item["earlier_list_dates"] = earlier.get(item["symbol"], [])
     return {
         "meta": {
             "count": len(items),
+            "carried_over": sum(1 for item in items if item["earlier_list_dates"]),
             "list_date": selected,
             "available_dates": available,
             "disclaimer": DISCLAIMER,

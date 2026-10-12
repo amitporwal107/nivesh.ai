@@ -22,6 +22,9 @@ def _matches(doc: Dict[str, Any], query: Dict[str, Any]) -> bool:
         if isinstance(cond, dict) and "$exists" in cond:
             if (key in doc) != cond["$exists"]:
                 return False
+        elif isinstance(cond, dict) and "$lt" in cond:
+            if key not in doc or not doc[key] < cond["$lt"]:
+                return False
         elif doc.get(key) != cond:
             return False
     return True
@@ -188,3 +191,36 @@ def test_route_empty_collection(col, quotes):
     out = run(route.get_research_watchlist(list_date=None))
     assert out["items"] == [] and out["meta"]["list_date"] is None and out["meta"]["available_dates"] == []
     assert quotes == []
+
+
+async def _seed_three_lists():
+    await _seed_two_lists()
+    await store.seed_pick(_research("AAA", 1, "third"), list_date="2026-10-20", published_price=130.0, published_date="2026-10-20")
+    await store.seed_pick(_research("CCC", 2, "third"), list_date="2026-10-20", published_price=11.0, published_date="2026-10-20")
+    await store.seed_pick(_research("DDD", 3, "third only"), list_date="2026-10-20", published_price=5.0, published_date="2026-10-20")
+
+
+# Carry-over TC-1 — only strictly earlier lists count, newest first.
+def test_earlier_list_dates(col):
+    run(_seed_three_lists())
+    assert run(store.earlier_list_dates("2026-10-20")) == {"AAA": ["2026-10-12", "2026-10-06"], "BBB": ["2026-10-06"], "CCC": ["2026-10-12"]}
+    assert run(store.earlier_list_dates("2026-10-12")) == {"AAA": ["2026-10-06"], "BBB": ["2026-10-06"]}
+    assert run(store.earlier_list_dates("2026-10-06")) == {}
+
+
+# Carry-over TC-2 / TC-3 — items are marked, the count is in meta, the oldest list marks nothing.
+def test_route_marks_carried_over_picks(col, quotes):
+    from datetime import date
+
+    run(_seed_three_lists())
+    newest = run(route.get_research_watchlist(list_date=None))
+    assert {p["symbol"]: p["earlier_list_dates"] for p in newest["items"]} == {
+        "AAA": ["2026-10-12", "2026-10-06"], "CCC": ["2026-10-12"], "DDD": []}
+    assert newest["meta"]["carried_over"] == 2
+
+    middle = run(route.get_research_watchlist(list_date=date(2026, 10, 12)))
+    assert {p["symbol"]: p["earlier_list_dates"] for p in middle["items"]} == {"CCC": [], "AAA": ["2026-10-06"]}
+    assert middle["meta"]["carried_over"] == 1
+
+    oldest = run(route.get_research_watchlist(list_date=date(2026, 10, 6)))
+    assert all(p["earlier_list_dates"] == [] for p in oldest["items"]) and oldest["meta"]["carried_over"] == 0

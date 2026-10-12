@@ -73,6 +73,16 @@ async def list_picks(list_date: str) -> List[Dict[str, Any]]:
     return [doc async for doc in cursor]
 
 
+async def earlier_list_dates(list_date: str) -> Dict[str, List[str]]:
+    """Which strictly earlier lists each symbol appeared in, newest first:
+    {symbol: [list_date, ...]}. A symbol absent from the result is new to
+    `list_date`. ISO dates compare correctly as strings."""
+    seen: Dict[str, List[str]] = {}
+    async for doc in db[COL].find({"list_date": {"$lt": list_date}}, {"_id": 0, "symbol": 1, "list_date": 1}):
+        seen.setdefault(doc["symbol"], []).append(doc["list_date"])
+    return {sym: sorted(dates, reverse=True) for sym, dates in seen.items()}
+
+
 async def get_pick(list_date: str, symbol: str) -> Optional[Dict[str, Any]]:
     return await db[COL].find_one({"list_date": list_date, "symbol": symbol}, {"_id": 0})
 
