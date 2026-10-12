@@ -95,6 +95,7 @@ from routes.research_chart import router as research_chart_router        # Resea
 from routes.research_chart_live import router as research_chart_live_router  # Research → Charts LIVE bars (/api/research/chart-live/*)
 from routes.research_drawings import router as research_drawings_router  # Research → Charts drawings (/api/research/drawings, allowlist flag)
 from routes.research_chart_layouts import router as research_chart_layouts_router  # Research → Charts saved layouts (/api/research/chart-layouts, allowlist flag)
+from routes.research_providers import router as research_providers_router  # Research → data providers: Kite + Trendlyne MCP (/api/research/providers/*, allowlist flag)
 from routes.portfolio_exposure import router as portfolio_exposure_router  # Diversification & Concentration analytics — AMC / Sector / Company exposure
 from routes.portfolio_risk_analytics import router as portfolio_risk_analytics_router  # V3 risk analytics — beta/sharpe/volatility from DAAS
 from routes.portfolio_composition import router as portfolio_composition_router  # v5 Composition Explorer — asset_class/sector/fund/group breakdown
@@ -217,6 +218,7 @@ app.include_router(research_chart_router)         # Research → Charts (/api/re
 app.include_router(research_chart_live_router)    # Research → Charts LIVE bars (/api/research/chart-live/*, allowlist flag)
 app.include_router(research_drawings_router)      # Research → Charts drawings (/api/research/drawings, allowlist flag)
 app.include_router(research_chart_layouts_router)  # Research → Charts saved layouts (/api/research/chart-layouts, allowlist flag)
+app.include_router(research_providers_router)      # Research → data providers (/api/research/providers/*, allowlist flag)
 app.include_router(portfolio_exposure_router)      # Diversification & Concentration analytics (/api/portfolio/exposure/concentration)
 app.include_router(portfolio_risk_analytics_router) # V3 risk analytics (/api/portfolio/risk-analytics) — beta/sharpe/vol from DAAS
 app.include_router(portfolio_composition_router)   # v5 Composition Explorer (/api/portfolio/composition)
