@@ -59,118 +59,118 @@ def _index_tile(name: str, close: Optional[float], change_pct: Optional[float],
     }
 
 
-async def _top_movers(pool) -> Dict[str, Any]:
-    """Top 4 gainers / losers from the Nifty-500 momentum matview (latest EOD)."""
-    try:
-        async with pool.acquire() as conn:
-            as_of = await conn.fetchval("SELECT max(as_of_date) FROM analytics.mv_top_momentum")
-            gainers = await conn.fetch(
-                """
-                SELECT symbol, company_name, close, pct_change
-                FROM analytics.mv_top_momentum
-                WHERE pct_change IS NOT NULL
-                ORDER BY pct_change DESC
-                LIMIT 4
-                """
-            )
-            losers = await conn.fetch(
-                """
-                SELECT symbol, company_name, close, pct_change
-                FROM analytics.mv_top_momentum
-                WHERE pct_change IS NOT NULL
-                ORDER BY pct_change ASC
-                LIMIT 4
-                """
-            )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("markets.home top_movers failed: %s", e)
-        return {"as_of": None, "gainers": [], "losers": []}
+# The three home-page helpers below read NIDP data through the NIDP (DaaS)
+# API, like the rest of this module. They used to run SQL against nidp.* /
+# analytics.* on the app's own pool, which only works when both databases are
+# the same server; with the app and NIDP on separate hosts those relations do
+# not exist here and the panels came back empty.
 
-    def _row(r) -> Dict[str, Any]:
+_MOVER_CAPS = ("large", "mid", "small")
+
+
+async def _top_movers(limit: int = 4) -> Dict[str, Any]:
+    """Top gainers / losers across the Nifty-500 (latest EOD).
+
+    DaaS serves movers per market-cap segment, so the three segments are
+    merged and re-ranked here.
+    """
+    from services.copilot_tools import daas_client
+    empty: Dict[str, Any] = {"as_of": None, "gainers": [], "losers": []}
+    if not daas_client.is_configured():
+        return empty
+    as_of: Optional[str] = None
+    gainers: Dict[str, Dict[str, Any]] = {}
+    losers: Dict[str, Dict[str, Any]] = {}
+    for cap in _MOVER_CAPS:
+        try:
+            data = await daas_client.get_market_pulse_movers(cap=cap)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("markets.home top_movers(%s) via DaaS failed: %s", cap, e)
+            continue
+        if not data:
+            continue
+        as_of = as_of or data.get("as_of")
+        for bucket, rows in ((gainers, data.get("gainers")), (losers, data.get("losers"))):
+            for r in rows or []:
+                if r.get("symbol") and r.get("change_pct") is not None:
+                    bucket.setdefault(r["symbol"], r)
+
+    def _row(r: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "symbol":     r["symbol"],
-            "name":       r["company_name"] or r["symbol"],
-            "price":      round(float(r["close"]), 2) if r["close"] is not None else None,
-            "change_pct": round(float(r["pct_change"]), 2) if r["pct_change"] is not None else None,
+            "name":       r.get("name") or r["symbol"],
+            "price":      round(float(r["price"]), 2) if r.get("price") is not None else None,
+            "change_pct": round(float(r["change_pct"]), 2),
         }
 
-    return {
-        "as_of":   as_of.isoformat() if as_of else None,
-        "gainers": [_row(r) for r in gainers],
-        "losers":  [_row(r) for r in losers],
-    }
+    top = sorted(gainers.values(), key=lambda r: r["change_pct"], reverse=True)[:limit]
+    bottom = sorted(losers.values(), key=lambda r: r["change_pct"])[:limit]
+    return {"as_of": as_of, "gainers": [_row(r) for r in top], "losers": [_row(r) for r in bottom]}
 
 
-async def _fii_dii(pool) -> Optional[Dict[str, Any]]:
-    """Latest day's FII & DII net cash (EQUITY_CASH segment), in ₹ crore."""
+async def _fii_dii() -> Optional[Dict[str, Any]]:
+    """Latest day's FII & DII net cash (equity cash segment), in ₹ crore."""
+    from services.copilot_tools import daas_client
+    if not daas_client.is_configured():
+        return None
     try:
-        async with pool.acquire() as conn:
-            as_of = await conn.fetchval(
-                "SELECT max(as_of_date) FROM nidp.fii_dii_flows WHERE segment = 'EQUITY_CASH'"
-            )
-            if as_of is None:
-                return None
-            rows = await conn.fetch(
-                """
-                SELECT category, net_value_cr
-                FROM nidp.fii_dii_flows
-                WHERE segment = 'EQUITY_CASH' AND as_of_date = $1
-                  AND category IN ('FII', 'DII')
-                """,
-                as_of,
-            )
+        data = await daas_client.get_market_pulse_fii_dii(days=7)
     except Exception as e:  # noqa: BLE001
-        logger.warning("markets.home fii_dii failed: %s", e)
+        logger.warning("markets.home fii_dii via DaaS failed: %s", e)
         return None
-
-    net = {r["category"]: float(r["net_value_cr"]) if r["net_value_cr"] is not None else None for r in rows}
-    if "FII" not in net and "DII" not in net:
+    daily = (data or {}).get("daily") or []
+    if not daily:
+        return None
+    latest = daily[0]                      # DaaS returns the series newest-first
+    fii, dii = latest.get("fii_net"), latest.get("dii_net")
+    if fii is None and dii is None:
         return None
     return {
-        "as_of":      as_of.isoformat(),
-        "fii_net_cr": round(net["FII"], 2) if net.get("FII") is not None else None,
-        "dii_net_cr": round(net["DII"], 2) if net.get("DII") is not None else None,
+        "as_of":      latest.get("date"),
+        "fii_net_cr": round(float(fii), 2) if fii is not None else None,
+        "dii_net_cr": round(float(dii), 2) if dii is not None else None,
     }
 
 
-async def _news(pool, limit: int = 5) -> List[Dict[str, Any]]:
+async def _news(limit: int = 5) -> List[Dict[str, Any]]:
     """Recent material corporate announcements → headline list.
 
     Sourced from the classified NSE/BSE announcement feed; we keep only
     high/medium-impact items and drop the routine 'regulatory'/'other'
     noise so the section reads like market news, not a compliance log.
     """
-    since = date.today() - timedelta(days=3)   # asyncpg $1::date needs a date obj, not a str
+    from services.copilot_tools import daas_client
+    if not daas_client.is_configured():
+        return []
     try:
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT company_name, ticker_symbol, subject, event_category,
-                       sentiment, impact_score, filed_at
-                FROM nidp.corporate_announcements
-                WHERE filed_at >= $1::date
-                  AND impact_score IN ('high', 'medium')
-                  AND coalesce(event_category, 'other') NOT IN ('regulatory', 'other')
-                ORDER BY (impact_score = 'high') DESC, filed_at DESC
-                LIMIT $2
-                """,
-                since, limit,
-            )
+        # sort=material puts classified, higher-impact filings first; the
+        # high/medium filter is applied here because the endpoint takes a
+        # single impact value.
+        data = await daas_client.get_market_pulse_articles(days=3, sort="material", limit=60)
     except Exception as e:  # noqa: BLE001
-        logger.warning("markets.home news failed: %s", e)
+        logger.warning("markets.home news via DaaS failed: %s", e)
         return []
 
+    picked = [
+        a for a in ((data or {}).get("articles") or [])
+        if (a.get("impact") or "").lower() in ("high", "medium")
+        and (a.get("category") or "other").lower() not in ("regulatory", "other")
+    ]
+    # high before medium; the sort is stable, so the endpoint's own order
+    # (most material first) is kept within each level
+    picked.sort(key=lambda a: (a.get("impact") or "").lower() != "high")
+
     out: List[Dict[str, Any]] = []
-    for r in rows:
-        company = r["company_name"] or r["ticker_symbol"] or ""
-        subject = (r["subject"] or "").strip()
+    for a in picked[:limit]:
+        company = a.get("company") or a.get("symbol") or ""
+        subject = (a.get("title") or "").strip()
         title = f"{company} — {subject}".strip(" —") if company else subject
         out.append({
             "title":     title or "Corporate announcement",
-            "category":  (r["event_category"] or "markets").replace("_", " ").title(),
-            "when":      r["filed_at"].isoformat() if r["filed_at"] else None,
-            "symbol":    r["ticker_symbol"],
-            "sentiment": r["sentiment"],
+            "category":  (a.get("category") or "markets").replace("_", " ").title(),
+            "when":      a.get("when"),
+            "symbol":    a.get("symbol"),
+            "sentiment": a.get("sentiment"),
         })
     return out
 
@@ -328,7 +328,7 @@ async def markets_home(request: Request):
         ]
 
     # ── Movers: prefer NIDP Nifty-500; else live Nifty-50 ───────────────
-    movers = await _top_movers(pool)
+    movers = await _top_movers()
     if not movers["gainers"] and not movers["losers"]:
         def _live_row(m: Dict[str, Any]) -> Dict[str, Any]:
             return {
@@ -346,8 +346,8 @@ async def markets_home(request: Request):
                 "losers":  live_losers,
             }
 
-    fii_dii = await _fii_dii(pool)
-    news = await _news(pool)
+    fii_dii = await _fii_dii()
+    news = await _news()
 
     is_live = bool(dash.get("is_live") or live.get("is_live"))
     result = {
@@ -987,9 +987,9 @@ async def _build_daily_brief(pool) -> Dict[str, Any]:
                for s in (dash.get("sector_heatmap") or []) if s.get("ret_5d_pct") is not None]
     sectors_sorted = sorted(sectors, key=lambda s: s["change_pct"], reverse=True)
 
-    fii_dii = await _fii_dii(pool)
-    movers = await _top_movers(pool)
-    news = await _news(pool, limit=4)
+    fii_dii = await _fii_dii()
+    movers = await _top_movers()
+    news = await _news(limit=4)
     state = "open" if nse_live._is_market_open_ist() else "closed"
 
     headline, bullets = _brief_narrative(
