@@ -41,6 +41,24 @@ def get_anthropic_api_key() -> str:
     return os.environ.get("ANTHROPIC_API_KEY", "").strip()
 
 
+# ── Claude Code gateway ───────────────────────────────────
+# Claude without an Anthropic API key: an OpenAI-compatible endpoint on the app VM
+# that runs the Claude Code CLI installed there (deploy/cloudpe/app/claude-gateway).
+# It speaks the OpenAI wire format, so ChatOpenAI is reused with its base_url — the
+# same way Groq is. The gateway replaces Claude Code's own system prompt with the
+# one sent here and runs with every tool switched off, so the model sees exactly
+# the prompts the copilot sends and nothing else.
+_CLAUDE_CODE_DEFAULT_MODEL = "claude-sonnet-5-5"
+
+
+def claude_code_api_url() -> str:
+    return os.environ.get("CLAUDE_CODE_API_URL", "").strip().rstrip("/")
+
+
+def claude_code_api_token() -> str:
+    return os.environ.get("CLAUDE_CODE_API_TOKEN", "").strip()
+
+
 # ── Provider + model ─────────────────────────────────────────────────────────
 # Two OpenAI-wire-compatible providers are wired, selected via env (no code change):
 #   • openai (default) — the OpenAI account; key resolved via nidp.shared.openai_key.
@@ -80,16 +98,22 @@ def get_groq_api_key() -> str:
 
 
 def llm_provider() -> str:
-    """'anthropic', 'groq' or 'openai'. An explicit COPILOT_LLM_PROVIDER wins;
-    otherwise Claude is used whenever an ANTHROPIC_API_KEY is resolvable, then Groq
-    whenever a GROQ_API_KEY is (GSM / admin / env), else OpenAI."""
+    """'anthropic', 'claude_code', 'groq' or 'openai'. An explicit
+    COPILOT_LLM_PROVIDER wins; otherwise Claude is used whenever an
+    ANTHROPIC_API_KEY is resolvable, then the Claude Code gateway when its URL and
+    token are set, then Groq whenever a GROQ_API_KEY is (GSM / admin / env), else
+    OpenAI."""
     p = os.environ.get("COPILOT_LLM_PROVIDER", "").strip().lower()
     if p == "claude":
         p = "anthropic"
-    if p in ("anthropic", "groq", "openai"):
+    if p in ("claude-code", "claudecode"):
+        p = "claude_code"
+    if p in ("anthropic", "claude_code", "groq", "openai"):
         return p
     if get_anthropic_api_key():
         return "anthropic"
+    if claude_code_api_url() and claude_code_api_token():
+        return "claude_code"
     return "groq" if get_groq_api_key() else "openai"
 
 
@@ -104,6 +128,8 @@ def resolve_model() -> str:
     if provider == "anthropic":
         # Same rule as Groq: COPILOT_LLM_MODEL holds an OpenAI id, so it is ignored here.
         return os.environ.get("COPILOT_ANTHROPIC_MODEL", "").strip() or _ANTHROPIC_DEFAULT_MODEL
+    if provider == "claude_code":
+        return os.environ.get("CLAUDE_CODE_MODEL", "").strip() or _CLAUDE_CODE_DEFAULT_MODEL
     if provider == "groq":
         return os.environ.get("GROQ_MODEL", "").strip() or _GROQ_DEFAULT_MODEL
     return os.environ.get("COPILOT_LLM_MODEL", "").strip() or _OPENAI_DEFAULT_MODEL
@@ -132,8 +158,9 @@ def get_openai_api_key() -> str:
 
 def make_chat_llm(temperature: float, **kwargs):
     """The single chat-model constructor every copilot node uses, so the provider
-    (Claude / Groq / OpenAI) is decided in exactly ONE place. Groq reuses ChatOpenAI
-    against Groq's OpenAI-compatible base_url.
+    (Claude / Claude Code gateway / Groq / OpenAI) is decided in exactly ONE place.
+    Groq and the Claude Code gateway reuse ChatOpenAI against their
+    OpenAI-compatible base_url.
 
     On Claude the `temperature` argument is not sent: current Claude models reject
     non-default sampling parameters with a 400. Read replies with `text_of()` —
@@ -149,6 +176,15 @@ def make_chat_llm(temperature: float, **kwargs):
             **kwargs,
         )
     from langchain_openai import ChatOpenAI
+    if provider == "claude_code":
+        # No temperature: the Claude Code CLI has no sampling controls, and current
+        # Claude models reject non-default values anyway.
+        return ChatOpenAI(
+            model=resolve_model(),
+            api_key=claude_code_api_token(),
+            base_url=claude_code_api_url(),
+            **kwargs,
+        )
     if provider == "groq":
         return ChatOpenAI(
             model=resolve_model(),

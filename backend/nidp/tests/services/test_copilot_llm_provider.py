@@ -6,7 +6,8 @@ import pytest
 from nidp.services.copilot_agent import _llm
 
 KEYS = ("COPILOT_LLM_PROVIDER", "COPILOT_ANTHROPIC_MODEL", "COPILOT_LLM_MODEL", "GROQ_MODEL",
-        "ANTHROPIC_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY")
+        "ANTHROPIC_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY",
+        "CLAUDE_CODE_API_URL", "CLAUDE_CODE_API_TOKEN", "CLAUDE_CODE_MODEL")
 
 
 @pytest.fixture(autouse=True)
@@ -92,3 +93,53 @@ def test_intent_routing_json_survives_a_code_fence(monkeypatch):
     monkeypatch.setattr(intent, "make_chat_llm", lambda *_a, **_k: _LLM())
     out = asyncio.run(intent._llm_classify("which funds overlap?"))
     assert getattr(out.agent, "value", out.agent) == "mf_analyst"
+
+
+# ── Claude Code gateway (Claude without an API key) ──────────────────────────
+
+def _gateway_env(monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_API_URL", "http://host.docker.internal:8790/v1/")
+    monkeypatch.setenv("CLAUDE_CODE_API_TOKEN", "gw-test-token")
+
+
+def test_the_gateway_is_used_when_configured_and_no_anthropic_key_exists(monkeypatch):
+    _gateway_env(monkeypatch)
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")            # the gateway wins over Groq
+    monkeypatch.setenv("COPILOT_LLM_MODEL", "gpt-5.5")        # an OpenAI id must not reach it
+    assert _llm.llm_provider() == "claude_code"
+    assert _llm.resolve_model() == "claude-sonnet-5-5"
+    monkeypatch.setenv("CLAUDE_CODE_MODEL", "claude-opus-5-5")
+    assert _llm.resolve_model() == "claude-opus-5-5"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")    # a real key still comes first
+    assert _llm.llm_provider() == "anthropic"
+
+
+def test_a_gateway_url_without_a_token_does_not_select_it(monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_API_URL", "http://host.docker.internal:8790/v1")
+    assert _llm.llm_provider() == "openai"
+
+
+@pytest.mark.parametrize("value", ["claude_code", "claude-code", "ClaudeCode"])
+def test_the_gateway_can_be_selected_explicitly(monkeypatch, value):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("COPILOT_LLM_PROVIDER", value)
+    assert _llm.llm_provider() == "claude_code"
+
+
+def test_gateway_chat_model_is_a_chatopenai_pointed_at_the_gateway(monkeypatch):
+    _gateway_env(monkeypatch)
+    llm = _llm.make_chat_llm(temperature=0.3)
+    assert type(llm).__name__ == "ChatOpenAI"
+    assert llm.model_name == "claude-sonnet-5-5"
+    assert str(llm.openai_api_base) == "http://host.docker.internal:8790/v1"
+    assert llm.openai_api_key.get_secret_value() == "gw-test-token"
+    assert llm.temperature is None                            # the CLI has no sampling controls
+
+
+def test_advisor_chat_text_calls_follow_the_gateway(monkeypatch):
+    _gateway_env(monkeypatch)
+    from services.ai_engine import AIEngine
+    client, model = AIEngine(api_key="sk-unit-test")._text_client_and_model()
+    assert str(client.base_url).rstrip("/") == "http://host.docker.internal:8790/v1"
+    assert client.api_key == "gw-test-token"
+    assert model == "claude-sonnet-5-5"

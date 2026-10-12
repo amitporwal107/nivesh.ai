@@ -267,7 +267,8 @@ class AIEngine:
 
     def _text_client_and_model(self):
         """(client, model) for TEXT calls — chat / insight / analysis — resolved at
-        CALL time: Groq's free OpenAI-compatible endpoint when a GROQ_API_KEY resolves
+        CALL time: the Claude Code gateway when that is the copilot's provider, Groq's
+        free OpenAI-compatible endpoint when a GROQ_API_KEY resolves
         (the SAME selector the NIDP copilot uses, so both surfaces agree on provider),
         otherwise the OpenAI client + gpt-4o-mini. Per-call so a key that appears after
         startup is picked up without a restart, and any resolver hiccup falls back to
@@ -275,6 +276,11 @@ class AIEngine:
         Groq has no vision model."""
         try:
             from nidp.services.copilot_agent import _llm
+            if _llm.llm_provider() == "claude_code":
+                return (
+                    AsyncOpenAI(api_key=_llm.claude_code_api_token(), base_url=_llm.claude_code_api_url()),
+                    _llm.resolve_model(),
+                )
             if _llm.llm_provider() == "groq":
                 return (
                     AsyncOpenAI(api_key=_llm.get_groq_api_key(), base_url=_llm._GROQ_BASE_URL),

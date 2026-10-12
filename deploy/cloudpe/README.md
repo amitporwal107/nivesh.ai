@@ -166,3 +166,31 @@ Other workflows that used the GCP NIDP VM for staging (`deploy-android-staging.y
 - No scheduled backups (staging had none on GCP either).
 - Backend paths that need GCP credentials are inert here: the `gcloud compute ssh` bridge,
   the GCS export job, the Cloud Logging client-log sink.
+
+## Claude Code gateway (chat model without an API key)
+
+The Copilot chat and the advisor chat reach Claude through a small service on the app VM,
+`app/claude-gateway/`. It exposes the OpenAI chat format (`POST /v1/chat/completions`, bearer
+token, streaming supported) and answers each request with one `claude -p` run under the `deploy`
+user's Claude Code login, the same isolated call the corporate-event research pipeline makes: the
+caller's system prompt replaces Claude Code's own, and tools, MCP servers, settings and session
+storage are all off.
+
+```
+sudo bash deploy/cloudpe/app/claude-gateway/install.sh    # install or update; idempotent
+systemctl status claude-gateway
+journalctl -u claude-gateway -f                            # sizes and timings only, never text
+```
+
+- Listens on the docker0 address (`172.17.0.1:8790`), reachable from containers as
+  `host.docker.internal`, not from the internet.
+- Settings: `/etc/claude-gateway.env` (token, model, port). The installer writes
+  `CLAUDE_CODE_API_URL`, `CLAUDE_CODE_API_TOKEN` and `COPILOT_LLM_PROVIDER=claude_code` into the
+  backend env file; an `ANTHROPIC_API_KEY` or a different `COPILOT_LLM_PROVIDER` switches back.
+- Default model `claude-sonnet-5-5` (`CLAUDE_GATEWAY_MODEL`, or `CLAUDE_CODE_MODEL` on the backend).
+- Calls count against that Claude Code account's usage. Up to 4 run at once; more wait up to 30 s
+  and then get a 429. Text only: no images, tool calling or embeddings, so CAS vision parsing and
+  embeddings still use the OpenAI key.
+- If the Claude Code login on the VM expires, requests fail with 502 until someone runs
+  `claude` as `deploy` and logs in again.
+

@@ -24,6 +24,10 @@ services:
     networks: !override
       nivesh-staging:
         aliases: [backend]
+    # The Claude Code gateway runs on the host (deploy/cloudpe/app/claude-gateway),
+    # bound to docker0. This name is how the backend reaches it.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   app-frontend-v5:
     build:
