@@ -85,6 +85,21 @@ CREATE TABLE IF NOT EXISTS nidp.nse_financials_quarterly (
     UNIQUE (symbol, period_end, consolidated)
 );
 
+-- Migration 024 already creates this table (different shape, composite primary
+-- key), so on a database built from the migrations the CREATE above is a no-op
+-- and the two columns that only this definition has never appear. Later
+-- migrations (107, 108, 143 use `id`; 140, 142, 146 use `ir_url`) and the
+-- writers (nse_financials/writer.py inserts ir_url; event_analyzer reads by id)
+-- need both. Add them when missing; `id` stays a surrogate key alongside 024's
+-- primary key rather than replacing it. The index is not UNIQUE because the
+-- table is a hypertable on period_end, and TimescaleDB only allows unique
+-- indexes that include the partitioning column; the sequence keeps ids distinct.
+ALTER TABLE nidp.nse_financials_quarterly
+    ADD COLUMN IF NOT EXISTS id     BIGSERIAL,
+    ADD COLUMN IF NOT EXISTS ir_url TEXT;
+CREATE INDEX IF NOT EXISTS nse_financials_quarterly_id_idx
+    ON nidp.nse_financials_quarterly (id);
+
 CREATE INDEX IF NOT EXISTS idx_financials_symbol_period
     ON nidp.nse_financials_quarterly(symbol, period_end DESC);
 CREATE INDEX IF NOT EXISTS idx_financials_period_end
